@@ -65,7 +65,7 @@ extension OperatorWorkspaceTests {
     #expect(failedProjection.items.map(\.id) == LearningPathItemID.navigationOrder)
     #expect(
       failedProjection.items.filter { !$0.id.isExercise }.map(\.id)
-        == [.stage(.humanGuidedDiscovery), .stage(.observedDrawingTrials)]
+        == [.stage(.humanGuidedDiscovery), .stage(.borderValidations)]
     )
     let controllerStatus = try #require(
       failedProjection.selectedAction.subsystemStatuses.first(where: { $0.id == "controller" })
@@ -582,11 +582,11 @@ extension OperatorWorkspaceTests {
       )
     )
     let camera = try CameraFixture()
-    let announcements = AnnouncementFixture(log: log, outcomes: [.failed("test failure")])
+    let speechAnnouncer = ScriptedSpeechAnnouncer(log: log, outcomes: [.failed("test failure")])
     let workspace = workspace(
       machine: machine,
       camera: camera,
-      announcements: announcements,
+      speechAnnouncer: speechAnnouncer,
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
@@ -695,7 +695,7 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
-    let checkpointBox = LearningPathCheckpointBox(
+    let checkpointBox = ArtifactResetCheckpointStoreFixture(
       checkpoint: try acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity)
     )
     let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
@@ -712,7 +712,7 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.performTestExerciseAction(
-      .useSavedTraining,
+      .applySavedLearning,
       for: workspace.testCurrentLearningPathItemID
     )
     #expect(workspace.penInteractionCompleted)
@@ -767,7 +767,7 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
-    let checkpointBox = LearningPathCheckpointBox()
+    let checkpointBox = ArtifactResetCheckpointStoreFixture()
     let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
       load: { checkpointBox.load() },
       save: { checkpointBox.save($0) },
@@ -850,9 +850,9 @@ extension OperatorWorkspaceTests {
     let savedOwner = relaunched.testCurrentLearningPathItemID
     #expect(
       relaunched.currentExerciseActionStripPresentation?.actions.map(\.kind)
-        == [.useSavedTraining, .startNewLearning]
+        == [.applySavedLearning, .startNewLearning]
     )
-    await relaunched.performTestExerciseAction(.useSavedTraining, for: savedOwner)
+    await relaunched.performTestExerciseAction(.applySavedLearning, for: savedOwner)
     #expect(relaunched.controllerPoseApplicability == .currentSession)
     #expect(relaunched.testAcceptedBoundaryAggregates == first.testAcceptedBoundaryAggregates)
     await relaunched.establishMachineSession(machine.descriptor)

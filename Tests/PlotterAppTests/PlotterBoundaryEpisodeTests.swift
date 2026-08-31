@@ -435,7 +435,7 @@ struct PlotterBoundaryEpisodeTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.performTestExerciseAction(
-      .useSavedTraining,
+      .applySavedLearning,
       for: workspace.testCurrentLearningPathItemID
     )
     #expect(workspace.penInteractionCompleted)
@@ -714,7 +714,7 @@ struct PlotterBoundaryEpisodeTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     let penOwner = workspace.testCurrentLearningPathItemID
-    await workspace.performTestExerciseAction(.useSavedTraining, for: penOwner)
+    await workspace.performTestExerciseAction(.applySavedLearning, for: penOwner)
     #expect(workspace.penInteractionCompleted)
 
     checkpointStore.failNextSave()
@@ -750,7 +750,7 @@ struct PlotterBoundaryEpisodeTests {
     let graphBeforeReset = Set(workspace.learningArtifactGraph.revisions)
     let checkpointBeforeReset = checkpointStore.checkpoint
     let resetPlan = try #require(workspace.resetAllLearningPlan)
-    let didResetPending = await workspace.performResetAllLearning(resetPlan)
+    let didResetPending = await workspace.submitResetAllLearning(resetPlan)
     #expect(!didResetPending)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == penRevision)
     #expect(Set(workspace.learningArtifactGraph.revisions) == graphBeforeReset)
@@ -790,7 +790,7 @@ struct PlotterBoundaryEpisodeTests {
     #expect(await lowerGate.requestCount == 1)
 
     let freshResetPlan = try #require(workspace.resetAllLearningPlan)
-    let didReset = await workspace.performResetAllLearning(freshResetPlan)
+    let didReset = await workspace.submitResetAllLearning(freshResetPlan)
     #expect(didReset)
     #expect(workspace.currentBoundarySnapshot?.acceptedAggregates.isEmpty == true)
     #expect(workspace.currentBoundarySnapshot?.projection.reference.operationID == nil)

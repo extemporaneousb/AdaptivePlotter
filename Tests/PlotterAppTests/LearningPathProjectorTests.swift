@@ -1,4 +1,7 @@
 import Foundation
+import PlotterEpisodeModel
+import PlotterEpisodeRuntime
+import PlotterModel
 import PlotterRuntime
 import PlotterUI
 import Testing
@@ -14,16 +17,16 @@ struct PlotterLearningPresentationCompilerTests {
     let snapshot = PlotterLearningPresentationFacts()
     let first = project(
       snapshot,
-      selectedItemID: .stage(.observedDrawingTrials)
+      selectedItemID: .stage(.borderValidations)
     )
     let second = project(
       snapshot,
-      selectedItemID: .stage(.observedDrawingTrials)
+      selectedItemID: .stage(.borderValidations)
     )
 
     #expect(first == second)
     #expect(first.currentItemID == .humanGuidedDiscovery(.penInteraction))
-    #expect(first.selectedAction.itemID == .stage(.observedDrawingTrials))
+    #expect(first.selectedAction.itemID == .stage(.borderValidations))
     #expect(first.selectedAction.status == .next)
   }
 
@@ -103,7 +106,7 @@ struct PlotterLearningPresentationCompilerTests {
       sparseCalibrationSnapshot,
       selectedItemID: .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     )
-    let drawingOwner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+    let drawingOwner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     let drawing = project(
       postBoundarySnapshot(sparse: .init(acceptedIsCurrent: true)),
       selectedItemID: drawingOwner
@@ -302,21 +305,23 @@ struct PlotterLearningPresentationCompilerTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
-    let phases: [(SparseTipCalibrationPhase, Int, [String])] = [
+    let phases: [(PlotterTipCalibrationPhase, Int, [String])] = [
       (.idle, 0, ["Draw Four Calibration Circles", "Cancel Attempt"]),
-      (.drawingBatch, 0, ["Drawing Four Calibration Circles…", "Cancel Attempt"]),
-      (.revealingBatch, 0, ["Capturing Calibration Reveal…", "Cancel Attempt"]),
-      (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 0, ["Cancel Attempt"]),
-      (.awaitingFrozenClicks(FrameID(rawValue: "frame-1")), 2,
+      (.marking(PlotterTipCalibrationOperationID()), 0,
+        ["Drawing Four Calibration Circles…", "Cancel Attempt"]),
+      (.awaitingCompletedPointSelection(try expectedTipSelection(frameID: "frame-1")), 0,
+        ["Cancel Attempt"]),
+      (.awaitingCompletedPointSelection(try expectedTipSelection(frameID: "frame-1")), 2,
         ["Undo Last Click", "Clear Clicks on This Frame", "Cancel Attempt"]),
-      (.fittingModel, 4, ["Fitting Tip Calibration…", "Cancel Attempt"]),
-      (.reviewingModel(.directAffine), 4,
+      (.fitting(PlotterTipCalibrationOperationID(), PlotterPointSelectionID()), 4,
+        ["Fitting Tip Calibration…", "Cancel Attempt"]),
+      (.reviewingProposal, 4,
         [
           "Accept Pen-Tip Calibration", "Undo Last Click", "Clear Clicks on This Frame",
           "Reject Pen-Tip Calibration",
           "Cancel Attempt",
         ]),
-      (.committingModel(.constantCameraPixelCorrection),
+      (.committing(PlotterTipCalibrationOperationID(), isRetry: true),
         4, ["Retry Pen-Tip Calibration Save", "Cancel Attempt"]),
     ]
 
@@ -341,7 +346,7 @@ struct PlotterLearningPresentationCompilerTests {
     let tipProjection = project(
       postBoundarySnapshot(
         sparse: .init(
-          phase: .awaitingFrozenClicks(FrameID(rawValue: "frame-1")),
+          phase: .awaitingCompletedPointSelection(try expectedTipSelection(frameID: "frame-1")),
           acceptedObservationCount: 4,
           collectedClickCount: 4
         )
@@ -354,7 +359,7 @@ struct PlotterLearningPresentationCompilerTests {
     #expect(tipEvidence.contains("4/4 accepted"))
     #expect(!tipEvidence.contains("/5 accepted"))
 
-    let drawingOwner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+    let drawingOwner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     let drawingProjection = project(
       postBoundarySnapshot(sparse: .init(acceptedIsCurrent: true)),
       selectedItemID: drawingOwner
@@ -367,9 +372,9 @@ struct PlotterLearningPresentationCompilerTests {
   }
 
   @Test("drawing phases remain under one visible validation exercise")
-  func drawingTrialProgression() throws {
-    let current = ObservedDrawingTrialStep.drawDrawingBorder
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+  func borderValidationProgression() throws {
+    let current = BorderValidationStep.drawDrawingBorder
+    let owner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     let snapshot = postBoundarySnapshot(
       sparse: .init(acceptedIsCurrent: true),
       drawing: .init(
@@ -389,15 +394,38 @@ struct PlotterLearningPresentationCompilerTests {
     #expect(currentProjection.selectedAction.status == .current)
   }
 
+  @Test("Drawing Border comparison review exposes only explicit accept and reject")
+  func borderValidationComparisonReviewActions() throws {
+    let owner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
+    let snapshot = postBoundarySnapshot(
+      sparse: .init(acceptedIsCurrent: true),
+      drawing: .init(
+        currentStep: .compareIntendedAndObservedGeometry,
+        phase: .reviewingComparison(PlotterBorderValidationOperationID())
+      ),
+      operations: .init(activeAttemptOwner: owner)
+    )
+
+    let projection = project(snapshot, selectedItemID: owner)
+    let action = projection.selectedAction
+    #expect(action.actionStrip?.actions.map(\.kind) == [
+      .borderValidation(.acceptObservedPrediction),
+      .borderValidation(.reject("Operator rejected the observed Drawing Border comparison.")),
+    ])
+    #expect(action.actionStrip?.mustRemainVisible == true)
+    #expect(action.instructions.accessibilityText.contains("explicitly accept or reject"))
+    #expect(!action.instructions.accessibilityText.contains("without another approval"))
+  }
+
   @Test("foreground trial Vision is visible as the operation owner")
   func foregroundTrialVisionIsVisible() throws {
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+    let owner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     let snapshot = postBoundarySnapshot(
       sparse: .init(acceptedIsCurrent: true),
       drawing: .init(currentStep: .revealAndObserveNewInk),
       operations: .init(
         activeAttemptOwner: owner,
-        exactWorkflowVisionOwner: .observedDrawingTrial
+        exactWorkflowVisionOwner: .borderValidation
       )
     )
 
@@ -421,12 +449,12 @@ struct PlotterLearningPresentationCompilerTests {
 
   @Test("typed exact-workflow Vision owners never impersonate trial ink")
   func typedExactWorkflowVisionOwnersAreTruthful() throws {
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+    let owner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     let expectedStates: [ExactWorkflowVisionOwner: String] = [
       .penCapAppearance: "Pen-cap appearance Vision · active",
       .cameraCalibration: "Camera calibration Vision · active",
       .sparseTipCalibration: "Sparse-tip calibration Vision · active",
-      .observedDrawingTrial: "Trial ink analysis · active",
+      .borderValidation: "Trial ink analysis · active",
       .drawingStudio: "Drawing Studio ink analysis · active",
     ]
 
@@ -450,14 +478,14 @@ struct PlotterLearningPresentationCompilerTests {
       #expect(vision.state == expectedStates[exactOwner])
       #expect(
         vision.state.contains("Trial ink analysis")
-          == (exactOwner == .observedDrawingTrial)
+          == (exactOwner == .borderValidation)
       )
     }
   }
 
   @Test("completed curriculum remains on the Drawing Border validation endpoint")
   func completedCurriculumHasNoFutureRoute() {
-    let final = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+    let final = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     let snapshot = postBoundarySnapshot(
       sparse: .init(acceptedIsCurrent: true),
       drawing: .init(
@@ -531,6 +559,27 @@ struct PlotterLearningPresentationCompilerTests {
       sparseCalibration: sparse,
       drawing: drawing,
       operations: operations
+    )
+  }
+
+  private func expectedTipSelection(
+    frameID: String
+  ) throws -> PlotterTipCalibrationExpectedPointSelection {
+    PlotterTipCalibrationExpectedPointSelection(
+      selectionID: PlotterPointSelectionID(),
+      exactFrame: PlotterExactFrameReference(
+        frameID: frameID,
+        frameSHA256: String(repeating: "a", count: 64),
+        source: .simulated,
+        cameraConfigurationID: CameraConfigurationID(),
+        captureNanoseconds: 1,
+        sequence: 1,
+        width: 640,
+        height: 480,
+        rowBytes: 2_560,
+        pixelFormat: .rgba8
+      ),
+      presentationTransformRevision: PlotterPresentationTransformRevision()
     )
   }
 }

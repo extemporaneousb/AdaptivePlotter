@@ -2,6 +2,7 @@ import Foundation
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
+import PlotterRuntime
 import PlotterUI
 import Testing
 
@@ -96,6 +97,40 @@ struct PlotterEpisodeUIActionabilityTests {
     #expect(strip.actions.map(\.title) == ["Stop Boundary Search"])
     #expect(strip.mustRemainVisible)
     #expect(projection.contextualStop?.capabilityID == stopID)
+  }
+
+  @Test("PlotterUI keeps Drawing Border review accept and reject explicit")
+  func plotterUIBorderReviewIsExplicit() throws {
+    let owner = "2.1-drawing-border"
+    let projection = PlotterUILearningActionabilityCompiler().compile(
+      PlotterUILearningActionabilityFacts(
+        learning: PlotterUILearningFacts(
+          isEnabled: true,
+          activeOwnerID: owner,
+          orderedMilestones: [.init(ownerID: owner, isComplete: false)]
+        ),
+        selectedOwnerID: owner,
+        items: [.init(
+          ownerID: owner,
+          kind: .drawingValidation,
+          stageID: "drawing",
+          isStage: false,
+          isExercise: true,
+          isComplete: false,
+          isRepeatable: false
+        )],
+        activeOwnerID: owner,
+        drawingState: .reviewingComparison
+      )
+    )
+
+    let strip = try #require(projection.strip(ownerID: owner))
+    #expect(strip.actions.map(\.action) == [
+      .acceptBorderValidation,
+      .rejectBorderValidation,
+    ])
+    #expect(strip.actions.allSatisfy { $0.unavailableReason == nil })
+    #expect(strip.mustRemainVisible)
   }
 
   @Test("Learning compiler bounds item visits and diagnostics")
@@ -536,7 +571,7 @@ struct PlotterEpisodeUIActionabilityTests {
     var selection = LearningPathSelectionState(
       current: .humanGuidedDiscovery(.penInteraction)
     )
-    selection.select(.observedDrawingTrial(.chooseDrawingBorderPlan))
+    selection.select(.borderValidation(.chooseDrawingBorderPlan))
     var draft = ManualMotionDraft()
     draft.xDistanceMM = "not submitted"
     let locallyRecompiled = fixture.projection(manualDraft: draft)
@@ -692,16 +727,19 @@ private func makeProductionWorkspace() -> UIWorkspaceFixture {
     machineActions: MachineSessionComposition.actions,
     simulatedAdapter: manualMotionComposition.causalSimulatorEffectAdapter
   )
+  let speechEffectRuntime = PlotterSpeechEffectRuntime(announcer: NativeSpeechAnnouncer())
   let boundaryComposition = PlotterBoundaryComposition.make(
     machineActions: MachineSessionComposition.actions,
     causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
-    checkpointActions: .init(load: { .absent }, save: { _ in }, clear: {})
+    checkpointActions: .init(load: { .absent }, save: { _ in }, clear: {}),
+    speechEffectRuntime: speechEffectRuntime
   )
   let workspace = OperatorWorkspace(
     cameraActions: cameraActions,
     manualMotionComposition: manualMotionComposition,
     penInteractionRuntime: penInteractionRuntime,
     boundaryRuntime: boundaryComposition.runtime,
+    speechEffectRuntime: speechEffectRuntime,
     drawingDraftRuntime: PlotterDrawingDraftRuntime(),
     drawingRunComposition: PlotterDrawingRunComposition.make(
       machineActions: MachineSessionComposition.actions,

@@ -24,12 +24,14 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     let boundaryComposition = PlotterBoundaryComposition.make(
       machineActions: MachineSessionComposition.actions,
       causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
-      checkpointActions: AcceptedArtifactCheckpointComposition.actions
+      checkpointActions: AcceptedArtifactCheckpointComposition.actions,
+      speechEffectRuntime: SpeechComposition.runtime
     )
     let drawingRunComposition = PlotterDrawingRunComposition.make(
       machineActions: MachineSessionComposition.actions,
       cameraActions: CameraComposition.actions
     )
+    let artifactResetComposition = PlotterArtifactResetComposition.make()
     let incidentPackageUIService = PlotterIncidentPackageUIService(
       sourceProvider: PlotterIncidentPackageUIUnavailableSourceProvider()
     )
@@ -42,21 +44,20 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
       manualMotionComposition: manualMotionComposition,
       penInteractionRuntime: penInteractionRuntime,
       boundaryRuntime: boundaryComposition.runtime,
-      announcementActions: SpeechComposition.actions,
+      speechEffectRuntime: SpeechComposition.runtime,
       acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
+      artifactResetRuntime: artifactResetComposition.runtime,
       drawingDraftRuntime: PaperCoverageComposition.drawingDraftRuntime,
       drawingRunComposition: drawingRunComposition,
       incidentPackageUIService: incidentPackageUIService,
       tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityComposition.state,
-      persistPaperInstanceRevision: {
-        TipCalibrationSemanticIdentityComposition.persistPaperInstance($0)
-      },
-      persistPaperContactPlaneRevision: {
-        TipCalibrationSemanticIdentityComposition.persistPaperContactPlane($0)
+      persistPaperRevisionContext: {
+        try TipCalibrationSemanticIdentityComposition.persistPaperRevisionContext($0)
       },
       workflowTelemetryActions: MachineSessionComposition.workflowTelemetryActions
     )
     boundaryComposition.install(on: workspace)
+    artifactResetComposition.install(on: workspace)
     super.init()
   }
 
@@ -209,12 +210,7 @@ struct AdaptivePlotterLaunchPolicy: Equatable, Sendable {
 }
 
 private enum SpeechComposition {
-  private static let announcer = NativeSpeechAnnouncer()
-
-  static let actions = OperatorWorkspace.AnnouncementActions(
-    announce: { text in await announcer.announce(text) },
-    cancelForShutdown: { await announcer.cancelForShutdown() }
-  )
+  static let runtime = PlotterSpeechEffectRuntime(announcer: NativeSpeechAnnouncer())
 }
 
 struct VideoSettingsOperatorActionDisposition: Equatable {

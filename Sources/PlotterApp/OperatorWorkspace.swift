@@ -114,45 +114,6 @@ enum AcceptedArtifactCheckpointStatus: Equatable, Sendable {
   case rejected(String)
 }
 
-private enum SavedLearningPackageState: Sendable {
-  case absent
-  case awaitingOperatorDecision(
-    AcceptedLearningPathCheckpoint,
-    opticalComparison: String
-  )
-  case applied(AcceptedLearningPathCheckpoint, opticalComparison: String)
-  case retainedForLater(AcceptedLearningPathCheckpoint)
-  case rejected(String)
-
-  var checkpoint: AcceptedLearningPathCheckpoint? {
-    switch self {
-    case .awaitingOperatorDecision(let checkpoint, _),
-      .applied(let checkpoint, _),
-      .retainedForLater(let checkpoint):
-      checkpoint
-    case .absent, .rejected:
-      nil
-    }
-  }
-
-  var candidate: (checkpoint: AcceptedLearningPathCheckpoint, opticalComparison: String)? {
-    guard case .awaitingOperatorDecision(let checkpoint, let comparison) = self else {
-      return nil
-    }
-    return (checkpoint, comparison)
-  }
-
-  var appliedCheckpoint: AcceptedLearningPathCheckpoint? {
-    guard case .applied(let checkpoint, _) = self else { return nil }
-    return checkpoint
-  }
-}
-
-private struct SavedTrainingComparisonIdentity: Equatable, Sendable {
-  let checkpointID: UUID
-  let cameraConfigurationID: CameraConfigurationID
-}
-
 enum ControllerPoseApplicability: Equatable, Sendable {
   case currentSession
   case requiresVisualRevalidation(reportedPositionDeltaMM: Double)
@@ -184,7 +145,7 @@ enum ContextualStopTarget: Hashable, Sendable {
     ownerID: LearningPathItemID,
     action: LearningMotionAction
   )
-  case drawingTrial(
+  case borderValidation(
     capabilityID: ContextualStopCapabilityID, operationOwner: ContextualMotionOwnerID)
   case sparseTipBatch(
     capabilityID: ContextualStopCapabilityID,
@@ -199,7 +160,7 @@ enum ContextualStopTarget: Hashable, Sendable {
   var capabilityID: ContextualStopCapabilityID {
     switch self {
     case .exerciseMotion(let capabilityID, _, _, _),
-      .drawingTrial(let capabilityID, _),
+      .borderValidation(let capabilityID, _),
       .sparseTipBatch(let capabilityID, _),
       .sparseTipBatchSegment(let capabilityID, _, _):
       capabilityID
@@ -209,7 +170,7 @@ enum ContextualStopTarget: Hashable, Sendable {
   var operationOwner: ContextualMotionOwnerID? {
     switch self {
     case .exerciseMotion(_, let owner, _, _),
-      .drawingTrial(_, let owner),
+      .borderValidation(_, let owner),
       .sparseTipBatchSegment(_, let owner, _):
       owner
     case .sparseTipBatch:
@@ -359,16 +320,6 @@ private struct StoppableOperationPresentationSignature: Hashable {
   let state: ContextualStopLifecycleState
 }
 
-enum DrawingTrialAssessment: String, Hashable, Sendable {
-  case predictionObserved
-
-  var title: String {
-    switch self {
-    case .predictionObserved: "Observed frame compared with predicted geometry"
-    }
-  }
-}
-
 enum LearningPathOperationError: LocalizedError, Sendable {
   case freshFrameUnavailable
   case controllerRefused(String)
@@ -432,31 +383,8 @@ struct WorkflowFailure: Error, Hashable, Sendable {
 
 }
 
-enum CurrentCameraCalibrationPhase: Codable, Hashable, Sendable {
-  case preparing
-  case capturing(sample: Int, total: Int, role: String?)
-  case moving(sample: Int, total: Int)
-  case returningToReference
-  case fittingAndTestingHoldouts
-
-  var description: String {
-    switch self {
-    case .preparing: "Preparing bounded calibration"
-    case .capturing(let sample, let total, let role):
-      "Capturing exact sample \(sample) of \(total)\(role.map { " at \($0)" } ?? "")"
-    case .moving(let sample, let total): "Moving Pen Up to exact sample \(sample) of \(total)"
-    case .returningToReference: "Returning Pen Up to the recorded calibration reference pose"
-    case .fittingAndTestingHoldouts:
-      "Checking two independent cap positions and building the five-position camera calibration"
-    }
-  }
-}
-
-private struct CurrentCameraCalibrationFailure: Hashable, Sendable {
-  let code: WorkflowTelemetryFailureCode
-  let detail: String
-  let recovery: WorkflowTelemetryRecovery
-}
+typealias CurrentCameraCalibrationPhase = PlotterCameraCalibrationPhase
+private typealias CurrentCameraCalibrationFailure = PlotterCameraCalibrationFailure
 
 private struct CalibrationMachineObservation: Sendable {
   let position: MachinePosition
@@ -743,7 +671,10 @@ final class OperatorWorkspace:
   PlotterPenInteractionProjectionSink,
   PlotterDrawingDraftIntentSink,
   PlotterDrawingRunIntentSink,
-  PlotterPointSelectionContinuationPort
+  PlotterPointSelectionContinuationPort,
+  PlotterBorderValidationEffectPort,
+  PlotterArtifactResetEffectPort,
+  PlotterArtifactResetPersistencePort
 {
   private enum ExerciseAttemptMode: Equatable, Sendable {
     case normal
@@ -781,71 +712,14 @@ final class OperatorWorkspace:
     }
   }
 
-  private struct DrawingTrialState {
-    var step: ObservedDrawingTrialStep = .chooseDrawingBorderPlan
-    var localPreFrameBaseline: DisplayedFrame?
-    var revealPosition: MachinePosition?
-    var tipRegistrationRevisionID: LearningArtifactRevisionID?
-    var observationRegion: PixelRect?
-    var postFrame: DisplayedFrame?
-    var program: DrawingProgram?
-    var drawingBorderPlan: ExecutionPlanRevision?
-    var drawingOutcome: DrawingPlanOutcome?
-    var inkObservation: PlannedDrawingObservation?
-    var inkStatus = "no Drawing Border observation yet"
-    var lastTravelFeedSelection: TravelFeedSelection?
-    var assessment: DrawingTrialAssessment?
-    var comparisonReviewIsPinned = false
-    var comparisonAttemptHistories:
-      [AttemptCompatibility: ExerciseAttemptHistory<DrawingTrialAssessment>] = [:]
-    var group: AttemptGroupIdentity
-
-    init(source: OperatorFrameMode) {
-      group = Self.newGroup(for: source)
-    }
-
-    static func newGroup(for source: OperatorFrameMode) -> AttemptGroupIdentity {
-      AttemptGroupIdentity(
-        rawValue: source == .simulated
-          ? "simulated-\(UUID().uuidString.lowercased())"
-          : UUID().uuidString.lowercased()
-      )
-    }
-
-    mutating func rewind(from rewindStep: ObservedDrawingTrialStep, source: OperatorFrameMode) {
-      if rewindStep == .chooseDrawingBorderPlan {
-        program = nil
-        drawingBorderPlan = nil
-        group = Self.newGroup(for: source)
-      }
-
-      if rewindStep.rawValue <= ObservedDrawingTrialStep.captureLocalPreFrameBaseline.rawValue {
-        localPreFrameBaseline = nil
-      }
-      if rewindStep.rawValue <= ObservedDrawingTrialStep.drawDrawingBorder.rawValue {
-        drawingOutcome = nil
-      }
-      if rewindStep.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue {
-        postFrame = nil
-        inkObservation = nil
-        inkStatus = "no Drawing Border observation yet"
-        comparisonReviewIsPinned = false
-      }
-      assessment = nil
-      comparisonAttemptHistories = [:]
-      lastTravelFeedSelection = nil
-      step = rewindStep
-    }
-  }
-
   private enum DrawingStrokeExecutionState: Hashable, Sendable {
     case notAdmitted
     case completedNaturally
     case possibleInk
   }
 
-  private struct ActiveExplorationOperation: Hashable, Sendable {
-    let step: ObservedDrawingTrialStep
+  private struct ActiveBorderValidationOperation: Hashable, Sendable {
+    let step: BorderValidationStep
     var strokeState: DrawingStrokeExecutionState
   }
 
@@ -855,32 +729,18 @@ final class OperatorWorkspace:
     var selectedDiscoverySequenceID: DiscoverySequenceID = .penInteraction
     var discoveryTransactions: [DiscoverySequenceID: DiscoveryTransaction] = [:]
     var discoveryError: String?
-    var cameraCalibrationAnchorFrame: DisplayedFrame?
-    var cameraCalibrationReferencePosition: MachinePosition?
-    var cameraCalibrationReferenceCapAnchor: ToolCapAnchorEstimate?
-    var proposedMachineCameraRegistration: MachineCameraRegistration?
-    var machineCameraRegistration: MachineCameraRegistration?
-    var tipCameraRegistration: TipCameraRegistration?
-    var proposedTipCameraRegistration: TipCameraRegistration?
-    var sparseTipCalibrationCoordinator = SparseTipCalibrationCoordinator()
-    var blacklistedToolContactLocations: Set<BlacklistedToolContactLocation> = []
-    var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] = []
-    var currentCameraCalibrationPhase: CurrentCameraCalibrationPhase?
-    var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure?
     var lastContextualStopAuditRecord: ContextualStopAuditRecord?
     var lastProtocolPoseSettlement: ProtocolPoseSettlement?
     var explorationError: String?
-    var drawingTrial: DrawingTrialState
+    var borderValidation: PlotterBorderValidationSnapshot
     var learningArtifactGraph = LearningDependencyGraph()
     var exerciseAttempt: ExerciseAttemptLifecycle = .idle
     var restartableExerciseItemID: LearningPathItemID?
     var acceptedArtifactCheckpointStatus: AcceptedArtifactCheckpointStatus = .unavailable
     var drawingReadinessAssessment: DrawingReadinessAssessment?
     var activeMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint?
-    var savedLearningPackageState: SavedLearningPackageState = .absent
     var activeMachineCameraCheckpoint: AcceptedMachineCameraCheckpoint?
     var activeStageFourCheckpoint: AcceptedStageFourCheckpoint?
-    var recoverableTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint?
     var controllerPoseApplicability: ControllerPoseApplicability = .currentSession
     var learningAuthorityError: String?
     var acceptedAttemptSequence: UInt64 = 0
@@ -894,7 +754,7 @@ final class OperatorWorkspace:
       paperInstanceRevision: UUID,
       paperContactPlaneRevision: UUID
     ) {
-      drawingTrial = DrawingTrialState(source: source)
+      borderValidation = PlotterBorderValidationSnapshot(sourceIsSimulated: source == .simulated)
       explorationPaperInstanceRevision = paperInstanceRevision
       explorationPaperContactPlaneRevision = paperContactPlaneRevision
     }
@@ -964,11 +824,6 @@ final class OperatorWorkspace:
       self.requestJogCancel = requestJogCancel
       self.disconnect = disconnect
     }
-  }
-
-  struct AnnouncementActions: Sendable {
-    let announce: @Sendable (String) async -> SpeechAnnouncementOutcome
-    let cancelForShutdown: @Sendable () async -> Void
   }
 
   struct WorkflowTelemetryActions: Sendable {
@@ -1134,11 +989,9 @@ final class OperatorWorkspace:
       markSemanticPresentationChanged(invalidatesActionSurface: false)
     }
   }
-  private(set) var learningResetInProgress = false {
-    didSet {
-      guard oldValue != learningResetInProgress else { return }
-      markSemanticPresentationChanged()
-    }
+  var learningResetInProgress: Bool {
+    guard case .reset = artifactResetRuntime.snapshot().activeIntent else { return false }
+    return true
   }
   private(set) var semanticPresentationRevision: UInt64 = 0
   @ObservationIgnored private var learningPresentationBaseCache: LearningPresentationBase?
@@ -1264,6 +1117,50 @@ final class OperatorWorkspace:
   }
   private var liveLearningSession: LearningSessionState
   private var simulatedLearningSession: LearningSessionState
+  @ObservationIgnored
+  private lazy var liveTipCalibrationRuntime = PlotterTipCalibrationRuntime(effectPort: self)
+  @ObservationIgnored
+  private lazy var simulatedTipCalibrationRuntime = PlotterTipCalibrationRuntime(effectPort: self)
+  @ObservationIgnored
+  private(set) var tipCalibrationRuntime: PlotterTipCalibrationRuntime {
+    get {
+      frameMode == .live ? liveTipCalibrationRuntime : simulatedTipCalibrationRuntime
+    }
+    set {
+      if frameMode == .live {
+        liveTipCalibrationRuntime = newValue
+      } else {
+        simulatedTipCalibrationRuntime = newValue
+      }
+    }
+  }
+  @ObservationIgnored
+  private lazy var liveBorderValidationRuntime = PlotterBorderValidationRuntime(
+    sourceIsSimulated: false,
+    effectPort: self
+  ) { [weak self] snapshot in
+    self?.installBorderValidationRuntimeProjection(snapshot, source: .live)
+  }
+  @ObservationIgnored
+  private lazy var simulatedBorderValidationRuntime = PlotterBorderValidationRuntime(
+    sourceIsSimulated: true,
+    effectPort: self
+  ) { [weak self] snapshot in
+    self?.installBorderValidationRuntimeProjection(snapshot, source: .simulated)
+  }
+  @ObservationIgnored
+  private(set) var borderValidationRuntime: PlotterBorderValidationRuntime {
+    get {
+      frameMode == .live ? liveBorderValidationRuntime : simulatedBorderValidationRuntime
+    }
+    set {
+      if frameMode == .live {
+        liveBorderValidationRuntime = newValue
+      } else {
+        simulatedBorderValidationRuntime = newValue
+      }
+    }
+  }
   @ObservationIgnored
   private var activeLearningSession: LearningSessionState {
     _read {
@@ -1406,36 +1303,32 @@ final class OperatorWorkspace:
     currentBoundarySnapshot?.acceptedAggregates ?? [:]
   }
   private(set) var cameraCalibrationAnchorFrame: DisplayedFrame? {
-    get { activeLearningSession.cameraCalibrationAnchorFrame }
-    set { activeLearningSession.cameraCalibrationAnchorFrame = newValue }
+    get { cameraCalibrationRuntime.anchorFrame }
+    set { }
   }
   private(set) var cameraCalibrationReferencePosition: MachinePosition? {
-    get { activeLearningSession.cameraCalibrationReferencePosition }
-    set { activeLearningSession.cameraCalibrationReferencePosition = newValue }
+    get { cameraCalibrationRuntime.referencePosition }
+    set { }
   }
   private(set) var cameraCalibrationReferenceCapAnchor: ToolCapAnchorEstimate? {
-    get { activeLearningSession.cameraCalibrationReferenceCapAnchor }
-    set { activeLearningSession.cameraCalibrationReferenceCapAnchor = newValue }
+    get { cameraCalibrationRuntime.referenceCapAnchor }
+    set { }
   }
   private(set) var proposedMachineCameraRegistration: MachineCameraRegistration? {
-    get { activeLearningSession.proposedMachineCameraRegistration }
-    set { activeLearningSession.proposedMachineCameraRegistration = newValue }
+    get { cameraCalibrationRuntime.proposedRegistration }
+    set { cameraCalibrationRuntime.replaceProposal(newValue) }
   }
   private(set) var machineCameraRegistration: MachineCameraRegistration? {
-    get { activeLearningSession.machineCameraRegistration }
-    set { activeLearningSession.machineCameraRegistration = newValue }
+    get { cameraCalibrationRuntime.acceptedRegistration }
+    set { cameraCalibrationRuntime.restoreAcceptedRegistration(newValue) }
   }
   private(set) var tipCameraRegistration: TipCameraRegistration? {
-    get { activeLearningSession.tipCameraRegistration }
-    set { activeLearningSession.tipCameraRegistration = newValue }
+    get { tipCalibrationRuntime.acceptedRegistration }
+    set { tipCalibrationRuntime.restoreAcceptedRegistration(newValue) }
   }
   private(set) var proposedTipCameraRegistration: TipCameraRegistration? {
-    get { activeLearningSession.proposedTipCameraRegistration }
-    set { activeLearningSession.proposedTipCameraRegistration = newValue }
-  }
-  private(set) var sparseTipCalibrationCoordinator: SparseTipCalibrationCoordinator {
-    get { activeLearningSession.sparseTipCalibrationCoordinator }
-    set { activeLearningSession.sparseTipCalibrationCoordinator = newValue }
+    get { tipCalibrationRuntime.proposedRegistration }
+    set { if newValue == nil { tipCalibrationRuntime.discardProposal() } }
   }
   private(set) var frozenPointSelectionFrame: DisplayedFrame? {
     didSet { invalidateActionSurfacePresentation() }
@@ -1457,36 +1350,36 @@ final class OperatorWorkspace:
   private let cameraMountRevision: UUID
   private let cameraReframingRevision: UUID
   private(set) var blacklistedToolContactLocations: Set<BlacklistedToolContactLocation> {
-    get { activeLearningSession.blacklistedToolContactLocations }
-    set { activeLearningSession.blacklistedToolContactLocations = newValue }
+    get { tipCalibrationRuntime.blacklistedLocations }
+    set { tipCalibrationRuntime.replaceBlacklistedLocations(newValue) }
   }
   private(set) var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] {
-    get { activeLearningSession.explicitRegistrationCapAnchorEvidence }
-    set { activeLearningSession.explicitRegistrationCapAnchorEvidence = newValue }
+    get { cameraCalibrationRuntime.correspondenceEvidence }
+    set { cameraCalibrationRuntime.replaceCorrespondenceEvidence(newValue) }
   }
-  private(set) var currentCameraCalibrationPhase: CurrentCameraCalibrationPhase? {
-    get { activeLearningSession.currentCameraCalibrationPhase }
-    set { activeLearningSession.currentCameraCalibrationPhase = newValue }
+  private(set) var cameraCalibrationRuntimePhase: CurrentCameraCalibrationPhase? {
+    get { cameraCalibrationRuntime.phase }
+    set { cameraCalibrationRuntime.reportPhase(newValue) }
   }
   private var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure? {
-    get { activeLearningSession.currentCameraCalibrationFailure }
-    set { activeLearningSession.currentCameraCalibrationFailure = newValue }
+    get { cameraCalibrationRuntime.failure }
+    set { cameraCalibrationRuntime.replaceFailure(newValue) }
   }
   private(set) var localPreFrameBaseline: DisplayedFrame? {
-    get { activeLearningSession.drawingTrial.localPreFrameBaseline }
-    set { activeLearningSession.drawingTrial.localPreFrameBaseline = newValue }
+    get { activeLearningSession.borderValidation.localPreFrameBaseline }
+    set { activeLearningSession.borderValidation.localPreFrameBaseline = newValue }
   }
-  private(set) var drawingTrialRevealPosition: MachinePosition? {
-    get { activeLearningSession.drawingTrial.revealPosition }
-    set { activeLearningSession.drawingTrial.revealPosition = newValue }
+  private(set) var borderValidationRevealPosition: MachinePosition? {
+    get { activeLearningSession.borderValidation.revealPosition }
+    set { activeLearningSession.borderValidation.revealPosition = newValue }
   }
-  private(set) var drawingTrialTipRegistrationRevisionID: LearningArtifactRevisionID? {
-    get { activeLearningSession.drawingTrial.tipRegistrationRevisionID }
-    set { activeLearningSession.drawingTrial.tipRegistrationRevisionID = newValue }
+  private(set) var borderValidationTipRegistrationRevisionID: LearningArtifactRevisionID? {
+    get { activeLearningSession.borderValidation.tipRegistrationRevisionID }
+    set { activeLearningSession.borderValidation.tipRegistrationRevisionID = newValue }
   }
-  private(set) var drawingTrialObservationRegion: PixelRect? {
-    get { activeLearningSession.drawingTrial.observationRegion }
-    set { activeLearningSession.drawingTrial.observationRegion = newValue }
+  private(set) var borderValidationObservationRegion: PixelRect? {
+    get { activeLearningSession.borderValidation.observationRegion }
+    set { activeLearningSession.borderValidation.observationRegion = newValue }
   }
   private(set) var lastProtocolPoseSettlement: ProtocolPoseSettlement? {
     get { activeLearningSession.lastProtocolPoseSettlement }
@@ -1497,43 +1390,43 @@ final class OperatorWorkspace:
     set { activeLearningSession.explorationError = newValue }
   }
   private(set) var explorationPostFrame: DisplayedFrame? {
-    get { activeLearningSession.drawingTrial.postFrame }
-    set { activeLearningSession.drawingTrial.postFrame = newValue }
+    get { activeLearningSession.borderValidation.postFrame }
+    set { activeLearningSession.borderValidation.postFrame = newValue }
   }
-  private(set) var drawingTrialProgram: DrawingProgram? {
-    get { activeLearningSession.drawingTrial.program }
-    set { activeLearningSession.drawingTrial.program = newValue }
+  private(set) var borderValidationProgram: DrawingProgram? {
+    get { activeLearningSession.borderValidation.program }
+    set { activeLearningSession.borderValidation.program = newValue }
   }
   private(set) var drawingBorderPlan: ExecutionPlanRevision? {
-    get { activeLearningSession.drawingTrial.drawingBorderPlan }
-    set { activeLearningSession.drawingTrial.drawingBorderPlan = newValue }
+    get { activeLearningSession.borderValidation.drawingBorderPlan }
+    set { activeLearningSession.borderValidation.drawingBorderPlan = newValue }
   }
-  private(set) var drawingTrialDrawingOutcome: DrawingPlanOutcome? {
-    get { activeLearningSession.drawingTrial.drawingOutcome }
-    set { activeLearningSession.drawingTrial.drawingOutcome = newValue }
+  private(set) var borderValidationDrawingOutcome: DrawingPlanOutcome? {
+    get { activeLearningSession.borderValidation.drawingOutcome }
+    set { activeLearningSession.borderValidation.drawingOutcome = newValue }
   }
   private(set) var lastFrameObservation: PlannedDrawingObservation? {
-    get { activeLearningSession.drawingTrial.inkObservation }
-    set { activeLearningSession.drawingTrial.inkObservation = newValue }
+    get { activeLearningSession.borderValidation.inkObservation }
+    set { activeLearningSession.borderValidation.inkObservation = newValue }
   }
   private(set) var explorationInkStatus: String {
-    get { activeLearningSession.drawingTrial.inkStatus }
-    set { activeLearningSession.drawingTrial.inkStatus = newValue }
+    get { activeLearningSession.borderValidation.inkStatus }
+    set { activeLearningSession.borderValidation.inkStatus = newValue }
   }
-  private var activeExplorationOperation: ActiveExplorationOperation? {
+  private var activeBorderValidationOperation: ActiveBorderValidationOperation? {
     didSet {
-      guard oldValue != activeExplorationOperation else { return }
+      guard oldValue != activeBorderValidationOperation else { return }
       markSemanticPresentationChanged()
     }
   }
   private(set) var lastAnnouncementResultText = "No announcement has run."
   private(set) var lastTravelFeedSelection: TravelFeedSelection? {
-    get { activeLearningSession.drawingTrial.lastTravelFeedSelection }
-    set { activeLearningSession.drawingTrial.lastTravelFeedSelection = newValue }
+    get { activeLearningSession.borderValidation.lastTravelFeedSelection }
+    set { activeLearningSession.borderValidation.lastTravelFeedSelection = newValue }
   }
-  private(set) var drawingTrialAssessment: DrawingTrialAssessment? {
-    get { activeLearningSession.drawingTrial.assessment }
-    set { activeLearningSession.drawingTrial.assessment = newValue }
+  private(set) var borderValidationAssessment: BorderValidationAssessment? {
+    get { activeLearningSession.borderValidation.assessment }
+    set { activeLearningSession.borderValidation.assessment = newValue }
   }
   private(set) var learningArtifactGraph: LearningDependencyGraph {
     get { activeLearningSession.learningArtifactGraph }
@@ -1627,10 +1520,10 @@ final class OperatorWorkspace:
     "Pen Interaction refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
   }
   private(set) var comparisonAttemptHistories:
-    [AttemptCompatibility: ExerciseAttemptHistory<DrawingTrialAssessment>]
+    [AttemptCompatibility: ExerciseAttemptHistory<BorderValidationAssessment>]
   {
-    get { activeLearningSession.drawingTrial.comparisonAttemptHistories }
-    set { activeLearningSession.drawingTrial.comparisonAttemptHistories = newValue }
+    get { activeLearningSession.borderValidation.comparisonAttemptHistories }
+    set { activeLearningSession.borderValidation.comparisonAttemptHistories = newValue }
   }
   var activeExerciseAttemptID: ExerciseAttemptID? {
     activeLearningSession.exerciseAttempt.id
@@ -1647,15 +1540,17 @@ final class OperatorWorkspace:
     set { activeLearningSession.acceptedArtifactCheckpointStatus = newValue }
   }
   private(set) var recoverableTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint? {
-    get { activeLearningSession.recoverableTipCalibrationCheckpoint }
-    set { activeLearningSession.recoverableTipCalibrationCheckpoint = newValue }
+    get { tipCalibrationRuntime.recoverableCheckpoint }
+    set { tipCalibrationRuntime.installRecoverableCheckpoint(newValue) }
   }
-  private var savedLearningPackageState: SavedLearningPackageState {
-    get { activeLearningSession.savedLearningPackageState }
-    set { activeLearningSession.savedLearningPackageState = newValue }
+  private var savedLearningState: PlotterArtifactResetSavedLearningState {
+    frameMode == .live ? artifactResetRuntime.snapshot().savedLearning : .absent
+  }
+  var artifactResetEpisodeSnapshot: PlotterArtifactResetSnapshot {
+    artifactResetRuntime.snapshot()
   }
   private var acceptedLearningPathCheckpoint: AcceptedLearningPathCheckpoint? {
-    savedLearningPackageState.appliedCheckpoint
+    savedLearningState.appliedCheckpoint
   }
   private var activeMachineCameraCheckpoint: AcceptedMachineCameraCheckpoint? {
     get { activeLearningSession.activeMachineCameraCheckpoint }
@@ -1689,7 +1584,11 @@ final class OperatorWorkspace:
   @ObservationIgnored private let drawingRunCameraPort: OperatorWorkspaceDrawingRunCameraPort
   @ObservationIgnored private let persistPenCapAppearanceSelection:
     @Sendable (PenCapAppearanceSelection?) -> Void
-  @ObservationIgnored private let announcementActions: AnnouncementActions?
+  @ObservationIgnored private let speechEffectRuntime: PlotterSpeechEffectRuntime
+  @ObservationIgnored private var artifactResetRuntime: PlotterArtifactResetRuntime!
+  @ObservationIgnored private lazy var cameraCalibrationRuntime = PlotterCameraCalibrationRuntime(
+    effectPort: OperatorWorkspaceCameraCalibrationEffectPort(workspace: self)
+  )
   /// These ports are capabilities of the LIVE learning session only. The
   /// active accessors deliberately return nil for SIMULATED before any
   /// workflow can load, save, or clear physical durable authority.
@@ -1835,9 +1734,6 @@ final class OperatorWorkspace:
   @ObservationIgnored private var frameTask: Task<Void, Never>?
   @ObservationIgnored private var drawingRunProjectionTask: Task<Void, Never>?
   @ObservationIgnored private var visionUpdateTask: Task<Void, Never>?
-  @ObservationIgnored private var savedTrainingComparisonTask: Task<Void, Never>?
-  @ObservationIgnored private var savedTrainingComparisonIdentity:
-    SavedTrainingComparisonIdentity?
   private(set) var pointSelectionEpisodeProjection: PlotterEpisodeProjection
   private(set) var pointSelectionRecordingDiagnostic: String?
   private(set) var manualMotionEpisodeSnapshot: PlotterManualMotionRuntimeSnapshot?
@@ -1867,11 +1763,8 @@ final class OperatorWorkspace:
     get { activeLearningSession.explorationPaperContactPlaneRevision }
     set { activeLearningSession.explorationPaperContactPlaneRevision = newValue }
   }
-  @ObservationIgnored private let persistPaperInstanceRevision:
-    @Sendable (PaperInstanceRevision) -> Void
-  @ObservationIgnored private let persistPaperContactPlaneRevision:
-    @Sendable (PaperContactPlaneRevision) -> Void
-  @ObservationIgnored private var currentCameraCalibrationTask: Task<Void, Never>?
+  @ObservationIgnored private let persistPaperRevisionContext:
+    @Sendable (PaperRevisionContext) throws -> Void
   @ObservationIgnored private var activeStoppableOperation: ActiveStoppableOperation? {
     didSet {
       computationDiagnostics.stoppableOperationMutationCount += 1
@@ -1912,9 +1805,9 @@ final class OperatorWorkspace:
     set { activeLearningSession.acceptedAttemptSequence = newValue }
   }
   @ObservationIgnored private var lastSimulatedProtocolCaptureNanoseconds: UInt64 = 0
-  private var currentDrawingTrialGroup: AttemptGroupIdentity {
-    get { activeLearningSession.drawingTrial.group }
-    set { activeLearningSession.drawingTrial.group = newValue }
+  private var currentBorderValidationGroup: AttemptGroupIdentity {
+    get { activeLearningSession.borderValidation.group }
+    set { activeLearningSession.borderValidation.group = newValue }
   }
   private var activeMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint? {
     get { activeLearningSession.activeMachineArtifactCheckpoint }
@@ -1929,16 +1822,14 @@ final class OperatorWorkspace:
     manualMotionComposition: PlotterManualMotionRuntimeComposition? = nil,
     penInteractionRuntime: PlotterPenInteractionRuntime,
     boundaryRuntime: PlotterBoundaryRuntime,
-    announcementActions: AnnouncementActions? = nil,
+    speechEffectRuntime: PlotterSpeechEffectRuntime = PlotterSpeechEffectRuntime(),
     acceptedLearningPathCheckpointActions: AcceptedLearningPathCheckpointActions? = nil,
+    artifactResetRuntime: PlotterArtifactResetRuntime? = nil,
     drawingDraftRuntime: PlotterDrawingDraftRuntime,
     drawingRunComposition: PlotterDrawingRunComposition,
     incidentPackageUIService: PlotterIncidentPackageUIService,
     tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
-    persistPaperInstanceRevision: @escaping @Sendable (PaperInstanceRevision) -> Void = { _ in },
-    persistPaperContactPlaneRevision: @escaping @Sendable (PaperContactPlaneRevision) -> Void = {
-      _ in
-    },
+    persistPaperRevisionContext: @escaping @Sendable (PaperRevisionContext) throws -> Void = { _ in },
     workflowTelemetryActions: WorkflowTelemetryActions? = nil,
     serialDevices: [MachineLinkDescriptor] = [],
     serialDeviceDiscovery: @escaping @Sendable () -> [MachineLinkDescriptor] = {
@@ -2067,15 +1958,15 @@ final class OperatorWorkspace:
     if acceptedLearningPathCheckpointActions != nil {
       persistPenCapAppearanceSelection(nil)
     }
-    self.announcementActions = announcementActions
+    self.speechEffectRuntime = speechEffectRuntime
+    self.artifactResetRuntime = artifactResetRuntime
     liveAcceptedLearningPathCheckpointActions = acceptedLearningPathCheckpointActions
     machineGeometryIdentity = tipCalibrationSemanticIdentities.machineGeometry
     toolAssemblyRevision = tipCalibrationSemanticIdentities.toolAssembly
     penContactProfileRevision = tipCalibrationSemanticIdentities.penContactProfile
     cameraMountRevision = tipCalibrationSemanticIdentities.cameraMountRevision
     cameraReframingRevision = tipCalibrationSemanticIdentities.cameraReframingRevision
-    self.persistPaperInstanceRevision = persistPaperInstanceRevision
-    self.persistPaperContactPlaneRevision = persistPaperContactPlaneRevision
+    self.persistPaperRevisionContext = persistPaperRevisionContext
     self.workflowTelemetryActions = workflowTelemetryActions
     simulatedLearningRuntime = resolvedManualMotionComposition.simulatedRuntime
     causalSimulatorEffectAdapter =
@@ -2086,6 +1977,12 @@ final class OperatorWorkspace:
     self.persistOverlayPreference = persistOverlayPreference
     rememberedSerialDeviceIdentifier = loadSelectedSerialIdentifier()
     self.nowNanoseconds = nowNanoseconds
+    if self.artifactResetRuntime == nil {
+      self.artifactResetRuntime = PlotterArtifactResetRuntime(
+        effectPort: self,
+        persistencePort: self
+      )
+    }
     if let rememberedSerialDeviceIdentifier {
       selectedSerialDevice = serialDevices.first {
         $0.identifier == rememberedSerialDeviceIdentifier
@@ -2094,7 +1991,7 @@ final class OperatorWorkspace:
     if let acceptedLearningPathCheckpointActions {
       switch acceptedLearningPathCheckpointActions.load() {
       case .absent:
-        savedLearningPackageState = .absent
+        self.artifactResetRuntime.installSavedLearningFact(.absent)
         acceptedArtifactCheckpointStatus = .unavailable
       case .loaded(let loadedCheckpoint):
         do {
@@ -2118,29 +2015,29 @@ final class OperatorWorkspace:
             checkpoint = loadedCheckpoint
           }
           if checkpoint.semanticIdentity == tipCalibrationSemanticIdentities.learningPathIdentity {
-            savedLearningPackageState = .awaitingOperatorDecision(
+            self.artifactResetRuntime.installSavedLearningFact(.awaitingOperatorDecision(
               checkpoint,
               opticalComparison: "Waiting for a compatible current camera frame. No saved value has been applied."
-            )
+            ))
             acceptedArtifactCheckpointStatus = .awaitingOperatorDecision(
               sideCount: checkpoint.machineArtifacts?.acceptedBoundaryAggregates.count ?? 0,
               hasTipCalibration: checkpoint.tipCalibration != nil
             )
           } else {
-            savedLearningPackageState = .rejected(
+            self.artifactResetRuntime.installSavedLearningFact(.rejected(
               "Saved machine, tool, paper-plane, or camera-mount identity changed."
-            )
+            ))
             acceptedArtifactCheckpointStatus = .incompatible(
               "Saved machine, tool, paper-plane, or camera-mount identity changed."
             )
           }
         } catch {
           let reason = "Learning package migration failed: \(error)"
-          savedLearningPackageState = .rejected(reason)
+          self.artifactResetRuntime.installSavedLearningFact(.rejected(reason))
           acceptedArtifactCheckpointStatus = .rejected(reason)
         }
       case .rejected(let reason):
-        savedLearningPackageState = .rejected(reason)
+        self.artifactResetRuntime.installSavedLearningFact(.rejected(reason))
         acceptedArtifactCheckpointStatus = .rejected(reason)
       }
     }
@@ -2275,60 +2172,16 @@ final class OperatorWorkspace:
   private func updateSavedTrainingOpticalComparison(
     with frame: DisplayedFrame
   ) {
-    guard case .awaitingOperatorDecision(let checkpoint, _) = savedLearningPackageState
+    guard case .awaitingOperatorDecision(let checkpoint, _) = savedLearningState
     else { return }
-    let identity = SavedTrainingComparisonIdentity(
-      checkpointID: checkpoint.checkpointID,
-      cameraConfigurationID: frame.frame.cameraConfigurationID
-    )
-    guard savedTrainingComparisonIdentity != identity else { return }
-    savedTrainingComparisonIdentity = identity
-    savedTrainingComparisonTask?.cancel()
-    do {
-      guard let reference = checkpoint.referenceFrame else {
-        savedLearningPackageState = .awaitingOperatorDecision(
-          checkpoint,
-          opticalComparison: "Unavailable: this legacy saved package has no bounded reference frame. Inspect the projected overlays and decide manually."
-        )
-        return
-      }
-      let optical = try exactTipCalibrationFrame(frame).opticalConfiguration
-      savedTrainingComparisonTask = Task { @MainActor [weak self] in
-        let comparison = await Task.detached {
-          reference.compare(with: frame, opticalConfiguration: optical)
-        }.value
-        guard !Task.isCancelled, let self,
-          self.savedTrainingComparisonIdentity == identity,
-          case .awaitingOperatorDecision(let currentCheckpoint, _) =
-            self.savedLearningPackageState,
-          currentCheckpoint.checkpointID == checkpoint.checkpointID
-        else { return }
-        let message: String
-        switch comparison {
-        case .compared(let alignment):
-          message = String(
-            format: "Current frame versus saved reference: shift x=%d px, y=%d px; background mean absolute difference %.3f across %d evaluated pixels. This is advisory, not a pass/fail gate.",
-            alignment.shiftX,
-            alignment.shiftY,
-            alignment.backgroundMeanAbsoluteDifference,
-            alignment.evaluatedPixelCount
-          )
-        case .unavailable(let reason):
-          message =
-            "Unavailable for this frame (\(reason.rawValue)). Inspect the compatible projected overlays and decide manually."
-        }
-        self.savedLearningPackageState = .awaitingOperatorDecision(
-          currentCheckpoint,
-          opticalComparison: message
-        )
-        self.savedTrainingComparisonTask = nil
-      }
-    } catch {
-      savedLearningPackageState = .awaitingOperatorDecision(
-        checkpoint,
-        opticalComparison:
-          "Unavailable: current camera identity could not be evaluated (\(error)). Inspect overlays and decide manually."
+    let identity = "\(checkpoint.checkpointID.uuidString):\(frame.frame.cameraConfigurationID.rawValue.uuidString)"
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      _ = await self.artifactResetRuntime.submit(
+        .compareSavedLearning(checkpoint, comparisonIdentity: identity),
+        facts: self.artifactResetAdmissionFacts
       )
+      self.markSemanticPresentationChanged()
     }
   }
 
@@ -2351,7 +2204,7 @@ final class OperatorWorkspace:
     computationDiagnostics.actionSurfaceBuildCount += 1
     let surfaceFrame =
       frozenPointSelectionFrame
-      ?? (activeLearningSession.drawingTrial.comparisonReviewIsPinned
+      ?? (activeLearningSession.borderValidation.comparisonReviewIsPinned
         ? explorationPostFrame
         : nil)
       ?? ({
@@ -2399,7 +2252,7 @@ final class OperatorWorkspace:
       displayedFrame: surfaceFrame,
       overlays: overlayComposition.overlays
         + (surfaceFrame.map(learnedDrawingOverlays) ?? [])
-        + (surfaceFrame.map(drawingTrialPredictionOverlays) ?? []),
+        + (surfaceFrame.map(borderValidationPredictionOverlays) ?? []),
       simulatedAnnotations: simulatedAnnotations,
       simulatedViewportID: simulatedViewportID,
       simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible,
@@ -2487,7 +2340,7 @@ final class OperatorWorkspace:
     case .applied:
       drawingEvidenceError = nil
       if submission.intent == .open {
-        activeLearningSession.drawingTrial.comparisonReviewIsPinned = false
+        activeLearningSession.borderValidation.comparisonReviewIsPinned = false
       }
       await synchronizeDrawingRunProjection()
     case .refused(let refusal):
@@ -2519,7 +2372,7 @@ final class OperatorWorkspace:
   }
 
   var interactiveLearningIsComplete: Bool {
-    if drawingTrialAssessment == .predictionObserved { return true }
+    if borderValidationAssessment == .predictionObserved { return true }
     guard let registration = tipCameraRegistration else { return false }
     return drawingEvidenceArchive.records.contains { record in
       record.role == .evaluationHoldout
@@ -2911,7 +2764,7 @@ final class OperatorWorkspace:
   private func learnedDrawingOverlays(
     on displayedFrame: DisplayedFrame
   ) -> [CameraOverlayMeasurement] {
-    let savedCandidate = savedLearningPackageState.candidate?.checkpoint
+    let savedCandidate = savedLearningState.candidate?.checkpoint
     let context: (
       registration: TipCameraRegistration,
       acceptedBoundaryAggregates: [BoundaryDirection: BoundarySideAggregate],
@@ -3092,17 +2945,17 @@ final class OperatorWorkspace:
       state: completedDrawingComparisonReviewIsPinned
         ? .reviewingExactFrame(provenance)
         : .available(provenance),
-      drawingDraftProjection: drawingTrialAssessment == .predictionObserved
+      drawingDraftProjection: borderValidationAssessment == .predictionObserved
         ? drawingDraftSnapshot.projection : nil
     )
   }
 
   var completedDrawingComparisonReviewIsAvailable: Bool {
-    drawingTrialAssessment != nil && explorationPostFrame != nil && lastFrameObservation != nil
+    borderValidationAssessment != nil && explorationPostFrame != nil && lastFrameObservation != nil
   }
 
   var completedDrawingComparisonReviewIsPinned: Bool {
-    activeLearningSession.drawingTrial.comparisonReviewIsPinned
+    activeLearningSession.borderValidation.comparisonReviewIsPinned
   }
 
   func submitCompletedComparisonReview(_ intent: CompletedComparisonReviewIntent) {
@@ -3129,14 +2982,14 @@ final class OperatorWorkspace:
       )
       guard !drawingStudioIsPresented else { return }
     }
-    activeLearningSession.drawingTrial.comparisonReviewIsPinned = true
+    activeLearningSession.borderValidation.comparisonReviewIsPinned = true
   }
 
   func resumeLivePreviewAfterDrawingComparison() {
-    activeLearningSession.drawingTrial.comparisonReviewIsPinned = false
+    activeLearningSession.borderValidation.comparisonReviewIsPinned = false
   }
 
-  private func drawingTrialPredictionOverlays(
+  private func borderValidationPredictionOverlays(
     on displayedFrame: DisplayedFrame
   ) -> [CameraOverlayMeasurement] {
     guard lastFrameObservation == nil,
@@ -3148,7 +3001,7 @@ final class OperatorWorkspace:
         == registration.applicability.opticalConfiguration.pixelFormat,
       let currentRevision = learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id,
       currentRevision == registration.acceptedRevisionID,
-      drawingTrialTipRegistrationRevisionID == currentRevision,
+      borderValidationTipRegistrationRevisionID == currentRevision,
       let plan = drawingBorderPlan,
       let path = plan.strokes.first?.path,
       let predictedBorder = try? Polyline(
@@ -3239,7 +3092,7 @@ final class OperatorWorkspace:
   var isShutdown: Bool { hasShutdown }
 
   var currentCameraCalibrationBusyReason: String? {
-    currentCameraCalibrationPhase.map {
+    cameraCalibrationRuntimePhase.map {
       "Automatic camera calibration is in progress (\($0.description)). Use Stop during active motion."
     }
   }
@@ -3529,7 +3382,7 @@ final class OperatorWorkspace:
     }
     if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
       || jogCancelRequestInProgress || motionAuthorizationActionInProgress
-      || activeExplorationOperation != nil
+      || activeBorderValidationOperation != nil
     {
       return "Wait for the current operation."
     }
@@ -3608,7 +3461,7 @@ final class OperatorWorkspace:
       || jogCancelRequestInProgress || motionAuthorizationActionInProgress
       || machineSnapshot?.machine.operationInFlight == true
       || machineSnapshot?.currentOperation != .idle
-      || activeExplorationOperation != nil || activeDiscoverySequenceID != nil
+      || activeBorderValidationOperation != nil || activeDiscoverySequenceID != nil
     {
       return "Wait for the current operation before clearing the controller alarm."
     }
@@ -3646,7 +3499,7 @@ final class OperatorWorkspace:
     if activeDiscoverySequenceID != nil {
       return "Finish the active Plotter Calibration attempt first."
     }
-    if activeExplorationOperation != nil {
+    if activeBorderValidationOperation != nil {
       return "Wait for the current learning action before changing frame source."
     }
     if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
@@ -3657,9 +3510,9 @@ final class OperatorWorkspace:
     return nil
   }
 
-  private(set) var observedDrawingTrialStep: ObservedDrawingTrialStep {
-    get { activeLearningSession.drawingTrial.step }
-    set { activeLearningSession.drawingTrial.step = newValue }
+  private(set) var borderValidationStep: BorderValidationStep {
+    get { activeLearningSession.borderValidation.step }
+    set { activeLearningSession.borderValidation.step = newValue }
   }
   var activeDiscoverySequenceID: DiscoverySequenceID? {
     discoveryTransactions.first { _, transaction in
@@ -3687,7 +3540,7 @@ final class OperatorWorkspace:
     switch learningPresentationBase().currentItemID {
     case .humanGuidedDiscovery(let step): step
     case .stage(.humanGuidedDiscovery): .penInteraction
-    case .stage(.observedDrawingTrials), .observedDrawingTrial:
+    case .stage(.borderValidations), .borderValidation:
       .calibratePenContactFromSparseMarks
     }
   }
@@ -3709,34 +3562,17 @@ final class OperatorWorkspace:
     return learningPresentationBase().snapshot.reset.plansByAnchor[anchor]
   }
 
-  var learningVacateUnavailableReason: String? {
-    if hasShutdown { return "The workspace is shutting down." }
-    if learningResetInProgress { return "Reset All Learning is already in progress." }
+  private var artifactResetLowerOwnerBlocker: String? {
     if let boundary = currentBoundarySnapshot?.projection {
       if boundary.publicationRecoveryCapabilityID != nil {
-        return "Retry the exact Boundary publication before resetting Learning; no motion will be resent."
+        return "Boundary publication is incomplete. Retry its exact publication before resetting Learning."
       }
       if boundary.resetCapabilityID != nil {
         return "Wait for the exact Boundary reset transaction to commit or abort."
       }
-      if boundary.reference.operationID != nil {
-        return "Stop or cancel the exact Boundary owner and wait for terminal publication first."
-      }
       if case .needsAttention(let detail) = boundary.phase {
         return "Resolve the retained Boundary terminal truth before resetting Learning: \(detail)"
       }
-    }
-    if activeExerciseAttemptID != nil {
-      return "Cancel or finish the active exercise attempt before resetting learning."
-    }
-    if activeStopTarget != nil || activeExplorationOperation != nil {
-      return "Stop or cancel the active learning operation and wait for settlement first."
-    }
-    if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
-      || jogCancelRequestInProgress || machineSnapshot?.machine.operationInFlight == true
-      || activeHardwareIntentCount > 0
-    {
-      return "Wait for the current controller or camera operation to settle first."
     }
     if let learningStickyAmbiguityReason {
       return
@@ -3745,28 +3581,33 @@ final class OperatorWorkspace:
     return nil
   }
 
+  private var artifactResetAdmissionFacts: PlotterArtifactResetAdmissionFacts {
+    PlotterArtifactResetAdmissionFacts(
+      environment: manualMotionEnvironment,
+      possibleInkBlocked: activeStoppableOperation?.possibleInkLocation != nil
+        || activeBorderValidationOperation?.strokeState == .possibleInk,
+      activeStopBlocked: activeStopTarget != nil || activeBorderValidationOperation != nil,
+      motionSettlementBlocked: passiveProbeInProgress || jogRequestInProgress
+        || retainedPenRequestInProgress || jogCancelRequestInProgress
+        || machineSnapshot?.machine.operationInFlight == true || activeHardwareIntentCount > 0,
+      lowerOwnerBlocker: artifactResetLowerOwnerBlocker
+    )
+  }
+
+  var artifactResetUnavailableReason: String? {
+    artifactResetRuntime.resetAdmissionRefusal(facts: artifactResetAdmissionFacts)
+  }
+
   @discardableResult
   func performLearningVacate(_ plan: LearningVacatePlan) async -> Bool {
-    if let unavailableReason = learningVacateUnavailableReason {
-      learningAuthorityError = unavailableReason
-      return false
-    }
-    return await performAvailableLearningVacate(plan)
+    await submitArtifactReset(plan)
   }
 
   /// Cancels and settles only Learning-owned work before clearing the selected
   /// source's complete Learning authority. Independent manual controller work
   /// is neither cancelled nor used as a reset gate.
   @discardableResult
-  func performResetAllLearning(_ previewPlan: LearningVacatePlan) async -> Bool {
-    guard !hasShutdown else {
-      learningAuthorityError = "The workspace is shutting down."
-      return false
-    }
-    guard !learningResetInProgress else {
-      learningAuthorityError = "Reset All Learning is already in progress."
-      return false
-    }
+  func submitResetAllLearning(_ previewPlan: LearningVacatePlan) async -> Bool {
     guard previewPlan.scope == .all,
       previewPlan.source == (frameMode == .live ? .live : .simulated)
     else {
@@ -3775,16 +3616,22 @@ final class OperatorWorkspace:
       return false
     }
 
-    learningResetInProgress = true
-    learningAuthorityError = nil
-    defer { learningResetInProgress = false }
+    return await submitArtifactReset(previewPlan)
+  }
 
-    guard await cancelAndSettleLearningForReset() else { return false }
-    guard let settledPlan = resetAllLearningPlan else {
-      learningAuthorityError = "The complete Learning reset plan could not be rebuilt."
-      return false
+  private func submitArtifactReset(_ plan: LearningVacatePlan) async -> Bool {
+    let priorLearningAuthorityError = learningAuthorityError
+    learningAuthorityError = nil
+    let accepted = await artifactResetRuntime.submit(
+      .reset(artifactResetPlan(plan)),
+      facts: artifactResetAdmissionFacts
+    )
+    if !accepted {
+      learningAuthorityError =
+        artifactResetRuntime.snapshot().phase.detail ?? priorLearningAuthorityError
     }
-    return await performAvailableLearningVacate(settledPlan)
+    markSemanticPresentationChanged()
+    return accepted
   }
 
   private func cancelAndSettleLearningForReset() async -> Bool {
@@ -3792,8 +3639,7 @@ final class OperatorWorkspace:
     let actionID = activeLearningActionID
     actionTask?.cancel()
 
-    let calibrationTask = currentCameraCalibrationTask
-    calibrationTask?.cancel()
+    await cameraCalibrationRuntime.shutdown()
 
     if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
       await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
@@ -3805,8 +3651,6 @@ final class OperatorWorkspace:
     }
     guard await cancelAndSettleBoundaryForReset() else { return false }
 
-    await calibrationTask?.value
-    currentCameraCalibrationTask = nil
     await actionTask?.value
     if actionTask != nil, activeLearningActionID == actionID {
       activeLearningActionID = nil
@@ -3815,8 +3659,8 @@ final class OperatorWorkspace:
     let learningStopStillActive = activeStopTarget != nil
     guard activeExerciseAttemptID == nil,
       activeDiscoverySequenceID == nil,
-      activeExplorationOperation == nil,
-      currentCameraCalibrationTask == nil,
+      activeBorderValidationOperation == nil,
+      cameraCalibrationRuntimePhase == nil,
       !learningStopStillActive
     else {
       learningAuthorityError =
@@ -3826,46 +3670,7 @@ final class OperatorWorkspace:
     return true
   }
 
-  private func performAvailableLearningVacate(_ plan: LearningVacatePlan) async -> Bool {
-    let freshPlan: LearningVacatePlan? =
-      switch plan.scope {
-      case .from:
-        learningVacatePlan(from: plan.anchor)
-      case .all:
-        resetAllLearningPlan
-      }
-    guard freshPlan == plan else {
-      learningAuthorityError =
-        "Learning changed while the reset summary was open. Review the updated steps and try again."
-      return false
-    }
-    let invalidatesBoundary: Bool = switch plan.anchor {
-    case .humanGuidedDiscovery(.penInteraction),
-      .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
-      true
-    default:
-      false
-    }
-    let boundaryResetCapability: PlotterBoundaryResetCapabilityID?
-    if invalidatesBoundary {
-      guard let capability = await reserveBoundaryResetBeforePersistence() else { return false }
-      boundaryResetCapability = capability
-    } else {
-      boundaryResetCapability = nil
-    }
-    guard let persistedPrefix = persistLearningPathPrefixBeforeVacate(plan) else {
-      if let boundaryResetCapability {
-        await abortBoundaryResetAfterPersistenceRefusal(boundaryResetCapability)
-      }
-      return false
-    }
-    if let boundaryResetCapability {
-      guard await commitBoundaryResetBeforeLocalCleanup(boundaryResetCapability) else {
-        return false
-      }
-    }
-    applyPersistedLearningPrefix(persistedPrefix)
-
+  private func applyLearningVacateEffect(_ plan: LearningVacatePlan) async -> Bool {
     let rootKinds = Set(
       learningArtifactGraph.revisions.compactMap { revision -> LearningArtifactKind? in
         guard plan.expectedCurrentRevisionIDs.contains(revision.id), revision.state == .current
@@ -3897,7 +3702,7 @@ final class OperatorWorkspace:
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       clearCalibrationLearningForRewind(from: .calibratePenContactFromSparseMarks)
       clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
-    case .observedDrawingTrial(let step):
+    case .borderValidation(let step):
       clearDrawingLearningForRewind(from: step)
     case .stage:
       learningAuthorityError = "The requested Learning Path row is not a rewind anchor."
@@ -3914,6 +3719,7 @@ final class OperatorWorkspace:
       activeMachineCameraCheckpoint = nil
       acceptedArtifactCheckpointStatus = .cleared
       recoverableTipCalibrationCheckpoint = nil
+      activeStageFourCheckpoint = nil
     } else {
       if plan.removesDurableMachineCheckpoint {
         activeMachineArtifactCheckpoint = nil
@@ -3977,22 +3783,6 @@ final class OperatorWorkspace:
     }
   }
 
-  private func applyPersistedLearningPrefix(_ prefix: PersistedLearningPrefix) {
-    switch prefix {
-    case .unchanged:
-      break
-    case .cleared:
-      savedLearningPackageState = .absent
-      activeStageFourCheckpoint = nil
-    case .saved(let checkpoint):
-      savedLearningPackageState = .applied(
-        checkpoint,
-        opticalComparison: "Saved from the current accepted Learning prefix."
-      )
-      activeStageFourCheckpoint = nil
-    }
-  }
-
   private func makeLearningVacatePlans(
     currentItemID: LearningPathItemID
   ) -> LearningVacatePlans {
@@ -4042,13 +3832,13 @@ final class OperatorWorkspace:
       .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
       when: tipCameraRegistration != nil || proposedTipCameraRegistration != nil
         || recoverableTipCalibrationCheckpoint != nil
-        || !sparseTipCalibrationCoordinator.acceptedObservations.isEmpty
+        || !tipCalibrationRuntime.acceptedObservations.isEmpty
     )
     recordPayload(
-      .observedDrawingTrial(.chooseDrawingBorderPlan),
+      .borderValidation(.chooseDrawingBorderPlan),
       when: drawingBorderPlan != nil || localPreFrameBaseline != nil
-        || drawingTrialDrawingOutcome != nil || explorationPostFrame != nil
-        || drawingTrialAssessment != nil || !comparisonAttemptHistories.isEmpty
+        || borderValidationDrawingOutcome != nil || explorationPostFrame != nil
+        || borderValidationAssessment != nil || !comparisonAttemptHistories.isEmpty
     )
 
     let source: LearningVacateSource = frameMode == .live ? .live : .simulated
@@ -4059,12 +3849,12 @@ final class OperatorWorkspace:
       of: .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     )!
     let removesDurableMachineAuthority = activeMachineArtifactCheckpoint != nil
-      || savedLearningPackageState.checkpoint?.machineArtifacts != nil
+      || savedLearningState.checkpoint?.machineArtifacts != nil
     let removesDurableTipAuthority = recoverableTipCalibrationCheckpoint != nil
       || tipCameraRegistration != nil
-      || savedLearningPackageState.checkpoint?.tipCalibration != nil
+      || savedLearningState.checkpoint?.tipCalibration != nil
     let physicalInkMayRemain =
-      (drawingTrialDrawingOutcome?.progress.commandedStrokeCount ?? 0) > 0
+      (borderValidationDrawingOutcome?.progress.commandedStrokeCount ?? 0) > 0
       || lastFrameObservation != nil
 
     func makePlan(
@@ -4132,7 +3922,7 @@ final class OperatorWorkspace:
       .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
     case .linePlan, .localPreLineBaseline, .lineExecution, .postLineFrame,
       .inkObservation, .residual, .comparison:
-      .observedDrawingTrial(.chooseDrawingBorderPlan)
+      .borderValidation(.chooseDrawingBorderPlan)
     }
   }
 
@@ -4420,7 +4210,7 @@ final class OperatorWorkspace:
           owner: "PlotterDrawingDraftRuntime"
         )
       })
-      candidates.append(contentsOf: DrawingTrialEvidenceRole.allCases.map { role in
+      candidates.append(contentsOf: BorderValidationEvidenceRole.allCases.map { role in
         let intent = PlotterDrawingDraftIntent.setEvidenceRole(role)
         return uiCandidate(
           id: PlotterAppUIActionID.drawingDraft(intent),
@@ -4659,7 +4449,7 @@ final class OperatorWorkspace:
         ),
         PlotterUILearningMilestone(
           ownerID: plotterUILearningOwnerID(
-            .observedDrawingTrial(.chooseDrawingBorderPlan)
+            .borderValidation(.chooseDrawingBorderPlan)
           ),
           isComplete: false
         ),
@@ -4923,7 +4713,7 @@ final class OperatorWorkspace:
       }
       let succeeded: Bool
       if plan.scope == .all {
-        succeeded = await performResetAllLearning(plan)
+        succeeded = await submitResetAllLearning(plan)
       } else {
         succeeded = await performLearningVacate(plan)
       }
@@ -5168,7 +4958,7 @@ final class OperatorWorkspace:
       .init(
         plansByAnchor: plans.plansByAnchor,
         resetAllPlan: plans.resetAllPlan,
-        unavailableReason: learningVacateUnavailableReason,
+        unavailableReason: artifactResetUnavailableReason,
         authorityError: learningAuthorityError
       )
     )
@@ -5241,7 +5031,7 @@ final class OperatorWorkspace:
       case .exerciseMotion(let id, let owner, _, let action):
         _ = owner
         return .exercise(id, action, boundaryOwner: false)
-      case .drawingTrial(let id, _): return .drawingTrial(id)
+      case .borderValidation(let id, _): return .borderValidation(id)
       case .sparseTipBatch(let id, _), .sparseTipBatchSegment(let id, _, _):
         return .sparseTipBatch(id)
       }
@@ -5262,9 +5052,9 @@ final class OperatorWorkspace:
         case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
           .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
           reason = learningExerciseMotionUnavailableReason(requiresCamera: true)
-        case .observedDrawingTrial(let step):
-          reason = drawingTrialActionUnavailableReason(
-            for: step == .chooseDrawingBorderPlan ? observedDrawingTrialStep : step
+        case .borderValidation(let step):
+          reason = borderValidationActionUnavailableReason(
+            for: step == .chooseDrawingBorderPlan ? borderValidationStep : step
           )
         case .stage:
           reason = nil
@@ -5277,7 +5067,7 @@ final class OperatorWorkspace:
         $0.registration.applicability.paperContactPlane.rawValue
           == explorationPaperContactPlaneRevision
       } ?? false
-    let savedTrainingCandidate = savedLearningPackageState.candidate.map { candidate in
+    let savedTrainingCandidate = savedLearningState.candidate.map { candidate in
       PlotterLearningPresentationFacts.SavedTrainingFacts(
         checkpointID: candidate.checkpoint.checkpointID,
         artifactSummary: savedTrainingArtifactSummary(candidate.checkpoint),
@@ -5319,7 +5109,7 @@ final class OperatorWorkspace:
         acceptedIsCurrent: machineCameraRegistration != nil
           && learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil,
         hasProposal: proposedMachineCameraRegistration != nil,
-        phase: currentCameraCalibrationPhase,
+        phase: cameraCalibrationRuntimePhase,
         failureRecovery: currentCameraCalibrationFailure?.recovery
       ),
       sparseCalibration: .init(
@@ -5330,24 +5120,28 @@ final class OperatorWorkspace:
             learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
               == $0.acceptedRevisionID
           } ?? false,
-        phase: sparseTipCalibrationCoordinator.phase,
-        acceptedObservationCount: sparseTipCalibrationCoordinator.acceptedObservations.count,
+        phase: tipCalibrationRuntime.phase,
+        acceptedObservationCount: tipCalibrationRuntime.acceptedObservations.count,
         collectedClickCount: selectedToolContactPoints.count,
-        blacklistedPositionCount: sparseTipCalibrationCoordinator.blacklistedPositions.count,
+        blacklistedPositionCount: tipCalibrationRuntime.blacklistedPositions.count,
         savedCheckpointMatchesPaper: savedCheckpointMatchesPaper
       ),
       drawing: .init(
-        currentStep: observedDrawingTrialStep,
+        currentStep: borderValidationStep,
+        phase: activeLearningSession.borderValidation.phase,
+        decisionIsInFlight:
+          activeLearningSession.borderValidation.activeStep
+            == .compareIntendedAndObservedGeometry,
         drawingBorderPath: drawingBorderPlan?.strokes.first?.path.points.map(
           MachinePosition.init(point:)
         ) ?? [],
         localBaselineFrameID: localPreFrameBaseline?.frame.id.rawValue,
-        drawingBorderSettled: drawingTrialDrawingOutcome.map {
+        drawingBorderSettled: borderValidationDrawingOutcome.map {
           if case .completed = $0 { return true }
           return false
         } ?? false,
         inkStatus: explorationInkStatus,
-        assessment: drawingTrialAssessment,
+        assessment: borderValidationAssessment,
         lastTravelFeed: lastTravelFeedSelection
       ),
       operations: .init(
@@ -5402,6 +5196,20 @@ final class OperatorWorkspace:
     case .boundary(let intent):
       _ = await submitBoundaryIntent(intent)
       return
+    case .cameraCalibration(let intent):
+      _ = await cameraCalibrationRuntime.submit(intent)
+      return
+    case .tipCalibration(let intent):
+      _ = await tipCalibrationRuntime.submit(intent)
+      markSemanticPresentationChanged()
+      return
+    case .borderValidation(let intent):
+      await submitBorderValidationDecision(intent)
+      return
+    case .pointSelectionCorrection(let intent):
+      await performPointSelectionCorrection(intent)
+      markSemanticPresentationChanged()
+      return
     case .cancel:
       await cancelExerciseAttempt(ownerID)
       return
@@ -5440,10 +5248,10 @@ final class OperatorWorkspace:
     switch kind {
     case .boundary:
       return
-    case .useSavedTraining:
-      await useSavedTraining()
+    case .applySavedLearning:
+      _ = await artifactResetRuntime.submit(.applySavedLearning, facts: artifactResetAdmissionFacts)
     case .startNewLearning:
-      startNewLearning()
+      _ = await artifactResetRuntime.submit(.retainSavedLearning, facts: artifactResetAdmissionFacts)
     case .start:
       await startExercise(ownerID, mode: .normal)
     case .choice(let choice):
@@ -5456,41 +5264,31 @@ final class OperatorWorkspace:
       restartableExerciseItemID = nil
       await startExercise(ownerID, mode: .normal)
     case .redoThisStep:
-      await startExercise(ownerID, mode: .replacement)
+      _ = await artifactResetRuntime.submit(
+        .redoStep(PlotterArtifactResetStepID(rawValue: ownerID.number)),
+        facts: artifactResetAdmissionFacts
+      )
     case .recordAnotherAttempt:
-      await startExercise(ownerID, mode: .additional)
-    case .runCameraCalibrationAndBuildProposal:
-      await runCameraCalibrationAndBuildProposal()
-    case .acceptCameraCalibrationProposal:
-      acceptCameraCalibrationProposal()
-    case .rejectCameraCalibrationProposal:
-      rejectCameraCalibrationProposal()
-    case .drawFourCornerTipCircles:
-      await drawFourCornerTipCircles()
-    case .undoLastSparseTipClick:
-      await undoLastSparseTipClick()
-    case .clearSparseTipClicks:
-      await clearSparseTipClicks()
-    case .revalidateTipCalibrationCheckpoint:
-      await revalidateTipCalibrationCheckpoint()
-    case .acceptTipCalibrationProposal:
-      _ = commitTipCalibration(actor: "operator-accepted-proposal")
-    case .rejectTipCalibrationProposal:
-      await rejectTipCalibrationProposal()
-    case .retryTipCalibrationCommit:
-      _ = commitTipCalibration(actor: "operator-retry")
+      _ = await artifactResetRuntime.submit(
+        .recordAnotherAttempt(PlotterArtifactResetStepID(rawValue: ownerID.number)),
+        facts: artifactResetAdmissionFacts
+      )
+    case .cameraCalibration:
+      return
+    case .tipCalibration, .borderValidation, .pointSelectionCorrection:
+      return
     case .paperReplaced:
-      await recordPaperReplaced()
+      await recordPaperReplacement(contactPlaneChanged: false)
     }
+    markSemanticPresentationChanged()
   }
 
-  private func useSavedTraining() async {
+  private func applySavedLearningEffect() async throws -> (
+    AcceptedLearningPathCheckpoint, String
+  ) {
     guard case .awaitingOperatorDecision(let checkpoint, let opticalComparison) =
-      savedLearningPackageState
-    else { return }
-    savedTrainingComparisonTask?.cancel()
-    savedTrainingComparisonTask = nil
-    do {
+      savedLearningState
+    else { throw LearningPathOperationError.requiredState("No Saved Learning decision is pending.") }
       let restoredGraph = try checkpoint.restoredLearningGraph()
       await penInteractionRuntime.restore(checkpoint.penInteraction, environment: .live)
       installPenInteractionSnapshot(
@@ -5510,11 +5308,6 @@ final class OperatorWorkspace:
         session.learningArtifactGraph = restoredGraph
         session.activeMachineArtifactCheckpoint = machine
         session.activeMachineCameraCheckpoint = checkpoint.machineCamera
-        session.machineCameraRegistration = checkpoint.machineCamera?.registration
-        session.tipCameraRegistration = checkpoint.tipCalibration?.registration
-        session.proposedMachineCameraRegistration = nil
-        session.proposedTipCameraRegistration = nil
-        session.recoverableTipCalibrationCheckpoint = nil
         session.activeStageFourCheckpoint = checkpoint.stageFour
         if let machine {
           session.explorationCoordinateRevision = machine.coordinateRevision
@@ -5529,10 +5322,6 @@ final class OperatorWorkspace:
             pen.acceptedSequence
           )
         }
-        session.savedLearningPackageState = .applied(
-          checkpoint,
-          opticalComparison: opticalComparison
-        )
         session.acceptedArtifactCheckpointStatus = .appliedByOperator(
           sideCount: machine?.acceptedBoundaryAggregates.count ?? 0,
           hasTipCalibration: checkpoint.tipCalibration != nil
@@ -5540,6 +5329,10 @@ final class OperatorWorkspace:
         session.learningAuthorityError = nil
         session.explorationError = nil
       }
+      tipCameraRegistration = checkpoint.tipCalibration?.registration
+      proposedTipCameraRegistration = nil
+      machineCameraRegistration = checkpoint.machineCamera?.registration
+      proposedMachineCameraRegistration = nil
       if let appearance = checkpoint.penCapAppearance {
         let selection = PenCapAppearanceSelection(checkpoint: appearance)
         livePenCapAppearanceSelection = selection
@@ -5547,24 +5340,19 @@ final class OperatorWorkspace:
         await cameraActions?.setPenCapColor(selection.color)
       }
       restoreInteractiveLearningCompletionFromEvidence()
-    } catch {
-      learningAuthorityError =
-        "Saved Learning could not be applied: \(actionableDescription(error))"
-    }
+      return (checkpoint, opticalComparison)
   }
 
-  private func startNewLearning() {
-    guard case .awaitingOperatorDecision(let checkpoint, _) = savedLearningPackageState
-    else { return }
-    savedTrainingComparisonTask?.cancel()
-    savedTrainingComparisonTask = nil
-    savedLearningPackageState = .retainedForLater(checkpoint)
+  private func retainSavedLearningEffect() throws -> AcceptedLearningPathCheckpoint {
+    guard case .awaitingOperatorDecision(let checkpoint, _) = savedLearningState
+    else { throw LearningPathOperationError.requiredState("No Saved Learning decision is pending.") }
     acceptedArtifactCheckpointStatus = .retainedForLater(
       sideCount: checkpoint.machineArtifacts?.acceptedBoundaryAggregates.count ?? 0,
       hasTipCalibration: checkpoint.tipCalibration != nil
     )
     learningAuthorityError = nil
     explorationError = nil
+    return checkpoint
   }
 
   private func startPenInteractionEpisode(mode: ExerciseAttemptMode) async {
@@ -5772,7 +5560,101 @@ final class OperatorWorkspace:
       "causal scene · MPos X \(scene.controllerPosition.xMM) Y \(scene.controllerPosition.yMM) · persistent ink segments \(scene.inkSegmentCount)"
   }
 
-  private func captureCameraCalibrationReference() async {
+  func executeCameraCalibrationEffect(
+    _ request: PlotterCameraCalibrationEffectRequest
+  ) async -> PlotterCameraCalibrationEffectResult {
+    guard !hasShutdown else { return .cancelled }
+    switch request {
+    case .captureReference:
+      await captureCameraCalibrationReferenceEffect()
+      guard let frame = cameraCalibrationAnchorFrame,
+        let position = cameraCalibrationReferencePosition,
+        let capAnchor = cameraCalibrationReferenceCapAnchor
+      else { return .failed(cameraCalibrationEffectFailure(explorationError)) }
+      return .completed(.reference(frame: frame, position: position, capAnchor: capAnchor))
+    case .buildFivePositionProposal:
+      return .failed(cameraCalibrationEffectFailure("The runtime must request the individual five-position facts."))
+    case .acceptProposal(_, let registration):
+      acceptCameraCalibrationProposalEffect()
+      guard machineCameraRegistration == registration, proposedMachineCameraRegistration == nil else {
+        return .failed(cameraCalibrationEffectFailure(explorationError))
+      }
+      return .completed(.accepted(registration))
+    case .rejectProposal:
+      rejectCameraCalibrationProposalEffect()
+      return .completed(.rejected)
+    case .fivePositionPlan(_, let reference):
+      do {
+        let plan = try CurrentCameraCalibrationPlan(
+          targetPosition: reference,
+          acceptedBoundaryAggregates: acceptedBoundaryAggregates,
+          controllerSessionID: controllerSessionID,
+          coordinateRevision: explorationCoordinateRevision
+        )
+        guard let frame = cameraCalibrationAnchorFrame else {
+          return .failed(cameraCalibrationEffectFailure("The exact reference frame is unavailable."))
+        }
+        return .completed(.fivePositionPlan(.init(
+          samplePositions: plan.samplePositions,
+          motionDeltas: plan.motionDeltas,
+          applicabilityRectangle: plan.applicabilityRectangle,
+          opticalConfiguration: try exactTipCalibrationFrame(frame).opticalConfiguration,
+          machineGeometry: machineGeometryIdentity,
+          controllerSessionID: controllerSessionID,
+          coordinateRevision: explorationCoordinateRevision
+        )))
+      } catch { return .failed(cameraCalibrationEffectFailure(actionableDescription(error))) }
+    case .captureSample(let operationID, _, let expected):
+      do {
+        guard protocolPositionsMatch(try currentMachinePosition(), expected) else {
+          throw LearningPathOperationError.requiredState("Camera calibration is not at its required sample position.")
+        }
+        let capture = try await captureCurrentCameraCapAnchorEvidence(
+          contextBaseline: nil, operationID: operationID.rawValue
+        )
+        return .completed(.sample(capture.evidence))
+      } catch { return .failed(cameraCalibrationEffectFailure(actionableDescription(error))) }
+    case .moveAndCapture(let operationID, let sample, let expected, let delta):
+      do {
+        let ownerID = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+        let final = try await performSupervisedPenUpTravel(
+          delta: delta, ownerID: ownerID,
+          action: .cameraCalibrationSample(index: sample + 1, total: 5)
+        )
+        guard recordProtocolPoseSettlement(
+          action: .cameraCalibrationSample(index: sample + 1, total: 5), target: expected, actual: final
+        ) else { throw LearningPathOperationError.controllerFailed("Calibration travel did not settle at its exact sample.") }
+        let capture = try await captureCurrentCameraCapAnchorEvidence(
+          contextBaseline: nil, operationID: operationID.rawValue
+        )
+        return .completed(.sample(capture.evidence))
+      } catch { return .failed(cameraCalibrationEffectFailure(actionableDescription(error))) }
+    case .returnToReference(_, let reference, let delta):
+      do {
+        let final = try await performSupervisedPenUpTravel(
+          delta: delta,
+          ownerID: .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
+          action: .returnFromCameraCalibration
+        )
+        guard recordProtocolPoseSettlement(action: .returnFromCameraCalibration, target: reference, actual: final) else {
+          throw LearningPathOperationError.controllerFailed("Calibration return did not settle at the reference pose.")
+        }
+        return .completed(.returnedToReference)
+      } catch { return .failed(cameraCalibrationEffectFailure(actionableDescription(error))) }
+    }
+  }
+
+  private func cameraCalibrationEffectFailure(
+    _ detail: String?
+  ) -> PlotterCameraCalibrationFailure {
+    .init(
+      code: .unexpectedFailure,
+      detail: detail ?? "Camera-calibration effect did not produce the required terminal fact.",
+      recovery: .resolveNamedFailure
+    )
+  }
+
+  func captureCameraCalibrationReferenceEffect() async {
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .calibrateCameraAndVisibleCap
     )
@@ -5850,9 +5732,7 @@ final class OperatorWorkspace:
         registrationFrame = inspection.displayedFrame
         publishWorkflowInspection(inspection, owner: .cameraCalibration)
       }
-      cameraCalibrationAnchorFrame = registrationFrame
-      cameraCalibrationReferencePosition = targetMachinePosition
-      cameraCalibrationReferenceCapAnchor = try ToolCapAnchorEstimate(
+      let capAnchor = try ToolCapAnchorEstimate(
         componentCentroid: centroid,
         componentBounds: bounds,
         confidence: confidence,
@@ -5861,32 +5741,16 @@ final class OperatorWorkspace:
         frameID: registrationFrame.frame.id,
         cameraConfigurationID: registrationFrame.frame.cameraConfigurationID
       )
-      proposedMachineCameraRegistration = nil
+      cameraCalibrationRuntime.installReference(
+        frame: registrationFrame,
+        position: targetMachinePosition,
+        capAnchor: capAnchor
+      )
       explorationError = nil
     } catch {
       explorationError =
         "Camera-calibration reference capture failed: \(actionableDescription(error))"
     }
-  }
-
-  /// Runs Exercise 1.3 as one operator action. Recovery after an interrupted
-  /// calibration retains the exact center reference and resumes at proposal
-  /// construction instead of demanding a duplicate capture.
-  private func runCameraCalibrationAndBuildProposal() async {
-    let ownerID = LearningPathItemID.humanGuidedDiscovery(
-      .calibrateCameraAndVisibleCap
-    )
-    if activeExerciseAttemptOwnerID == nil {
-      await startExercise(ownerID, mode: activeExerciseAttemptMode ?? .normal)
-    }
-    guard activeExerciseAttemptOwnerID == ownerID else { return }
-    if cameraCalibrationAnchorFrame == nil {
-      await captureCameraCalibrationReference()
-    }
-    guard cameraCalibrationAnchorFrame != nil,
-      cameraCalibrationReferencePosition != nil
-    else { return }
-    await buildCameraCalibrationProposal()
   }
 
   private var penCapAnchorEstimatorRevision: String {
@@ -5905,94 +5769,8 @@ final class OperatorWorkspace:
     }
   }
 
-  @discardableResult
-  private func stageMachineCameraRegistrationProposal(
-    correspondenceOverride: [MachineCameraCorrespondenceProvenance]? = nil,
-    applicabilityRectangleOverride: AxisAlignedBounds<MachineSpace>? = nil
-  ) -> Bool {
-    guard let frame = cameraCalibrationAnchorFrame,
-      let capAnchor = cameraCalibrationReferenceCapAnchor,
-      capAnchor.frameID == frame.frame.id
-    else { return false }
-    do {
-      let exactSamples =
-        correspondenceOverride ?? compatibleRegistrationCapAnchorEvidence(for: frame)
-      guard exactSamples.count == 5 else {
-        explorationError =
-          "Machine-camera registration requires exactly five compatible cap samples: three fit samples and two independent holdouts; \(exactSamples.count) are available."
-        return false
-      }
-      let fitSamples = Array(exactSamples.prefix(3))
-      let holdoutSamples = Array(exactSamples.suffix(2))
-      let fitCorrespondences = fitSamples.map {
-        MachineCameraRegistrationCorrespondence(
-          machine: $0.machinePoint,
-          camera: $0.capAnchorPoint
-        )
-      }
-      let candidateFit = try MachineCameraRegistrationFit.fit(
-        correspondences: fitCorrespondences,
-        weights: fitSamples.map { max(0.01, $0.capAnchorConfidence * $0.capAnchorConfidence) }
-      )
-      let holdoutResiduals = try holdoutSamples.map {
-        try candidateFit.cameraPoint(from: $0.machinePoint).distance(to: $0.capAnchorPoint)
-      }
-      guard holdoutResiduals.allSatisfy({ $0 <= 8 }) else {
-        throw LearningPathOperationError.requiredState(
-          "Independent cap holdouts failed (\(holdoutResiduals.map { String(format: "%.3f px", $0) }.joined(separator: ", "))). No camera proposal was staged."
-        )
-      }
-      let correspondences = exactSamples.map {
-        MachineCameraRegistrationCorrespondence(
-          machine: $0.machinePoint,
-          camera: $0.capAnchorPoint
-        )
-      }
-      let finalFit = try MachineCameraRegistrationFit.fit(
-        correspondences: correspondences,
-        weights: exactSamples.map { max(0.01, $0.capAnchorConfidence * $0.capAnchorConfidence) }
-      )
-      let applicabilityRectangle =
-        try applicabilityRectangleOverride
-        ?? AxisAlignedBounds<MachineSpace>(
-          minX: exactSamples.map(\.machinePoint.x).min()!,
-          minY: exactSamples.map(\.machinePoint.y).min()!,
-          maxX: exactSamples.map(\.machinePoint.x).max()!,
-          maxY: exactSamples.map(\.machinePoint.y).max()!
-        )
-      let registration = try MachineCameraRegistration(
-        candidateFit: candidateFit,
-        fit: finalFit,
-        source: frame.source,
-        opticalConfiguration: try exactTipCalibrationFrame(frame).opticalConfiguration,
-        machineGeometry: machineGeometryIdentity,
-        controllerSessionID: controllerSessionID,
-        coordinateRevision: explorationCoordinateRevision,
-        cameraConfigurationID: frame.frame.cameraConfigurationID,
-        fitCorrespondenceProvenance: fitSamples,
-        holdoutCorrespondenceProvenance: holdoutSamples,
-        maximumHoldoutResidualPixels: 8,
-        estimatorRevision:
-          "five-cap-affine-three-fit-two-holdout-v2:cap-\(penCapAppearanceSelection?.color.hexRGB ?? "UNLEARNED")",
-        uncertaintyPixels: max(finalFit.maximumErrorPixels, holdoutResiduals.max() ?? 0),
-        applicabilityRectangle: applicabilityRectangle,
-        applicabilityDerivation: .boundaryEnvelopeInsetAndSymmetricallyReduced(
-          safetyMarginMM: CurrentCameraCalibrationPlan.safetyMarginMM,
-          maximumHalfSpanMM: CurrentCameraCalibrationPlan.maximumUnprovenHalfSpanMM
-        )
-      )
-      proposedMachineCameraRegistration = registration
-      explorationError = nil
-      return true
-    } catch {
-      proposedMachineCameraRegistration = nil
-      explorationError = "Machine-camera registration failed: \(actionableDescription(error))"
-      return false
-    }
-  }
-
   /// Makes the reviewed five-sample cap-map proposal authoritative atomically.
-  private func acceptCameraCalibrationProposal() {
+  func acceptCameraCalibrationProposalEffect() {
     guard let attemptID = activeExerciseAttemptID,
       activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
       let centerArrival = learningArtifactGraph.currentRevision(for: .centerArrival)?.id,
@@ -6000,6 +5778,9 @@ final class OperatorWorkspace:
     else { return }
     do {
       var graph = learningArtifactGraph
+      let previousGraph = learningArtifactGraph
+      let previousRegistration = machineCameraRegistration
+      let previousCheckpoint = activeMachineCameraCheckpoint
       let machineRegistrationCandidate = LearningArtifactRevision(
         kind: .machineCameraRegistration,
         attemptID: attemptID,
@@ -6011,203 +5792,22 @@ final class OperatorWorkspace:
       )
       let machineRegistration = try graph.commitReplacement(machineRegistrationCandidate)
       learningArtifactGraph = graph
-      applyArtifactInvalidations(machineRegistration.invalidatedRevisionIDs)
       machineCameraRegistration = registration
       proposedMachineCameraRegistration = nil
       activeMachineCameraCheckpoint = currentAcceptedMachineCameraCheckpoint()
-      persistAcceptedLearningPathCheckpoint(clearTip: true, clearStageFour: true)
+      guard persistAcceptedLearningPathCheckpoint(clearTip: true, clearStageFour: true) else {
+        learningArtifactGraph = previousGraph
+        machineCameraRegistration = previousRegistration
+        proposedMachineCameraRegistration = registration
+        activeMachineCameraCheckpoint = previousCheckpoint
+        return
+      }
+      applyArtifactInvalidations(machineRegistration.invalidatedRevisionIDs)
       finishActiveExerciseAttempt(disposition: .succeeded)
       explorationError = nil
     } catch {
       explorationError =
         "Camera-calibration acceptance failed atomically: \(actionableDescription(error))"
-    }
-  }
-
-  private func buildCameraCalibrationProposal() async {
-    guard currentCameraCalibrationTask == nil, !hasShutdown else { return }
-    let task = Task { @MainActor [weak self] in
-      guard let self else { return }
-      await self.executeCurrentCameraCalibrationAndBuildProposal()
-    }
-    currentCameraCalibrationTask = task
-    await task.value
-    currentCameraCalibrationTask = nil
-  }
-
-  private func executeCurrentCameraCalibrationAndBuildProposal() async {
-    guard currentCameraCalibrationPhase == nil, !hasShutdown, !Task.isCancelled,
-      let frame = cameraCalibrationAnchorFrame,
-      let targetPosition = cameraCalibrationReferencePosition
-    else { return }
-
-    let ownerID = LearningPathItemID.humanGuidedDiscovery(
-      .calibrateCameraAndVisibleCap
-    )
-    let operationID = UUID()
-    let attemptID = activeExerciseAttemptID
-    currentCameraCalibrationFailure = nil
-    await recordWorkflowTelemetry(
-      WorkflowTelemetryEvent(
-        operationID: operationID,
-        operation: .currentCameraCalibration,
-        phase: .intentAccepted,
-        attemptID: attemptID,
-        detail: "Five-position camera calibration started."
-      )
-    )
-    await updateCurrentCameraCalibrationPhase(
-      .preparing,
-      operationID: operationID,
-      attemptID: attemptID
-    )
-    explorationError = nil
-    defer { currentCameraCalibrationPhase = nil }
-
-    do {
-      var stagedSamples: [MachineCameraCorrespondenceProvenance] = []
-      var contextBaseline: ControllerContextBaseline?
-      let current = try currentMachinePosition()
-      guard protocolPositionsMatch(current, targetPosition) else {
-        throw LearningPathOperationError.requiredState(
-          "Return to the recorded calibration reference pose before calibrating the current camera."
-        )
-      }
-      let plan = try CurrentCameraCalibrationPlan(
-        targetPosition: targetPosition,
-        acceptedBoundaryAggregates: acceptedBoundaryAggregates,
-        controllerSessionID: controllerSessionID,
-        coordinateRevision: explorationCoordinateRevision
-      )
-
-      await updateCurrentCameraCalibrationPhase(
-        .capturing(sample: 1, total: 5, role: "C (fit)"),
-        operationID: operationID,
-        attemptID: attemptID
-      )
-      let firstCapture = try await captureCurrentCameraCapAnchorEvidence(
-        contextBaseline: contextBaseline,
-        operationID: operationID
-      )
-      stagedSamples.append(firstCapture.evidence)
-      contextBaseline = firstCapture.contextBaseline
-      try requireCalibrationContinuation()
-
-      for sampleIndex in 1..<plan.samplePositions.count {
-        try requireCalibrationContinuation()
-        let expected = plan.samplePositions[sampleIndex]
-        await updateCurrentCameraCalibrationPhase(
-          .moving(sample: sampleIndex + 1, total: 5),
-          operationID: operationID,
-          attemptID: attemptID
-        )
-        let final = try await performSupervisedPenUpTravel(
-          delta: plan.motionDeltas[sampleIndex - 1],
-          ownerID: ownerID,
-          action: .cameraCalibrationSample(index: sampleIndex + 1, total: 5)
-        )
-        try requireCalibrationContinuation()
-        guard
-          recordProtocolPoseSettlement(
-            action: .cameraCalibrationSample(index: sampleIndex + 1, total: 5),
-            target: expected,
-            actual: final
-          )
-        else {
-          throw LearningPathOperationError.controllerFailed(
-            "Calibration travel did not settle at exact sample \(sampleIndex + 1) of 5."
-          )
-        }
-        await updateCurrentCameraCalibrationPhase(
-          .capturing(sample: sampleIndex + 1, total: 5, role: nil),
-          operationID: operationID,
-          attemptID: attemptID
-        )
-        let capture = try await captureCurrentCameraCapAnchorEvidence(
-          contextBaseline: contextBaseline,
-          operationID: operationID
-        )
-        stagedSamples.append(capture.evidence)
-        contextBaseline = capture.contextBaseline
-        try requireCalibrationContinuation()
-      }
-
-      try requireCalibrationContinuation()
-      await updateCurrentCameraCalibrationPhase(
-        .returningToReference,
-        operationID: operationID,
-        attemptID: attemptID
-      )
-      let returned = try await performSupervisedPenUpTravel(
-        delta: plan.motionDeltas[4],
-        ownerID: ownerID,
-        action: .returnFromCameraCalibration
-      )
-      try requireCalibrationContinuation()
-      guard
-        recordProtocolPoseSettlement(
-          action: .returnFromCameraCalibration,
-          target: targetPosition,
-          actual: returned
-        )
-      else {
-        throw LearningPathOperationError.controllerFailed(
-          "Calibration return did not settle at the recorded reference pose."
-        )
-      }
-      try requireCalibrationContinuation()
-      await updateCurrentCameraCalibrationPhase(
-        .fittingAndTestingHoldouts,
-        operationID: operationID,
-        attemptID: attemptID
-      )
-      guard
-        stageMachineCameraRegistrationProposal(
-          correspondenceOverride: stagedSamples,
-          applicabilityRectangleOverride: plan.applicabilityRectangle
-        )
-      else {
-        throw LearningPathOperationError.requiredState(
-          explorationError ?? "The current-camera registration fit was not accepted."
-        )
-      }
-      explicitRegistrationCapAnchorEvidence.removeAll {
-        $0.source == frame.source
-          && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
-          && $0.controllerSessionID == controllerSessionID
-          && $0.coordinateRevision == explorationCoordinateRevision
-      }
-      explicitRegistrationCapAnchorEvidence.append(contentsOf: stagedSamples)
-      currentCameraCalibrationFailure = nil
-      await recordWorkflowTelemetry(
-        WorkflowTelemetryEvent(
-          operationID: operationID,
-          operation: .currentCameraCalibration,
-          phase: .completed,
-          attemptID: attemptID,
-          detail:
-            "Five exact cap measurements passed the three-fit/two-check policy and produced one reviewable camera calibration."
-        )
-      )
-    } catch  where hasShutdown || Task.isCancelled {
-      return
-    } catch {
-      proposedMachineCameraRegistration = nil
-      let failure = currentCameraCalibrationFailure(for: error, targetPosition: targetPosition)
-      currentCameraCalibrationFailure = failure
-      explorationError =
-        "Current-camera calibration failed [\(failure.code.rawValue)]: \(failure.detail)"
-      await recordWorkflowTelemetry(
-        WorkflowTelemetryEvent(
-          operationID: operationID,
-          operation: .currentCameraCalibration,
-          phase: .failed,
-          attemptID: attemptID,
-          detail: failure.detail,
-          failureCode: failure.code,
-          recovery: failure.recovery
-        )
-      )
     }
   }
 
@@ -6636,13 +6236,8 @@ final class OperatorWorkspace:
     )
   }
 
-  private func rejectCameraCalibrationProposal() {
-    currentCameraCalibrationFailure = nil
-    cameraCalibrationAnchorFrame = nil
-    cameraCalibrationReferencePosition = nil
-    cameraCalibrationReferenceCapAnchor = nil
-    proposedMachineCameraRegistration = nil
-    machineCameraRegistration = nil
+  func rejectCameraCalibrationProposalEffect() {
+    cameraCalibrationRuntime.clearForReset()
     explorationError =
       "Operator rejected the staged five-sample cap map. No machine-camera revision became authoritative."
   }
@@ -6656,7 +6251,8 @@ final class OperatorWorkspace:
   private func performPointSelectionSubmission(
     _ submission: PlotterPointSelectionSubmission
   ) async {
-    let submittedPurpose = pointSelectionEpisodeProjection.exactPointSelection.request?.purpose
+    let submittedRequest = pointSelectionEpisodeProjection.exactPointSelection.request
+    let submittedPurpose = submittedRequest?.purpose
     do {
       let result = try await pointSelectionRuntime.submit(submission)
       switch result {
@@ -6702,22 +6298,27 @@ final class OperatorWorkspace:
       case let .acceptedBatch(points, presentationRevision, projection):
         installPointSelectionProjection(projection)
         do {
-          try sparseTipCalibrationCoordinator.beginFitting()
-          try acceptSparseTipBatchClicks(
-            points: points,
-            presentationRevision: PresentationTransformRevision(
-              rawValue: presentationRevision.rawValue
+          guard let submittedRequest else {
+            throw LearningPathOperationError.requiredState(
+              "The completed point-selection batch had no matching request."
             )
+          }
+          let completedSelection = PlotterTipCalibrationCompletedPointSelection(
+            selectionID: submittedRequest.id,
+            exactFrame: submittedRequest.frame,
+            presentationTransformRevision: presentationRevision,
+            points: points
           )
+          let outcome = await tipCalibrationRuntime.submit(
+            .consumeCompletedPointSelection(completedSelection)
+          )
+          guard outcome == .completed else {
+            throw TipCalibrationEffectOutcomeError(outcome: outcome)
+          }
           explorationError = nil
         } catch {
-          if sparseTipCalibrationCoordinator.recoverFromFittingFailure() {
-            explorationError =
-              "Pen-tip calibration construction failed without motion or redraw: \(actionableDescription(error)). Use Undo Last Click or Clear Clicks on This Frame to correct the same frozen frame."
-          } else {
-            explorationError =
-              "Pen-tip calibration construction failed without motion or redraw: \(actionableDescription(error)). The frozen-click state could not be restored; Cancel Attempt remains available and no redraw was sent."
-          }
+          explorationError =
+            "Pen-tip calibration construction failed without motion or redraw: \(actionableDescription(error)). Use Undo Last Click or Clear Clicks on This Frame to correct the same frozen frame."
         }
       }
     } catch {
@@ -6783,26 +6384,44 @@ final class OperatorWorkspace:
     pendingToolContactEvidence = []
   }
 
-  private func drawFourCornerTipCircles() async {
+  private func drawSparseTipCircles() async throws -> PlotterTipCalibrationMarkBatchFact {
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
     if let reason = controllerPoseRevalidationUnavailableReason {
       explorationError = reason
-      return
+      throw LearningPathOperationError.requiredState(reason)
     }
     if activeExerciseAttemptOwnerID == nil {
       await startExercise(ownerID, mode: .normal)
     }
     guard activeExerciseAttemptOwnerID == ownerID,
       let attemptID = activeExerciseAttemptID
-    else { return }
+    else {
+      throw LearningPathOperationError.requiredState(
+        "Pen-tip calibration did not own the active Learning attempt."
+      )
+    }
 
     let target = ContextualStopTarget.sparseTipBatch(
       capabilityID: ContextualStopCapabilityID(),
       attemptID: attemptID
     )
-    let task = Task { await executeFourCornerTipCircles(ownerID: ownerID, attemptID: attemptID) }
+    var result: Result<PlotterTipCalibrationMarkBatchFact, any Error>?
+    let task = Task { @MainActor [weak self] in
+      guard let self else {
+        result = .failure(CancellationError())
+        return
+      }
+      do {
+        result = .success(try await self.executeFourCornerTipCircles(
+          ownerID: ownerID,
+          attemptID: attemptID
+        ))
+      } catch {
+        result = .failure(error)
+      }
+    }
     sparseTipPenUpAuthorization = nil
     installStoppableOperation(target: target, owner: .batch(task))
     defer {
@@ -6810,19 +6429,28 @@ final class OperatorWorkspace:
       clearStoppableOperation(matching: target)
     }
     await task.value
+    return try result?.get() ?? {
+      throw LearningPathOperationError.requiredState(
+        "Pen-tip calibration batch ended without a terminal fact."
+      )
+    }()
   }
 
   private func executeFourCornerTipCircles(
     ownerID: LearningPathItemID,
     attemptID: ExerciseAttemptID
-  ) async {
+  ) async throws -> PlotterTipCalibrationMarkBatchFact {
     guard activeExerciseAttemptOwnerID == ownerID,
       activeExerciseAttemptID == attemptID,
       let machineRegistration = machineCameraRegistration,
       let machineRegistrationRevision = learningArtifactGraph.currentRevision(
         for: .machineCameraRegistration
       )?.id
-    else { return }
+    else {
+      throw LearningPathOperationError.requiredState(
+        "Pen-tip calibration requires accepted machine-camera registration."
+      )
+    }
 
     let batchTelemetryOperationID = UUID()
     var batchTelemetryAdmitted = false
@@ -6854,7 +6482,6 @@ final class OperatorWorkspace:
           "Possible ink already excludes one of the four calibration-circle locations on the current paper."
         )
       }
-      try sparseTipCalibrationCoordinator.beginBatch()
       batchTelemetryAdmitted = true
       await recordWorkflowTelemetry(
         WorkflowTelemetryEvent(
@@ -6992,7 +6619,6 @@ final class OperatorWorkspace:
       }
 
       try requireSparseTipBatchContinuation()
-      try sparseTipCalibrationCoordinator.beginReveal()
       let revealTarget = batchPlan.finalRevealPosition
       let revealSettled: MachinePosition
       if let revealDelta = try Self.supervisedTravelDelta(
@@ -7108,13 +6734,17 @@ final class OperatorWorkspace:
           capMapPredictionAtMark: drawn.capMapPredictionAtMark
         )
       }
-      try sparseTipCalibrationCoordinator.awaitFrozenClicks(frame: exactRevealFrame)
       let staged = try await pointSelectionRuntime.stage(
         frame: revealCapture.displayedFrame,
         presentationTransformRevision: PlotterPresentationTransformRevision(),
         prompt: "Click the four corner-circle centers in any order",
         purpose: .toolContact,
-        requiredPointCount: SparseTipCalibrationCoordinator.orderedPositions.count
+        requiredPointCount: PlotterTipCalibrationRuntime.orderedPositions.count
+      )
+      let expectedSelection = PlotterTipCalibrationExpectedPointSelection(
+        selectionID: staged.request.id,
+        exactFrame: staged.request.frame,
+        presentationTransformRevision: staged.request.presentationTransformRevision
       )
       installPointSelectionProjection(staged.projection)
       pendingToolContactEvidence = pendingEvidence
@@ -7138,6 +6768,11 @@ final class OperatorWorkspace:
         )
       )
       _ = machineRegistrationRevision
+      return PlotterTipCalibrationMarkBatchFact(
+        expectedSelection: expectedSelection,
+        controllerEvidenceIDs: [controllerEvidence.passiveProbeID.uuidString.lowercased()],
+        captureEvidenceIDs: [exactRevealFrame.frameID.rawValue]
+      )
     } catch {
       sparseTipPenUpAuthorization = nil
       let failure = workflowFailure(for: error)
@@ -7149,14 +6784,9 @@ final class OperatorWorkspace:
         locationsToBlacklist.append(activeLocation)
       }
       if locationsToBlacklist.isEmpty {
-        sparseTipCalibrationCoordinator.resetBeforeInkFailure()
       } else {
         for location in Set(locationsToBlacklist) {
           blacklistedToolContactLocations.insert(location)
-          sparseTipCalibrationCoordinator.blacklistPossibleInk(
-            at: location,
-            reason: failure.detail
-          )
         }
         restartableExerciseItemID = nil
       }
@@ -7195,6 +6825,19 @@ final class OperatorWorkspace:
       await cancelPointSelectionRequest()
       explorationError =
         "Sparse tip calibration stopped without automatic retry: \(failure.detail)"
+      if let possibleInkLocation = activeLocation ?? locationsToBlacklist.first,
+        !locationsToBlacklist.isEmpty || failure.kind == .possibleInk
+      {
+        throw TipCalibrationPossibleInkEffectError(
+          fact: PlotterTipCalibrationPossibleInkFact(
+            location: possibleInkLocation,
+            reason: failure.detail,
+            persistenceEvidenceID: possibleInkLocation.persistenceEvidenceID
+          ),
+          underlying: error
+        )
+      }
+      throw error
     }
   }
 
@@ -7237,10 +6880,6 @@ final class OperatorWorkspace:
       switch lower {
       case .ambiguous:
         blacklistedToolContactLocations.insert(location)
-        sparseTipCalibrationCoordinator.blacklistPossibleInk(
-          at: location,
-          reason: String(describing: lower)
-        )
         throw LearningPathOperationError.possibleInk(String(describing: lower))
       case .refused:
         throw LearningPathOperationError.controllerRefused(String(describing: lower))
@@ -7365,10 +7004,6 @@ final class OperatorWorkspace:
       }
     } catch {
       blacklistedToolContactLocations.insert(location)
-      sparseTipCalibrationCoordinator.blacklistPossibleInk(
-        at: location,
-        reason: actionableDescription(error)
-      )
       await raisePenAfterKnownCircleFailureIfNeeded()
       throw error
     }
@@ -7400,10 +7035,6 @@ final class OperatorWorkspace:
         machineSnapshot = await machineActions.snapshot()
       }
       blacklistedToolContactLocations.insert(location)
-      sparseTipCalibrationCoordinator.blacklistPossibleInk(
-        at: location,
-        reason: String(describing: raise)
-      )
       throw operationError(for: raise, possibleInk: true)
     }
     try requireSparseTipBatchContinuation()
@@ -7458,17 +7089,27 @@ final class OperatorWorkspace:
     machineSnapshot = await machineActions.snapshot()
   }
 
-  private func undoLastSparseTipClick() async {
+  private func undoSparseTipClick() async {
     guard let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id else {
       return
     }
     discardStagedTipObservationArtifacts()
     do {
       installPointSelectionProjection(try await pointSelectionRuntime.undo(selectionID: selectionID))
-      try sparseTipCalibrationCoordinator.resumeFrozenClicksAfterCorrection()
       explorationError = nil
     } catch {
       explorationError = actionableDescription(error)
+    }
+  }
+
+  private func performPointSelectionCorrection(
+    _ intent: PlotterPointSelectionCorrectionIntent
+  ) async {
+    switch intent {
+    case .undoLastPoint:
+      await undoSparseTipClick()
+    case .clearPoints:
+      await clearSparseTipClicks()
     }
   }
 
@@ -7479,14 +7120,13 @@ final class OperatorWorkspace:
     discardStagedTipObservationArtifacts()
     do {
       installPointSelectionProjection(try await pointSelectionRuntime.clear(selectionID: selectionID))
-      try sparseTipCalibrationCoordinator.resumeFrozenClicksAfterCorrection()
       explorationError = nil
     } catch {
       explorationError = actionableDescription(error)
     }
   }
 
-  private func rejectTipCalibrationProposal() async {
+  private func rejectTipCalibration() async {
     await clearSparseTipClicks()
     if explorationError == nil {
       explorationError =
@@ -7496,7 +7136,7 @@ final class OperatorWorkspace:
 
   private func discardStagedTipObservationArtifacts() {
     let rootKinds = Set(
-      sparseTipCalibrationCoordinator.acceptedObservations.map {
+      tipCalibrationRuntime.acceptedObservations.map {
         LearningArtifactKind.toolContactObservation($0.observation.id)
       }
     )
@@ -7510,19 +7150,26 @@ final class OperatorWorkspace:
   }
 
   private func acceptSparseTipBatchClicks(
-    points: [Point2<CameraPixelSpace>],
-    presentationRevision: PresentationTransformRevision
-  ) throws {
+    batch: PlotterTipCalibrationCompletedPointSelection
+  ) throws -> PlotterTipCalibrationRetainedDomainEvidence {
+    let points = batch.points
+    let presentationRevision = PresentationTransformRevision(
+      rawValue: batch.presentationTransformRevision.rawValue
+    )
     guard
-      pendingToolContactEvidence.count == SparseTipCalibrationCoordinator.orderedPositions.count,
-      points.count == SparseTipCalibrationCoordinator.orderedPositions.count,
+      pendingToolContactEvidence.count == PlotterTipCalibrationRuntime.orderedPositions.count,
+      points.count == PlotterTipCalibrationRuntime.orderedPositions.count,
       let machineRegistration = machineCameraRegistration,
       let machineRegistrationRevision = learningArtifactGraph.currentRevision(
         for: .machineCameraRegistration
       )?.id,
       let attemptID = activeExerciseAttemptID,
       let optical = pendingToolContactEvidence.first?.revealEvidence.frame.opticalConfiguration
-    else { throw SparseTipCalibrationCoordinatorError.invalidTransition }
+    else {
+      throw LearningPathOperationError.requiredState(
+        "Pen-tip calibration fitting requires four pending marks, four clicks, and accepted machine-camera registration."
+      )
+    }
 
     let associations = try associateSparseTipClicks(
       using: machineRegistration.fit,
@@ -7547,7 +7194,9 @@ final class OperatorWorkspace:
     var accepted: [AcceptedToolContactObservation] = []
     for association in associations {
       guard let pending = pendingByPosition[association.calibrationPosition] else {
-        throw SparseTipCalibrationCoordinatorError.invalidTransition
+        throw LearningPathOperationError.requiredState(
+          "Pen-tip calibration fitting could not match a clicked position to pending evidence."
+        )
       }
       let click = try ToolContactClickEvidence(
         point: association.clickedCameraPoint,
@@ -7608,9 +7257,8 @@ final class OperatorWorkspace:
       )
     }
 
-    var coordinator = sparseTipCalibrationCoordinator
-    try coordinator.acceptAssociatedObservations(accepted, selectedPoints: points)
-    let selection = try coordinator.stageProposal(
+    let selection = try TipCalibrationModelSelection.fitAffineFirst(
+      acceptedObservations: accepted,
       capCameraFromMachine: machineRegistration.fit.cameraFromMachine
     )
     let registrationRevisionID = LearningArtifactRevisionID()
@@ -7642,19 +7290,27 @@ final class OperatorWorkspace:
     )
     _ = attemptID
     learningArtifactGraph = graph
-    sparseTipCalibrationCoordinator = coordinator
-    proposedTipCameraRegistration = proposal
+    return PlotterTipCalibrationRetainedDomainEvidence(
+      acceptedObservations: accepted,
+      modelSelection: selection,
+      proposedRegistration: proposal,
+      retainedEvidenceIDs: Set(accepted.map { $0.artifactRevisionID.rawValue.uuidString.lowercased() })
+    )
   }
 
   @discardableResult
-  private func commitTipCalibration(actor: String) -> Bool {
+  private func commitTipCalibration(actor: String) throws -> TipCameraRegistration {
     guard let proposal = proposedTipCameraRegistration,
       let attemptID = activeExerciseAttemptID,
       activeExerciseAttemptOwnerID
         == .humanGuidedDiscovery(
           .calibratePenContactFromSparseMarks
         )
-    else { return false }
+    else {
+      throw LearningPathOperationError.requiredState(
+        "Tip-calibration commit requires an active reviewed proposal."
+      )
+    }
     do {
       let candidate = LearningArtifactRevision(
         id: proposal.acceptedRevisionID,
@@ -7665,9 +7321,6 @@ final class OperatorWorkspace:
       )
       var graph = learningArtifactGraph
       let commit = try graph.commitReplacement(candidate)
-      var coordinator = sparseTipCalibrationCoordinator
-      try coordinator.beginCommit()
-      try coordinator.markAccepted()
       let acceptedTimestamp = RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
       let acceptanceEvent = try TipCalibrationAcceptanceEvent(
         acceptedRevisionID: proposal.acceptedRevisionID,
@@ -7680,26 +7333,22 @@ final class OperatorWorkspace:
       )
       learningArtifactGraph = graph
       applyArtifactInvalidations(commit.invalidatedRevisionIDs)
-      tipCameraRegistration = proposal
       restoreInteractiveLearningCompletionFromEvidence()
-      proposedTipCameraRegistration = nil
-      sparseTipCalibrationCoordinator = coordinator
       frozenPointSelectionFrame = nil
       pendingToolContactEvidence = []
       Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
-      recoverableTipCalibrationCheckpoint = nil
       persistAcceptedLearningPathCheckpoint(tipCalibration: checkpoint, clearStageFour: true)
       finishActiveExerciseAttempt(disposition: .succeeded)
       explorationError = nil
-      return true
+      return proposal
     } catch {
       explorationError =
         "Tip-calibration commit failed atomically: \(actionableDescription(error))"
-      return false
+      throw error
     }
   }
 
-  private func revalidateTipCalibrationCheckpoint() async {
+  private func revalidateTipCalibration() async throws -> TipCameraRegistration {
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
@@ -7715,7 +7364,11 @@ final class OperatorWorkspace:
       )?.id,
       checkpoint.registration.applicability.paperContactPlane.rawValue
         == explorationPaperContactPlaneRevision
-    else { return }
+    else {
+      throw LearningPathOperationError.requiredState(
+        "Saved tip calibration revalidation requires the active owner, checkpoint, and current machine-camera registration."
+      )
+    }
 
     let operationID = UUID()
     do {
@@ -7880,10 +7533,7 @@ final class OperatorWorkspace:
         )
       }
       learningArtifactGraph = graph
-      tipCameraRegistration = restoredRegistration
       restoreInteractiveLearningCompletionFromEvidence()
-      proposedTipCameraRegistration = nil
-      recoverableTipCalibrationCheckpoint = nil
       controllerPoseApplicability = .visuallyRevalidated(
         frameID: exactFrame.frameID,
         residualPixels: evidence.capMapResidualPixels
@@ -7891,10 +7541,12 @@ final class OperatorWorkspace:
       persistAcceptedLearningPathCheckpoint(tipCalibration: refreshedCheckpoint)
       finishActiveExerciseAttempt(disposition: .succeeded)
       explorationError = nil
+      return restoredRegistration
     } catch {
       finishActiveExerciseAttempt(disposition: .failed(actionableDescription(error)))
       explorationError =
         "Saved tip calibration was not restored: \(actionableDescription(error))"
+      throw error
     }
   }
 
@@ -7966,182 +7618,130 @@ final class OperatorWorkspace:
   }
 
   private func recordPaperReplacement(contactPlaneChanged: Bool) async {
-    installDrawingRunSnapshot(
-      await drawingRunRuntime.snapshot(environment: manualMotionEnvironment)
-    )
-    guard !drawingRunIsActive else {
-      drawingEvidenceError =
-        "Paper identity cannot change until the current drawing run and evidence capture settle."
-      return
-    }
-    if let snapshot = drawingRunSnapshot, let terminal = snapshot.terminal {
-      let result = await drawingRunRuntime.submit(
-        PlotterDrawingRunSubmission(
-          projection: snapshot.projection,
-          intent: .beginNewRun(terminal.runID)
-        )
-      )
-      guard case .applied = result.disposition else {
-        installDrawingRunSnapshot(result.snapshot)
-        drawingEvidenceError =
-          "Resolve Drawing Run evidence publication before changing paper identity."
-        return
+    do {
+      let plan = try makePaperReplacementPlan(contactPlaneChanged: contactPlaneChanged)
+      let applied = await artifactResetRuntime.submit(.paperReplaced(plan), facts: artifactResetAdmissionFacts)
+      if !applied {
+        explorationError = artifactResetRuntime.snapshot().phase.detail
+          ?? "Paper replacement was not applied."
       }
-      installDrawingRunSnapshot(result.snapshot)
+    } catch {
+      explorationError = "Paper replacement was refused: \(actionableDescription(error))"
     }
-    let replacementSnapshot: SimulatedLearningSnapshot?
-    if frameMode == .simulated {
-      do {
-        replacementSnapshot = try await simulatedLearningRuntime.recordPaperReplaced().result.get()
-      } catch {
-        explorationError = "Paper replacement was refused: \(actionableDescription(error))"
-        return
-      }
-    } else {
-      replacementSnapshot = nil
-    }
-
-    if let owner = activeExerciseAttemptOwnerID,
-      owner != .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
-    {
-      finishActiveExerciseAttempt(disposition: .cancelled)
-    }
-    if contactPlaneChanged {
-      var graph = learningArtifactGraph
-      let invalidation = graph.invalidateCurrentRevisions(rootKinds: [.tipCameraRegistration])
-      learningArtifactGraph = graph
-      applyArtifactInvalidations(invalidation.allInvalidatedRevisionIDs)
-      tipCameraRegistration = nil
-      proposedTipCameraRegistration = nil
-      explorationPaperContactPlaneRevision = UUID()
-      if frameMode == .live {
-        persistPaperContactPlaneRevision(
-          PaperContactPlaneRevision(rawValue: explorationPaperContactPlaneRevision)
-        )
-      }
-    }
-    if let replacementSnapshot {
-      simulatedLearningSnapshot = replacementSnapshot
-      explorationPaperInstanceRevision = replacementSnapshot.toolPaperRevision
-    } else {
-      explorationPaperInstanceRevision = UUID()
-      persistPaperInstanceRevision(
-        PaperInstanceRevision(rawValue: explorationPaperInstanceRevision)
-      )
-    }
-    sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
-    let paperClear = await drawingDraftRuntime.clearPaperCoverageForRetainedPaperLifecycle(
-      facts: drawingDraftExternalFacts
-    )
-    installDrawingDraftSnapshot(paperClear.snapshot)
-    if case .refused(let refusal) = paperClear.disposition {
-      drawingEvidenceError = refusal.remedy
-    }
-    clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
-    overlayResultChannels.clearWorkflow(source: frameMode, owner: .drawingStudio)
-    await synchronizeDrawingRunProjection()
-    persistAcceptedLearningPathCheckpoint(
-      clearTip: contactPlaneChanged,
-      clearStageFour: contactPlaneChanged
-    )
-    explorationError = nil
   }
 
-  func runObservedDrawingTrial() async {
-    guard tipCameraRegistration != nil, activeExplorationOperation == nil else { return }
+  private func makePaperReplacementPlan(
+    contactPlaneChanged: Bool
+  ) throws -> PlotterArtifactResetPlan {
+    let transition: PaperReplacementTransition?
+    if frameMode == .live {
+      let declaration: PaperContactPlaneReplacementDeclaration = contactPlaneChanged
+        ? .changed(to: PaperContactPlaneRevision())
+        : .explicitlyUnchanged(currentPaperRevisionContext.contactPlane)
+      transition = try PaperReplacementTransition(
+        previous: currentPaperRevisionContext,
+        newPaperInstance: PaperInstanceRevision(),
+        contactPlaneDeclaration: declaration
+      )
+    } else {
+      // Simulated paper is a causal-scene fact, not a claim that LIVE identity
+      // or checkpoint persistence occurred.
+      transition = nil
+    }
+    return PlotterArtifactResetPlan(
+      id: "paper-replaced-\(frameMode.rawValue)-\(UUID().uuidString)",
+      sourceIsSimulated: frameMode == .simulated,
+      resetAll: false,
+      removesDurableMachineCheckpoint: false,
+      removesDurableTipCheckpoint: false,
+      physicalInkMayRemain: true,
+      paperReplacement: transition
+    )
+  }
+
+  func runBorderValidation() async {
+    guard tipCameraRegistration != nil, activeBorderValidationOperation == nil else { return }
     if activeExerciseAttemptOwnerID == nil {
       beginExerciseAttempt(
-        ownerID: .observedDrawingTrial(.chooseDrawingBorderPlan),
+        ownerID: .borderValidation(.chooseDrawingBorderPlan),
         mode: activeExerciseAttemptMode ?? .normal
       )
     }
     explorationError = nil
     restartableExerciseItemID = nil
-
-    while observedDrawingTrialStep != .compareIntendedAndObservedGeometry {
-      let attemptedStep = observedDrawingTrialStep
-      let payloadSnapshot = drawingTrialPayloadSnapshot()
-      activeExplorationOperation = ActiveExplorationOperation(
-        step: attemptedStep,
-        strokeState: .notAdmitted
-      )
-      do {
-        switch attemptedStep {
-        case .chooseDrawingBorderPlan:
-          try recordDrawingBorderPlan()
-        case .captureLocalPreFrameBaseline:
-          try await captureLocalPreFrameBaseline()
-        case .moveToDrawingBorderStart:
-          try await moveToRecordedDrawingBorderStart()
-        case .drawDrawingBorder:
-          try await drawDrawingBorderTrial()
-        case .revealAndObserveNewInk:
-          try await revealAndObserveTrialInk()
-        case .compareIntendedAndObservedGeometry:
-          break
-        }
-        try commitDrawingArtifact(for: attemptedStep)
-        advanceDrawingTrialAfterSuccess(attemptedStep)
-      } catch {
-        let strokeState = activeExplorationOperation?.strokeState
-        activeExplorationOperation = nil
-        if attemptedStep == .drawDrawingBorder,
-          drawingTrialDrawingOutcome != payloadSnapshot.drawingOutcome
-            || strokeState != .notAdmitted
-        {
-          var commitFailure: String?
-          if strokeState == .completedNaturally {
-            do {
-              try commitDrawingArtifact(for: .drawDrawingBorder)
-            } catch {
-              commitFailure = String(describing: error)
-            }
-          }
-          advanceDrawingTrialAfterSuccess(.drawDrawingBorder)
-          let base =
-            "Drawing Border execution produced controller evidence, so physical ink may exist. Drawing will not restart; Resume Drawing Border Observation will return Pen Up and inspect the existing camera frame."
-          explorationError =
-            commitFailure.map {
-              "\(base) The frame-execution artifact also needs attention: \($0)"
-            } ?? "\(base) Post-stroke settlement needs attention: \(error)"
-          finishActiveExerciseAttempt(
-            disposition: .failed("Ink may exist; automatic redraw is prohibited.")
-          )
-          restartableExerciseItemID = nil
-          return
-        }
-        if attemptedStep != .revealAndObserveNewInk {
-          restoreDrawingTrialPayload(payloadSnapshot)
-        }
-        explorationError = "\(attemptedStep.title) failed: \(error)"
-        finishActiveExerciseAttempt(disposition: workflowFailure(for: error).attemptDisposition)
-        restartableExerciseItemID =
-          attemptedStep == .revealAndObserveNewInk
-          ? nil : .observedDrawingTrial(.chooseDrawingBorderPlan)
-        return
-      }
-    }
-
-    activeExplorationOperation = ActiveExplorationOperation(
-      step: .compareIntendedAndObservedGeometry,
-      strokeState: .notAdmitted
-    )
-    do {
-      try commitComparisonAttemptAndArtifact(.predictionObserved)
-      drawingTrialAssessment = .predictionObserved
-      activeLearningSession.drawingTrial.comparisonReviewIsPinned = true
-      await persistCompletedPictureFrameEvidence()
+    borderValidationRuntime.replaceSnapshot(activeLearningSession.borderValidation)
+    let snapshot = await borderValidationRuntime.submit(.begin)
+    activeLearningSession.borderValidation = snapshot
+    switch snapshot.phase {
+    case .accepted:
       finishActiveExerciseAttempt(disposition: .succeeded)
-    } catch {
-      explorationError = "Automatic comparison failed: \(error)"
-      recordComparisonAttempt(
-        assessment: nil,
-        disposition: .failed("Saving the accepted Learning result failed: \(error)")
+    case .possibleInk(let detail):
+      explorationError = detail
+      finishActiveExerciseAttempt(
+        disposition: .failed("Ink may exist; automatic redraw is prohibited.")
       )
-      finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
-      restartableExerciseItemID = .observedDrawingTrial(.chooseDrawingBorderPlan)
+      restartableExerciseItemID = nil
+    case .cancelled(let detail):
+      explorationError = detail
+      finishActiveExerciseAttempt(disposition: .cancelled)
+      restartableExerciseItemID = .borderValidation(.chooseDrawingBorderPlan)
+    case .failed(let detail), .rejected(let detail):
+      explorationError = detail
+      finishActiveExerciseAttempt(disposition: .failed(detail))
+      restartableExerciseItemID = .borderValidation(.chooseDrawingBorderPlan)
+    case .idle, .planning, .capturingBaseline, .movingToStart, .executingBorder,
+      .revealingAndObserving, .reviewingComparison:
+      break
     }
-    activeExplorationOperation = nil
+    activeBorderValidationOperation = nil
+  }
+
+  private func submitBorderValidationDecision(
+    _ intent: PlotterBorderValidationIntent
+  ) async {
+    guard activeExerciseAttemptOwnerID
+      == .borderValidation(.chooseDrawingBorderPlan)
+    else { return }
+    switch intent {
+    case .acceptObservedPrediction, .reject:
+      break
+    case .begin, .retryFrom:
+      return
+    }
+    borderValidationRuntime.replaceSnapshot(activeLearningSession.borderValidation)
+    guard borderValidationRuntime.snapshot().activeOperationID == nil,
+      case .reviewingComparison = borderValidationRuntime.snapshot().phase
+    else { return }
+
+    let snapshot = await borderValidationRuntime.submit(intent)
+    activeLearningSession.borderValidation = snapshot
+    switch snapshot.phase {
+    case .accepted:
+      explorationError = nil
+      restartableExerciseItemID = nil
+      finishActiveExerciseAttempt(disposition: .succeeded)
+    case .rejected(let detail):
+      explorationError = detail
+      restartableExerciseItemID = nil
+      finishActiveExerciseAttempt(disposition: .failed(detail))
+    case .failed(let detail):
+      explorationError = detail
+      restartableExerciseItemID = nil
+      finishActiveExerciseAttempt(disposition: .failed(detail))
+    case .cancelled(let detail):
+      explorationError = detail
+      restartableExerciseItemID = nil
+      finishActiveExerciseAttempt(disposition: .cancelled)
+    case .possibleInk(let detail):
+      explorationError = detail
+      restartableExerciseItemID = nil
+      finishActiveExerciseAttempt(
+        disposition: .failed("Ink may exist; automatic redraw is prohibited.")
+      )
+    case .idle, .planning, .capturingBaseline, .movingToStart, .executingBorder,
+      .revealingAndObserving, .reviewingComparison:
+      break
+    }
   }
 
   private var learningConnectionAndMotionUnavailableReason: String? {
@@ -8207,6 +7807,27 @@ final class OperatorWorkspace:
     case .penInteraction:
       return learningPenCommandUnavailableReason(for: .lower)
     }
+  }
+
+  private func installBorderValidationRuntimeProjection(
+    _ snapshot: PlotterBorderValidationSnapshot,
+    source: OperatorFrameMode
+  ) {
+    switch source {
+    case .live:
+      liveLearningSession.borderValidation = snapshot
+    case .simulated:
+      simulatedLearningSession.borderValidation = snapshot
+    }
+    guard frameMode == source else { return }
+    switch snapshot.phase {
+    case .possibleInk(let detail):
+      explorationError = detail
+      restartableExerciseItemID = nil
+    default:
+      break
+    }
+    markSemanticPresentationChanged()
   }
 
   var workbenchStatusText: String {
@@ -8294,10 +7915,10 @@ final class OperatorWorkspace:
     return PlotterLearningActivityFact(
       owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.LearningActivityAdapter"),
       revision: CapabilityFactRevision(rawValue: revision),
-      activeCameraCalibration: currentCameraCalibrationPhase != nil,
+      activeCameraCalibration: cameraCalibrationRuntimePhase != nil,
       activeAttempt: activeExerciseAttemptOwnerID != nil,
       activeDiscovery: activeDiscoverySequenceID != nil,
-      activeExploration: activeExplorationOperation != nil,
+      activeExploration: activeBorderValidationOperation != nil,
       activeLearningMotion: activeStopTarget != nil,
       pointSelectionOwner: activePointSelectionActivityOwner
     )
@@ -8912,17 +8533,17 @@ final class OperatorWorkspace:
 
   private func restoreInteractiveLearningCompletionFromEvidence() {
     guard frameMode == .live, interactiveLearningIsComplete else { return }
-    drawingTrialAssessment = .predictionObserved
+    borderValidationAssessment = .predictionObserved
   }
 
   private func persistCompletedPictureFrameEvidence() async {
     guard frameMode == .live,
       let attemptID = activeExerciseAttemptID,
       let registration = tipCameraRegistration,
-      let program = drawingTrialProgram,
+      let program = borderValidationProgram,
       let plan = drawingBorderPlan,
       let observation = lastFrameObservation,
-      case .completed(let progress, _) = drawingTrialDrawingOutcome
+      case .completed(let progress, _) = borderValidationDrawingOutcome
     else { return }
     do {
       let provenance = try PlotterDrawingPlanningAdapter.planningProvenance(
@@ -9022,7 +8643,7 @@ final class OperatorWorkspace:
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard activeDiscoverySequenceID == nil || activePenInteractionNeedsControllerSetup,
-      activeExplorationOperation == nil
+      activeBorderValidationOperation == nil
     else { return }
     guard !passiveProbeInProgress && !jogRequestInProgress && !retainedPenRequestInProgress else { return }
     guard serialDevices.contains(where: { $0.identifier == descriptor.identifier }) else { return }
@@ -9362,7 +8983,7 @@ final class OperatorWorkspace:
         return
 
       case .announce(let message):
-        _ = await announceAdvisory(message)
+        _ = await performSpeechEffect(message)
         guard activeDiscoverySequenceID == sequenceID,
           discoveryTransactions[sequenceID]?.currentStep?.id == step.id
         else { return }
@@ -9486,32 +9107,28 @@ final class OperatorWorkspace:
         restartableExerciseItemID = ownerID
       }
 
-    case .drawingTrial:
+    case .borderValidation:
       let inkMayExist = operation.owner.drawingMayHaveInk
       await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
       finishActiveExerciseAttempt(disposition: .cancelled)
       if inkMayExist {
-        if observedDrawingTrialStep == .drawDrawingBorder {
-          advanceDrawingTrialAfterSuccess(.drawDrawingBorder)
+        if borderValidationStep == .drawDrawingBorder {
+          advanceBorderValidationAfterSuccess(.drawDrawingBorder)
         }
         explorationError =
           "Drawing stopped after stroke admission; physical ink may exist. Draw is unavailable. Continue with return/observation."
         restartableExerciseItemID = nil
       } else {
-        restartableExerciseItemID = .observedDrawingTrial(.chooseDrawingBorderPlan)
+        restartableExerciseItemID = .borderValidation(.chooseDrawingBorderPlan)
       }
 
     case .sparseTipBatch:
       if let location = operation.possibleInkLocation {
         blacklistedToolContactLocations.insert(location)
-        sparseTipCalibrationCoordinator.blacklistPossibleInk(
-          at: location,
-          reason: "Operator stopped the four-corner calibration batch after Pen Down."
-        )
       }
       await cancelAndSettleStoppableOperation(operation, intent: .operatorStop)
-      if sparseTipCalibrationCoordinator.blacklistedPositions.isEmpty {
+      if tipCalibrationRuntime.blacklistedPositions.isEmpty {
         if activeExerciseAttemptOwnerID
           == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
         {
@@ -9528,10 +9145,6 @@ final class OperatorWorkspace:
 
     case .sparseTipBatchSegment(_, _, let location):
       blacklistedToolContactLocations.insert(location)
-      sparseTipCalibrationCoordinator.blacklistPossibleInk(
-        at: location,
-        reason: "Operator stopped the 2 mm calibration circle after Pen Down."
-      )
       await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
       restartableExerciseItemID = nil
@@ -10151,7 +9764,7 @@ final class OperatorWorkspace:
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard let cameraActions, activeDiscoverySequenceID == nil,
-      activeExplorationOperation == nil
+      activeBorderValidationOperation == nil
     else {
       cameraError =
         "Finish the current discovery or learning action before changing camera configuration."
@@ -10225,7 +9838,7 @@ final class OperatorWorkspace:
     guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard activeDiscoverySequenceID == nil, activeExplorationOperation == nil else {
+    guard activeDiscoverySequenceID == nil, activeBorderValidationOperation == nil else {
       cameraError = "Finish the current discovery or learning action before restarting the camera."
       return
     }
@@ -10461,13 +10074,12 @@ final class OperatorWorkspace:
     guard !hasShutdown else { return }
     persistAcceptedLearningPathCheckpoint()
     hasShutdown = true
+    artifactResetRuntime.shutdown()
     installDrawingRunSnapshot(
       await drawingRunRuntime.beginShutdown(environment: .live)
     )
     drawingRunProjectionTask?.cancel()
     drawingRunProjectionTask = nil
-    savedTrainingComparisonTask?.cancel()
-    savedTrainingComparisonTask = nil
     lifetimeGeneration &+= 1
     let learningAction = activeLearningActionTask
     learningAction?.cancel()
@@ -10475,17 +10087,14 @@ final class OperatorWorkspace:
       await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
     }
     stopObserving()
-    let calibration = currentCameraCalibrationTask
-    calibration?.cancel()
+    await cameraCalibrationRuntime.shutdown()
     await pointSelectionRuntime.shutdown()
     await penInteractionRuntime.shutdown()
     await boundaryRuntime.beginShutdown()
-    await announcementActions?.cancelForShutdown()
+    await speechEffectRuntime.shutdown()
     await boundaryRuntime.shutdown()
     await manualMotionRuntime.shutdown()
     await stopAndSettleActiveMotionForShutdown()
-    await calibration?.value
-    currentCameraCalibrationTask = nil
     await learningAction?.value
     activeLearningActionID = nil
     activeLearningActionTask = nil
@@ -10584,9 +10193,9 @@ final class OperatorWorkspace:
     else { return }
 
     guard question.advancingChoices.contains(choice) else {
-      _ = await announceAdvisory(question.negativeAcknowledgement)
+      _ = await performSpeechEffect(question.negativeAcknowledgement)
       if case .awaitPhysicalPenConfirmation(.down, _) = step.action {
-        _ = await announceAdvisory("Raising the pen.")
+        _ = await performSpeechEffect("Raising the pen.")
         if let capability = currentPenInteractionSnapshot?.projection
           .cancellationCapabilityID
         {
@@ -10653,10 +10262,10 @@ final class OperatorWorkspace:
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
-    case .observedDrawingTrial(.chooseDrawingBorderPlan):
+    case .borderValidation(.chooseDrawingBorderPlan):
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
-      await runObservedDrawingTrial()
-    case .observedDrawingTrial:
+      await runBorderValidation()
+    case .borderValidation:
       break
     case .stage:
       break
@@ -10720,8 +10329,8 @@ final class OperatorWorkspace:
         await cancelAndSettleStoppableOperation(operation, intent: .cancelAttempt)
       }
     }
-    if ownerID == .observedDrawingTrial(.chooseDrawingBorderPlan),
-      observedDrawingTrialStep == .compareIntendedAndObservedGeometry
+    if ownerID == .borderValidation(.chooseDrawingBorderPlan),
+      borderValidationStep == .compareIntendedAndObservedGeometry
     {
       recordComparisonAttempt(assessment: nil, disposition: .cancelled)
     }
@@ -10868,7 +10477,7 @@ final class OperatorWorkspace:
   }
 
   private func recordComparisonAttempt(
-    assessment: DrawingTrialAssessment?,
+    assessment: BorderValidationAssessment?,
     disposition: ExerciseAttemptDisposition
   ) {
     guard let attemptID = activeExerciseAttemptID else { return }
@@ -10876,14 +10485,14 @@ final class OperatorWorkspace:
       cameraConfigurationID: explorationPostFrame?.frame.cameraConfigurationID,
       coordinateSpace: .categorical,
       units: .categorical,
-      group: currentDrawingTrialGroup,
+      group: currentBorderValidationGroup,
       algorithmRevision: "typed-trial-comparison-v1"
     )
     do {
       var histories = comparisonAttemptHistories
       let sequence = acceptedAttemptSequence &+ 1
       let replacingAttemptID = learningArtifactGraph.currentRevision(
-        for: .comparison(currentDrawingTrialGroup)
+        for: .comparison(currentBorderValidationGroup)
       )?.attemptID
       try recordAttempt(
         ExerciseAttempt(
@@ -10903,11 +10512,11 @@ final class OperatorWorkspace:
     }
   }
 
-  private func commitDrawingArtifact(for step: ObservedDrawingTrialStep) throws {
+  private func commitDrawingArtifact(for step: BorderValidationStep) throws {
     guard let attemptID = activeExerciseAttemptID else {
       throw LearningPathOperationError.requiredState("No active Learning Path attempt.")
     }
-    let group = currentDrawingTrialGroup
+    let group = currentBorderValidationGroup
     var graph = learningArtifactGraph
     func required(_ kind: LearningArtifactKind) throws -> LearningArtifactRevisionID {
       guard let id = graph.currentRevision(for: kind)?.id else {
@@ -10980,29 +10589,29 @@ final class OperatorWorkspace:
     applyArtifactInvalidations(invalidated)
   }
 
-  private func drawingTrialPayloadSnapshot() -> DrawingTrialState {
-    activeLearningSession.drawingTrial
+  private func borderValidationPayloadSnapshot() -> PlotterBorderValidationSnapshot {
+    activeLearningSession.borderValidation
   }
 
-  private func restoreDrawingTrialPayload(_ snapshot: DrawingTrialState) {
-    activeLearningSession.drawingTrial = snapshot
+  private func restoreBorderValidationPayload(_ snapshot: PlotterBorderValidationSnapshot) {
+    activeLearningSession.borderValidation = snapshot
   }
 
-  private func advanceDrawingTrialAfterSuccess(_ step: ObservedDrawingTrialStep) {
+  private func advanceBorderValidationAfterSuccess(_ step: BorderValidationStep) {
     switch step {
-    case .chooseDrawingBorderPlan: advanceDrawingTrial(to: .captureLocalPreFrameBaseline)
-    case .captureLocalPreFrameBaseline: advanceDrawingTrial(to: .moveToDrawingBorderStart)
-    case .moveToDrawingBorderStart: advanceDrawingTrial(to: .drawDrawingBorder)
-    case .drawDrawingBorder: advanceDrawingTrial(to: .revealAndObserveNewInk)
+    case .chooseDrawingBorderPlan: advanceBorderValidation(to: .captureLocalPreFrameBaseline)
+    case .captureLocalPreFrameBaseline: advanceBorderValidation(to: .moveToDrawingBorderStart)
+    case .moveToDrawingBorderStart: advanceBorderValidation(to: .drawDrawingBorder)
+    case .drawDrawingBorder: advanceBorderValidation(to: .revealAndObserveNewInk)
     case .revealAndObserveNewInk:
-      advanceDrawingTrial(to: .compareIntendedAndObservedGeometry)
+      advanceBorderValidation(to: .compareIntendedAndObservedGeometry)
     case .compareIntendedAndObservedGeometry:
       break
     }
   }
 
   private func commitComparisonAttemptAndArtifact(
-    _ assessment: DrawingTrialAssessment
+    _ assessment: BorderValidationAssessment
   ) throws {
     guard let attemptID = activeExerciseAttemptID else {
       throw LearningPathOperationError.requiredState("No active Learning Path attempt.")
@@ -11011,12 +10620,12 @@ final class OperatorWorkspace:
       cameraConfigurationID: explorationPostFrame?.frame.cameraConfigurationID,
       coordinateSpace: .categorical,
       units: .categorical,
-      group: currentDrawingTrialGroup,
+      group: currentBorderValidationGroup,
       algorithmRevision: "typed-trial-comparison-v1"
     )
     var histories = comparisonAttemptHistories
     let sequence = acceptedAttemptSequence &+ 1
-    let comparisonKind = LearningArtifactKind.comparison(currentDrawingTrialGroup)
+    let comparisonKind = LearningArtifactKind.comparison(currentBorderValidationGroup)
     let replacingAttemptID = learningArtifactGraph.currentRevision(for: comparisonKind)?.attemptID
     try recordAttempt(
       ExerciseAttempt(
@@ -11031,8 +10640,8 @@ final class OperatorWorkspace:
     )
 
     var graph = learningArtifactGraph
-    guard let ink = graph.currentRevision(for: .inkObservation(currentDrawingTrialGroup))?.id,
-      let residual = graph.currentRevision(for: .residual(currentDrawingTrialGroup))?.id
+    guard let ink = graph.currentRevision(for: .inkObservation(currentBorderValidationGroup))?.id,
+      let residual = graph.currentRevision(for: .residual(currentBorderValidationGroup))?.id
     else {
       throw LearningPathOperationError.requiredState(
         "Observed ink and residual artifacts are required.")
@@ -11066,35 +10675,35 @@ final class OperatorWorkspace:
       case .tipCameraRegistration:
         tipCameraRegistration = nil
         proposedTipCameraRegistration = nil
-        drawingTrialTipRegistrationRevisionID = nil
-        setObservedDrawingTrialStepEarlier(ifNeeded: .chooseDrawingBorderPlan)
+        borderValidationTipRegistrationRevisionID = nil
+        setBorderValidationStepEarlier(ifNeeded: .chooseDrawingBorderPlan)
       case .localPreLineBaseline:
         localPreFrameBaseline = nil
-        setObservedDrawingTrialStepEarlier(ifNeeded: .captureLocalPreFrameBaseline)
+        setBorderValidationStepEarlier(ifNeeded: .captureLocalPreFrameBaseline)
       case .linePlan:
-        drawingTrialProgram = nil
+        borderValidationProgram = nil
         drawingBorderPlan = nil
-        setObservedDrawingTrialStepEarlier(ifNeeded: .chooseDrawingBorderPlan)
+        setBorderValidationStepEarlier(ifNeeded: .chooseDrawingBorderPlan)
       case .lineExecution:
-        drawingTrialDrawingOutcome = nil
-        setObservedDrawingTrialStepEarlier(ifNeeded: .drawDrawingBorder)
+        borderValidationDrawingOutcome = nil
+        setBorderValidationStepEarlier(ifNeeded: .drawDrawingBorder)
       case .postLineFrame:
         explorationPostFrame = nil
-        setObservedDrawingTrialStepEarlier(ifNeeded: .revealAndObserveNewInk)
+        setBorderValidationStepEarlier(ifNeeded: .revealAndObserveNewInk)
       case .inkObservation, .residual:
         lastFrameObservation = nil
-        drawingTrialAssessment = nil
-        setObservedDrawingTrialStepEarlier(ifNeeded: .revealAndObserveNewInk)
+        borderValidationAssessment = nil
+        setBorderValidationStepEarlier(ifNeeded: .revealAndObserveNewInk)
       case .comparison:
-        drawingTrialAssessment = nil
-        setObservedDrawingTrialStepEarlier(ifNeeded: .compareIntendedAndObservedGeometry)
+        borderValidationAssessment = nil
+        setBorderValidationStepEarlier(ifNeeded: .compareIntendedAndObservedGeometry)
       }
     }
   }
 
-  private func setObservedDrawingTrialStepEarlier(ifNeeded step: ObservedDrawingTrialStep) {
-    if observedDrawingTrialStep.rawValue > step.rawValue {
-      observedDrawingTrialStep = step
+  private func setBorderValidationStepEarlier(ifNeeded step: BorderValidationStep) {
+    if borderValidationStep.rawValue > step.rawValue {
+      borderValidationStep = step
     }
   }
 
@@ -11327,19 +10936,20 @@ final class OperatorWorkspace:
     )
   }
 
+  @discardableResult
   private func persistAcceptedLearningPathCheckpoint(
     tipCalibration: AcceptedTipCalibrationCheckpoint? = nil,
     stageFour: AcceptedStageFourCheckpoint? = nil,
     clearTip: Bool = false,
     clearStageFour: Bool = false
-  ) {
+  ) -> Bool {
     guard frameMode == .live, let actions = activeAcceptedLearningPathCheckpointActions else {
-      return
+      return true
     }
     // Do not manufacture an empty startup candidate merely because an
     // untrained application shut down cleanly. A package begins with an
     // accepted dependency revision and grows from that canonical graph.
-    guard !learningArtifactGraph.revisions.isEmpty else { return }
+    guard !learningArtifactGraph.revisions.isEmpty else { return true }
     do {
       let retainedTip = clearTip
         ? nil
@@ -11361,20 +10971,22 @@ final class OperatorWorkspace:
         referenceFrame: currentAcceptedLearningReferenceFrame()
           ?? acceptedLearningPathCheckpoint?.referenceFrame
       )
-      if case .retainedForLater(let retained) = savedLearningPackageState,
+      if case .retainedForLater(let retained) = savedLearningState,
         !replacementCheckpoint(checkpoint, hasReachedCompletenessOf: retained)
       {
-        return
+        return true
       }
       try actions.save(checkpoint)
-      savedLearningPackageState = .applied(
+      artifactResetRuntime.installSavedLearningFact(.applied(
         checkpoint,
         opticalComparison: "Saved from the current accepted Learning prefix."
-      )
+      ))
       activeMachineCameraCheckpoint = checkpoint.machineCamera
       activeStageFourCheckpoint = checkpoint.stageFour
+      return true
     } catch {
       learningAuthorityError = "Learning Path checkpoint could not be saved: \(error)"
+      return false
     }
   }
 
@@ -11484,15 +11096,11 @@ final class OperatorWorkspace:
     )
     learningArtifactGraph = graph
     applyArtifactInvalidations(invalidation.allInvalidatedRevisionIDs)
-    cameraCalibrationAnchorFrame = nil
-    cameraCalibrationReferencePosition = nil
-    cameraCalibrationReferenceCapAnchor = nil
-    proposedMachineCameraRegistration = nil
-    machineCameraRegistration = nil
+    cameraCalibrationRuntime.clearForReset()
     activeMachineCameraCheckpoint = nil
     tipCameraRegistration = nil
     proposedTipCameraRegistration = nil
-    sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
+    resetTipCalibrationRuntimeForCurrentPaper()
     frozenPointSelectionFrame = nil
     pendingToolContactEvidence = []
     Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
@@ -11528,18 +11136,12 @@ final class OperatorWorkspace:
 
   private func clearCalibrationLearningForRewind(from step: HumanGuidedDiscoveryStep) {
     if step.rawValue <= HumanGuidedDiscoveryStep.calibrateCameraAndVisibleCap.rawValue {
-      currentCameraCalibrationFailure = nil
-      cameraCalibrationAnchorFrame = nil
-      cameraCalibrationReferencePosition = nil
-      cameraCalibrationReferenceCapAnchor = nil
-      proposedMachineCameraRegistration = nil
-      machineCameraRegistration = nil
-      explicitRegistrationCapAnchorEvidence = []
+      cameraCalibrationRuntime.clearForReset()
     }
     if step.rawValue <= HumanGuidedDiscoveryStep.calibratePenContactFromSparseMarks.rawValue {
       tipCameraRegistration = nil
       proposedTipCameraRegistration = nil
-      sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
+      resetTipCalibrationRuntimeForCurrentPaper()
       frozenPointSelectionFrame = nil
       pendingToolContactEvidence = []
       Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
@@ -11548,24 +11150,23 @@ final class OperatorWorkspace:
     overlayResultChannels.clearWorkflow(source: frameMode, owner: .sparseTipCalibration)
   }
 
-  private func freshSparseTipCalibrationCoordinatorForCurrentPaper()
-    -> SparseTipCalibrationCoordinator
-  {
-    SparseTipCalibrationCoordinator(
-      blacklistedLocations: blacklistedToolContactLocations.filter {
-        $0.paperInstance.rawValue == explorationPaperInstanceRevision
-      }
+  private func resetTipCalibrationRuntimeForCurrentPaper() {
+    tipCalibrationRuntime.resetForPaper(
+      PaperInstanceRevision(rawValue: explorationPaperInstanceRevision)
     )
   }
 
-  private func clearDrawingLearningForRewind(from step: ObservedDrawingTrialStep) {
-    if step.rawValue <= ObservedDrawingTrialStep.moveToDrawingBorderStart.rawValue {
+  private func clearDrawingLearningForRewind(from step: BorderValidationStep) {
+    if step.rawValue <= BorderValidationStep.moveToDrawingBorderStart.rawValue {
       lastProtocolPoseSettlement = nil
     }
-    if step.rawValue <= ObservedDrawingTrialStep.revealAndObserveNewInk.rawValue {
-      overlayResultChannels.clearWorkflow(source: frameMode, owner: .observedDrawingTrial)
+    if step.rawValue <= BorderValidationStep.revealAndObserveNewInk.rawValue {
+      overlayResultChannels.clearWorkflow(source: frameMode, owner: .borderValidation)
     }
-    activeLearningSession.drawingTrial.rewind(from: step, source: frameMode)
+    activeLearningSession.borderValidation.rewind(
+      from: step,
+      sourceIsSimulated: frameMode == .simulated
+    )
   }
 
   private func cancelAndSettleBoundaryForReset() async -> Bool {
@@ -11709,17 +11310,15 @@ final class OperatorWorkspace:
     selectedDiscoverySequenceID = .penInteraction
     discoveryTransactions = [:]
     discoveryError = nil
-    cameraCalibrationAnchorFrame = nil
-    cameraCalibrationReferencePosition = nil
-    cameraCalibrationReferenceCapAnchor = nil
-    proposedMachineCameraRegistration = nil
-    machineCameraRegistration = nil
+    cameraCalibrationRuntime.clearForReset()
     tipCameraRegistration = nil
     proposedTipCameraRegistration = nil
-    sparseTipCalibrationCoordinator = freshSparseTipCalibrationCoordinatorForCurrentPaper()
+    resetTipCalibrationRuntimeForCurrentPaper()
     explicitRegistrationCapAnchorEvidence = []
     lastProtocolPoseSettlement = nil
-    activeLearningSession.drawingTrial = DrawingTrialState(source: frameMode)
+    activeLearningSession.borderValidation = PlotterBorderValidationSnapshot(
+      sourceIsSimulated: frameMode == .simulated
+    )
     learningArtifactGraph = LearningDependencyGraph()
     _ = await submitPenInteraction(.reset)
     activeLearningSession.exerciseAttempt.finish()
@@ -11734,7 +11333,7 @@ final class OperatorWorkspace:
     guard let operation = activeStoppableOperation else { return }
     let target = operation.target
     switch target {
-    case .exerciseMotion, .drawingTrial, .sparseTipBatch, .sparseTipBatchSegment:
+    case .exerciseMotion, .borderValidation, .sparseTipBatch, .sparseTipBatchSegment:
       break
     }
 
@@ -11742,10 +11341,6 @@ final class OperatorWorkspace:
       let location = operation.possibleInkLocation
     {
       blacklistedToolContactLocations.insert(location)
-      sparseTipCalibrationCoordinator.blacklistPossibleInk(
-        at: location,
-        reason: "Shutdown stopped the four-corner calibration batch after Pen Down."
-      )
     }
 
     if stopDispositionLatch == nil,
@@ -11783,12 +11378,8 @@ final class OperatorWorkspace:
     simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
   }
 
-  private func announceAdvisory(_ message: String) async -> SpeechAnnouncementOutcome {
-    guard let announcementActions else {
-      lastAnnouncementResultText = "Announcement unavailable; continuing with the visible action."
-      return .failed("Native speech output is unavailable.")
-    }
-    let outcome = await announcementActions.announce(message)
+  private func performSpeechEffect(_ message: String) async -> SpeechAnnouncementOutcome {
+    let outcome = await speechEffectRuntime.perform(.init(message: message))
     lastAnnouncementResultText =
       switch outcome {
       case .completed: "Announcement completed."
@@ -11797,10 +11388,6 @@ final class OperatorWorkspace:
       case .cancelled: "Announcement cancelled during shutdown."
       }
     return outcome
-  }
-
-  func announceBoundaryAdvisory(_ message: String) async -> SpeechAnnouncementOutcome {
-    await announceAdvisory(message)
   }
 
   private func positiveFallbackTravelFeed() -> Double {
@@ -11851,10 +11438,10 @@ final class OperatorWorkspace:
     }
   }
 
-  private func drawingTrialActionUnavailableReason(
-    for step: ObservedDrawingTrialStep
+  private func borderValidationActionUnavailableReason(
+    for step: BorderValidationStep
   ) -> String? {
-    if activeExplorationOperation != nil {
+    if activeBorderValidationOperation != nil {
       return "The current learning action is still in progress."
     }
     if let reason = learningConnectionAndMotionUnavailableReason { return reason }
@@ -11886,8 +11473,8 @@ final class OperatorWorkspace:
     return nil
   }
 
-  private func advanceDrawingTrial(to step: ObservedDrawingTrialStep) {
-    observedDrawingTrialStep = step
+  private func advanceBorderValidation(to step: BorderValidationStep) {
+    borderValidationStep = step
   }
 
   private func recordDrawingBorderPlan() throws {
@@ -11946,16 +11533,16 @@ final class OperatorWorkspace:
         for: registration
       )
     )
-    drawingTrialProgram = program
+    borderValidationProgram = program
     drawingBorderPlan = plan
-    drawingTrialTipRegistrationRevisionID = registration.acceptedRevisionID
+    borderValidationTipRegistrationRevisionID = registration.acceptedRevisionID
   }
 
   private func captureLocalPreFrameBaseline() async throws {
     guard let registration = tipCameraRegistration,
       let currentRevision = learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id,
       currentRevision == registration.acceptedRevisionID,
-      drawingTrialTipRegistrationRevisionID == currentRevision,
+      borderValidationTipRegistrationRevisionID == currentRevision,
       controllerIsPenUpAndIdle
     else {
       throw LearningPathOperationError.requiredState(
@@ -11967,7 +11554,7 @@ final class OperatorWorkspace:
       newerThan: displayedFrame?.frame.captureNanoseconds ?? 0
     )
     localPreFrameBaseline = frame
-    drawingTrialRevealPosition = revealPosition
+    borderValidationRevealPosition = revealPosition
   }
 
   private func moveToRecordedDrawingBorderStart() async throws {
@@ -11980,7 +11567,7 @@ final class OperatorWorkspace:
     if let delta = try Self.supervisedTravelDelta(from: current, to: destination) {
       let final = try await performSupervisedPenUpTravel(
         delta: delta,
-        ownerID: .observedDrawingTrial(.moveToDrawingBorderStart),
+        ownerID: .borderValidation(.moveToDrawingBorderStart),
         action: .moveToDrawingBorderStart
       )
       guard
@@ -12268,7 +11855,7 @@ final class OperatorWorkspace:
         action: "Lower simulated pen for Drawing Border"
       )
       if let refusal = lowered.refusal { throw refusal }
-      activeExplorationOperation?.strokeState = .possibleInk
+      activeBorderValidationOperation?.strokeState = .possibleInk
       do {
         let points = plan.strokes[0].path.points
         for pair in zip(points, points.dropFirst()) {
@@ -12286,7 +11873,7 @@ final class OperatorWorkspace:
               "Simulated Drawing Border motion was refused: \(refusal.refusal)."
             )
           }
-          let target = ContextualStopTarget.drawingTrial(
+          let target = ContextualStopTarget.borderValidation(
             capabilityID: ContextualStopCapabilityID(),
             operationOwner: .simulated(operation)
           )
@@ -12314,7 +11901,7 @@ final class OperatorWorkspace:
         )
         throw error
       }
-      activeExplorationOperation?.strokeState = .completedNaturally
+      activeBorderValidationOperation?.strokeState = .completedNaturally
       let raised = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
         .up,
         owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.drawingBorderTrial")
@@ -12333,33 +11920,33 @@ final class OperatorWorkspace:
       drawingFeedMMPerMinute: 100,
       penActuationProfile: currentPenActuationProfile
     )
-    _ = await announceAdvisory("Drawing the four-edge Drawing Border.")
+    _ = await performSpeechEffect("Drawing the four-edge Drawing Border.")
     let operation: DrawingPlanOperation
     switch await drawingRunInterpreterPort.beginDrawingPlan(request) {
     case .admitted(let admitted):
       operation = admitted
     case .rejected(let outcome):
-      drawingTrialDrawingOutcome = outcome
+      borderValidationDrawingOutcome = outcome
       throw LearningPathOperationError.controllerRefused(
         "Drawing Border plan was refused before execution: \(outcome)"
       )
     }
-    let target = ContextualStopTarget.drawingTrial(
+    let target = ContextualStopTarget.borderValidation(
       capabilityID: ContextualStopCapabilityID(),
       operationOwner: .liveOperation(operation.id.rawValue)
     )
     let owner = Task { await operation.outcome() }
-    activeExplorationOperation?.strokeState = .possibleInk
+    activeBorderValidationOperation?.strokeState = .possibleInk
     installStoppableOperation(target: target, owner: .drawingPlan(owner))
     defer { clearStoppableOperation(matching: target) }
     let outcome = await owner.value
-    drawingTrialDrawingOutcome = outcome
+    borderValidationDrawingOutcome = outcome
     machineSnapshot = await drawingRunInterpreterPort.snapshot()
     switch outcome {
     case .completed:
-      activeExplorationOperation?.strokeState = .completedNaturally
+      activeBorderValidationOperation?.strokeState = .completedNaturally
     case .refused(_, let reason):
-      activeExplorationOperation?.strokeState = .notAdmitted
+      activeBorderValidationOperation?.strokeState = .notAdmitted
       throw LearningPathOperationError.controllerRefused(String(describing: reason))
     case .cancelled(_, _, _, _, let penRaiseOutcome):
       throw LearningPathOperationError.possibleInk(
@@ -12376,10 +11963,10 @@ final class OperatorWorkspace:
 
   private func revealAndObserveTrialInk() async throws {
     guard let baseline = localPreFrameBaseline,
-      let revealPosition = drawingTrialRevealPosition,
+      let revealPosition = borderValidationRevealPosition,
       let plan = drawingBorderPlan,
       let registration = tipCameraRegistration,
-      let registrationRevisionID = drawingTrialTipRegistrationRevisionID,
+      let registrationRevisionID = borderValidationTipRegistrationRevisionID,
       registration.acceptedRevisionID == registrationRevisionID,
       learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
         == registrationRevisionID
@@ -12396,7 +11983,7 @@ final class OperatorWorkspace:
       )
       let final = try await performSupervisedPenUpTravel(
         delta: delta,
-        ownerID: .observedDrawingTrial(.revealAndObserveNewInk),
+        ownerID: .borderValidation(.revealAndObserveNewInk),
         action: .returnToLocalRevealPose
       )
       guard
@@ -12422,14 +12009,14 @@ final class OperatorWorkspace:
       frameWidth: post.frame.width,
       frameHeight: post.frame.height
     )
-    drawingTrialObservationRegion = trialRegion
+    borderValidationObservationRegion = trialRegion
     let frames = try DrawingObservationFramePair(
       source: post.source,
       baseline: ExactFrameProvenance(frame: baseline.frame),
       post: ExactFrameProvenance(frame: post.frame)
     )
     let outcome = try await observePlannedDrawingInk(
-      owner: .observedDrawingTrial,
+      owner: .borderValidation,
       request: PlannedDrawingObservationRequest(
         frames: frames,
         localPreDrawingBaseline: SamePoseFrameSample(
@@ -12471,13 +12058,13 @@ final class OperatorWorkspace:
       overlayResultChannels.publishWorkflow(
         OverlayChannelResult(displayedFrame: post, overlays: observation.overlays),
         source: frameMode,
-        owner: .observedDrawingTrial
+        owner: .borderValidation
       )
       explorationInkStatus = "new Drawing Border ink observed with planned-path residual"
     case .rejected(let rejection):
       lastFrameObservation = nil
       explorationInkStatus = "ink or geometry unclear: \(rejection.reason); no redraw requested"
-      overlayResultChannels.clearWorkflow(source: frameMode, owner: .observedDrawingTrial)
+      overlayResultChannels.clearWorkflow(source: frameMode, owner: .borderValidation)
       throw LearningPathOperationError.inkRejected(String(describing: rejection.reason))
     }
   }
@@ -12611,78 +12198,552 @@ final class OperatorWorkspace:
     await workflowTelemetryActions?.record(event)
   }
 
-  private func updateCurrentCameraCalibrationPhase(
-    _ phase: CurrentCameraCalibrationPhase,
-    operationID: UUID,
-    attemptID: ExerciseAttemptID?
-  ) async {
-    currentCameraCalibrationPhase = phase
-    await recordWorkflowTelemetry(
-      WorkflowTelemetryEvent(
-        operationID: operationID,
-        operation: .currentCameraCalibration,
-        phase: .phaseChanged,
-        attemptID: attemptID,
-        detail: phase.description
-      )
-    )
+}
+
+extension OperatorWorkspace {
+  func execute(_ request: PlotterArtifactResetEffectRequest) async
+    -> PlotterArtifactResetEffectResult
+  {
+    await executeArtifactResetEffect(request)
   }
 
-  private func currentCameraCalibrationFailure(
-    for error: any Error,
-    targetPosition: MachinePosition
-  ) -> CurrentCameraCalibrationFailure {
-    let detail = actionableDescription(error)
-    if let operationError = error as? LearningPathOperationError {
-      switch operationError {
-      case .controllerContextChanged:
-        return CurrentCameraCalibrationFailure(
-          code: .controllerContextChanged,
-          detail: detail,
-          recovery: .revalidateControllerContext
+  func persist(_ request: PlotterArtifactResetPersistenceRequest) async
+    -> PlotterArtifactResetPersistenceResult
+  {
+    await persistArtifactReset(request)
+  }
+
+  func execute(
+    _ request: PlotterBorderValidationEffectRequest
+  ) async -> PlotterBorderValidationEffectResult {
+    do {
+      switch request {
+      case .runStep(_, let step):
+        return try await executeBorderValidationStep(step)
+      case .acceptComparison(_, let assessment):
+        try commitComparisonAttemptAndArtifact(assessment)
+        borderValidationAssessment = assessment
+        activeLearningSession.borderValidation.comparisonReviewIsPinned = true
+        await persistCompletedPictureFrameEvidence()
+        return .completed(.comparisonAccepted(assessment))
+      case .rejectComparison(_, let reason):
+        recordComparisonAttempt(
+          assessment: nil,
+          disposition: .failed("Operator rejected Border validation: \(reason)")
         )
-      case .freshFrameUnavailable:
-        return CurrentCameraCalibrationFailure(
-          code: .freshFrameUnavailable,
-          detail: detail,
-          recovery: calibrationPositionRecovery(targetPosition: targetPosition)
+        return .completed(.comparisonRejected(reason))
+      }
+    } catch is CancellationError {
+      return .cancelled("Border validation was cancelled.")
+    } catch let error as LearningPathOperationError {
+      return .failed(workflowFailure(for: error).detail)
+    } catch {
+      return .failed(actionableDescription(error))
+    }
+  }
+
+  private func executeBorderValidationStep(
+    _ step: BorderValidationStep
+  ) async throws -> PlotterBorderValidationEffectResult {
+    let payloadSnapshot = borderValidationPayloadSnapshot()
+    activeBorderValidationOperation = ActiveBorderValidationOperation(
+      step: step,
+      strokeState: .notAdmitted
+    )
+    defer { activeBorderValidationOperation = nil }
+
+    do {
+      switch step {
+      case .chooseDrawingBorderPlan:
+        try recordDrawingBorderPlan()
+        try commitDrawingArtifact(for: step)
+        guard let program = borderValidationProgram,
+          let plan = drawingBorderPlan,
+          let revision = borderValidationTipRegistrationRevisionID
+        else {
+          throw LearningPathOperationError.requiredState(
+            "Border validation planning did not publish its exact plan facts."
+          )
+        }
+        return .completed(.planned(program: program, plan: plan, revision: revision))
+      case .captureLocalPreFrameBaseline:
+        try await captureLocalPreFrameBaseline()
+        try commitDrawingArtifact(for: step)
+        guard let frame = localPreFrameBaseline,
+          let revealPosition = borderValidationRevealPosition
+        else {
+          throw LearningPathOperationError.requiredState(
+            "Border validation baseline capture did not publish exact frame facts."
+          )
+        }
+        return .completed(.baselineCaptured(frame, revealPosition: revealPosition))
+      case .moveToDrawingBorderStart:
+        try await moveToRecordedDrawingBorderStart()
+        let position = try currentMachinePosition()
+        return .completed(.movedToStart(position, feed: lastTravelFeedSelection))
+      case .drawDrawingBorder:
+        try await drawDrawingBorderTrial()
+        try commitDrawingArtifact(for: step)
+        return .completed(.borderExecuted(borderValidationDrawingOutcome))
+      case .revealAndObserveNewInk:
+        try await revealAndObserveTrialInk()
+        try commitDrawingArtifact(for: step)
+        guard let postFrame = explorationPostFrame,
+          let region = borderValidationObservationRegion,
+          let observation = lastFrameObservation
+        else {
+          throw LearningPathOperationError.requiredState(
+            "Border validation observation did not publish exact frame and Vision facts."
+          )
+        }
+        return .completed(.observedInk(
+          postFrame: postFrame,
+          region: region,
+          observation: observation,
+          inkStatus: explorationInkStatus
+        ))
+      case .compareIntendedAndObservedGeometry:
+        return .completed(.comparisonAccepted(.predictionObserved))
+      }
+    } catch {
+      let strokeState = activeBorderValidationOperation?.strokeState
+      if step == .drawDrawingBorder,
+        borderValidationDrawingOutcome != payloadSnapshot.drawingOutcome
+          || strokeState != .notAdmitted
+      {
+        var commitFailure: String?
+        if strokeState == .completedNaturally {
+          do {
+            try commitDrawingArtifact(for: .drawDrawingBorder)
+          } catch {
+            commitFailure = String(describing: error)
+          }
+        }
+        let base =
+          "Drawing Border execution produced controller evidence, so physical ink may exist. Drawing will not restart; Resume Border Validation Observation will return Pen Up and inspect the existing camera frame."
+        let detail =
+          commitFailure.map {
+            "\(base) The frame-execution artifact also needs attention: \($0)"
+          } ?? "\(base) Post-stroke settlement needs attention: \(error)"
+        return .completed(.possibleInk(detail, outcome: borderValidationDrawingOutcome))
+      }
+      if step != .revealAndObserveNewInk {
+        restoreBorderValidationPayload(payloadSnapshot)
+      }
+      throw error
+    }
+  }
+}
+
+extension OperatorWorkspace {
+  func executeArtifactResetEffect(
+    _ request: PlotterArtifactResetEffectRequest
+  ) async -> PlotterArtifactResetEffectResult {
+    do {
+      switch request {
+      case .compareSavedLearning(_, let checkpoint):
+        let message: String
+        guard let reference = checkpoint.referenceFrame else {
+          return .completed(.savedLearningCompared(
+            checkpoint,
+            opticalComparison: "Unavailable: this legacy saved package has no bounded reference frame. Inspect the projected overlays and decide manually."
+          ))
+        }
+        guard let frame = displayedFrame else {
+          return .completed(.savedLearningCompared(
+            checkpoint,
+            opticalComparison: "Unavailable: no current camera frame exists. Inspect overlays and decide manually."
+          ))
+        }
+        do {
+          let optical = try exactTipCalibrationFrame(frame).opticalConfiguration
+          let comparison = await Task.detached {
+            reference.compare(with: frame, opticalConfiguration: optical)
+          }.value
+          switch comparison {
+          case .compared(let alignment):
+            message = String(
+              format: "Current frame versus saved reference: shift x=%d px, y=%d px; background mean absolute difference %.3f across %d evaluated pixels. This is advisory, not a pass/fail gate.",
+              alignment.shiftX,
+              alignment.shiftY,
+              alignment.backgroundMeanAbsoluteDifference,
+              alignment.evaluatedPixelCount
+            )
+          case .unavailable(let reason):
+            message = "Unavailable for this frame (\(reason.rawValue)). Inspect the compatible projected overlays and decide manually."
+          }
+        } catch {
+          message = "Unavailable: current camera identity could not be evaluated (\(error)). Inspect overlays and decide manually."
+        }
+        return .completed(.savedLearningCompared(checkpoint, opticalComparison: message))
+
+      case .applySavedLearning(_, let checkpoint, _, let environment):
+        guard environment == .live,
+          savedLearningState.candidate?.checkpoint.checkpointID == checkpoint.checkpointID
+        else { return .refused("The Saved Learning candidate changed before application.") }
+        let applied = try await applySavedLearningEffect()
+        return .completed(.savedLearningApplied(applied.0, opticalComparison: applied.1))
+
+      case .retainSavedLearning(_, let checkpoint):
+        guard savedLearningState.candidate?.checkpoint.checkpointID == checkpoint.checkpointID else {
+          return .refused("The Saved Learning candidate changed before retention.")
+        }
+        return .completed(.savedLearningRetained(try retainSavedLearningEffect()))
+
+      case .rejectSavedLearning(_, let reason):
+        acceptedArtifactCheckpointStatus = .rejected(reason)
+        learningAuthorityError = nil
+        explorationError = nil
+        return .completed(.savedLearningRejected(reason))
+
+      case .redoStep(_, let stepID):
+        guard let owner = artifactResetOwner(stepID) else {
+          return .refused("The requested Learning step no longer exists.")
+        }
+        await startExercise(owner, mode: .replacement)
+        return .completed(.replacementAttemptPrepared(stepID))
+
+      case .recordAnotherAttempt(_, let stepID):
+        guard let owner = artifactResetOwner(stepID) else {
+          return .refused("The requested Learning step no longer exists.")
+        }
+        await startExercise(owner, mode: .additional)
+        return .completed(.additionalAttemptPrepared(stepID))
+
+      case .settleForPaperReplacement(_, let plan):
+        guard paperReplacementIsFresh(plan) else {
+          return .refused("Paper identity changed while replacement was being prepared.")
+        }
+        let snapshot = await drawingRunRuntime.snapshot(environment: manualMotionEnvironment)
+        guard !drawingRunIsActive else {
+          return .refused(
+            "Paper identity cannot change until the current drawing run and evidence capture settle."
+          )
+        }
+        switch snapshot.evidencePersistence {
+        case .appending, .failed:
+          return .refused("Drawing Run evidence must settle before changing paper identity.")
+        case .none, .persisted:
+          break
+        }
+        return .completed(.paperReplacementSettled(plan))
+
+      case .applyInMemoryPaperReplacement(_, let plan):
+        guard paperReplacementIsFresh(plan) else {
+          return .failed("Paper identity changed after durable replacement was committed.")
+        }
+        let drawingSnapshot = await drawingRunRuntime.snapshot(environment: manualMotionEnvironment)
+        guard !drawingRunIsActive else {
+          return .failed("Drawing Run became active before paper replacement could be projected.")
+        }
+        if let terminal = drawingSnapshot.terminal {
+          let result = await drawingRunRuntime.submit(
+            PlotterDrawingRunSubmission(
+              projection: drawingSnapshot.projection,
+              intent: .beginNewRun(terminal.runID)
+            )
+          )
+          guard case .applied = result.disposition else {
+            return .failed("Resolve Drawing Run evidence publication before changing paper identity.")
+          }
+          installDrawingRunSnapshot(result.snapshot)
+        }
+        let transition = plan.paperReplacement
+        let contactPlaneChanged = transition?.tipCalibrationApplicabilityChange != nil
+        if plan.sourceIsSimulated {
+          let replacementSnapshot = try await simulatedLearningRuntime.recordPaperReplaced().result.get()
+          simulatedLearningSnapshot = replacementSnapshot
+          explorationPaperInstanceRevision = replacementSnapshot.toolPaperRevision
+        } else if let transition {
+          explorationPaperInstanceRevision = transition.current.instance.rawValue
+          explorationPaperContactPlaneRevision = transition.current.contactPlane.rawValue
+        } else {
+          return .failed("LIVE paper replacement is missing its immutable paper transition.")
+        }
+        if let owner = activeExerciseAttemptOwnerID,
+          owner != .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+        {
+          finishActiveExerciseAttempt(disposition: .cancelled)
+        }
+        if contactPlaneChanged {
+          var graph = learningArtifactGraph
+          let invalidation = graph.invalidateCurrentRevisions(rootKinds: [.tipCameraRegistration])
+          learningArtifactGraph = graph
+          applyArtifactInvalidations(invalidation.allInvalidatedRevisionIDs)
+          tipCameraRegistration = nil
+          proposedTipCameraRegistration = nil
+        }
+        resetTipCalibrationRuntimeForCurrentPaper()
+        let paperClear = await drawingDraftRuntime.clearPaperCoverageForRetainedPaperLifecycle(
+          facts: drawingDraftExternalFacts
         )
-      case .controllerRefused, .controllerCancelled, .controllerAmbiguous, .controllerFailed,
-        .possibleInk:
-        return CurrentCameraCalibrationFailure(
-          code: .controllerOutcome,
-          detail: detail,
-          recovery: calibrationPositionRecovery(targetPosition: targetPosition)
-        )
-      case .inkRejected:
-        return CurrentCameraCalibrationFailure(
-          code: .inkRejected,
-          detail: detail,
-          recovery: .resolveNamedFailure
-        )
-      case .requiredState:
-        return CurrentCameraCalibrationFailure(
-          code: .requiredStateMissing,
-          detail: detail,
-          recovery: calibrationPositionRecovery(targetPosition: targetPosition)
+        installDrawingDraftSnapshot(paperClear.snapshot)
+        if case .refused(let refusal) = paperClear.disposition {
+          drawingEvidenceError = refusal.remedy
+        }
+        clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
+        overlayResultChannels.clearWorkflow(source: frameMode, owner: .drawingStudio)
+        await synchronizeDrawingRunProjection()
+        explorationError = nil
+        return .completed(.inMemoryPaperReplacementApplied(plan))
+
+      case .settleForReset(_, let runtimePlan):
+        guard let plan = admittedLearningVacatePlan(runtimePlan) else {
+          return .refused("The admitted Learning reset transaction is invalid.")
+        }
+        if plan.scope == .all, !(await cancelAndSettleLearningForReset()) {
+          return .failed(learningAuthorityError ?? "Learning-owned work did not settle.")
+        }
+        return .completed(.resetSettled(runtimePlan))
+
+      case .applyInMemoryReset(_, let runtimePlan):
+        guard let plan = admittedLearningVacatePlan(runtimePlan) else {
+          return .failed("The persisted Learning reset transaction could not be projected.")
+        }
+        guard await applyLearningVacateEffect(plan) else {
+          return .failed(learningAuthorityError ?? "Learning reset projection failed.")
+        }
+        return .completed(.inMemoryResetApplied(runtimePlan))
+      }
+    } catch is CancellationError {
+      return .cancelled("Artifact/reset effect was cancelled.")
+    } catch {
+      return .failed(actionableDescription(error))
+    }
+  }
+
+  func persistArtifactReset(
+    _ request: PlotterArtifactResetPersistenceRequest
+  ) async -> PlotterArtifactResetPersistenceResult {
+    switch request {
+    case .persistPaperReplacement(_, let plan):
+      guard paperReplacementIsFresh(plan) else {
+        return .refused("Paper identity changed while replacement was being persisted.")
+      }
+      guard plan.sourceIsSimulated == (frameMode == .simulated) else {
+        return .refused("Paper replacement source no longer matches the active workspace.")
+      }
+      guard !plan.sourceIsSimulated else {
+        // The simulated causal scene has no LIVE durable authority. Its paper
+        // fact is applied only by the final projection effect.
+        return .completed(.paperReplacementPersisted(plan))
+      }
+      guard let transition = plan.paperReplacement,
+        let actions = activeAcceptedLearningPathCheckpointActions
+      else {
+        return .failed("LIVE paper replacement requires durable identity and checkpoint authority.")
+      }
+      do {
+        try persistPaperRevisionContext(transition.current)
+      } catch {
+        return .failed("Paper identity durable write/read-back failed: \(actionableDescription(error))")
+      }
+      do {
+        if learningArtifactGraph.revisions.isEmpty {
+          // An absent in-memory graph cannot support a replacement checkpoint;
+          // clear any old-paper package rather than retain stale durable
+          // authority across the committed paper identity.
+          try actions.clear()
+        } else {
+          try actions.save(try paperReplacementCheckpoint(for: transition))
+        }
+      } catch {
+        do {
+          try persistPaperRevisionContext(transition.previous)
+        } catch {
+          return .failed(
+            "Canonical checkpoint save failed and paper identity rollback failed: \(actionableDescription(error))"
+          )
+        }
+        return .failed("Canonical checkpoint save failed; paper identity was rolled back: \(actionableDescription(error))")
+      }
+      return .completed(.paperReplacementPersisted(plan))
+
+    case .persistReset(_, let runtimePlan):
+      guard let plan = admittedLearningVacatePlan(runtimePlan) else {
+        return .refused("The admitted Learning reset transaction is invalid.")
+      }
+      let freshPlan: LearningVacatePlan? = switch plan.scope {
+      case .from: learningVacatePlan(from: plan.anchor)
+      case .all: resetAllLearningPlan
+      }
+      guard freshPlan == plan else {
+        return .refused(
+          "Learning changed while the reset summary was open. Review it and try again."
         )
       }
+      let invalidatesBoundary: Bool = switch plan.anchor {
+      case .humanGuidedDiscovery(.penInteraction),
+        .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering): true
+      default: false
+      }
+      let capability: PlotterBoundaryResetCapabilityID?
+      if invalidatesBoundary {
+        guard let reserved = await reserveBoundaryResetBeforePersistence() else {
+          return .failed(learningAuthorityError ?? "Boundary reset reservation failed.")
+        }
+        capability = reserved
+      } else {
+        capability = nil
+      }
+      guard let prefix = persistLearningPathPrefixBeforeVacate(plan) else {
+        if let capability { await abortBoundaryResetAfterPersistenceRefusal(capability) }
+        return .failed(learningAuthorityError ?? "Durable Learning prefix update failed.")
+      }
+      if let capability, !(await commitBoundaryResetBeforeLocalCleanup(capability)) {
+        return .failed(learningAuthorityError ?? "Boundary reset publication failed.")
+      }
+      let state: PlotterArtifactResetSavedLearningState = switch prefix {
+      case .unchanged: artifactResetRuntime.snapshot().savedLearning
+      case .cleared: .absent
+      case .saved(let checkpoint):
+        .applied(checkpoint, opticalComparison: "Saved from the current accepted Learning prefix.")
+      }
+      return .completed(.resetPersisted(runtimePlan, savedLearning: state))
     }
-    return CurrentCameraCalibrationFailure(
-      code: .unexpectedFailure,
-      detail: detail,
-      recovery: calibrationPositionRecovery(targetPosition: targetPosition)
+  }
+
+  private func paperReplacementIsFresh(_ plan: PlotterArtifactResetPlan) -> Bool {
+    guard plan.sourceIsSimulated == (frameMode == .simulated) else { return false }
+    guard !plan.sourceIsSimulated else { return plan.paperReplacement == nil }
+    guard let transition = plan.paperReplacement else { return false }
+    return transition.previous == currentPaperRevisionContext
+  }
+
+  private func paperReplacementCheckpoint(
+    for transition: PaperReplacementTransition
+  ) throws -> AcceptedLearningPathCheckpoint {
+    let semanticIdentity = LearningPathSemanticIdentity(
+      machineGeometry: machineGeometryIdentity,
+      toolAssembly: toolAssemblyRevision,
+      penContactProfile: penContactProfileRevision,
+      paperInstance: transition.current.instance,
+      paperContactPlane: transition.current.contactPlane,
+      cameraMountRevision: cameraMountRevision,
+      cameraReframingRevision: cameraReframingRevision
+    )
+    let changedPlane = transition.tipCalibrationApplicabilityChange != nil
+    return try AcceptedLearningPathCheckpoint(
+      semanticIdentity: semanticIdentity,
+      penInteraction: currentAcceptedPenInteractionCheckpoint(),
+      machineArtifacts: activeMachineArtifactCheckpoint,
+      machineCamera: currentAcceptedMachineCameraCheckpoint() ?? activeMachineCameraCheckpoint,
+      tipCalibration: changedPlane ? nil : acceptedLearningPathCheckpoint?.tipCalibration
+        ?? recoverableTipCalibrationCheckpoint,
+      stageFour: changedPlane ? nil : activeStageFourCheckpoint,
+      penCapAppearance: try livePenCapAppearanceSelection?.acceptedCheckpoint()
+        ?? acceptedLearningPathCheckpoint?.penCapAppearance,
+      referenceFrame: currentAcceptedLearningReferenceFrame()
+        ?? acceptedLearningPathCheckpoint?.referenceFrame
     )
   }
 
-  private func calibrationPositionRecovery(
-    targetPosition: MachinePosition
-  ) -> WorkflowTelemetryRecovery {
-    guard let current = try? currentMachinePosition() else { return .resolveNamedFailure }
-    return protocolPositionsMatch(current, targetPosition)
-      ? .retryCalibration : .resolveNamedFailure
+  private func artifactResetPlan(_ plan: LearningVacatePlan) -> PlotterArtifactResetPlan {
+    PlotterArtifactResetPlan(
+      id: plan.id,
+      anchorStepID: PlotterArtifactResetStepID(rawValue: plan.anchor.number),
+      affectedStepIDs: plan.affectedItems.map {
+        PlotterArtifactResetStepID(rawValue: $0.number)
+      },
+      expectedCurrentRevisionIDs: plan.expectedCurrentRevisionIDs,
+      expectedAcceptedAttemptSequence: plan.expectedAcceptedAttemptSequence,
+      sourceIsSimulated: plan.source == .simulated,
+      resetAll: plan.scope == .all,
+      removesDurableMachineCheckpoint: plan.removesDurableMachineCheckpoint,
+      removesDurableTipCheckpoint: plan.removesDurableTipCheckpoint,
+      physicalInkMayRemain: plan.physicalInkMayRemain
+    )
   }
 
+  private func admittedLearningVacatePlan(
+    _ runtimePlan: PlotterArtifactResetPlan
+  ) -> LearningVacatePlan? {
+    guard let anchorStepID = runtimePlan.anchorStepID,
+      let anchor = LearningPathItemID.learningExerciseOrder.first(where: {
+        $0.number == anchorStepID.rawValue
+      })
+    else { return nil }
+    let affectedItems = runtimePlan.affectedStepIDs.compactMap { stepID in
+      LearningPathItemID.learningExerciseOrder.first { $0.number == stepID.rawValue }
+    }
+    guard affectedItems.count == runtimePlan.affectedStepIDs.count else { return nil }
+    let source: LearningVacateSource = runtimePlan.sourceIsSimulated ? .simulated : .live
+    let scope: LearningVacateScope = runtimePlan.resetAll ? .all : .from(anchor)
+    let plan = LearningVacatePlan(
+      scope: scope,
+      source: source,
+      anchor: anchor,
+      affectedItems: affectedItems,
+      expectedCurrentRevisionIDs: runtimePlan.expectedCurrentRevisionIDs,
+      expectedAcceptedAttemptSequence: runtimePlan.expectedAcceptedAttemptSequence,
+      removesDurableMachineCheckpoint: runtimePlan.removesDurableMachineCheckpoint,
+      removesDurableTipCheckpoint: runtimePlan.removesDurableTipCheckpoint,
+      physicalInkMayRemain: runtimePlan.physicalInkMayRemain
+    )
+    return plan.id == runtimePlan.id ? plan : nil
+  }
+
+  private func artifactResetOwner(_ id: PlotterArtifactResetStepID) -> LearningPathItemID? {
+    LearningPathItemID.learningExerciseOrder.first { $0.number == id.rawValue }
+  }
+}
+
+extension OperatorWorkspace: PlotterTipCalibrationEffectPort {
+  func execute(
+    _ request: PlotterTipCalibrationEffectRequest
+  ) async -> PlotterTipCalibrationEffectResult {
+    do {
+      switch request {
+      case .runFourMarkBatch:
+        return .completed(.markBatch(try await drawSparseTipCircles()))
+      case .fitProposal(_, let batch):
+        return .completed(.proposal(try acceptSparseTipBatchClicks(batch: batch)))
+      case .revalidateCheckpoint:
+        return .completed(.revalidated(try await revalidateTipCalibration()))
+      case .commitProposal(_, let isRetry):
+        return .completed(.committed(try commitTipCalibration(
+          actor: isRetry ? "operator-retry" : "operator-accepted-proposal"
+        )))
+      case .rejectProposal:
+        await rejectTipCalibration()
+        return .completed(.proposalRejected)
+      }
+    } catch let error as TipCalibrationPossibleInkEffectError {
+      return .completed(.possibleInk(error.fact))
+    } catch is CancellationError {
+      return .cancelled
+    } catch let error as LearningPathOperationError {
+      let failure = workflowFailure(for: error)
+      if failure.kind == .possibleInk || failure.kind == .ambiguous,
+        let location = activeStoppableOperation?.possibleInkLocation
+      {
+        return .completed(.possibleInk(PlotterTipCalibrationPossibleInkFact(
+          location: location,
+          reason: failure.detail,
+          persistenceEvidenceID: location.persistenceEvidenceID
+        )))
+      }
+      return .failed(failure.detail)
+    } catch {
+      return .failed(actionableDescription(error))
+    }
+  }
+}
+
+private struct TipCalibrationPossibleInkEffectError: Error {
+  let fact: PlotterTipCalibrationPossibleInkFact
+  let underlying: any Error
+}
+
+private struct TipCalibrationEffectOutcomeError: Error, CustomStringConvertible {
+  let outcome: PlotterTipCalibrationSubmissionOutcome
+  var description: String { String(describing: outcome) }
+}
+
+private extension BlacklistedToolContactLocation {
+  var persistenceEvidenceID: String {
+    "\(paperInstance.rawValue.uuidString.lowercased())-\(calibrationPosition.rawValue)"
+  }
 }
 
 extension Array {

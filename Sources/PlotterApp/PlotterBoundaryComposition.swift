@@ -24,12 +24,6 @@ final class OperatorWorkspaceBoundaryRelay: PlotterBoundaryFactSource,
     workspace?.installBoundarySnapshot(snapshot)
   }
 
-  func announceBoundaryAdvisory(_ message: String) async -> SpeechAnnouncementOutcome {
-    guard let workspace else {
-      preconditionFailure("The Boundary composition must be installed before admission.")
-    }
-    return await workspace.announceBoundaryAdvisory(message)
-  }
 }
 
 struct PlotterBoundaryComposition: Sendable {
@@ -47,7 +41,8 @@ struct PlotterBoundaryComposition: Sendable {
   static func make(
     machineActions: OperatorWorkspace.MachineActions,
     causalSimulator: PlotterCausalSimulatorEffectAdapter,
-    checkpointActions: OperatorWorkspace.AcceptedLearningPathCheckpointActions
+    checkpointActions: OperatorWorkspace.AcceptedLearningPathCheckpointActions,
+    speechEffectRuntime: PlotterSpeechEffectRuntime
   ) -> Self {
     let relay = OperatorWorkspaceBoundaryRelay()
     let runtime = PlotterBoundaryRuntime(
@@ -55,7 +50,7 @@ struct PlotterBoundaryComposition: Sendable {
       effectPort: OperatorWorkspaceBoundaryEffectPort(
         actions: machineActions,
         causalSimulator: causalSimulator,
-        relay: relay
+        speechEffectRuntime: speechEffectRuntime
       ),
       persistencePort: OperatorWorkspaceBoundaryPersistencePort(
         actions: checkpointActions
@@ -75,17 +70,17 @@ private actor OperatorWorkspaceBoundaryEffectPort: PlotterBoundaryEffectPort {
 
   private let actions: OperatorWorkspace.MachineActions
   private let causalSimulator: PlotterCausalSimulatorEffectAdapter
-  private let relay: OperatorWorkspaceBoundaryRelay
+  private let speechEffectRuntime: PlotterSpeechEffectRuntime
   private var owners: [UUID: LowerOwner] = [:]
 
   init(
     actions: OperatorWorkspace.MachineActions,
     causalSimulator: PlotterCausalSimulatorEffectAdapter,
-    relay: OperatorWorkspaceBoundaryRelay
+    speechEffectRuntime: PlotterSpeechEffectRuntime
   ) {
     self.actions = actions
     self.causalSimulator = causalSimulator
-    self.relay = relay
+    self.speechEffectRuntime = speechEffectRuntime
   }
 
   func preparePenUp(
@@ -205,7 +200,7 @@ private actor OperatorWorkspaceBoundaryEffectPort: PlotterBoundaryEffectPort {
     }
     // Speech outcome remains advisory. Runtime ownership surrounds this await
     // with exact cancellation/shutdown and fresh-fact checks before motion.
-    _ = await relay.announceBoundaryAdvisory(announcement)
+    _ = await speechEffectRuntime.perform(.init(message: announcement))
     return .success(())
   }
 

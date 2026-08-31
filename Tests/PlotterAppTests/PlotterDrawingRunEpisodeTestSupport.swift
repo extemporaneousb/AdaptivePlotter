@@ -22,7 +22,7 @@ struct DrawingRunEpisodeFixture: Sendable {
   func makePlan(
     catalogItemID: DrawingCatalogEntryID,
     center: Point2<MachineSpace>? = nil,
-    role: DrawingTrialEvidenceRole = .ordinaryDrawing,
+    role: BorderValidationEvidenceRole = .ordinaryDrawing,
     draftRevision: UInt64 = 2
   ) throws -> PlotterDrawingRunPlan {
     let built = PlotterDrawingPlanningAdapter.buildDraft(
@@ -86,7 +86,7 @@ enum DrawingRunEpisodeFixtureCache {
       workspace: harness.workspace,
       environment: .simulated
     )
-    try await completeSimulatedSparseTipCalibration(
+    try await completeSimulatedTipCalibration(
       harness.workspace,
       simulator: harness.simulator
     )

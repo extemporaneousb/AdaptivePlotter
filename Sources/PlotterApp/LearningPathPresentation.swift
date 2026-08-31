@@ -92,7 +92,7 @@ enum PlotterAppUIActionID {
 
 enum LearningPathStage: Int, CaseIterable, Hashable, Identifiable, Sendable {
   case humanGuidedDiscovery = 1
-  case observedDrawingTrials = 2
+  case borderValidations = 2
 
   var id: Self { self }
   var number: String { String(rawValue) }
@@ -100,7 +100,7 @@ enum LearningPathStage: Int, CaseIterable, Hashable, Identifiable, Sendable {
   var title: String {
     switch self {
     case .humanGuidedDiscovery: LearningPathTerminology.Stage.plotterCalibration
-    case .observedDrawingTrials: LearningPathTerminology.Stage.drawingValidation
+    case .borderValidations: LearningPathTerminology.Stage.drawingValidation
     }
   }
 }
@@ -141,31 +141,6 @@ enum HumanGuidedDiscoveryStep: Int, CaseIterable, Hashable, Identifiable, Sendab
   }
 }
 
-enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendable {
-  case chooseDrawingBorderPlan = 1
-  case captureLocalPreFrameBaseline
-  case moveToDrawingBorderStart
-  case drawDrawingBorder
-  case revealAndObserveNewInk
-  case compareIntendedAndObservedGeometry
-
-  var id: Self { self }
-  /// All cases are internal runtime phases of the single visible 2.1 exercise.
-  /// Later 2.x numbers are reserved for actual future curriculum items.
-  var stepNumber: String { "2.1" }
-
-  var title: String {
-    switch self {
-    case .chooseDrawingBorderPlan: "Plan Drawing Border"
-    case .captureLocalPreFrameBaseline: "Capture Baseline Frame"
-    case .moveToDrawingBorderStart: "Move to Drawing Border Start"
-    case .drawDrawingBorder: "Draw Drawing Border"
-    case .revealAndObserveNewInk: "Reveal Drawing"
-    case .compareIntendedAndObservedGeometry: "Compare Plan with Observed Ink"
-    }
-  }
-}
-
 /// Stable identity for every selectable row in the visible Learning Path.
 ///
 /// Stage rows and their numbered exercises are separate presentation targets.
@@ -174,7 +149,7 @@ enum ObservedDrawingTrialStep: Int, CaseIterable, Hashable, Identifiable, Sendab
 enum LearningPathItemID: Hashable, Identifiable, Sendable {
   case stage(LearningPathStage)
   case humanGuidedDiscovery(HumanGuidedDiscoveryStep)
-  case observedDrawingTrial(ObservedDrawingTrialStep)
+  case borderValidation(BorderValidationStep)
 
   var id: Self { self }
 
@@ -184,8 +159,8 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
     .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
     .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
-    .stage(.observedDrawingTrials),
-    .observedDrawingTrial(.chooseDrawingBorderPlan),
+    .stage(.borderValidations),
+    .borderValidation(.chooseDrawingBorderPlan),
   ]
 
   static let learningExerciseOrder: [Self] = [
@@ -193,14 +168,14 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
     .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
     .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
-    .observedDrawingTrial(.chooseDrawingBorderPlan),
+    .borderValidation(.chooseDrawingBorderPlan),
   ]
 
   var stage: LearningPathStage {
     switch self {
     case .stage(let stage): stage
     case .humanGuidedDiscovery: .humanGuidedDiscovery
-    case .observedDrawingTrial: .observedDrawingTrials
+    case .borderValidation: .borderValidations
     }
   }
 
@@ -208,7 +183,7 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     switch self {
     case .stage(let stage): stage.number
     case .humanGuidedDiscovery(let step): step.stepNumber
-    case .observedDrawingTrial(let step): step.stepNumber
+    case .borderValidation(let step): step.stepNumber
     }
   }
 
@@ -216,15 +191,15 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     switch self {
     case .stage(let stage): stage.title
     case .humanGuidedDiscovery(let step): step.title
-    case .observedDrawingTrial(.chooseDrawingBorderPlan):
+    case .borderValidation(.chooseDrawingBorderPlan):
       LearningPathTerminology.Exercise.drawAndValidateDrawingBorder
-    case .observedDrawingTrial(let step): step.title
+    case .borderValidation(let step): step.title
     }
   }
 
   var isExercise: Bool {
     switch self {
-    case .humanGuidedDiscovery, .observedDrawingTrial: true
+    case .humanGuidedDiscovery, .borderValidation: true
     case .stage: false
     }
   }
@@ -233,16 +208,16 @@ enum LearningPathItemID: Hashable, Identifiable, Sendable {
     switch self {
     case .stage(.humanGuidedDiscovery):
       .humanGuidedDiscovery(.penInteraction)
-    case .stage(.observedDrawingTrials):
-      .observedDrawingTrial(.chooseDrawingBorderPlan)
-    case .humanGuidedDiscovery, .observedDrawingTrial:
+    case .stage(.borderValidations):
+      .borderValidation(.chooseDrawingBorderPlan)
+    case .humanGuidedDiscovery, .borderValidation:
       self
     }
   }
 
   var navigationDepth: Int {
     switch self {
-    case .humanGuidedDiscovery, .observedDrawingTrial: 1
+    case .humanGuidedDiscovery, .borderValidation: 1
     case .stage: 0
     }
   }
@@ -516,7 +491,7 @@ enum MotionRequestStatusPresentation: Hashable, Sendable {
 }
 
 enum ExerciseActionKind: Hashable, Sendable {
-  case useSavedTraining
+  case applySavedLearning
   case startNewLearning
   case start
   case choice(OperatorChoice)
@@ -526,17 +501,16 @@ enum ExerciseActionKind: Hashable, Sendable {
   case redoThisStep
   case recordAnotherAttempt
   case boundary(PlotterBoundaryIntent)
-  case runCameraCalibrationAndBuildProposal
-  case acceptCameraCalibrationProposal
-  case rejectCameraCalibrationProposal
-  case drawFourCornerTipCircles
-  case undoLastSparseTipClick
-  case clearSparseTipClicks
-  case revalidateTipCalibrationCheckpoint
-  case acceptTipCalibrationProposal
-  case rejectTipCalibrationProposal
-  case retryTipCalibrationCommit
+  case cameraCalibration(PlotterCameraCalibrationIntent)
+  case tipCalibration(PlotterTipCalibrationIntent)
+  case borderValidation(PlotterBorderValidationIntent)
+  case pointSelectionCorrection(PlotterPointSelectionCorrectionIntent)
   case paperReplaced
+}
+
+enum PlotterPointSelectionCorrectionIntent: Hashable, Sendable {
+  case undoLastPoint
+  case clearPoints
 }
 
 enum SubsystemAuthorityRole: String, Hashable, Sendable {

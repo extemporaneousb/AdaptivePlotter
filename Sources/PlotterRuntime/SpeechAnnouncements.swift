@@ -178,6 +178,7 @@ public actor NativeSpeechAnnouncer: SpeechAnnouncing {
   private let voiceLanguage: String?
   private let timeoutNanoseconds: UInt64
   private var queue: SpeechSynthesisQueue?
+  private var isShutdown = false
 
   public init(
     voiceLanguage: String? = nil,
@@ -188,13 +189,18 @@ public actor NativeSpeechAnnouncer: SpeechAnnouncing {
   }
 
   public func announce(_ text: String) async -> SpeechAnnouncementOutcome {
+    guard !isShutdown else { return .cancelled }
     let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !message.isEmpty else { return .completed }
     let queue = await synthesisQueue()
+    // Queue creation crosses actors. Recheck the shutdown latch before this
+    // lower owner can start an utterance after application shutdown began.
+    guard !isShutdown else { return .cancelled }
     return await queue.enqueue(message)
   }
 
   public func cancelForShutdown() async {
+    isShutdown = true
     guard let queue else { return }
     await queue.cancelAll()
   }

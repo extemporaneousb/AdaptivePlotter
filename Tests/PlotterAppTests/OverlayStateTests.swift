@@ -227,7 +227,7 @@ struct OverlayStateTests {
     var channels = OverlayResultChannels()
 
     channels.publishScene(scene)
-    channels.publishWorkflow(workflow, source: .live, owner: .observedDrawingTrial)
+    channels.publishWorkflow(workflow, source: .live, owner: .borderValidation)
     channels.publishSimulation(simulation)
 
     #expect(channels.scene == scene)
@@ -382,7 +382,7 @@ struct OverlayStateTests {
         ]
       ),
       source: .live,
-      owner: .observedDrawingTrial
+      owner: .borderValidation
     )
     channels.publishSimulation(
       OverlayChannelResult(

@@ -187,7 +187,7 @@ struct DrawingStudioControl: Hashable, Identifiable, Sendable {
 struct DrawingStudioPresentation: Hashable, Sendable {
   let catalog: [DrawingStudioCatalogItemPresentation]
   let selectedCatalogItemID: DrawingCatalogEntryID?
-  let evidenceRole: DrawingTrialEvidenceRole
+  let evidenceRole: BorderValidationEvidenceRole
   let canvas: DrawingStudioCanvasPresentation
   let editingIsEnabled: Bool
   let runProjection: PlotterDrawingRunProjectionReference?
@@ -196,7 +196,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   init(
     catalog: [DrawingStudioCatalogItemPresentation],
     selectedCatalogItemID: DrawingCatalogEntryID?,
-    evidenceRole: DrawingTrialEvidenceRole,
+    evidenceRole: BorderValidationEvidenceRole,
     canvas: DrawingStudioCanvasPresentation,
     editingIsEnabled: Bool,
     runProjection: PlotterDrawingRunProjectionReference?,
@@ -374,7 +374,7 @@ struct DrawingStudioView: View {
         set: { submitDraft(.setEvidenceRole($0)) }
       )
     ) {
-      ForEach(DrawingTrialEvidenceRole.allCases, id: \.rawValue) { role in
+      ForEach(BorderValidationEvidenceRole.allCases, id: \.rawValue) { role in
         Text(Self.evidenceRoleLabel(role)).tag(role)
       }
     }
@@ -473,7 +473,7 @@ struct DrawingStudioView: View {
     Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
   }
 
-  private static func evidenceRoleLabel(_ role: DrawingTrialEvidenceRole) -> String {
+  private static func evidenceRoleLabel(_ role: BorderValidationEvidenceRole) -> String {
     switch role {
     case .ordinaryDrawing: "Ordinary drawing"
     case .training: "Training"

@@ -18,8 +18,9 @@ remaining ordinary software frontier on the landed policy is `TRANCHE-LEARNING`,
 one Blackdog task/worktree and one landing containing the ordered typed authority slices `EA-10G`,
 `EA-10C`, `EA-10D`, `EA-10E`, and `EA-10F`. Its successor tranches are
 `TRANCHE-DEVICE-ENVIRONMENT` (`EA-11A`, then `EA-11B`) and
-`TRANCHE-FINAL-COMPOSITION` (`EA-11C`). No individual slice is selected or
-claimed. The canonical contract and capsule reject a completed tranche or
+`TRANCHE-FINAL-COMPOSITION` (`EA-11C`). Historical pre-acceptance rule: No individual slice is selected or claimed. All five ordered slices are now accepted
+inside `TASK-5C0B3F27`; neither a slice nor the tranche is complete or landed.
+The canonical contract and capsule reject a completed tranche or
 successor selection unless the tranche row and every slice completion row share
 one nonempty Blackdog task/landing. Capsule prompt material carries each slice's
 current-owner inventory row and exact same-slice deletion scans, so a tranche
@@ -37,6 +38,316 @@ defect may receive one narrow repair and affected validation but never criticism
 again. This correction
 does not authorize attended physical or remote-Git work, and `GATE-01` remains
 unchanged downstream after `TRANCHE-FINAL-COMPOSITION`.
+
+## TRANCHE-LEARNING accepted-slice register — common landing pending
+
+All slices below are accepted in exact execution order inside shared Blackdog
+task `TASK-5C0B3F27`. The frozen Source/Test identities and all five
+slice-required gates are recorded per row. The tranche boundary receipts now
+pass on the final frozen tree, but this is not a common landing identity:
+`TRANCHE-LEARNING` and every slice remain pending until one shared Blackdog
+landing exists. No physical or remote-Git evidence is claimed; the
+post-acceptance repair overlay below records the current non-red-line deferral
+separately from these frozen slice receipts.
+
+| Order | Slice | Shared task | Accepted Sources | Accepted Tests | Required slice-gate evidence |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `EA-10G` | `TASK-5C0B3F27` | `785c530da7b01836a677cb3b1944e00abc2d6b94f652291ed829986fa7907306` | `764d8572ea8600d8b64e5e3af9d1df30d4f28f82ae96a417cd9e2ab490fa1168` | `BUILD` 0.54s; `SPEECH` 2/2; consumers 2 scans; clean `DIFF`; `DELETE` 4 scans |
+| 2 | `EA-10C` | `TASK-5C0B3F27` | `8088364f7129e2b3ef2007f02100c11776779dc57acd9877cdfcda532ee8a8ee` | `8cf81a27eff843ae21fcc382def63fdeaf02172efc37fd6b8b45e2200a92e2de` | `BUILD` 0.53s; `CAMERA-CAL` 2/2; consumers 1 scan; clean `DIFF`; `DELETE` 4 scans |
+| 3 | `EA-10D` | `TASK-5C0B3F27` | `c0fdf0705df2e97715e7bbd0678fd6fefbae22c598bc76d8e1d035763f7783b6` | `92a88407783893ae61b16b313af839ea29e099df08733b2e12aa407ea9f0011d` | `BUILD` 29.78s; `TIP-CAL` 7/7; consumers 2 scans; clean `DIFF`; `DELETE` 4 scans |
+| 4 | `EA-10E` | `TASK-5C0B3F27` | `768b26e96bdc357ad1a97ea3ae4e8f347e998e7ce77fb0d44daa4142b0157f86` | `40c5144691901b25386ea166954af5021c6303b651a6e78728af778b8a2b23ce` | `BUILD` 0.54s; `BORDER-VALIDATION` 5/5; consumers 1 scan; clean `DIFF`; `DELETE` 10 scans |
+| 5 | `EA-10F` | `TASK-5C0B3F27` | `4a96fe8389cc5c8cc3091575c6e24c822650420cfb58f9c6f1777b4fb2860af8` | `a9ba97238089155cc5a33fb462db3f6c3d96b5bde03d1ff485c0ae1b6f56afab` | `BUILD` 0.54s; `ARTIFACT-RESET` 9/9; consumers 2 scans; clean `DIFF`; `DELETE` 7 scans |
+
+## TRANCHE-LEARNING post-acceptance red-line repair — boundary pending
+
+The first boundary `DOC` pass was 35/35 and its `DIFF` was clean. The first
+`QUICK` then failed 4 tests with 6 issues at the 799-test tree. This was a
+red-line repair, not a non-red-line deferred finding. The repair captured the
+tip possible-ink fact before transient Stop-owner clear and retained the
+runtime terminal blacklist; preserved Boundary’s specific
+incomplete-publication explanation and pending authority across reset; and made
+the Border runtime emit MainActor-authoritative transition snapshots, including
+possible-ink/no-redraw terminal truth, without workspace authority.
+
+Focused repair evidence passed: exact tip regression 1/1; relevant
+Boundary capability/atomic regression 1/1; lost Border outcome 1/1; Border
+preview/progress 1/1; `PlotterTipCalibrationEpisodeTests` 7/7;
+`PlotterBorderValidationEpisodeTests` 5/5; and
+`PlotterArtifactResetEpisodeTests` 9/9. One attempted stale Boundary filter
+matched 0 and is not claimed as validation. The final `QUICK` passed 799/799
+after a 0.53-second build and 13.337 seconds of tests.
+
+The accepted-slice hashes above remain the frozen evidence for their acceptance
+trees. The red-line overlay supersedes stale current-tree claims for affected
+EA-10D/EA-10E/EA-10F and binds their delta evidence to final Sources
+`6dc363241c4b9f747fb2a791d26533c4f511601d2d32f97314318e2b9458392c` and
+Tests `a9ba97238089155cc5a33fb462db3f6c3d96b5bde03d1ff485c0ae1b6f56afab`:
+0.52-second delta build; EA-10D consumers 2/delete 4; EA-10E consumers
+1/delete 10; EA-10F consumers 2/delete 7; and clean `DIFF`.
+
+This synchronization was docs-only and changed neither final Sources nor Tests,
+so the green 799/799 `QUICK` remained valid for this overlay's tree. A later
+source/test repair supersedes that identity; its current evidence is recorded
+below. No physical or remote-Git evidence exists.
+
+## TRANCHE-LEARNING post-JOURNEY red-line repair — boundary pending
+
+The first `JOURNEY` failed 2 tests with 3 issues: SIM tip acceptance left a
+proposal and no Drawing Border overlay, and a changed-coordinate restart lacked
+the tip registration. The repair makes `PlotterTipCalibrationRuntime` own the
+recoverable accepted-tip checkpoint. Commit and revalidation atomically install
+the accepted registration and clear proposal, selection, and recoverable facts;
+`OperatorWorkspace` no longer stores a duplicate checkpoint and only projects
+typed facts plus lower persistence effects. The nominal SIM restart fixture now
+installs the checkpoint after the typed camera prerequisite.
+
+Each exact journey passed 1/1; `PlotterTipCalibrationEpisodeTests` passed 7/7;
+legacy migration passed 5/5; sparse workspace coverage passed 8/8; and
+`make journey-test` exited 0 with current discovery 5/5. Its Make filter lists
+ten names, but only five were discovered and executed, so no 10/10 claim is
+made. SIM proof recorded one LIVE-store load with zero saves and zero clears,
+nil proposal, accepted/Drawing Border overlays, zero-ink revalidation, and a
+new revision restored from the checkpoint. EA-10D consumers 2/delete 4 and
+EA-10F consumers 2/delete 7 passed; `DIFF` was clean.
+
+The final repaired tree is Sources
+`63ff15afa9716404367d8dbaf3cbdc111cb92e346cf816063ece2e7846f0fbd6` and
+Tests `1cc69013a0ed30b74a19ca21daa0a6cf408945e73fadf17e9c37563624731b9e`.
+The preceding 799/799 `QUICK` belongs only to the earlier aggregate and is
+therefore stale. This `JOURNEY` receipt belonged to this then-final identity;
+a later source/test repair supersedes it as well. Current boundary evidence is
+recorded below. No physical or remote-Git evidence exists.
+
+## TRANCHE-LEARNING post-critic red-line repair — boundary passed, landing pending
+
+The tranche's one bounded fresh-context critic returned four P1 red-lines:
+camera semantic authority could publish false terminal truth; Border review had
+to require explicit accept/reject; paper persistence had to commit before the
+in-memory projection; and legacy cleanup had to remain reversibly staged. Each
+was repaired. There was no critic recheck, in accordance with the tranche rule.
+
+The repaired tree leaves `PlotterCameraCalibrationRuntime` as the semantic and
+terminal authority; `PlotterBorderValidationRuntime` as the explicit-review and
+accept/reject authority behind the typed
+`ExerciseActionKind.borderValidation(PlotterBorderValidationIntent)` adapter;
+and `PlotterArtifactResetRuntime` as the persist-before-memory transaction
+owner. `AcceptedLearningPathLegacyMigrationAdapter` saves canonical state before
+reversible legacy cleanup and retains the legacy bytes on failure. The current
+inventory records the typed Border action as a live adapter and the runtime as
+the sole semantic owner.
+
+Focused receipts after those repairs are: Border 6/6, projector 19/19,
+presentation 16/16, UI 18/18, lifecycle 6/6, sparse-tip 8/8, reset 13/13,
+legacy migration 6/6, camera 3/3 plus action 21/21, and artifact reset 11/11
+plus injected-paper-failure 1/1. The accepted-slice receipts above remain
+historical evidence for their frozen trees.
+
+The current identities were mechanically recomputed as SHA-256 over the sorted
+per-file SHA-256 manifest for Swift files: Sources
+`18ae4d43717629a3944ced33a6bab7b21f0fdabdcb45baee5704a34e94ebf796` and
+Tests `586d3de73b048efab7555332dbc17077c5e9fc3d4e1920084d5c6e0391bbacca`.
+The earlier `QUICK` and `JOURNEY` receipts are stale for these identities. The
+final frozen-tree receipts are:
+
+| Gate | Result | Frozen-tree scope |
+| --- | --- | --- |
+| `QUICK` | passed — `make quick-test`; exit 0; 807/807; build 2.63 seconds; tests 14.090 seconds; 0 warnings/errors | final Sources/Tests identities above; log `/tmp/adaptiveplotter-learning-gates.sMErfC/quick.log`, SHA-256 prefix `10504c9e…ba75` |
+| `JOURNEY` | passed — `make journey-test`; exit 0; current discovery 5/5 in 5.273 seconds; 0 warnings/errors | final Sources/Tests identities above; canonical filter lists ten names but only five currently exist/discover, so no 10/10 claim; log `/tmp/adaptiveplotter-learning-gates.sMErfC/journey.log`, SHA-256 prefix `5e115d21…3feb` |
+| `STRICT` | passed — `make strict-check`; exit 0; strict build 48.90 seconds; full strict build 48.49 seconds; 812/812 in 14.873 seconds; docs/checker 35/35 in 21.517 seconds; signing, launcher, and negative-bundle green; clean `DIFF`; 0 warnings/errors | final Sources/Tests identities above; log `/tmp/adaptiveplotter-learning-gates.sMErfC/strict.log`, SHA-256 prefix `bb8de8aa…b2d8` |
+
+These receipts used the pre-evidence-sync ledger
+`4584074782e52b30b5fccfbdfda8525eae5f80fd8ea0d738f5e28b2c5e3009ae` and
+supersede the stale prior `QUICK`/`JOURNEY` claims. The one critic has already
+occurred; no critic recheck occurred. The docs-only evidence delta changes no
+Source/Test identity and reruns only `DOC` and `DIFF`; common landing remains
+pending.
+
+The non-red-line deferred item is
+`PlotterBorderValidationIntent.retryFrom`: the intent and runtime handling
+exist, but no production caller constructs it. No stale tip comment was found
+in the current Sources. Attended physical validation was not performed; no
+physical or remote-Git evidence is claimed.
+
+## EA-10G accepted-slice evidence — shared landing pending
+
+EA-10G is accepted as the first authority slice inside active
+`TRANCHE-LEARNING` Blackdog task `TASK-5C0B3F27`. This is accepted slice
+evidence, not package completion or a landing: both the EA-10G and
+`TRANCHE-LEARNING` ledger rows remain `pending` until the ordered tranche has
+one shared Blackdog landing. The accepted Sources aggregate is
+`785c530da7b01836a677cb3b1944e00abc2d6b94f652291ed829986fa7907306`; the
+accepted Tests aggregate is
+`764d8572ea8600d8b64e5e3af9d1df30d4f28f82ae96a417cd9e2ab490fa1168`.
+
+The task-local tree routes advisory speech through one typed
+`PlotterSpeechEffectRuntime`. The runtime owns application-level admission,
+identity-bound active and bounded terminal request tracking, completed/failed/
+timed-out/cancelled outcomes, advisory-only outcome handling, and its shutdown
+latch. `NativeSpeechAnnouncer` remains the lower AVFoundation synthesis,
+identity-queue, and per-utterance-timeout owner. The runtime is shared by the
+workspace route and the Boundary composition route; it does not grant physical
+permission or establish attended-controller, camera, motion, Pen, paper,
+operator-click, or observed-ink evidence.
+
+The task-local tree deletes `AnnouncementActions`,
+`OperatorWorkspace.announceAdvisory`, `announcementActions?.announce`, and
+`AnnouncementFixture`. The canonical EA-01 inventory now names the replacement
+runtime, lower native owner, actual lower timeout owner, focused test doubles,
+and the two remaining Boundary workspace seams; the four retired names remain
+EA-10G zero-match declarations rather than live-source obligations.
+
+| Gate | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; final 0.54 seconds | task-local EA-10G replacement tree |
+| `SPEECH` | passed — `swift test --filter PlotterSpeechEffectEpisodeTests`; 2/2 | typed speech-effect terminal and shutdown behavior |
+| `AFFECTED-CONSUMERS` | passed — `sh Scripts/check_episode_cutover.sh EA-10G --consumer-only`; 2 exact scans | surviving consumer routes and duplicate ingress |
+| `DIFF` | passed — `git diff --check`; clean | task-local whitespace/error check |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-10G`; 4 exact zero-match scans | retired announcement symbols, direct ingress, and fixture |
+
+No non-red-line finding was recorded. No physical or remote-Git validation
+occurred or is claimed; the remaining ordered slices, tranche-boundary evidence,
+and the shared Blackdog landing remain pending.
+
+## EA-10C accepted-slice evidence — shared landing pending
+
+EA-10C is accepted as the second authority slice inside active
+`TRANCHE-LEARNING` Blackdog task `TASK-5C0B3F27`. This is accepted slice
+evidence, not package completion or a landing: both the EA-10C and
+`TRANCHE-LEARNING` ledger rows remain `pending` until the ordered tranche has
+one shared Blackdog landing. The accepted Sources aggregate is
+`8088364f7129e2b3ef2007f02100c11776779dc57acd9877cdfcda532ee8a8ee`; the
+accepted Tests aggregate is
+`8cf81a27eff843ae21fcc382def63fdeaf02172efc37fd6b8b45e2200a92e2de`.
+
+The EA-10C red-line semantic repair eliminated the parallel workspace mirror:
+`ExerciseActionKind.cameraCalibration(PlotterCameraCalibrationIntent)` routes
+to one typed `PlotterCameraCalibrationRuntime`, which owns phase, failure,
+reference/correspondence evidence, staged proposal, accepted registration,
+active task, bounded terminal history, and shutdown admission.
+`OperatorWorkspace` derives/proxies runtime state and supplies only lower
+effects plus atomic application. The former explicit run/proposal-accept/
+proposal-reject action cases and former workspace task remain exact EA-10C
+zero-match deletion authority.
+
+| Gate | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; final 0.53 seconds | task-local EA-10C replacement tree |
+| `CAMERA-CAL` | passed — `swift test --filter PlotterCameraCalibrationEpisodeTests`; 2/2 | typed calibration terminal and shutdown behavior |
+| `AFFECTED-CONSUMERS` | passed — consumer-only gate; 1 exact scan | surviving typed camera-calibration route |
+| `DIFF` | passed — `git diff --check`; clean | task-local whitespace/error check |
+| `DELETE` | passed — 4 exact zero-match scans | `currentCameraCalibrationPhase`, `runCameraCalibrationAndBuildProposal`, `currentCameraCalibrationTask`, and `stageMachineCameraRegistrationProposal` |
+
+No automatic retry/redraw, deferred finding, physical, or remote-Git evidence
+occurred or is claimed. The remaining ordered slices, tranche-boundary evidence,
+and shared Blackdog landing remain pending.
+
+## EA-10D accepted-slice evidence — shared landing pending
+
+EA-10D is accepted as the third authority slice inside active
+`TRANCHE-LEARNING` Blackdog task `TASK-5C0B3F27`. This is accepted slice
+evidence, not package completion or a landing: both the EA-10D and
+`TRANCHE-LEARNING` ledger rows remain `pending` until the ordered tranche has
+one shared Blackdog landing. The accepted Sources aggregate is
+`c0fdf0705df2e97715e7bbd0678fd6fefbae22c598bc76d8e1d035763f7783b6`; the
+accepted Tests aggregate is
+`92a88407783893ae61b16b313af839ea29e099df08733b2e12aa407ea9f0011d`.
+
+The task-local tree routes `ExerciseActionKind.tipCalibration` to one typed
+`PlotterTipCalibrationRuntime` through its effect-port `execute(_:)` shape. The
+runtime owns workflow/task/phase/proposal/commit/revalidate/reject/retry,
+terminal-history, and possible-ink blacklist semantics.
+`PlotterPointSelectionRuntime` remains the sole click add/undo/clear/four-point
+batch owner. `OperatorWorkspace` supplies only lower effects/projection.
+
+`SparseTipCalibrationCoordinator.swift` and its direct test are deleted. The
+former `SparseTipCalibrationCoordinator`, `drawFourCornerTipCircles`,
+`undoLastSparseTipClick`, and `completeSimulatedSparseTipCalibration` names
+remain exact EA-10D zero-match deletion authority.
+
+| Gate | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; final 29.78 seconds | task-local EA-10D replacement tree |
+| `TIP-CAL` | passed — `swift test --filter PlotterTipCalibrationEpisodeTests`; 7/7 | typed calibration workflow, terminal, and possible-ink behavior |
+| `AFFECTED-CONSUMERS` | passed — consumer-only gate; 2 exact scans | surviving typed tip-calibration and point-correction routes |
+| `DIFF` | passed — `git diff --check`; clean | task-local whitespace/error check |
+| `DELETE` | passed — 4 exact zero-match scans | `SparseTipCalibrationCoordinator`, `drawFourCornerTipCircles`, `undoLastSparseTipClick`, and `completeSimulatedSparseTipCalibration` |
+
+No automatic redraw/retry, deferred semantic finding, physical, or remote-Git
+evidence occurred or is claimed. The remaining ordered slices, tranche-boundary
+evidence, and shared Blackdog landing remain pending.
+
+## EA-10E accepted-slice evidence — shared landing pending
+
+EA-10E is accepted as the fourth authority slice inside active
+`TRANCHE-LEARNING` Blackdog task `TASK-5C0B3F27`. This is accepted slice
+evidence, not package completion or a landing: both the EA-10E and
+`TRANCHE-LEARNING` ledger rows remain `pending` until the ordered tranche has
+one shared Blackdog landing. The accepted Sources aggregate is
+`768b26e96bdc357ad1a97ea3ae4e8f347e998e7ce77fb0d44daa4142b0157f86`; the
+accepted Tests aggregate is
+`40c5144691901b25386ea166954af5021c6303b651a6e78728af778b8a2b23ce`.
+
+The task-local tree routes canonical `PlotterBorderValidationIntent` actions
+through one typed `PlotterBorderValidationRuntime`. The runtime is the sole
+workflow/task/phase/terminal/possible-ink/review/shutdown owner.
+`OperatorWorkspace` supplies only lower effects/projection; Draft and Run
+runtimes remain distinct, and the EA-10D tip dependency is preserved.
+
+No decode adapter or old active label is retained. All ten old-name scans remain
+EA-10E zero-match deletion authority only.
+
+| Gate | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; final 0.54 seconds | task-local EA-10E replacement tree |
+| `BORDER-VALIDATION` | passed — `swift test --filter PlotterBorderValidationEpisodeTests`; 5/5 | typed Border workflow, terminal, possible-ink, review, and shutdown behavior |
+| `AFFECTED-CONSUMERS` | passed — consumer-only gate; 1 exact scan | surviving typed Border route |
+| `DIFF` | passed — `git diff --check`; clean | task-local whitespace/error check |
+| `DELETE` | passed — 10 exact zero-match scans | old Border state/item/ingress/task/fixture/label targets |
+
+No automatic redraw/retry, deferred semantic finding, physical, or remote-Git
+evidence occurred or is claimed. The remaining ordered slices, tranche-boundary
+evidence, and shared Blackdog landing remain pending.
+
+## EA-10F accepted-slice evidence — shared landing pending
+
+EA-10F is accepted as the fifth authority slice inside active
+`TRANCHE-LEARNING` Blackdog task `TASK-5C0B3F27`. This is accepted slice
+evidence, not package completion or a landing: both EA-10F and
+`TRANCHE-LEARNING` remain `pending` until the ordered tranche has one shared
+Blackdog landing. The accepted Sources aggregate is
+`4a96fe8389cc5c8cc3091575c6e24c822650420cfb58f9c6f1777b4fb2860af8`; the
+accepted Tests aggregate is
+`a9ba97238089155cc5a33fb462db3f6c3d96b5bde03d1ff485c0ae1b6f56afab`.
+
+`AdaptivePlotterApplicationDelegate` composes `PlotterArtifactResetRuntime`,
+injects it into `OperatorWorkspace`, and installs a weak lower
+effect/persistence relay. The runtime owns explicit Saved Learning comparison,
+apply, retain, reject, redo, additional-attempt, paper-replacement, and reset
+intents; admission, one active task, state, bounded terminal history, shutdown,
+possible-ink/Stop blocking, and durable-before-projection ordering.
+`OperatorWorkspace` routes typed actions, projects runtime facts, and performs
+only lower effects and atomic persistence/application. The one-shot
+`AcceptedLearningPathLegacyMigrationAdapter` canonical-short-circuits, rejects
+corrupt/unsupported legacy bytes explicitly, saves canonical state before
+reversible cleanup, and preserves legacy bytes on failure. The two former
+legacy stores and their direct tests are deleted; all five former EA-10F
+workspace/fixture symbols plus both legacy stores are exact zero-match targets.
+This reset repair makes persistence happen before projection and retains the
+legacy-byte-preservation migration proof.
+
+| Gate | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; final 0.54 seconds | task-local EA-10F production tree |
+| `ARTIFACT-RESET` | passed — `swift test --filter PlotterArtifactResetEpisodeTests`; 9/9 | typed lifecycle, admission, persistence ordering, terminal, and shutdown behavior |
+| `AFFECTED-CONSUMERS` | passed — consumer-only gate; 2 exact scans | surviving typed reset routes and lower relay composition |
+| `DIFF` | passed — `git diff --check`; clean | task-local whitespace/error check |
+| `DELETE` | passed — 7 exact zero-match scans | five retired workspace/fixture targets plus both legacy stores |
+
+Focused support evidence also passed: `AcceptedLearningPathLegacyMigrationTests`
+5/5; application lifecycle injection/shutdown 1/1; full reset 12/12; the seven
+formerly failing reset cases 7/7; and the former Boundary-settlement hang 1/1.
+No automatic retry/redraw, deferred semantic finding, physical, or remote-Git
+evidence occurred or is claimed; the shared landing remains pending.
 
 ## Capsule claim-classification correction
 
@@ -2140,8 +2451,8 @@ The current request admits and a replaced request typed-refuses at the runtime b
 One accepted selection becomes publicly visible only after the select event, point observation, and accepted `PlotterEvidence` with class `.operatorAssertion` have all committed.
 Projection reads use the same FIFO boundary, so no caller can observe a partially committed accepted selection.
 Pen-cap sampling is owned by runtime `PlotterPenCapPointSampler`; its accepted result carries the exact `DisplayedFrame` used for sampling to the app adapter. Sparse-tip selection uses the same runtime for staged points,
-undo, clear, four-point capacity, and the accepted batch.
-`SparseTipCalibrationCoordinator` retains machine-position association,
+undo, clear, four-point capacity, and the accepted batch. Historically for
+EA-04, `SparseTipCalibrationCoordinator` retains machine-position association,
 calibration fitting and acceptance. No accepted point is inferred from a
 camera, simulator, or recording diagnostic.
 
@@ -2182,8 +2493,8 @@ aggregate `PlotterUIProjection` described above.
 `PointSelectionPresentationContext`, its copied request/admission comparison, and the Task-returning app cancellation helper are deleted.
 `submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` are also deleted; focused tests use generic point submissions and bounded observable-state waits.
 The app's
-`frozenPointSelectionFrame` bytes remain presentation-only, while
-`pendingToolContactEvidence` remains adapter data for the retained sparse-tip calibration fit. Neither is point-selection admission or accepted-evidence
+`frozenPointSelectionFrame` bytes remain presentation-only, while historically
+for EA-04 `pendingToolContactEvidence` remains adapter data for the retained sparse-tip calibration fit. Neither is point-selection admission or accepted-evidence
 authority; the app cancellation helper is now async and awaits the runtime owner directly.
 
 `CameraCapture` still owns device discovery, capture, and exact stamped frames;

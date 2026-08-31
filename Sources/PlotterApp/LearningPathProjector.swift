@@ -1,5 +1,6 @@
 import Foundation
 import PlotterEpisodeModel
+import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
 import PlotterUI
@@ -8,7 +9,7 @@ enum ExactWorkflowVisionOwner: String, CaseIterable, Hashable, Sendable {
   case penCapAppearance
   case cameraCalibration
   case sparseTipCalibration
-  case observedDrawingTrial
+  case borderValidation
   case drawingStudio
 
   var operatorLabel: String {
@@ -16,7 +17,7 @@ enum ExactWorkflowVisionOwner: String, CaseIterable, Hashable, Sendable {
     case .penCapAppearance: "pen-cap identification"
     case .cameraCalibration: "camera calibration"
     case .sparseTipCalibration: "pen-tip calibration"
-    case .observedDrawingTrial: "Drawing Border validation"
+    case .borderValidation: "Drawing Border validation"
     case .drawingStudio: "Drawing Studio validation"
     }
   }
@@ -134,7 +135,7 @@ struct PlotterLearningPresentationFacts: Sendable {
     let accepted: TipCameraRegistration?
     let proposed: TipCameraRegistration?
     let acceptedIsCurrent: Bool
-    let phase: SparseTipCalibrationPhase
+    let phase: PlotterTipCalibrationPhase
     let acceptedObservationCount: Int
     let collectedClickCount: Int
     let blacklistedPositionCount: Int
@@ -144,7 +145,7 @@ struct PlotterLearningPresentationFacts: Sendable {
       accepted: TipCameraRegistration? = nil,
       proposed: TipCameraRegistration? = nil,
       acceptedIsCurrent: Bool? = nil,
-      phase: SparseTipCalibrationPhase = .idle,
+      phase: PlotterTipCalibrationPhase = .idle,
       acceptedObservationCount: Int = 0,
       collectedClickCount: Int = 0,
       blacklistedPositionCount: Int = 0,
@@ -162,24 +163,30 @@ struct PlotterLearningPresentationFacts: Sendable {
   }
 
   struct DrawingFacts: Sendable {
-    let currentStep: ObservedDrawingTrialStep
+    let currentStep: BorderValidationStep
+    let phase: PlotterBorderValidationPhase
+    let decisionIsInFlight: Bool
     let drawingBorderPath: [MachinePosition]
     let localBaselineFrameID: String?
     let drawingBorderSettled: Bool
     let inkStatus: String
-    let assessment: DrawingTrialAssessment?
+    let assessment: BorderValidationAssessment?
     let lastTravelFeed: TravelFeedSelection?
 
     init(
-      currentStep: ObservedDrawingTrialStep = .chooseDrawingBorderPlan,
+      currentStep: BorderValidationStep = .chooseDrawingBorderPlan,
+      phase: PlotterBorderValidationPhase = .idle,
+      decisionIsInFlight: Bool = false,
       drawingBorderPath: [MachinePosition] = [],
       localBaselineFrameID: String? = nil,
       drawingBorderSettled: Bool = false,
       inkStatus: String = "no Drawing Border observation yet",
-      assessment: DrawingTrialAssessment? = nil,
+      assessment: BorderValidationAssessment? = nil,
       lastTravelFeed: TravelFeedSelection? = nil
     ) {
       self.currentStep = currentStep
+      self.phase = phase
+      self.decisionIsInFlight = decisionIsInFlight
       self.drawingBorderPath = drawingBorderPath
       self.localBaselineFrameID = localBaselineFrameID
       self.drawingBorderSettled = drawingBorderSettled
@@ -193,13 +200,13 @@ struct PlotterLearningPresentationFacts: Sendable {
     case manualJog(ContextualStopCapabilityID)
     case manualDrawing(ContextualStopCapabilityID)
     case exercise(ContextualStopCapabilityID, LearningMotionAction, boundaryOwner: Bool)
-    case drawingTrial(ContextualStopCapabilityID)
+    case borderValidation(ContextualStopCapabilityID)
     case sparseTipBatch(ContextualStopCapabilityID)
 
     var capabilityID: ContextualStopCapabilityID {
       switch self {
       case .exercise(let id, _, _): id
-      case .manualJog(let id), .manualDrawing(let id), .drawingTrial(let id),
+      case .manualJog(let id), .manualDrawing(let id), .borderValidation(let id),
         .sparseTipBatch(let id): id
       }
     }
@@ -388,31 +395,36 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
     _ action: PlotterUILearningSemanticAction
   ) -> ExerciseActionKind? {
     switch action {
-    case .useSavedTraining: .useSavedTraining
-    case .startNewLearning: .startNewLearning
-    case .start: .start
-    case .choice(let choice): .choice(operatorChoice(choice))
+    case .applySavedLearning: return .applySavedLearning
+    case .startNewLearning: return .startNewLearning
+    case .start: return .start
+    case .choice(let choice): return .choice(operatorChoice(choice))
     case .setPenSetpoint:
-      nil
+      return nil
     case .stopPenInteraction(let capability):
-      .stop(ContextualStopCapabilityID(rawValue: capability.rawValue))
-    case .boundary(let intent): .boundary(intent)
-    case .cancel: .cancel
-    case .stop(let id): .stop(ContextualStopCapabilityID(rawValue: id))
-    case .restart: .restart
-    case .redoThisStep: .redoThisStep
-    case .recordAnotherAttempt: .recordAnotherAttempt
-    case .runCameraCalibration: .runCameraCalibrationAndBuildProposal
-    case .acceptCameraCalibration: .acceptCameraCalibrationProposal
-    case .discardCameraSamples, .rejectCameraCalibration: .rejectCameraCalibrationProposal
-    case .drawSparseTipCircles: .drawFourCornerTipCircles
-    case .undoSparseTipClick: .undoLastSparseTipClick
-    case .clearSparseTipClicks: .clearSparseTipClicks
-    case .revalidateTipCalibration: .revalidateTipCalibrationCheckpoint
-    case .acceptTipCalibration: .acceptTipCalibrationProposal
-    case .rejectTipCalibration: .rejectTipCalibrationProposal
-    case .retryTipCalibrationCommit: .retryTipCalibrationCommit
-    case .paperReplaced: .paperReplaced
+      return .stop(ContextualStopCapabilityID(rawValue: capability.rawValue))
+    case .boundary(let intent): return .boundary(intent)
+    case .cancel: return .cancel
+    case .stop(let id): return .stop(ContextualStopCapabilityID(rawValue: id))
+    case .restart: return .restart
+    case .redoThisStep: return .redoThisStep
+    case .recordAnotherAttempt: return .recordAnotherAttempt
+    case .runCameraCalibration: return .cameraCalibration(.buildFivePositionProposal)
+    case .acceptCameraCalibration: return .cameraCalibration(.acceptProposal)
+    case .discardCameraSamples, .rejectCameraCalibration:
+      return .cameraCalibration(.rejectProposal)
+    case .drawSparseTipCircles: return .tipCalibration(.beginFourMarkBatch)
+    case .undoSparseTipClick: return .pointSelectionCorrection(.undoLastPoint)
+    case .clearSparseTipClicks: return .pointSelectionCorrection(.clearPoints)
+    case .revalidateTipCalibration: return .tipCalibration(.revalidateCheckpoint)
+    case .acceptTipCalibration: return .tipCalibration(.acceptProposal)
+    case .rejectTipCalibration: return .tipCalibration(.rejectProposal)
+    case .retryTipCalibrationCommit: return .tipCalibration(.retryCommit)
+    case .paperReplaced: return .paperReplaced
+    case .acceptBorderValidation:
+      return .borderValidation(.acceptObservedPrediction)
+    case .rejectBorderValidation:
+      return .borderValidation(.reject("Operator rejected the observed Drawing Border comparison."))
     }
   }
 
@@ -549,7 +561,7 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
       acceptedBoundaryDirections: snapshot.boundary.acceptedDirections.map(uiDirection),
       allowedBoundaryDirections: snapshot.boundary.allowedDirections.map(uiDirection),
       selectedBoundaryDirection: uiDirection(snapshot.selectedBoundaryDirection),
-      drawingState: drawingState(snapshot.drawing.currentStep),
+      drawingState: drawingState(snapshot.drawing),
       selectedResetPlanIsPresent: snapshot.reset.plansByAnchor[selectedItemID] != nil,
       resetAllPlanIsPresent: snapshot.reset.resetAllPlan != nil,
       resetUnavailableReason: snapshot.reset.unavailableReason
@@ -559,12 +571,12 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
   private func ownerKind(_ item: LearningPathItemID) -> PlotterUILearningOwnerKind {
     switch item {
     case .stage(.humanGuidedDiscovery): .discoveryStage
-    case .stage(.observedDrawingTrials): .drawingStage
+    case .stage(.borderValidations): .drawingStage
     case .humanGuidedDiscovery(.penInteraction): .penInteraction
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering): .boundary
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap): .cameraCalibration
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks): .sparseTipCalibration
-    case .observedDrawingTrial: .drawingValidation
+    case .borderValidation: .drawingValidation
     }
   }
 
@@ -578,7 +590,7 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
       && snapshot.sparseCalibration.acceptedIsCurrent
     switch item {
     case .stage(.humanGuidedDiscovery): return discoveryComplete
-    case .stage(.observedDrawingTrials): return snapshot.drawing.assessment != nil
+    case .stage(.borderValidations): return snapshot.drawing.assessment != nil
     case .humanGuidedDiscovery(.penInteraction): return snapshot.penInteractionCompleted
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       return snapshot.boundary.centerArrival != nil
@@ -586,7 +598,7 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
       return snapshot.cameraCalibration.acceptedIsCurrent
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       return snapshot.sparseCalibration.acceptedIsCurrent
-    case .observedDrawingTrial(let step):
+    case .borderValidation(let step):
       return step == .chooseDrawingBorderPlan && snapshot.drawing.assessment != nil
     }
   }
@@ -638,7 +650,7 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
     case .manualDrawing: .manualDrawing
     case .exercise(_, let action, let boundaryOwner):
       .exercise(title: action.title, boundaryOwner: boundaryOwner)
-    case .drawingTrial: .drawingValidation
+    case .borderValidation: .drawingValidation
     case .sparseTipBatch: .sparseTipBatch
     }
     return PlotterUILearningStopFacts(capabilityID: owner.capabilityID.rawValue, kind: kind)
@@ -651,22 +663,28 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
     return facts.hasProposal ? .readyWithProposal : .readyWithoutProposal
   }
 
-  private func sparseState(_ phase: SparseTipCalibrationPhase) -> PlotterUILearningSparseState {
+  private func sparseState(_ phase: PlotterTipCalibrationPhase) -> PlotterUILearningSparseState {
     switch phase {
     case .idle: .idle
-    case .drawingBatch: .drawingBatch
-    case .revealingBatch: .revealingBatch
-    case .awaitingFrozenClicks: .awaitingFrozenClicks
-    case .fittingModel: .fittingModel
-    case .reviewingModel: .reviewingModel
-    case .committingModel: .committingModel
+    case .marking: .drawingBatch
+    case .awaitingCompletedPointSelection: .awaitingFrozenClicks
+    case .fitting: .fittingModel
+    case .reviewingProposal: .reviewingModel
+    case .committing: .committingModel
+    case .revalidating: .committingModel
+    case .rejected: .awaitingFrozenClicks
     case .possibleInkBlacklisted: .possibleInkBlacklisted
     case .accepted: .accepted
     }
   }
 
-  private func drawingState(_ step: ObservedDrawingTrialStep) -> PlotterUILearningDrawingState {
-    switch step {
+  private func drawingState(
+    _ facts: PlotterLearningPresentationFacts.DrawingFacts
+  ) -> PlotterUILearningDrawingState {
+    if case .reviewingComparison = facts.phase, !facts.decisionIsInFlight {
+      return .reviewingComparison
+    }
+    return switch facts.currentStep {
     case .chooseDrawingBorderPlan: .choosePlan
     case .captureLocalPreFrameBaseline: .captureBaseline
     case .moveToDrawingBorderStart: .moveToStart
@@ -791,11 +809,11 @@ struct PlotterLearningDetailedPresentationNormalizer: Sendable {
       "Run five Pen-Up cap measurements at the center and four axis positions. Three measurements fit the camera calibration and two independently check it before review."
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       "Draw four 2 mm-radius calibration circles whose centers are 10 mm inside the accepted Drawing Boundary. After one final Pen-Up reveal, click the four circle centers on the unchanged frame and review the proposed pen-tip calibration."
-    case .stage(.observedDrawingTrials):
+    case .stage(.borderValidations):
       "Use the accepted pen-tip calibration to preview, draw, observe, and compare the Drawing Border through the four calibration-circle centers."
-    case .observedDrawingTrial(.chooseDrawingBorderPlan):
-      "Press Draw and Validate Drawing Border once. The app previews the Drawing Border, captures a baseline, draws the perimeter, returns Pen Up for a new image, and compares the observed ink with the plan."
-    case .observedDrawingTrial(let step): drawingActionText(step)
+    case .borderValidation(.chooseDrawingBorderPlan):
+      "Press Draw and Validate Drawing Border once. The app previews the Drawing Border, captures a baseline, draws the perimeter, returns Pen Up for a new image, and then waits for explicit acceptance or rejection of the observed comparison."
+    case .borderValidation(let step): drawingActionText(step)
     }
   }
 }
@@ -866,7 +884,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
         requestedFeedMMPerMinute: feed?.requestedFeedMMPerMinute,
         feedSource: feed?.source
       )
-    case .observedDrawingTrial(let step):
+    case .borderValidation(let step):
       let isVisibleTrial = step == .chooseDrawingBorderPlan
       return OperatorActionPresentation(
         itemID: itemID,
@@ -875,18 +893,18 @@ extension PlotterLearningDetailedPresentationNormalizer {
         status: status,
         participant: isVisibleTrial ? "Application" : drawingParticipant(step),
         instructions: [.text(isVisibleTrial
-          ? "Press Draw and Validate Drawing Border once for one closed Drawing Border. Keep Stop available during motion; planning, preview, baseline capture, drawing, reveal, Vision analysis, and comparison then continue without another approval."
+          ? "Press Draw and Validate Drawing Border once for one closed Drawing Border. Keep Stop available during motion; after planning, preview, baseline capture, drawing, reveal, and Vision analysis, explicitly accept or reject the observed comparison."
           : drawingActionText(step))],
         expectedObservation: [.text(isVisibleTrial
           ? "The predicted cyan Drawing Border appears before motion, then observed white ink and orange residuals appear on the exact post-frame image."
           : drawingExpectationText(step))],
         timeline: ExerciseTimelinePresentation(
           position: snapshot.drawing.currentStep.rawValue,
-          total: ObservedDrawingTrialStep.allCases.count,
+          total: BorderValidationStep.allCases.count,
           currentLabel: snapshot.drawing.currentStep.title
         ),
         evidence: isVisibleTrial
-          ? drawingTrialEvidence(snapshot: snapshot)
+          ? borderValidationEvidence(snapshot: snapshot)
           : drawingEvidence(step, snapshot: snapshot),
         activity: activity(for: itemID, transaction: nil, current: current, snapshot: snapshot),
         subsystemStatuses: subsystemStatuses(for: itemID, transaction: nil, snapshot: snapshot),
@@ -976,17 +994,17 @@ extension PlotterLearningDetailedPresentationNormalizer {
           : [.text("Stop remains available for the active Pen-Up move.")]
       )
     }
-    if itemID == .observedDrawingTrial(.chooseDrawingBorderPlan),
+    if itemID == .borderValidation(.chooseDrawingBorderPlan),
       operations.activeAttemptOwner == itemID
     {
       let phase = snapshot.drawing.currentStep
       return OperationActivityPresentation(
         actor: drawingParticipant(phase),
         action: drawingActionText(phase),
-        phase: "Phase \(phase.rawValue) of \(ObservedDrawingTrialStep.allCases.count)",
+        phase: "Phase \(phase.rawValue) of \(BorderValidationStep.allCases.count)",
         outcome: .inProgress,
         detail: [.text(phase == .revealAndObserveNewInk
-          && operations.exactWorkflowVisionOwner == .observedDrawingTrial
+          && operations.exactWorkflowVisionOwner == .borderValidation
           ? "Vision is comparing the validation baseline with the strictly newer post-drawing image now."
           : "Drawing Border validation is progressing automatically; no additional approval is waiting.")],
         recovery: operations.stopOwner == nil
@@ -1019,7 +1037,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
           : [.text("Resolve the named controller, camera, or observation fact before continuing.")]
       )
     }
-    if itemID.stage == .observedDrawingTrials,
+    if itemID.stage == .borderValidations,
       let failure = operations.explorationFailure
     {
       let recovery: [PresentationFragment]
@@ -1332,7 +1350,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
         .operationOwner,
         "Vision is inspecting exact sparse-tip calibration evidence without accepting a click or redrawing ink."
       )
-    case .observedDrawingTrial:
+    case .borderValidation:
       (
         "Trial ink analysis · active",
         false,
@@ -1406,7 +1424,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
     }
   }
 
-  private func drawingParticipant(_ step: ObservedDrawingTrialStep) -> String {
+  private func drawingParticipant(_ step: BorderValidationStep) -> String {
     switch step {
     case .chooseDrawingBorderPlan: "Application"
     case .captureLocalPreFrameBaseline, .revealAndObserveNewInk: "Camera and Vision"
@@ -1415,7 +1433,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
     }
   }
 
-  private func drawingActionText(_ step: ObservedDrawingTrialStep) -> String {
+  private func drawingActionText(_ step: BorderValidationStep) -> String {
     switch step {
     case .chooseDrawingBorderPlan:
       "Build the closed Drawing Border through the four accepted calibration-circle centers and project it through the accepted pen-tip calibration."
@@ -1426,11 +1444,11 @@ extension PlotterLearningDetailedPresentationNormalizer {
     case .revealAndObserveNewInk:
       "Return Pen Up to the local reveal pose, settle, capture a newer frame, and extract new ink."
     case .compareIntendedAndObservedGeometry:
-      "Record the plan-to-ink comparison automatically; unclear evidence stops for review and never redraws."
+      "Review the plan-to-ink comparison, then explicitly accept or reject it. Rejection records terminal truth and never redraws automatically."
     }
   }
 
-  private func drawingExpectationText(_ step: ObservedDrawingTrialStep) -> String {
+  private func drawingExpectationText(_ step: BorderValidationStep) -> String {
     switch step {
     case .chooseDrawingBorderPlan:
       "One closed Drawing Border through the four accepted 10 mm-inset marks, projected by the exact accepted pen-tip calibration."
@@ -1441,7 +1459,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
     case .revealAndObserveNewInk:
       "Observed new Drawing Border ink or an explicit unclear/rejected observation, with no automatic redraw."
     case .compareIntendedAndObservedGeometry:
-      "One application-recorded comparison completes only this attributable validation."
+      "Only explicit operator acceptance commits the attributable validation; rejection records a terminal result without redrawing."
     }
   }
 
@@ -1491,7 +1509,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
     switch stage {
     case .humanGuidedDiscovery:
       [.cue(.up), .text("Drawing Boundary, camera-calibration, and pen-tip-calibration evidence.")]
-    case .observedDrawingTrials: [.text("Observed ink and a plan-to-ink geometry comparison.")]
+    case .borderValidations: [.text("Observed ink and a plan-to-ink geometry comparison.")]
     }
   }
 
@@ -1505,7 +1523,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
         label: "Boundary samples",
         fragments: [.text("N=\(snapshot.boundary.aggregates.count)")]
       )]
-    case .observedDrawingTrials:
+    case .borderValidations:
       [
         ExerciseEvidencePresentation(
           label: "Pen-tip calibration",
@@ -1764,7 +1782,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
   }
 
   private func drawingEvidence(
-    _ step: ObservedDrawingTrialStep,
+    _ step: BorderValidationStep,
     snapshot: PlotterLearningPresentationFacts
   ) -> [ExerciseEvidencePresentation] {
     switch step {
@@ -1803,7 +1821,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
     }
   }
 
-  private func drawingTrialEvidence(
+  private func borderValidationEvidence(
     snapshot: PlotterLearningPresentationFacts
   ) -> [ExerciseEvidencePresentation] {
     let plan = drawingBorderPlanDescription(snapshot.drawing.drawingBorderPath)

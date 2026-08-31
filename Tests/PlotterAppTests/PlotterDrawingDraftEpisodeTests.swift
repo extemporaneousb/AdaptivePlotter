@@ -164,7 +164,7 @@ struct PlotterDrawingDraftEpisodeTests {
     var snapshot = try await open(runtime, facts: facts)
     let planID = try #require(snapshot.plan?.revisionID)
 
-    for role in DrawingTrialEvidenceRole.allCases {
+    for role in BorderValidationEvidenceRole.allCases {
       snapshot = try applied(await runtime.submit(
         PlotterDrawingDraftSubmission(
           projection: snapshot.projection,
@@ -716,7 +716,7 @@ struct PlotterDrawingDraftEpisodeTests {
       workspace: workspace,
       environment: .simulated
     )
-    try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
+    try await completeSimulatedTipCalibration(workspace, simulator: harness.simulator)
     let fixture = try draftAuthorityFixture(from: workspace)
     let facts = fixture.facts()
     let simulatorBefore = await harness.simulator.snapshot()
@@ -905,7 +905,7 @@ private enum DrawingDraftAuthorityFixtureCache {
       workspace: harness.workspace,
       environment: .simulated
     )
-    try await completeSimulatedSparseTipCalibration(
+    try await completeSimulatedTipCalibration(
       harness.workspace,
       simulator: harness.simulator
     )

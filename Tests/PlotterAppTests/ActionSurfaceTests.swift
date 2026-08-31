@@ -242,17 +242,17 @@ func stage33AcceptancePreservesLockedViewport() async throws {
 
   let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
   try requireEnabledPublicAction(
-    .runCameraCalibrationAndBuildProposal,
+    .cameraCalibration(.buildFivePositionProposal),
     owner: owner,
     workspace: workspace
   )
-  await workspace.performTestExerciseAction(.runCameraCalibrationAndBuildProposal, for: owner)
+  await workspace.performTestExerciseAction(.cameraCalibration(.buildFivePositionProposal), for: owner)
   try requireEnabledPublicAction(
-    .acceptCameraCalibrationProposal,
+    .cameraCalibration(.acceptProposal),
     owner: owner,
     workspace: workspace
   )
-  await workspace.performTestExerciseAction(.acceptCameraCalibrationProposal, for: owner)
+  await workspace.performTestExerciseAction(.cameraCalibration(.acceptProposal), for: owner)
 
   let after = workspace.testActionSurfacePresentation
   let afterContext = try #require(after.viewportContext)

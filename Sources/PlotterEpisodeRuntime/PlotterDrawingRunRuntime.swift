@@ -9,7 +9,7 @@ public struct PlotterDrawingRunPlan: Hashable, Sendable {
   public let program: DrawingProgram
   public let placementID: UUID
   public let plan: ExecutionPlanRevision
-  public let evidenceRole: DrawingTrialEvidenceRole
+  public let evidenceRole: BorderValidationEvidenceRole
   public let paperCoverage: PaperCoverageObservation
   public let registration: TipCameraRegistration
 
@@ -18,7 +18,7 @@ public struct PlotterDrawingRunPlan: Hashable, Sendable {
     program: DrawingProgram,
     placementID: UUID,
     plan: ExecutionPlanRevision,
-    evidenceRole: DrawingTrialEvidenceRole,
+    evidenceRole: BorderValidationEvidenceRole,
     paperCoverage: PaperCoverageObservation,
     registration: TipCameraRegistration
   ) {
@@ -672,7 +672,7 @@ public actor PlotterDrawingRunRuntime {
     }
     guard case .commandedAndSettled(command: .raise, commandedState: .up) = penOutcome else {
       let disposition: DrawingRunExecutionDisposition
-      let evidenceDisposition: DrawingTrialEvidenceDisposition
+      let evidenceDisposition: BorderValidationEvidenceDisposition
       if case .ambiguous = penOutcome {
         disposition = .ambiguous(reason: String(describing: penOutcome))
         evidenceDisposition = .ambiguous
@@ -978,7 +978,7 @@ public actor PlotterDrawingRunRuntime {
     update(owner, environment: environment) { state in state.postFrame = post }
 
     let observation: DrawingRunObservationOutcome
-    let evidenceDisposition: DrawingTrialEvidenceDisposition
+    let evidenceDisposition: BorderValidationEvidenceDisposition
     do {
       let projection = try TipApplicabilityEvidencePolicy.project(
         paths: owner.plan.plan.strokes.map(\.path),
@@ -1096,7 +1096,7 @@ public actor PlotterDrawingRunRuntime {
   private func finishBeforePlan(
     _ owner: ActiveRun,
     execution: DrawingRunExecutionDisposition,
-    evidenceDisposition: DrawingTrialEvidenceDisposition,
+    evidenceDisposition: BorderValidationEvidenceDisposition,
     observation: DrawingRunObservationOutcome
   ) async {
     await finish(
@@ -1114,7 +1114,7 @@ public actor PlotterDrawingRunRuntime {
     frontier: DrawingRunRequestFrontier,
     progress: DrawingPlanProgressSnapshot?,
     execution: DrawingRunExecutionDisposition,
-    evidenceDisposition: DrawingTrialEvidenceDisposition,
+    evidenceDisposition: BorderValidationEvidenceDisposition,
     observation: DrawingRunObservationOutcome
   ) async {
     let environment = PlotterEnvironment.live
@@ -1667,7 +1667,7 @@ public actor PlotterDrawingRunRuntime {
     frontier: DrawingRunRequestFrontier,
     progress: DrawingPlanProgressSnapshot?,
     execution: DrawingRunExecutionDisposition,
-    evidenceDisposition: DrawingTrialEvidenceDisposition,
+    evidenceDisposition: BorderValidationEvidenceDisposition,
     observation: DrawingRunObservationOutcome
   ) throws -> DrawingRunEvidenceRecord {
     let planned = UInt32(owner.plan.plan.strokes.count)
@@ -1874,7 +1874,7 @@ public actor PlotterDrawingRunRuntime {
     for outcome: DrawingPlanOutcome
   ) -> (
     execution: DrawingRunExecutionDisposition,
-    evidence: DrawingTrialEvidenceDisposition
+    evidence: BorderValidationEvidenceDisposition
   ) {
     switch outcome {
     case .completed:
@@ -1907,7 +1907,7 @@ public actor PlotterDrawingRunRuntime {
 
   private static func terminalDisposition(
     execution: DrawingRunExecutionDisposition,
-    evidence: DrawingTrialEvidenceDisposition
+    evidence: BorderValidationEvidenceDisposition
   ) -> PlotterDrawingRunTerminalDisposition {
     switch evidence {
     case .attributable: .succeeded

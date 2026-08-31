@@ -106,13 +106,14 @@ SCAN_CLASSES = {
 
 ACTION_ENUMS = {
     "ExerciseActionKind": ROOT / "Sources/PlotterApp/LearningPathPresentation.swift",
+    "PlotterArtifactResetIntent": ROOT / "Sources/PlotterEpisodeRuntime/PlotterArtifactResetRuntime.swift",
+    "PlotterBorderValidationIntent": ROOT / "Sources/PlotterEpisodeRuntime/PlotterBorderValidationRuntime.swift",
     "PlotterDrawingDraftIntent":
         ROOT / "Sources/PlotterEpisodeModel/PlotterDrawingDraft.swift",
     "VideoSettingsVisibilityAction": ROOT / "Sources/PlotterApp/WorkbenchLayout.swift",
 }
 PORT_STRUCTS = {
     "MachineActions",
-    "AnnouncementActions",
     "WorkflowTelemetryActions",
     "AcceptedLearningPathCheckpointActions",
     "CameraActions",
@@ -123,6 +124,10 @@ TASK_FILES = {
     "AdaptivePlotterApplicationDelegate": ROOT / "Sources/PlotterApp/AdaptivePlotterApp.swift",
     "CameraCapture": ROOT / "Sources/PlotterRuntime/CameraCapture.swift",
     "PlotterSceneAnalysisPipeline": ROOT / "Sources/PlotterRuntime/PlotterSceneAnalysisPipeline.swift",
+    "PlotterCameraCalibrationRuntime": ROOT / "Sources/PlotterEpisodeRuntime/PlotterCameraCalibrationRuntime.swift",
+    "PlotterTipCalibrationRuntime": ROOT / "Sources/PlotterEpisodeRuntime/PlotterTipCalibrationRuntime.swift",
+    "PlotterBorderValidationRuntime": ROOT / "Sources/PlotterEpisodeRuntime/PlotterBorderValidationRuntime.swift",
+    "PlotterArtifactResetRuntime": ROOT / "Sources/PlotterEpisodeRuntime/PlotterArtifactResetRuntime.swift",
     "MachineController": ROOT / "Sources/PlotterRuntime/MachineController.swift",
     "NativeSpeechAnnouncer": ROOT / "Sources/PlotterRuntime/SpeechAnnouncements.swift",
     "RunInterpreter": ROOT / "Sources/PlotterRuntime/RunInterpreter.swift",

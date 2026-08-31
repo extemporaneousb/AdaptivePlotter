@@ -456,10 +456,12 @@ func makeCausalSimulatorAppFixture(
   )
   let checkpointActions = learningPathCheckpointActions
     ?? nominalAcceptedLearningPathCheckpointActions()
+  let speechEffectRuntime = PlotterSpeechEffectRuntime(announcer: ImmediateSpeechAnnouncer())
   let boundaryComposition = PlotterBoundaryComposition.make(
     machineActions: MachineSessionComposition.actions,
     causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
-    checkpointActions: checkpointActions
+    checkpointActions: checkpointActions,
+    speechEffectRuntime: speechEffectRuntime
   )
   let workspace = OperatorWorkspace(
       machineActions: nil,
@@ -467,6 +469,7 @@ func makeCausalSimulatorAppFixture(
       manualMotionComposition: manualMotionComposition,
       penInteractionRuntime: penInteractionRuntime,
       boundaryRuntime: boundaryComposition.runtime,
+      speechEffectRuntime: speechEffectRuntime,
       acceptedLearningPathCheckpointActions: learningPathCheckpointActions,
       drawingDraftRuntime: drawingDraftRuntime,
       drawingRunComposition: nominalDrawingRunComposition(
@@ -953,7 +956,7 @@ func completeSimulatedPenInteractionPrerequisite(
 }
 
 @MainActor
-func completeSimulatedSparseTipCalibration(
+func completeSimulatedTipCalibration(
   _ workspace: OperatorWorkspace,
   simulator: CausalSimulatorProbe
 ) async throws {
@@ -961,20 +964,20 @@ func completeSimulatedSparseTipCalibration(
     .calibrateCameraAndVisibleCap
   )
   try requireEnabledPublicAction(
-    .runCameraCalibrationAndBuildProposal,
+    .cameraCalibration(.buildFivePositionProposal),
     owner: registrationOwner,
     workspace: workspace
   )
   await workspace.performTestExerciseAction(
-    .runCameraCalibrationAndBuildProposal,
+    .cameraCalibration(.buildFivePositionProposal),
     for: registrationOwner
   )
   try requireEnabledPublicAction(
-    .acceptCameraCalibrationProposal,
+    .cameraCalibration(.acceptProposal),
     owner: registrationOwner,
     workspace: workspace
   )
-  await workspace.performTestExerciseAction(.acceptCameraCalibrationProposal, for: registrationOwner)
+  await workspace.performTestExerciseAction(.cameraCalibration(.acceptProposal), for: registrationOwner)
   let tipOwner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
   let truthOffset = await simulator.capToTipPixelOffsetTruth()
   #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
@@ -983,11 +986,11 @@ func completeSimulatedSparseTipCalibration(
     acceptedBoundaryAggregates: workspace.testAcceptedBoundaryAggregates
   )
   try requireEnabledPublicAction(
-    .drawFourCornerTipCircles,
+    .tipCalibration(.beginFourMarkBatch),
     owner: tipOwner,
     workspace: workspace
   )
-  await workspace.performTestExerciseAction(.drawFourCornerTipCircles, for: tipOwner)
+  await workspace.performTestExerciseAction(.tipCalibration(.beginFourMarkBatch), for: tipOwner)
   let request = try #require(
     workspace.testActionSurfacePresentation.pointSelectionRequest,
     "missing five-click selection request: \(workspace.explorationError ?? "no error")"
@@ -1010,23 +1013,11 @@ func completeSimulatedSparseTipCalibration(
     )
   }
   try requireEnabledPublicAction(
-    .acceptTipCalibrationProposal,
+    .tipCalibration(.acceptProposal),
     owner: tipOwner,
     workspace: workspace
   )
-  await workspace.performTestExerciseAction(.acceptTipCalibrationProposal, for: tipOwner)
-}
-
-@MainActor
-func completeSimulatedStageFour(_ workspace: OperatorWorkspace) async throws {
-  let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
-  try requireEnabledPublicAction(
-    .start,
-    owner: owner,
-    workspace: workspace
-  )
-  await workspace.performTestExerciseAction(.start, for: owner)
-  #expect(workspace.drawingTrialAssessment == .predictionObserved)
+  await workspace.performTestExerciseAction(.tipCalibration(.acceptProposal), for: tipOwner)
 }
 
 @MainActor
@@ -1188,8 +1179,9 @@ func workspace(
         -> BoundaryMotionAdmission
     )? = nil,
   jogCancel: (@Sendable (JogCancelIntent) async -> JogCancelOutcome)? = nil,
-  announcements: AnnouncementFixture? = nil,
+  speechAnnouncer: (any SpeechAnnouncing)? = nil,
   learningPathCheckpointActions: OperatorWorkspace.AcceptedLearningPathCheckpointActions? = nil,
+  persistPaperRevisionContext: @escaping @Sendable (PaperRevisionContext) throws -> Void = { _ in },
   drawingDraftRuntime: PlotterDrawingDraftRuntime = nominalDrawingDraftRuntime(),
   tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
   workflowTelemetry: WorkflowTelemetryFixture? = nil,
@@ -1274,10 +1266,14 @@ func workspace(
   )
   let checkpointActions = learningPathCheckpointActions
     ?? nominalAcceptedLearningPathCheckpointActions()
+  let speechEffectRuntime = PlotterSpeechEffectRuntime(
+    announcer: speechAnnouncer ?? ImmediateSpeechAnnouncer()
+  )
   let boundaryComposition = PlotterBoundaryComposition.make(
     machineActions: machineActions,
     causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
-    checkpointActions: checkpointActions
+    checkpointActions: checkpointActions,
+    speechEffectRuntime: speechEffectRuntime
   )
   let workspace = OperatorWorkspace(
     machineActions: machineActions,
@@ -1285,12 +1281,7 @@ func workspace(
     manualMotionComposition: manualMotionComposition,
     penInteractionRuntime: penInteractionRuntime,
     boundaryRuntime: boundaryComposition.runtime,
-    announcementActions: announcements.map { fixture in
-      .init(
-        announce: { await fixture.announce($0) },
-        cancelForShutdown: { await fixture.cancelForShutdown() }
-      )
-    },
+    speechEffectRuntime: speechEffectRuntime,
     acceptedLearningPathCheckpointActions: learningPathCheckpointActions,
     drawingDraftRuntime: drawingDraftRuntime,
     drawingRunComposition: nominalDrawingRunComposition(
@@ -1299,6 +1290,7 @@ func workspace(
     ),
     incidentPackageUIService: nominalIncidentPackageUIService(),
     tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
+    persistPaperRevisionContext: persistPaperRevisionContext,
     workflowTelemetryActions: workflowTelemetry.map { fixture in
       .init(record: { await fixture.record($0) })
     },
@@ -1480,7 +1472,7 @@ final class TestClock: @unchecked Sendable {
   }
 }
 
-final class LearningPathCheckpointBox: @unchecked Sendable {
+final class ArtifactResetCheckpointStoreFixture: @unchecked Sendable {
   private let lock = NSLock()
   private var stored: AcceptedLearningPathCheckpoint?
   private var loads = 0
@@ -1525,7 +1517,13 @@ final class LearningPathCheckpointBox: @unchecked Sendable {
   }
 }
 
-actor AnnouncementFixture {
+actor ImmediateSpeechAnnouncer: SpeechAnnouncing {
+  func announce(_: String) async -> SpeechAnnouncementOutcome { .completed }
+
+  func cancelForShutdown() async {}
+}
+
+actor ScriptedSpeechAnnouncer: SpeechAnnouncing {
   let log: EventLog
   var outcomes: [SpeechAnnouncementOutcome]
 
@@ -1539,7 +1537,7 @@ actor AnnouncementFixture {
     return outcomes.isEmpty ? .completed : outcomes.removeFirst()
   }
 
-  func cancelForShutdown() {}
+  func cancelForShutdown() async {}
 }
 
 actor WorkflowTelemetryFixture {

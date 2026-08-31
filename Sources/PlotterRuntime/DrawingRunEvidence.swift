@@ -440,8 +440,8 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
   public let recordID: DrawingEvidenceRecordID
   public let runID: RunID
   public let requestID: UUID
-  public let role: DrawingTrialEvidenceRole
-  public let evidenceDisposition: DrawingTrialEvidenceDisposition
+  public let role: BorderValidationEvidenceRole
+  public let evidenceDisposition: BorderValidationEvidenceDisposition
   public let requestFrontier: DrawingRunRequestFrontier
   public let executionFrontiers: DrawingRunExecutionFrontiers
   public let executionDisposition: DrawingRunExecutionDisposition
@@ -458,8 +458,8 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
     recordID: DrawingEvidenceRecordID = DrawingEvidenceRecordID(),
     runID: RunID,
     requestID: UUID,
-    role: DrawingTrialEvidenceRole,
-    evidenceDisposition: DrawingTrialEvidenceDisposition,
+    role: BorderValidationEvidenceRole,
+    evidenceDisposition: BorderValidationEvidenceDisposition,
     requestFrontier: DrawingRunRequestFrontier,
     executionFrontiers: DrawingRunExecutionFrontiers,
     executionDisposition: DrawingRunExecutionDisposition,
@@ -498,8 +498,8 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
     recordID: DrawingEvidenceRecordID,
     runID: RunID,
     requestID: UUID,
-    role: DrawingTrialEvidenceRole,
-    evidenceDisposition: DrawingTrialEvidenceDisposition,
+    role: BorderValidationEvidenceRole,
+    evidenceDisposition: BorderValidationEvidenceDisposition,
     requestFrontier: DrawingRunRequestFrontier,
     executionFrontiers: DrawingRunExecutionFrontiers,
     executionDisposition: DrawingRunExecutionDisposition,
@@ -600,9 +600,9 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
       recordID: values.decode(DrawingEvidenceRecordID.self, forKey: .recordID),
       runID: values.decode(RunID.self, forKey: .runID),
       requestID: values.decode(UUID.self, forKey: .requestID),
-      role: values.decode(DrawingTrialEvidenceRole.self, forKey: .role),
+      role: values.decode(BorderValidationEvidenceRole.self, forKey: .role),
       evidenceDisposition: values.decode(
-        DrawingTrialEvidenceDisposition.self,
+        BorderValidationEvidenceDisposition.self,
         forKey: .evidenceDisposition
       ),
       requestFrontier: values.decode(
@@ -638,7 +638,7 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
   }
 
   private static func validateDisposition(
-    _ evidence: DrawingTrialEvidenceDisposition,
+    _ evidence: BorderValidationEvidenceDisposition,
     executionDisposition: DrawingRunExecutionDisposition,
     observation: DrawingRunObservationOutcome
   ) throws {

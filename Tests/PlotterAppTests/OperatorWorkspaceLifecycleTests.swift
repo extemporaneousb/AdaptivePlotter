@@ -1,4 +1,5 @@
 import Testing
+import PlotterEpisodeRuntime
 import PlotterModel
 
 @testable import PlotterApp
@@ -83,12 +84,12 @@ struct OperatorWorkspaceLifecycleTests {
       workspace: workspace,
       environment: .simulated
     )
-    try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
+    try await completeSimulatedTipCalibration(workspace, simulator: harness.simulator)
 
     workspace.replaceSimulatedExecutionPacingForTesting(
       DrawingOutcomeLossPacing(simulator: harness.simulator)
     )
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+    let owner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     try requireEnabledPublicAction(
       .start,
       owner: owner,
@@ -97,14 +98,14 @@ struct OperatorWorkspaceLifecycleTests {
     await workspace.performTestExerciseAction(.start, for: owner)
 
     #expect(workspace.contextualStopPresentation == nil)
-    #expect(workspace.observedDrawingTrialStep == .revealAndObserveNewInk)
+    #expect(workspace.borderValidationStep == .revealAndObserveNewInk)
     #expect(workspace.restartableExerciseItemID == nil)
     #expect(workspace.explorationError?.contains("will not restart") == true)
     await workspace.shutdown()
   }
 
-  @Test("Draw and Validate Drawing Border previews the planned Border before motion and completes automatically")
-  func oneGoPreviewsThenCompletesTrial() async throws {
+  @Test("Draw and Validate Drawing Border previews before motion and waits for explicit acceptance")
+  func oneGoPreviewsThenWaitsForExplicitAcceptance() async throws {
     let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     try await completeSimulatedPenInteractionPrerequisite(workspace)
@@ -113,11 +114,11 @@ struct OperatorWorkspaceLifecycleTests {
       workspace: workspace,
       environment: .simulated
     )
-    try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
+    try await completeSimulatedTipCalibration(workspace, simulator: harness.simulator)
     let positionBeforeGo = (await harness.simulator.snapshot()).mpos
     let pacing = FirstOperationSuspensionPacing()
     workspace.replaceSimulatedExecutionPacingForTesting(pacing)
-    let owner = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+    let owner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
 
     let trial = Task { await workspace.performTestExerciseAction(.start, for: owner) }
     await pacing.waitUntilSuspended()
@@ -139,7 +140,7 @@ struct OperatorWorkspaceLifecycleTests {
     let projectedBorder = try drawingBorderPath.points.map { try registration.tipPixel(at: $0) }
     #expect(predictedBorder.points == projectedBorder)
     #expect((await harness.simulator.snapshot()).mpos == positionBeforeGo)
-    #expect(workspace.observedDrawingTrialStep == .moveToDrawingBorderStart)
+    #expect(workspace.borderValidationStep == .moveToDrawingBorderStart)
     #expect(
       workspace.selectedOperatorActionPresentation(for: owner).activity?.outcome == .inProgress)
     #expect(
@@ -154,7 +155,24 @@ struct OperatorWorkspaceLifecycleTests {
     await pacing.resume()
     await trial.value
 
-    #expect(workspace.drawingTrialAssessment == .predictionObserved)
+    #expect(workspace.borderValidationAssessment == nil)
+    #expect(workspace.borderValidationStep == .compareIntendedAndObservedGeometry)
+    #expect(workspace.activeExerciseAttemptID != nil)
+    #expect(!workspace.completedDrawingComparisonReviewIsAvailable)
+    #expect(
+      workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions.map(\.kind)
+        == [
+          .borderValidation(.acceptObservedPrediction),
+          .borderValidation(.reject("Operator rejected the observed Drawing Border comparison.")),
+        ]
+    )
+
+    await workspace.performTestExerciseAction(
+      .borderValidation(.acceptObservedPrediction),
+      for: owner
+    )
+
+    #expect(workspace.borderValidationAssessment == .predictionObserved)
     #expect(workspace.completedDrawingComparisonReviewIsAvailable)
     #expect(workspace.completedDrawingComparisonReviewIsPinned)
     let completedSurface = workspace.testActionSurfacePresentation

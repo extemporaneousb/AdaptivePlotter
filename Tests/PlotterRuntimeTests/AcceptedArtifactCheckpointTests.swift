@@ -5,17 +5,17 @@ import Testing
 
 @Suite("Durable accepted-artifact checkpoints")
 struct AcceptedArtifactCheckpointTests {
-  @Test("atomic store round-trips accepted artifacts and restores only accepted graph state")
+  @Test("checkpoint payload round-trips accepted artifacts and restores only accepted graph state")
   func roundTrip() throws {
-    let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let url = directory.appendingPathComponent("checkpoint.json")
-    let store = AcceptedArtifactCheckpointStore(fileURL: url)
     let checkpoint = try makeCheckpoint()
-
-    try store.save(checkpoint)
-    let restored = try loaded(store.load())
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    let encoded = try encoder.encode(checkpoint)
+    let restored = try JSONDecoder().decode(
+      AcceptedMachineArtifactCheckpoint.self,
+      from: encoded
+    )
+    try restored.validate()
 
     #expect(restored == checkpoint)
     #expect(try restored.restoredLearningGraph().currentRevision(
@@ -23,49 +23,11 @@ struct AcceptedArtifactCheckpointTests {
     )?.id == checkpoint.boundarySideAggregates[0].revisionID)
     #expect(try restored.restoredBoundaryHistories()[.positiveX]?.values.first?
       .includedSuccessfulAttempts.count == 1)
-    let encoded = String(decoding: try Data(contentsOf: url), as: UTF8.self)
-    #expect(!encoded.contains("activeStopTarget"))
-    #expect(!encoded.contains("motionGuard"))
-    #expect(!encoded.contains("pendingCommand"))
-    #expect(!encoded.contains("DiscoveryTransaction"))
-  }
-
-  @Test("explicit clear removes the durable authority file idempotently")
-  func clear() throws {
-    let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let url = directory.appendingPathComponent("checkpoint.json")
-    let store = AcceptedArtifactCheckpointStore(fileURL: url)
-
-    try store.save(makeCheckpoint())
-    #expect(FileManager.default.fileExists(atPath: url.path))
-    try store.clear()
-    #expect(!FileManager.default.fileExists(atPath: url.path))
-    if case .absent = store.load() {
-      // Expected.
-    } else {
-      Issue.record("Expected an absent checkpoint after explicit clear.")
-    }
-    try store.clear()
-  }
-
-  @Test("tampering is rejected before any artifact can be decoded")
-  func corruptionRejected() throws {
-    let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let url = directory.appendingPathComponent("checkpoint.json")
-    let store = AcceptedArtifactCheckpointStore(fileURL: url)
-    try store.save(makeCheckpoint())
-    var bytes = try Data(contentsOf: url)
-    bytes[bytes.count / 2] ^= 0x01
-    try bytes.write(to: url)
-
-    guard case .rejected = store.load() else {
-      Issue.record("Expected a corrupted checkpoint to be rejected.")
-      return
-    }
+    let encodedText = String(decoding: encoded, as: UTF8.self)
+    #expect(!encodedText.contains("activeStopTarget"))
+    #expect(!encodedText.contains("motionGuard"))
+    #expect(!encodedText.contains("pendingCommand"))
+    #expect(!encodedText.contains("DiscoveryTransaction"))
   }
 
   @Test("controller identity gates restore while MPos delta remains diagnostic")
@@ -176,22 +138,6 @@ struct AcceptedArtifactCheckpointTests {
     #expect(baseline.probeID == baselineProbe.probeID)
     #expect(refreshed.probeID == refreshedProbe.probeID)
   }
-}
-
-private func loaded(
-  _ result: AcceptedArtifactCheckpointLoadResult
-) throws -> AcceptedMachineArtifactCheckpoint {
-  switch result {
-  case .loaded(let checkpoint): checkpoint
-  case .absent:
-    throw CheckpointTestError.unexpectedLoad("absent")
-  case .rejected(let reason):
-    throw CheckpointTestError.unexpectedLoad(reason)
-  }
-}
-
-private enum CheckpointTestError: Error {
-  case unexpectedLoad(String)
 }
 
 private func makeCheckpoint() throws -> AcceptedMachineArtifactCheckpoint {

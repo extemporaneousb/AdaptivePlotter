@@ -1190,14 +1190,14 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let camera = try CameraFixture()
-    let announcements = AnnouncementFixture(
+    let speechAnnouncer = ScriptedSpeechAnnouncer(
       log: log,
       outcomes: [.failed("output unavailable"), .completed]
     )
     let workspace = workspace(
       machine: machine,
       camera: camera,
-      announcements: announcements,
+      speechAnnouncer: speechAnnouncer,
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)

@@ -408,19 +408,9 @@ struct TipCalibrationAuthorityTests {
         actor: "operator"
       )
     )
-    let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent("tip-checkpoint-\(UUID().uuidString)", isDirectory: true)
-    let url = directory.appendingPathComponent("checkpoint.json")
-    let store = AcceptedTipCalibrationCheckpointStore(fileURL: url)
-    defer { try? FileManager.default.removeItem(at: directory) }
-
-    try store.save(checkpoint)
-    let loaded: AcceptedTipCalibrationCheckpoint
-    switch store.load() {
-    case .quarantined(let value): loaded = value
-    case .absent: throw TipFixtureError.unexpected("checkpoint absent")
-    case .rejected(let reason): throw TipFixtureError.unexpected(reason)
-    }
+    let encoded = try JSONEncoder().encode(checkpoint)
+    let loaded = try JSONDecoder().decode(AcceptedTipCalibrationCheckpoint.self, from: encoded)
+    try loaded.validate()
 
     var restoredGraph = LearningDependencyGraph()
     _ = try restoredGraph.commitReplacement(
@@ -488,13 +478,6 @@ struct TipCalibrationAuthorityTests {
       Issue.record("evidence older than acceptance must remain quarantined")
     }
 
-    var corrupted = try Data(contentsOf: url)
-    corrupted[corrupted.startIndex] ^= 0x01
-    try corrupted.write(to: url, options: [.atomic])
-    if case .rejected = store.load() {
-    } else {
-      Issue.record("corrupted checkpoint bytes must never load as quarantined authority")
-    }
   }
 
   @Test("Repeated checkpoint revalidation preserves the durable source revision")

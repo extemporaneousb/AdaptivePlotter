@@ -209,7 +209,7 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
   public let isOpen: Bool
   public let catalog: [DrawingProgramCatalogEntry]
   public let selectedCatalogItemID: DrawingCatalogEntryID
-  public let evidenceRole: DrawingTrialEvidenceRole
+  public let evidenceRole: BorderValidationEvidenceRole
   public let uniformScale: Double
   public let allowedScale: ClosedRange<Double>
   public let rotationDegrees: Double
@@ -406,7 +406,7 @@ public actor PlotterDrawingDraftRuntime {
     var revision = PlotterDrawingDraftRevision(rawValue: 0)
     var isOpen = false
     var selectedCatalogItemID: DrawingCatalogEntryID = .square
-    var evidenceRole: DrawingTrialEvidenceRole = .ordinaryDrawing
+    var evidenceRole: BorderValidationEvidenceRole = .ordinaryDrawing
     var uniformScale = 0.25
     var rotationDegrees = 0.0
     var machineCenter: Point2<MachineSpace>?

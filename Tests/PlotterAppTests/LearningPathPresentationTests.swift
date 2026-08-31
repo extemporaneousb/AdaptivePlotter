@@ -1,4 +1,5 @@
 import Foundation
+import PlotterEpisodeRuntime
 import PlotterRuntime
 import Testing
 
@@ -43,15 +44,15 @@ struct LearningPathPresentationTests {
   }
 
   @Test("Drawing Validation retains six truthful internal phases")
-  func exactDrawingTrialPhases() {
+  func exactBorderValidationPhases() {
     #expect(
-      ObservedDrawingTrialStep.allCases.map(\.rawValue) == [1, 2, 3, 4, 5, 6]
+      BorderValidationStep.allCases.map(\.rawValue) == [1, 2, 3, 4, 5, 6]
     )
     #expect(
-      ObservedDrawingTrialStep.allCases.map(\.stepNumber) == Array(repeating: "2.1", count: 6)
+      BorderValidationStep.allCases.map(\.stepNumber) == Array(repeating: "2.1", count: 6)
     )
     #expect(
-      ObservedDrawingTrialStep.allCases.map(\.title) == [
+      BorderValidationStep.allCases.map(\.title) == [
         "Plan Drawing Border",
         "Capture Baseline Frame",
         "Move to Drawing Border Start",
@@ -79,7 +80,7 @@ struct LearningPathPresentationTests {
   func strictLearningPathVocabulary() {
     let visibleTerms = LearningPathStage.allCases.map(\.title)
       + HumanGuidedDiscoveryStep.allCases.map(\.title)
-      + [LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan).title]
+      + [LearningPathItemID.borderValidation(.chooseDrawingBorderPlan).title]
       + [
         LearningPathTerminology.Action.identifyPenCap,
         LearningPathTerminology.Action.confirmPenUp,
@@ -111,8 +112,8 @@ struct LearningPathPresentationTests {
   func inertSelection() {
     var selection = LearningPathSelectionState(current: .humanGuidedDiscovery(.penInteraction))
 
-    selection.select(.stage(.observedDrawingTrials))
-    #expect(selection.selected == .stage(.observedDrawingTrials))
+    selection.select(.stage(.borderValidations))
+    #expect(selection.selected == .stage(.borderValidations))
     #expect(selection.current == .humanGuidedDiscovery(.penInteraction))
     #expect(selection.isReviewingAnotherItem)
 

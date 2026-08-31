@@ -227,6 +227,7 @@ public enum PlotterUILearningDrawingState: Hashable, Sendable {
   case draw
   case revealAndObserve
   case compare
+  case reviewingComparison
 }
 
 public enum PlotterUILearningActivePrompt: Hashable, Sendable {
@@ -391,7 +392,7 @@ public struct PlotterUILearningActionabilityFacts: Sendable {
 }
 
 public enum PlotterUILearningSemanticAction: Hashable, Sendable {
-  case useSavedTraining
+  case applySavedLearning
   case startNewLearning
   case start
   case choice(PlotterUILearningChoice)
@@ -415,6 +416,8 @@ public enum PlotterUILearningSemanticAction: Hashable, Sendable {
   case rejectTipCalibration
   case retryTipCalibrationCommit
   case paperReplaced
+  case acceptBorderValidation
+  case rejectBorderValidation
 }
 
 public enum PlotterUILearningActionRole: Hashable, Sendable {
@@ -516,7 +519,7 @@ private extension PlotterUILearningBoundaryDirection {
 private extension PlotterUILearningSemanticAction {
   var defaultTitle: String {
     switch self {
-    case .useSavedTraining: "Use Saved Learning"
+    case .applySavedLearning: "Use Saved Learning"
     case .startNewLearning: "Start New Learning"
     case .start: "Start"
     case .choice(.yes): "YES"
@@ -563,18 +566,20 @@ private extension PlotterUILearningSemanticAction {
     case .rejectTipCalibration: "Reject Pen-Tip Calibration"
     case .retryTipCalibrationCommit: "Retry Pen-Tip Calibration Save"
     case .paperReplaced: "Record Paper Replacement"
+    case .acceptBorderValidation: "Accept Observed Drawing Border"
+    case .rejectBorderValidation: "Reject Observed Drawing Border"
     }
   }
 
   var defaultRole: PlotterUILearningActionRole {
     switch self {
-    case .useSavedTraining, .start, .restart,
+    case .applySavedLearning, .start, .restart,
       .runCameraCalibration, .acceptCameraCalibration, .drawSparseTipCircles,
       .revalidateTipCalibration, .acceptTipCalibration, .retryTipCalibrationCommit,
-      .paperReplaced:
+      .paperReplaced, .acceptBorderValidation:
       .positive
     case .cancel, .stop, .stopPenInteraction, .discardCameraSamples, .rejectCameraCalibration,
-      .rejectTipCalibration:
+      .rejectTipCalibration, .rejectBorderValidation:
       .destructive
     case .choice(.yes): .positive
     case .startNewLearning, .choice(.no), .setPenSetpoint, .boundary,
@@ -918,9 +923,22 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     if facts.savedTrainingCandidateIsPresent {
       guard item.ownerID == current else { return nil }
       return strip(item.ownerID, [
-        .init(action: .useSavedTraining),
+        .init(action: .applySavedLearning),
         .init(action: .startNewLearning),
       ], mustRemainVisible: true)
+    }
+    if item.kind == .drawingValidation,
+      facts.activeOwnerID == item.ownerID,
+      facts.drawingState == .reviewingComparison
+    {
+      return strip(
+        item.ownerID,
+        [
+          .init(action: .acceptBorderValidation),
+          .init(action: .rejectBorderValidation),
+        ],
+        mustRemainVisible: true
+      )
     }
     if facts.activeOwnerID == item.ownerID || activePenInteraction != nil {
       if activePenInteraction == nil,
@@ -1052,6 +1070,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       case .choosePlan: "Draw and Validate Drawing Border"
       case .revealAndObserve: "Resume Drawing Border Observation"
       case .compare: "Complete Drawing Border Comparison"
+      case .reviewingComparison: "Review Drawing Border Comparison"
       case .captureBaseline, .moveToStart, .draw: "Resume Drawing Border Validation"
       }
       return strip(item.ownerID, [.init(

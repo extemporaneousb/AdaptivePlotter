@@ -171,7 +171,7 @@ struct OverlayChannelResult: Hashable, Sendable {
 enum WorkflowOverlayOwner: Int, CaseIterable, Hashable, Sendable {
   case cameraCalibration
   case drawingStudio
-  case observedDrawingTrial
+  case borderValidation
   case sparseTipCalibration
 }
 

@@ -1220,12 +1220,18 @@ travel/Pen owner. LIVE revalidates exact effect facts before lower execution and
 requires controller-settled Idle/final MPos for acceptance. SIMULATED invokes no
 LIVE lower effect or persistence and publishes explicitly nonphysical truth.
 The LIVE side adapter derives the retained advisory from
-`DiscoverySequenceCatalog`, forwards it through the composition-only
-`UI.announceBoundaryAdvisory` adapter to the existing workspace
-`AnnouncementActions` route, and only then invokes
-`MachineActions.beginBoundaryMotion`. The UI adapter owns no announcement,
-effect, Stop, settlement, or evidence authority; advisory failure does not
-become motion refusal. Accepted-authority installation
+`DiscoverySequenceCatalog`, submits it through the typed
+`PlotterSpeechEffectRuntime` before `MachineActions.beginBoundaryMotion`, and
+proceeds when its advisory-only result settles. `NativeSpeechAnnouncer` remains
+the lower synthesis/identity-queue/timeout owner; no workspace announcement
+route remains. Historical EA-10B record only: the former composition-only
+`UI.announceBoundaryAdvisory` adapter and existing `AnnouncementActions` owner
+before lower Boundary motion were retired by EA-10G; neither is a current
+consumer or authority. The UI adapter owned no announcement, effect, Stop,
+settlement, or evidence authority. Historical EA-10B wording only, not a
+current claim: The UI adapter owns no announcement, effect, Stop, settlement,
+or evidence authority; the historical composition only then invokes
+`MachineActions.beginBoundaryMotion`. Accepted-authority installation
 preserves a selected direction only while it remains allowed, otherwise selects
 the first remaining allowed direction, and leaves an empty allowed set as
 completed progress. Center retry is derived only from retained failed, stopped,
@@ -1362,28 +1368,23 @@ establish live optical stability.
 
 Exercise 1.4 is split across four owners:
 
-- `SparseTipCalibrationCoordinator` owns the compact batch state machine, one
-  attempt/operation identity, four canonical corner evidence slots,
-  one shared final frozen frame, unordered click collection, immutable accepted
-  observations, possible-ink terminal state, proposal review, and acceptance.
+- `PlotterTipCalibrationRuntime` owns the compact batch workflow, one
+  attempt/operation identity, four canonical corner evidence slots, one shared
+  final frozen frame, proposal review, accepted-tip checkpoint retention,
+  possible-ink terminal state, and atomic commit/revalidation installation.
 - `SparseTipBatchMarkPlan` derives the four mark centers from the accepted
   Drawing Boundary envelope with one canonical 10 mm inset, drawing no center
   mark. Its
   2 mm-radius outlines therefore retain 8 mm of adjacent-edge clearance. Its
   corner-center rectangle is the proposed tip-map
   applicability rectangle, and its final reveal pose is the rectangle center.
-- `OperatorWorkspace` composes that plan as one typed batch. It performs one
-  initial Pen-Up normalization, preserves that batch-scoped Pen-Up authorization
-  across approach/start/reveal travel, and consumes four Pen Down plus four
-  post-circle Pen Up settlements. The complete batch therefore has five Pen Up
-  settlements, 64 typed chord outcomes, four pre-mark controller-context probes,
-  one reveal probe, and one final machine snapshot. Per-chord progress remains
-  controller typed for Stop and possible-ink handling but does not rebuild a
-  Learning projection or fetch another workspace machine snapshot. The existing
-  camera presentation renders the accepted Drawing Boundary separately from the
-  inset proposed/accepted Drawing Border; Exercise 2.1 later draws that physical
-  connecting Border. Exercise 1.3 retains its center plus four
-  ±24 mm positions.
+- `OperatorWorkspace` is the runtime's lower effect/projection port for that
+  typed batch. It performs the retained lower Pen-Up/Pen-Down/camera operations
+  requested by the runtime but owns no batch admission, phase, task, proposal,
+  terminal, or accepted-tip checkpoint. The existing camera presentation renders
+  the accepted Drawing Boundary separately from the inset proposed/accepted
+  Drawing Border; Exercise 2.1 later draws that physical connecting Border.
+  Exercise 1.3 retains its center plus four ±24 mm positions.
 - `TipCalibrationAuthority` owns validated evidence types, four-corner affine-first
   construction, constant construction fallback, diagnostic residual/covariance/
   uncertainty, applicability decisions, rebase derivations, and checkpoints.
@@ -1396,7 +1397,7 @@ presentation transform and submits it through
 and all markers. Retained `OperatorWorkspace` action adapters invoke the same runtime/store authority for undo, clear, and cancel; those actions do not originate in `ActionSurface` or the click-only sink protocol.
 `PlotterPointSelectionRuntime` owns same-frame undo, clear,
 capacity enforcement, and accepted four-point batch evidence without motion,
-ink, capture, zoom, or pan. `SparseTipCalibrationCoordinator` retains the
+ink, capture, zoom, or pan. Before EA-10D, `SparseTipCalibrationCoordinator` retains the
 machine-position association, fit, calibration acceptance, and artifact graph.
 Tip-map acceptance installs the outer-center applicability rectangle without
 changing viewport state.
@@ -1510,7 +1511,7 @@ prediction remains visible over live video without freezing preview or treating
 planned geometry as measured pixels. The post-frame observer replaces that
 preview with exact-frame intended, measured-ink, and residual overlays.
 
-The typed `ExactWorkflowVisionOwner.observedDrawingTrial` is projected separately
+The typed `ExactWorkflowVisionOwner.borderValidation` is projected separately
 from background scene-analysis state. While planned-drawing comparison is in
 flight, Learning reports **Trial ink analysis · active** and names Vision as the
 processing owner.
@@ -1536,6 +1537,38 @@ attributable validation. Its post frame and overlays remain explicitly
 reviewable, and its typed comparison is adapted into an evaluation-holdout
 `DrawingRunEvidenceRecord`. No Stage 2 result automatically changes accepted
 calibration or establishes a generally trained adaptive model.
+
+## Current Learning authority slices
+
+The accepted Learning tranche keeps typed App action values as adapters and
+keeps semantic authority in the named runtime. `PlotterSpeechEffectRuntime`
+owns advisory speech admission, identity-bound terminal tracking, ordering, and
+shutdown; `NativeSpeechAnnouncer` remains the lower synthesis owner.
+`ExerciseActionKind.cameraCalibration` routes to
+`PlotterCameraCalibrationRuntime`, which owns camera-calibration admission,
+phase, evidence, proposal, accepted registration, task, terminal truth, and
+shutdown. Its composition port forwards one typed lower effect request to
+`OperatorWorkspace`, rather than assigning the individual camera transitions
+to App-local semantic owners. `ExerciseActionKind.tipCalibration` routes to
+`PlotterTipCalibrationRuntime`, while
+`ExerciseActionKind.pointSelectionCorrection` reaches the distinct sole
+click add/undo/clear/four-point owner `PlotterPointSelectionRuntime`.
+
+`ExerciseActionKind.borderValidation` routes
+`PlotterBorderValidationIntent` to `PlotterBorderValidationRuntime`. That
+runtime owns operation identity, phase, active step/task, terminal history,
+possible-ink disposition, explicit comparison review and accept/reject, and
+shutdown. `PlotterBorderValidationIntent.retryFrom` is represented and handled
+by the runtime but has no production caller; it remains a deferred non-red-line
+follow-up, not an automatic retry.
+
+`ExerciseActionKind` Saved Learning/reset actions route to
+`PlotterArtifactResetRuntime`, which owns reset admission, task, terminal and
+shutdown state, and durable-before-projection application. Its lower relay
+persists the immutable admitted paper plan before in-memory projection.
+`AcceptedLearningPathLegacyMigrationAdapter` saves canonical state before
+reversible legacy cleanup and preserves legacy bytes if cleanup fails. The
+deleted legacy stores are not compatibility owners.
 
 ## Drawing Studio ownership
 

@@ -143,7 +143,7 @@ struct WorkbenchPresentationTests {
       ownerID: .humanGuidedDiscovery(.calibratePenContactFromSparseMarks),
       actions: [
         ExerciseActionDescriptor(
-          kind: .retryTipCalibrationCommit,
+          kind: .tipCalibration(.retryCommit),
           title: "Retry Calibration Commit"
         ),
         ExerciseActionDescriptor(
@@ -155,7 +155,7 @@ struct WorkbenchPresentationTests {
       mustRemainVisible: true
     )
     let idle = ExerciseActionStripPresentation(
-      ownerID: .observedDrawingTrial(.chooseDrawingBorderPlan),
+      ownerID: .borderValidation(.chooseDrawingBorderPlan),
       actions: [
         ExerciseActionDescriptor(kind: .start, title: "Start", role: .positive)
       ]

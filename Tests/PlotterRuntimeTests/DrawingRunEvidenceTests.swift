@@ -273,7 +273,7 @@ struct DrawingEvidenceFixtureParts {
 }
 
 private func drawingEvidenceFixture(
-  role: DrawingTrialEvidenceRole
+  role: BorderValidationEvidenceRole
 ) throws -> DrawingRunEvidenceRecord {
   let fixture = try drawingEvidenceParts()
   let observation = try DrawingObservedInkEvidence(

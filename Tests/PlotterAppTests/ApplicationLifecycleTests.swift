@@ -40,6 +40,16 @@ struct ApplicationLifecycleTests {
     )
   }
 
+  @Test("application composition injects artifact reset runtime and shutdown closes admission")
+  @MainActor
+  func applicationOwnsArtifactResetRuntimeLifecycle() async {
+    let delegate = AdaptivePlotterApplicationDelegate()
+
+    #expect(!delegate.workspace.artifactResetEpisodeSnapshot.admissionClosed)
+    await delegate.workspace.shutdown()
+    #expect(delegate.workspace.artifactResetEpisodeSnapshot.admissionClosed)
+  }
+
   @Test("recording startup failure remains a visible diagnostic-only fallback")
   @MainActor
   func pointSelectionRecordingStartupFailureIsVisible() {

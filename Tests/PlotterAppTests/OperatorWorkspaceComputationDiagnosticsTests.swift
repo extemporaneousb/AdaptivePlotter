@@ -1,4 +1,5 @@
 import Foundation
+import PlotterEpisodeRuntime
 import PlotterModel
 import Testing
 
@@ -50,7 +51,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let current = workspace.testCurrentLearningPathItemID
     let first = workspace.testLearningPathProjection(selectedItemID: current)
     let second = workspace.testLearningPathProjection(selectedItemID: current)
-    let selected = LearningPathItemID.stage(.observedDrawingTrials)
+    let selected = LearningPathItemID.stage(.borderValidations)
     let firstSelected = workspace.testLearningPathProjection(selectedItemID: selected)
     let secondSelected = workspace.testLearningPathProjection(selectedItemID: selected)
     let firstSurface = workspace.testActionSurfacePresentation
@@ -163,20 +164,20 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     try await waitForAcceptedBoundaryCenterArrival(workspace: workspace)
     let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
     try requireEnabledPublicAction(
-      .runCameraCalibrationAndBuildProposal,
+      .cameraCalibration(.buildFivePositionProposal),
       owner: cameraOwner,
       workspace: workspace
     )
     await workspace.performTestExerciseAction(
-      .runCameraCalibrationAndBuildProposal,
+      .cameraCalibration(.buildFivePositionProposal),
       for: cameraOwner
     )
     try requireEnabledPublicAction(
-      .acceptCameraCalibrationProposal,
+      .cameraCalibration(.acceptProposal),
       owner: cameraOwner,
       workspace: workspace
     )
-    await workspace.performTestExerciseAction(.acceptCameraCalibrationProposal, for: cameraOwner)
+    await workspace.performTestExerciseAction(.cameraCalibration(.acceptProposal), for: cameraOwner)
     let tipOwner = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
@@ -194,11 +195,11 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       workspace.computationDiagnosticsForTesting.semanticPresentationRevision
 
     try requireEnabledPublicAction(
-      .drawFourCornerTipCircles,
+      .tipCalibration(.beginFourMarkBatch),
       owner: tipOwner,
       workspace: workspace
     )
-    await workspace.performTestExerciseAction(.drawFourCornerTipCircles, for: tipOwner)
+    await workspace.performTestExerciseAction(.tipCalibration(.beginFourMarkBatch), for: tipOwner)
 
     let snapshotsAfterBatch = await machine.snapshotCallCount
     let probesAfterBatch = await machine.passiveProbeCallCount
@@ -237,12 +238,12 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
         )
       )
     }
-    let observations = workspace.sparseTipCalibrationCoordinator.acceptedObservations.map {
+    let observations = workspace.tipCalibrationRuntime.acceptedObservations.map {
       $0.observation
     }
     #expect(
       observations.count == 4,
-      "phase=\(workspace.sparseTipCalibrationCoordinator.phase) error=\(workspace.explorationError ?? "nil") episodePoints=\(workspace.pointSelectionEpisodeProjection.exactPointSelection.selectedPoints.count)"
+      "phase=\(workspace.tipCalibrationRuntime.phase) error=\(workspace.explorationError ?? "nil") episodePoints=\(workspace.pointSelectionEpisodeProjection.exactPointSelection.selectedPoints.count)"
     )
     #expect(Set(observations.map { $0.controllerContextEvidence.passiveProbeID }).count == 4)
     #expect(

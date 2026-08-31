@@ -2,20 +2,20 @@ import Foundation
 
 /// A trial's role is fixed before its result exists. In particular, a reserved
 /// holdout cannot be promoted into training evidence after inspection.
-public enum DrawingTrialEvidenceRole: UInt8, Codable, Sendable, CaseIterable {
+public enum BorderValidationEvidenceRole: UInt8, Codable, Sendable, CaseIterable {
   case training = 0
   case reservedHoldout = 1
   case evaluationHoldout = 2
   case ordinaryDrawing = 3
 }
 
-extension DrawingTrialEvidenceRole: CanonicalEncodable {
+extension BorderValidationEvidenceRole: CanonicalEncodable {
   public func encodeCanonical(to encoder: inout CanonicalEncoder) throws {
     encoder.appendUInt8(rawValue)
   }
 }
 
-public enum DrawingTrialEvidenceDisposition: UInt8, Codable, Sendable, CaseIterable {
+public enum BorderValidationEvidenceDisposition: UInt8, Codable, Sendable, CaseIterable {
   case attributable = 0
   case refused = 1
   case ambiguous = 2
@@ -25,7 +25,7 @@ public enum DrawingTrialEvidenceDisposition: UInt8, Codable, Sendable, CaseItera
   case nonAttributable = 6
 }
 
-extension DrawingTrialEvidenceDisposition: CanonicalEncodable {
+extension BorderValidationEvidenceDisposition: CanonicalEncodable {
   public func encodeCanonical(to encoder: inout CanonicalEncoder) throws {
     encoder.appendUInt8(rawValue)
   }
@@ -33,13 +33,13 @@ extension DrawingTrialEvidenceDisposition: CanonicalEncodable {
 
 public struct DrawingEvidenceReference: Hashable, Codable, Sendable, CanonicalEncodable {
   public let recordID: DrawingEvidenceRecordID
-  public let role: DrawingTrialEvidenceRole
-  public let disposition: DrawingTrialEvidenceDisposition
+  public let role: BorderValidationEvidenceRole
+  public let disposition: BorderValidationEvidenceDisposition
 
   public init(
     recordID: DrawingEvidenceRecordID,
-    role: DrawingTrialEvidenceRole,
-    disposition: DrawingTrialEvidenceDisposition
+    role: BorderValidationEvidenceRole,
+    disposition: BorderValidationEvidenceDisposition
   ) {
     self.recordID = recordID
     self.role = role

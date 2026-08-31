@@ -54,7 +54,7 @@ public struct PlotterDrawingRunPlanIdentity: Hashable, Sendable {
   public let placementID: UUID
   public let planRevisionID: ExecutionPlanRevisionID
   public let planContentHash: Digest
-  public let evidenceRole: DrawingTrialEvidenceRole
+  public let evidenceRole: BorderValidationEvidenceRole
   public let paperCoverageObservationID: UUID
   public let tipRegistrationRevisionID: UUID
 
@@ -65,7 +65,7 @@ public struct PlotterDrawingRunPlanIdentity: Hashable, Sendable {
     placementID: UUID,
     planRevisionID: ExecutionPlanRevisionID,
     planContentHash: Digest,
-    evidenceRole: DrawingTrialEvidenceRole,
+    evidenceRole: BorderValidationEvidenceRole,
     paperCoverageObservationID: UUID,
     tipRegistrationRevisionID: UUID
   ) {

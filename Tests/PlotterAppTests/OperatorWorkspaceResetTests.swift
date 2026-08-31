@@ -6,13 +6,43 @@ import Testing
 @testable import PlotterRuntime
 
 extension OperatorWorkspaceTests {
+  @Test("paper persistence failure leaves the workspace graph and paper identity unchanged")
+  func paperReplacementDurableWriteFailureIsAtomic() async throws {
+    let log = EventLog()
+    let machine = try MachineFixture(log: log)
+    let checkpointBox = ArtifactResetCheckpointStoreFixture()
+    let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
+      load: { checkpointBox.load() },
+      save: { checkpointBox.save($0) },
+      clear: { checkpointBox.clear() }
+    )
+    let workspace = workspace(
+      machine: machine,
+      camera: try CameraFixture(),
+      learningPathCheckpointActions: checkpointActions,
+      persistPaperRevisionContext: { _ in throw ResetPersistenceFixtureError.refused },
+      log: log
+    )
+    let paperBefore = workspace.currentPaperRevisionContext
+    let graphBefore = Set(workspace.learningArtifactGraph.revisions)
+    let tipBefore = workspace.tipCameraRegistration
+
+    await workspace.recordNewPaperSheetOnCurrentPlane()
+
+    #expect(workspace.currentPaperRevisionContext == paperBefore)
+    #expect(Set(workspace.learningArtifactGraph.revisions) == graphBefore)
+    #expect(workspace.tipCameraRegistration == tipBefore)
+    #expect(workspace.explorationError?.contains("durable write/read-back failed") == true)
+    await workspace.shutdown()
+  }
+
   @Test("declining saved training preserves the package and all inactive authority")
   func startNewLearningRetainsSavedPackageWithoutApplyingIt() async throws {
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
     let checkpoint = try AcceptedLearningPathCheckpoint(
       semanticIdentity: identities.learningPathIdentity
     )
-    let box = LearningPathCheckpointBox(checkpoint: checkpoint)
+    let box = ArtifactResetCheckpointStoreFixture(checkpoint: checkpoint)
     let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
       load: { box.load() },
       save: { box.save($0) },
@@ -30,7 +60,7 @@ extension OperatorWorkspaceTests {
     #expect(workspace.tipCameraRegistration == nil)
     #expect(
       workspace.currentExerciseActionStripPresentation?.actions.map(\.kind)
-        == [.useSavedTraining, .startNewLearning]
+        == [.applySavedLearning, .startNewLearning]
     )
 
     let owner = workspace.testCurrentLearningPathItemID
@@ -57,7 +87,7 @@ extension OperatorWorkspaceTests {
   func resetAllFreshLiveLearningIsStable() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
-    let checkpointBox = LearningPathCheckpointBox()
+    let checkpointBox = ArtifactResetCheckpointStoreFixture()
     let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
       load: { checkpointBox.load() },
       save: { checkpointBox.save($0) },
@@ -74,7 +104,7 @@ extension OperatorWorkspaceTests {
     await workspace.startCamera()
 
     let plan = try #require(workspace.resetAllLearningPlan)
-    let didReset = await workspace.performResetAllLearning(plan)
+    let didReset = await workspace.submitResetAllLearning(plan)
 
     #expect(didReset)
     #expect(plan.source == .live)
@@ -99,7 +129,7 @@ extension OperatorWorkspaceTests {
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
     let camera = try CameraFixture()
-    let checkpointBox = LearningPathCheckpointBox()
+    let checkpointBox = ArtifactResetCheckpointStoreFixture()
     let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
       load: { checkpointBox.load() },
       save: { checkpointBox.save($0) },
@@ -128,7 +158,7 @@ extension OperatorWorkspaceTests {
     let penRequestsBeforeReset = await machine.requestedPenCommands
     let cancelCountBeforeReset = await machine.cancelCount
 
-    let didReset = await workspace.performResetAllLearning(plan)
+    let didReset = await workspace.submitResetAllLearning(plan)
 
     #expect(didReset)
     #expect(workspace.activeExerciseAttemptID == nil)
@@ -159,7 +189,7 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
-    let checkpointBox = LearningPathCheckpointBox(
+    let checkpointBox = ArtifactResetCheckpointStoreFixture(
       checkpoint: try acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity)
     )
     let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
@@ -186,7 +216,7 @@ extension OperatorWorkspaceTests {
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.performTestExerciseAction(
-      .useSavedTraining,
+      .applySavedLearning,
       for: workspace.testCurrentLearningPathItemID
     )
     #expect(workspace.penInteractionCompleted)
@@ -204,7 +234,7 @@ extension OperatorWorkspaceTests {
     let operationID = try #require(active.reference.operationID)
     let capability = try #require(active.cancellationCapabilityID)
     let plan = try #require(workspace.resetAllLearningPlan)
-    let resetting = Task { await workspace.performResetAllLearning(plan) }
+    let resetting = Task { await workspace.submitResetAllLearning(plan) }
     #expect(await lowerGate.waitUntilCancelled() == .cancelAttempt)
     let cancelling = await runtimeAccess.runtime?.snapshot(for: .live)
     #expect(cancelling?.projection.reference.operationID == operationID)
@@ -273,7 +303,7 @@ extension OperatorWorkspaceTests {
     )
     let plan = try #require(workspace.resetAllLearningPlan)
 
-    let didReset = await workspace.performResetAllLearning(plan)
+    let didReset = await workspace.submitResetAllLearning(plan)
 
     #expect(didReset)
     #expect(await machine.cancelCount == 0)
@@ -294,7 +324,7 @@ extension OperatorWorkspaceTests {
   func resetAllDurableClearFailureIsAtomic() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
-    let checkpointBox = LearningPathCheckpointBox()
+    let checkpointBox = ArtifactResetCheckpointStoreFixture()
     let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
       load: { checkpointBox.load() },
       save: { checkpointBox.save($0) },
@@ -326,7 +356,7 @@ extension OperatorWorkspaceTests {
     #expect(checkpointBox.checkpoint != nil)
 
     let plan = try #require(workspace.resetAllLearningPlan)
-    let didReset = await workspace.performResetAllLearning(plan)
+    let didReset = await workspace.submitResetAllLearning(plan)
 
     #expect(!didReset)
     #expect(checkpointBox.checkpoint != nil)
@@ -342,7 +372,7 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
-    let checkpointBox = LearningPathCheckpointBox(
+    let checkpointBox = ArtifactResetCheckpointStoreFixture(
       checkpoint: try acceptedPenLearningTestCheckpoint(
         identity: identities.learningPathIdentity
       )
@@ -365,13 +395,13 @@ extension OperatorWorkspaceTests {
     await workspace.requestPassiveProbe()
     let savedOwner = workspace.testCurrentLearningPathItemID
     let savedActions = workspace.currentExerciseActionStripPresentation?.actions.map(\.kind)
-    guard savedActions?.contains(.useSavedTraining) == true else {
+    guard savedActions?.contains(.applySavedLearning) == true else {
       Issue.record(
         "Saved Learning action is absent; current=\(savedOwner), status=\(workspace.acceptedArtifactCheckpointStatus), actions=\(String(describing: savedActions))"
       )
       return
     }
-    await workspace.performTestExerciseAction(.useSavedTraining, for: savedOwner)
+    await workspace.performTestExerciseAction(.applySavedLearning, for: savedOwner)
     #expect(workspace.penInteractionCompleted)
     let runtime = try #require(runtimeAccess.runtime)
     try await installAcceptedBoundaryTestProjection(
@@ -431,7 +461,7 @@ extension OperatorWorkspaceTests {
   @Test("Reset All LIVE Learning clears a preview-only durable tip package")
   func resetAllLiveLearningClearsTipCheckpoint() async throws {
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
-    let checkpointBox = LearningPathCheckpointBox()
+    let checkpointBox = ArtifactResetCheckpointStoreFixture()
     let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
       load: { checkpointBox.load() },
       save: { checkpointBox.save($0) },
@@ -444,7 +474,7 @@ extension OperatorWorkspaceTests {
       workspace: seeded.workspace,
       environment: .simulated
     )
-    try await completeSimulatedSparseTipCalibration(
+    try await completeSimulatedTipCalibration(
       seeded.workspace,
       simulator: seeded.simulator
     )
@@ -482,7 +512,7 @@ extension OperatorWorkspaceTests {
     let plan = try #require(liveRestart.workspace.resetAllLearningPlan)
     #expect(plan.removesDurableTipCheckpoint)
     #expect(!plan.removesDurableMachineCheckpoint)
-    let didReset = await liveRestart.workspace.performResetAllLearning(plan)
+    let didReset = await liveRestart.workspace.submitResetAllLearning(plan)
     #expect(didReset)
     #expect(checkpointBox.checkpoint == nil)
     #expect(liveRestart.workspace.recoverableTipCalibrationCheckpoint == nil)
@@ -493,7 +523,7 @@ extension OperatorWorkspaceTests {
   func resetAllLiveLearningClearsCheckpointAndRetainsSessionFacts() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
-    let checkpointBox = LearningPathCheckpointBox()
+    let checkpointBox = ArtifactResetCheckpointStoreFixture()
     let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
       load: { checkpointBox.load() },
       save: { checkpointBox.save($0) },
@@ -543,7 +573,7 @@ extension OperatorWorkspaceTests {
     #expect(plan.anchor == .humanGuidedDiscovery(.penInteraction))
     #expect(plan.removesDurableCheckpoint)
     #expect(plan.title == "Reset All Learning")
-    let didReset = await workspace.performResetAllLearning(plan)
+    let didReset = await workspace.submitResetAllLearning(plan)
     #expect(didReset)
 
     #expect(checkpointBox.checkpoint == nil)
@@ -572,7 +602,7 @@ extension OperatorWorkspaceTests {
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
-    let checkpointBox = LearningPathCheckpointBox()
+    let checkpointBox = ArtifactResetCheckpointStoreFixture()
     let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
       load: { checkpointBox.load() },
       save: { checkpointBox.save($0) },
@@ -620,7 +650,7 @@ extension OperatorWorkspaceTests {
     )
     let savedOwner = relaunched.testCurrentLearningPathItemID
     #expect(relaunched.learningArtifactGraph.revisions.isEmpty)
-    await relaunched.performTestExerciseAction(.useSavedTraining, for: savedOwner)
+    await relaunched.performTestExerciseAction(.applySavedLearning, for: savedOwner)
     #expect(relaunched.testSelectedBoundaryDirection == .negativeX)
     await relaunched.establishMachineSession(machine.descriptor)
     await relaunched.requestPassiveProbe()
@@ -644,7 +674,7 @@ extension OperatorWorkspaceTests {
       == .completed)
 
     let plan = try #require(relaunched.resetAllLearningPlan)
-    let didReset = await relaunched.performResetAllLearning(plan)
+    let didReset = await relaunched.submitResetAllLearning(plan)
     #expect(didReset)
     #expect(relaunched.controllerPoseApplicability == .currentSession)
     #expect(checkpointBox.checkpoint == nil)
@@ -673,7 +703,7 @@ extension OperatorWorkspaceTests {
       workspace: workspace,
       environment: .simulated
     )
-    try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
+    try await completeSimulatedTipCalibration(workspace, simulator: harness.simulator)
     let penRevisionID = try #require(
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id
     )
@@ -696,7 +726,7 @@ extension OperatorWorkspaceTests {
     #expect(workspace.testEstimatedMachineCenter == nil)
     #expect(workspace.machineCameraRegistration == nil)
     #expect(workspace.tipCameraRegistration == nil)
-    #expect(workspace.drawingTrialAssessment == nil)
+    #expect(workspace.borderValidationAssessment == nil)
     #expect(workspace.testCurrentLearningPathItemID == anchor)
     await workspace.shutdown()
   }
@@ -711,8 +741,24 @@ extension OperatorWorkspaceTests {
       workspace: workspace,
       environment: .simulated
     )
-    try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
-    try await completeSimulatedStageFour(workspace)
+    try await completeSimulatedTipCalibration(workspace, simulator: harness.simulator)
+    let validationOwner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
+    try requireEnabledPublicAction(.start, owner: validationOwner, workspace: workspace)
+    await workspace.performTestExerciseAction(.start, for: validationOwner)
+    #expect(workspace.borderValidationStep == .compareIntendedAndObservedGeometry)
+    #expect(workspace.borderValidationAssessment == nil)
+    try requireEnabledPublicAction(
+      .borderValidation(.acceptObservedPrediction),
+      owner: validationOwner,
+      workspace: workspace
+    )
+    let inkCountBeforeDecision = await harness.simulator.persistentInk().count
+    await workspace.performTestExerciseAction(
+      .borderValidation(.acceptObservedPrediction),
+      for: validationOwner
+    )
+    #expect(await harness.simulator.persistentInk().count == inkCountBeforeDecision)
+    #expect(workspace.borderValidationAssessment == .predictionObserved)
     let framePlan = try #require(
       workspace.learningArtifactGraph.revisions.first { revision in
         guard revision.state == .current else { return false }
@@ -724,14 +770,14 @@ extension OperatorWorkspaceTests {
       return
     }
     let inkBefore = await harness.simulator.persistentInk()
-    let anchor = LearningPathItemID.observedDrawingTrial(.chooseDrawingBorderPlan)
+    let anchor = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     let plan = try #require(workspace.learningVacatePlan(from: anchor))
     #expect(plan.affectedItems == [anchor])
     #expect(plan.expectedCurrentRevisionIDs.count == 7)
     let didVacate = await workspace.performLearningVacate(plan)
     #expect(didVacate)
 
-    #expect(workspace.drawingTrialAssessment == nil)
+    #expect(workspace.borderValidationAssessment == nil)
     #expect(workspace.drawingBorderPlan == nil)
     #expect(workspace.localPreFrameBaseline == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .comparison(group)) == nil)
