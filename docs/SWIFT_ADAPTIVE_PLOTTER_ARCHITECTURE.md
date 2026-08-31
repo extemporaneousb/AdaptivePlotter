@@ -1187,6 +1187,99 @@ only the post-admission/pre-drain or post-lower/pre-publication boundary and
 cannot admit, mutate, dispatch, choose, cancel, settle, or publish an effect.
 There is no parallel servo-calibration owner, checkpoint, or artifact graph.
 
+## Boundary episode authority
+
+`PlotterBoundaryRuntime` is the single source-indexed actor owner for Drawing
+Boundary acquisition and center arrival. `PlotterBoundarySubmission` binds an
+exact `PlotterBoundaryRequestID`, immutable `PlotterBoundaryProjectionReference`,
+environment, and one typed `PlotterBoundaryIntent`. The runtime owns independent
+LIVE/SIMULATED revisions, attempt/operation/cancellation/recovery identities,
+direction selection, immutable accepted aggregates, estimated center, center
+arrival, refusal/remedy, terminal truth, and publication state.
+
+Admission synchronously installs the operation, cancellation capability,
+runtime-owned task, and one-shot reservation-publication latch before the first
+suspension. The task awaits that latch before any admission gate, fact source,
+or lower-effect preparation. `PlotterBoundaryProjectionSink` is genuinely async;
+the runtime releases the latch only after `.reserving` publication returns. A
+fact or admission refusal settles that same minted owner into one terminal
+refusal with zero lower effect. One runtime-owned `operationTasks` lane per environment performs retained Pen Up
+normalization before side acquisition and center travel, lower settlement, and
+terminal publication. Exact Stop, cancel, and shutdown converge on the matching
+owner; stale or foreign capabilities refuse. `PlotterBoundaryAdmissionGate` and
+`PlotterBoundaryTerminalPublicationGate` can hold only the
+post-reservation/pre-fact and post-lower/pre-publication scheduling boundaries for deterministic
+tests. They cannot admit, choose, cancel, execute, settle, persist, or publish
+work and require no sleep, polling, or `Task.yield`.
+
+The nominal `PlotterBoundaryComposition` adapts LIVE side acquisition to the
+retained `MachineActions`/`RunInterpreter` fixed 50 mm renewal and controller
+Stop owner, and SIMULATED acquisition to the retained EA-07
+`PlotterCausalSimulatorEffectAdapter`. Center travel retains its lower supervised
+travel/Pen owner. LIVE revalidates exact effect facts before lower execution and
+requires controller-settled Idle/final MPos for acceptance. SIMULATED invokes no
+LIVE lower effect or persistence and publishes explicitly nonphysical truth.
+The LIVE side adapter derives the retained advisory from
+`DiscoverySequenceCatalog`, forwards it through the composition-only
+`UI.announceBoundaryAdvisory` adapter to the existing workspace
+`AnnouncementActions` route, and only then invokes
+`MachineActions.beginBoundaryMotion`. The UI adapter owns no announcement,
+effect, Stop, settlement, or evidence authority; advisory failure does not
+become motion refusal. Accepted-authority installation
+preserves a selected direction only while it remains allowed, otherwise selects
+the first remaining allowed direction, and leaves an empty allowed set as
+completed progress. Center retry is derived only from retained failed, stopped,
+or ambiguous `.centerArrival` terminal truth with center authority present and
+arrival absent; a first center move therefore publishes `retry: false`.
+`PlotterBoundaryRuntime` refuses `.centerRetryMismatch(expected:submitted:)`
+when a request differs from that exact derived value and
+`.centerArrivalAlreadyAccepted` after accepted arrival, with zero lower effect.
+
+Canonical Boundary actionability orders reset and publication recovery first,
+then the exact active Stop capability, then a recoverable center retry, and only
+then generic needs-attention. The retry action is emitted only from retained
+failed, stopped, or ambiguous `.centerArrival` terminal truth and never
+auto-resends motion. Detailed Learning activity consumes that same terminal
+instead of `explorationFailure`. `PlotterBoundaryRestoreError` is a typed
+`LocalizedError`; the staging path publishes its actionable description so a
+center residual includes the finite value and the current
+`MachinePositionAcceptancePolicy` tolerance rather than an enum dump or
+hard-coded threshold.
+
+LIVE advisory preparation is a runtime-invoked pre-admission port step, not
+part of lower `admitSide`. After the awaited advisory the runtime rechecks the
+exact cancellation/shutdown owner, republishes the pre-motion phase, and
+reacquires the complete external effect identity immediately before
+`MachineActions.beginBoundaryMotion`. `beginShutdown()` closes admission and
+records the first-winning cancellation without joining; App composition then
+cancels retained speech before `shutdown()` joins the operation task. Stop or
+shutdown during suspended speech therefore settles without lower admission.
+SIMULATED skips the advisory step and is unchanged.
+
+The runtime persists an exact accepted LIVE candidate before publication.
+Persistence failure retains an identity-bound recovery capability and staged
+candidate; recovery retries publication only and never resends motion.
+`PlotterBoundaryProjectionSink` is Sendable and the runtime-owned weak sink
+publishes immutable snapshots without a workspace observer Task, latch, retry,
+unchecked relay, or effect authority.
+Canonical actionability exposes only exact `.recoverPublication(capability)`
+while publication remains incomplete and suppresses new acquisition and center
+travel. Learning vacate/reset blocks pending publication and settles an active
+Boundary through its exact capability, then uses a typed two-phase reset. The
+runtime non-destructively reserves an exact reset capability and closes new
+Boundary admission without clearing projection, aggregates, graph/checkpoint,
+session, or recovery truth. The workspace persists the Learning prefix before
+the exact commit; only an applied commit permits local cleanup, while persistence
+refusal exact-aborts the reservation unchanged. Stale or foreign commit/abort
+capabilities refuse, and shutdown preserves an unresolved reservation for exact
+resolution.
+`OperatorWorkspace` retains copied snapshots and fact/composition adaptation
+only. `AcceptedMachineArtifactCheckpoint.boundarySideAggregates` remains the
+retained durable checkpoint representation, while camera calibration, sparse-tip
+calibration, Drawing Border, Saved Learning, replay, incident assembly, camera,
+Vision, controller transport/safety, and physical-observation authority remain
+outside EA-10B.
+
 `PlotterUICompiler` derives current Learning progression from copied milestone
 facts and the first unmet dependency. Recovery selection is presentation state
 for the owning review row; it does not redirect progression. The persisted
@@ -1228,6 +1321,22 @@ manual Pen commands. Controller-native Motion, connection, alarm, safety,
 serialization, and settlement remain mandatory at effect execution.
 
 ## Sparse calibration data flow
+
+Camera Calibration reference capture first acquires a fresh settled LIVE probe
+or corresponding SIMULATED snapshot, updates the retained probe/snapshot
+presentation through existing helper semantics, and requires its exact MPos to
+match the accepted Boundary center within
+`MachinePositionAcceptancePolicy`. The fresh exact position becomes the camera
+reference; the adapter does not copy the Boundary center or fabricate a context
+baseline. Deterministic SIMULATED sparse-tip fixtures bind simulator Boundary
+truth to the accepted checkpoint so the later exact-frame clicks and accepted
+geometry share one source.
+
+The retained Pen admission route checks shutdown both at entry and after each
+suspension before it creates a `DiscoveryTransaction`. This prevents an async
+continuation from reviving an accepted click or publishing a zero-step
+transaction after shutdown; no Boundary runtime, workspace guard, or relay owns
+that Pen decision.
 
 Exercise 1.3 builds `CurrentCameraCalibrationPlan` from current Drawing Boundary aggregates
 and center arrival. `MachineCameraRegistration` retains five machine/cap

@@ -208,10 +208,11 @@ func stage33FittedBoundsUpdatePreservesExactOperatorViewport() throws {
 @Test("Exercise 1.3 acceptance preserves the locked analysis region and visible viewport")
 func stage33AcceptancePreservesLockedViewport() async throws {
   let harness = makeCausalSimulatorAppFixture()
-  try await completeSimulatedBoundariesAndCenter(
-    harness.workspace,
-    simulator: harness.simulator,
-    boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+  try await completeSimulatedPenInteractionPrerequisite(harness.workspace)
+  try await installAcceptedBoundaryTestProjection(
+    runtime: harness.boundaryRuntime,
+    workspace: harness.workspace,
+    environment: .simulated
   )
   let workspace = harness.workspace
   let before = workspace.testActionSurfacePresentation

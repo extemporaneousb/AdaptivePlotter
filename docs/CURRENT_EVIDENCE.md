@@ -8,6 +8,285 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing Boundary episode cutover completion candidate
+
+Selected 2026-08-30 as software package `EA-10B` in task `TASK-6DAB256F`.
+EA-10B is semantically complete as a task-local landing candidate. Blackdog
+landing and canonical-main cleanup remain pending, so this is not operational
+landing. The frozen production Sources aggregate is
+`9abeef29df0364b87029bbcd621a82a4c433588a4de56a54aeaed8c5f400a5c8`;
+the frozen Swift Tests aggregate is
+`8998beb7745c07c5a261757a0fdb2c572e3f63a715b536854375a6804489c48e`.
+
+One actor-isolated `PlotterBoundaryRuntime` now owns source-indexed LIVE and
+SIMULATED Boundary revisions; request, attempt, operation, cancellation, and
+publication-recovery identities; direction selection; normal, replacement, and
+additional side acquisition; center move/retry; exact Stop/cancel/shutdown;
+immutable accepted aggregates, estimated center, center arrival, refusals,
+terminal truth, and staged publication state. Every
+`PlotterBoundarySubmission` binds the displayed
+`PlotterBoundaryProjectionReference` and one typed `PlotterBoundaryIntent`.
+Stale projection or effect facts, foreign capability, active ownership, invalid
+direction, incomplete accepted prerequisites, or closed admission refuses with
+an exact owner and remedy before lower work.
+
+Admission synchronously installs the runtime operation, cancellation capability,
+runtime-owned task, and one-shot reservation-publication latch before the first
+await. The task cannot enter the package admission gate, acquire facts, or
+prepare lower work until the genuinely async `PlotterBoundaryProjectionSink`
+returns from publishing `.reserving`; only then does the runtime release its
+latch. A fact or admission refusal settles that same minted owner into one
+terminal refusal and invokes zero lower effect.
+The runtime owns its one environment-local
+lower execution/settlement/publication task lane; `OperatorWorkspace` owns no Boundary task, busy latch,
+Stop decision, retry, or settlement helper. Exact Stop, cancel, and shutdown
+converge on the matching owner. Retained Pen-Up supervision completes before
+both side acquisition and center travel in LIVE and SIMULATED. Natural
+completion, lower refusal, limit, mismatched Stop, cancellation, shutdown,
+ambiguity, or save failure never replaces previously accepted Boundary
+authority. The runtime revalidates effect facts before lower execution. LIVE
+acceptance still requires fresh retained-controller Idle/final MPos truth.
+
+Accepted LIVE Boundary and center candidates are saved before publication. A
+failed save exposes the exact identity-bound recovery capability and retains the
+staged candidate; recovery retries publication only and never resends Pen or
+motion. A runtime-owned weak `PlotterBoundaryProjectionSink` publishes immutable
+admitted, moving, cancelling, recovery, and terminal snapshots without a
+workspace observer Task/latch/retry. While publication is incomplete, canonical
+actionability exposes only exact `.recoverPublication(capability)` and suppresses
+new acquisition and center travel. Learning vacate/reset settles an active
+Boundary through its exact capability and blocks pending publication. It then
+reserves a non-destructive exact reset capability, which closes new Boundary
+admission without clearing projection, aggregates, graph/checkpoint, session, or
+recovery truth. The workspace persists the Learning prefix before exact commit;
+only an applied commit permits local cleanup. Persistence refusal exact-aborts
+the reservation and retains all prior authority unchanged; stale or foreign
+commit/abort capabilities refuse. `PlotterBoundaryAdmissionGate` and
+`PlotterBoundaryTerminalPublicationGate` hold only the post-reservation/pre-fact
+and post-lower/pre-publication scheduling boundaries for deterministic tests;
+they grant no admission, effect, cancellation, settlement, persistence, result,
+or publication choice and use no sleep, polling, or `Task.yield`.
+
+`PlotterBoundaryComposition` retains lower authority instead of duplicating it.
+LIVE uses the existing `MachineActions`/`RunInterpreter` fixed 50 mm renewal,
+controller Stop, and supervised center travel/Pen seams. SIMULATED uses the sole
+EA-07 `PlotterCausalSimulatorEffectAdapter`, invokes zero LIVE effect or
+persistence, and remains explicitly nonphysical. Camera, Vision, controller
+transport/safety, checkpoint encoding, replay, incident assembly, camera
+calibration, sparse-tip calibration, Drawing Border, Saved Learning, and later
+package semantics did not move. The retained
+`AcceptedMachineArtifactCheckpoint.boundarySideAggregates` is lower durable
+checkpoint data, not workspace Boundary authority.
+
+After the same critic accepted correction cycle 2, the final `QUICK` attempt
+was nonpass and exited 130. The user authorized one exceptional same-critic
+final-gate repair. The runtime now derives a first center move as `retry: false`
+and derives retry only from retained failed, stopped, or ambiguous
+center-arrival terminal truth while center authority remains and arrival is
+absent. Accepted-side installation preserves the selected direction while it
+remains allowed and otherwise advances deterministically to the first remaining
+allowed direction. LIVE side admission awaits the retained Discovery advisory
+through the composition-only `UI.announceBoundaryAdvisory` adapter and existing
+`AnnouncementActions` owner before lower Boundary motion. The adapter owns no
+announcement, effect, Stop, settlement, evidence, controller, or UI authority;
+advisory failure remains non-gating and SIMULATED behavior is unchanged.
+
+The retained operator-path tests migrated obsolete generic `.start` and
+contextual Stop requests to exact typed direction selection, acquire, and
+capability-bound Boundary Stop.
+
+The same critic then returned `RETASK` for exactly three closure findings:
+the runtime derived but did not enforce the submitted center-retry bit, Stop or
+shutdown could race lower motion admission while retained speech was suspended,
+and generic Boundary fixture ingress remained. The closure adds typed
+`.centerRetryMismatch(expected:submitted:)` and
+`.centerArrivalAlreadyAccepted` refusals with zero lower effect. The runtime,
+not the lower side port, now owns the pre-admission advisory step; after that
+await it rechecks exact cancellation/shutdown and reacquires the full external
+effect identity immediately before LIVE motion admission. Shutdown closes
+Boundary admission without joining, cancels retained speech, and then joins the
+exact Boundary owner. Stop or shutdown during suspended speech therefore
+settles with zero lower motion admission. SIMULATED ordering and nonphysical
+truth are unchanged.
+
+All Boundary test fixtures now use exact rendered typed direction selection,
+acquire, and capability-bound Boundary Stop; direct `submitBoundaryIntent`,
+generic Boundary `.start`, and the old completion helpers have zero test-source
+matches. The center waiter now tracks
+`semanticPresentationRevision`, because Boundary snapshot storage is
+observation-ignored while snapshot installation advances that canonical
+observable revision. Accepted center arrival asserts the actual
+controller-reported quantized position rather than fabricating the requested
+target.
+
+The downstream `QUICK` repair preserved that accepted Boundary authority while
+closing the retained workflows that consume it. A recoverable failed center
+terminal now renders exact typed `Retry Center Arrival` before generic
+needs-attention, without automatic resend; its activity comes directly from the
+exact center-arrival terminal rather than the legacy exploration-failure field.
+`PlotterBoundaryRestoreError` supplies actionable localized descriptions,
+including the finite residual and the current
+`MachinePositionAcceptancePolicy` tolerance, and the accepted-authority staging
+path publishes that typed description. Camera Calibration now acquires a fresh
+settled machine observation and requires its exact MPos to match the accepted
+Boundary center within the existing acceptance policy before installing the
+reference. The deterministic SIMULATED sparse-tip fixture installs Boundary
+truth that matches its accepted checkpoint, so exact-frame clicks are derived
+from one geometry rather than a conflicting simulator default. Point-selection
+waiters observe the canonical semantic revision and do not reinterpret repeated
+refusal as publication.
+
+The first remaining-gate pass recorded `BOUNDARY` 18/18, `DELETE` 8/8, `DOC`
+29/29, clean `DIFF`, and `JOURNEY` 5/5. Its `STRICT` build then failed at two
+sites because the MainActor projection sink was not Sendable. The bounded source
+repair makes `PlotterBoundaryProjectionSink` Sendable and removes the redundant
+relay's `@unchecked Sendable`; the strict production build then passed in 29.97
+seconds and focused Boundary remained 18/18. The same critic accepted that
+bounded delta.
+
+The post-fix `QUICK` run deterministically failed at 772/773 in
+`shutdownDoesNotReviveAcceptedClick`, and the exact isolated failure reproduced.
+An asynchronous retained Pen admission could resume after shutdown and create a
+zero-step `DiscoveryTransaction`. The retained Pen owner now checks shutdown at
+entry and again after the suspension before creating that transaction. The exact
+regression passed 1/1 and the full Pen-cap suite passed 17/17; the same critic
+accepted this bounded delta as well. The final `QUICK` and `JOURNEY` receipts
+below are on the current frozen source/test identities.
+
+The same landing deletes the workspace Boundary state, history, evidence,
+aggregates, center/frame/arrival/activity state, pending lower dictionaries,
+`boundaryMotionTask`, `BoundaryAtomicCommitFailurePoint`,
+`beginPairedBoundarySide`, direct `machineActions.beginBoundaryMotion`, obsolete
+center/execution/commit helpers, generic Boundary Stop/reset/shutdown branches,
+and five obsolete Boundary `ExerciseActionKind` cases. The high-level
+`completeLiveBoundaries` and `completeSimulatedBoundariesAndCenter` fixtures are
+deleted rather than recreated under another name. The final deletion gate passed
+all eight exact EA-10B scans; the
+`boundarySideAggregates` scan is intentionally scoped to
+`OperatorWorkspace.swift` so it does not forbid the retained checkpoint field.
+
+| Focused receipt | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; exit 0; 18.20 seconds | correction-cycle-2 production compile after the async sink witness change |
+| `ASYNC-RESERVATION-PUBLICATION` | passed — focused async reservation-publication regression; 1/1 passed; tests 0.007 seconds | the operation task cannot reach facts, gates, or lower preparation until sink publication returns |
+| `BOUNDARY` | passed — `swift test --filter PlotterBoundaryEpisodeTests`; exit 0; 18/18 passed; tests 0.125 seconds | exact center-retry enforcement, async reserving publication, two-phase reset, same-owner refusal, supervised center travel and advisory ordering, recovery, LIVE/SIM separation, and exact Stop/cancel/shutdown |
+| `JOURNEY-BOUNDARY-REPEAT` | passed — `swift test --filter boundaryRepeatActionsAggregateAndReplaceAcceptedSet`; exit 0; 1/1 passed; tests 0.009 seconds | retained repeat/replace journey regression only; not the `JOURNEY` package gate |
+| `JOURNEY-BOUNDARY-ATOMIC` | passed — `swift test --filter boundaryAtomicFailurePreservesAcceptedAuthority`; exit 0; 1/1 passed; tests 0.008 seconds | retained atomic-failure journey regression only; not the `JOURNEY` package gate |
+| `RESET-ACTIVE-BOUNDARY` | passed — `swift test --filter resetAllCancelsAndSettlesActiveBoundaryMotion`; exit 0; 1/1 passed; tests 0.030 seconds | Reset All settles the exact active Boundary capability before reset reservation |
+| `RECOVERY-RESET-CAPABILITY` | passed — `swift test --filter workspaceRecoveryAndResetAreCapabilityBound`; exit 0; 1/1 passed; tests 0.040 seconds | publication recovery and reset commit/abort remain exact-capability bound |
+| `ATOMIC-PERSISTENCE-RESET` | passed — focused atomic persistence/reset regression; 1/1 passed; tests 0.032 seconds | failed prefix persistence exact-aborts the reservation without Boundary or local authority mutation |
+| `BOUNDARY-STOP-OPERATOR-PATH` | passed — `swift test --filter boundaryStopCompletesTransaction`; 1/1 passed; tests 0.111 seconds | exact typed acquire, retained announcement-before-motion, and capability-bound Stop |
+| `ACTIVE-BOUNDARY-OPERATOR-PATH` | passed — `swift test --filter activeBoundaryHasOnlyStop`; 1/1 passed; tests 0.116 seconds | active Boundary exposes only its exact typed Stop |
+| `CENTER-QUANTIZATION-OPERATOR-PATH` | passed — `swift test --filter centerArrivalAcceptsQuantizedSettlement`; 1/1 passed; tests 0.105 seconds | first move is non-retry and accepted arrival retains actual controller position |
+| `MIGRATED-BOUNDARY-FILTERS` | passed — migrated Boundary operator-path filters; 13/13 passed | all retained fixtures submit exact rendered typed select/acquire/Stop actions without direct runtime ingress or generic Boundary start |
+| `COMPUTATION` | passed — `swift test --filter OperatorWorkspaceComputationDiagnosticsTests`; 9/9 passed | accepted-center Camera Calibration reference ingress and computation diagnostics |
+| `SPARSE-TIP` | passed — `swift test --filter OperatorWorkspaceSparseTipCalibrationTests`; 8/8 passed | SIMULATED Boundary truth and exact-frame sparse-tip calibration fixture |
+| `DRAW-RUN` | passed — `swift test --filter PlotterDrawingRunEpisodeTests`; 13/13 passed | downstream Drawing Run shared fixture after exact Boundary and sparse-tip publication |
+| `CENTER-RETRY` | passed — focused center retry regression; 1/1 passed | exact typed retry action, center-terminal activity, and actionable residual description |
+| `PRE-STRICT-QUICK` | passed — `make quick-test`; exit 0; 773/773 passed; tests 13.348 seconds; real 14.76 seconds; log `/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/ea10b-quick.emiGz7dCHp` | successful pre-STRICT broad suite on the preceding source identity; retained as history |
+| `INITIAL-DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-10B`; 8/8 exact scans | initial remaining-gate deletion receipt before the Sendable and shutdown-race source deltas |
+| `INITIAL-DOC` | passed — `make docs-check`; 29/29 passed | initial remaining-gate documentation receipt before this evidence-only delta |
+| `INITIAL-DIFF` | passed — `git diff --check`; clean | initial remaining-gate diff receipt before this evidence-only delta |
+| `INITIAL-JOURNEY` | passed — `make journey-test`; 5/5 passed | initial remaining-gate journey receipt before the Sendable and shutdown-race source deltas |
+| `STRICT-PRODUCTION-BUILD` | passed — strict production build; 29.97 seconds | `PlotterBoundaryProjectionSink: Sendable` with redundant relay `@unchecked Sendable` removed |
+| `POST-SENDABLE-BOUNDARY` | passed — `swift test --filter PlotterBoundaryEpisodeTests`; 18/18 passed | focused Boundary suite after strict-concurrency correction |
+| `SHUTDOWN-CLICK` | passed — `swift test --filter shutdownDoesNotReviveAcceptedClick`; 1/1 passed | async retained Pen admission cannot create a zero-step transaction after shutdown |
+| `PEN-CAP` | passed — `swift test --filter PenCapAppearanceSelectionTests`; 17/17 passed | retained Pen-cap suite after entry/post-await shutdown guards |
+| `QUICK` | passed — `make quick-test`; exit 0; 773/773 passed; tests 13.957 seconds; real 15.41 seconds; log `/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/ea10b-racefix-quick.6TzUPaxfmJ` | final broad software suite on current frozen Sources and Tests |
+| `JOURNEY` | passed — `make journey-test`; 5/5 passed; tests 4.916 seconds; real 6.05 seconds; log `/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/ea10b-racefix-journey.Fs3ODxsqNk` | final journey suite on current frozen Sources and Tests |
+| `DOC` | passed — `make docs-check`; contracts plus 29/29 passed; tests 12.694 seconds; real 13.49 seconds; log `/tmp/ea10b-doc-final.jnbNGm` | final documentation and architecture contracts |
+| `DIFF` | passed — `git diff --check`; clean; real 0.03 seconds; log `/tmp/ea10b-diff-final.Vcy9oB` | final whitespace/error diff check |
+| `STRICT` | passed — `make strict-check`; 778/778 Swift tests in 14.540 seconds plus docs 29/29 in 23.453 seconds; real 64.95 seconds; log `/tmp/ea10b-strict-final-resumable.oonlrS` | final strict-concurrency, signing, launcher, negative-bundle, Swift, and docs gate |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-10B`; 8/8 exact scans | final same-landing structural deletion gate |
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; contracts plus 29/29 passed; tests 12.694 seconds; real 13.49 seconds; log `/tmp/ea10b-doc-final.jnbNGm` | final documentation and architecture contracts |
+| `DIFF` | passed — `git diff --check`; clean; real 0.03 seconds; log `/tmp/ea10b-diff-final.Vcy9oB` | final whitespace/error diff check |
+| `QUICK` | passed — `make quick-test`; exit 0; 773/773 passed; tests 13.957 seconds; real 15.41 seconds; log `/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/ea10b-racefix-quick.6TzUPaxfmJ` | final broad software suite on current frozen Sources and Tests |
+| `JOURNEY` | passed — `make journey-test`; 5/5 passed; tests 4.916 seconds; real 6.05 seconds; log `/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/ea10b-racefix-journey.Fs3ODxsqNk` | final journey suite on current frozen Sources and Tests |
+| `STRICT` | passed — `make strict-check`; 778/778 Swift tests in 14.540 seconds plus docs 29/29 in 23.453 seconds; real 64.95 seconds; log `/tmp/ea10b-strict-final-resumable.oonlrS` | final strict-concurrency, signing, launcher, negative-bundle, Swift, and docs gate |
+| `BOUNDARY` | passed — `swift test --filter PlotterBoundaryEpisodeTests`; exit 0; 18/18 passed; tests 0.125 seconds | focused typed Boundary episode suite |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-10B`; 8/8 exact scans | final same-landing structural deletion gate |
+
+The original fresh critic returned `RETASK` for exactly three material blockers.
+First, operation/capability reservation occurred only after fact acquisition.
+Second, center travel skipped the retained Pen-Up supervision. Third, canonical
+UI/reset neither exposed publication recovery nor honored active/pending Boundary
+authority. Correction cycle 1 closed center-travel supervision, recovery UI, and
+reset gating, but the same critic returned `RETASK` because reserving publication
+had no happens-before relationship with the spawned operation task and reset
+destructively cleared Boundary authority before durable Learning-prefix
+persistence. Correction cycle 2 makes the projection sink genuinely async,
+releases the runtime-owned one-shot latch only after sink return, and replaces
+destructive reset with exact reserve/commit/abort. The sole same critic
+ultimately returned `UNANIMOUS PASS — no material disagreement` for the exact
+three closure findings before the downstream final-`QUICK` repairs. At that
+point no post-`QUICK` critic had been run, so that verdict did not independently
+review the later camera, simulator-fixture, point-selection-wait, center-retry
+actionability/activity, or error-description deltas. The later Sendable-sink and
+shutdown-race fixes each received the same critic's bounded-delta pass; no new
+full critic was commissioned.
+
+The complete nonpass history remains explicit: the first correction-cycle
+focused compile failed because a Boolean actionability path omitted its return;
+two attempts to hold the synchronous projection sink hung; the first async test
+witness failed MainActor protocol conformance; an async suite hung and exited
+130 after 149.87 seconds real time; a SwiftPM diagnostic timed out after 90.01
+seconds; a direct helper timed out after 45.05 seconds because of a
+per-environment recorder bug; and initial atomic fixtures failed because
+compatibility migration consumed the injected persistence refusal. These were
+test/compiler/scheduling nonpasses, not physical evidence or accepted gates.
+The later broad `QUICK` attempts first exited 130 in cascading Boundary operator
+flows and later reached an intermediate 771/773 nonpass. Their exceptional-repair
+history retains the exact Stop timeout diagnostic, selected-direction trap,
+missing announcement-ordering trap, missing center wait, center
+waiter/observation/compile/assertion failures, stale-MPos Camera Calibration
+ingress, Drawing Run sparse-fixture timeout, simulator Boundary-truth mismatch
+and out-of-frame clicks, point-selection repeated-refusal wait issue, generic
+center-retry ordering, Boundary activity's legacy-failure dependency,
+`LocalizedError` wiring, and compile-only helper defects. The closure run also
+retains its zero-span, async terminal/semantic-revision, obsolete-diagnostics,
+unrelated-history, and missing-Pen-prerequisite nonpasses. None is reclassified
+as a passed gate; the later 773/773 receipt is distinct success evidence.
+
+All seven EA-10B gates passed on the frozen candidate: `BOUNDARY`, `DELETE`,
+`QUICK`, `JOURNEY`, `DOC`, `DIFF`, and `STRICT`. The same critic passed both
+bounded source deltas; no new full critic was commissioned. EA-10B is
+semantically complete as a task-local landing candidate, while Blackdog landing
+and canonical-main cleanup remain pending. EA-10C is not selected or
+dispatched;
+old per-package successor dispatch is prohibited pending the new tranche-policy
+correction. GATE-01 remains unchanged and downstream after EA-11C.
+
+Canonical routed-document dispositions for this EA-10B task-local candidate:
+
+- Affected — Product Contract and Swift Architecture: typed Boundary ownership,
+  exact Stop/cancel/shutdown, LIVE/SIM separation, save-before-publication,
+  recovery without resend, nominal lower-owner composition, and the
+  software/simulation/physical boundary.
+- Affected — Episode Architecture Execution Plan and Current Evidence: INT-011,
+  TSK-004, UI-010, FIX-005, eight EA-10B deletion scans, candidate topology, frozen
+  identities, focused receipts, final package gates, and pending landing boundary.
+- Affected — `Scripts/check_episode_contract.py`: exact plan scans, candidate
+  authority/evidence, ledger fingerprint, and evidence-blocked frontier.
+- Affected — `Scripts/test_episode_wave_capsule.py`: the current capsule fixture
+  blocks undispatched EA-10C on the new tranche-policy correction rather than
+  using the old per-package successor rule.
+- Reviewed no change — `Scripts/check_episode_cutover.py` and shell wrapper: the
+  generic manifest-driven checker already executes all eight exact scans without
+  package-specific executable code.
+- Reviewed no change — `Scripts/check_episode_inventory.py`, Document Routing,
+  Episode Architecture Vocabulary, Discovery and Observed-Trial Protocol,
+  Learning Path Button Transitions, Roadmap, Attended Hardware Runbook, README,
+  `AGENTS.md`, `blackdog.toml`, `.gitignore`, repository skills, and conditional
+  generation/validation scripts: their retained owners, routing, physical
+  procedure, lifecycle, and later-package boundaries remain accurate.
+
+This is automated software and deterministic simulation evidence only. No
+attended controller, camera, motion, Pen, paper, operator-click, or observed-ink
+validation occurred, and no physical or remote-Git evidence is claimed.
+
 ## Pen Interaction episode cutover completion candidate
 
 Selected 2026-08-30 as software package `EA-10A` in Blackdog task
@@ -1591,9 +1870,9 @@ This table is machine-checked against every `complete` row in the canonical
 execution-plan ledger. Gate names match each package's required gates exactly,
 and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
-stale task-local candidates. FIX-03, DOC-03, and the task-local EA-10A landing
-candidate have final completion evidence; GATE-01 remains pending after EA-11C.
-Detailed scope and limitations remain in the named evidence sections.
+stale task-local candidates. FIX-03, DOC-03, EA-10A, and the task-local EA-10B
+landing candidate have final completion evidence; GATE-01 remains pending after
+EA-11C. Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
 | --- | --- | --- | --- |
@@ -1620,6 +1899,7 @@ Detailed scope and limitations remain in the named evidence sections.
 | FIX-03 | `TASK-0A7AB3EE` | `DRAW-RUN=passed`, `TASK-METRIC=passed`, `DELETE=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed` | Pre-GATE-01 Drawing Run task-owner correction |
 | DOC-03 | `TASK-B7C9E592` | `DOC=passed`, `DIFF=passed` | Pilot dependency-cycle correction |
 | EA-10A | `TASK-539931AC` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed`, `PEN=passed`, `DELETE=passed` | Pen Interaction episode cutover completion candidate |
+| EA-10B | `TASK-6DAB256F` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `BOUNDARY=passed`, `DELETE=passed` | Drawing Boundary episode cutover completion candidate |
 
 ## Wave admission blockers
 
@@ -1627,11 +1907,15 @@ This is the sole machine-readable list of Current Evidence conditions that stop
 an otherwise dependency-ready pending ordinary package from launching. A row
 must name the exact package, the observed blocker, and the required user input
 or canonical correction. The selector stops at that first eligible row; it
-never skips ahead to later work. The empty table means Current Evidence adds no
-admission blocker beyond the canonical ledger and live Blackdog claims.
+never skips ahead to later work. An empty table means Current Evidence adds no
+admission blocker beyond the canonical ledger and live Blackdog claims. The
+current EA-10C row is blocked from old per-package dispatch until the new
+tranche-policy correction is canonical. EA-10B landing and cleanup remain
+operational obligations, not permission to dispatch the successor.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |
+| EA-10C | Old per-package successor dispatch is prohibited pending the new tranche-policy correction | Land EA-10B and verify canonical-main cleanup, then apply the named tranche-policy correction before selecting or dispatching EA-10C; do not infer successor authority from EA-10B task-local completion |
 
 ## Machine-link transcript observability correction
 

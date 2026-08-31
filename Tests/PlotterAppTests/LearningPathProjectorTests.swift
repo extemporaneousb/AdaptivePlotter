@@ -149,7 +149,7 @@ struct PlotterLearningPresentationCompilerTests {
     let snapshot = connectedSnapshot(
       operations: .init(
         activeAttemptOwner: owner,
-        stopOwner: .exercise(capability, .moveToEstimatedCenter, boundaryOwner: false)
+        stopOwner: .exercise(capability, .moveToDrawingBorderStart, boundaryOwner: false)
       )
     )
     let projection = project(
@@ -158,7 +158,7 @@ struct PlotterLearningPresentationCompilerTests {
     )
 
     #expect(projection.contextualStop?.capabilityID == capability)
-    #expect(projection.currentActionStrip?.actions.map(\.kind) == [.stop(capability)])
+    #expect(projection.currentActionStrip?.actions.map { $0.kind } == [.stop(capability)])
     #expect(projection.currentActionStrip?.mustRemainVisible == true)
   }
 
@@ -206,7 +206,10 @@ struct PlotterLearningPresentationCompilerTests {
 
     #expect(projection.currentItemID == boundary)
     #expect(projection.currentActionStrip?.ownerID == boundary)
-    #expect(projection.currentActionStrip?.actions.map(\.kind) == [.start])
+    #expect(
+      projection.currentActionStrip?.actions.map(\.kind)
+        == [.boundary(.acquire(direction: .positiveX, mode: .normal))]
+    )
     #expect(projection.selectedAction.status == .needsAttention)
     #expect(projection.selectedAction.actionStrip?.actions.map(\.kind) == [.restart])
   }

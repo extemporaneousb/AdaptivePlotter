@@ -134,10 +134,42 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["FIX-03"]["status"])
         self.assertEqual("complete", rows["DOC-03"]["status"])
         self.assertEqual("complete", rows["EA-10A"]["status"])
-        self.assertEqual("pending", rows["EA-10B"]["status"])
+        self.assertEqual("complete", rows["EA-10B"]["status"])
         self.assertEqual("pending", rows["GATE-01"]["status"])
-        self.assertEqual({}, blockers)
+        self.assertEqual(
+            {
+                "EA-10C": {
+                    "blocker": "Old per-package successor dispatch is prohibited pending the new tranche-policy correction",
+                    "required_input_or_correction": "Land EA-10B and verify canonical-main cleanup, then apply the named tranche-policy correction before selecting or dispatching EA-10C; do not infer successor authority from EA-10B task-local completion",
+                }
+            },
+            blockers,
+        )
         evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
+        self.assertIn("Drawing Boundary episode cutover completion candidate", evidence)
+        self.assertIn("TASK-6DAB256F", evidence)
+        self.assertIn("18/18 passed; tests 0.125 seconds", evidence)
+        self.assertIn("migrated Boundary operator-path filters; 13/13 passed", evidence)
+        self.assertIn("boundaryStopCompletesTransaction`; 1/1 passed; tests 0.111 seconds", evidence)
+        self.assertIn("activeBoundaryHasOnlyStop`; 1/1 passed; tests 0.116 seconds", evidence)
+        self.assertIn("centerArrivalAcceptsQuantizedSettlement`; 1/1 passed; tests 0.105 seconds", evidence)
+        self.assertIn("OperatorWorkspaceComputationDiagnosticsTests`; 9/9 passed", evidence)
+        self.assertIn("OperatorWorkspaceSparseTipCalibrationTests`; 8/8 passed", evidence)
+        self.assertIn("PlotterDrawingRunEpisodeTests`; 13/13 passed", evidence)
+        self.assertIn("773/773 passed; tests 13.957 seconds; real 15.41 seconds", evidence)
+        self.assertIn("5/5 passed; tests 4.916 seconds; real 6.05 seconds", evidence)
+        self.assertIn("contracts plus 29/29 passed; tests 12.694 seconds; real 13.49 seconds", evidence)
+        self.assertIn("778/778 Swift tests in 14.540 seconds plus docs 29/29 in 23.453 seconds", evidence)
+        self.assertIn("EA-10B is semantically complete as a task-local landing candidate", evidence)
+        self.assertIn("strict production build then passed in 29.97", evidence)
+        self.assertIn("772/773 in\n`shutdownDoesNotReviveAcceptedClick`", evidence)
+        self.assertIn("Pen-cap suite passed 17/17", evidence)
+        self.assertIn("intermediate 771/773 nonpass", evidence)
+        self.assertIn("same critic's bounded-delta pass", evidence)
+        self.assertIn("composition-only `UI.announceBoundaryAdvisory` adapter", evidence)
+        self.assertIn("adapter owns no\nannouncement, effect, Stop, settlement, evidence, controller, or UI authority", evidence)
+        self.assertIn("EA-10B is semantically complete as a task-local landing candidate", evidence)
+        self.assertIn("EA-10C is not selected or\ndispatched", evidence)
         self.assertIn("Pen Interaction episode cutover completion candidate", evidence)
         self.assertIn("TASK-539931AC-49f2e7307f76", evidence)
         self.assertIn("exit 0; 13/13 passed", evidence)
@@ -368,8 +400,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write()
         consumed = self.consume()
         self.assertEqual(created, consumed)
-        self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("EA-10B", consumed["contract"]["package"]["id"])
+        self.assertEqual("evidence_blocked", consumed["contract"]["frontier"]["state"])
+        self.assertEqual("EA-10C", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -393,39 +425,25 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["EA-10B", "pending", "EA-10A", "software"]
-                and row[4].startswith("Cutover: transfer Boundary acquisition")
-                and row[5] == "`DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `BOUNDARY`, `DELETE`"
+                and row[:4] == ["EA-10C", "pending", "EA-10B", "software"]
+                and row[4].startswith("Cutover: transfer camera-from-cap calibration")
+                and row[5] == "`DOC`, `DIFF`, `QUICK`, `STRICT`, `CAMERA-CAL`, `DELETE`"
             ):
                 ledger_rows.append((selected, row))
         self.assertEqual(1, len(ledger_rows))
         selected, selected_row = ledger_rows[0]
-        self.assertEqual("EA-10B", selected_row[0])
+        self.assertEqual("EA-10C", selected_row[0])
         self.assertNotEqual("FIX-02", selected_row[0])
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
     def test_current_evidence_blocker_stops_at_first_eligible_package(self) -> None:
-        evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
-        evidence = evidence_path.read_text(encoding="utf-8")
-        table = (
-            "| Package | Blocker | Required input or canonical correction |\n"
-            "| --- | --- | --- |\n"
-        )
-        blocked_table = table + (
-            "| EA-10B | EA-10A landing is not reconciled | "
-            "Land EA-10A and generate the canonical successor capsule |\n"
-        )
-        self.assertIn(table, evidence)
-        evidence_path.write_text(evidence.replace(table, blocked_table, 1), encoding="utf-8")
-        self.commit_fixture_change("record evidence blocker")
-
         created = self.build_and_write()
 
         self.assertEqual("evidence_blocked", created["launch"]["state"])
-        self.assertEqual("EA-10B", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("EA-10C", created["contract"]["frontier"]["package_id"])
         self.assertEqual(
-            "EA-10A landing is not reconciled",
+            "Old per-package successor dispatch is prohibited pending the new tranche-policy correction",
             created["contract"]["frontier"]["blocker"]["blocker"],
         )
         self.assertNotEqual("GATE-01", created["contract"]["frontier"]["package_id"])

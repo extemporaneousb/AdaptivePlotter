@@ -1,4 +1,5 @@
 import Foundation
+import PlotterEpisodeModel
 import PlotterRuntime
 import PlotterUI
 import SwiftUI
@@ -723,7 +724,9 @@ private struct ExerciseActionStripView: View {
         selection: Binding(
           get: { selection.selected },
           set: { direction in
-            submitRetainedAction(.selectDirection(selection.purpose, direction))
+            submitRetainedAction(.boundary(.selectDirection(
+              PlotterBoundaryDirection(rawValue: direction.rawValue)!
+            )))
           }
         )
       ) {

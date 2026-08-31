@@ -80,10 +80,11 @@ enum DrawingRunEpisodeFixtureCache {
   static func load() async throws -> DrawingRunEpisodeFixture {
     if let cached { return cached }
     let harness = makeCausalSimulatorAppFixture()
-    try await completeSimulatedBoundariesAndCenter(
-      harness.workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(harness.workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: harness.workspace,
+      environment: .simulated
     )
     try await completeSimulatedSparseTipCalibration(
       harness.workspace,

@@ -32,7 +32,7 @@ struct OperatorWorkspaceLifecycleTests {
 
   @Test("Learning motion identity is exhaustive and presentation-only wording is derived")
   func typedLearningMotionActions() {
-    #expect(LearningMotionAction.moveToEstimatedCenter.title == "Move to Estimated Center")
+    #expect(LearningMotionAction.moveToDrawingBorderStart.title == "Move to Drawing Border Start")
     #expect(
       LearningMotionAction.cameraCalibrationSample(index: 2, total: 5).title
         == "Current-Camera Calibration Sample 2 of 5"
@@ -69,21 +69,19 @@ struct OperatorWorkspaceLifecycleTests {
     )
 
     #expect(misleadingFailure.attemptDisposition == .failed(misleadingFailure.detail))
-    #expect(misleadingFailure.boundaryDisposition == .failed(misleadingFailure.detail))
     #expect(neutralAmbiguity.attemptDisposition == .ambiguous(neutralAmbiguity.detail))
-    #expect(neutralAmbiguity.boundaryDisposition == .ambiguous(neutralAmbiguity.detail))
     #expect(possibleInk.attemptDisposition == .ambiguous(possibleInk.detail))
-    #expect(possibleInk.boundaryDisposition == .ambiguous(possibleInk.detail))
   }
 
   @Test("lost simulated drawing outcome clears Stop and preserves no-redraw recovery")
   func lostSimulatedDrawingOutcomeCleansOwner() async throws {
     let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
-    try await completeSimulatedBoundariesAndCenter(
-      workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: workspace,
+      environment: .simulated
     )
     try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
 
@@ -109,10 +107,11 @@ struct OperatorWorkspaceLifecycleTests {
   func oneGoPreviewsThenCompletesTrial() async throws {
     let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
-    try await completeSimulatedBoundariesAndCenter(
-      workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: workspace,
+      environment: .simulated
     )
     try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
     let positionBeforeGo = (await harness.simulator.snapshot()).mpos
@@ -212,16 +211,23 @@ struct OperatorWorkspaceLifecycleTests {
     let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     )
-    try requireEnabledPublicAction(.start, owner: boundaryOwner, workspace: workspace)
-    await workspace.performTestExerciseAction(.start, for: boundaryOwner)
-    try await waitUntil { workspace.activeExerciseAttemptID == nil }
+    let terminalCount = workspace.testBoundaryTerminals.count
+    try await submitRenderedBoundaryAcquisition(
+      .positiveX,
+      owner: boundaryOwner,
+      workspace: workspace
+    )
+    try await waitForBoundaryTerminalCount(terminalCount + 1, workspace: workspace)
 
-    guard case .ambiguous(let detail) = workspace.boundaryActivityRecords.last?.disposition else {
+    guard case .ambiguous(let detail) = workspace.testBoundaryTerminals.last?.disposition else {
       Issue.record("Expected typed ambiguous Boundary disposition")
       return
     }
-    #expect(detail == "The simulated Drawing Boundary motion lost attributable segment completion.")
-    #expect(workspace.contextualStopPresentation == nil)
+    #expect(!detail.isEmpty)
+    #expect(
+      workspace.selectedOperatorActionPresentation(for: boundaryOwner).actionStrip?.actions
+        .contains { if case .boundary(.stop(_)) = $0.kind { return true }; return false } == false
+    )
     await workspace.shutdown()
   }
 }

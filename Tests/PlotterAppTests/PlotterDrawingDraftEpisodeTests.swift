@@ -710,10 +710,11 @@ struct PlotterDrawingDraftEpisodeTests {
     let draftRuntime = PlotterDrawingDraftRuntime()
     let harness = makeCausalSimulatorAppFixture(drawingDraftRuntime: draftRuntime)
     let workspace = harness.workspace
-    try await completeSimulatedBoundariesAndCenter(
-      workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: workspace,
+      environment: .simulated
     )
     try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
     let fixture = try draftAuthorityFixture(from: workspace)
@@ -898,10 +899,11 @@ private enum DrawingDraftAuthorityFixtureCache {
   static func load() async throws -> DrawingDraftAuthorityFixture {
     if let cached { return cached }
     let harness = makeCausalSimulatorAppFixture()
-    try await completeSimulatedBoundariesAndCenter(
-      harness.workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(harness.workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: harness.workspace,
+      environment: .simulated
     )
     try await completeSimulatedSparseTipCalibration(
       harness.workspace,

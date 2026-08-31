@@ -63,6 +63,7 @@ public enum PlotterUIIntent: Hashable, Sendable {
   case drawingDraft(PlotterDrawingDraftIntent)
   case drawingRun(PlotterDrawingRunIntent)
   case penInteraction(PlotterPenInteractionIntent)
+  case boundary(PlotterBoundaryIntent)
   case retainedLearningAction(PlotterUIActionID)
   case retainedLearningReset(PlotterUIActionID)
   case retainedComparisonReview(PlotterUIRetainedComparisonIntent)
@@ -310,6 +311,7 @@ public struct PlotterUILearningActionabilityFacts: Sendable {
   public let sparseSavedCheckpointMatchesPaper: Bool
   public let activePrompt: PlotterUILearningActivePrompt?
   public let penInteraction: PlotterPenInteractionProjection?
+  public let boundary: PlotterBoundaryProjection?
   public let startUnavailableReasons: [String: String]
   public let boundaryIsComplete: Bool
   public let boundaryHasCenterArrival: Bool
@@ -341,6 +343,7 @@ public struct PlotterUILearningActionabilityFacts: Sendable {
     sparseSavedCheckpointMatchesPaper: Bool = false,
     activePrompt: PlotterUILearningActivePrompt? = nil,
     penInteraction: PlotterPenInteractionProjection? = nil,
+    boundary: PlotterBoundaryProjection? = nil,
     startUnavailableReasons: [String: String] = [:],
     boundaryIsComplete: Bool = false,
     boundaryHasCenterArrival: Bool = false,
@@ -371,6 +374,7 @@ public struct PlotterUILearningActionabilityFacts: Sendable {
     self.sparseSavedCheckpointMatchesPaper = sparseSavedCheckpointMatchesPaper
     self.activePrompt = activePrompt
     self.penInteraction = penInteraction
+    self.boundary = boundary
     self.startUnavailableReasons = startUnavailableReasons
     self.boundaryIsComplete = boundaryIsComplete
     self.boundaryHasCenterArrival = boundaryHasCenterArrival
@@ -393,15 +397,12 @@ public enum PlotterUILearningSemanticAction: Hashable, Sendable {
   case choice(PlotterUILearningChoice)
   case setPenSetpoint(PlotterUILearningPenCommand, Int)
   case stopPenInteraction(PlotterPenInteractionCancellationCapabilityID)
-  case selectDirection(PlotterUILearningBoundaryDirection)
+  case boundary(PlotterBoundaryIntent)
   case cancel
   case stop(UUID)
   case restart
   case redoThisStep
   case recordAnotherAttempt
-  case redoBoundary(PlotterUILearningBoundaryDirection)
-  case recordAnotherBoundaryAttempt(PlotterUILearningBoundaryDirection)
-  case moveToEstimatedCenter(retry: Bool, derivationUnavailable: Bool)
   case runCameraCalibration
   case acceptCameraCalibration
   case discardCameraSamples
@@ -457,6 +458,8 @@ public struct PlotterUILearningActionDecision: Hashable, Sendable {
       ))
     case .stopPenInteraction(let capability):
       .penInteraction(.stop(capability))
+    case .boundary(let intent):
+      .boundary(intent)
     default:
       .retainedLearningAction(id)
     }
@@ -521,18 +524,28 @@ private extension PlotterUILearningSemanticAction {
     case .setPenSetpoint(let command, let value):
       "Set Pen \(command == .raise ? "Up" : "Down") S\(value)"
     case .stopPenInteraction: "Stop Pen Interaction"
-    case .selectDirection(let direction): "Select \(direction.displayName)"
+    case .boundary(let intent):
+      switch intent {
+      case .selectDirection(let direction): "Select \(direction.displayName)"
+      case .acquire(let direction, let mode):
+        switch mode {
+        case .normal: "Move Toward \(direction.displayName)"
+        case .replacement: "Redo \(direction.displayName) Boundary"
+        case .additional: "Record Another \(direction.displayName) Attempt"
+        }
+      case .moveToEstimatedCenter(let retry): retry ? "Retry Center Arrival" : "Move to Estimated Center"
+      case .stop: "Stop Boundary Search"
+      case .cancel: "Cancel Boundary Attempt"
+      case .recoverPublication: "Retry Boundary Save"
+      case .reserveReset: "Reserve Boundary Reset"
+      case .commitReset: "Commit Boundary Reset"
+      case .abortReset: "Abort Boundary Reset"
+      }
     case .cancel: "Cancel Attempt"
     case .stop: "Stop"
     case .restart: "Restart Attempt"
     case .redoThisStep: "Redo This Step"
     case .recordAnotherAttempt: "Record Another Attempt"
-    case .redoBoundary(let direction): "Redo \(direction.displayName) Boundary"
-    case .recordAnotherBoundaryAttempt(let direction):
-      "Record Another \(direction.displayName) Attempt"
-    case .moveToEstimatedCenter(let retry, let unavailable):
-      retry ? "Retry Center Arrival"
-        : (unavailable ? "Center Derivation Needs Attention" : "Move to Estimated Center")
     case .runCameraCalibration: "Run Five-Position Camera Calibration"
     case .acceptCameraCalibration: "Accept Camera Calibration"
     case .discardCameraSamples: "Discard Camera Samples"
@@ -555,7 +568,7 @@ private extension PlotterUILearningSemanticAction {
 
   var defaultRole: PlotterUILearningActionRole {
     switch self {
-    case .useSavedTraining, .start, .restart, .moveToEstimatedCenter,
+    case .useSavedTraining, .start, .restart,
       .runCameraCalibration, .acceptCameraCalibration, .drawSparseTipCircles,
       .revalidateTipCalibration, .acceptTipCalibration, .retryTipCalibrationCommit,
       .paperReplaced:
@@ -564,9 +577,9 @@ private extension PlotterUILearningSemanticAction {
       .rejectTipCalibration:
       .destructive
     case .choice(.yes): .positive
-    case .startNewLearning, .choice(.no), .setPenSetpoint, .selectDirection,
+    case .startNewLearning, .choice(.no), .setPenSetpoint, .boundary,
       .redoThisStep, .recordAnotherAttempt,
-      .redoBoundary, .recordAnotherBoundaryAttempt, .undoSparseTipClick,
+      .undoSparseTipClick,
       .clearSparseTipClicks:
       .standard
     }
@@ -609,7 +622,7 @@ public struct PlotterUILearningActionStripDecision: Hashable, Sendable {
     if let directionSelection {
       result.append(contentsOf: directionSelection.options.map { direction in
         PlotterUILearningActionDecision(
-          action: .selectDirection(direction)
+          action: .boundary(.selectDirection(PlotterBoundaryDirection(direction)))
         )
       })
     }
@@ -772,6 +785,10 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     {
       return .needsAttention
     }
+    if item.kind == .boundary, let boundary = facts.boundary {
+      if boundary.publicationRecoveryCapabilityID != nil { return .needsAttention }
+      if case .needsAttention = boundary.phase { return .needsAttention }
+    }
     if item.isComplete { return .complete }
     guard item.ownerID == currentOwnerID || (item.isStage && item.stageID == currentStageID)
     else { return .next }
@@ -830,6 +847,73 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
           unavailableReason: invariantReason
         )], mustRemainVisible: true)
       }
+    }
+    if item.kind == .boundary, let boundary = facts.boundary,
+      boundary.resetCapabilityID != nil
+    {
+      return strip(item.ownerID, [.init(
+        action: .start,
+        title: "Boundary reset in progress",
+        unavailableReason: "The exact Boundary reset transaction is waiting for durable Learning-prefix settlement. No Boundary effect is available."
+      )], mustRemainVisible: true)
+    }
+    if item.kind == .boundary, let boundary = facts.boundary,
+      let recoveryCapability = boundary.publicationRecoveryCapabilityID
+    {
+      return strip(item.ownerID, [
+        .init(
+          action: .boundary(.recoverPublication(recoveryCapability)),
+          title: "Retry Boundary Publication"
+        )
+      ], mustRemainVisible: true)
+    }
+    if item.kind == .boundary, let boundary = facts.boundary,
+      case .publicationIncomplete = boundary.phase
+    {
+      return strip(item.ownerID, [.init(
+        action: .start,
+        title: "Boundary publication recovery unavailable",
+        unavailableReason: "PlotterBoundaryRuntime retained unpublished authority without its exact recovery capability. Restart the application; no motion will be resent."
+      )], mustRemainVisible: true)
+    }
+    if item.kind == .boundary, let boundary = facts.boundary,
+      boundary.reference.operationID != nil
+    {
+      guard let capability = boundary.cancellationCapabilityID else {
+        return strip(item.ownerID, [.init(
+          action: .start,
+          title: "Boundary owner needs attention",
+          unavailableReason: "PlotterBoundaryRuntime owns an operation without its exact cancellation capability."
+        )], mustRemainVisible: true)
+      }
+      return strip(item.ownerID, [
+        .init(action: .boundary(.stop(capability)), title: "Stop Boundary Search")
+      ], mustRemainVisible: true)
+    }
+    if item.kind == .boundary, let boundary = facts.boundary,
+      item.ownerID == current,
+      facts.boundaryIsComplete,
+      !facts.boundaryHasCenterArrival,
+      facts.boundaryCenterArrivalRetryIsRequired,
+      boundary.reference.operationID == nil,
+      boundary.cancellationCapabilityID == nil
+    {
+      return strip(item.ownerID, [
+        .init(
+          action: .boundary(.moveToEstimatedCenter(retry: true)),
+          title: "Retry Center Arrival",
+          unavailableReason: facts.startUnavailableReasons[item.ownerID]
+        )
+      ])
+    }
+    if item.kind == .boundary, let boundary = facts.boundary,
+      case .needsAttention(let detail) = boundary.phase
+    {
+      return strip(item.ownerID, [.init(
+        action: .start,
+        title: "Boundary needs attention",
+        unavailableReason: "\(detail) Resolve the exact Boundary terminal truth; no acquisition or center motion will be resent automatically."
+      )], mustRemainVisible: true)
     }
     if facts.savedTrainingCandidateIsPresent {
       guard item.ownerID == current else { return nil }
@@ -953,23 +1037,12 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     guard item.ownerID == current else { return nil }
     let reason = facts.startUnavailableReasons[item.ownerID]
     if item.kind == .boundary, facts.boundaryIsComplete, !facts.boundaryHasCenterArrival {
-      if facts.boundaryCenterArrivalRetryIsRequired {
-        return strip(item.ownerID, [
-          .init(
-            action: .moveToEstimatedCenter(retry: true, derivationUnavailable: false),
-            unavailableReason: reason
-          )
-        ])
-      }
       let centerReason = facts.boundaryHasEstimatedCenter
         ? reason : "Accepted boundaries do not currently derive a valid center."
       return strip(
         item.ownerID,
         [.init(
-          action: .moveToEstimatedCenter(
-            retry: false,
-            derivationUnavailable: !facts.boundaryHasEstimatedCenter
-          ),
+          action: .boundary(.moveToEstimatedCenter(retry: false)),
           unavailableReason: centerReason
         )] + boundaryRepeatActions(facts.acceptedBoundaryDirections)
       )
@@ -1009,7 +1082,11 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     return PlotterUILearningActionStripDecision(
       ownerID: item.ownerID,
       actions: [.init(
-        action: .start,
+        action: item.kind == .boundary
+          ? .boundary(.acquire(
+            direction: PlotterBoundaryDirection(facts.selectedBoundaryDirection),
+            mode: .normal
+          )) : .start,
         title: item.kind == .penInteraction
           ? "Identify Pen Cap" : "Move Toward \(facts.selectedBoundaryDirection.displayName)",
         unavailableReason: reason
@@ -1098,8 +1175,14 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
   ) -> [PlotterUILearningActionDecision] {
     Array(directions.prefix(limits.maximumDirectionVisitCount)).flatMap { direction in
       [
-        .init(action: .redoBoundary(direction)),
-        .init(action: .recordAnotherBoundaryAttempt(direction)),
+        .init(action: .boundary(.acquire(
+          direction: PlotterBoundaryDirection(direction),
+          mode: .replacement
+        ))),
+        .init(action: .boundary(.acquire(
+          direction: PlotterBoundaryDirection(direction),
+          mode: .additional
+        ))),
       ]
     }
   }
@@ -1116,6 +1199,17 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       penAdjustment: nil,
       mustRemainVisible: mustRemainVisible
     )
+  }
+}
+
+private extension PlotterBoundaryDirection {
+  init(_ direction: PlotterUILearningBoundaryDirection) {
+    switch direction {
+    case .negativeX: self = .negativeX
+    case .positiveX: self = .positiveX
+    case .negativeY: self = .negativeY
+    case .positiveY: self = .positiveY
+    }
   }
 }
 

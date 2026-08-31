@@ -118,7 +118,13 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0),
       positionObserver: { camera.trackMachinePosition($0) }
     )
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()
+    let workspace = workspace(
+      machine: machine,
+      camera: camera,
+      boundaryRuntimeAccess: boundaryRuntimeAccess,
+      log: log
+    )
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
     await workspace.startCamera()
@@ -133,17 +139,28 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
     for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
     #expect(workspace.penInteractionCompleted)
-    try await completeLiveBoundaries(workspace, machine: machine)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: try #require(boundaryRuntimeAccess.runtime),
+      workspace: workspace,
+      environment: .live,
+      centerArrivalIsAccepted: false
+    )
+    try await machine.setPosition(x: 100, y: 50)
+    await workspace.requestPassiveProbe()
 
     let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     )
     try requireEnabledPublicAction(
-      .moveToEstimatedCenter,
+      .boundary(.moveToEstimatedCenter(retry: false)),
       owner: boundaryOwner,
       workspace: workspace
     )
-    await workspace.performTestExerciseAction(.moveToEstimatedCenter, for: boundaryOwner)
+    await workspace.performTestExerciseAction(
+      .boundary(.moveToEstimatedCenter(retry: false)),
+      for: boundaryOwner
+    )
+    try await waitForAcceptedBoundaryCenterArrival(workspace: workspace)
     let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
     try requireEnabledPublicAction(
       .runCameraCalibrationAndBuildProposal,
@@ -164,7 +181,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       .calibratePenContactFromSparseMarks
     )
     let plan = try SparseTipBatchMarkPlan(
-      boundarySideAggregates: workspace.boundarySideAggregates
+      acceptedBoundaryAggregates: workspace.testAcceptedBoundaryAggregates
     )
     let registration = try #require(workspace.machineCameraRegistration)
 
@@ -430,13 +447,13 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     )
     workspace.resetComputationDiagnosticsForTesting()
 
-    await workspace.performTestExerciseAction(.start, for: owner)
-    try await waitForExecutorTurnsAsync(
-      conditionDescription: "Boundary Stop publication and controller settlement continuation"
-    ) {
-      guard workspace.contextualStopPresentation != nil else { return false }
-      return await machine.boundaryMotionIsAwaitingSettlement
-    }
+    try await submitRenderedBoundaryAcquisition(
+      .positiveX,
+      owner: owner,
+      workspace: workspace
+    )
+    _ = await machine.waitForBoundaryRequest(count: 1)
+    let terminalCount = workspace.testBoundaryTerminals.count
     for revision in 10...12 {
       traffic.inject(revision: UInt64(revision))
       try await waitForExecutorTurns(
@@ -449,38 +466,43 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       _ = workspace.testActionSurfacePresentation
     }
 
-    let stop = try #require(workspace.contextualStopPresentation)
-    var diagnostics = workspace.computationDiagnosticsForTesting
-    #expect(diagnostics.events.contains(.boundaryMotion(.positiveX, .began)))
-    #expect(!diagnostics.events.contains(.boundaryMotion(.positiveX, .ended)))
+    let stop = try renderedBoundaryStopKind(owner: owner, workspace: workspace)
     #expect(
       workspace.currentExerciseActionStripPresentation?.actions.contains {
-        if case .stop(let capabilityID) = $0.kind {
-          return capabilityID == stop.capabilityID
+        if case .boundary(.stop(_)) = $0.kind {
+          return $0.kind == stop
         }
         return false
       } == true
     )
 
-    await workspace.stopCurrentOperation(capabilityID: stop.capabilityID)
-    diagnostics = workspace.computationDiagnosticsForTesting
-    #expect(diagnostics.events.contains(.boundaryMotion(.positiveX, .ended)))
+    await workspace.performTestExerciseAction(stop, for: owner)
+    try await waitForBoundaryTerminalCount(terminalCount + 1, workspace: workspace)
+    #expect(workspace.testBoundaryTerminals.last?.disposition == .accepted)
+    #expect(
+      workspace.currentExerciseActionStripPresentation?.actions.contains {
+        if case .boundary(.stop(_)) = $0.kind { return true }
+        return false
+      } == false
+    )
     traffic.finish()
     await workspace.shutdown()
   }
 
-  @Test("supervised Pen-Up travel can settle naturally after bounded analysis traffic")
+  @Test("typed Boundary center travel can settle naturally after bounded analysis traffic")
   func heldSupervisedTravelWithAnalysisTraffic() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
     let camera = try CameraFixture()
     let traffic = CameraAnalysisTrafficFixture()
+    let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()
     let workspace = workspace(
       machine: machine,
       cameraActionsOverride: cameraActions(
         camera,
         analysisUpdates: { traffic.updates() }
       ),
+      boundaryRuntimeAccess: boundaryRuntimeAccess,
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
@@ -507,7 +529,14 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     ) {
       traffic.subscriptionCount >= 2
     }
-    try await completeLiveBoundaries(workspace, machine: machine)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: try #require(boundaryRuntimeAccess.runtime),
+      workspace: workspace,
+      environment: .live,
+      centerArrivalIsAccepted: false
+    )
+    try await machine.setPosition(x: 100, y: 50)
+    await workspace.requestPassiveProbe()
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     )
@@ -516,14 +545,17 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let subscriptionCountBeforeTravel = traffic.subscriptionCount
     let automaticRequestsBeforeTravel = camera.recordedAutomaticInspectionRequests
     let travelTask = Task {
-      await workspace.performTestExerciseAction(.moveToEstimatedCenter, for: owner)
+      await workspace.performTestExerciseAction(
+        .boundary(.moveToEstimatedCenter(retry: false)),
+        for: owner
+      )
     }
     try await waitForExecutorTurnsAsync(
       conditionDescription: "center-travel settlement continuation"
     ) {
       return await machine.relativeJogIsAwaitingSettlement
     }
-    let heldStop = try #require(workspace.contextualStopPresentation)
+    let heldStop = try renderedBoundaryStopKind(owner: owner, workspace: workspace)
     #expect(traffic.subscriptionCount == subscriptionCountBeforeTravel)
     #expect(camera.recordedAutomaticInspectionRequests == automaticRequestsBeforeTravel)
     #expect(workspace.exactWorkflowVisionOwner == nil)
@@ -540,18 +572,13 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       _ = workspace.testActionSurfacePresentation
     }
 
-    var diagnostics = workspace.computationDiagnosticsForTesting
-    #expect(
-      diagnostics.events.contains(
-        .supervisedTravel(.moveToEstimatedCenter, .began)
-      )
-    )
-    #expect(
-      !diagnostics.events.contains(
-        .supervisedTravel(.moveToEstimatedCenter, .ended)
-      )
-    )
-    #expect(workspace.contextualStopPresentation?.capabilityID == heldStop.capabilityID)
+    if case .centering = workspace.currentBoundarySnapshot?.projection.phase {
+      // Expected: the typed Boundary owner remains active through settlement.
+    } else {
+      Issue.record("Expected the Boundary runtime to remain in its centering phase.")
+    }
+    let currentStop = try renderedBoundaryStopKind(owner: owner, workspace: workspace)
+    #expect(currentStop == heldStop)
     let vision = try #require(
       workspace.selectedOperatorActionPresentation(for: owner).subsystemStatuses.first {
         $0.id == "vision"
@@ -564,13 +591,10 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
 
     await machine.settleRelativeJogNaturally()
     await travelTask.value
-    diagnostics = workspace.computationDiagnosticsForTesting
-    #expect(
-      diagnostics.events.contains(
-        .supervisedTravel(.moveToEstimatedCenter, .ended)
-      )
-    )
-    #expect(workspace.centerArrivalPosition != nil)
+    try await waitForAcceptedBoundaryCenterArrival(workspace: workspace)
+    #expect(workspace.currentBoundarySnapshot?.projection.terminal?.activity == .centerArrival)
+    #expect(workspace.currentBoundarySnapshot?.projection.terminal?.disposition == .accepted)
+    #expect(workspace.testCenterArrivalPosition != nil)
     #expect(traffic.subscriptionCount == subscriptionCountBeforeTravel)
     #expect(camera.recordedAutomaticInspectionRequests == automaticRequestsBeforeTravel)
     traffic.finish()

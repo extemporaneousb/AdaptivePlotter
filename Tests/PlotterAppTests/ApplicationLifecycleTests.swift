@@ -53,6 +53,7 @@ struct ApplicationLifecycleTests {
       pointSelectionRuntime: composition.runtime,
       pointSelectionRecordingDiagnostic: diagnostic,
       penInteractionRuntime: nominalPenInteractionRuntime(),
+      boundaryRuntime: nominalBoundaryRuntime(),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService()

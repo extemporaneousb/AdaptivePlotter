@@ -12,7 +12,7 @@ struct CurrentCameraCalibrationPlanningTests {
     let target = try MachinePosition(x: 0, y: 0)
     let plan = try CurrentCameraCalibrationPlan(
       targetPosition: target,
-      boundarySideAggregates: try boundaryEnvelope(
+      acceptedBoundaryAggregates: try boundaryEnvelope(
         negativeX: -100,
         positiveX: 100,
         negativeY: -80,
@@ -62,7 +62,7 @@ struct CurrentCameraCalibrationPlanningTests {
   func symmetricContraction() throws {
     let plan = try CurrentCameraCalibrationPlan(
       targetPosition: MachinePosition(x: 70, y: -50),
-      boundarySideAggregates: try boundaryEnvelope(
+      acceptedBoundaryAggregates: try boundaryEnvelope(
         negativeX: -100,
         positiveX: 100,
         negativeY: -80,
@@ -113,7 +113,7 @@ struct CurrentCameraCalibrationPlanningTests {
       positiveY: 100
     )
     let batch = try SparseTipBatchMarkPlan(
-      boundarySideAggregates: envelope
+      acceptedBoundaryAggregates: envelope
     )
 
     #expect(batch.marks.map(\.position) == [
@@ -154,7 +154,7 @@ struct CurrentCameraCalibrationPlanningTests {
   @Test("Exercise 1.4 uses a 10 mm center inset and refuses collapsed Border axes")
   func sparseBatchUsesTenMillimeterInset() throws {
     let wide = try SparseTipBatchMarkPlan(
-      boundarySideAggregates: boundaryEnvelope(
+      acceptedBoundaryAggregates: boundaryEnvelope(
         negativeX: 10,
         positiveX: 210,
         negativeY: -10,
@@ -168,7 +168,7 @@ struct CurrentCameraCalibrationPlanningTests {
 
     #expect(throws: CurrentCameraCalibrationPlanningError.insufficientSparseTipXAxisSpan) {
       try SparseTipBatchMarkPlan(
-        boundarySideAggregates: boundaryEnvelope(
+        acceptedBoundaryAggregates: boundaryEnvelope(
           negativeX: 0,
           positiveX: 20,
           negativeY: 0,
@@ -178,7 +178,7 @@ struct CurrentCameraCalibrationPlanningTests {
     }
     #expect(throws: CurrentCameraCalibrationPlanningError.insufficientSparseTipYAxisSpan) {
       try SparseTipBatchMarkPlan(
-        boundarySideAggregates: boundaryEnvelope(
+        acceptedBoundaryAggregates: boundaryEnvelope(
           negativeX: 0,
           positiveX: 40,
           negativeY: 0,
@@ -187,7 +187,7 @@ struct CurrentCameraCalibrationPlanningTests {
       )
     }
     let smallestAccepted = try SparseTipBatchMarkPlan(
-      boundarySideAggregates: boundaryEnvelope(
+      acceptedBoundaryAggregates: boundaryEnvelope(
         negativeX: 0,
         positiveX: 20.1,
         negativeY: 0,
@@ -346,7 +346,7 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(throws: CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope) {
       try CurrentCameraCalibrationPlan(
         targetPosition: MachinePosition(x: 0, y: 0),
-        boundarySideAggregates: incomplete,
+        acceptedBoundaryAggregates: incomplete,
         controllerSessionID: calibrationSessionID,
         coordinateRevision: calibrationCoordinateRevision
       )
@@ -358,7 +358,7 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(throws: CurrentCameraCalibrationPlanningError.insufficientXAxisSpan) {
       try CurrentCameraCalibrationPlan(
         targetPosition: MachinePosition(x: 0, y: 0),
-        boundarySideAggregates: try boundaryEnvelope(
+        acceptedBoundaryAggregates: try boundaryEnvelope(
           negativeX: -14,
           positiveX: 14,
           negativeY: -80,
@@ -372,7 +372,7 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(throws: CurrentCameraCalibrationPlanningError.insufficientYAxisSpan) {
       try CurrentCameraCalibrationPlan(
         targetPosition: MachinePosition(x: 0, y: 0),
-        boundarySideAggregates: try boundaryEnvelope(
+        acceptedBoundaryAggregates: try boundaryEnvelope(
           negativeX: -100,
           positiveX: 100,
           negativeY: -14,
@@ -411,7 +411,7 @@ struct CurrentCameraCalibrationPlanningTests {
     ) {
       try CurrentCameraCalibrationPlan(
         targetPosition: MachinePosition(x: 0, y: 0),
-        boundarySideAggregates: wrongSession,
+        acceptedBoundaryAggregates: wrongSession,
         controllerSessionID: calibrationSessionID,
         coordinateRevision: calibrationCoordinateRevision
       )
@@ -439,7 +439,7 @@ struct CurrentCameraCalibrationPlanningTests {
     ) {
       try CurrentCameraCalibrationPlan(
         targetPosition: MachinePosition(x: 0, y: 0),
-        boundarySideAggregates: wrongRevision,
+        acceptedBoundaryAggregates: wrongRevision,
         controllerSessionID: calibrationSessionID,
         coordinateRevision: calibrationCoordinateRevision
       )

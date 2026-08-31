@@ -261,11 +261,11 @@ struct LearningPathPresentationTests {
       ownerID: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
       actions: [
         ExerciseActionDescriptor(
-          kind: .redoBoundary(.positiveX),
+          kind: .boundary(.acquire(direction: .positiveX, mode: .replacement)),
           title: "Redo X+ Boundary"
         ),
         ExerciseActionDescriptor(
-          kind: .recordAnotherBoundaryAttempt(.positiveX),
+          kind: .boundary(.acquire(direction: .positiveX, mode: .additional)),
           title: "Record Another X+ Attempt"
         ),
       ]
@@ -277,7 +277,11 @@ struct LearningPathPresentationTests {
         "Record Another X+ Attempt",
       ])
     #expect(strip.actions[0].kind != strip.actions[1].kind)
-    #expect(strip.actions[0].kind == .redoBoundary(.positiveX))
-    #expect(strip.actions[1].kind == .recordAnotherBoundaryAttempt(.positiveX))
+    #expect(
+      strip.actions[0].kind == .boundary(.acquire(direction: .positiveX, mode: .replacement))
+    )
+    #expect(
+      strip.actions[1].kind == .boundary(.acquire(direction: .positiveX, mode: .additional))
+    )
   }
 }

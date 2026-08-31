@@ -21,6 +21,11 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
       machineActions: MachineSessionComposition.actions,
       simulatedAdapter: manualMotionComposition.causalSimulatorEffectAdapter
     )
+    let boundaryComposition = PlotterBoundaryComposition.make(
+      machineActions: MachineSessionComposition.actions,
+      causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
+      checkpointActions: AcceptedArtifactCheckpointComposition.actions
+    )
     let drawingRunComposition = PlotterDrawingRunComposition.make(
       machineActions: MachineSessionComposition.actions,
       cameraActions: CameraComposition.actions
@@ -36,6 +41,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
         PointSelectionComposition.production.recordingDiagnostic,
       manualMotionComposition: manualMotionComposition,
       penInteractionRuntime: penInteractionRuntime,
+      boundaryRuntime: boundaryComposition.runtime,
       announcementActions: SpeechComposition.actions,
       acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
       drawingDraftRuntime: PaperCoverageComposition.drawingDraftRuntime,
@@ -50,6 +56,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
       },
       workflowTelemetryActions: MachineSessionComposition.workflowTelemetryActions
     )
+    boundaryComposition.install(on: workspace)
     super.init()
   }
 

@@ -48,10 +48,11 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
         clear: { checkpointBox.clear() }
       )
     )
-    try await completeSimulatedBoundariesAndCenter(
-      harness.workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(harness.workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: harness.workspace,
+      environment: .simulated
     )
     let workspace = harness.workspace
     let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
@@ -132,7 +133,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     let registration = try #require(workspace.machineCameraRegistration)
     let truthOffset = await harness.simulator.capToTipPixelOffsetTruth()
     let batch = try SparseTipBatchMarkPlan(
-      boundarySideAggregates: workspace.boundarySideAggregates
+      acceptedBoundaryAggregates: workspace.testAcceptedBoundaryAggregates
     )
     let revealSnapshot = await harness.simulator.snapshot()
     #expect(revealSnapshot.mpos.xMM == batch.finalRevealPosition.point.x)
@@ -292,10 +293,11 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
   @Test("five-cap acceptance advances directly to sparse marks")
   func fiveCapAcceptance() async throws {
     let harness = makeCausalSimulatorAppFixture()
-    try await completeSimulatedBoundariesAndCenter(
-      harness.workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(harness.workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: harness.workspace,
+      environment: .simulated
     )
     let workspace = harness.workspace
     let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
@@ -334,10 +336,11 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
   @Test("same-frame click correction emits no motion, capture, or additional ink")
   func frozenClickCorrectionNoRedraw() async throws {
     let harness = makeCausalSimulatorAppFixture()
-    try await completeSimulatedBoundariesAndCenter(
-      harness.workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(harness.workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: harness.workspace,
+      environment: .simulated
     )
     let workspace = harness.workspace
     let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
@@ -392,10 +395,11 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
   func stoppedCircleBlacklistsWithoutRedraw() async throws {
     let telemetry = WorkflowTelemetryFixture()
     let harness = makeCausalSimulatorAppFixture(workflowTelemetry: telemetry)
-    try await completeSimulatedBoundariesAndCenter(
-      harness.workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(harness.workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: harness.workspace,
+      environment: .simulated
     )
     let workspace = harness.workspace
     let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
@@ -466,7 +470,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       workspace.sparseTipCalibrationCoordinator.phase
     {
       let batch = try SparseTipBatchMarkPlan(
-        boundarySideAggregates: workspace.boundarySideAggregates
+        acceptedBoundaryAggregates: workspace.testAcceptedBoundaryAggregates
       )
       #expect(location.machinePosition == batch.marks[0].machinePosition)
       #expect(location.markRadiusMM == 2)
@@ -487,10 +491,11 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
       cameraReframingRevision: UUID()
     )
     let initial = makeCausalSimulatorAppFixture(tipCalibrationSemanticIdentities: identities)
-    try await completeSimulatedBoundariesAndCenter(
-      initial.workspace,
-      simulator: initial.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(initial.workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: initial.boundaryRuntime,
+      workspace: initial.workspace,
+      environment: .simulated
     )
     try await completeSimulatedSparseTipCalibration(
       initial.workspace,
@@ -508,10 +513,11 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect((await initial.simulator.snapshot()).persistentInkSegmentCount == 64)
 
     let restarted = makeCausalSimulatorAppFixture(tipCalibrationSemanticIdentities: identities)
-    try await completeSimulatedBoundariesAndCenter(
-      restarted.workspace,
-      simulator: restarted.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(restarted.workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: restarted.boundaryRuntime,
+      workspace: restarted.workspace,
+      environment: .simulated
     )
     restarted.workspace.replaceSimulatedTipCalibrationCheckpointForTesting(saved)
     let cameraOwner = LearningPathItemID.humanGuidedDiscovery(
@@ -586,10 +592,11 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
   @Test("unchanged application reload restores the exact tip revision without calibration work")
   func softwareReloadRestoresAcceptedTipRevision() async throws {
     let harness = makeCausalSimulatorAppFixture()
-    try await completeSimulatedBoundariesAndCenter(
-      harness.workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(harness.workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: harness.workspace,
+      environment: .simulated
     )
     try await completeSimulatedSparseTipCalibration(
       harness.workspace,
@@ -621,10 +628,11 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
   func stageFourConsumesExactTipRevision() async throws {
     let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
-    try await completeSimulatedBoundariesAndCenter(
-      workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: workspace,
+      environment: .simulated
     )
     let truthOffset = await harness.simulator.capToTipPixelOffsetTruth()
     #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
@@ -632,7 +640,7 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
 
     let accepted = try #require(workspace.tipCameraRegistration)
     let acceptedBoundary = try SparseTipBatchMarkPlan.boundaryEnvelope(
-      for: workspace.boundarySideAggregates
+      for: workspace.testAcceptedBoundaryAggregates
     )
     #expect(accepted.applicabilityRectangle == (try AxisAlignedBounds(
       minX: acceptedBoundary.minX + 10,

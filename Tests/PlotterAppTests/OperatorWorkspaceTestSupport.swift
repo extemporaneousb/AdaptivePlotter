@@ -173,30 +173,13 @@ extension OperatorWorkspace {
   }
 }
 
-@MainActor
-func stopActiveOperation(_ workspace: OperatorWorkspace) async throws {
-  let capabilityID = try #require(workspace.contextualStopPresentation?.capabilityID)
-  await workspace.stopCurrentOperation(capabilityID: capabilityID)
-}
-
-@MainActor
-func performStart(
-  _ workspace: OperatorWorkspace,
-  owner: LearningPathItemID
-) async {
-  let start = workspace.currentExerciseActionStripPresentation?.actions.first {
-    $0.kind == .start
-  }
-  #expect(start?.isEnabled == true)
-  await workspace.performTestExerciseAction(.start, for: owner)
-}
-
 /// App composition fixture whose effect authority remains inside the
 /// production `PlotterCausalSimulatorEffectAdapter` owned by the workspace.
 struct CausalSimulatorAppFixture {
   let workspace: OperatorWorkspace
   let simulator: CausalSimulatorProbe
   let penInteractionRuntime: PlotterPenInteractionRuntime
+  let boundaryRuntime: PlotterBoundaryRuntime
 }
 
 /// Read-only causal truth plus explicit fault injection. This probe cannot
@@ -268,6 +251,155 @@ func nominalPenInteractionRuntime(
   )
 }
 
+private struct NominalBoundaryFactSource: PlotterBoundaryFactSource {
+  func currentBoundaryFacts(for environment: PlotterEnvironment) async
+    -> PlotterBoundaryExternalFacts
+  {
+    PlotterBoundaryExternalFacts(
+      environment: environment,
+      learningEnabled: false,
+      controllerSessionEstablished: false,
+      motionAuthorized: false,
+      foreignLowerOperationInFlight: false,
+      stickyAmbiguity: nil,
+      controllerSessionID: UUID(),
+      coordinateRevision: 0,
+      machinePosition: nil,
+      interpreterIsIdle: true,
+      passiveProbe: nil,
+      penActuationProfile: .initialDefaults,
+      semanticIdentity: LearningPathSemanticIdentity(
+        machineGeometry: MachineGeometryIdentity(),
+        toolAssembly: ToolAssemblyRevision(),
+        penContactProfile: PenContactProfileRevision(),
+        paperInstance: PaperInstanceRevision(),
+        paperContactPlane: PaperContactPlaneRevision(),
+        cameraMountRevision: UUID(),
+        cameraReframingRevision: UUID()
+      )
+    )
+  }
+}
+
+private actor NominalBoundaryEffectPort: PlotterBoundaryEffectPort {
+  func preparePenUp(
+    environment _: PlotterEnvironment,
+    profile _: PenActuationProfile
+  ) -> Result<Void, PlotterBoundaryLowerPortFailure> {
+    .failure(.init(detail: "No Boundary effect port is configured for this test."))
+  }
+
+  func prepareSideAdvisory(
+    environment _: PlotterEnvironment,
+    direction _: PlotterBoundaryDirection
+  ) -> Result<Void, PlotterBoundaryLowerPortFailure> {
+    .failure(.init(detail: "No Boundary advisory port is configured for this test."))
+  }
+
+  func admitSide(
+    environment _: PlotterEnvironment,
+    direction _: PlotterBoundaryDirection
+  ) -> PlotterBoundaryLowerAdmission {
+    .refused("No Boundary effect port is configured for this test.")
+  }
+
+  func admitCenterTravel(
+    environment _: PlotterEnvironment,
+    delta _: Vector2<MachineSpace>
+  ) -> PlotterBoundaryLowerAdmission {
+    .refused("No Boundary effect port is configured for this test.")
+  }
+
+  func waitForTerminal(
+    _ handle: PlotterBoundaryLowerHandle
+  ) -> PlotterBoundaryLowerTerminal {
+    .refused("No Boundary effect port is configured for this test.", finalPosition: nil)
+  }
+
+  func requestCancellation(
+    _ intent: PlotterBoundaryCancellationIntent,
+    handle: PlotterBoundaryLowerHandle
+  ) {}
+}
+
+private struct NominalBoundaryPersistencePort: PlotterBoundaryPersistencePort {
+  func persistBoundaryCandidate(_ candidate: PlotterBoundaryPersistenceCandidate) async throws {}
+}
+
+func nominalBoundaryRuntime() -> PlotterBoundaryRuntime {
+  PlotterBoundaryRuntime(
+    factSource: NominalBoundaryFactSource(),
+    effectPort: NominalBoundaryEffectPort(),
+    persistencePort: NominalBoundaryPersistencePort()
+  )
+}
+
+func nominalAcceptedLearningPathCheckpointActions()
+  -> OperatorWorkspace.AcceptedLearningPathCheckpointActions
+{
+  .init(load: { .absent }, save: { _ in }, clear: {})
+}
+
+@MainActor
+final class TestBoundaryRuntimeAccess {
+  private(set) var runtime: PlotterBoundaryRuntime?
+
+  func install(_ runtime: PlotterBoundaryRuntime) {
+    precondition(self.runtime == nil)
+    self.runtime = runtime
+  }
+}
+
+@MainActor
+extension OperatorWorkspace {
+  var testAcceptedBoundaryAggregates: [BoundaryDirection: BoundarySideAggregate] {
+    currentBoundarySnapshot?.acceptedAggregates ?? [:]
+  }
+
+  var testAcceptedBoundaryEvidence: [BoundarySideAttemptEvidence] {
+    currentBoundarySnapshot?.acceptedEvidence ?? []
+  }
+
+  var testBoundaryEvidenceByAttemptID: [ExerciseAttemptID: BoundarySideAttemptEvidence] {
+    Dictionary(uniqueKeysWithValues: testAcceptedBoundaryEvidence.map { ($0.attemptID, $0) })
+  }
+
+  var testPairedBoundaryProgress: PairedBoundaryProgress {
+    currentBoundarySnapshot?.pairedProgress ?? PairedBoundaryProgress()
+  }
+
+  var testEstimatedMachineCenter: EstimatedMachineCenter? {
+    currentBoundarySnapshot?.estimatedCenter
+  }
+
+  var testLearnedLocalCoordinateFrame: LearnedLocalCoordinateFrame? {
+    currentBoundarySnapshot?.localCoordinateFrame
+  }
+
+  var testCenterArrivalPosition: MachinePosition? {
+    currentBoundarySnapshot?.centerArrivalPosition
+  }
+
+  var testBoundaryCenterArrivalRetryRequired: Bool {
+    currentBoundarySnapshot?.projection.centerArrivalRetryRequired == true
+  }
+
+  var testBoundaryTerminals: [PlotterBoundaryTerminal] {
+    currentBoundarySnapshot?.attemptTerminals ?? []
+  }
+
+  var testSelectedBoundaryDirection: BoundaryDirection? {
+    currentBoundarySnapshot?.projection.selectedDirection.lowerDirection
+  }
+
+}
+
+private extension PlotterBoundaryDirection {
+  var lowerDirection: BoundaryDirection? {
+    BoundaryDirection(rawValue: rawValue)
+  }
+}
+
 func sequenceIDForTest(_ direction: BoundaryDirection) -> DiscoverySequenceID {
   switch direction {
   case .negativeX: .boundaryNegativeX
@@ -275,6 +407,10 @@ func sequenceIDForTest(_ direction: BoundaryDirection) -> DiscoverySequenceID {
   case .negativeY: .boundaryNegativeY
   case .positiveY: .boundaryPositiveY
   }
+}
+
+func boundaryEpisodeDirection(_ direction: BoundaryDirection) -> PlotterBoundaryDirection {
+  PlotterBoundaryDirection(rawValue: direction.rawValue)!
 }
 
 @MainActor
@@ -290,8 +426,16 @@ func makeCausalSimulatorAppFixture(
   let clock = TestClock()
   // Workspace state-machine tests need causal pixels and viable vision
   // geometry, not the production simulator's default presentation footprint.
+  // Its simulator truth must exactly match acceptedBoundaryTestCheckpoint so
+  // every accepted Boundary-derived sparse-tip point remains in the exact frame.
   // Dedicated runtime/renderer tests retain exact 640x480 coverage.
   let runtime = SimulatedLearningRuntime(
+    boundaryTruth: SimulatedLearningBoundaryTruth(
+      negativeXMM: -100,
+      positiveXMM: 100,
+      negativeYMM: -50,
+      positiveYMM: 50
+    ),
     frameWidth: 320,
     frameHeight: 240,
     paddingPixels: 14,
@@ -310,12 +454,19 @@ func makeCausalSimulatorAppFixture(
   let penInteractionRuntime = nominalPenInteractionRuntime(
     manualMotionComposition: manualMotionComposition
   )
-  return CausalSimulatorAppFixture(
-    workspace: OperatorWorkspace(
+  let checkpointActions = learningPathCheckpointActions
+    ?? nominalAcceptedLearningPathCheckpointActions()
+  let boundaryComposition = PlotterBoundaryComposition.make(
+    machineActions: MachineSessionComposition.actions,
+    causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
+    checkpointActions: checkpointActions
+  )
+  let workspace = OperatorWorkspace(
       machineActions: nil,
       cameraActions: resolvedCameraActions,
       manualMotionComposition: manualMotionComposition,
       penInteractionRuntime: penInteractionRuntime,
+      boundaryRuntime: boundaryComposition.runtime,
       acceptedLearningPathCheckpointActions: learningPathCheckpointActions,
       drawingDraftRuntime: drawingDraftRuntime,
       drawingRunComposition: nominalDrawingRunComposition(
@@ -335,9 +486,13 @@ func makeCausalSimulatorAppFixture(
       loadOverlayPreference: { Set(UserSceneOverlay.allCases) },
       persistOverlayPreference: { _ in },
       nowNanoseconds: { clock.next() }
-    ),
+    )
+  boundaryComposition.install(on: workspace)
+  return CausalSimulatorAppFixture(
+    workspace: workspace,
     simulator: CausalSimulatorProbe(runtime: runtime),
-    penInteractionRuntime: penInteractionRuntime
+    penInteractionRuntime: penInteractionRuntime,
+    boundaryRuntime: boundaryComposition.runtime
   )
 }
 
@@ -388,112 +543,413 @@ func selectPublicDirection(
 ) async throws {
   let selection = try #require(
     workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.directionSelection,
-    "Missing direction selection; discovery error: \(workspace.discoveryError ?? "nil"); exploration error: \(workspace.explorationError ?? "nil"); activities: \(workspace.boundaryActivityRecords)"
+    "Missing direction selection; discovery error: \(workspace.discoveryError ?? "nil"); exploration error: \(workspace.explorationError ?? "nil"); terminals: \(workspace.testBoundaryTerminals)"
   )
   #expect(selection.purpose == purpose)
   #expect(selection.options.contains(direction))
-  await workspace.performTestExerciseAction(.selectDirection(purpose, direction), for: owner)
+  await workspace.performTestExerciseAction(
+    .boundary(.selectDirection(boundaryEpisodeDirection(direction))),
+    for: owner
+  )
 }
 
 @MainActor
-func completeSimulatedBoundariesAndCenter(
-  _ workspace: OperatorWorkspace,
-  simulator: CausalSimulatorProbe,
-  boundaryOrder: [BoundaryDirection],
-  moveToCenter: Bool = true
+func submitRenderedBoundaryAcquisition(
+  _ direction: BoundaryDirection,
+  mode: PlotterBoundaryAttemptMode = .normal,
+  owner: LearningPathItemID,
+  workspace: OperatorWorkspace
+) async throws {
+  try await selectPublicDirection(
+    direction,
+    purpose: .boundary,
+    owner: owner,
+    workspace: workspace
+  )
+  let kind = ExerciseActionKind.boundary(
+    .acquire(direction: boundaryEpisodeDirection(direction), mode: mode)
+  )
+  try requireEnabledPublicAction(kind, owner: owner, workspace: workspace)
+  await workspace.performTestExerciseAction(kind, for: owner)
+}
+
+@MainActor
+func renderedBoundaryStopKind(
+  owner: LearningPathItemID,
+  workspace: OperatorWorkspace
+) throws -> ExerciseActionKind {
+  let kind = try #require(
+    workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions.first {
+      if case .boundary(.stop(_)) = $0.kind { return true }
+      return false
+    }?.kind,
+    "Missing exact rendered Boundary Stop action."
+  )
+  try requireEnabledPublicAction(kind, owner: owner, workspace: workspace)
+  return kind
+}
+
+@MainActor
+func submitRenderedBoundaryStop(
+  owner: LearningPathItemID,
+  workspace: OperatorWorkspace
+) async throws {
+  await workspace.performTestExerciseAction(
+    try renderedBoundaryStopKind(owner: owner, workspace: workspace),
+    for: owner
+  )
+}
+
+@MainActor
+func waitForBoundaryTerminalCount(
+  _ count: Int,
+  workspace: OperatorWorkspace
+) async throws {
+  try await BoundaryTerminalObservationWaiter(count: count, workspace: workspace).wait()
+}
+
+@MainActor
+private final class BoundaryTerminalObservationWaiter {
+  private enum WaitError: Error {
+    case timedOut
+  }
+
+  private let count: Int
+  private let workspace: OperatorWorkspace
+  private var continuation: CheckedContinuation<Void, any Error>?
+  private var deadlineTask: Task<Void, Never>?
+
+  init(count: Int, workspace: OperatorWorkspace) {
+    self.count = count
+    self.workspace = workspace
+  }
+
+  func wait() async throws {
+    try await withCheckedThrowingContinuation { continuation in
+      self.continuation = continuation
+      observe()
+      deadlineTask = Task { @MainActor [weak self] in
+        do {
+          try await ContinuousClock().sleep(for: .seconds(2))
+        } catch {
+          return
+        }
+        self?.finish(.failure(WaitError.timedOut))
+      }
+    }
+  }
+
+  private func observe() {
+    guard continuation != nil else { return }
+    let reachedCount = withObservationTracking {
+      _ = workspace.semanticPresentationRevision
+      return workspace.testBoundaryTerminals.count >= count
+        && workspace.currentBoundarySnapshot?.projection.reference.operationID == nil
+        && workspace.currentBoundarySnapshot?.projection.cancellationCapabilityID == nil
+    } onChange: { [weak self] in
+      Task { @MainActor in self?.observe() }
+    }
+    if reachedCount {
+      finish(.success(()))
+    }
+  }
+
+  private func finish(_ result: Result<Void, any Error>) {
+    guard let continuation else { return }
+    self.continuation = nil
+    deadlineTask?.cancel()
+    deadlineTask = nil
+    continuation.resume(with: result)
+  }
+}
+
+@MainActor
+func waitForAcceptedBoundaryCenterArrival(
+  workspace: OperatorWorkspace
+) async throws {
+  try await BoundaryCenterTerminalObservationWaiter(workspace: workspace).wait()
+}
+
+@MainActor
+private final class BoundaryCenterTerminalObservationWaiter {
+  private enum WaitError: Error {
+    case timedOut
+  }
+
+  private let workspace: OperatorWorkspace
+  private var continuation: CheckedContinuation<Void, any Error>?
+  private var deadlineTask: Task<Void, Never>?
+
+  init(workspace: OperatorWorkspace) {
+    self.workspace = workspace
+  }
+
+  func wait() async throws {
+    try await withCheckedThrowingContinuation { continuation in
+      self.continuation = continuation
+      observe()
+      deadlineTask = Task { @MainActor [weak self] in
+        do {
+          try await ContinuousClock().sleep(for: .seconds(2))
+        } catch {
+          return
+        }
+        self?.finish(.failure(WaitError.timedOut))
+      }
+    }
+  }
+
+  private func observe() {
+    guard continuation != nil else { return }
+    let arrived = withObservationTracking {
+      _ = workspace.semanticPresentationRevision
+      let projection = workspace.currentBoundarySnapshot?.projection
+      return projection?.terminal?.activity == .centerArrival
+        && projection?.terminal?.disposition == .accepted
+        && projection?.reference.operationID == nil
+        && projection?.cancellationCapabilityID == nil
+        && workspace.testCenterArrivalPosition != nil
+    } onChange: { [weak self] in
+      Task { @MainActor in self?.observe() }
+    }
+    if arrived {
+      finish(.success(()))
+    }
+  }
+
+  private func finish(_ result: Result<Void, any Error>) {
+    guard let continuation else { return }
+    self.continuation = nil
+    deadlineTask?.cancel()
+    deadlineTask = nil
+    continuation.resume(with: result)
+  }
+}
+
+func acceptedBoundaryTestCheckpoint(
+  centerArrivalIsAccepted: Bool = true,
+  controllerSessionID: UUID = UUID(),
+  coordinateRevision: UInt64 = 1,
+  controllerProbe: PassiveProbeResult? = nil
+) throws -> AcceptedMachineArtifactCheckpoint {
+  let samples: [(BoundaryDirection, MachinePosition)] = [
+    (.negativeX, try MachinePosition(x: -100, y: 0)),
+    (.positiveX, try MachinePosition(x: 100, y: 0)),
+    (.negativeY, try MachinePosition(x: 0, y: -50)),
+    (.positiveY, try MachinePosition(x: 0, y: 50)),
+  ]
+  var evidence: [BoundarySideAttemptEvidence] = []
+  var aggregates: [BoundarySideAggregate] = []
+  var progress = PairedBoundaryProgress()
+  var revisions: [LearningArtifactRevision] = []
+  for (index, sample) in samples.enumerated() {
+    let attemptID = ExerciseAttemptID()
+    let revisionID = LearningArtifactRevisionID()
+    let observation = try BoundarySideAttemptEvidence(
+      attemptID: attemptID,
+      direction: sample.0,
+      controllerSessionID: controllerSessionID,
+      coordinateRevision: coordinateRevision,
+      ownerID: BoundaryMotionOwnerID(),
+      stopCapabilityID: UUID(),
+      stopIntent: .operatorStop,
+      finalPosition: sample.1,
+      disposition: .succeeded
+    )
+    let compatibility = BoundaryNumericCompatibility(
+      direction: sample.0,
+      controllerSessionID: controllerSessionID,
+      coordinateRevision: coordinateRevision,
+      numericEstimatorRevision: "boundary-machine-coordinate-v1"
+    ).attemptCompatibility
+    var history = try ExerciseAttemptHistory<BoundarySideAttemptEvidence>(
+      compatibility: compatibility
+    )
+    try history.record(
+      ExerciseAttempt(
+        id: attemptID,
+        disposition: .succeeded,
+        compatibility: compatibility,
+        acceptedSequence: UInt64(index + 1),
+        value: observation
+      )
+    )
+    let aggregate = try BoundarySideAggregate(
+      direction: sample.0,
+      revisionID: revisionID,
+      history: history
+    )
+    try progress.accept(sample.0, revisionID: revisionID)
+    evidence.append(observation)
+    aggregates.append(aggregate)
+    revisions.append(
+      LearningArtifactRevision(
+        id: revisionID,
+        kind: .boundarySideAggregate(sample.0),
+        attemptID: attemptID,
+        disposition: .succeeded,
+        state: .current
+      )
+    )
+  }
+  let center = try EstimatedMachineCenter.derive(from: aggregates)
+  let frame = try LearnedLocalCoordinateFrame.derive(from: aggregates)
+  let centerAttemptID = ExerciseAttemptID()
+  let centerRevision = LearningArtifactRevision(
+    kind: .estimatedMachineCenter,
+    attemptID: centerAttemptID,
+    disposition: .succeeded,
+    consumedRevisionIDs: center.consumedRevisionIDs,
+    state: .current
+  )
+  revisions.append(centerRevision)
+  let centerPosition = MachinePosition(point: center.point)
+  if centerArrivalIsAccepted {
+    revisions.append(
+      LearningArtifactRevision(
+        kind: .centerArrival,
+        attemptID: centerAttemptID,
+        disposition: .succeeded,
+        consumedRevisionIDs: [centerRevision.id],
+        state: .current
+      )
+    )
+  }
+  return try AcceptedMachineArtifactCheckpoint(
+    controllerContext: ControllerCheckpointContext(
+      probe: controllerProbe ?? boundaryCheckpointProbe(position: centerPosition)
+    ),
+    machinePositionAtSave: centerPosition,
+    controllerSessionID: controllerSessionID,
+    coordinateRevision: coordinateRevision,
+    acceptedAttemptSequence: 4,
+    pairedBoundaryProgress: progress,
+    acceptedBoundaryEvidence: evidence,
+    acceptedBoundaryAggregates: aggregates,
+    estimatedMachineCenter: center,
+    learnedLocalCoordinateFrame: frame,
+    centerArrivalPosition: centerArrivalIsAccepted ? centerPosition : nil,
+    acceptedRevisions: revisions
+  )
+}
+
+func acceptedPenLearningTestCheckpoint(
+  identity: LearningPathSemanticIdentity
+) throws -> AcceptedLearningPathCheckpoint {
+  let attemptID = ExerciseAttemptID()
+  let revision = LearningArtifactRevision(
+    kind: .penInteraction,
+    attemptID: attemptID,
+    disposition: .succeeded,
+    state: .current
+  )
+  let evidence = PenInteractionAttemptEvidence(
+    actuationProfile: .initialDefaults,
+    confirmedUpPositions: [],
+    confirmedUpSpindleValues: [],
+    confirmedUpControllerOutcomes: [],
+    confirmedUpTimestamps: [],
+    confirmedDownPositions: [],
+    confirmedDownSpindleValues: [],
+    confirmedDownControllerOutcomes: [],
+    confirmedDownTimestamps: []
+  )
+  return try AcceptedLearningPathCheckpoint(
+    semanticIdentity: identity,
+    penInteraction: AcceptedPenInteractionCheckpoint(
+      revision: revision,
+      acceptedSequence: 1,
+      evidence: evidence
+    )
+  )
+}
+
+func boundaryCheckpointProbe(position: MachinePosition) -> PassiveProbeResult {
+  let descriptor = MachineLinkDescriptor(
+    identifier: "/dev/cu.boundary-checkpoint-test",
+    displayName: "Boundary Checkpoint Test",
+    bsdPath: "/dev/cu.boundary-checkpoint-test",
+    transport: .bsdSerial
+  )
+  let reports: [(PassiveQuery, [String])] = [
+    (.buildInfo, ["[VER:1.1h.20200101:boundary-checkpoint-test]"]),
+    (.parserState, ["[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]"]),
+    (
+      .status,
+      [String(format: "<Idle|MPos:%.3f,%.3f,0.000>", position.point.x, position.point.y)]
+    ),
+    (.configuration, ["$100=80.000", "$101=80.000", "$110=900.000"]),
+    (.coordinateOffsets, ["[G54:0.000,0.000,0.000]", "[G92:0.000,0.000,0.000]"]),
+  ]
+  return PassiveProbeResult(
+    link: descriptor,
+    startedAt: RuntimeTimestamp(monotonicNanoseconds: 1),
+    completedAt: RuntimeTimestamp(monotonicNanoseconds: 2),
+    exchanges: reports.map { query, report in
+      let text = query == .status ? report : report + ["ok"]
+      return PassiveProbeExchange(
+        query: query,
+        commandID: UUID(),
+        rawIO: [],
+        lines: text.map { GRBLParser.parseLine(Data($0.utf8)) },
+        completed: true,
+        blocker: nil
+      )
+    },
+    blockers: []
+  )
+}
+
+@MainActor
+func installAcceptedBoundaryTestProjection(
+  runtime: PlotterBoundaryRuntime,
+  workspace: OperatorWorkspace,
+  environment: PlotterEnvironment,
+  centerArrivalIsAccepted: Bool = true
+) async throws {
+  let facts = workspace.currentBoundaryExternalFacts(for: environment)
+  let checkpoint = try acceptedBoundaryTestCheckpoint(
+    centerArrivalIsAccepted: centerArrivalIsAccepted,
+    controllerSessionID: facts.controllerSessionID,
+    coordinateRevision: facts.coordinateRevision,
+    controllerProbe: facts.passiveProbe
+  )
+  try await runtime.restore(checkpoint, environment: environment)
+  workspace.installBoundarySnapshot(await runtime.snapshot(for: environment))
+}
+
+@MainActor
+func completeSimulatedPenInteractionPrerequisite(
+  _ workspace: OperatorWorkspace
 ) async throws {
   await workspace.switchFrameMode(.simulated)
-  #expect(workspace.frameMode == .simulated)
-  #expect(workspace.simulatorEvidenceLabel == "SIMULATED — NOT PHYSICAL EVIDENCE")
   await workspace.performControllerConnectionAction()
   await workspace.activateMotionGuard()
-
-  let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-  try requireEnabledPublicAction(.start, owner: penOwner, workspace: workspace)
-  await workspace.performTestExerciseAction(.start, for: penOwner)
-  let penRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
-  let penFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
-  let fallbackPenPoint = try Point2<CameraPixelSpace>(
-    x: Double(penFrame.frame.width - 1) / 2,
-    y: Double(penFrame.frame.height - 1) / 2
+  let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+  try requireEnabledPublicAction(.start, owner: owner, workspace: workspace)
+  await workspace.performTestExerciseAction(.start, for: owner)
+  let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+  let displayed = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+  let fallback = try Point2<CameraPixelSpace>(
+    x: Double(displayed.frame.width - 1) / 2,
+    y: Double(displayed.frame.height - 1) / 2
   )
-  let penPoint = workspace.testActionSurfacePresentation.overlays.compactMap {
+  let point = workspace.testActionSurfacePresentation.overlays.compactMap {
     overlay -> Point2<CameraPixelSpace>? in
     guard overlay.provenance.kind == .penCap, case .point(let point) = overlay.geometry else {
       return nil
     }
     return point
-  }.first ?? fallbackPenPoint
-  submitPointSelection(workspace, request: penRequest, point: penPoint)
+  }.first ?? fallback
+  submitPointSelection(workspace, request: request, point: point)
   try await waitUntil {
     workspace.activeDiscoverySequenceID == .penInteraction || workspace.discoveryError != nil
   }
-  var physicalPoseQuestionCount = 0
   for _ in 0..<8 where !workspace.penInteractionCompleted {
-    let presentation = workspace.selectedOperatorActionPresentation(for: penOwner)
-    #expect(presentation.question?.prompt.isEmpty == false)
-    #expect(presentation.question?.choices == [.yes, .no])
-    #expect(presentation.actionStrip?.actions.contains(where: { $0.kind == .start }) == false)
-    physicalPoseQuestionCount += 1
-    try requireEnabledPublicAction(.choice(.yes), owner: penOwner, workspace: workspace)
-    await workspace.performTestExerciseAction(.choice(.yes), for: penOwner)
+    try requireEnabledPublicAction(.choice(.yes), owner: owner, workspace: workspace)
+    await workspace.performTestExerciseAction(.choice(.yes), for: owner)
   }
   #expect(workspace.penInteractionCompleted)
-  #expect(physicalPoseQuestionCount == 3)
-
-  let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
-    .pairedBoundaryDiscoveryAndCentering
-  )
-  for direction in boundaryOrder {
-    try await selectPublicDirection(
-      direction,
-      purpose: .boundary,
-      owner: boundaryOwner,
-      workspace: workspace
-    )
-    try requireEnabledPublicAction(.start, owner: boundaryOwner, workspace: workspace)
-    await workspace.performTestExerciseAction(.start, for: boundaryOwner)
-    try await waitUntil {
-      workspace.selectedOperatorActionPresentation(for: boundaryOwner).actionStrip?.actions
-        .contains(where: { if case .stop = $0.kind { true } else { false } }) == true
-    }
-    try await waitUntilAsync {
-      let snapshot = await simulator.snapshot()
-      let limit = snapshot.boundaryTruth.limit(for: direction)
-      return switch direction {
-      case .negativeX, .positiveX: snapshot.mpos.xMM == limit
-      case .negativeY, .positiveY: snapshot.mpos.yMM == limit
-      }
-    }
-    let stop = try #require(
-      workspace.selectedOperatorActionPresentation(for: boundaryOwner).actionStrip?.actions
-        .first(where: { if case .stop = $0.kind { true } else { false } })?.kind
-    )
-    await workspace.performTestExerciseAction(stop, for: boundaryOwner)
-    #expect(
-      workspace.activeExerciseAttemptID == nil,
-      "transaction=\(String(describing: workspace.discoveryTransactions[sequenceIDForTest(direction)]?.state)) error=\(workspace.discoveryError ?? "nil") count=\(workspace.relevantBoundaryObservationCount)"
-    )
-    try await waitUntil { workspace.activeExerciseAttemptID == nil }
-  }
-  #expect(
-    workspace.pairedBoundaryProgress.isComplete,
-    "discovery error: \(workspace.discoveryError ?? "nil"); activities: \(workspace.boundaryActivityRecords)"
-  )
-  #expect(workspace.boundarySideAggregates.count == 4)
-  #expect(workspace.testCurrentLearningPathItemID == boundaryOwner)
-  let boundaryReviewActions =
-    workspace.selectedOperatorActionPresentation(for: boundaryOwner)
-    .actionStrip?.actions.map(\.kind) ?? []
-  #expect(boundaryReviewActions.first == .moveToEstimatedCenter)
-  #expect(boundaryReviewActions.contains(.redoBoundary(boundaryOrder[0])))
-  if !moveToCenter { return }
-  try requireEnabledPublicAction(
-    .moveToEstimatedCenter,
-    owner: boundaryOwner,
-    workspace: workspace
-  )
-  await workspace.performTestExerciseAction(.moveToEstimatedCenter, for: boundaryOwner)
 }
 
 @MainActor
@@ -524,7 +980,7 @@ func completeSimulatedSparseTipCalibration(
   #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
   let registration = try #require(workspace.machineCameraRegistration)
   let plan = try SparseTipBatchMarkPlan(
-    boundarySideAggregates: workspace.boundarySideAggregates
+    acceptedBoundaryAggregates: workspace.testAcceptedBoundaryAggregates
   )
   try requireEnabledPublicAction(
     .drawFourCornerTipCircles,
@@ -536,9 +992,17 @@ func completeSimulatedSparseTipCalibration(
     workspace.testActionSurfacePresentation.pointSelectionRequest,
     "missing five-click selection request: \(workspace.explorationError ?? "no error")"
   )
-  for mark in plan.marks.reversed() {
+  let exactRequest = try #require(
+    workspace.pointSelectionEpisodeProjection.exactPointSelection.request
+  )
+  try #require(request == exactRequest)
+  try #require(request.purpose == .toolContact)
+  try #require(request.requiredPointCount == 4)
+  let clicks = try plan.marks.map { mark in
     let capPoint = try registration.fit.cameraPoint(from: mark.machinePosition.point)
-    let truthPoint = try capPoint.translated(by: truthOffset)
+    return try capPoint.translated(by: truthOffset)
+  }
+  for truthPoint in [clicks[3], clicks[1], clicks[0], clicks[2]] {
     try await submitPointSelectionAndWait(
       workspace,
       request: request,
@@ -566,27 +1030,6 @@ func completeSimulatedStageFour(_ workspace: OperatorWorkspace) async throws {
 }
 
 @MainActor
-func completeLiveBoundaries(
-  _ workspace: OperatorWorkspace,
-  machine: MachineFixture
-) async throws {
-  let samples: [(BoundaryDirection, Double, Double)] = [
-    (.negativeX, -100, 0),
-    (.positiveX, 100, 0),
-    (.negativeY, 100, -50),
-    (.positiveY, 100, 50),
-  ]
-  for (direction, x, y) in samples {
-    await workspace.beginPairedBoundarySide(direction)
-    try await waitUntil { workspace.contextualStopPresentation != nil }
-    try await machine.setPosition(x: x, y: y)
-    try await stopActiveOperation(workspace)
-  }
-  #expect(workspace.pairedBoundaryProgress.isComplete)
-  #expect(workspace.boundarySideAggregates.count == BoundaryDirection.allCases.count)
-}
-
-@MainActor
 func submitPointSelection(
   _ workspace: OperatorWorkspace,
   request: PlotterPointSelectionRequest,
@@ -610,25 +1053,97 @@ func submitPointSelectionAndWait(
 ) async throws {
   let priorCount = workspace.pointSelectionEpisodeProjection.exactPointSelection.selectedPoints.count
   let acceptedCount = priorCount + 1
-  let priorDiscoveryError = workspace.discoveryError
-  let priorExplorationError = workspace.explorationError
+  let priorProjectionRevision = workspace.pointSelectionEpisodeProjection.projectionRevision
+  let waiter = PointSelectionProjectionObservationWaiter(
+    workspace: workspace,
+    priorProjectionRevision: priorProjectionRevision,
+    acceptedCount: acceptedCount,
+    requiresProposal: acceptedCount == request.requiredPointCount
+  )
   submitPointSelection(workspace, request: request, point: point)
-  try await waitUntil {
-    let selectedCount =
-      workspace.pointSelectionEpisodeProjection.exactPointSelection.selectedPoints.count
-    if let discoveryError = workspace.discoveryError,
-      discoveryError != priorDiscoveryError
-    {
-      return true
+  _ = try await waiter.wait()
+}
+
+private struct PointSelectionTestRefusal: Error, CustomStringConvertible {
+  let owner: String?
+  let reason: String
+  let remedy: String?
+
+  var description: String {
+    "Point selection refused by \(owner ?? "unknown owner") [\(reason)]: \(remedy ?? "no remedy")"
+  }
+}
+
+@MainActor
+private final class PointSelectionProjectionObservationWaiter {
+  private let workspace: OperatorWorkspace
+  private let priorProjectionRevision: PlotterProjectionRevision
+  private let acceptedCount: Int
+  private let requiresProposal: Bool
+  private var continuation: CheckedContinuation<PlotterEpisodeProjection, any Error>?
+  private var deadlineTask: Task<Void, Never>?
+
+  init(
+    workspace: OperatorWorkspace,
+    priorProjectionRevision: PlotterProjectionRevision,
+    acceptedCount: Int,
+    requiresProposal: Bool
+  ) {
+    self.workspace = workspace
+    self.priorProjectionRevision = priorProjectionRevision
+    self.acceptedCount = acceptedCount
+    self.requiresProposal = requiresProposal
+  }
+
+  func wait() async throws -> PlotterEpisodeProjection {
+    try await withCheckedThrowingContinuation { continuation in
+      self.continuation = continuation
+      observe()
+      deadlineTask = Task { @MainActor [weak self] in
+        do {
+          try await ContinuousClock().sleep(for: .seconds(5))
+        } catch {
+          return
+        }
+        self?.finish(.failure(TestTimeout(
+          conditionDescription: "point-selection projection publication"
+        )))
+      }
     }
-    if let explorationError = workspace.explorationError,
-      explorationError != priorExplorationError
-    {
-      return true
+  }
+
+  private func observe() {
+    guard continuation != nil else { return }
+    let result = withObservationTracking { () -> Result<PlotterEpisodeProjection, any Error>? in
+      _ = workspace.semanticPresentationRevision
+      let projection = workspace.pointSelectionEpisodeProjection
+      guard projection.projectionRevision > priorProjectionRevision else { return nil }
+      let selectedCount = projection.exactPointSelection.selectedPoints.count
+      if selectedCount >= acceptedCount,
+        !requiresProposal || workspace.proposedTipCameraRegistration != nil
+      {
+        return .success(projection)
+      }
+      if let reason = projection.currentReason {
+        return .failure(PointSelectionTestRefusal(
+          owner: projection.authoritativeOwner?.rawValue,
+          reason: reason,
+          remedy: projection.remedy
+        ))
+      }
+      return nil
+    } onChange: { [weak self] in
+      Task { @MainActor in self?.observe() }
     }
-    guard selectedCount >= acceptedCount else { return false }
-    return acceptedCount < request.requiredPointCount
-      || workspace.proposedTipCameraRegistration != nil
+    if let result { finish(result) }
+  }
+
+  private func finish(_ result: Result<PlotterEpisodeProjection, any Error>) {
+    guard let continuation else { return }
+    self.continuation = nil
+    deadlineTask?.cancel()
+    deadlineTask = nil
+    continuation.resume(with: result)
   }
 }
 
@@ -681,6 +1196,7 @@ func workspace(
   penInteractionRuntimeFactory:
     ((OperatorWorkspace.MachineActions, PlotterManualMotionRuntimeComposition)
       -> PlotterPenInteractionRuntime)? = nil,
+  boundaryRuntimeAccess: TestBoundaryRuntimeAccess? = nil,
   loadPenCapAppearanceSelection:
     @escaping @Sendable () -> PenCapAppearanceSelection? = { testPenCapAppearanceSelection() },
   persistPenCapAppearanceSelection:
@@ -756,11 +1272,19 @@ func workspace(
     machineActions: machineActions,
     manualMotionComposition: manualMotionComposition
   )
-  return OperatorWorkspace(
+  let checkpointActions = learningPathCheckpointActions
+    ?? nominalAcceptedLearningPathCheckpointActions()
+  let boundaryComposition = PlotterBoundaryComposition.make(
+    machineActions: machineActions,
+    causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
+    checkpointActions: checkpointActions
+  )
+  let workspace = OperatorWorkspace(
     machineActions: machineActions,
     cameraActions: resolvedCameraActions,
     manualMotionComposition: manualMotionComposition,
     penInteractionRuntime: penInteractionRuntime,
+    boundaryRuntime: boundaryComposition.runtime,
     announcementActions: announcements.map { fixture in
       .init(
         announce: { await fixture.announce($0) },
@@ -788,6 +1312,9 @@ func workspace(
     persistOverlayPreference: persistOverlayPreference,
     nowNanoseconds: { clock.next() }
   )
+  boundaryComposition.install(on: workspace)
+  boundaryRuntimeAccess?.install(boundaryComposition.runtime)
+  return workspace
 }
 
 func testPenCapAppearanceSelection(
@@ -1153,6 +1680,8 @@ actor MachineFixture {
   private var drawingStartPosition: MachinePosition?
   private var activeBoundaryRequest: BoundaryMotionRequest?
   private var heldBoundaryCancelIntent: JogCancelIntent?
+  private var boundaryRequestWaiters:
+    [(Int, CheckedContinuation<BoundaryMotionRequest, Never>)] = []
 
   init(
     log: EventLog,
@@ -1319,6 +1848,15 @@ actor MachineFixture {
   func requestBoundaryMotion(_ request: BoundaryMotionRequest) async -> BoundaryMotionOutcome {
     requestedFeeds.append(request.segment.feedMMPerMinute)
     requestedBoundaryRequests.append(request)
+    let readyBoundaryRequestWaiters = boundaryRequestWaiters.filter {
+      requestedBoundaryRequests.count >= $0.0
+    }
+    boundaryRequestWaiters.removeAll {
+      requestedBoundaryRequests.count >= $0.0
+    }
+    readyBoundaryRequestWaiters.forEach { waiter in
+      waiter.1.resume(returning: requestedBoundaryRequests[waiter.0 - 1])
+    }
     activeBoundaryRequest = request
     moving = true
     await log.append("machine:boundary")
@@ -1331,6 +1869,13 @@ actor MachineFixture {
     }
     activeBoundaryRequest = nil
     return outcome
+  }
+
+  func waitForBoundaryRequest(count: Int) async -> BoundaryMotionRequest {
+    if requestedBoundaryRequests.count >= count {
+      return requestedBoundaryRequests[count - 1]
+    }
+    return await withCheckedContinuation { boundaryRequestWaiters.append((count, $0)) }
   }
 
   func requestDrawingStroke(_ request: DrawingStrokeRequest) async -> DrawingStrokeOutcome {
@@ -1875,12 +2420,20 @@ actor BoundaryRenewalMotionGate {
   private var cancelContinuation: CheckedContinuation<JogCancelIntent, Never>?
   private var finalPosition: MachinePosition?
   private(set) var request: BoundaryMotionRequest?
+  private(set) var requestCount = 0
+  private(set) var cancellationIntents: [JogCancelIntent] = []
+  private var requestWaiters: [CheckedContinuation<BoundaryMotionRequest, Never>] = []
+  private var cancellationWaiters: [CheckedContinuation<JogCancelIntent, Never>] = []
 
   func run(
     _ request: BoundaryMotionRequest,
     renewalPlanner: BoundaryMotionRenewalPlanner?
   ) async -> BoundaryMotionOutcome {
     self.request = request
+    requestCount += 1
+    let waiters = requestWaiters
+    requestWaiters.removeAll()
+    waiters.forEach { $0.resume(returning: request) }
     await waitForFirstSegmentRelease()
     let finalPosition = try! MachinePosition(
       x: request.segment.delta.dx,
@@ -1917,7 +2470,16 @@ actor BoundaryRenewalMotionGate {
     segmentContinuation = nil
   }
 
+  func waitUntilRequested() async -> BoundaryMotionRequest {
+    if let request { return request }
+    return await withCheckedContinuation { requestWaiters.append($0) }
+  }
+
   func cancel(_ intent: JogCancelIntent) -> JogCancelOutcome {
+    cancellationIntents.append(intent)
+    let waiters = cancellationWaiters
+    cancellationWaiters.removeAll()
+    waiters.forEach { $0.resume(returning: intent) }
     if let cancelContinuation {
       self.cancelContinuation = nil
       cancelContinuation.resume(returning: intent)
@@ -1925,6 +2487,11 @@ actor BoundaryRenewalMotionGate {
       pendingCancelIntent = intent
     }
     return .completed(finalPosition: finalPosition ?? (try! MachinePosition(x: 0, y: 0)))
+  }
+
+  func waitUntilCancelled() async -> JogCancelIntent {
+    if let intent = cancellationIntents.last { return intent }
+    return await withCheckedContinuation { cancellationWaiters.append($0) }
   }
 
   private func waitForFirstSegmentRelease() async {

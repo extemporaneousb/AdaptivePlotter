@@ -121,6 +121,7 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
     penInteractionRuntime: nominalPenInteractionRuntime(
       manualMotionComposition: composition
     ),
+    boundaryRuntime: nominalBoundaryRuntime(),
     drawingDraftRuntime: nominalDrawingDraftRuntime(),
     drawingRunComposition: nominalDrawingRunComposition(),
     incidentPackageUIService: nominalIncidentPackageUIService(),

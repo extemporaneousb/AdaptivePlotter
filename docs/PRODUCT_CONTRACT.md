@@ -666,6 +666,94 @@ segments at 500 mm/min with no Camera or Vision adviser. Operator Stop, fresh
 Idle, and final MPos remain the acceptance authority; camera availability cannot
 alter direction, renewal, Stop, or side acceptance.
 
+One source-indexed actor `PlotterBoundaryRuntime` owns Boundary direction,
+normal/replacement/additional side acquisition, center travel, exact attempt and
+operation identity, cancellation capability, terminal truth, and immutable
+accepted Boundary facts. Every request is a `PlotterBoundarySubmission` bound
+to the displayed `PlotterBoundaryProjectionReference` and one value-bearing
+`PlotterBoundaryIntent`; stale projection, changed effect facts, foreign Stop,
+active ownership, invalid direction, publication recovery, or closed admission
+returns a typed refusal and remedy before lower work. LIVE and SIMULATED have
+independent revisions, attempts, operations, accepted facts, and terminal truth.
+
+Admission synchronously installs the exact operation, cancellation capability,
+runtime-owned task, and one-shot reservation-publication latch before the first
+suspension. The task cannot enter a package admission gate, acquire facts, or
+prepare any lower effect until the genuinely async projection sink has returned
+from publishing the non-effecting `.reserving` phase; only then does the runtime
+release its latch. A fact or admission refusal settles that same minted owner
+into one terminal refusal and invokes no lower effect. One runtime-owned task
+drives retained Pen Up normalization before every side acquisition and center
+travel, then fixed-segment side motion or retained center travel, exact lower
+settlement, and publication.
+Operator Stop/cancel/shutdown target only the matching cancellation capability.
+Natural completion, lower refusal, travel limit, mismatched Stop, cancellation,
+shutdown, ambiguity, or save failure never replaces a previously accepted
+Boundary. LIVE acceptance still requires the retained controller owner's fresh
+Idle/final MPos truth. SIMULATED uses the retained EA-07 causal simulator seam,
+is explicitly nonphysical, invokes no LIVE persistence or effect, and claims no
+attended evidence.
+
+Accepted LIVE Boundary and center facts are saved before publication. A failed
+save retains an identity-bound publication-recovery capability; recovery retries
+only that staged save and never resends Pen or motion. A runtime-owned weak
+Sendable projection sink publishes immutable admitted, moving, cancelling,
+recovery, and terminal state without a workspace task, latch, retry, unchecked
+relay, or second semantic owner.
+While publication is incomplete, canonical UI exposes only the exact
+`.recoverPublication(capability)` request and suppresses new side acquisition or
+center travel. Learning vacate/reset blocks pending publication and settles an
+active Boundary through its exact capability. It then reserves a non-destructive,
+capability-bound reset that closes new Boundary admission while retaining the
+current projection, aggregates, graph/checkpoint, session, and recovery truth.
+The workspace persists the Learning prefix before submitting the exact commit;
+only an applied commit permits downstream local cleanup. Persistence refusal
+submits the exact abort and leaves the retained Boundary and local authority
+unchanged. Stale or foreign commit/abort capabilities refuse, and shutdown does
+not erase an unresolved exact reset reservation.
+Camera, Vision, checkpoint encoding, replay, incident assembly, controller
+transport/safety, RunInterpreter renewal/Stop, and later calibration/artifact
+semantics retain their existing owners. The retained
+`AcceptedMachineArtifactCheckpoint.boundarySideAggregates` is durable lower
+artifact data, not workspace Boundary authority.
+
+After one accepted side, the selected direction remains unchanged only when it
+is still allowed; otherwise the runtime selects the first remaining allowed
+direction. An empty allowed set is completion, not another acquisition. The
+first move to an accepted four-side center is not a retry. Retry becomes true
+only when retained terminal truth belongs to a failed, stopped, or ambiguous
+center-arrival attempt while center authority remains and arrival is absent.
+The runtime refuses a submitted retry bit that differs from that published
+derived truth, and refuses every further center admission after accepted
+arrival; neither mismatch fabricates a default or invokes a lower effect.
+Before LIVE side motion begins, the composition awaits the retained Discovery
+announcement through the composition-only `UI.announceBoundaryAdvisory` adapter
+and existing `AnnouncementActions` owner. That adapter owns no announcement,
+effect, Stop, settlement, or evidence authority. Announcement failure remains
+advisory. The runtime then rechecks exact cancellation/shutdown and reacquires
+the complete external effect identity immediately before lower motion
+admission. Shutdown records its first-winning Boundary cancellation without
+joining, cancels retained speech, and only then joins Boundary settlement, so
+suspended speech cannot admit later motion. SIMULATED motion remains nonphysical
+and unchanged.
+
+When a retained center-arrival terminal is recoverable and no operation is
+active, the exact typed retry is presented before generic needs-attention; this
+does not authorize automatic resend. The visible activity is derived from that
+center terminal rather than a legacy exploration-failure field. Restore and
+staging failures publish their typed localized detail, including the finite
+center residual and the current machine-position acceptance tolerance. Before
+Camera Calibration accepts a reference, it acquires a fresh settled machine
+observation and requires that exact position to match the accepted Boundary
+center under the same policy; neither stale MPos nor a copied Boundary center is
+accepted as current controller truth.
+
+Shutdown is also revalidated on both sides of any suspended retained Pen
+admission. An admission that resumes after shutdown cannot create even an empty
+Discovery transaction, revive an accepted click, or continue toward a lower
+effect. This remains the retained Pen owner's concurrency rule; Boundary does
+not acquire Pen semantic authority.
+
 Any ambiguous circle-chord motion, Pen Down, or Pen Up outcome after possible
 contact creates possible ink. The circle center/radius plus replaceable paper-instance identity
 is blacklisted across cancel, restart, and reset, and the workflow stops for

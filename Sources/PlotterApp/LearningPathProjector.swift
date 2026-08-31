@@ -22,62 +22,6 @@ enum ExactWorkflowVisionOwner: String, CaseIterable, Hashable, Sendable {
   }
 }
 
-extension BoundaryActivityOperation {
-  fileprivate var actionLabel: String {
-    switch self {
-    case .normal(let direction): "Record \(direction.displayName) boundary stop"
-    case .replacement(let direction, _): "Redo \(direction.displayName) Boundary"
-    case .additional(let direction, _): "Record Another \(direction.displayName) Attempt"
-    }
-  }
-}
-
-extension BoundaryActivityDisposition {
-  fileprivate var presentationOutcome: OperationActivityOutcome {
-    switch self {
-    case .inProgress: .inProgress
-    case .succeeded: .succeeded
-    case .cancelled: .cancelled
-    case .refused, .failed, .ambiguous: .needsAttention
-    }
-  }
-
-  fileprivate var outcomeLabel: String {
-    switch self {
-    case .inProgress: "In progress"
-    case .succeeded: "Succeeded"
-    case .refused: "Refused"
-    case .failed: "Failed"
-    case .cancelled: "Cancelled"
-    case .ambiguous: "Ambiguous"
-    }
-  }
-}
-
-extension BoundaryActivityDetail {
-  fileprivate var text: String {
-    switch self {
-    case .message(let text): text
-    case .atomicCommitRejected(let stage):
-      "The staged Boundary commit was rejected at \(stage); no accepted model value changed."
-    }
-  }
-}
-
-extension BoundaryActivityRecovery {
-  fileprivate var text: String {
-    switch self {
-    case .restartNormal(let direction):
-      "Restart the \(direction.displayName) Boundary attempt after resolving the named fact."
-    case .continueWithAcceptedFallback(let direction):
-      "Continue with the accepted boundaries, or explicitly retry \(direction.displayName)."
-    case .resolveStickyAmbiguity(let reason):
-      "Resolve sticky ambiguity before any new physical motion: \(reason)"
-    case .none: ""
-    }
-  }
-}
-
 /// Immutable, values-only input to Learning Path presentation. Runtime owners,
 /// persistence capabilities, tasks, closures, and authority-changing methods do
 /// not cross this boundary.
@@ -105,6 +49,7 @@ struct PlotterLearningPresentationFacts: Sendable {
   }
 
   struct BoundaryFacts: Sendable {
+    let projection: PlotterBoundaryProjection?
     let acceptedDirections: [BoundaryDirection]
     let allowedDirections: [BoundaryDirection]
     let isComplete: Bool
@@ -117,9 +62,9 @@ struct PlotterLearningPresentationFacts: Sendable {
     let currentPosition: MachinePosition?
     let centerTravelFeed: TravelFeedSelection?
     let boundaryTravelFeeds: [BoundaryDirection: TravelFeedSelection]
-    let latestActivity: BoundaryActivityRecord?
 
     init(
+      projection: PlotterBoundaryProjection? = nil,
       acceptedDirections: [BoundaryDirection] = [],
       allowedDirections: [BoundaryDirection] = BoundaryDirection.allCases,
       isComplete: Bool = false,
@@ -131,9 +76,9 @@ struct PlotterLearningPresentationFacts: Sendable {
       centerArrivalRetryRequired: Bool = false,
       currentPosition: MachinePosition? = nil,
       centerTravelFeed: TravelFeedSelection? = nil,
-      boundaryTravelFeeds: [BoundaryDirection: TravelFeedSelection] = [:],
-      latestActivity: BoundaryActivityRecord? = nil
+      boundaryTravelFeeds: [BoundaryDirection: TravelFeedSelection] = [:]
     ) {
+      self.projection = projection
       self.acceptedDirections = acceptedDirections
       self.allowedDirections = allowedDirections
       self.isComplete = isComplete
@@ -146,7 +91,6 @@ struct PlotterLearningPresentationFacts: Sendable {
       self.currentPosition = currentPosition
       self.centerTravelFeed = centerTravelFeed
       self.boundaryTravelFeeds = boundaryTravelFeeds
-      self.latestActivity = latestActivity
     }
   }
 
@@ -246,7 +190,6 @@ struct PlotterLearningPresentationFacts: Sendable {
   }
 
   enum StopOwner: Hashable, Sendable {
-    case pairedBoundary(ContextualStopCapabilityID, BoundaryDirection)
     case manualJog(ContextualStopCapabilityID)
     case manualDrawing(ContextualStopCapabilityID)
     case exercise(ContextualStopCapabilityID, LearningMotionAction, boundaryOwner: Bool)
@@ -255,7 +198,7 @@ struct PlotterLearningPresentationFacts: Sendable {
 
     var capabilityID: ContextualStopCapabilityID {
       switch self {
-      case .pairedBoundary(let id, _), .exercise(let id, _, _): id
+      case .exercise(let id, _, _): id
       case .manualJog(let id), .manualDrawing(let id), .drawingTrial(let id),
         .sparseTipBatch(let id): id
       }
@@ -453,16 +396,12 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
       nil
     case .stopPenInteraction(let capability):
       .stop(ContextualStopCapabilityID(rawValue: capability.rawValue))
-    case .selectDirection(let direction): .selectDirection(.boundary, boundaryDirection(direction))
+    case .boundary(let intent): .boundary(intent)
     case .cancel: .cancel
     case .stop(let id): .stop(ContextualStopCapabilityID(rawValue: id))
     case .restart: .restart
     case .redoThisStep: .redoThisStep
     case .recordAnotherAttempt: .recordAnotherAttempt
-    case .redoBoundary(let direction): .redoBoundary(boundaryDirection(direction))
-    case .recordAnotherBoundaryAttempt(let direction):
-      .recordAnotherBoundaryAttempt(boundaryDirection(direction))
-    case .moveToEstimatedCenter: .moveToEstimatedCenter
     case .runCameraCalibration: .runCameraCalibrationAndBuildProposal
     case .acceptCameraCalibration: .acceptCameraCalibrationProposal
     case .discardCameraSamples, .rejectCameraCalibration: .rejectCameraCalibrationProposal
@@ -599,6 +538,7 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
       sparseSavedCheckpointMatchesPaper: snapshot.sparseCalibration.savedCheckpointMatchesPaper,
       activePrompt: activePrompt(activeTransaction, profile: snapshot.penActuationProfile),
       penInteraction: snapshot.penInteraction,
+      boundary: snapshot.boundary.projection,
       startUnavailableReasons: Dictionary(uniqueKeysWithValues:
         snapshot.startUnavailableReasons.map { (ownerID($0.key), $0.value) }
       ),
@@ -694,7 +634,6 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
   ) -> PlotterUILearningStopFacts? {
     guard let owner else { return nil }
     let kind: PlotterUILearningStopKind = switch owner {
-    case .pairedBoundary(_, let direction): .boundary(direction: uiDirection(direction))
     case .manualJog: .manualJog
     case .manualDrawing: .manualDrawing
     case .exercise(_, let action, let boundaryOwner):
@@ -1000,35 +939,27 @@ extension PlotterLearningDetailedPresentationNormalizer {
     }
     if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
       snapshot.boundary.centerArrivalRetryRequired,
-      let failure = operations.explorationFailure
+      let terminal = snapshot.boundary.projection?.terminal,
+      terminal.activity == .centerArrival
     {
+      let outcome: (label: String, detail: String)? = switch terminal.disposition {
+      case .refused(let detail): ("Refused", detail)
+      case .ambiguous(let detail): ("Ambiguous", detail)
+      case .cancelled:
+        ("Cancelled", "The center-arrival attempt was cancelled before an arrival was accepted.")
+      case .shutdown:
+        ("Shutdown", "The center-arrival attempt settled at shutdown before an arrival was accepted.")
+      case .accepted, .publicationIncomplete: nil
+      }
+      guard let outcome else { return nil }
       return OperationActivityPresentation(
         actor: "Controller",
-        action: LearningMotionAction.moveToEstimatedCenter.title,
+        action: "Move to Estimated Center",
+        outcomeLabel: outcome.label,
         outcome: .needsAttention,
-        detail: [.text(failure.detail)],
+        detail: [.text(outcome.detail)],
         acceptedResult: [.text("All four accepted Boundary aggregates remain current.")],
         recovery: [.text("Use Retry Center Arrival; it requests only the remaining delta.")]
-      )
-    }
-    if itemID == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
-      let activity = snapshot.boundary.latestActivity
-    {
-      let retained = activity.retainedRevisionIDs
-        .map { $0.rawValue.uuidString.lowercased() }
-        .sorted()
-        .joined(separator: ", ")
-      return OperationActivityPresentation(
-        actor: activity.actor.rawValue,
-        action: activity.operation.actionLabel,
-        phase: activity.phase.rawValue,
-        outcomeLabel: activity.disposition.outcomeLabel,
-        outcome: activity.disposition.presentationOutcome,
-        detail: [.text(activity.detail.text)],
-        acceptedResult: activity.acceptedFallbackRemainsCurrent
-          ? [.text("The previously accepted aggregate remains current at revision \(retained).")]
-          : [],
-        recovery: activity.recovery.text.isEmpty ? [] : [.text(activity.recovery.text)]
       )
     }
     if itemID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),

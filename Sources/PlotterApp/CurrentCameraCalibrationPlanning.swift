@@ -190,10 +190,10 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   let finalRevealPosition: MachinePosition
 
   init(
-    boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate]
+    acceptedBoundaryAggregates: [BoundaryDirection: BoundarySideAggregate]
   ) throws {
     let acceptedBoundary = try Self.boundaryEnvelope(
-      for: boundarySideAggregates
+      for: acceptedBoundaryAggregates
     )
     boundaryEnvelope = acceptedBoundary
     applicabilityRectangle = try Self.drawingBorderBounds(for: acceptedBoundary)
@@ -225,16 +225,16 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   }
 
   static func boundaryEnvelope(
-    for boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate]
+    for acceptedBoundaryAggregates: [BoundaryDirection: BoundarySideAggregate]
   ) throws -> AxisAlignedBounds<MachineSpace> {
-    guard BoundaryDirection.allCases.allSatisfy({ boundarySideAggregates[$0] != nil }) else {
+    guard BoundaryDirection.allCases.allSatisfy({ acceptedBoundaryAggregates[$0] != nil }) else {
       throw CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope
     }
     return try AxisAlignedBounds<MachineSpace>(
-      minX: boundarySideAggregates[.negativeX]!.estimateMM,
-      minY: boundarySideAggregates[.negativeY]!.estimateMM,
-      maxX: boundarySideAggregates[.positiveX]!.estimateMM,
-      maxY: boundarySideAggregates[.positiveY]!.estimateMM
+      minX: acceptedBoundaryAggregates[.negativeX]!.estimateMM,
+      minY: acceptedBoundaryAggregates[.negativeY]!.estimateMM,
+      maxX: acceptedBoundaryAggregates[.positiveX]!.estimateMM,
+      maxY: acceptedBoundaryAggregates[.positiveY]!.estimateMM
     )
   }
 
@@ -362,15 +362,15 @@ struct CurrentCameraCalibrationPlan: Hashable, Sendable {
 
   init(
     targetPosition: MachinePosition,
-    boundarySideAggregates: [BoundaryDirection: BoundarySideAggregate],
+    acceptedBoundaryAggregates: [BoundaryDirection: BoundarySideAggregate],
     controllerSessionID: UUID,
     coordinateRevision: UInt64
   ) throws {
-    guard BoundaryDirection.allCases.allSatisfy({ boundarySideAggregates[$0] != nil }) else {
+    guard BoundaryDirection.allCases.allSatisfy({ acceptedBoundaryAggregates[$0] != nil }) else {
       throw CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope
     }
     for direction in BoundaryDirection.allCases {
-      let aggregate = boundarySideAggregates[direction]!
+      let aggregate = acceptedBoundaryAggregates[direction]!
       guard aggregate.controllerSessionID == controllerSessionID else {
         throw CurrentCameraCalibrationPlanningError.controllerSessionMismatch(
           direction: direction,
@@ -387,10 +387,10 @@ struct CurrentCameraCalibrationPlan: Hashable, Sendable {
       }
     }
 
-    let safeMinX = boundarySideAggregates[.negativeX]!.estimateMM + Self.safetyMarginMM
-    let safeMaxX = boundarySideAggregates[.positiveX]!.estimateMM - Self.safetyMarginMM
-    let safeMinY = boundarySideAggregates[.negativeY]!.estimateMM + Self.safetyMarginMM
-    let safeMaxY = boundarySideAggregates[.positiveY]!.estimateMM - Self.safetyMarginMM
+    let safeMinX = acceptedBoundaryAggregates[.negativeX]!.estimateMM + Self.safetyMarginMM
+    let safeMaxX = acceptedBoundaryAggregates[.positiveX]!.estimateMM - Self.safetyMarginMM
+    let safeMinY = acceptedBoundaryAggregates[.negativeY]!.estimateMM + Self.safetyMarginMM
+    let safeMaxY = acceptedBoundaryAggregates[.positiveY]!.estimateMM - Self.safetyMarginMM
     let center = targetPosition.point
     guard center.x >= safeMinX, center.x <= safeMaxX,
       center.y >= safeMinY, center.y <= safeMaxY

@@ -158,38 +158,75 @@ extension OperatorWorkspaceTests {
   func resetAllCancelsAndSettlesActiveBoundaryMotion() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
+    let identities = TipCalibrationSemanticIdentityState.ephemeral()
+    let checkpointBox = LearningPathCheckpointBox(
+      checkpoint: try acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity)
+    )
+    let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
+      load: { checkpointBox.load() },
+      save: { checkpointBox.save($0) },
+      clear: { checkpointBox.clear() }
+    )
+    let lowerGate = BoundaryRenewalMotionGate()
+    let runtimeAccess = TestBoundaryRuntimeAccess()
     let workspace = workspace(
       machine: machine,
-      camera: try CameraFixture(),
+      boundaryMotionBegin: { request, planner in
+        .admitted(BoundaryMotionOperation(
+          ownerID: request.ownerID,
+          task: Task { await lowerGate.run(request, renewalPlanner: planner) }
+        ))
+      },
+      jogCancel: { intent in await lowerGate.cancel(intent) },
+      learningPathCheckpointActions: checkpointActions,
+      tipCalibrationSemanticIdentities: identities,
+      boundaryRuntimeAccess: runtimeAccess,
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
-    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
-    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
-    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
-      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
-      y: Double(prerequisitePenFrame.frame.height - 1) / 2
-    ))
-    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
-    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    await workspace.performTestExerciseAction(
+      .useSavedTraining,
+      for: workspace.testCurrentLearningPathItemID
+    )
     #expect(workspace.penInteractionCompleted)
 
-    await workspace.beginPairedBoundarySide(.positiveX)
-    try await waitUntil { workspace.contextualStopPresentation != nil }
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    try await submitRenderedBoundaryAcquisition(
+      .positiveX,
+      owner: owner,
+      workspace: workspace
+    )
+    _ = await lowerGate.waitUntilRequested()
+    let active = try #require(workspace.currentBoundarySnapshot?.projection)
+    let operationID = try #require(active.reference.operationID)
+    let capability = try #require(active.cancellationCapabilityID)
     let plan = try #require(workspace.resetAllLearningPlan)
-    let didReset = await workspace.performResetAllLearning(plan)
+    let resetting = Task { await workspace.performResetAllLearning(plan) }
+    #expect(await lowerGate.waitUntilCancelled() == .cancelAttempt)
+    let cancelling = await runtimeAccess.runtime?.snapshot(for: .live)
+    #expect(cancelling?.projection.reference.operationID == operationID)
+    #expect(cancelling?.projection.cancellationCapabilityID == capability)
+    await lowerGate.releaseFirstSegment()
+    let didReset = await resetting.value
 
     #expect(didReset)
-    #expect(await machine.cancelCount == 1)
-    #expect(await machine.cancelIntents == [.cancelAttempt])
-    #expect(workspace.contextualStopPresentation == nil)
+    #expect(await lowerGate.requestCount == 1)
+    #expect(await lowerGate.cancellationIntents == [.cancelAttempt])
+    #expect(await machine.requestedBoundaryRequests.isEmpty)
+    #expect(await machine.cancelCount == 0)
+    #expect(
+      (workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions
+        .contains { if case .boundary(.stop(_)) = $0.kind { return true }; return false } ?? false)
+        == false
+    )
     #expect(workspace.activeExerciseAttemptID == nil)
     #expect(workspace.discoveryTransactions.isEmpty)
-    #expect(workspace.boundarySideAggregates.isEmpty)
+    #expect(workspace.testAcceptedBoundaryAggregates.isEmpty)
+    #expect(workspace.currentBoundarySnapshot?.projection.reference.operationID == nil)
+    #expect(workspace.currentBoundarySnapshot?.projection.cancellationCapabilityID == nil)
     #expect(workspace.learningArtifactGraph.revisions.allSatisfy { $0.state != .current })
     #expect(workspace.controllerSessionEstablished)
     #expect(workspace.motionAuthorizationEnabled)
@@ -304,37 +341,51 @@ extension OperatorWorkspaceTests {
   func partialResetPersistenceFailureIsAtomic() async throws {
     let log = EventLog()
     let machine = try MachineFixture(log: log)
-    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { .absent },
-      save: { _ in throw ResetPersistenceFixtureError.refused },
-      clear: {}
+    let identities = TipCalibrationSemanticIdentityState.ephemeral()
+    let checkpointBox = LearningPathCheckpointBox(
+      checkpoint: try acceptedPenLearningTestCheckpoint(
+        identity: identities.learningPathIdentity
+      )
     )
+    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
+      load: { checkpointBox.load() },
+      save: { _ in throw ResetPersistenceFixtureError.refused },
+      clear: { checkpointBox.clear() }
+    )
+    let runtimeAccess = TestBoundaryRuntimeAccess()
     let workspace = workspace(
       machine: machine,
-      camera: try CameraFixture(),
       learningPathCheckpointActions: actions,
+      tipCalibrationSemanticIdentities: identities,
+      boundaryRuntimeAccess: runtimeAccess,
+      loadPenCapAppearanceSelection: { nil },
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
     await workspace.requestPassiveProbe()
-    await workspace.startCamera()
-    let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
-    let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
-    let prerequisitePenFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
-    submitPointSelection(workspace, request: prerequisitePenRequest, point: try Point2(
-      x: Double(prerequisitePenFrame.frame.width - 1) / 2,
-      y: Double(prerequisitePenFrame.frame.height - 1) / 2
-    ))
-    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
-    for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
+    let savedOwner = workspace.testCurrentLearningPathItemID
+    let savedActions = workspace.currentExerciseActionStripPresentation?.actions.map(\.kind)
+    guard savedActions?.contains(.useSavedTraining) == true else {
+      Issue.record(
+        "Saved Learning action is absent; current=\(savedOwner), status=\(workspace.acceptedArtifactCheckpointStatus), actions=\(String(describing: savedActions))"
+      )
+      return
+    }
+    await workspace.performTestExerciseAction(.useSavedTraining, for: savedOwner)
     #expect(workspace.penInteractionCompleted)
-    await workspace.beginPairedBoundarySide(.positiveX)
-    try await waitUntil { workspace.contextualStopPresentation != nil }
-    try await stopActiveOperation(workspace)
+    let runtime = try #require(runtimeAccess.runtime)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: runtime,
+      workspace: workspace,
+      environment: .live
+    )
+    let runtimeBefore = await runtime.snapshot(for: .live)
     let boundaryRevision = try #require(
       workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveX))
     )
+    let graphBefore = Set(workspace.learningArtifactGraph.revisions)
+    let checkpointBefore = try #require(checkpointBox.checkpoint)
+    let selectedDirectionBefore = workspace.testSelectedBoundaryDirection
     let plan = try #require(
       workspace.learningVacatePlan(
         from: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
@@ -342,12 +393,37 @@ extension OperatorWorkspaceTests {
     )
 
     let didVacate = await workspace.performLearningVacate(plan)
+    let runtimeAfter = await runtime.snapshot(for: .live)
     #expect(!didVacate)
+    #expect(runtimeAfter.projection.resetCapabilityID == nil)
+    #expect(runtimeAfter.projection.phase == runtimeBefore.projection.phase)
+    #expect(
+      runtimeAfter.projection.reference.revision.rawValue
+        == runtimeBefore.projection.reference.revision.rawValue + 2
+    )
+    #expect(runtimeAfter.acceptedEvidence == runtimeBefore.acceptedEvidence)
+    #expect(runtimeAfter.acceptedAggregates == runtimeBefore.acceptedAggregates)
+    #expect(runtimeAfter.pairedProgress == runtimeBefore.pairedProgress)
+    #expect(runtimeAfter.estimatedCenter == runtimeBefore.estimatedCenter)
+    #expect(runtimeAfter.localCoordinateFrame == runtimeBefore.localCoordinateFrame)
+    #expect(runtimeAfter.centerArrivalPosition == runtimeBefore.centerArrivalPosition)
+    #expect(runtimeAfter.attemptTerminals == runtimeBefore.attemptTerminals)
+    #expect(runtimeAfter.currentRevisions == runtimeBefore.currentRevisions)
+    #expect(runtimeAfter.acceptedMachineArtifacts == runtimeBefore.acceptedMachineArtifacts)
+    #expect(
+      runtimeAfter.projection.publicationRecoveryCapabilityID
+        == runtimeBefore.projection.publicationRecoveryCapabilityID
+    )
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveX))
         == boundaryRevision
     )
-    #expect(workspace.boundarySideAggregates[.positiveX] != nil)
+    #expect(Set(workspace.learningArtifactGraph.revisions) == graphBefore)
+    #expect(workspace.testAcceptedBoundaryAggregates[.positiveX] != nil)
+    #expect(workspace.testSelectedBoundaryDirection == selectedDirectionBefore)
+    #expect(checkpointBox.checkpoint?.checkpointID == checkpointBefore.checkpointID)
+    #expect(workspace.controllerSessionEstablished)
+    #expect(workspace.motionAuthorizationEnabled)
     #expect(workspace.learningAuthorityError?.contains("no reset was applied") == true)
     await workspace.shutdown()
   }
@@ -362,10 +438,11 @@ extension OperatorWorkspaceTests {
       clear: { checkpointBox.clear() }
     )
     let seeded = makeCausalSimulatorAppFixture(tipCalibrationSemanticIdentities: identities)
-    try await completeSimulatedBoundariesAndCenter(
-      seeded.workspace,
-      simulator: seeded.simulator,
-      boundaryOrder: [.negativeX, .positiveX, .negativeY, .positiveY]
+    try await completeSimulatedPenInteractionPrerequisite(seeded.workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: seeded.boundaryRuntime,
+      workspace: seeded.workspace,
+      environment: .simulated
     )
     try await completeSimulatedSparseTipCalibration(
       seeded.workspace,
@@ -443,13 +520,20 @@ extension OperatorWorkspaceTests {
     for _ in 0..<3 { await workspace.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
     #expect(workspace.penInteractionCompleted)
     let stalePlan = try #require(workspace.resetAllLearningPlan)
-    await workspace.beginPairedBoundarySide(.positiveX)
-    try await waitUntil { workspace.contextualStopPresentation != nil }
-    try await stopActiveOperation(workspace)
+    let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    try await submitRenderedBoundaryAcquisition(
+      .positiveX,
+      owner: boundaryOwner,
+      workspace: workspace
+    )
+    _ = await machine.waitForBoundaryRequest(count: 1)
+    try await submitRenderedBoundaryStop(owner: boundaryOwner, workspace: workspace)
     #expect(checkpointBox.checkpoint != nil)
     let didVacate = await workspace.performLearningVacate(stalePlan)
     #expect(!didVacate)
-    #expect(workspace.boundarySideAggregates[.positiveX] != nil)
+    #expect(workspace.testAcceptedBoundaryAggregates[.positiveX] != nil)
     #expect(
       workspace.learningAuthorityError?.contains("changed while the reset summary was open") == true
     )
@@ -468,7 +552,7 @@ extension OperatorWorkspaceTests {
       workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveX))
         == nil
     )
-    #expect(workspace.boundarySideAggregates.isEmpty)
+    #expect(workspace.testAcceptedBoundaryAggregates.isEmpty)
     #expect(workspace.controllerSessionEstablished)
     #expect(workspace.motionAuthorizationEnabled)
     #expect(
@@ -515,9 +599,16 @@ extension OperatorWorkspaceTests {
     try await waitUntil { first.activeDiscoverySequenceID == .penInteraction }
     for _ in 0..<3 { await first.performTestExerciseAction(.choice(.yes), for: prerequisitePenOwner) }
     #expect(first.penInteractionCompleted)
-    await first.beginPairedBoundarySide(.positiveX)
-    try await waitUntil { first.contextualStopPresentation != nil }
-    try await stopActiveOperation(first)
+    let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    try await submitRenderedBoundaryAcquisition(
+      .positiveX,
+      owner: boundaryOwner,
+      workspace: first
+    )
+    _ = await machine.waitForBoundaryRequest(count: 1)
+    try await submitRenderedBoundaryStop(owner: boundaryOwner, workspace: first)
     #expect(checkpointBox.checkpoint?.machineArtifacts != nil)
 
     let relaunched = workspace(
@@ -530,7 +621,7 @@ extension OperatorWorkspaceTests {
     let savedOwner = relaunched.testCurrentLearningPathItemID
     #expect(relaunched.learningArtifactGraph.revisions.isEmpty)
     await relaunched.performTestExerciseAction(.useSavedTraining, for: savedOwner)
-    #expect(relaunched.selectedBoundaryDirection == .negativeX)
+    #expect(relaunched.testSelectedBoundaryDirection == .negativeX)
     await relaunched.establishMachineSession(machine.descriptor)
     await relaunched.requestPassiveProbe()
     await relaunched.startCamera()
@@ -576,10 +667,11 @@ extension OperatorWorkspaceTests {
   func resetBoundaryForwardRetainsEarlierLearning() async throws {
     let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
-    try await completeSimulatedBoundariesAndCenter(
-      workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
+    try await completeSimulatedPenInteractionPrerequisite(workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: workspace,
+      environment: .simulated
     )
     try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
     let penRevisionID = try #require(
@@ -600,8 +692,8 @@ extension OperatorWorkspaceTests {
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id
         == penRevisionID
     )
-    #expect(workspace.boundarySideAggregates.isEmpty)
-    #expect(workspace.estimatedMachineCenter == nil)
+    #expect(workspace.testAcceptedBoundaryAggregates.isEmpty)
+    #expect(workspace.testEstimatedMachineCenter == nil)
     #expect(workspace.machineCameraRegistration == nil)
     #expect(workspace.tipCameraRegistration == nil)
     #expect(workspace.drawingTrialAssessment == nil)
@@ -613,10 +705,11 @@ extension OperatorWorkspaceTests {
   func resetObservedTrialAtomically() async throws {
     let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
-    try await completeSimulatedBoundariesAndCenter(
-      workspace,
-      simulator: harness.simulator,
-      boundaryOrder: [.positiveX, .negativeX, .positiveY, .negativeY]
+    try await completeSimulatedPenInteractionPrerequisite(workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: workspace,
+      environment: .simulated
     )
     try await completeSimulatedSparseTipCalibration(workspace, simulator: harness.simulator)
     try await completeSimulatedStageFour(workspace)

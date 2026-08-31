@@ -692,10 +692,16 @@ private func makeProductionWorkspace() -> UIWorkspaceFixture {
     machineActions: MachineSessionComposition.actions,
     simulatedAdapter: manualMotionComposition.causalSimulatorEffectAdapter
   )
+  let boundaryComposition = PlotterBoundaryComposition.make(
+    machineActions: MachineSessionComposition.actions,
+    causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
+    checkpointActions: .init(load: { .absent }, save: { _ in }, clear: {})
+  )
   let workspace = OperatorWorkspace(
     cameraActions: cameraActions,
     manualMotionComposition: manualMotionComposition,
     penInteractionRuntime: penInteractionRuntime,
+    boundaryRuntime: boundaryComposition.runtime,
     drawingDraftRuntime: PlotterDrawingDraftRuntime(),
     drawingRunComposition: PlotterDrawingRunComposition.make(
       machineActions: MachineSessionComposition.actions,
@@ -711,6 +717,7 @@ private func makeProductionWorkspace() -> UIWorkspaceFixture {
     loadOverlayPreference: { nil },
     persistOverlayPreference: { _ in }
   )
+  boundaryComposition.install(on: workspace)
   return UIWorkspaceFixture(
     workspace: workspace,
     incidentService: incidentService,

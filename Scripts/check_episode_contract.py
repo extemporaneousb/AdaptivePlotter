@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "91a5328e58536cd765a84be2399eacf23e985ed5146d06a048347aae6548003a"
+EXPECTED_LEDGER_SHA256 = "8bd2b30b8f73ae12bf5ad6919f52f4404f453521acc4dde4e0de1382dc711026"
 
 
 EXPECTED_GATES = {
@@ -204,6 +204,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "FIX-03",
     "DOC-03",
     "EA-10A",
+    "EA-10B",
 }
 
 # Canonical Current Evidence has final passed evidence for every complete row.
@@ -444,6 +445,35 @@ def validate_product_contract(text: str) -> None:
         "One nominal actuation port adapts LIVE to the retained controller/`RunInterpreter` Pen owner and SIMULATED to the sole causal simulator adapter",
         "It claims no attended physical observation",
         "neither gate can admit, choose, cancel, dispatch, settle, or publish an effect",
+        "One source-indexed actor `PlotterBoundaryRuntime` owns Boundary direction",
+        "Every request is a `PlotterBoundarySubmission` bound to the displayed `PlotterBoundaryProjectionReference`",
+        "LIVE and SIMULATED have independent revisions, attempts, operations, accepted facts, and terminal truth",
+        "Admission synchronously installs the exact operation, cancellation capability, runtime-owned task, and one-shot reservation-publication latch before the first suspension",
+        "task cannot enter a package admission gate, acquire facts, or prepare any lower effect until the genuinely async projection sink has returned",
+        "A fact or admission refusal settles that same minted owner into one terminal refusal and invokes no lower effect",
+        "retained Pen Up normalization before every side acquisition and center travel",
+        "Operator Stop/cancel/shutdown target only the matching cancellation capability",
+        "LIVE acceptance still requires the retained controller owner's fresh Idle/final MPos truth",
+        "Accepted LIVE Boundary and center facts are saved before publication",
+        "recovery retries only that staged save and never resends Pen or motion",
+        "A runtime-owned weak Sendable projection sink publishes immutable admitted, moving, cancelling, recovery, and terminal state without a workspace task, latch, retry, unchecked relay, or second semantic owner",
+        "canonical UI exposes only the exact `.recoverPublication(capability)` request and suppresses new side acquisition or center travel",
+        "reserves a non-destructive, capability-bound reset that closes new Boundary admission while retaining the current projection, aggregates, graph/checkpoint, session, and recovery truth",
+        "only an applied commit permits downstream local cleanup",
+        "Persistence refusal submits the exact abort and leaves the retained Boundary and local authority unchanged",
+        "The retained `AcceptedMachineArtifactCheckpoint.boundarySideAggregates` is durable lower artifact data, not workspace Boundary authority",
+        "the selected direction remains unchanged only when it is still allowed",
+        "The first move to an accepted four-side center is not a retry",
+        "The runtime refuses a submitted retry bit that differs from that published derived truth",
+        "refuses every further center admission after accepted arrival",
+        "composition-only `UI.announceBoundaryAdvisory` adapter and existing `AnnouncementActions` owner",
+        "That adapter owns no announcement, effect, Stop, settlement, or evidence authority",
+        "Announcement failure remains advisory",
+        "SIMULATED motion remains nonphysical and unchanged",
+        "rechecks exact cancellation/shutdown and reacquires the complete external effect identity immediately before lower motion admission",
+        "Shutdown records its first-winning Boundary cancellation without joining, cancels retained speech, and only then joins Boundary settlement",
+        "Shutdown is also revalidated on both sides of any suspended retained Pen admission",
+        "cannot create even an empty Discovery transaction, revive an accepted click, or continue toward a lower effect",
     ):
         if required_phrase not in normalized:
             fail(f"Product Contract is missing current authority: {required_phrase}")
@@ -696,6 +726,37 @@ def validate_architecture(text: str) -> None:
         "`physicalEvidenceClaimed` remains false",
         "Package-only setpoint-admission and terminal-publication gates provide no-sleep/no-poll deterministic tests",
         "cannot admit, mutate, dispatch, choose, cancel, settle, or publish an effect",
+        "`PlotterBoundaryRuntime` is the single source-indexed actor owner for Drawing Boundary acquisition and center arrival",
+        "`PlotterBoundarySubmission` binds an exact `PlotterBoundaryRequestID`, immutable `PlotterBoundaryProjectionReference`, environment, and one typed `PlotterBoundaryIntent`",
+        "Admission synchronously installs the operation, cancellation capability, runtime-owned task, and one-shot reservation-publication latch before the first suspension",
+        "The task awaits that latch before any admission gate, fact source, or lower-effect preparation",
+        "the runtime releases the latch only after `.reserving` publication returns",
+        "A fact or admission refusal settles that same minted owner into one terminal refusal with zero lower effect",
+        "One runtime-owned `operationTasks` lane per environment performs retained Pen Up normalization before side acquisition and center travel, lower settlement, and terminal publication",
+        "`PlotterBoundaryAdmissionGate` and `PlotterBoundaryTerminalPublicationGate` can hold only the post-reservation/pre-fact and post-lower/pre-publication scheduling boundaries",
+        "The nominal `PlotterBoundaryComposition` adapts LIVE side acquisition to the retained `MachineActions`/`RunInterpreter` fixed 50 mm renewal and controller Stop owner",
+        "SIMULATED invokes no LIVE lower effect or persistence and publishes explicitly nonphysical truth",
+        "Persistence failure retains an identity-bound recovery capability and staged candidate; recovery retries publication only and never resends motion",
+        "`PlotterBoundaryProjectionSink` is Sendable and the runtime-owned weak sink publishes immutable snapshots without a workspace observer Task, latch, retry, unchecked relay, or effect authority",
+        "Canonical actionability exposes only exact `.recoverPublication(capability)` while publication remains incomplete and suppresses new acquisition and center travel",
+        "uses a typed two-phase reset",
+        "The workspace persists the Learning prefix before the exact commit; only an applied commit permits local cleanup",
+        "persistence refusal exact-aborts the reservation unchanged",
+        "`AcceptedMachineArtifactCheckpoint.boundarySideAggregates` remains the retained durable checkpoint representation",
+        "derives the retained advisory from `DiscoverySequenceCatalog`",
+        "composition-only `UI.announceBoundaryAdvisory` adapter",
+        "The UI adapter owns no announcement, effect, Stop, settlement, or evidence authority",
+        "only then invokes `MachineActions.beginBoundaryMotion`",
+        "preserves a selected direction only while it remains allowed",
+        "a first center move therefore publishes `retry: false`",
+        "`PlotterBoundaryRuntime` refuses `.centerRetryMismatch(expected:submitted:)`",
+        "`.centerArrivalAlreadyAccepted` after accepted arrival, with zero lower effect",
+        "LIVE advisory preparation is a runtime-invoked pre-admission port step",
+        "reacquires the complete external effect identity immediately before `MachineActions.beginBoundaryMotion`",
+        "`beginShutdown()` closes admission",
+        "cancels retained speech before `shutdown()` joins the operation task",
+        "retained Pen admission route checks shutdown both at entry and after each suspension before it creates a `DiscoveryTransaction`",
+        "prevents an async continuation from reviving an accepted click or publishing a zero-step transaction after shutdown",
     ):
         if required_phrase not in normalized:
             fail(f"current Swift architecture is missing: {required_phrase}")
@@ -748,6 +809,25 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         missing = sorted(required_ea10a_scans.difference(ea10a_scans))
         extra = sorted(ea10a_scans.difference(required_ea10a_scans))
         fail(f"EA-10A structural cutover scans drifted; missing={missing}, extra={extra}")
+    ea10b_scans = {
+        (scan_class, paths, literal)
+        for package, scan_class, paths, literal in scan_rows
+        if package == "`EA-10B`"
+    }
+    required_ea10b_scans = {
+        ("deleted-symbol", "`Sources/PlotterApp/OperatorWorkspace.swift`", "`boundarySideAggregates`"),
+        ("duplicate-ingress", "`Sources/PlotterApp/*.swift`", "`beginPairedBoundarySide`"),
+        ("direct-port", "`Sources/PlotterApp/*.swift`", "`machineActions.beginBoundaryMotion`"),
+        ("task-owner", "`Sources/PlotterApp/*.swift`", "`boundaryMotionTask`"),
+        ("fixture", "`Tests/PlotterAppTests/*.swift`", "`completeLiveBoundaries`"),
+        ("fixture", "`Tests/PlotterAppTests/*.swift`", "`completeSimulatedBoundariesAndCenter`"),
+        ("fixture", "`Tests/PlotterAppTests/*.swift`", "`submitBoundaryIntent(`"),
+        ("fixture", "`Tests/PlotterAppTests/PlotterBoundaryEpisodeTests.swift`", "`.start`"),
+    }
+    if ea10b_scans != required_ea10b_scans:
+        missing = sorted(required_ea10b_scans.difference(ea10b_scans))
+        extra = sorted(ea10b_scans.difference(required_ea10b_scans))
+        fail(f"EA-10B structural cutover scans drifted; missing={missing}, extra={extra}")
     ledger_lines: list[str] = []
     collecting_ledger = False
     for line in text.splitlines():
@@ -886,6 +966,78 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
     ):
         if required_phrase not in normalized:
             fail(f"EA-10A completion candidate is missing Pen authority: {required_phrase}")
+    for required_phrase in (
+        "one actor-isolated `PlotterBoundaryRuntime`",
+        "independent LIVE/SIMULATED state",
+        "synchronous reservation, one runtime task/latch",
+        "genuinely async runtime-owned weak Sendable projection sink",
+        "save-before-publication",
+        "identity-bound no-resend recovery",
+        "retain controller-only fixed 50 mm renewal and Stop in `RunInterpreter`/`MachineActions`",
+        "durable `AcceptedMachineArtifactCheckpoint.boundarySideAggregates`",
+        "five obsolete Boundary `ExerciseActionKind` cases",
+        "The original fresh critic returned `RETASK` for exactly three blockers",
+        "Correction cycle 2 installs the exact owner/capability/task and one-shot latch before awaits",
+        "non-destructive exact reset reserve/commit/abort",
+        "user-authorized final-gate repair",
+        "exact first-vs-retry center truth",
+        "runtime-controlled pre-admission step",
+        "exact typed retry and terminal-derived activity",
+        "Camera Calibration requires a fresh settled MPos matching accepted center",
+        "SIMULATED sparse-tip fixtures bind simulator Boundary truth to accepted checkpoint geometry",
+        "Task-local candidate `TASK-6DAB256F`",
+        "`9abeef29df0364b87029bbcd621a82a4c433588a4de56a54aeaed8c5f400a5c8`",
+        "`8998beb7745c07c5a261757a0fdb2c572e3f63a715b536854375a6804489c48e`",
+        "`BOUNDARY` 18/18",
+        "migrated Boundary filters 13/13",
+        "computation 9/9",
+        "sparse tip 8/8",
+        "Drawing Run 13/13",
+        "center regression 1/1",
+        "first remaining-gate pass recorded `BOUNDARY` 18/18, `DELETE` 8/8, `DOC` 29/29, clean `DIFF`, and `JOURNEY` 5/5",
+        "initial `STRICT` failed at two sites because the MainActor projection sink was non-Sendable",
+        "`PlotterBoundaryProjectionSink` Sendable and removes the redundant relay's `@unchecked Sendable`",
+        "strict production build passed in 29.97 seconds",
+        "same critic passed that bounded delta",
+        "deterministic 772/773 failure in `shutdownDoesNotReviveAcceptedClick`",
+        "async retained Pen admission resumed after shutdown and created a zero-step `DiscoveryTransaction`",
+        "Entry and post-await shutdown guards prevent that revival",
+        "exact regression passed 1/1, Pen-cap passed 17/17",
+        "Final `QUICK` passed 773/773 in 13.957 seconds tests and 15.41 seconds real",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/ea10b-racefix-quick.6TzUPaxfmJ",
+        "final `JOURNEY` passed 5/5 in 4.916 seconds tests and 6.05 seconds real",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/ea10b-racefix-journey.Fs3ODxsqNk",
+        "broad QUICK cascades",
+        "intermediate 771/773",
+        "initial strict Sendable failure",
+        "post-fix 772/773",
+        "missing center wait",
+        "stale-MPos camera ingress",
+        "Drawing Run sparse-fixture timeout",
+        "simulator Boundary-truth mismatch/out-of-frame clicks",
+        "point-selection repeated-refusal wait",
+        "generic center-retry ordering",
+        "activity legacy-failure dependency",
+        "`LocalizedError` wiring",
+        "compile-only helper defects",
+        "All seven final gates passed on the frozen candidate",
+        "`BOUNDARY` 18/18",
+        "`DELETE` 8/8",
+        "`DOC` contracts plus 29/29 in 12.694 seconds tests and 13.49 seconds wall",
+        "clean `DIFF` in 0.03 seconds",
+        "`STRICT` 778/778 Swift in 14.540 seconds plus docs 29/29 in 23.453 seconds with 64.95 seconds wall",
+        "/tmp/ea10b-doc-final.jnbNGm",
+        "/tmp/ea10b-diff-final.Vcy9oB",
+        "/tmp/ea10b-strict-final-resumable.oonlrS",
+        "EA-10B is semantically complete as a task-local landing candidate",
+        "Blackdog landing and canonical-main cleanup remain pending",
+        "EA-10C is not selected or dispatched",
+        "old per-package dispatch is prohibited pending the new tranche-policy correction",
+        "GATE-01 remains unchanged downstream after EA-11C",
+        "no physical or remote-Git validation is claimed",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-10B task-local candidate is missing Boundary authority: {required_phrase}")
     ledger_rows = markdown_table(
         text,
         ["ID", "Status", "Dependencies", "Class", "Atomic package outcome", "Required gates"],
@@ -1236,6 +1388,8 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "Rows assigned to pending WorkPackages, plus every `retain` or `adapt` row regardless of package status, remain live-presence obligations",
         "`UI.plotterUIProjection`",
         "`UI.submitPlotterUIRequest`",
+        "`UI.announceBoundaryAdvisory`",
+        "none of the three seams owns semantic admission, actionability, effect, Stop, settlement, evidence, controller, announcement, or UI authority",
         "so none owns Learning actionability, controller, camera, Vision, persistence, Stop, or episode admission",
         "Wave selection takes the first eligible row in this table's literal order",
         "`attended-physical` and `remote-git` still require their own explicit package and execution-class authorization",
@@ -2471,6 +2625,210 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         if required_phrase not in normalized:
             fail(f"EA-10A completion evidence is missing: {required_phrase}")
 
+    for required_phrase in (
+        "Drawing Boundary episode cutover completion candidate",
+        "`EA-10B` in task `TASK-6DAB256F`",
+        "EA-10B is semantically complete as a task-local landing candidate",
+        "Blackdog landing and canonical-main cleanup remain pending",
+        "not operational landing",
+        "`9abeef29df0364b87029bbcd621a82a4c433588a4de56a54aeaed8c5f400a5c8`",
+        "`8998beb7745c07c5a261757a0fdb2c572e3f63a715b536854375a6804489c48e`",
+        "One actor-isolated `PlotterBoundaryRuntime` now owns source-indexed LIVE and SIMULATED Boundary revisions",
+        "Every `PlotterBoundarySubmission` binds the displayed `PlotterBoundaryProjectionReference` and one typed `PlotterBoundaryIntent`",
+        "Admission synchronously installs the runtime operation, cancellation capability, runtime-owned task, and one-shot reservation-publication latch before the first await",
+        "cannot enter the package admission gate, acquire facts, or prepare lower work until the genuinely async `PlotterBoundaryProjectionSink` returns from publishing `.reserving`",
+        "A fact or admission refusal settles that same minted owner into one terminal refusal and invokes zero lower effect",
+        "Retained Pen-Up supervision completes before both side acquisition and center travel in LIVE and SIMULATED",
+        "The runtime owns its one environment-local lower execution/settlement/publication task lane",
+        "Natural completion, lower refusal, limit, mismatched Stop, cancellation, shutdown, ambiguity, or save failure never replaces previously accepted Boundary authority",
+        "Accepted LIVE Boundary and center candidates are saved before publication",
+        "recovery retries publication only and never resends Pen or motion",
+        "runtime-owned weak `PlotterBoundaryProjectionSink` publishes immutable admitted, moving, cancelling, recovery, and terminal snapshots without a workspace observer Task/latch/retry",
+        "canonical actionability exposes only exact `.recoverPublication(capability)` and suppresses new acquisition and center travel",
+        "reserves a non-destructive exact reset capability",
+        "workspace persists the Learning prefix before exact commit; only an applied commit permits local cleanup",
+        "Persistence refusal exact-aborts the reservation and retains all prior authority unchanged",
+        "`PlotterBoundaryAdmissionGate` and `PlotterBoundaryTerminalPublicationGate` hold only the post-reservation/pre-fact and post-lower/pre-publication scheduling boundaries",
+        "SIMULATED uses the sole EA-07 `PlotterCausalSimulatorEffectAdapter`, invokes zero LIVE effect or persistence, and remains explicitly nonphysical",
+        "`AcceptedMachineArtifactCheckpoint.boundarySideAggregates` is lower durable checkpoint data, not workspace Boundary authority",
+        "The same landing deletes the workspace Boundary state, history, evidence, aggregates, center/frame/arrival/activity state, pending lower dictionaries",
+        "five obsolete Boundary `ExerciseActionKind` cases",
+        "`completeLiveBoundaries` and `completeSimulatedBoundariesAndCenter` fixtures are deleted rather than recreated under another name",
+        "final deletion gate passed all eight exact EA-10B scans",
+        "passed — `swift build`; exit 0; 18.20 seconds",
+        "focused async reservation-publication regression; 1/1 passed; tests 0.007 seconds",
+        "passed — `swift test --filter PlotterBoundaryEpisodeTests`; exit 0; 18/18 passed; tests 0.125 seconds",
+        "passed — `swift test --filter boundaryRepeatActionsAggregateAndReplaceAcceptedSet`; exit 0; 1/1 passed; tests 0.009 seconds",
+        "passed — `swift test --filter boundaryAtomicFailurePreservesAcceptedAuthority`; exit 0; 1/1 passed; tests 0.008 seconds",
+        "passed — `swift test --filter resetAllCancelsAndSettlesActiveBoundaryMotion`; exit 0; 1/1 passed; tests 0.030 seconds",
+        "passed — `swift test --filter workspaceRecoveryAndResetAreCapabilityBound`; exit 0; 1/1 passed; tests 0.040 seconds",
+        "focused atomic persistence/reset regression; 1/1 passed; tests 0.032 seconds",
+        "The original fresh critic returned `RETASK` for exactly three material blockers",
+        "operation/capability reservation occurred only after fact acquisition",
+        "center travel skipped the retained Pen-Up supervision",
+        "canonical UI/reset neither exposed publication recovery nor honored active/pending Boundary authority",
+        "same critic returned `RETASK` because reserving publication had no happens-before relationship with the spawned operation task",
+        "reset destructively cleared Boundary authority before durable Learning-prefix persistence",
+        "Correction cycle 2 makes the projection sink genuinely async",
+        "releases the runtime-owned one-shot latch only after sink return",
+        "replaces destructive reset with exact reserve/commit/abort",
+        "two attempts to hold the synchronous projection sink hung",
+        "first async test witness failed MainActor protocol conformance",
+        "async suite hung and exited 130 after 149.87 seconds real time",
+        "SwiftPM diagnostic timed out after 90.01 seconds",
+        "direct helper timed out after 45.05 seconds because of a per-environment recorder bug",
+        "initial atomic fixtures failed because compatibility migration consumed the injected persistence refusal",
+        "sole same critic ultimately returned `UNANIMOUS PASS — no material disagreement` for the exact three closure findings before the downstream final-`QUICK` repairs",
+        "At that point no post-`QUICK` critic had been run",
+        "later Sendable-sink and shutdown-race fixes each received the same critic's bounded-delta pass",
+        "user authorized one exceptional same-critic final-gate repair",
+        "first center move as `retry: false`",
+        "advances deterministically to the first remaining allowed direction",
+        "composition-only `UI.announceBoundaryAdvisory` adapter and existing `AnnouncementActions` owner before lower Boundary motion",
+        "adapter owns no announcement, effect, Stop, settlement, evidence, controller, or UI authority",
+        "migrated obsolete generic `.start` and contextual Stop requests to exact typed direction selection, acquire, and capability-bound Boundary Stop",
+        "center waiter now tracks `semanticPresentationRevision`",
+        "Accepted center arrival asserts the actual controller-reported quantized position",
+        "passed — `swift test --filter boundaryStopCompletesTransaction`; 1/1 passed; tests 0.111 seconds",
+        "passed — `swift test --filter activeBoundaryHasOnlyStop`; 1/1 passed; tests 0.116 seconds",
+        "passed — `swift test --filter centerArrivalAcceptsQuantizedSettlement`; 1/1 passed; tests 0.105 seconds",
+        "same critic then returned `RETASK` for exactly three closure findings",
+        "runtime derived but did not enforce the submitted center-retry bit",
+        "Stop or shutdown could race lower motion admission while retained speech was suspended",
+        "generic Boundary fixture ingress remained",
+        "`.centerRetryMismatch(expected:submitted:)` and `.centerArrivalAlreadyAccepted` refusals with zero lower effect",
+        "runtime, not the lower side port, now owns the pre-admission advisory step",
+        "rechecks exact cancellation/shutdown and reacquires the full external effect identity immediately before LIVE motion admission",
+        "Shutdown closes Boundary admission without joining, cancels retained speech, and then joins the exact Boundary owner",
+        "All Boundary test fixtures now use exact rendered typed direction selection, acquire, and capability-bound Boundary Stop",
+        "direct `submitBoundaryIntent`, generic Boundary `.start`, and the old completion helpers have zero test-source matches",
+        "migrated Boundary operator-path filters; 13/13 passed",
+        "passed — `swift test --filter OperatorWorkspaceComputationDiagnosticsTests`; 9/9 passed",
+        "passed — `swift test --filter OperatorWorkspaceSparseTipCalibrationTests`; 8/8 passed",
+        "passed — `swift test --filter PlotterDrawingRunEpisodeTests`; 13/13 passed",
+        "focused center retry regression; 1/1 passed",
+        "passed — `make quick-test`; exit 0; 773/773 passed; tests 13.348 seconds; real 14.76 seconds",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/ea10b-quick.emiGz7dCHp",
+        "first remaining-gate pass recorded `BOUNDARY` 18/18, `DELETE` 8/8, `DOC` 29/29, clean `DIFF`, and `JOURNEY` 5/5",
+        "`STRICT` build then failed at two sites because the MainActor projection sink was not Sendable",
+        "`PlotterBoundaryProjectionSink` Sendable and removes the redundant relay's `@unchecked Sendable`",
+        "strict production build then passed in 29.97 seconds",
+        "same critic accepted that bounded delta",
+        "post-fix `QUICK` run deterministically failed at 772/773 in `shutdownDoesNotReviveAcceptedClick`",
+        "asynchronous retained Pen admission could resume after shutdown and create a zero-step `DiscoveryTransaction`",
+        "checks shutdown at entry and again after the suspension before creating that transaction",
+        "exact regression passed 1/1 and the full Pen-cap suite passed 17/17",
+        "passed — `make quick-test`; exit 0; 773/773 passed; tests 13.957 seconds; real 15.41 seconds",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/ea10b-racefix-quick.6TzUPaxfmJ",
+        "passed — `make journey-test`; 5/5 passed; tests 4.916 seconds; real 6.05 seconds",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/ea10b-racefix-journey.Fs3ODxsqNk",
+        "passed — `make docs-check`; contracts plus 29/29 passed; tests 12.694 seconds; real 13.49 seconds",
+        "/tmp/ea10b-doc-final.jnbNGm",
+        "passed — `git diff --check`; clean; real 0.03 seconds",
+        "/tmp/ea10b-diff-final.Vcy9oB",
+        "passed — `make strict-check`; 778/778 Swift tests in 14.540 seconds plus docs 29/29 in 23.453 seconds; real 64.95 seconds",
+        "/tmp/ea10b-strict-final-resumable.oonlrS",
+        "passed — `sh Scripts/check_episode_cutover.sh EA-10B`; 8/8 exact scans",
+        "recoverable failed center terminal now renders exact typed `Retry Center Arrival` before generic needs-attention",
+        "activity comes directly from the exact center-arrival terminal rather than the legacy exploration-failure field",
+        "Camera Calibration now acquires a fresh settled machine observation",
+        "SIMULATED sparse-tip fixture installs Boundary truth that matches its accepted checkpoint",
+        "later broad `QUICK` attempts first exited 130",
+        "intermediate 771/773 nonpass",
+        "exact Stop timeout diagnostic",
+        "selected-direction trap",
+        "missing announcement-ordering trap",
+        "missing center wait",
+        "stale-MPos Camera Calibration ingress",
+        "Drawing Run sparse-fixture timeout",
+        "simulator Boundary-truth mismatch and out-of-frame clicks",
+        "point-selection repeated-refusal wait issue",
+        "generic center-retry ordering",
+        "Boundary activity's legacy-failure dependency",
+        "`LocalizedError` wiring",
+        "compile-only helper defects",
+        "zero-span, async terminal/semantic-revision, obsolete-diagnostics, unrelated-history, and missing-Pen-prerequisite nonpasses",
+        "All seven EA-10B gates passed on the frozen candidate",
+        "EA-10B is semantically complete as a task-local landing candidate",
+        "Blackdog landing and canonical-main cleanup remain pending",
+        "same critic passed both bounded source deltas; no new full critic was commissioned",
+        "EA-10C is not selected or dispatched",
+        "old per-package successor dispatch is prohibited pending the new tranche-policy correction",
+        "GATE-01 remains unchanged and downstream after EA-11C",
+        "EA-10B | `TASK-6DAB256F` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `BOUNDARY=passed`, `DELETE=passed`",
+        "Reviewed no change — `Scripts/check_episode_cutover.py` and shell wrapper",
+        "No attended controller, camera, motion, Pen, paper, operator-click, or observed-ink validation occurred",
+        "no physical or remote-Git evidence is claimed",
+    ):
+        if required_phrase not in normalized:
+            fail(f"EA-10B task-local evidence is missing: {required_phrase}")
+
+    boundary_candidate = re.search(
+        r"^## Drawing Boundary episode cutover completion candidate$(.*?)(?=^## |\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if boundary_candidate is None:
+        fail("EA-10B completion evidence section is missing")
+    boundary_receipts = markdown_table(
+        boundary_candidate.group(1), ["Focused receipt", "Result", "Scope"]
+    )
+    expected_boundary_receipts = [
+        "`BUILD`",
+        "`ASYNC-RESERVATION-PUBLICATION`",
+        "`BOUNDARY`",
+        "`JOURNEY-BOUNDARY-REPEAT`",
+        "`JOURNEY-BOUNDARY-ATOMIC`",
+        "`RESET-ACTIVE-BOUNDARY`",
+        "`RECOVERY-RESET-CAPABILITY`",
+        "`ATOMIC-PERSISTENCE-RESET`",
+        "`BOUNDARY-STOP-OPERATOR-PATH`",
+        "`ACTIVE-BOUNDARY-OPERATOR-PATH`",
+        "`CENTER-QUANTIZATION-OPERATOR-PATH`",
+        "`MIGRATED-BOUNDARY-FILTERS`",
+        "`COMPUTATION`",
+        "`SPARSE-TIP`",
+        "`DRAW-RUN`",
+        "`CENTER-RETRY`",
+        "`PRE-STRICT-QUICK`",
+        "`INITIAL-DELETE`",
+        "`INITIAL-DOC`",
+        "`INITIAL-DIFF`",
+        "`INITIAL-JOURNEY`",
+        "`STRICT-PRODUCTION-BUILD`",
+        "`POST-SENDABLE-BOUNDARY`",
+        "`SHUTDOWN-CLICK`",
+        "`PEN-CAP`",
+        "`QUICK`",
+        "`JOURNEY`",
+        "`DOC`",
+        "`DIFF`",
+        "`STRICT`",
+        "`DELETE`",
+    ]
+    actual_boundary_receipts = [row[0] for row in boundary_receipts]
+    if actual_boundary_receipts != expected_boundary_receipts:
+        fail(
+            "EA-10B focused receipt order drifted; expected "
+            f"{expected_boundary_receipts}, found {actual_boundary_receipts}"
+        )
+    boundary_results = {
+        validation.strip("`"): result
+        for validation, result, _scope in boundary_receipts
+    }
+    for gate, required_result in (
+        ("BOUNDARY", "18/18 passed"),
+        ("DELETE", "8/8 exact scans"),
+        ("QUICK", "773/773 passed; tests 13.957 seconds; real 15.41 seconds"),
+        ("JOURNEY", "5/5 passed; tests 4.916 seconds; real 6.05 seconds"),
+        ("DOC", "contracts plus 29/29 passed; tests 12.694 seconds; real 13.49 seconds"),
+        ("DIFF", "clean; real 0.03 seconds"),
+        ("STRICT", "778/778 Swift tests in 14.540 seconds plus docs 29/29 in 23.453 seconds; real 64.95 seconds"),
+    ):
+        result = boundary_results[gate]
+        if not result.startswith("passed —") or required_result not in result:
+            fail(f"EA-10B {gate} completion receipt drifted")
+
     candidate_section = re.search(
         r"^## Pen Interaction episode cutover completion candidate$(.*?)(?=^## |\Z)",
         text,
@@ -2696,7 +3054,7 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-10B":
+        if selected != "EA-10C":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
             "Pilot dependency-cycle correction",
@@ -2706,7 +3064,8 @@ def validate_wave_frontier(
             "`TASK-539931AC`, attempt `TASK-539931AC-49f2e7307f76`",
             "This is task-local semantic completion and a landing candidate, not operational landing",
             "EA-10A is semantically complete as a task-local landing candidate",
-            "EA-10B is not selected or dispatched",
+            "EA-10C is not selected or dispatched",
+            "old per-package successor dispatch is prohibited pending the new tranche-policy correction",
             "The retired `PHYSICAL-BASE` result is `failed`",
         ):
             if phrase not in normalized:
@@ -2715,6 +3074,13 @@ def validate_wave_frontier(
 
     first_eligible = first_eligible_ordinary(rows)
     if first_eligible is not None and first_eligible in blockers:
+        if first_eligible == "EA-10C":
+            expected_blocker = {
+                "blocker": "Old per-package successor dispatch is prohibited pending the new tranche-policy correction",
+                "required_input_or_correction": "Land EA-10B and verify canonical-main cleanup, then apply the named tranche-policy correction before selecting or dispatching EA-10C; do not infer successor authority from EA-10B task-local completion",
+            }
+            if blockers[first_eligible] != expected_blocker:
+                fail(f"EA-10C tranche-policy wave blocker drifted: {blockers[first_eligible]}")
         return
 
     incomplete = [package_id for package_id, row in rows.items() if row["status"] != "complete"]

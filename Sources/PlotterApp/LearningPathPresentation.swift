@@ -525,10 +525,7 @@ enum ExerciseActionKind: Hashable, Sendable {
   case restart
   case redoThisStep
   case recordAnotherAttempt
-  case redoBoundary(BoundaryDirection)
-  case recordAnotherBoundaryAttempt(BoundaryDirection)
-  case selectDirection(ExerciseDirectionSelectionPurpose, BoundaryDirection)
-  case moveToEstimatedCenter
+  case boundary(PlotterBoundaryIntent)
   case runCameraCalibrationAndBuildProposal
   case acceptCameraCalibrationProposal
   case rejectCameraCalibrationProposal
