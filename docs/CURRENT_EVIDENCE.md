@@ -8,7 +8,7 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
-## GATE-01 source-derived correction complete — gate pending
+## GATE-01 Pilot continuation passed
 
 The prior post-EA-11C repository inspection did not pass `GATE-01`. The one invoked
 `sh Scripts/check_episode_pilot_gate.sh` command exited 1 with
@@ -16,9 +16,10 @@ The prior post-EA-11C repository inspection did not pass `GATE-01`. The one invo
 the Pilot checker did not accept EA-06's canonical alternate detailed-evidence
 header. Static inspection also proved that parser repair alone could not pass
 the gate because `operator-workspace-adapters` was 7-to-10. That historical
-refusal caused FIX-05; the correction now satisfies all six source-derived
-thresholds, but `GATE-01` itself has not been rerun and no continuation decision
-is claimed here.
+refusal caused FIX-05; that correction satisfies all six source-derived
+thresholds. The later exact `sh Scripts/check_episode_pilot_gate.sh` run passed
+all 9 predicates, 6 reduction metrics, and 18 cutover scan sets. GATE-01 is now
+complete; this continuation decision authorizes no attended physical action.
 
 The exact current source-backed metric facts are:
 
@@ -46,20 +47,46 @@ workspace tasks, and public-sink drift; it does not trust this table's counts.
 | GENERICITY | passed | `EA-02A/CORE`, `EA-02B/PLOTTER-MODEL` |
 | REPLAY | passed | `EA-05B/REPLAY` |
 | DEVICE-OWNERS | passed | `EA-05A/RECORDING`, `FIX-02/LINK-OBS`, `FIX-02/LINK-SAFETY` |
-| ENVIRONMENT-GRAMMAR | pending | `EA-07/SIM`, `EA-09/UI` |
-| SAME-SLICE-DELETION | pending | `EA-04/DELETE`, `EA-06/DELETE`, `EA-07/DELETE`, `EA-08A/DELETE`, `EA-08B/DELETE`, `EA-09/DELETE`, `FIX-03/DELETE`, `EA-10A/DELETE`, `EA-10B/DELETE`, `EA-10C/DELETE`, `EA-10D/DELETE`, `EA-10E/DELETE`, `EA-10F/DELETE`, `EA-10G/DELETE`, `EA-11A/DELETE`, `EA-11B/DELETE`, `EA-11C/DELETE`, `FIX-05/DELETE` |
-| AUTHORITY-REDUCTION | pending | `EA-01/INVENTORY`, `METRICS/AUTHORITY-REDUCTION` |
-| OBSERVABILITY | pending | `EA-05C/INCIDENT`, `EA-06/MOTION`, `EA-09/UI` |
-| WORKSPACE-REDUCTION | pending | `METRICS/WORKSPACE-REDUCTION` |
-| SAFETY-EVIDENCE | pending | `FIX-02/LINK-SAFETY`, `EA-07/SIM`, `EA-09/UI` |
+| ENVIRONMENT-GRAMMAR | passed | `EA-07/SIM`, `EA-09/UI` |
+| SAME-SLICE-DELETION | passed | `EA-04/DELETE`, `EA-06/DELETE`, `EA-07/DELETE`, `EA-08A/DELETE`, `EA-08B/DELETE`, `EA-09/DELETE`, `FIX-03/DELETE`, `EA-10A/DELETE`, `EA-10B/DELETE`, `EA-10C/DELETE`, `EA-10D/DELETE`, `EA-10E/DELETE`, `EA-10F/DELETE`, `EA-10G/DELETE`, `EA-11A/DELETE`, `EA-11B/DELETE`, `EA-11C/DELETE`, `FIX-05/DELETE` |
+| AUTHORITY-REDUCTION | passed | `EA-01/INVENTORY`, `METRICS/AUTHORITY-REDUCTION` |
+| OBSERVABILITY | passed | `EA-05C/INCIDENT`, `EA-06/MOTION`, `EA-09/UI` |
+| WORKSPACE-REDUCTION | passed | `METRICS/WORKSPACE-REDUCTION` |
+| SAFETY-EVIDENCE | passed | `FIX-02/LINK-SAFETY`, `EA-07/SIM`, `EA-09/UI` |
 
-The canonical ledger frontier is now pending gate package `GATE-01`. FIX-05 is
-the completed software prerequisite, and its Blackdog landing must succeed
-before the older `TASK-D2DFC053` GATE-01 history becomes current-eligible for
-exact lifecycle inspection or recovery. No competing GATE-01 task is authorized.
-The historical `TASK-2F141403` FIX-04 diagnostic remains removed-package
-history. No physical, hardware, remote-Git, Pilot rerun, or continuation decision
-occurred.
+The ordinary software/gate backlog now stops at `VAL-01`, the explicit
+attended-physical authorization boundary. `VAL-01` was not selected, started, or
+claimed. The older `TASK-D2DFC053` correction and historical `TASK-2F141403`
+FIX-04 diagnostic remain terminal history; neither owns current work. No
+physical, hardware, motion, observed-ink, or remote-Git action occurred.
+
+## GATE-01 Pilot continuation decision
+
+Executed 2026-08-31 in sole-owner Blackdog task `TASK-5E431BE7`, attempt
+`TASK-5E431BE7-59658505ced4`, from landed FIX-05 commit
+`52dd2df70d22eed9d741f118961cb4cca521b0ca`. The first exact Pilot invocation
+failed because its evidence reader incorrectly required detailed validation
+rows to repeat ledger order. EA-08B's complete historical section lists the same
+seven exact gates in a different order. The narrow repository repair now
+compares exact gate identity and cardinality while retaining duplicate, missing,
+nonpass, and unknown-gate failure behavior. Its focused unit suite passed 13/13.
+
+After staging the six previously pending predicate results against their exact
+existing evidence tokens, the live checker passed: `episode Pilot gate passed:
+9 predicates, 6 reduction metrics, 18 cutover scan sets`. No product Source or
+Swift Test changed, no critic was commissioned, and no QUICK, JOURNEY, STRICT,
+physical, or remote-Git gate was run for GATE-01.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts, Pilot units 13/13 in 0.126 seconds, metric units 9/9 in 1.447 seconds, capsule 35/35 in 18.373 seconds, and repository contract | GATE-01 completion synchronization |
+| `DIFF` | passed — `git diff --check`; clean | repository-only gate delta |
+| `PILOT` | passed — `sh Scripts/check_episode_pilot_gate.sh`; 9 predicates, 6 reduction metrics, 18 cutover scan sets | exact landed FIX-05 evidence and source topology |
+
+GATE-01 is a continuation decision only. It moves no authority and does not
+substitute software, simulation, or repository evidence for attended controller,
+camera, motion, pen, paper, operator-click, or observed-ink evidence. `VAL-01`
+remains pending and requires separate attended-physical authorization.
 
 ## FIX-05 root authority and Pilot-metric correction
 
@@ -106,10 +133,10 @@ composition/Vision lifecycle 6/6. There was no FIX-05 critic or critic recheck.
 | `QUICK` | passed — `make quick-test`; build 0.65 seconds and 820/820 in 15.150 seconds | frozen Sources and Tests identities |
 | `STRICT` | passed — `make strict-check`; strict build 36.79 seconds, strict test build 46.64 seconds, 830/830 in 16.415 seconds, app signing/launcher/bundle validation passed, metric units 9/9 in 1.502 seconds, capsule 35/35 in 17.939 seconds, and both contracts passed | exact FIX-05 candidate |
 
-This is staged semantic completion through the sole retained task. Canonical
-Git completion still requires successful Blackdog landing and cleanup. It does
+FIX-05 landed and cleaned through its sole retained task at canonical `main`
+commit `52dd2df70d22eed9d741f118961cb4cca521b0ca`. The FIX-05 package itself does
 not claim `PILOT`, a GATE-01 pass, attended physical evidence, or remote-Git
-action.
+action; the separate GATE-01 section above records the later decision.
 
 ## EA-11C final-composition staged completion transaction
 
@@ -2610,8 +2637,9 @@ This table is machine-checked against every `complete` row in the canonical
 execution-plan ledger. Gate names match each package's required gates exactly,
 and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
-stale task-local candidates. FIX-03, DOC-03, the later tranches, EA-11C, and
-FIX-05 have final completion evidence; `GATE-01` remains pending and unrun.
+stale task-local candidates. FIX-03, DOC-03, the later tranches, EA-11C,
+FIX-05, and GATE-01 have final completion evidence; `VAL-01` remains pending at
+the attended-physical authorization boundary.
 Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
@@ -2653,6 +2681,7 @@ Detailed scope and limitations remain in the named evidence sections.
 | TRANCHE-FINAL-COMPOSITION | `TASK-FFD5D897` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `CRITIC=passed` | EA-11C final-composition staged completion transaction |
 | EA-11C | `TASK-FFD5D897` | `BUILD=passed`, `COMPOSITION=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-11C final-composition staged completion transaction |
 | FIX-05 | `TASK-2BF894FC` | `BUILD=passed`, `COMPOSITION=passed`, `PILOT-METRICS=passed`, `AFFECTED-CONSUMERS=passed`, `DELETE=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed` | FIX-05 root authority and Pilot-metric correction |
+| GATE-01 | `TASK-5E431BE7` | `DOC=passed`, `DIFF=passed`, `PILOT=passed` | GATE-01 Pilot continuation decision |
 
 ## Wave admission blockers
 
@@ -2669,9 +2698,11 @@ correction. `TRANCHE-LEARNING` landed, and
 `3308e1bf2c19159be7b207226280f54b5ebf0662`, and
 `TRANCHE-FINAL-COMPOSITION` subsequently completed through `TASK-FFD5D897`, and
 FIX-05 completed through `TASK-2BF894FC`, attempt
-`TASK-2BF894FC-06f14a3e1a5b`. The active ordinary frontier is now `GATE-01`.
-That gate has not been rerun or claimed passed, and no later successor dispatch
-is authorized here.
+`TASK-2BF894FC-06f14a3e1a5b`, and GATE-01 completed through `TASK-5E431BE7`,
+attempt `TASK-5E431BE7-59658505ced4`. No ordinary software or gate package is
+eligible before `VAL-01`; the next frontier is an attended-physical
+authorization boundary, not a launchable wave. No later successor dispatch is
+authorized here.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

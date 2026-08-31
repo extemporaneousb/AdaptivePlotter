@@ -197,6 +197,21 @@ class PilotGateTests(unittest.TestCase):
         with self.assertRaisesRegex(pilot.GateError, "not final passed evidence"):
             pilot.evaluate(self.root)
 
+    def test_detailed_gate_order_does_not_override_ledger_gate_identity(self) -> None:
+        evidence = self.root / pilot.EVIDENCE
+        text = evidence.read_text(encoding="utf-8")
+        ordered = (
+            "| `DRAW-RUN` | passed — deterministic fixture | scope |\n"
+            "| `TASK-METRIC` | passed — deterministic fixture | scope |"
+        )
+        reordered = (
+            "| `TASK-METRIC` | passed — deterministic fixture | scope |\n"
+            "| `DRAW-RUN` | passed — deterministic fixture | scope |"
+        )
+        self.assertIn(ordered, text)
+        evidence.write_text(text.replace(ordered, reordered, 1), encoding="utf-8")
+        pilot.evaluate(self.root)
+
     def test_mismatched_predicate_link_fails_closed(self) -> None:
         self._replace(self.root / pilot.EVIDENCE, "`EA-05B/REPLAY`", "`EA-05A/RECORDING`")
         with self.assertRaisesRegex(pilot.GateError, "evidence mismatch"):

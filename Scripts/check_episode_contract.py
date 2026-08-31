@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "64205a8b6735105d258ea14d29e8b687d666ccffcbcf54de96a8cb6bcb44b1c8"
+EXPECTED_LEDGER_SHA256 = "0b5621959cc51250feb9cdc4d145d9174ce39c018c624e2a7931a14fae1f4e22"
 
 
 EXPECTED_GATES = {
@@ -231,6 +231,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "TRANCHE-FINAL-COMPOSITION",
     "EA-11C",
     "FIX-05",
+    "GATE-01",
 }
 
 TRANCHE_SLICES = {
@@ -2716,8 +2717,13 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "deletes the application-root stored `drawingRunFactSource`, `drawingRunInterpreterPort`, and `drawingRunCameraPort`",
         "`PlotterDrawingRunRuntime` now privately retains its one nominal facts, interpreter, camera, and Vision capabilities",
         "independent-admission-sites=18->2, workspace-task-owners=9->0, environment-mode-branches=2->0, direct-effect-calls=40->0, operator-workspace-policy-state=6->1, operator-workspace-adapters=7->7",
-        "The canonical ledger frontier is now pending gate package `GATE-01`",
+        "The ordinary software/gate backlog now stops at `VAL-01`, the explicit attended-physical authorization boundary",
         "does not claim `PILOT`, a GATE-01 pass, attended physical evidence, or remote-Git action",
+        "GATE-01 Pilot continuation decision",
+        "`TASK-5E431BE7`, attempt `TASK-5E431BE7-59658505ced4`",
+        "episode Pilot gate passed: 9 predicates, 6 reduction metrics, 18 cutover scan sets",
+        "No product Source or Swift Test changed, no critic was commissioned, and no QUICK, JOURNEY, STRICT, physical, or remote-Git gate was run for GATE-01",
+        "`VAL-01` remains pending and requires separate attended-physical authorization",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3054,17 +3060,17 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "GENERICITY": "passed",
         "REPLAY": "passed",
         "DEVICE-OWNERS": "passed",
-        "ENVIRONMENT-GRAMMAR": "pending",
-        "SAME-SLICE-DELETION": "pending",
-        "AUTHORITY-REDUCTION": "pending",
-        "OBSERVABILITY": "pending",
-        "WORKSPACE-REDUCTION": "pending",
-        "SAFETY-EVIDENCE": "pending",
+        "ENVIRONMENT-GRAMMAR": "passed",
+        "SAME-SLICE-DELETION": "passed",
+        "AUTHORITY-REDUCTION": "passed",
+        "OBSERVABILITY": "passed",
+        "WORKSPACE-REDUCTION": "passed",
+        "SAFETY-EVIDENCE": "passed",
     }
     if [row[0] for row in pilot_rows] != list(expected_pilot_results):
         fail("Pilot predicate order drifted")
     if {row[0]: row[1] for row in pilot_rows} != expected_pilot_results:
-        fail("GATE-01 predicates must remain pending except the three established foundations")
+        fail("GATE-01 predicate results drifted from the passed continuation decision")
 
     metric_rows = markdown_table(
         text, ["Reduction metric", "Baseline", "Current", "Requirement"]
@@ -3313,6 +3319,26 @@ def validate_wave_frontier(
 
     if selected is not None:
         fail(f"unexpected current ordinary wave frontier: {selected}")
+
+    if (
+        rows["GATE-01"]["status"] == "complete"
+        and rows["VAL-01"]["status"] == "pending"
+        and rows["VAL-01"]["class"] == "attended-physical"
+        and rows["VAL-01"]["dependencies"] == ["GATE-01"]
+    ):
+        for phrase in (
+            "GATE-01 Pilot continuation decision",
+            "`TASK-5E431BE7`, attempt `TASK-5E431BE7-59658505ced4`",
+            "episode Pilot gate passed: 9 predicates, 6 reduction metrics, 18 cutover scan sets",
+            "No ordinary software or gate package is eligible before `VAL-01`",
+            "attended-physical authorization boundary, not a launchable wave",
+            "`VAL-01` remains pending and requires separate attended-physical authorization",
+        ):
+            if phrase not in normalized:
+                fail(f"attended-physical frontier lacks GATE-01 evidence: {phrase}")
+        if blockers:
+            fail("attended-physical frontier must not retain an ordinary-wave blocker")
+        return
 
     first_eligible = first_eligible_ordinary(rows)
     if first_eligible is not None and first_eligible in blockers:

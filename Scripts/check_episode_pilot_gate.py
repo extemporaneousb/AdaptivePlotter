@@ -196,8 +196,11 @@ def validate_completion_evidence(
                     fail(f"duplicate detailed evidence for {package}/{gate}")
                 final_result(package, gate, result)
                 detailed[gate] = result
-        if list(detailed) != gates:
-            fail(f"missing or reordered detailed evidence for {package}: {list(detailed)}")
+        if len(detailed) != len(gates) or set(detailed) != set(gates):
+            fail(
+                f"detailed evidence gate mismatch for {package}: "
+                f"expected={gates}, found={list(detailed)}"
+            )
         rows[package] = gates
         tasks[package] = uncode(task)
     missing = [package for package in REQUIRED_PACKAGES if package not in rows]
