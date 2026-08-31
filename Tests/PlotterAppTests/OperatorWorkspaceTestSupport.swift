@@ -14,7 +14,7 @@ private let defaultTestLearningPathItemID =
   LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
 @MainActor
-extension OperatorWorkspace {
+extension PlotterApplicationRuntime {
   func testPlotterUIProjection(
     selectedItemID: LearningPathItemID = defaultTestLearningPathItemID,
     manualDraft: ManualMotionDraft = ManualMotionDraft(),
@@ -176,7 +176,7 @@ extension OperatorWorkspace {
 /// App composition fixture whose effect authority remains inside the
 /// production `PlotterCausalSimulatorEffectAdapter` owned by the workspace.
 struct CausalSimulatorAppFixture {
-  let workspace: OperatorWorkspace
+  let workspace: PlotterApplicationRuntime
   let simulator: CausalSimulatorProbe
   let penInteractionRuntime: PlotterPenInteractionRuntime
   let boundaryRuntime: PlotterBoundaryRuntime
@@ -247,7 +247,7 @@ func nominalPenInteractionRuntime(
   return PlotterPenInteractionComposition.makeRuntime(
     machineSession: machineSession,
     simulatedAdapter: composition.causalSimulatorEffectAdapter,
-    nowNanoseconds: { 1 }
+    clock: DeterministicRuntimeClock(startNanoseconds: 1)
   )
 }
 
@@ -334,10 +334,65 @@ func nominalBoundaryRuntime() -> PlotterBoundaryRuntime {
   )
 }
 
-func nominalAcceptedLearningPathCheckpointActions()
-  -> OperatorWorkspace.AcceptedLearningPathCheckpointActions
-{
-  .init(load: { .absent }, save: { _ in }, clear: {})
+struct TestApplicationStatePersistencePort: PlotterApplicationStatePersistencePort, Sendable {
+  let loadCheckpoint: @Sendable () -> AcceptedLearningPathCheckpointLoadResult
+  let saveCheckpoint: @Sendable (AcceptedLearningPathCheckpoint) throws -> Void
+  let clearCheckpoint: @Sendable () throws -> Void
+  let savePaperContext: @Sendable (PaperRevisionContext) throws -> Void
+
+  init(
+    loadCheckpoint: @escaping @Sendable () -> AcceptedLearningPathCheckpointLoadResult = {
+      .absent
+    },
+    saveCheckpoint: @escaping @Sendable (AcceptedLearningPathCheckpoint) throws -> Void = { _ in },
+    clearCheckpoint: @escaping @Sendable () throws -> Void = {},
+    savePaperContext: @escaping @Sendable (PaperRevisionContext) throws -> Void = { _ in }
+  ) {
+    self.loadCheckpoint = loadCheckpoint
+    self.saveCheckpoint = saveCheckpoint
+    self.clearCheckpoint = clearCheckpoint
+    self.savePaperContext = savePaperContext
+  }
+
+  func loadAcceptedLearningPathCheckpoint() -> AcceptedLearningPathCheckpointLoadResult {
+    loadCheckpoint()
+  }
+
+  func saveAcceptedLearningPathCheckpoint(
+    _ checkpoint: AcceptedLearningPathCheckpoint
+  ) throws {
+    try saveCheckpoint(checkpoint)
+  }
+
+  func clearAcceptedLearningPathCheckpoint() throws {
+    try clearCheckpoint()
+  }
+
+  func persistPaperRevisionContext(_ context: PaperRevisionContext) throws {
+    try savePaperContext(context)
+  }
+}
+
+struct TestApplicationResidualEffectPort: PlotterApplicationResidualEffectPort, Sendable {
+  let discoverDevices: @Sendable () -> [MachineLinkDescriptor]
+  let readNanoseconds: @Sendable () -> UInt64
+  let recordTelemetry: @Sendable (WorkflowTelemetryEvent) async -> Void
+
+  init(
+    discoverDevices: @escaping @Sendable () -> [MachineLinkDescriptor],
+    readNanoseconds: @escaping @Sendable () -> UInt64,
+    recordTelemetry: @escaping @Sendable (WorkflowTelemetryEvent) async -> Void = { _ in }
+  ) {
+    self.discoverDevices = discoverDevices
+    self.readNanoseconds = readNanoseconds
+    self.recordTelemetry = recordTelemetry
+  }
+
+  func discoverSerialDevices() -> [MachineLinkDescriptor] { discoverDevices() }
+  func nowNanoseconds() -> UInt64 { readNanoseconds() }
+  func recordWorkflowTelemetry(_ event: WorkflowTelemetryEvent) async {
+    await recordTelemetry(event)
+  }
 }
 
 struct TestObservationPreferencePort: PlotterObservationPreferencePort, @unchecked Sendable {
@@ -377,7 +432,7 @@ final class TestBoundaryRuntimeAccess {
 }
 
 @MainActor
-extension OperatorWorkspace {
+extension PlotterApplicationRuntime {
   var testAcceptedBoundaryAggregates: [BoundaryDirection: BoundarySideAggregate] {
     currentBoundarySnapshot?.acceptedAggregates ?? [:]
   }
@@ -442,8 +497,8 @@ func boundaryEpisodeDirection(_ direction: BoundaryDirection) -> PlotterBoundary
 @MainActor
 func makeCausalSimulatorAppFixture(
   observationSession: (any PlotterObservationCameraSessionPort)? = nil,
-  workflowTelemetry: WorkflowTelemetryFixture? = nil,
-  learningPathCheckpointActions: OperatorWorkspace.AcceptedLearningPathCheckpointActions? = nil,
+  statePersistencePort: (any PlotterApplicationStatePersistencePort)? = nil,
+  residualEffectPort: (any PlotterApplicationResidualEffectPort)? = nil,
   tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
   drawingDraftRuntime: PlotterDrawingDraftRuntime = nominalDrawingDraftRuntime(),
   simulatedExecutionPacing: any SimulatedLearningExecutionPacing =
@@ -480,39 +535,38 @@ func makeCausalSimulatorAppFixture(
   let penInteractionRuntime = nominalPenInteractionRuntime(
     manualMotionComposition: manualMotionComposition
   )
-  let checkpointActions = learningPathCheckpointActions
-    ?? nominalAcceptedLearningPathCheckpointActions()
+  let boundaryPersistencePort = statePersistencePort ?? TestApplicationStatePersistencePort()
+  let resolvedResidualEffectPort = residualEffectPort ?? TestApplicationResidualEffectPort(
+    discoverDevices: { [] },
+    readNanoseconds: { clock.next() }
+  )
   let speechEffectRuntime = PlotterSpeechEffectRuntime(announcer: ImmediateSpeechAnnouncer())
   let boundaryComposition = PlotterBoundaryComposition.make(
     machineSession: MachineSessionComposition.session,
     causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
-    checkpointActions: checkpointActions,
+    statePersistencePort: boundaryPersistencePort,
     speechEffectRuntime: speechEffectRuntime
   )
-  let workspace = OperatorWorkspace(
+  let workspace = PlotterApplicationRuntime(
       machineSession: nil,
       observationSession: resolvedObservationPort,
       manualMotionComposition: manualMotionComposition,
       penInteractionRuntime: penInteractionRuntime,
       boundaryRuntime: boundaryComposition.runtime,
       speechEffectRuntime: speechEffectRuntime,
-      acceptedLearningPathCheckpointActions: learningPathCheckpointActions,
+      statePersistencePort: statePersistencePort,
       drawingDraftRuntime: drawingDraftRuntime,
       drawingRunComposition: nominalDrawingRunComposition(
         observationSession: resolvedObservationPort
       ),
       incidentPackageUIService: nominalIncidentPackageUIService(),
       tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
-      workflowTelemetryActions: workflowTelemetry.map { fixture in
-        .init(record: { await fixture.record($0) })
-      },
+      residualEffectPort: resolvedResidualEffectPort,
       serialDevices: [],
-      serialDeviceDiscovery: { [] },
       observationPreferences: TestObservationPreferencePort(
         loadPenCap: { testPenCapAppearanceSelection() },
         loadOverlays: { Set(UserSceneOverlay.allCases) }
-      ),
-      nowNanoseconds: { clock.next() }
+      )
     )
   boundaryComposition.install(on: workspace)
   return CausalSimulatorAppFixture(
@@ -527,7 +581,7 @@ func makeCausalSimulatorAppFixture(
 func requireEnabledPublicAction(
   _ kind: ExerciseActionKind,
   owner: LearningPathItemID,
-  workspace: OperatorWorkspace
+  workspace: PlotterApplicationRuntime
 ) throws {
   let presentation = workspace.selectedOperatorActionPresentation(for: owner)
   let action = try #require(
@@ -566,7 +620,7 @@ func selectPublicDirection(
   _ direction: BoundaryDirection,
   purpose: ExerciseDirectionSelectionPurpose,
   owner: LearningPathItemID,
-  workspace: OperatorWorkspace
+  workspace: PlotterApplicationRuntime
 ) async throws {
   let selection = try #require(
     workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.directionSelection,
@@ -585,7 +639,7 @@ func submitRenderedBoundaryAcquisition(
   _ direction: BoundaryDirection,
   mode: PlotterBoundaryAttemptMode = .normal,
   owner: LearningPathItemID,
-  workspace: OperatorWorkspace
+  workspace: PlotterApplicationRuntime
 ) async throws {
   try await selectPublicDirection(
     direction,
@@ -603,7 +657,7 @@ func submitRenderedBoundaryAcquisition(
 @MainActor
 func renderedBoundaryStopKind(
   owner: LearningPathItemID,
-  workspace: OperatorWorkspace
+  workspace: PlotterApplicationRuntime
 ) throws -> ExerciseActionKind {
   let kind = try #require(
     workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions.first {
@@ -619,7 +673,7 @@ func renderedBoundaryStopKind(
 @MainActor
 func submitRenderedBoundaryStop(
   owner: LearningPathItemID,
-  workspace: OperatorWorkspace
+  workspace: PlotterApplicationRuntime
 ) async throws {
   await workspace.performTestExerciseAction(
     try renderedBoundaryStopKind(owner: owner, workspace: workspace),
@@ -630,7 +684,7 @@ func submitRenderedBoundaryStop(
 @MainActor
 func waitForBoundaryTerminalCount(
   _ count: Int,
-  workspace: OperatorWorkspace
+  workspace: PlotterApplicationRuntime
 ) async throws {
   try await BoundaryTerminalObservationWaiter(count: count, workspace: workspace).wait()
 }
@@ -642,11 +696,11 @@ private final class BoundaryTerminalObservationWaiter {
   }
 
   private let count: Int
-  private let workspace: OperatorWorkspace
+  private let workspace: PlotterApplicationRuntime
   private var continuation: CheckedContinuation<Void, any Error>?
   private var deadlineTask: Task<Void, Never>?
 
-  init(count: Int, workspace: OperatorWorkspace) {
+  init(count: Int, workspace: PlotterApplicationRuntime) {
     self.count = count
     self.workspace = workspace
   }
@@ -692,7 +746,7 @@ private final class BoundaryTerminalObservationWaiter {
 
 @MainActor
 func waitForAcceptedBoundaryCenterArrival(
-  workspace: OperatorWorkspace
+  workspace: PlotterApplicationRuntime
 ) async throws {
   try await BoundaryCenterTerminalObservationWaiter(workspace: workspace).wait()
 }
@@ -703,11 +757,11 @@ private final class BoundaryCenterTerminalObservationWaiter {
     case timedOut
   }
 
-  private let workspace: OperatorWorkspace
+  private let workspace: PlotterApplicationRuntime
   private var continuation: CheckedContinuation<Void, any Error>?
   private var deadlineTask: Task<Void, Never>?
 
-  init(workspace: OperatorWorkspace) {
+  init(workspace: PlotterApplicationRuntime) {
     self.workspace = workspace
   }
 
@@ -930,7 +984,7 @@ func boundaryCheckpointProbe(position: MachinePosition) -> PassiveProbeResult {
 @MainActor
 func installAcceptedBoundaryTestProjection(
   runtime: PlotterBoundaryRuntime,
-  workspace: OperatorWorkspace,
+  workspace: PlotterApplicationRuntime,
   environment: PlotterEnvironment,
   centerArrivalIsAccepted: Bool = true
 ) async throws {
@@ -947,7 +1001,7 @@ func installAcceptedBoundaryTestProjection(
 
 @MainActor
 func completeSimulatedPenInteractionPrerequisite(
-  _ workspace: OperatorWorkspace
+  _ workspace: PlotterApplicationRuntime
 ) async throws {
   await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
   await submitControllerSession(workspace, .toggleConnection)
@@ -981,7 +1035,7 @@ func completeSimulatedPenInteractionPrerequisite(
 
 @MainActor
 func completeSimulatedTipCalibration(
-  _ workspace: OperatorWorkspace,
+  _ workspace: PlotterApplicationRuntime,
   simulator: CausalSimulatorProbe
 ) async throws {
   let registrationOwner = LearningPathItemID.humanGuidedDiscovery(
@@ -1046,7 +1100,7 @@ func completeSimulatedTipCalibration(
 
 @MainActor
 func submitPointSelection(
-  _ workspace: OperatorWorkspace,
+  _ workspace: PlotterApplicationRuntime,
   request: PlotterPointSelectionRequest,
   point: Point2<CameraPixelSpace>
 ) {
@@ -1062,7 +1116,7 @@ func submitPointSelection(
 
 @MainActor
 func submitPointSelectionAndWait(
-  _ workspace: OperatorWorkspace,
+  _ workspace: PlotterApplicationRuntime,
   request: PlotterPointSelectionRequest,
   point: Point2<CameraPixelSpace>
 ) async throws {
@@ -1091,7 +1145,7 @@ private struct PointSelectionTestRefusal: Error, CustomStringConvertible {
 
 @MainActor
 private final class PointSelectionProjectionObservationWaiter {
-  private let workspace: OperatorWorkspace
+  private let workspace: PlotterApplicationRuntime
   private let priorProjectionRevision: PlotterProjectionRevision
   private let acceptedCount: Int
   private let requiresProposal: Bool
@@ -1099,7 +1153,7 @@ private final class PointSelectionProjectionObservationWaiter {
   private var deadlineTask: Task<Void, Never>?
 
   init(
-    workspace: OperatorWorkspace,
+    workspace: PlotterApplicationRuntime,
     priorProjectionRevision: PlotterProjectionRevision,
     acceptedCount: Int,
     requiresProposal: Bool
@@ -1185,7 +1239,7 @@ func exactPointSelectionFrame(_ frame: DisplayedFrame) -> PlotterExactFrameRefer
 }
 
 @MainActor
-func requireStep(_ workspace: OperatorWorkspace, _ expected: String) throws {
+func requireStep(_ workspace: PlotterApplicationRuntime, _ expected: String) throws {
   let actual = workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
   guard actual == expected else {
     throw StepMismatch(expected: expected, actual: actual ?? "nil")
@@ -1195,7 +1249,7 @@ func requireStep(_ workspace: OperatorWorkspace, _ expected: String) throws {
 @MainActor
 @discardableResult
 func submitControllerSession(
-  _ workspace: OperatorWorkspace,
+  _ workspace: PlotterApplicationRuntime,
   _ intent: PlotterControllerSessionIntent
 ) async -> PlotterControllerSessionDisposition {
   await workspace.submitControllerSessionRequest(
@@ -1205,7 +1259,7 @@ func submitControllerSession(
 
 @MainActor
 func submitObservationConfigurationForTest(
-  _ workspace: OperatorWorkspace,
+  _ workspace: PlotterApplicationRuntime,
   _ intent: PlotterObservationOperatorIntent
 ) async {
   let projection = workspace.observationConfigurationProjection
@@ -1213,7 +1267,43 @@ func submitObservationConfigurationForTest(
 }
 
 @MainActor
-func workspace(
+struct PlotterApplicationFixture {
+  let application: PlotterApplicationRuntime
+  let machine: LowerMachineSessionFixture
+  let eventLog: EventLog
+
+  init(
+    observationSessionOverride: (any PlotterObservationCameraSessionPort)? = nil,
+    statePersistencePort: (any PlotterApplicationStatePersistencePort)? = nil,
+    tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
+    residualEffectPort: (any PlotterApplicationResidualEffectPort)? = nil,
+    loadPenCapAppearanceSelection:
+      @escaping @Sendable () -> PenCapAppearanceSelection? = { testPenCapAppearanceSelection() }
+  ) throws {
+    let eventLog = EventLog()
+    let machine = try LowerMachineSessionFixture(log: eventLog)
+    let observationSession: any PlotterObservationCameraSessionPort
+    if let observationSessionOverride {
+      observationSession = observationSessionOverride
+    } else {
+      observationSession = resolvedObservationSession(try TestObservationCameraSession())
+    }
+    self.eventLog = eventLog
+    self.machine = machine
+    application = plotterApplicationRuntime(
+      machine: machine,
+      observationSessionOverride: observationSession,
+      statePersistencePort: statePersistencePort,
+      tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
+      residualEffectPort: residualEffectPort,
+      loadPenCapAppearanceSelection: loadPenCapAppearanceSelection,
+      log: eventLog
+    )
+  }
+}
+
+@MainActor
+func plotterApplicationRuntime(
   machine: LowerMachineSessionFixture,
   camera: TestObservationCameraSession? = nil,
   observationSessionOverride: (any PlotterObservationCameraSessionPort)? = nil,
@@ -1224,11 +1314,10 @@ func workspace(
     )? = nil,
   jogCancel: (@Sendable (JogCancelIntent) async -> JogCancelOutcome)? = nil,
   speechAnnouncer: (any SpeechAnnouncing)? = nil,
-  learningPathCheckpointActions: OperatorWorkspace.AcceptedLearningPathCheckpointActions? = nil,
-  persistPaperRevisionContext: @escaping @Sendable (PaperRevisionContext) throws -> Void = { _ in },
+  statePersistencePort: (any PlotterApplicationStatePersistencePort)? = nil,
   drawingDraftRuntime: PlotterDrawingDraftRuntime = nominalDrawingDraftRuntime(),
   tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
-  workflowTelemetry: WorkflowTelemetryFixture? = nil,
+  residualEffectPort: (any PlotterApplicationResidualEffectPort)? = nil,
   penInteractionRuntimeFactory:
     (((any PlotterMachineSession), PlotterManualMotionRuntimeComposition)
       -> PlotterPenInteractionRuntime)? = nil,
@@ -1240,7 +1329,7 @@ func workspace(
   loadOverlayPreference: @escaping @Sendable () -> Set<UserSceneOverlay>? = { nil },
   persistOverlayPreference: @escaping @Sendable (Set<UserSceneOverlay>) -> Void = { _ in },
   log _: EventLog
-) -> OperatorWorkspace {
+) -> PlotterApplicationRuntime {
   let clock = TestClock()
   let beginBoundaryMotion =
     boundaryMotionBegin ?? { @Sendable request, _ in
@@ -1308,25 +1397,28 @@ func workspace(
     machineSession: machineSession,
     manualMotionComposition: manualMotionComposition
   )
-  let checkpointActions = learningPathCheckpointActions
-    ?? nominalAcceptedLearningPathCheckpointActions()
+  let boundaryPersistencePort = statePersistencePort ?? TestApplicationStatePersistencePort()
+  let resolvedResidualEffectPort = residualEffectPort ?? TestApplicationResidualEffectPort(
+    discoverDevices: { [machine.descriptor] },
+    readNanoseconds: { clock.next() }
+  )
   let speechEffectRuntime = PlotterSpeechEffectRuntime(
     announcer: speechAnnouncer ?? ImmediateSpeechAnnouncer()
   )
   let boundaryComposition = PlotterBoundaryComposition.make(
     machineSession: machineSession,
     causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
-    checkpointActions: checkpointActions,
+    statePersistencePort: boundaryPersistencePort,
     speechEffectRuntime: speechEffectRuntime
   )
-  let workspace = OperatorWorkspace(
+  let workspace = PlotterApplicationRuntime(
     machineSession: machineSession,
     observationSession: resolvedObservationPort,
     manualMotionComposition: manualMotionComposition,
     penInteractionRuntime: penInteractionRuntime,
     boundaryRuntime: boundaryComposition.runtime,
     speechEffectRuntime: speechEffectRuntime,
-    acceptedLearningPathCheckpointActions: learningPathCheckpointActions,
+    statePersistencePort: statePersistencePort,
     drawingDraftRuntime: drawingDraftRuntime,
     drawingRunComposition: nominalDrawingRunComposition(
       machineSession: machineSession,
@@ -1334,19 +1426,14 @@ func workspace(
     ),
     incidentPackageUIService: nominalIncidentPackageUIService(),
     tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
-    persistPaperRevisionContext: persistPaperRevisionContext,
-    workflowTelemetryActions: workflowTelemetry.map { fixture in
-      .init(record: { await fixture.record($0) })
-    },
+    residualEffectPort: resolvedResidualEffectPort,
     serialDevices: [machine.descriptor],
-    serialDeviceDiscovery: { [machine.descriptor] },
     observationPreferences: TestObservationPreferencePort(
       loadPenCap: loadPenCapAppearanceSelection,
       clearPenCap: { persistPenCapAppearanceSelection(nil) },
       loadOverlays: loadOverlayPreference,
       persistOverlays: persistOverlayPreference
-    ),
-    nowNanoseconds: { clock.next() }
+    )
   )
   boundaryComposition.install(on: workspace)
   boundaryRuntimeAccess?.install(boundaryComposition.runtime)
@@ -1385,6 +1472,7 @@ func resolvedObservationSession(
   },
   inspectionGate: TestInspectionSuspension? = nil,
   reconfigurationGate: TestConfigurationSuspension? = nil,
+  startupGate: TestConfigurationSuspension? = nil,
   snapshotProvider: (@Sendable () async -> CameraCaptureSnapshot)? = nil,
   restartProvider: (@Sendable () async -> CameraCaptureSnapshot)? = nil
 ) -> any PlotterObservationCameraSessionPort {
@@ -1393,6 +1481,7 @@ func resolvedObservationSession(
     analysisUpdates: analysisUpdates,
     inspectionSuspension: inspectionGate,
     configurationSuspension: reconfigurationGate,
+    startupSuspension: startupGate,
     snapshotProvider: snapshotProvider,
     restartProvider: restartProvider
   )
@@ -1405,6 +1494,7 @@ private final class TestObservationCameraSessionPort:
   let analysisUpdateSource: @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot>
   let inspectionSuspension: TestInspectionSuspension?
   let configurationSuspension: TestConfigurationSuspension?
+  let startupSuspension: TestConfigurationSuspension?
   let snapshotProvider: (@Sendable () async -> CameraCaptureSnapshot)?
   let restartProvider: (@Sendable () async -> CameraCaptureSnapshot)?
 
@@ -1413,6 +1503,7 @@ private final class TestObservationCameraSessionPort:
     analysisUpdates: @escaping @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot>,
     inspectionSuspension: TestInspectionSuspension?,
     configurationSuspension: TestConfigurationSuspension?,
+    startupSuspension: TestConfigurationSuspension?,
     snapshotProvider: (@Sendable () async -> CameraCaptureSnapshot)?,
     restartProvider: (@Sendable () async -> CameraCaptureSnapshot)?
   ) {
@@ -1420,6 +1511,7 @@ private final class TestObservationCameraSessionPort:
     analysisUpdateSource = analysisUpdates
     self.inspectionSuspension = inspectionSuspension
     self.configurationSuspension = configurationSuspension
+    self.startupSuspension = startupSuspension
     self.snapshotProvider = snapshotProvider
     self.restartProvider = restartProvider
   }
@@ -1428,7 +1520,10 @@ private final class TestObservationCameraSessionPort:
   func select(_ id: CameraDeviceID) async throws -> CameraCaptureSnapshot {
     fixture.selectResponse()
   }
-  func start() async -> CameraCaptureSnapshot { fixture.startResponse() }
+  func start() async -> CameraCaptureSnapshot {
+    await startupSuspension?.waitIfArmed()
+    return fixture.startResponse()
+  }
   func stop() async -> CameraCaptureSnapshot { await snapshot() }
   func restart() async -> CameraCaptureSnapshot {
     if let restartProvider { return await restartProvider() }
@@ -1445,6 +1540,8 @@ private final class TestObservationCameraSessionPort:
     analysisRegion: PixelRect?
   ) async throws -> LiveSceneInspection? {
     await inspectionSuspension?.waitIfArmed()
+    if Task.isCancelled { await inspectionSuspension?.recordCancellation() }
+    try Task.checkCancellation()
     return try fixture.inspection(
       after: boundary,
       features: requestedFeatures,
@@ -1452,7 +1549,10 @@ private final class TestObservationCameraSessionPort:
     )
   }
   func captureFrame(newerThanNanoseconds boundary: UInt64) async throws -> DisplayedFrame? {
-    try fixture.inspection(after: boundary).displayedFrame
+    await inspectionSuspension?.waitIfArmed()
+    if Task.isCancelled { await inspectionSuspension?.recordCancellation() }
+    try Task.checkCancellation()
+    return try fixture.inspection(after: boundary).displayedFrame
   }
   func captureStableWorkflowCap(
     _ request: StableWorkflowCapCaptureRequest
@@ -1462,6 +1562,8 @@ private final class TestObservationCameraSessionPort:
     for _ in 0..<FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount {
       try Task.checkCancellation()
       await inspectionSuspension?.waitIfArmed()
+      if Task.isCancelled { await inspectionSuspension?.recordCancellation() }
+      try Task.checkCancellation()
       let inspection = try fixture.inspection(
         after: boundary,
         features: [.penCap],
@@ -1511,6 +1613,7 @@ private final class TestObservationCameraSessionPort:
 actor TestInspectionSuspension {
   private var isArmed = false
   private var continuation: CheckedContinuation<Void, Never>?
+  private(set) var cancellationWasObserved = false
 
   var isWaiting: Bool { continuation != nil }
 
@@ -1530,6 +1633,10 @@ actor TestInspectionSuspension {
   func release() {
     continuation?.resume()
     continuation = nil
+  }
+
+  func recordCancellation() {
+    cancellationWasObserved = true
   }
 }
 
@@ -1562,6 +1669,48 @@ actor EventLog {
   private(set) var values: [String] = []
   func append(_ value: String) { values.append(value) }
   func clear() { values.removeAll(keepingCapacity: true) }
+}
+
+final class SynchronousEventLog: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage: [String] = []
+
+  var values: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return storage
+  }
+
+  func append(_ value: String) {
+    lock.lock()
+    storage.append(value)
+    lock.unlock()
+  }
+}
+
+final class SynchronousCallCounter: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage = 0
+
+  var value: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return storage
+  }
+
+  @discardableResult
+  func increment() -> Int {
+    lock.lock()
+    storage += 1
+    let result = storage
+    lock.unlock()
+    return result
+  }
+}
+
+actor AsyncCompletionProbe {
+  private(set) var isComplete = false
+  func complete() { isComplete = true }
 }
 
 final class TestClock: @unchecked Sendable {

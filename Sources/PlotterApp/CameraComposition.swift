@@ -4,7 +4,7 @@ import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
 
-struct OperatorWorkspaceDrawingRunCameraPort:
+struct PlotterApplicationRuntimeDrawingRunCameraPort:
   PlotterDrawingRunCameraPort, PlotterDrawingRunVisionPort
 {
   let session: any PlotterObservationCameraSessionPort
@@ -130,14 +130,33 @@ enum CameraComposition {
     CameraSourceSession()
   }
 }
-func boundedlyAwaitNewestCameraValue<Value: Sendable>(
+
+protocol CameraNewestValueLoader: Sendable {
+  associatedtype Value: Sendable
+
+  func loadNewestValue() async throws -> Value?
+}
+
+struct CameraMaterializedFrameLoader: CameraNewestValueLoader {
+  let capture: CameraCapture
+  let newerThanNanoseconds: UInt64
+
+  func loadNewestValue() async throws -> DisplayedFrame? {
+    try await capture.materializeLatestFrame(
+      newerThanNanoseconds: newerThanNanoseconds,
+      policy: .returnOnly
+    )
+  }
+}
+
+func boundedlyAwaitNewestCameraValue<Loader: CameraNewestValueLoader>(
   maximumAttempts: Int = 40,
   pollIntervalNanoseconds: UInt64 = 25_000_000,
-  load: @Sendable () async throws -> Value?
-) async throws -> Value? {
+  loader: Loader
+) async throws -> Loader.Value? {
   precondition(maximumAttempts > 0)
   for attempt in 0..<maximumAttempts {
-    if let value = try await load() { return value }
+    if let value = try await loader.loadNewestValue() { return value }
     guard attempt + 1 < maximumAttempts else { return nil }
     try await Task.sleep(nanoseconds: pollIntervalNanoseconds)
   }
@@ -243,6 +262,88 @@ struct CameraSourceSessionVisionLeaseScope: Sendable {
   }
 }
 
+protocol CameraSourceSessionVisionLeaseOperation: Sendable {
+  associatedtype Output: Sendable
+
+  func perform(
+    in scope: CameraSourceSessionVisionLeaseScope
+  ) async throws -> Output
+}
+
+struct CameraWorkflowSceneInspectionLeaseOperation: CameraSourceSessionVisionLeaseOperation {
+  let newerThanNanoseconds: UInt64
+  let requestedFeatures: SceneFeatureSet
+  let analysisRegion: PixelRect?
+
+  func perform(
+    in scope: CameraSourceSessionVisionLeaseScope
+  ) async throws -> LiveSceneInspection? {
+    try await scope.inspectWorkflowScene(
+      newerThanNanoseconds: newerThanNanoseconds,
+      requestedFeatures: requestedFeatures,
+      analysisRegion: analysisRegion
+    )
+  }
+}
+
+struct CameraStableWorkflowCapLeaseOperation: CameraSourceSessionVisionLeaseOperation {
+  let request: StableWorkflowCapCaptureRequest
+
+  func perform(
+    in scope: CameraSourceSessionVisionLeaseScope
+  ) async throws -> StableWorkflowCapInspection {
+    var boundary = request.newerThanNanoseconds
+    var samples: [StableWorkflowCapInspection] = []
+    samples.reserveCapacity(FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount)
+
+    for _ in 0..<FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount {
+      try Task.checkCancellation()
+      guard
+        let inspection = try await scope.inspectWorkflowScene(
+          newerThanNanoseconds: boundary,
+          requestedFeatures: [.penCap],
+          analysisRegion: nil
+        ),
+        inspection.displayedFrame.frame.captureNanoseconds > boundary
+      else {
+        throw LearningPathOperationError.freshFrameUnavailable
+      }
+      guard case .found(let cap, _) = inspection.measurement.penCap else {
+        throw LearningPathOperationError.requiredState(
+          "Pen-cap measurement refused: \(inspection.measurement.penCap.diagnosticReason)."
+        )
+      }
+      samples.append(StableWorkflowCapInspection(inspection: inspection, cap: cap))
+      boundary = inspection.displayedFrame.frame.captureNanoseconds
+      try Task.checkCancellation()
+    }
+
+    let selected = try FixedCameraOpticalSettlingPolicy.newestStableCapSample(samples)
+    try Task.checkCancellation()
+    _ = try await scope.publishValidatedFrame(selected.inspection.displayedFrame)
+    return selected
+  }
+}
+
+protocol CameraPlannedDrawingObserverPort: Sendable {
+  func observePlannedDrawingInk(
+    _ request: PlannedDrawingObservationRequest
+  ) async -> PlannedDrawingObservationOutcome
+}
+
+extension VisionWorker: CameraPlannedDrawingObserverPort {}
+
+struct CameraPlannedDrawingObservationLeaseOperation: CameraSourceSessionVisionLeaseOperation {
+  let observer: any CameraPlannedDrawingObserverPort
+  let request: PlannedDrawingObservationRequest
+
+  func perform(
+    in _: CameraSourceSessionVisionLeaseScope
+  ) async throws -> PlannedDrawingObservationOutcome {
+    await observer.observePlannedDrawingInk(request)
+  }
+}
+
 actor CameraSourceSession: PlotterObservationCameraSessionPort {
   private struct VisionComputationLease: Sendable {
     let id: UUID
@@ -258,8 +359,7 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
   private let live: CameraCapture
   private let vision: VisionWorker
   private let analysisPipeline: PlotterSceneAnalysisPipeline
-  private let plannedDrawingObserver:
-    @Sendable (PlannedDrawingObservationRequest) async -> PlannedDrawingObservationOutcome
+  private let plannedDrawingObserver: any CameraPlannedDrawingObserverPort
   private var automaticInspectionFrameTask: Task<Void, Never>?
   private var automaticInspectionCadence: VisionAnalysisCadence?
   private var automaticInspectionFeatures: SceneFeatureSet = []
@@ -285,9 +385,7 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     self.live = live
     self.vision = vision
     self.analysisPipeline = analysisPipeline
-    plannedDrawingObserver = { request in
-      await vision.observePlannedDrawingInk(request)
-    }
+    plannedDrawingObserver = vision
   }
 
   /// Internal composition seam for deterministic lifecycle tests. Production
@@ -296,9 +394,7 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     live: CameraCapture,
     vision: VisionWorker,
     analysisPipeline: PlotterSceneAnalysisPipeline,
-    plannedDrawingObserver: @escaping @Sendable (
-      PlannedDrawingObservationRequest
-    ) async -> PlannedDrawingObservationOutcome
+    plannedDrawingObserver: any CameraPlannedDrawingObserverPort
   ) {
     self.live = live
     self.vision = vision
@@ -373,86 +469,51 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
   ) async throws
     -> LiveSceneInspection?
   {
-    try await withExclusiveVisionLease { scope in
-      try await scope.inspectWorkflowScene(
-        newerThanNanoseconds: boundary,
-        requestedFeatures: requestedFeatures,
-        analysisRegion: analysisRegion
-      )
-    }
+    try await withExclusiveVisionLease(CameraWorkflowSceneInspectionLeaseOperation(
+      newerThanNanoseconds: boundary,
+      requestedFeatures: requestedFeatures,
+      analysisRegion: analysisRegion
+    ))
   }
 
   func captureFrame(newerThanNanoseconds boundary: UInt64) async throws -> DisplayedFrame? {
-    try await boundedlyAwaitNewestCameraValue {
-      try await self.live.materializeLatestFrame(
-        newerThanNanoseconds: boundary,
-        policy: .returnOnly
-      )
-    }
+    try await boundedlyAwaitNewestCameraValue(loader: CameraMaterializedFrameLoader(
+      capture: live,
+      newerThanNanoseconds: boundary
+    ))
   }
 
   func captureStableWorkflowCap(
     _ request: StableWorkflowCapCaptureRequest
   ) async throws -> StableWorkflowCapInspection {
-    try await withExclusiveVisionLease { scope in
-      var boundary = request.newerThanNanoseconds
-      var samples: [StableWorkflowCapInspection] = []
-      samples.reserveCapacity(FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount)
-
-      for _ in 0..<FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount {
-        try Task.checkCancellation()
-        guard
-          let inspection = try await scope.inspectWorkflowScene(
-            newerThanNanoseconds: boundary,
-            requestedFeatures: [.penCap],
-            analysisRegion: nil
-          ),
-          inspection.displayedFrame.frame.captureNanoseconds > boundary
-        else {
-          throw LearningPathOperationError.freshFrameUnavailable
-        }
-        guard case .found(let cap, _) = inspection.measurement.penCap else {
-          throw LearningPathOperationError.requiredState(
-            "Pen-cap measurement refused: \(inspection.measurement.penCap.diagnosticReason)."
-          )
-        }
-        samples.append(StableWorkflowCapInspection(inspection: inspection, cap: cap))
-        boundary = inspection.displayedFrame.frame.captureNanoseconds
-        try Task.checkCancellation()
-      }
-
-      let selected = try FixedCameraOpticalSettlingPolicy.newestStableCapSample(samples)
-      try Task.checkCancellation()
-      _ = try await scope.publishValidatedFrame(selected.inspection.displayedFrame)
-      return selected
-    }
+    try await withExclusiveVisionLease(CameraStableWorkflowCapLeaseOperation(request: request))
   }
 
   func observePlannedDrawingInk(
     _ request: PlannedDrawingObservationRequest
   ) async -> PlannedDrawingObservationOutcome {
     do {
-      return try await withExclusiveVisionLease { _ in
-        await self.plannedDrawingObserver(request)
-      }
+      return try await withExclusiveVisionLease(CameraPlannedDrawingObservationLeaseOperation(
+        observer: plannedDrawingObserver,
+        request: request
+      ))
     } catch {
       preconditionFailure("A nonthrowing planned-observation body unexpectedly threw: \(error)")
     }
   }
 
-  /// Runs a caller-supplied async batch while one real preview/automatic-
+  /// Runs a nominal async batch while one real preview/automatic-
   /// analysis lease remains held. The operation result is retained locally so
   /// settlement is awaited exactly once before success, failure, or
   /// cancellation is returned to the caller.
-  func withExclusiveVisionLease<Output: Sendable>(
-    _ operation: @escaping @Sendable (CameraSourceSessionVisionLeaseScope) async throws
-      -> Output
-  ) async throws -> Output {
+  func withExclusiveVisionLease<Operation: CameraSourceSessionVisionLeaseOperation>(
+    _ operation: Operation
+  ) async throws -> Operation.Output {
     let lease = await beginExclusiveVisionComputation()
     let scope = CameraSourceSessionVisionLeaseScope(session: self, leaseID: lease.id)
-    let operationResult: Result<Output, Error>
+    let operationResult: Result<Operation.Output, Error>
     do {
-      operationResult = .success(try await operation(scope))
+      operationResult = .success(try await operation.perform(in: scope))
     } catch {
       operationResult = .failure(error)
     }
@@ -478,12 +539,10 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     }
     guard
       let displayedFrame = try await boundedlyAwaitNewestCameraValue(
-        load: {
-          try await self.live.materializeLatestFrame(
-            newerThanNanoseconds: boundary,
-            policy: .returnOnly
-          )
-        }
+        loader: CameraMaterializedFrameLoader(
+          capture: live,
+          newerThanNanoseconds: boundary
+        )
       )
     else { return nil }
     let measurement = try await vision.inspectPlotterScene(
@@ -502,12 +561,10 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     guard activeVisionComputationLeaseIDs.contains(leaseID) else {
       throw CameraSourceSessionVisionLeaseError.inactiveLease
     }
-    return try await boundedlyAwaitNewestCameraValue {
-      try await self.live.materializeLatestFrame(
-        newerThanNanoseconds: boundary,
-        policy: .returnOnly
-      )
-    }
+    return try await boundedlyAwaitNewestCameraValue(loader: CameraMaterializedFrameLoader(
+      capture: live,
+      newerThanNanoseconds: boundary
+    ))
   }
 
   fileprivate func publishValidatedFrameHoldingLease(

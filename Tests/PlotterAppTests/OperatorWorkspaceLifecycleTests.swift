@@ -7,7 +7,7 @@ import PlotterModel
 
 @Suite("Operator workspace typed lifecycle", .serialized)
 @MainActor
-struct OperatorWorkspaceLifecycleTests {
+struct PlotterApplicationRuntimeLifecycleTests {
   @Test("top motion action enables and disables simulated authorization")
   func motionAuthorizationActionToggles() async {
     let harness = makeCausalSimulatorAppFixture()

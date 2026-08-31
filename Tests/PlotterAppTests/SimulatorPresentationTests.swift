@@ -115,7 +115,7 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
   #expect(raised.effectResult == nil)
   #expect(raised.refusal == nil)
 
-  let workspace = OperatorWorkspace(
+  let workspace = PlotterApplicationRuntime(
     observationSession: CameraComposition.makeIsolatedObservationSessionForTesting(),
     manualMotionComposition: composition,
     penInteractionRuntime: nominalPenInteractionRuntime(
@@ -125,8 +125,8 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
     drawingDraftRuntime: nominalDrawingDraftRuntime(),
     drawingRunComposition: nominalDrawingRunComposition(),
     incidentPackageUIService: nominalIncidentPackageUIService(),
+    residualEffectPort: SimulatorPresentationResidualEffectPort(),
     serialDevices: [],
-    serialDeviceDiscovery: { [] },
   )
   await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
   let beforeFrame = try #require(workspace.displayedFrame?.frame)
@@ -143,4 +143,12 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
   #expect(afterSnapshot.persistentInkSegmentCount == beforeSnapshot.persistentInkSegmentCount)
   #expect(await runtime.persistentInk() == beforeInk)
   #expect(workspace.displayedFrame?.source == .simulated)
+}
+
+private struct SimulatorPresentationResidualEffectPort: PlotterApplicationResidualEffectPort {
+  let discovery = PlotterFixedSerialDeviceDiscoveryAdapter(devices: [])
+
+  func discoverSerialDevices() -> [MachineLinkDescriptor] {
+    discovery.discoverSerialDevices()
+  }
 }

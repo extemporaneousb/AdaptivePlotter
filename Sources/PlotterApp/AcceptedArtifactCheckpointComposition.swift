@@ -2,7 +2,7 @@ import Foundation
 import PlotterRuntime
 
 enum AcceptedArtifactCheckpointComposition {
-  static let actions: OperatorWorkspace.AcceptedLearningPathCheckpointActions = {
+  static let statePersistencePort: any PlotterApplicationStatePersistencePort = {
     let fileManager = FileManager.default
     let base =
       (try? fileManager.url(
@@ -24,12 +24,36 @@ enum AcceptedArtifactCheckpointComposition {
       tipURL: directory.appendingPathComponent("accepted-tip-calibration-v1.json"),
       semanticIdentity: TipCalibrationSemanticIdentityComposition.state.learningPathIdentity
     )
-    return OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { migration.migrateIfNeeded().checkpointLoadResult },
-      save: { try store.save($0) },
-      clear: { try store.clear() }
+    return AcceptedArtifactCheckpointStatePersistenceAdapter(
+      store: store,
+      migration: migration
     )
   }()
+}
+
+private struct AcceptedArtifactCheckpointStatePersistenceAdapter:
+  PlotterApplicationStatePersistencePort
+{
+  let store: AcceptedLearningPathCheckpointStore
+  let migration: AcceptedLearningPathLegacyMigrationAdapter
+
+  func loadAcceptedLearningPathCheckpoint() -> AcceptedLearningPathCheckpointLoadResult {
+    migration.migrateIfNeeded().checkpointLoadResult
+  }
+
+  func saveAcceptedLearningPathCheckpoint(
+    _ checkpoint: AcceptedLearningPathCheckpoint
+  ) throws {
+    try store.save(checkpoint)
+  }
+
+  func clearAcceptedLearningPathCheckpoint() throws {
+    try store.clear()
+  }
+
+  func persistPaperRevisionContext(_ context: PaperRevisionContext) throws {
+    try TipCalibrationSemanticIdentityComposition.persistPaperRevisionContext(context)
+  }
 }
 
 enum TipCalibrationSemanticIdentityComposition {

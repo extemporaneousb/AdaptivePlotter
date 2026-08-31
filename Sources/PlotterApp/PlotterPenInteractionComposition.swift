@@ -4,10 +4,10 @@ import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterRuntime
 
-struct OperatorWorkspacePenInteractionActuationPort: PlotterPenInteractionActuationPort {
+struct PlotterApplicationRuntimePenInteractionActuationPort: PlotterPenInteractionActuationPort {
   let machineSession: (any PlotterMachineSession)?
   let simulatedAdapter: PlotterCausalSimulatorEffectAdapter
-  let nowNanoseconds: @Sendable () -> UInt64
+  let clock: any RuntimeClock
 
   func settle(
     _ request: PlotterPenInteractionActuationRequest
@@ -70,7 +70,7 @@ struct OperatorWorkspacePenInteractionActuationPort: PlotterPenInteractionActuat
   }
 
   private var timestamp: RuntimeTimestamp {
-    RuntimeTimestamp(monotonicNanoseconds: nowNanoseconds())
+    RuntimeTimestamp(monotonicNanoseconds: clock.nowNanoseconds())
   }
 }
 
@@ -78,14 +78,12 @@ enum PlotterPenInteractionComposition {
   static func makeRuntime(
     machineSession: (any PlotterMachineSession)?,
     simulatedAdapter: PlotterCausalSimulatorEffectAdapter,
-    nowNanoseconds: @escaping @Sendable () -> UInt64 = {
-      DispatchTime.now().uptimeNanoseconds
-    }
+    clock: any RuntimeClock = SystemRuntimeClock()
   ) -> PlotterPenInteractionRuntime {
-    PlotterPenInteractionRuntime(port: OperatorWorkspacePenInteractionActuationPort(
+    PlotterPenInteractionRuntime(port: PlotterApplicationRuntimePenInteractionActuationPort(
       machineSession: machineSession,
       simulatedAdapter: simulatedAdapter,
-      nowNanoseconds: nowNanoseconds
+      clock: clock
     ))
   }
 }

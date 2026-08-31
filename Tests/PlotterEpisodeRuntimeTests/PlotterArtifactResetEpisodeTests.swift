@@ -45,14 +45,57 @@ struct PlotterArtifactResetEpisodeTests {
       .compareSavedLearning(checkpoint, comparisonIdentity: "frame-2"),
       facts: .init(environment: .live)
     )))
-    await runtime.shutdown()
+    let shutdownCompletion = CompletionProbe()
+    let shutdown = Task {
+      await runtime.shutdown()
+      await shutdownCompletion.markCompleted()
+    }
+    while !(await runtime.snapshot()).admissionClosed { await Task.yield() }
+    #expect(!(await shutdownCompletion.completed))
+    #expect((await runtime.snapshot()).activeOperationID != nil)
     await port.releaseSuspendedRequest()
+    await shutdown.value
+    #expect(await shutdownCompletion.completed)
     #expect(!(await first.value))
     #expect(!(await runtime.submit(
       .compareSavedLearning(checkpoint, comparisonIdentity: "frame-3"),
       facts: .init(environment: .live)
     )))
     #expect((await runtime.snapshot()).admissionClosed)
+  }
+
+  @Test("shutdown joins cancellation-insensitive durable persistence")
+  func shutdownJoinsDurablePersistence() async {
+    let plan = makePlan()
+    let port = ArtifactResetPortFixture(
+      responses: [.completed(.resetSettled(plan))],
+      persistenceResponses: [.completed(.resetPersisted(plan, savedLearning: .absent))],
+      suspendsFirstPersistence: true
+    )
+    let runtime = await PlotterArtifactResetRuntime(effectPort: port, persistencePort: port)
+    let submission = Task {
+      await runtime.submit(.reset(plan), facts: .init(environment: .live))
+    }
+    await port.waitForPersistenceCallCount(1)
+
+    let shutdownCompletion = CompletionProbe()
+    let shutdown = Task {
+      await runtime.shutdown()
+      await shutdownCompletion.markCompleted()
+    }
+    while !(await runtime.snapshot()).admissionClosed { await Task.yield() }
+
+    #expect(!(await shutdownCompletion.completed))
+    #expect((await runtime.snapshot()).activeOperationID != nil)
+    await port.releaseSuspendedPersistence()
+    await shutdown.value
+
+    #expect(await shutdownCompletion.completed)
+    #expect(!(await submission.value))
+    let snapshot = await runtime.snapshot()
+    #expect(snapshot.activeOperationID == nil)
+    #expect(snapshot.phase == .cancelled("Artifact/reset admission closed."))
+    #expect(await port.calls.map(kind) == [.settle])
   }
 
   @Test("reset orders durable work before in-memory projection")
@@ -225,29 +268,41 @@ private actor ArtifactResetPortFixture:
   private var responses: [PlotterArtifactResetEffectResult]
   private var persistenceResponses: [PlotterArtifactResetPersistenceResult]
   private let suspendsFirstRequest: Bool
+  private let suspendsFirstPersistence: Bool
   private var suspended = false
   private var suspendedResponse: PlotterArtifactResetEffectResult?
   private var continuation: CheckedContinuation<PlotterArtifactResetEffectResult, Never>?
+  private var persistenceSuspended = false
+  private var suspendedPersistenceResponse: PlotterArtifactResetPersistenceResult?
+  private var persistenceContinuation: CheckedContinuation<PlotterArtifactResetPersistenceResult, Never>?
   private(set) var calls: [PlotterArtifactResetEffectRequest] = []
   private(set) var persistenceCalls: [PlotterArtifactResetPersistenceRequest] = []
 
   init(
     responses: [PlotterArtifactResetEffectResult],
     persistenceResponses: [PlotterArtifactResetPersistenceResult] = [],
-    suspendsFirstRequest: Bool = false
+    suspendsFirstRequest: Bool = false,
+    suspendsFirstPersistence: Bool = false
   ) {
     self.responses = responses
     self.persistenceResponses = persistenceResponses
     self.suspendsFirstRequest = suspendsFirstRequest
+    self.suspendsFirstPersistence = suspendsFirstPersistence
   }
 
   func persist(_ request: PlotterArtifactResetPersistenceRequest) async
     -> PlotterArtifactResetPersistenceResult
   {
     persistenceCalls.append(request)
-    return persistenceResponses.isEmpty
+    let response: PlotterArtifactResetPersistenceResult = persistenceResponses.isEmpty
       ? .failed("Unexpected artifact/reset persistence.")
       : persistenceResponses.removeFirst()
+    if suspendsFirstPersistence && !persistenceSuspended {
+      persistenceSuspended = true
+      suspendedPersistenceResponse = response
+      return await withCheckedContinuation { persistenceContinuation = $0 }
+    }
+    return response
   }
 
   func execute(_ request: PlotterArtifactResetEffectRequest) async
@@ -267,12 +322,31 @@ private actor ArtifactResetPortFixture:
     while calls.count < count { await Task.yield() }
   }
 
+  func waitForPersistenceCallCount(_ count: Int) async {
+    while persistenceCalls.count < count { await Task.yield() }
+  }
+
   func releaseSuspendedRequest() {
     guard let continuation else { return }
     self.continuation = nil
     continuation.resume(returning: suspendedResponse ?? .cancelled("cancelled"))
     suspendedResponse = nil
   }
+
+  func releaseSuspendedPersistence() {
+    guard let persistenceContinuation else { return }
+    self.persistenceContinuation = nil
+    persistenceContinuation.resume(
+      returning: suspendedPersistenceResponse ?? .cancelled("cancelled")
+    )
+    suspendedPersistenceResponse = nil
+  }
+}
+
+private actor CompletionProbe {
+  private(set) var completed = false
+
+  func markCompleted() { completed = true }
 }
 
 private enum ArtifactResetCallKind: Equatable {

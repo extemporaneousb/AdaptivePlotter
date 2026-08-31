@@ -50,33 +50,100 @@ enum AcceptedLearningPathLegacyMigrationFailure: Hashable, Sendable {
   }
 }
 
+protocol AcceptedLearningPathLegacyMigrationCanonicalPersistencePort: Sendable {
+  func load() -> AcceptedLearningPathCheckpointLoadResult
+  func save(_ checkpoint: AcceptedLearningPathCheckpoint) throws
+}
+
+struct AcceptedLearningPathLegacyMigrationCanonicalStoreAdapter:
+  AcceptedLearningPathLegacyMigrationCanonicalPersistencePort
+{
+  let store: AcceptedLearningPathCheckpointStore
+
+  func load() -> AcceptedLearningPathCheckpointLoadResult {
+    store.load()
+  }
+
+  func save(_ checkpoint: AcceptedLearningPathCheckpoint) throws {
+    try store.save(checkpoint)
+  }
+}
+
 struct AcceptedLearningPathLegacyMigrationCanonicalPersistence: Sendable {
-  let load: @Sendable () -> AcceptedLearningPathCheckpointLoadResult
-  let save: @Sendable (AcceptedLearningPathCheckpoint) throws -> Void
+  private let port: any AcceptedLearningPathLegacyMigrationCanonicalPersistencePort
+
+  init(port: any AcceptedLearningPathLegacyMigrationCanonicalPersistencePort) {
+    self.port = port
+  }
+
+  func load() -> AcceptedLearningPathCheckpointLoadResult {
+    port.load()
+  }
+
+  func save(_ checkpoint: AcceptedLearningPathCheckpoint) throws {
+    try port.save(checkpoint)
+  }
 
   static func store(_ store: AcceptedLearningPathCheckpointStore) -> Self {
-    Self(load: { store.load() }, save: { try store.save($0) })
+    Self(port: AcceptedLearningPathLegacyMigrationCanonicalStoreAdapter(store: store))
+  }
+}
+
+protocol AcceptedLearningPathLegacyMigrationPersistencePort: Sendable {
+  func fileExists(at url: URL) -> Bool
+  func read(from url: URL) throws -> Data
+  func write(_ data: Data, to url: URL) throws
+  func remove(at url: URL) throws
+}
+
+struct AcceptedLearningPathLegacyMigrationFileSystemAdapter:
+  AcceptedLearningPathLegacyMigrationPersistencePort
+{
+  func fileExists(at url: URL) -> Bool {
+    FileManager.default.fileExists(atPath: url.path)
+  }
+
+  func read(from url: URL) throws -> Data {
+    try Data(contentsOf: url)
+  }
+
+  func write(_ data: Data, to url: URL) throws {
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try data.write(to: url, options: .atomic)
+  }
+
+  func remove(at url: URL) throws {
+    try FileManager.default.removeItem(at: url)
   }
 }
 
 struct AcceptedLearningPathLegacyMigrationPersistence: Sendable {
-  let fileExists: @Sendable (URL) -> Bool
-  let read: @Sendable (URL) throws -> Data
-  let write: @Sendable (Data, URL) throws -> Void
-  let remove: @Sendable (URL) throws -> Void
+  private let port: any AcceptedLearningPathLegacyMigrationPersistencePort
 
-  static let fileSystem = Self(
-    fileExists: { FileManager.default.fileExists(atPath: $0.path) },
-    read: { try Data(contentsOf: $0) },
-    write: { data, url in
-      try FileManager.default.createDirectory(
-        at: url.deletingLastPathComponent(),
-        withIntermediateDirectories: true
-      )
-      try data.write(to: url, options: .atomic)
-    },
-    remove: { try FileManager.default.removeItem(at: $0) }
-  )
+  init(port: any AcceptedLearningPathLegacyMigrationPersistencePort) {
+    self.port = port
+  }
+
+  func fileExists(_ url: URL) -> Bool {
+    port.fileExists(at: url)
+  }
+
+  func read(_ url: URL) throws -> Data {
+    try port.read(from: url)
+  }
+
+  func write(_ data: Data, _ url: URL) throws {
+    try port.write(data, to: url)
+  }
+
+  func remove(_ url: URL) throws {
+    try port.remove(at: url)
+  }
+
+  static let fileSystem = Self(port: AcceptedLearningPathLegacyMigrationFileSystemAdapter())
 }
 
 enum AcceptedLearningPathLegacyMigrationResult: Sendable {

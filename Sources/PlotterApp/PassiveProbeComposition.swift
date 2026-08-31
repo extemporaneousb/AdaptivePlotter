@@ -30,7 +30,7 @@ protocol PlotterMachineSession: Actor {
   func disconnect() async
 }
 
-struct OperatorWorkspaceDrawingRunInterpreterPort: PlotterDrawingRunInterpreterPort {
+struct PlotterApplicationRuntimeDrawingRunInterpreterPort: PlotterDrawingRunInterpreterPort {
   let session: any PlotterMachineSession
 
   func snapshot() async -> RunInterpreterSnapshot? {
@@ -68,12 +68,16 @@ struct OperatorWorkspaceDrawingRunInterpreterPort: PlotterDrawingRunInterpreterP
 
 enum MachineSessionComposition {
   static let session: any PlotterMachineSession = PersistentMachineSession()
+  static let residualEffectPort: any PlotterApplicationResidualEffectPort =
+    MachineSessionResidualEffectAdapter(session: session)
+}
 
-  static let workflowTelemetryActions = OperatorWorkspace.WorkflowTelemetryActions(
-    record: { event in
-      _ = await session.recordWorkflowTelemetry(event)
-    }
-  )
+private struct MachineSessionResidualEffectAdapter: PlotterApplicationResidualEffectPort {
+  let session: any PlotterMachineSession
+
+  func recordWorkflowTelemetry(_ event: WorkflowTelemetryEvent) async {
+    _ = await session.recordWorkflowTelemetry(event)
+  }
 }
 
 private enum MachineSessionCompositionError: LocalizedError {

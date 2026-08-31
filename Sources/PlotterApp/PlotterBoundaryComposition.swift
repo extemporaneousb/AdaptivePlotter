@@ -6,54 +6,54 @@ import PlotterModel
 import PlotterRuntime
 
 @MainActor
-final class OperatorWorkspaceBoundaryRelay: PlotterBoundaryFactSource,
+final class PlotterApplicationRuntimeBoundaryRelay: PlotterBoundaryFactSource,
   PlotterBoundaryProjectionSink
 {
-  weak var workspace: OperatorWorkspace?
+  weak var application: PlotterApplicationRuntime?
 
   func currentBoundaryFacts(for environment: PlotterEnvironment) async
     -> PlotterBoundaryExternalFacts
   {
-    guard let workspace else {
+    guard let application else {
       preconditionFailure("The Boundary composition must be installed before admission.")
     }
-    return workspace.currentBoundaryExternalFacts(for: environment)
+    return application.currentBoundaryExternalFacts(for: environment)
   }
 
   func publishBoundarySnapshot(_ snapshot: PlotterBoundaryRuntimeSnapshot) async {
-    workspace?.installBoundarySnapshot(snapshot)
+    application?.installBoundarySnapshot(snapshot)
   }
 
 }
 
 struct PlotterBoundaryComposition: Sendable {
   let runtime: PlotterBoundaryRuntime
-  let relay: OperatorWorkspaceBoundaryRelay
+  let relay: PlotterApplicationRuntimeBoundaryRelay
 
   @MainActor
-  func install(on workspace: OperatorWorkspace) {
-    relay.workspace = workspace
-    workspace.installBoundarySnapshot(PlotterBoundaryRuntime.initialSnapshot(for: .live))
-    workspace.installBoundarySnapshot(PlotterBoundaryRuntime.initialSnapshot(for: .simulated))
+  func install(on application: PlotterApplicationRuntime) {
+    relay.application = application
+    application.installBoundarySnapshot(PlotterBoundaryRuntime.initialSnapshot(for: .live))
+    application.installBoundarySnapshot(PlotterBoundaryRuntime.initialSnapshot(for: .simulated))
   }
 
   @MainActor
   static func make(
     machineSession: (any PlotterMachineSession),
     causalSimulator: PlotterCausalSimulatorEffectAdapter,
-    checkpointActions: OperatorWorkspace.AcceptedLearningPathCheckpointActions,
+    statePersistencePort: any PlotterApplicationStatePersistencePort,
     speechEffectRuntime: PlotterSpeechEffectRuntime
   ) -> Self {
-    let relay = OperatorWorkspaceBoundaryRelay()
+    let relay = PlotterApplicationRuntimeBoundaryRelay()
     let runtime = PlotterBoundaryRuntime(
       factSource: relay,
-      effectPort: OperatorWorkspaceBoundaryEffectPort(
+      effectPort: PlotterApplicationRuntimeBoundaryEffectPort(
         actions: machineSession,
         causalSimulator: causalSimulator,
         speechEffectRuntime: speechEffectRuntime
       ),
-      persistencePort: OperatorWorkspaceBoundaryPersistencePort(
-        actions: checkpointActions
+      persistencePort: PlotterApplicationRuntimeBoundaryPersistencePort(
+        statePersistencePort: statePersistencePort
       ),
       projectionSink: relay
     )
@@ -61,7 +61,7 @@ struct PlotterBoundaryComposition: Sendable {
   }
 }
 
-private actor OperatorWorkspaceBoundaryEffectPort: PlotterBoundaryEffectPort {
+private actor PlotterApplicationRuntimeBoundaryEffectPort: PlotterBoundaryEffectPort {
   private enum LowerOwner: Sendable {
     case liveSide(BoundaryMotionOperation)
     case liveCenter(RelativeJogOperation)
@@ -344,13 +344,13 @@ private actor OperatorWorkspaceBoundaryEffectPort: PlotterBoundaryEffectPort {
   }
 }
 
-private struct OperatorWorkspaceBoundaryPersistencePort: PlotterBoundaryPersistencePort {
-  let actions: OperatorWorkspace.AcceptedLearningPathCheckpointActions
+private struct PlotterApplicationRuntimeBoundaryPersistencePort: PlotterBoundaryPersistencePort {
+  let statePersistencePort: any PlotterApplicationStatePersistencePort
 
   func persistBoundaryCandidate(_ candidate: PlotterBoundaryPersistenceCandidate) async throws {
     guard candidate.environment == .live else { return }
     let existing: AcceptedLearningPathCheckpoint?
-    switch actions.load() {
+    switch statePersistencePort.loadAcceptedLearningPathCheckpoint() {
     case .absent:
       existing = nil
     case .loaded(let checkpoint):
@@ -371,7 +371,7 @@ private struct OperatorWorkspaceBoundaryPersistencePort: PlotterBoundaryPersiste
       penCapAppearance: existing?.penCapAppearance,
       referenceFrame: existing?.referenceFrame
     )
-    try actions.save(checkpoint)
+    try statePersistencePort.saveAcceptedLearningPathCheckpoint(checkpoint)
   }
 }
 

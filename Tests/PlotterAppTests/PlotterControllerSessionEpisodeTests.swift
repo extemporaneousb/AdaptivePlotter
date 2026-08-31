@@ -12,7 +12,9 @@ struct PlotterControllerSessionEpisodeTests {
     let runtime = PlotterControllerSessionRuntime(
       lowerSession: lower.port,
       simulatedSession: SimulatedLearningRuntime(),
-      discoverSerialDevices: { [lower.descriptor] }
+      serialDeviceDiscovery: PlotterFixedSerialDeviceDiscoveryAdapter(
+        devices: [lower.descriptor]
+      )
     )
     let current = reference(revision: 2)
     let request = PlotterControllerSessionRequest(
@@ -40,7 +42,9 @@ struct PlotterControllerSessionEpisodeTests {
     let runtime = PlotterControllerSessionRuntime(
       lowerSession: lower.port,
       simulatedSession: SimulatedLearningRuntime(),
-      discoverSerialDevices: { [lower.descriptor] }
+      serialDeviceDiscovery: PlotterFixedSerialDeviceDiscoveryAdapter(
+        devices: [lower.descriptor]
+      )
     )
     let projection = reference(revision: 1)
     let result = await runtime.submit(
@@ -67,7 +71,9 @@ struct PlotterControllerSessionEpisodeTests {
     let runtime = PlotterControllerSessionRuntime(
       lowerSession: lower.port,
       simulatedSession: SimulatedLearningRuntime(),
-      discoverSerialDevices: { [lower.descriptor] }
+      serialDeviceDiscovery: PlotterFixedSerialDeviceDiscoveryAdapter(
+        devices: [lower.descriptor]
+      )
     )
     await runtime.shutdown()
     let projection = reference(revision: 1)
@@ -94,8 +100,10 @@ struct PlotterControllerSessionEpisodeTests {
     let runtime = PlotterControllerSessionRuntime(
       lowerSession: lower.port,
       simulatedSession: SimulatedLearningRuntime(),
-      discoverSerialDevices: { [lower.descriptor] },
-      awaitEffectAdmission: { await gate.waitForCancellation() }
+      serialDeviceDiscovery: PlotterFixedSerialDeviceDiscoveryAdapter(
+        devices: [lower.descriptor]
+      ),
+      effectAdmission: gate
     )
     let projection = reference(revision: 1)
     let submission = Task {
@@ -214,11 +222,11 @@ struct PlotterControllerSessionEpisodeTests {
   }
 }
 
-private actor ControllerExecutionCancellationGate {
+private actor ControllerExecutionCancellationGate: PlotterControllerEffectAdmissionPort {
   private var entered = false
   private var cancellationObserved = false
 
-  func waitForCancellation() async {
+  func awaitEffectAdmission() async {
     entered = true
     while !Task.isCancelled {
       await Task.yield()

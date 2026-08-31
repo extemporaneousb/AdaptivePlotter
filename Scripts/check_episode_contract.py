@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "0dc480ce0d950fddaccca234f1703f2a6d6807f2668600890d52ce8e351d983d"
+EXPECTED_LEDGER_SHA256 = "69663e2ef58206ae388c53b1503cc6c032752703b72a17f7d6adc171262455f6"
 
 
 EXPECTED_GATES = {
@@ -47,7 +47,7 @@ EXPECTED_GATES = {
     "STRICT": ("`make strict-check`", "repository"),
     "BUILD": ("`swift build`", "authority slice"),
     "INVENTORY": (
-        "`sh Scripts/check_episode_inventory.sh` proves every semantic intent, guard, owner, direct device/evidence port, environment branch, task/cancel owner, persistence path, UI consumer, and high-level fixture has one stable inventory ID, one current owner, one disposition, and one cutover package",
+        "`sh Scripts/check_episode_inventory.sh` proves every semantic intent, guard, owner, direct device/evidence port, environment branch, task/cancel owner, persistence path, UI consumer, and high-level fixture has one stable inventory ID, one current owner, one disposition, and one cutover package; once EA-11C target source appears it also proves the exact positive target-topology manifest, direct `PlotterApp -> EpisodeRuntime` dependency, one public sink conformer, one package-registry-backed residual adapter, nominal ports, and discoverable composition suite",
         "EA-01",
     ),
     "FIX-CONTAINMENT": ("`swift test --filter CoordinateAcceptancePolicyTests`", "FIX-00"),
@@ -71,7 +71,7 @@ EXPECTED_GATES = {
     "DRAW-RUN": ("`swift test --filter PlotterDrawingRunEpisodeTests`", "EA-08B"),
     "UI": ("`swift test --filter PlotterEpisodeUIActionabilityTests`", "EA-09"),
     "TASK-METRIC": (
-        "`PYTHONDONTWRITEBYTECODE=1 python3 Scripts/check_episode_task_metric.py` computes direct stored `OperatorWorkspace` `Swift.Task` owners from pinned EA-01 source and the candidate tree and requires exact matching Current Evidence",
+        "`PYTHONDONTWRITEBYTECODE=1 python3 Scripts/check_episode_task_metric.py` preserves the source-derived FIX-03 9-to-8 legacy `OperatorWorkspace` `Swift.Task` evidence while EA-11C is pending; after EA-11C completes it may record 9-to-0 only when a masked scan of all production Swift source proves the `OperatorWorkspace` declaration truly absent",
         "FIX-03",
     ),
     "PILOT": (
@@ -90,7 +90,10 @@ EXPECTED_GATES = {
         "`swift test --filter PlotterObservationConfigurationEpisodeTests`",
         "EA-11B",
     ),
-    "COMPOSITION": ("`swift test --filter PlotterEpisodeCompositionTests`", "EA-11C"),
+    "COMPOSITION": (
+        "`swift test --filter PlotterEpisodeCompositionTests` selects a nonzero discoverable suite proving production-root projection-bound submission, package-registry-backed residual operations, synchronous close-before-await, residual/feature joins, ordered persistence, exact nonterminal-owner reporting, and no false termination/quiescence",
+        "EA-11C",
+    ),
     "AFFECTED-CONSUMERS": (
         "`sh Scripts/check_episode_cutover.sh <PACKAGE-ID> --consumer-only` proves the exact direct-port, duplicate-ingress, forbidden-import, forbidden-conformance, and environment-branch consumer scans for that slice; it does not substitute for `DELETE`",
         "EA-01",
@@ -104,7 +107,7 @@ EXPECTED_GATES = {
         "VAL-01",
     ),
     "FINAL-GATE": (
-        "`sh Scripts/check_episode_final_gate.sh` proves every ledger row through VAL-01 complete, all final-matrix software/replay/simulation/UI evidence linked from Current Evidence, one globally exclusive gateway and registry by structural scan, zero superseded paths, and a passed PHYSICAL-FINAL record for the exact EA-11C commit",
+        "`sh Scripts/check_episode_final_gate.sh` proves every ledger row through VAL-01 complete, all final-matrix software/replay/simulation/UI evidence linked from Current Evidence, one globally exclusive public gateway and one package `PlotterOperationRegistry` mechanism by structural scan while retaining named feature-runtime lanes, zero superseded paths, and a passed PHYSICAL-FINAL record for the exact EA-11C commit",
         "EA-11C",
     ),
 }
@@ -219,6 +222,8 @@ EXPECTED_COMPLETE_PACKAGES = {
     "TRANCHE-DEVICE-ENVIRONMENT",
     "EA-11A",
     "EA-11B",
+    "TRANCHE-FINAL-COMPOSITION",
+    "EA-11C",
 }
 
 TRANCHE_SLICES = {
@@ -311,7 +316,13 @@ def validate_vocabulary(text: str) -> None:
         "`EA-11C` deletes its declaration and any residue",
         "Current `SpeechAnnouncing`, `NativeSpeechAnnouncer`, and its identity-bound queue",
         "speech failure never becomes physical permission",
-        "`EA-11C` makes the gateway the globally exclusive public mutation ingress",
+        "Exactly one public application ingress exists for each rendered semantic action",
+        "`PlotterApplicationRuntime` is the MainActor application composition/runtime",
+        "`PlotterApplicationState` is the canonical residual application schema",
+        "`PlotterApplicationResidualOperationAdapter` is the root's sole residual application-operation adapter",
+        "`PlotterApplicationResidualEffectPort` and `PlotterApplicationStatePersistencePort` are nominal lower ports",
+        "one monolithic registry instance owns all feature runtimes",
+        "synchronously closes MainActor admission before its first await",
     ):
         if required_phrase not in combined:
             fail(f"missing generic-core invariant: {required_phrase}")
@@ -1391,12 +1402,24 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         ),
         "EA-11C": (
             "transfer only final application composition",
-            "making `PlotterIntentGateway` and `PlotterOperationRegistry` globally exclusive",
+            "`PlotterApplicationRuntime`",
+            "one canonical source-indexed `PlotterApplicationState`",
+            "The sink is the exclusive public application ingress",
+            "does not add a redundant root `PlotterIntentGateway` reevaluator",
+            "Use the package `PlotterOperationRegistry` mechanism",
+            "direct `PlotterApp -> EpisodeRuntime` dependency",
+            "`PlotterApplicationResidualOperationAdapter`",
+            "retain distinct typed feature runtime authorities/tasks/Stop lanes",
+            "`PlotterApplicationResidualEffectPort`",
+            "`PlotterApplicationStatePersistencePort`",
+            "synchronously close MainActor admission before any await",
+            "never report false termination or quiescence",
             "Delete the `OperatorWorkspace` effect closures",
             "`ActiveStoppableOperation`",
             "`LearningSessionState`",
             "may not absorb an unnamed feature migration",
-            "any unassigned inventory item fails the slice",
+            "any unassigned inventory item or second root task/operation registry fails the slice",
+            "`PlotterEpisodeCompositionTests` must be discoverable",
         ),
     }
     for package_id, phrases in outcome_requirements.items():
@@ -1461,8 +1484,18 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "The gate moves no authority and cannot repair implementation while assessing it.",
         "Every `software` outcome begins `Foundation:`, `Correction:`, or `Cutover:`",
         "`EA-01` may not add, remove, combine, split, or reorder packages.",
-        "`EA-11C` makes the gateway the globally exclusive effect-bearing/domain-mutation ingress",
-        "`GATE-02` only verifies that landed fact",
+        "Exactly one public application ingress exists for each rendered semantic action",
+        "`GATE-02` verifies the landed topology",
+        "### EA-11C target-topology manifest",
+        "following separate manifest is the exact positive topology EA-11C must retain",
+        "`PlotterApplicationRuntime`<br>`import EpisodeRuntime`",
+        "`PlotterApplicationState.environmentStates`",
+        "`PlotterUIIntentSink.submitPlotterUIRequest`",
+        "`PlotterApplicationResidualOperationAdapter`<br>`PlotterApplicationResidualOperationEffect`<br>`PlotterApplicationResidualHandle`<br>`PlotterApplicationResidualContext`<br>`PlotterOperationRegistry`",
+        "`PlotterApplicationResidualEffectPort.discoverSerialDevices`",
+        "`PlotterApplicationStatePersistencePort.persistPaperRevisionContext`",
+        "`PlotterApplicationRuntime.admissionState`<br>`PlotterApplicationRuntime.shutdown`",
+        "`PlotterEpisodeCompositionTests`",
         "This table remains the immutable EA-01 characterization baseline after assigned WorkPackages land",
         "A `delete` row assigned to any completed package in the inventory's assignable WorkPackage set is historical deletion authority",
         "excludes only those completed assignable `delete` rows from live source-presence equality",
@@ -2639,7 +2672,7 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "`TASK-2F141403` → `FIX-04` → `removed-package`",
         "`TASK-D2DFC053` → `GATE-01` → `dependency-ineligible-package`",
         "unknown or unverifiable replay identity",
-        "The Device tranche now has a staged completion transaction, so the executable ordinary frontier is `TRANCHE-FINAL-COMPOSITION` only after successful Blackdog landing of that exact Device candidate",
+        "The Device tranche landed on canonical `main` at `3308e1bf2c19159be7b207226280f54b5ebf0662`; the current sole-owner task is therefore executing `TRANCHE-FINAL-COMPOSITION` / `EA-11C` from that base",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3005,8 +3038,12 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         if requirement != expected_metric_requirements[name]:
             fail(f"reduction metric requirement drifted: {name}")
         if name == "workspace-task-owners":
-            if (baseline, current) != ("9", "8"):
-                fail(f"workspace Task metric must be source-derived 9->8: {baseline}->{current}")
+            expected_current = "0" if rows["EA-11C"]["status"] == "complete" else "8"
+            if (baseline, current) != ("9", expected_current):
+                fail(
+                    "workspace Task metric must remain source-derived: "
+                    f"expected 9->{expected_current}, found {baseline}->{current}"
+                )
         elif name == "operator-workspace-policy-state":
             if (baseline, current) != ("6", "6"):
                 fail(f"pre-relocation policy-state failure must remain 6->6: {baseline}->{current}")
@@ -3198,6 +3235,20 @@ def validate_wave_frontier(
                 fail(f"staged Device tranche lacks successor-frontier evidence: {phrase}")
         if blockers:
             fail("staged Device tranche must not retain an ordinary-wave blocker")
+        return
+
+    if selected == "GATE-01":
+        for phrase in (
+            "EA-11C final-composition staged completion transaction",
+            "`TASK-FFD5D897`",
+            "`TASK-FFD5D897-06c5758ade77`",
+            "successful Blackdog landing of this exact candidate",
+            "GATE-01 was not run in this task",
+        ):
+            if phrase not in normalized:
+                fail(f"staged final-composition tranche lacks GATE-01 frontier evidence: {phrase}")
+        if blockers:
+            fail("staged final-composition tranche must not retain an ordinary-wave blocker")
         return
 
     if selected is not None:

@@ -8,7 +8,7 @@ import Testing
 
 @MainActor
 @Suite("Operator workspace sparse tip calibration")
-struct OperatorWorkspaceSparseTipCalibrationTests {
+struct PlotterApplicationRuntimeSparseTipCalibrationTests {
   @Test("settled sparse pose does not emit a numerical-zero travel")
   func settledPoseSkipsNumericalZeroTravel() throws {
     let current = try MachinePosition(x: -38.475, y: -23.641)
@@ -21,14 +21,14 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
     #expect(residue > 0)
     #expect(residue < 1e-12)
     #expect(
-      try OperatorWorkspace.supervisedTravelDelta(
+      try PlotterApplicationRuntime.supervisedTravelDelta(
         from: current,
         to: numericallyDifferentTarget
       ) == nil
     )
 
     let outsideTolerance = try MachinePosition(x: current.point.x + 0.501, y: current.point.y)
-    let travelDelta = try OperatorWorkspace.supervisedTravelDelta(
+    let travelDelta = try PlotterApplicationRuntime.supervisedTravelDelta(
       from: current,
       to: outsideTolerance
     )
@@ -41,12 +41,17 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
   func fullFourCornerMarkAcceptance() async throws {
     let checkpointBox = ArtifactResetCheckpointStoreFixture()
     let telemetry = WorkflowTelemetryFixture()
+    let clock = TestClock()
     let harness = makeCausalSimulatorAppFixture(
-      workflowTelemetry: telemetry,
-      learningPathCheckpointActions: .init(
-        load: { checkpointBox.load() },
-        save: { checkpointBox.save($0) },
-        clear: { checkpointBox.clear() }
+      statePersistencePort: TestApplicationStatePersistencePort(
+        loadCheckpoint: { checkpointBox.load() },
+        saveCheckpoint: { checkpointBox.save($0) },
+        clearCheckpoint: { checkpointBox.clear() }
+      ),
+      residualEffectPort: TestApplicationResidualEffectPort(
+        discoverDevices: { [] },
+        readNanoseconds: { clock.next() },
+        recordTelemetry: { await telemetry.record($0) }
       )
     )
     try await completeSimulatedPenInteractionPrerequisite(harness.workspace)
@@ -394,7 +399,14 @@ struct OperatorWorkspaceSparseTipCalibrationTests {
   @Test("stopping a corner circle after Pen Down blacklists its location and never redraws it")
   func stoppedCircleBlacklistsWithoutRedraw() async throws {
     let telemetry = WorkflowTelemetryFixture()
-    let harness = makeCausalSimulatorAppFixture(workflowTelemetry: telemetry)
+    let clock = TestClock()
+    let harness = makeCausalSimulatorAppFixture(
+      residualEffectPort: TestApplicationResidualEffectPort(
+        discoverDevices: { [] },
+        readNanoseconds: { clock.next() },
+        recordTelemetry: { await telemetry.record($0) }
+      )
+    )
     try await completeSimulatedPenInteractionPrerequisite(harness.workspace)
     try await installAcceptedBoundaryTestProjection(
       runtime: harness.boundaryRuntime,

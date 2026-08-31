@@ -751,7 +751,7 @@ private extension PlotterUILearningItemStatus {
 }
 
 /// Cosmetic Learning Path presentation over one canonical PlotterUI decision.
-/// It has no reference to OperatorWorkspace or any runtime/persistence owner.
+/// It has no reference to PlotterApplicationRuntime or any runtime/persistence owner.
 struct PlotterLearningDetailedPresentationNormalizer: Sendable {
   func project(
     _ snapshot: PlotterLearningPresentationFacts,

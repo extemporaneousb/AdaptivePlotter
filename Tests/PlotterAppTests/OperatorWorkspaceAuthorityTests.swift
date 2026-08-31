@@ -11,7 +11,7 @@ import os
 @testable import PlotterApp
 @testable import PlotterRuntime
 
-extension OperatorWorkspaceTests {
+extension PlotterApplicationRuntimeTests {
   @Test("LIVE possible-ink ambiguity disables effects until exact operator disposition")
   func liveManualAmbiguityDisposition() async throws {
     let directory = FileManager.default.temporaryDirectory
@@ -37,7 +37,7 @@ extension OperatorWorkspaceTests {
       simulatedRuntime: simulatedLearning,
       simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
     )
-    let workspace = OperatorWorkspace(
+    let workspace = PlotterApplicationRuntime(
       machineSession: actions,
       manualMotionComposition: composition,
       penInteractionRuntime: nominalPenInteractionRuntime(
@@ -48,8 +48,8 @@ extension OperatorWorkspaceTests {
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService(),
+      residualEffectPort: AuthorityTestResidualEffectPort(devices: [machine.descriptor]),
       serialDevices: [machine.descriptor],
-      serialDeviceDiscovery: { [machine.descriptor] },
       observationPreferences: TestObservationPreferencePort()
     )
     await workspace.establishMachineSession(machine.descriptor)
@@ -108,7 +108,7 @@ extension OperatorWorkspaceTests {
       simulatedRuntime: simulatedLearning,
       simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
     )
-    let workspace = OperatorWorkspace(
+    let workspace = PlotterApplicationRuntime(
       machineSession: nil,
       observationSession: CameraComposition.makeIsolatedObservationSessionForTesting(),
       manualMotionComposition: composition,
@@ -119,8 +119,8 @@ extension OperatorWorkspaceTests {
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService(),
+      residualEffectPort: AuthorityTestResidualEffectPort(devices: []),
       serialDevices: [],
-      serialDeviceDiscovery: { [] },
       observationPreferences: TestObservationPreferencePort()
     )
     await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
@@ -196,7 +196,7 @@ extension OperatorWorkspaceTests {
       simulatedRuntime: simulatedRuntime,
       simulatedExecutionPacing: pacing
     )
-    let workspace = OperatorWorkspace(
+    let workspace = PlotterApplicationRuntime(
       machineSession: nil,
       observationSession: CameraComposition.makeIsolatedObservationSessionForTesting(),
       manualMotionComposition: composition,
@@ -207,8 +207,8 @@ extension OperatorWorkspaceTests {
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService(),
+      residualEffectPort: AuthorityTestResidualEffectPort(devices: []),
       serialDevices: [],
-      serialDeviceDiscovery: { [] },
       observationPreferences: TestObservationPreferencePort()
     )
     await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
@@ -356,7 +356,7 @@ extension OperatorWorkspaceTests {
     )
     let gate = PlotterManualMotionTerminalPublicationGate()
     await composition.runtime.installTerminalPublicationGateForTesting(gate)
-    let workspace = OperatorWorkspace(
+    let workspace = PlotterApplicationRuntime(
       machineSession: actions,
       manualMotionComposition: composition,
       penInteractionRuntime: nominalPenInteractionRuntime(
@@ -367,8 +367,8 @@ extension OperatorWorkspaceTests {
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService(),
+      residualEffectPort: AuthorityTestResidualEffectPort(devices: [machine.descriptor]),
       serialDevices: [machine.descriptor],
-      serialDeviceDiscovery: { [machine.descriptor] },
       observationPreferences: TestObservationPreferencePort()
     )
     await workspace.establishMachineSession(machine.descriptor)
@@ -793,7 +793,7 @@ extension OperatorWorkspaceTests {
     )
     let camera = try TestObservationCameraSession()
     let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       boundaryRuntimeAccess: boundaryRuntimeAccess,
@@ -861,7 +861,7 @@ extension OperatorWorkspaceTests {
     )
     let camera = try TestObservationCameraSession()
     let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       boundaryRuntimeAccess: boundaryRuntimeAccess,
@@ -933,7 +933,7 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -997,7 +997,7 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log, reportsBoundaryMoving: false)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -1036,7 +1036,7 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -1078,7 +1078,7 @@ extension OperatorWorkspaceTests {
   func boundaryExternalDependencyBlockers() async throws {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log, motionGuardInitiallyActive: false)
-    let workspace = workspace(machine: machine, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, log: log)
     let connectionBlocker =
       "Blocked by controller connection. Use Connect for the selected plotter in the workbench toolbar; Enable Motion depends on a connected session."
     let motionBlocker =
@@ -1108,7 +1108,7 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -1174,7 +1174,7 @@ extension OperatorWorkspaceTests {
       log: log,
       outcomes: [.failed("output unavailable"), .completed]
     )
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       speechAnnouncer: speechAnnouncer,
@@ -1211,7 +1211,7 @@ extension OperatorWorkspaceTests {
   func reviewProjectionIsInert() async throws {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
-    let workspace = workspace(machine: machine, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
 
@@ -1247,7 +1247,7 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -1495,12 +1495,12 @@ private final class BoundaryCenterArrivalObservationWaiter {
     case timedOut
   }
 
-  private let workspace: OperatorWorkspace
+  private let workspace: PlotterApplicationRuntime
   private let goal: Goal
   private var continuation: CheckedContinuation<Void, any Error>?
   private var deadlineTask: Task<Void, Never>?
 
-  init(workspace: OperatorWorkspace, goal: Goal = .accepted) {
+  init(workspace: PlotterApplicationRuntime, goal: Goal = .accepted) {
     self.workspace = workspace
     self.goal = goal
   }
@@ -1630,4 +1630,16 @@ private func liveManualMotionFacts() -> [PlotterCapabilityFact] {
       )
     )),
   ]
+}
+
+private struct AuthorityTestResidualEffectPort: PlotterApplicationResidualEffectPort {
+  let discovery: PlotterFixedSerialDeviceDiscoveryAdapter
+
+  init(devices: [MachineLinkDescriptor]) {
+    discovery = PlotterFixedSerialDeviceDiscoveryAdapter(devices: devices)
+  }
+
+  func discoverSerialDevices() -> [MachineLinkDescriptor] {
+    discovery.discoverSerialDevices()
+  }
 }

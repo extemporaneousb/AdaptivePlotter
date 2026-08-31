@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove the direct stored OperatorWorkspace Task-owner metric from source."""
+"""Prove the direct stored legacy OperatorWorkspace Task-owner metric."""
 
 from __future__ import annotations
 
@@ -12,10 +12,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_PATH = Path("Sources/PlotterApp/OperatorWorkspace.swift")
 EVIDENCE_PATH = Path("docs/CURRENT_EVIDENCE.md")
+PLAN_PATH = Path("docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md")
 BASELINE_COMMIT = "96253197a42dc6052ef76ad53c4c94c1c5f745a1"
 PRE_FIX03_COMMIT = "03d8279603c39ad19b49d980fc39aa0144b96148"
 EXPECTED_BASELINE_COUNT = 9
-EXPECTED_CURRENT_COUNT = 8
+EXPECTED_PRE_CUTOVER_COUNT = 8
+EXPECTED_POST_CUTOVER_COUNT = 0
 METRIC_NAME = "workspace-task-owners"
 METRIC_HEADER = ["Reduction metric", "Baseline", "Current", "Requirement"]
 
@@ -105,10 +107,12 @@ def mask_comments_and_literals(text: str) -> str:
     return "".join(result)
 
 
-def operator_workspace_body(source: str) -> str:
+def operator_workspace_body(source: str, *, allow_absent: bool = False) -> str | None:
     masked = mask_comments_and_literals(source)
     declaration = re.search(r"\bfinal\s+class\s+OperatorWorkspace\b[^\{]*\{", masked)
     if declaration is None:
+        if allow_absent:
+            return None
         fail("final class OperatorWorkspace declaration is absent")
     start = declaration.end()
     depth = 1
@@ -134,11 +138,13 @@ DIRECT_TASK_DECLARATION = re.compile(
 )
 
 
-def direct_stored_task_names(source: str) -> list[str]:
+def direct_stored_task_names(source: str, *, allow_absent: bool = False) -> list[str]:
     masked = mask_comments_and_literals(source)
     if re.search(r"\btypealias\s+\w+\s*=\s*(?:Swift\s*\.\s*)?Task\s*<", masked):
         fail("Task typealiases are unsupported because they could hide metric owners")
-    body = operator_workspace_body(source)
+    body = operator_workspace_body(source, allow_absent=allow_absent)
+    if body is None:
+        return []
     names: list[str] = []
     depth = 0
     offset = 0
@@ -188,6 +194,23 @@ def git_text(root: Path, commit: str, path: Path) -> str:
     return result.stdout
 
 
+def ea11c_is_complete(plan: str) -> bool:
+    for line in plan.splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) >= 2 and cells[0] == "EA-11C":
+            return cells[1] == "complete"
+    fail("EA-11C ledger row is absent")
+
+
+def legacy_workspace_declarations(root: Path) -> list[Path]:
+    declarations: list[Path] = []
+    for path in (root / "Sources").rglob("*.swift"):
+        masked = mask_comments_and_literals(path.read_text(encoding="utf-8"))
+        if re.search(r"\b(?:final\s+)?class\s+OperatorWorkspace\b", masked):
+            declarations.append(path.relative_to(root))
+    return sorted(declarations)
+
+
 def validate_scanner_fixtures() -> None:
     fixture = """
 @MainActor
@@ -209,17 +232,25 @@ final class OperatorWorkspace {
         pass
     else:
         fail("internal scanner fixture admitted a Task typealias")
+    if direct_stored_task_names(
+        "final class PlotterApplicationRuntime {}", allow_absent=True
+    ) != []:
+        fail("internal scanner fixture did not treat absent legacy workspace as zero")
 
 
 def evaluate(root: Path) -> tuple[list[str], list[str], list[str]]:
     validate_scanner_fixtures()
     baseline_source = git_text(root, BASELINE_COMMIT, SOURCE_PATH)
     pre_fix03_source = git_text(root, PRE_FIX03_COMMIT, SOURCE_PATH)
-    current_source = (root / SOURCE_PATH).read_text(encoding="utf-8")
+    source_path = root / SOURCE_PATH
+    current_source = source_path.read_text(encoding="utf-8") if source_path.exists() else ""
     evidence = (root / EVIDENCE_PATH).read_text(encoding="utf-8")
+    plan = (root / PLAN_PATH).read_text(encoding="utf-8")
     baseline_names = direct_stored_task_names(baseline_source)
     pre_fix03_names = direct_stored_task_names(pre_fix03_source)
-    current_names = direct_stored_task_names(current_source)
+    current_names = direct_stored_task_names(current_source, allow_absent=True)
+    declarations = legacy_workspace_declarations(root)
+    final_cutover = ea11c_is_complete(plan)
     recorded_baseline, recorded_current, requirement = evidence_metric(evidence)
     if len(baseline_names) != EXPECTED_BASELINE_COUNT:
         fail(f"pinned baseline count changed: {len(baseline_names)} {baseline_names}")
@@ -229,28 +260,44 @@ def evaluate(root: Path) -> tuple[list[str], list[str], list[str]]:
         fail("pre-FIX-03 source does not contain drawingRunTask")
     if "drawingRunTask" in current_names:
         fail("candidate still contains drawingRunTask")
-    if len(current_names) != EXPECTED_CURRENT_COUNT:
-        fail(f"candidate count is not {EXPECTED_CURRENT_COUNT}: {len(current_names)} {current_names}")
-    if not len(current_names) < len(baseline_names):
-        fail(f"workspace Task owners did not decrease: {len(baseline_names)}->{len(current_names)}")
     if requirement != "decreased":
         fail(f"Current Evidence requirement mismatch: {requirement}")
-    if (recorded_baseline, recorded_current) != (len(baseline_names), len(current_names)):
-        fail(
-            "Current Evidence metric does not match source: "
-            f"recorded={recorded_baseline}->{recorded_current}, "
-            f"computed={len(baseline_names)}->{len(current_names)}"
-        )
-    if sorted(set(pre_fix03_names) - set(current_names)) != ["drawingRunTask"]:
-        fail(
-            "FIX-03 must remove exactly drawingRunTask from the pre-correction owner set: "
-            f"before={pre_fix03_names}, current={current_names}"
-        )
-    if sorted(set(current_names) - set(pre_fix03_names)):
-        fail(
-            "FIX-03 must not add a replacement workspace Task owner: "
-            f"before={pre_fix03_names}, current={current_names}"
-        )
+    if final_cutover:
+        if declarations:
+            fail(f"EA-11C complete but OperatorWorkspace declarations remain: {declarations}")
+        if len(current_names) != EXPECTED_POST_CUTOVER_COUNT:
+            fail(f"post-cutover workspace count is not zero: {current_names}")
+        if (recorded_baseline, recorded_current) != (
+            len(baseline_names), EXPECTED_POST_CUTOVER_COUNT
+        ):
+            fail(
+                "post-cutover Current Evidence metric must be source-derived 9->0 only "
+                f"after true declaration absence: recorded={recorded_baseline}->{recorded_current}"
+            )
+    else:
+        if declarations:
+            if len(current_names) != EXPECTED_PRE_CUTOVER_COUNT:
+                fail(
+                    f"pre-cutover workspace count is not {EXPECTED_PRE_CUTOVER_COUNT}: "
+                    f"{len(current_names)} {current_names}"
+                )
+            if sorted(set(pre_fix03_names) - set(current_names)) != ["drawingRunTask"]:
+                fail(
+                    "FIX-03 must remove exactly drawingRunTask from the pre-correction owner set: "
+                    f"before={pre_fix03_names}, current={current_names}"
+                )
+            if sorted(set(current_names) - set(pre_fix03_names)):
+                fail(
+                    "FIX-03 must not add a replacement workspace Task owner: "
+                    f"before={pre_fix03_names}, current={current_names}"
+                )
+        if (recorded_baseline, recorded_current) != (
+            len(baseline_names), EXPECTED_PRE_CUTOVER_COUNT
+        ):
+            fail(
+                "pending EA-11C must retain the last validated FIX-03 evidence 9->8; "
+                f"recorded={recorded_baseline}->{recorded_current}"
+            )
     return baseline_names, pre_fix03_names, current_names
 
 
@@ -260,13 +307,14 @@ def main() -> int:
     except (OSError, MetricError) as error:
         print(f"episode Task metric failed: {error}", file=sys.stderr)
         return 1
+    final_cutover = ea11c_is_complete((ROOT / PLAN_PATH).read_text(encoding="utf-8"))
     removed = sorted(set(pre_fix03_names) - set(current_names))
     added = sorted(set(current_names) - set(pre_fix03_names))
     print(
         "episode Task metric passed: "
         f"{BASELINE_COMMIT} {len(baseline_names)} -> working tree {len(current_names)}; "
         f"FIX-03 {PRE_FIX03_COMMIT} {len(pre_fix03_names)} -> working tree {len(current_names)}; "
-        f"removed={removed}; added={added}"
+        f"ea11c={'complete' if final_cutover else 'pending'}; removed={removed}; added={added}"
     )
     return 0
 

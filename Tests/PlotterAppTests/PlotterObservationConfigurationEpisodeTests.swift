@@ -240,7 +240,7 @@ struct PlotterObservationConfigurationEpisodeTests {
   @MainActor
   func workspaceProjectionBindsCapabilityAndRevision() async throws {
     let machine = try LowerMachineSessionFixture(log: EventLog())
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: try TestObservationCameraSession(),
       log: EventLog()

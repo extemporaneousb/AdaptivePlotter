@@ -463,11 +463,37 @@ enum PlotterControllerSessionRules {
   }
 }
 
+protocol PlotterControllerSerialDeviceDiscoveryPort: Sendable {
+  func discoverSerialDevices() -> [MachineLinkDescriptor]
+}
+
+struct PlotterSystemSerialDeviceDiscoveryAdapter: PlotterControllerSerialDeviceDiscoveryPort {
+  func discoverSerialDevices() -> [MachineLinkDescriptor] {
+    SerialPortDiscovery.discover()
+  }
+}
+
+struct PlotterFixedSerialDeviceDiscoveryAdapter: PlotterControllerSerialDeviceDiscoveryPort {
+  let devices: [MachineLinkDescriptor]
+
+  func discoverSerialDevices() -> [MachineLinkDescriptor] {
+    devices
+  }
+}
+
+protocol PlotterControllerEffectAdmissionPort: Sendable {
+  func awaitEffectAdmission() async
+}
+
+struct PlotterImmediateControllerEffectAdmissionAdapter: PlotterControllerEffectAdmissionPort {
+  func awaitEffectAdmission() async {}
+}
+
 actor PlotterControllerSessionRuntime {
   private let lowerSession: (any PlotterMachineSession)?
   private let simulatedSession: SimulatedLearningRuntime
-  private let discoverSerialDevices: @Sendable () -> [MachineLinkDescriptor]
-  private let awaitEffectAdmission: @Sendable () async -> Void
+  private let serialDeviceDiscovery: any PlotterControllerSerialDeviceDiscoveryPort
+  private let effectAdmission: any PlotterControllerEffectAdmissionPort
   private var admissionClosed = false
   private var activeTask: Task<PlotterControllerSessionEffectResult?, Never>?
   private var activeOperationID: UUID?
@@ -475,13 +501,14 @@ actor PlotterControllerSessionRuntime {
   init(
     lowerSession: (any PlotterMachineSession)?,
     simulatedSession: SimulatedLearningRuntime,
-    discoverSerialDevices: @escaping @Sendable () -> [MachineLinkDescriptor],
-    awaitEffectAdmission: @escaping @Sendable () async -> Void = {}
+    serialDeviceDiscovery: any PlotterControllerSerialDeviceDiscoveryPort,
+    effectAdmission: any PlotterControllerEffectAdmissionPort =
+      PlotterImmediateControllerEffectAdmissionAdapter()
   ) {
     self.lowerSession = lowerSession
     self.simulatedSession = simulatedSession
-    self.discoverSerialDevices = discoverSerialDevices
-    self.awaitEffectAdmission = awaitEffectAdmission
+    self.serialDeviceDiscovery = serialDeviceDiscovery
+    self.effectAdmission = effectAdmission
   }
 
   func submit(
@@ -498,18 +525,18 @@ actor PlotterControllerSessionRuntime {
     let operationID = UUID()
     let lowerSession = lowerSession
     let simulatedSession = simulatedSession
-    let discoverSerialDevices = discoverSerialDevices
-    let awaitEffectAdmission = awaitEffectAdmission
+    let serialDeviceDiscovery = serialDeviceDiscovery
+    let effectAdmission = effectAdmission
     let intent = request.intent
     let task = Task { () -> PlotterControllerSessionEffectResult? in
-      await awaitEffectAdmission()
+      await effectAdmission.awaitEffectAdmission()
       guard !Task.isCancelled else { return nil }
       return await Self.execute(
         intent,
         facts: facts,
         lowerSession: lowerSession,
         simulatedSession: simulatedSession,
-        discoverSerialDevices: discoverSerialDevices
+        serialDeviceDiscovery: serialDeviceDiscovery
       )
     }
     activeOperationID = operationID
@@ -538,12 +565,12 @@ actor PlotterControllerSessionRuntime {
     facts: PlotterControllerSessionFacts,
     lowerSession: (any PlotterMachineSession)?,
     simulatedSession: SimulatedLearningRuntime,
-    discoverSerialDevices: @Sendable () -> [MachineLinkDescriptor]
+    serialDeviceDiscovery: any PlotterControllerSerialDeviceDiscoveryPort
   ) async -> PlotterControllerSessionEffectResult? {
     guard !Task.isCancelled else { return nil }
     switch intent {
     case .refreshSerialDevices:
-      let devices = discoverSerialDevices()
+      let devices = serialDeviceDiscovery.discoverSerialDevices()
       let retires = facts.selectedSerialDevice.map { selected in
         !devices.contains(where: { $0.identifier == selected.identifier })
       } ?? false

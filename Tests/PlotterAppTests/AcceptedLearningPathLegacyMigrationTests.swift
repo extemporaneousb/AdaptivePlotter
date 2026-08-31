@@ -116,8 +116,7 @@ struct AcceptedLearningPathLegacyMigrationTests {
 
     try FileManager.default.removeItem(at: fixture.tipURL)
     let canonicalPersistence = AcceptedLearningPathLegacyMigrationCanonicalPersistence(
-      load: { fixture.canonicalStore.load() },
-      save: { _ in throw InjectedPersistenceFault.planned("canonical save") }
+      port: CanonicalSaveFailurePersistence(store: fixture.canonicalStore)
     )
     guard case .failed(.canonicalSave) = fixture.adapter(
       canonicalPersistence: canonicalPersistence
@@ -297,7 +296,23 @@ private enum InjectedPersistenceFault: Error, CustomStringConvertible {
   }
 }
 
-private final class FaultInjectingLegacyPersistence: @unchecked Sendable {
+private struct CanonicalSaveFailurePersistence:
+  AcceptedLearningPathLegacyMigrationCanonicalPersistencePort
+{
+  let store: AcceptedLearningPathCheckpointStore
+
+  func load() -> AcceptedLearningPathCheckpointLoadResult {
+    store.load()
+  }
+
+  func save(_ checkpoint: AcceptedLearningPathCheckpoint) throws {
+    throw InjectedPersistenceFault.planned("canonical save")
+  }
+}
+
+private final class FaultInjectingLegacyPersistence:
+  AcceptedLearningPathLegacyMigrationPersistencePort, @unchecked Sendable
+{
   private let lock = NSLock()
   private let base = AcceptedLearningPathLegacyMigrationPersistence.fileSystem
   private var remainingFailures: [FaultInjectionOperation: Int]
@@ -307,18 +322,25 @@ private final class FaultInjectingLegacyPersistence: @unchecked Sendable {
   }
 
   var persistence: AcceptedLearningPathLegacyMigrationPersistence {
-    AcceptedLearningPathLegacyMigrationPersistence(
-      fileExists: { [base] url in base.fileExists(url) },
-      read: { [base] url in try base.read(url) },
-      write: { [weak self, base] data, url in
-        try self?.failIfPlanned(.write(url))
-        try base.write(data, url)
-      },
-      remove: { [weak self, base] url in
-        try self?.failIfPlanned(.remove(url))
-        try base.remove(url)
-      }
-    )
+    AcceptedLearningPathLegacyMigrationPersistence(port: self)
+  }
+
+  func fileExists(at url: URL) -> Bool {
+    base.fileExists(url)
+  }
+
+  func read(from url: URL) throws -> Data {
+    try base.read(url)
+  }
+
+  func write(_ data: Data, to url: URL) throws {
+    try failIfPlanned(.write(url))
+    try base.write(data, url)
+  }
+
+  func remove(at url: URL) throws {
+    try failIfPlanned(.remove(url))
+    try base.remove(url)
   }
 
   private func failIfPlanned(_ operation: FaultInjectionOperation) throws {

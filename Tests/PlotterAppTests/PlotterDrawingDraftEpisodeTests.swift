@@ -918,7 +918,7 @@ private enum DrawingDraftAuthorityFixtureCache {
 
 @MainActor
 private func draftAuthorityFixture(
-  from workspace: OperatorWorkspace
+  from workspace: PlotterApplicationRuntime
 ) throws -> DrawingDraftAuthorityFixture {
   let registration = try #require(workspace.tipCameraRegistration)
   return DrawingDraftAuthorityFixture(

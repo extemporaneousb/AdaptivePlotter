@@ -407,16 +407,12 @@ struct PlotterBoundaryEpisodeTests {
     let checkpointStore = try BoundaryRecoveryCheckpointStore(
       checkpoint: acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity)
     )
-    let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointStore.load() },
-      save: { try checkpointStore.save($0) },
-      clear: { checkpointStore.clear() }
-    )
+    let checkpointActions = checkpointStore
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let lowerGate = BoundaryRenewalMotionGate()
     let runtimeAccess = TestBoundaryRuntimeAccess()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       boundaryMotionBegin: { request, planner in
         .admitted(
@@ -427,7 +423,7 @@ struct PlotterBoundaryEpisodeTests {
         )
       },
       jogCancel: { intent in await lowerGate.cancel(intent) },
-      learningPathCheckpointActions: checkpointActions,
+      statePersistencePort: checkpointActions,
       tipCalibrationSemanticIdentities: identities,
       boundaryRuntimeAccess: runtimeAccess,
       log: log
@@ -688,16 +684,12 @@ struct PlotterBoundaryEpisodeTests {
     let checkpointStore = try BoundaryRecoveryCheckpointStore(
       checkpoint: acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity)
     )
-    let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointStore.load() },
-      save: { try checkpointStore.save($0) },
-      clear: { checkpointStore.clear() }
-    )
+    let checkpointActions = checkpointStore
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let lowerGate = BoundaryRenewalMotionGate()
     let runtimeAccess = TestBoundaryRuntimeAccess()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       boundaryMotionBegin: { request, planner in
         .admitted(BoundaryMotionOperation(
@@ -706,7 +698,7 @@ struct PlotterBoundaryEpisodeTests {
         ))
       },
       jogCancel: { intent in await lowerGate.cancel(intent) },
-      learningPathCheckpointActions: checkpointActions,
+      statePersistencePort: checkpointActions,
       tipCalibrationSemanticIdentities: identities,
       boundaryRuntimeAccess: runtimeAccess,
       log: log
@@ -1795,7 +1787,9 @@ private enum BoundaryEpisodePersistenceError: Error {
   case injected
 }
 
-private final class BoundaryRecoveryCheckpointStore: @unchecked Sendable {
+private final class BoundaryRecoveryCheckpointStore:
+  PlotterApplicationStatePersistencePort, @unchecked Sendable
+{
   private let lock = NSLock()
   private var stored: AcceptedLearningPathCheckpoint?
   private var shouldFailNextSave = false
@@ -1837,6 +1831,22 @@ private final class BoundaryRecoveryCheckpointStore: @unchecked Sendable {
     stored = nil
     lock.unlock()
   }
+
+  func loadAcceptedLearningPathCheckpoint() -> AcceptedLearningPathCheckpointLoadResult {
+    load()
+  }
+
+  func saveAcceptedLearningPathCheckpoint(
+    _ checkpoint: AcceptedLearningPathCheckpoint
+  ) throws {
+    try save(checkpoint)
+  }
+
+  func clearAcceptedLearningPathCheckpoint() throws {
+    clear()
+  }
+
+  func persistPaperRevisionContext(_ context: PaperRevisionContext) throws {}
 }
 
 private actor BoundaryEpisodePersistencePort: PlotterBoundaryPersistencePort {

@@ -1,4 +1,5 @@
 import PlotterRuntime
+import PlotterUI
 import SwiftUI
 
 enum WorkbenchConnectionIndicator: CaseIterable, Hashable, Identifiable {
@@ -73,20 +74,32 @@ struct WorkbenchMotionAuthorizationActionPresentation: Equatable, Sendable {
 /// Only controller/session controls and compact truthful status live here.
 /// Exercise Stop and utility-panel launchers belong to the workbench content.
 struct WorkbenchToolbar: ToolbarContent {
-  @Bindable var workspace: OperatorWorkspace
+  let controllerSession: PlotterControllerSessionProjection
+  let observationConfiguration: PlotterObservationConfigurationProjection
+  let motionRequestStatus: MotionRequestStatusPresentation
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
   let capabilityPresentation: WorkbenchCapabilityPresentation?
 
   init(
-    workspace: OperatorWorkspace,
+    controllerSession: PlotterControllerSessionProjection,
+    observationConfiguration: PlotterObservationConfigurationProjection,
+    motionRequestStatus: MotionRequestStatusPresentation,
+    plotterUIProjection: PlotterUIProjection,
+    plotterUIIntentSink: any PlotterUIIntentSink,
     capabilityPresentation: WorkbenchCapabilityPresentation? = nil
   ) {
-    self.workspace = workspace
+    self.controllerSession = controllerSession
+    self.observationConfiguration = observationConfiguration
+    self.motionRequestStatus = motionRequestStatus
+    self.plotterUIProjection = plotterUIProjection
+    self.plotterUIIntentSink = plotterUIIntentSink
     self.capabilityPresentation = capabilityPresentation
   }
 
   var body: some ToolbarContent {
     ToolbarItem(placement: .principal) {
-      let session = workspace.controllerSessionProjection
+      let session = controllerSession
       let controllerSlot = WorkbenchControllerSlotPresentation(mode: session.environment)
       let motionAction = WorkbenchMotionAuthorizationActionPresentation(
         isAuthorized: session.motionAuthorized
@@ -104,11 +117,7 @@ struct WorkbenchToolbar: ToolbarContent {
               get: { session.selectedSerialDevice },
               set: { device in
                 guard let device else { return }
-                Task {
-                  _ = await workspace.submitControllerSessionRequest(
-                    session.request(.selectSerialDevice(device))
-                  )
-                }
+                submit(PlotterAppUIActionID.controllerDevice(device.identifier))
               }
             )
           ) {
@@ -125,11 +134,7 @@ struct WorkbenchToolbar: ToolbarContent {
         }
 
         Button(session.connectionActionTitle) {
-          Task {
-            _ = await workspace.submitControllerSessionRequest(
-              session.request(.toggleConnection)
-            )
-          }
+          submit(PlotterAppUIActionID.controllerConnection)
         }
         .operatorButton(
           session.sessionEstablished ? .negative : .affirmative,
@@ -141,11 +146,7 @@ struct WorkbenchToolbar: ToolbarContent {
         )
 
         Button(motionAction.title) {
-          Task {
-            _ = await workspace.submitControllerSessionRequest(
-              session.request(.toggleMotionAuthorization)
-            )
-          }
+          submit(PlotterAppUIActionID.controllerMotion)
         }
         .operatorButton(
           motionAction.role,
@@ -159,7 +160,7 @@ struct WorkbenchToolbar: ToolbarContent {
     }
 
     ToolbarItem(placement: .primaryAction) {
-      let session = workspace.controllerSessionProjection
+      let session = controllerSession
       HStack(spacing: 12) {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
           WorkbenchStatusIndicator(
@@ -167,11 +168,11 @@ struct WorkbenchToolbar: ToolbarContent {
             label: session.environment == .simulated
               ? "Simulator"
               : WorkbenchConnectionIndicator.camera.label(
-                isActive: workspace.observationConfigurationProjection.cameraIsLive
+                isActive: observationConfiguration.cameraIsLive
               ),
             color: session.environment == .simulated
               ? .blue
-              : workspace.observationConfigurationProjection.cameraIsLive ? .green : .red
+              : observationConfiguration.cameraIsLive ? .green : .red
           )
         }
         WorkbenchStatusIndicator(
@@ -188,12 +189,18 @@ struct WorkbenchToolbar: ToolbarContent {
           ),
           color: session.motionAuthorized ? .green : .red
         )
-        MotionRequestStatusView(presentation: workspace.motionRequestStatusPresentation)
+        MotionRequestStatusView(presentation: motionRequestStatus)
         if let capabilityPresentation {
           Divider().frame(height: 20)
           WorkbenchCapabilityIndicator(presentation: capabilityPresentation)
         }
       }
+    }
+  }
+
+  private func submit(_ actionID: PlotterUIActionID) {
+    Task {
+      _ = await plotterUIIntentSink.submitProjectedAction(actionID, in: plotterUIProjection)
     }
   }
 }

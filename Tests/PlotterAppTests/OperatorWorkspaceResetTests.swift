@@ -5,22 +5,20 @@ import Testing
 @testable import PlotterApp
 @testable import PlotterRuntime
 
-extension OperatorWorkspaceTests {
+extension PlotterApplicationRuntimeTests {
   @Test("paper persistence failure leaves the workspace graph and paper identity unchanged")
   func paperReplacementDurableWriteFailureIsAtomic() async throws {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let checkpointBox = ArtifactResetCheckpointStoreFixture()
-    let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) },
-      clear: { checkpointBox.clear() }
+    let checkpointActions = ResetStatePersistencePort(
+      checkpointStore: checkpointBox,
+      failure: .persistPaperRevision
     )
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: try TestObservationCameraSession(),
-      learningPathCheckpointActions: checkpointActions,
-      persistPaperRevisionContext: { _ in throw ResetPersistenceFixtureError.refused },
+      statePersistencePort: checkpointActions,
       log: log
     )
     let paperBefore = workspace.currentPaperRevisionContext
@@ -43,13 +41,9 @@ extension OperatorWorkspaceTests {
       semanticIdentity: identities.learningPathIdentity
     )
     let box = ArtifactResetCheckpointStoreFixture(checkpoint: checkpoint)
-    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { box.load() },
-      save: { box.save($0) },
-      clear: { box.clear() }
-    )
+    let actions = ResetStatePersistencePort(checkpointStore: box)
     let harness = makeCausalSimulatorAppFixture(
-      learningPathCheckpointActions: actions,
+      statePersistencePort: actions,
       tipCalibrationSemanticIdentities: identities
     )
     let workspace = harness.workspace
@@ -88,15 +82,11 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let checkpointBox = ArtifactResetCheckpointStoreFixture()
-    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) },
-      clear: { checkpointBox.clear() }
-    )
-    let workspace = workspace(
+    let actions = ResetStatePersistencePort(checkpointStore: checkpointBox)
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: try TestObservationCameraSession(),
-      learningPathCheckpointActions: actions,
+      statePersistencePort: actions,
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
@@ -130,15 +120,11 @@ extension OperatorWorkspaceTests {
     )
     let camera = try TestObservationCameraSession()
     let checkpointBox = ArtifactResetCheckpointStoreFixture()
-    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) },
-      clear: { checkpointBox.clear() }
-    )
-    let workspace = workspace(
+    let actions = ResetStatePersistencePort(checkpointStore: checkpointBox)
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
-      learningPathCheckpointActions: actions,
+      statePersistencePort: actions,
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
@@ -192,14 +178,10 @@ extension OperatorWorkspaceTests {
     let checkpointBox = ArtifactResetCheckpointStoreFixture(
       checkpoint: try acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity)
     )
-    let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) },
-      clear: { checkpointBox.clear() }
-    )
+    let checkpointActions = ResetStatePersistencePort(checkpointStore: checkpointBox)
     let lowerGate = BoundaryRenewalMotionGate()
     let runtimeAccess = TestBoundaryRuntimeAccess()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       boundaryMotionBegin: { request, planner in
         .admitted(BoundaryMotionOperation(
@@ -208,7 +190,7 @@ extension OperatorWorkspaceTests {
         ))
       },
       jogCancel: { intent in await lowerGate.cancel(intent) },
-      learningPathCheckpointActions: checkpointActions,
+      statePersistencePort: checkpointActions,
       tipCalibrationSemanticIdentities: identities,
       boundaryRuntimeAccess: runtimeAccess,
       log: log
@@ -270,7 +252,7 @@ extension OperatorWorkspaceTests {
   func resetAllDoesNotCancelManualMotion() async throws {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: try TestObservationCameraSession(),
       log: log
@@ -325,15 +307,14 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let checkpointBox = ArtifactResetCheckpointStoreFixture()
-    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) },
-      clear: { throw ResetPersistenceFixtureError.refused }
+    let actions = ResetStatePersistencePort(
+      checkpointStore: checkpointBox,
+      failure: .clearCheckpoint
     )
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: try TestObservationCameraSession(),
-      learningPathCheckpointActions: actions,
+      statePersistencePort: actions,
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
@@ -377,15 +358,14 @@ extension OperatorWorkspaceTests {
         identity: identities.learningPathIdentity
       )
     )
-    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { _ in throw ResetPersistenceFixtureError.refused },
-      clear: { checkpointBox.clear() }
+    let actions = ResetStatePersistencePort(
+      checkpointStore: checkpointBox,
+      failure: .saveCheckpoint
     )
     let runtimeAccess = TestBoundaryRuntimeAccess()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
-      learningPathCheckpointActions: actions,
+      statePersistencePort: actions,
       tipCalibrationSemanticIdentities: identities,
       boundaryRuntimeAccess: runtimeAccess,
       loadPenCapAppearanceSelection: { nil },
@@ -462,11 +442,7 @@ extension OperatorWorkspaceTests {
   func resetAllLiveLearningClearsTipCheckpoint() async throws {
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
     let checkpointBox = ArtifactResetCheckpointStoreFixture()
-    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) },
-      clear: { checkpointBox.clear() }
-    )
+    let actions = ResetStatePersistencePort(checkpointStore: checkpointBox)
     let seeded = makeCausalSimulatorAppFixture(tipCalibrationSemanticIdentities: identities)
     try await completeSimulatedPenInteractionPrerequisite(seeded.workspace)
     try await installAcceptedBoundaryTestProjection(
@@ -495,7 +471,7 @@ extension OperatorWorkspaceTests {
     )
 
     let liveRestart = makeCausalSimulatorAppFixture(
-      learningPathCheckpointActions: actions,
+      statePersistencePort: actions,
       tipCalibrationSemanticIdentities: identities
     )
     #expect(liveRestart.workspace.frameMode == .live)
@@ -524,15 +500,11 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let checkpointBox = ArtifactResetCheckpointStoreFixture()
-    let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) },
-      clear: { checkpointBox.clear() }
-    )
-    let workspace = workspace(
+    let checkpointActions = ResetStatePersistencePort(checkpointStore: checkpointBox)
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: try TestObservationCameraSession(),
-      learningPathCheckpointActions: checkpointActions,
+      statePersistencePort: checkpointActions,
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
@@ -603,16 +575,12 @@ extension OperatorWorkspaceTests {
     )
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
     let checkpointBox = ArtifactResetCheckpointStoreFixture()
-    let actions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) },
-      clear: { checkpointBox.clear() }
-    )
+    let actions = ResetStatePersistencePort(checkpointStore: checkpointBox)
     let firstCamera = try TestObservationCameraSession()
-    let first = workspace(
+    let first = plotterApplicationRuntime(
       machine: machine,
       camera: firstCamera,
-      learningPathCheckpointActions: actions,
+      statePersistencePort: actions,
       tipCalibrationSemanticIdentities: identities,
       log: log
     )
@@ -646,10 +614,10 @@ extension OperatorWorkspaceTests {
     #expect(checkpointBox.checkpoint?.machineArtifacts != nil)
 
     let relaunchedCamera = try TestObservationCameraSession()
-    let relaunched = workspace(
+    let relaunched = plotterApplicationRuntime(
       machine: machine,
       camera: relaunchedCamera,
-      learningPathCheckpointActions: actions,
+      statePersistencePort: actions,
       tipCalibrationSemanticIdentities: identities,
       log: log
     )
@@ -799,4 +767,43 @@ extension OperatorWorkspaceTests {
 
 private enum ResetPersistenceFixtureError: Error {
   case refused
+}
+
+private struct ResetStatePersistencePort: PlotterApplicationStatePersistencePort {
+  enum Failure: Equatable, Sendable {
+    case saveCheckpoint
+    case clearCheckpoint
+    case persistPaperRevision
+  }
+
+  let checkpointStore: ArtifactResetCheckpointStoreFixture
+  var failure: Failure?
+
+  init(
+    checkpointStore: ArtifactResetCheckpointStoreFixture,
+    failure: Failure? = nil
+  ) {
+    self.checkpointStore = checkpointStore
+    self.failure = failure
+  }
+
+  func loadAcceptedLearningPathCheckpoint() -> AcceptedLearningPathCheckpointLoadResult {
+    checkpointStore.load()
+  }
+
+  func saveAcceptedLearningPathCheckpoint(
+    _ checkpoint: AcceptedLearningPathCheckpoint
+  ) throws {
+    guard failure != .saveCheckpoint else { throw ResetPersistenceFixtureError.refused }
+    checkpointStore.save(checkpoint)
+  }
+
+  func clearAcceptedLearningPathCheckpoint() throws {
+    guard failure != .clearCheckpoint else { throw ResetPersistenceFixtureError.refused }
+    checkpointStore.clear()
+  }
+
+  func persistPaperRevisionContext(_ context: PaperRevisionContext) throws {
+    guard failure != .persistPaperRevision else { throw ResetPersistenceFixtureError.refused }
+  }
 }

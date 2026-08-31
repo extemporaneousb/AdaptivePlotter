@@ -1,6 +1,7 @@
 import Foundation
 import PlotterEpisodeModel
 import PlotterModel
+import PlotterTestSupport
 import PlotterUI
 import Testing
 
@@ -581,7 +582,7 @@ struct PlotterPenInteractionEpisodeTests {
 }
 
 private struct ProductionPenWorkspaceFixture {
-  let workspace: OperatorWorkspace
+  let workspace: PlotterApplicationRuntime
   let runtime: PlotterPenInteractionRuntime
   let machine: LowerMachineSessionFixture
   let lowerGate: PenRequestGate
@@ -596,14 +597,14 @@ private func makeProductionPenWorkspace(
   let machine = try LowerMachineSessionFixture(log: log, penRequestGate: lowerGate)
   let camera = try TestObservationCameraSession()
   var capturedRuntime: PlotterPenInteractionRuntime?
-  let workspace = workspace(
+  let workspace = plotterApplicationRuntime(
     machine: machine,
     camera: camera,
     penInteractionRuntimeFactory: { machineSession, manualMotionComposition in
-      let port = OperatorWorkspacePenInteractionActuationPort(
+      let port = PlotterApplicationRuntimePenInteractionActuationPort(
         machineSession: machineSession,
         simulatedAdapter: manualMotionComposition.causalSimulatorEffectAdapter,
-        nowNanoseconds: { 1 }
+        clock: DeterministicRuntimeClock(startNanoseconds: 1)
       )
       let runtime = setpointAdmissionGate.map {
         PlotterPenInteractionRuntime(port: port, setpointAdmissionGate: $0)
@@ -623,7 +624,7 @@ private func makeProductionPenWorkspace(
 
 @MainActor
 private func preparePenQuestion(
-  _ workspace: OperatorWorkspace,
+  _ workspace: PlotterApplicationRuntime,
   machine: LowerMachineSessionFixture? = nil
 ) async throws {
   if let machine {
@@ -680,7 +681,7 @@ private func preparePenQuestion(
 
 @MainActor
 private func currentPenSetpointRequest(
-  _ workspace: OperatorWorkspace,
+  _ workspace: PlotterApplicationRuntime,
   value: Int
 ) throws -> PlotterUIRequest {
   let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
@@ -701,7 +702,7 @@ private func currentPenSetpointRequest(
 
 @MainActor
 private func currentPenSetpointRequestIfAvailable(
-  _ workspace: OperatorWorkspace,
+  _ workspace: PlotterApplicationRuntime,
   value: Int
 ) throws -> PlotterUIRequest? {
   let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
@@ -721,7 +722,7 @@ private func currentPenSetpointRequestIfAvailable(
 
 @MainActor
 private func currentPenChoiceRequest(
-  _ workspace: OperatorWorkspace,
+  _ workspace: PlotterApplicationRuntime,
   choice: OperatorChoice
 ) throws -> PlotterUIRequest {
   let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
@@ -735,7 +736,7 @@ private func currentPenChoiceRequest(
 
 @MainActor
 private func currentPenStopRequest(
-  _ workspace: OperatorWorkspace
+  _ workspace: PlotterApplicationRuntime
 ) throws -> PlotterUIRequest {
   let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
   let projection = workspace.testPlotterUIProjection(

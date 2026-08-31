@@ -7,15 +7,10 @@ import PlotterUI
 import SwiftUI
 
 @MainActor
-final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate {
-  let workspace: OperatorWorkspace
-  private var terminationTask: Task<Void, Never>?
-  private var terminationDeadlineTask: Task<Void, Never>?
-  private var didReplyToTermination = false
+struct PlotterEpisodeComposition {
+  let application: PlotterApplicationRuntime
 
-  static let terminationDeadlineNanoseconds: UInt64 = 3_000_000_000
-
-  override init() {
+  static func production() -> Self {
     let manualMotionComposition = PlotterManualMotionComposition.production
     let penInteractionRuntime = PlotterPenInteractionComposition.makeRuntime(
       machineSession: MachineSessionComposition.session,
@@ -24,7 +19,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     let boundaryComposition = PlotterBoundaryComposition.make(
       machineSession: MachineSessionComposition.session,
       causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
-      checkpointActions: AcceptedArtifactCheckpointComposition.actions,
+      statePersistencePort: AcceptedArtifactCheckpointComposition.statePersistencePort,
       speechEffectRuntime: SpeechComposition.runtime
     )
     let drawingRunComposition = PlotterDrawingRunComposition.make(
@@ -32,10 +27,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
       observationSession: CameraComposition.observationSession
     )
     let artifactResetComposition = PlotterArtifactResetComposition.make()
-    let incidentPackageUIService = PlotterIncidentPackageUIService(
-      sourceProvider: PlotterIncidentPackageUIUnavailableSourceProvider()
-    )
-    workspace = OperatorWorkspace(
+    let application = PlotterApplicationRuntime(
       machineSession: MachineSessionComposition.session,
       observationSession: CameraComposition.observationSession,
       observationRecordingStore: CameraComposition.recordingStore,
@@ -46,19 +38,31 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
       penInteractionRuntime: penInteractionRuntime,
       boundaryRuntime: boundaryComposition.runtime,
       speechEffectRuntime: SpeechComposition.runtime,
-      acceptedLearningPathCheckpointActions: AcceptedArtifactCheckpointComposition.actions,
+      statePersistencePort: AcceptedArtifactCheckpointComposition.statePersistencePort,
       artifactResetRuntime: artifactResetComposition.runtime,
       drawingDraftRuntime: PaperCoverageComposition.drawingDraftRuntime,
       drawingRunComposition: drawingRunComposition,
-      incidentPackageUIService: incidentPackageUIService,
+      incidentPackageUIService: PlotterIncidentPackageUIService(
+        sourceProvider: PlotterIncidentPackageUIUnavailableSourceProvider()
+      ),
       tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityComposition.state,
-      persistPaperRevisionContext: {
-        try TipCalibrationSemanticIdentityComposition.persistPaperRevisionContext($0)
-      },
-      workflowTelemetryActions: MachineSessionComposition.workflowTelemetryActions
+      residualEffectPort: MachineSessionComposition.residualEffectPort
     )
-    boundaryComposition.install(on: workspace)
-    artifactResetComposition.install(on: workspace)
+    boundaryComposition.install(on: application)
+    artifactResetComposition.install(on: application)
+    return Self(application: application)
+  }
+}
+
+@MainActor
+final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate {
+  let composition: PlotterEpisodeComposition
+  var applicationRuntime: PlotterApplicationRuntime { composition.application }
+  private var terminationTask: Task<Void, Never>?
+  private var didReplyToTermination = false
+
+  override init() {
+    composition = .production()
     super.init()
   }
 
@@ -79,16 +83,8 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     didReplyToTermination = false
     terminationTask = Task { [weak self] in
       guard let self else { return }
-      await self.workspace.shutdown()
+      await self.applicationRuntime.shutdown()
       self.completeTermination(of: sender)
-    }
-    terminationDeadlineTask = Task { [weak self] in
-      do {
-        try await Task.sleep(nanoseconds: Self.terminationDeadlineNanoseconds)
-      } catch {
-        return
-      }
-      self?.completeTermination(of: sender)
     }
     return .terminateLater
   }
@@ -97,9 +93,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     guard !didReplyToTermination else { return }
     didReplyToTermination = true
     terminationTask?.cancel()
-    terminationDeadlineTask?.cancel()
     terminationTask = nil
-    terminationDeadlineTask = nil
     application.reply(toApplicationShouldTerminate: true)
   }
 }
@@ -172,7 +166,7 @@ struct AdaptivePlotterApp: App {
 
   var body: some Scene {
     Window("AdaptivePlotter", id: AdaptivePlotterScenePolicy.singletonWindowID) {
-      OperatorWorkspaceView(workspace: applicationDelegate.workspace)
+      PlotterApplicationRuntimeView(application: applicationDelegate.applicationRuntime)
         .frame(
           minWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
           minHeight: AdaptivePlotterScenePolicy.minimumWindowHeight
@@ -183,7 +177,7 @@ struct AdaptivePlotterApp: App {
 }
 
 enum AdaptivePlotterScenePolicy {
-  static let singletonWindowID = "operator-workspace"
+  static let singletonWindowID = "operator-application"
   static let minimumWindowHeight: CGFloat = 760
 }
 
@@ -241,8 +235,8 @@ func videoSettingsOperatorActionDisposition(
   )
 }
 
-struct OperatorWorkspaceView: View {
-  @Bindable var workspace: OperatorWorkspace
+struct PlotterApplicationRuntimeView: View {
+  @Bindable var application: PlotterApplicationRuntime
   @State private var selection = LearningPathSelectionState(
     current: .humanGuidedDiscovery(.penInteraction)
   )
@@ -254,13 +248,14 @@ struct OperatorWorkspaceView: View {
   private let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
 
   var body: some View {
-    let ui = workspace.plotterUIProjection(
+    let ui = application.plotterUIProjection(
       selectedItemID: selection.selected,
       manualDraft: manualMotionDraft,
       includesLearningPath:
         layout.panes.navigatorIsPresented || layout.panes.exerciseDetailIsPresented,
       pendingDrawingPlacement: pendingDrawingPlacement,
-      pendingPointSelection: pendingPointSelection
+      pendingPointSelection: pendingPointSelection,
+      observationViewport: actionSurfaceViewport
     )
     let actionSurfacePresentation = ui.actionSurface
     let exercisePaneProtection = ui.exercisePaneProtection
@@ -286,7 +281,7 @@ struct OperatorWorkspaceView: View {
             projection: learningProjection,
             currentLearningPathItemID: ui.currentLearningPathItemID,
             plotterUIProjection: ui.semantic,
-            plotterUIIntentSink: workspace,
+            plotterUIIntentSink: application,
             close: { layout = layout.toggling(.navigator) }
           )
           .frame(minWidth: 220, idealWidth: 280, maxWidth: 440)
@@ -308,7 +303,7 @@ struct OperatorWorkspaceView: View {
             drawingStudioChangeUnavailableReason: ui.drawingStudioPanelChangeUnavailableReason,
             incidentPackage: ui.incidentPackage,
             plotterUIProjection: ui.semantic,
-            plotterUIIntentSink: workspace,
+            plotterUIIntentSink: application,
             togglePane: { pane in
               layout = layout.toggling(pane)
             },
@@ -316,7 +311,8 @@ struct OperatorWorkspaceView: View {
               performVideoSettingsAction(
                 action,
                 availableWindowWidth: proxy.size.width,
-                exercisePaneProtection: exercisePaneProtection
+                exercisePaneProtection: exercisePaneProtection,
+                projection: ui.semantic
               )
             }
           )
@@ -326,7 +322,7 @@ struct OperatorWorkspaceView: View {
               presentation: actionSurfacePresentation,
               viewport: $actionSurfaceViewport,
               plotterUIProjection: ui.semantic,
-              plotterUIIntentSink: workspace,
+              plotterUIIntentSink: application,
               pendingDrawingPlacement: $pendingDrawingPlacement,
               pendingPointSelection: $pendingPointSelection
             )
@@ -338,12 +334,12 @@ struct OperatorWorkspaceView: View {
             if layout.panes.motionIsPresented {
               ScrollView {
                 MotionPanel(
-                  workspace: workspace,
                   draft: $manualMotionDraft,
                   presentation: ui.manualMotion,
+                  controllerSession: ui.controllerSession,
                   learningIsEnabled: ui.learningIsEnabled,
                   plotterUIProjection: ui.semantic,
-                  plotterUIIntentSink: workspace,
+                  plotterUIIntentSink: application,
                   close: { layout = layout.toggling(.motion) },
                   closeUnavailableReason: motionCollapseUnavailableReason
                 )
@@ -394,19 +390,19 @@ struct OperatorWorkspaceView: View {
                   )
                 }
                 .operatorButton(.affirmative)
-                .disabled(workspace.paperManagementUnavailableReason != nil)
+                .disabled(ui.paperManagementUnavailableReason != nil)
                 Menu("Paper Management") {
                   Button("New Sheet — Same Contact Plane") {
-                    Task { await workspace.recordNewPaperSheetOnCurrentPlane() }
+                    submitPlotterUIAction(PlotterAppUIActionID.paperNewSheet, in: ui.semantic)
                   }
                   Button("Contact Plane Changed") {
-                    Task { await workspace.recordPaperContactPlaneChanged() }
+                    submitPlotterUIAction(PlotterAppUIActionID.paperContactPlane, in: ui.semantic)
                   }
                 }
-                .disabled(workspace.paperManagementUnavailableReason != nil)
+                .disabled(ui.paperManagementUnavailableReason != nil)
               }
               .help(
-                workspace.paperManagementUnavailableReason
+                ui.paperManagementUnavailableReason
                   ?? "Confirm or deliberately change the current physical paper context."
               )
             }
@@ -416,7 +412,7 @@ struct OperatorWorkspaceView: View {
               DrawingStudioView(
                 presentation: ui.drawingStudio,
                 plotterUIProjection: ui.semantic,
-                plotterUIIntentSink: workspace
+                plotterUIIntentSink: application
               )
             }
           }
@@ -432,7 +428,7 @@ struct OperatorWorkspaceView: View {
             projection: learningProjection,
             currentLearningPathItemID: ui.currentLearningPathItemID,
             plotterUIProjection: ui.semantic,
-            plotterUIIntentSink: workspace,
+            plotterUIIntentSink: application,
             close: { layout = layout.toggling(.exerciseDetail) },
             closeUnavailableReason: exerciseCollapseReason
           )
@@ -456,7 +452,9 @@ struct OperatorWorkspaceView: View {
       )
     ) {
       VideoSettingsPanel(
-        workspace: workspace,
+        projection: ui.observationConfiguration,
+        plotterUIProjection: ui.semantic,
+        plotterUIIntentSink: application,
         actionSurfacePresentation: actionSurfacePresentation,
         viewport: $actionSurfaceViewport,
         close: { layout = layout.hidingVideoSettings() }
@@ -472,13 +470,17 @@ struct OperatorWorkspaceView: View {
     }
     .toolbar {
       WorkbenchToolbar(
-        workspace: workspace,
+        controllerSession: ui.controllerSession,
+        observationConfiguration: ui.observationConfiguration,
+        motionRequestStatus: ui.motionRequestStatus,
+        plotterUIProjection: ui.semantic,
+        plotterUIIntentSink: application,
         capabilityPresentation: ui.workbenchCapability
       )
     }
     .toolbarRole(.editor)
     .task {
-      await workspace.performApplicationStartup(AdaptivePlotterLaunchPolicy.current)
+      await application.performApplicationStartup(AdaptivePlotterLaunchPolicy.current)
     }
   }
 
@@ -493,14 +495,14 @@ struct OperatorWorkspaceView: View {
     _ actionID: PlotterUIActionID,
     in projection: PlotterUIProjection
   ) {
-    guard let request = projection.request(for: actionID) else { return }
-    Task { _ = await workspace.submitPlotterUIRequest(request) }
+    Task { _ = await application.submitProjectedAction(actionID, in: projection) }
   }
 
   private func performVideoSettingsAction(
     _ action: VideoSettingsVisibilityAction,
     availableWindowWidth: CGFloat,
-    exercisePaneProtection: ExercisePaneProtectionPresentation
+    exercisePaneProtection: ExercisePaneProtectionPresentation,
+    projection: PlotterUIProjection
   ) {
     guard
       let disposition = videoSettingsOperatorActionDisposition(
@@ -513,10 +515,7 @@ struct OperatorWorkspaceView: View {
     else { return }
     layout = disposition.layout
     guard disposition.shouldRefreshDiagnostics else { return }
-    let projection = workspace.observationConfigurationProjection
-    Task {
-      await workspace.submitObservationConfiguration(projection.request(.requestDiagnostics))
-    }
+    submitPlotterUIAction(PlotterAppUIActionID.observationDiagnostics, in: projection)
   }
 }
 
@@ -656,8 +655,9 @@ private struct WorkbenchPaneControls: View {
   }
 
   private func submit(_ actionID: PlotterUIActionID) {
-    guard let request = plotterUIProjection.request(for: actionID) else { return }
-    Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
+    Task {
+      _ = await plotterUIIntentSink.submitProjectedAction(actionID, in: plotterUIProjection)
+    }
   }
 
   private var incidentActionIsAvailable: Bool {
@@ -699,7 +699,9 @@ private struct WorkbenchPaneControls: View {
 }
 
 private struct VideoSettingsPanel: View {
-  @Bindable var workspace: OperatorWorkspace
+  let projection: PlotterObservationConfigurationProjection
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
   let actionSurfacePresentation: ActionSurfacePresentation
   @Binding var viewport: ActionSurfaceViewportState
   let close: () -> Void
@@ -715,7 +717,9 @@ private struct VideoSettingsPanel: View {
 
       ScrollView {
         VideoSettingsContents(
-          workspace: workspace,
+          projection: projection,
+          plotterUIProjection: plotterUIProjection,
+          plotterUIIntentSink: plotterUIIntentSink,
           actionSurfacePresentation: actionSurfacePresentation,
           viewport: $viewport
         )
@@ -731,12 +735,13 @@ private enum VideoSourceChoice: Hashable {
 }
 
 private struct VideoSettingsContents: View {
-  @Bindable var workspace: OperatorWorkspace
+  let projection: PlotterObservationConfigurationProjection
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
   let actionSurfacePresentation: ActionSurfacePresentation
   @Binding var viewport: ActionSurfaceViewportState
 
   var body: some View {
-    let projection = workspace.observationConfigurationProjection
     VStack(alignment: .leading, spacing: 12) {
       SectionPanel(title: "CAMERA") {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -755,9 +760,7 @@ private struct VideoSettingsContents: View {
           .help(projection.sourceChangeUnavailableReason ?? "Choose the video source")
 
           Button {
-            Task {
-              await workspace.submitObservationConfiguration(projection.request(.refresh))
-            }
+            submit(PlotterAppUIActionID.observationRefresh)
           } label: {
             Label("Refresh", systemImage: "arrow.clockwise")
           }
@@ -805,7 +808,6 @@ private struct VideoSettingsContents: View {
   }
 
   private var analysisViewportControls: some View {
-    let projection = workspace.observationConfigurationProjection
     let displayedFrame = actionSurfacePresentation.displayedFrame
     let region = displayedFrame.flatMap {
       viewport.selectedRegion(frameWidth: $0.frame.width, frameHeight: $0.frame.height)
@@ -821,11 +823,7 @@ private struct VideoSettingsContents: View {
         selection: Binding(
           get: { projection.cadence },
           set: { cadence in
-            Task {
-              await workspace.submitObservationConfiguration(
-                projection.request(.setCadence(cadence))
-              )
-            }
+            submit(PlotterAppUIActionID.observationCadence(cadence.rawValue))
           }
         )
       ) {
@@ -851,15 +849,9 @@ private struct VideoSettingsContents: View {
         "Lock analysis region",
         isOn: Binding(
           get: { regionIsLocked },
-          set: { shouldLock in
-            guard let displayedFrame else { return }
-            Task {
-              await workspace.submitObservationConfiguration(
-                projection.request(
-                  .setRegion(shouldLock ? region : nil, displayedFrame: displayedFrame)
-                )
-              )
-            }
+          set: { _ in
+            guard displayedFrame != nil else { return }
+            submit(PlotterAppUIActionID.observationRegion)
           }
         )
       )
@@ -879,7 +871,6 @@ private struct VideoSettingsContents: View {
   }
 
   private var overlayControls: some View {
-    let projection = workspace.observationConfigurationProjection
     return SectionPanel(title: "OVERLAYS") {
       VStack(alignment: .leading, spacing: 10) {
         ForEach(projection.overlayCards, id: \.overlay) { presentation in
@@ -940,11 +931,10 @@ private struct VideoSettingsContents: View {
           isOn: Binding(
             get: { projection.enabledOverlays.contains(presentation.overlay) },
             set: { enabled in
-              Task {
-                await workspace.submitObservationConfiguration(
-                  projection.request(.setOverlay(presentation.overlay, enabled: enabled))
-                )
-              }
+              submit(PlotterAppUIActionID.observationOverlay(
+                presentation.overlay.rawValue,
+                enabled: enabled
+              ))
             }
           )
         )
@@ -1004,7 +994,6 @@ private struct VideoSettingsContents: View {
   }
 
   private var sourceSelection: Binding<VideoSourceChoice?> {
-    let projection = workspace.observationConfigurationProjection
     return Binding(
       get: {
         switch projection.frameMode {
@@ -1014,20 +1003,20 @@ private struct VideoSettingsContents: View {
       },
       set: { selection in
         guard let selection else { return }
-        Task {
-          switch selection {
-          case .simulated:
-            await workspace.submitObservationConfiguration(
-              projection.request(.selectSource(.simulated, nil))
-            )
-          case .live(let id):
-            await workspace.submitObservationConfiguration(
-              projection.request(.selectSource(.live, id))
-            )
-          }
+        switch selection {
+        case .simulated:
+          submit(PlotterAppUIActionID.observationSimulated)
+        case .live(let id):
+          submit(PlotterAppUIActionID.observationCamera(id.rawValue))
         }
       }
     )
+  }
+
+  private func submit(_ actionID: PlotterUIActionID) {
+    Task {
+      _ = await plotterUIIntentSink.submitProjectedAction(actionID, in: plotterUIProjection)
+    }
   }
 
   private static func regionText(_ region: PixelRect) -> String {
@@ -1058,9 +1047,9 @@ extension PenCapColor {
 }
 
 private struct MotionPanel: View {
-  @Bindable var workspace: OperatorWorkspace
   @Binding var draft: ManualMotionDraft
   let presentation: ManualMotionPresentation
+  let controllerSession: PlotterControllerSessionProjection
   let learningIsEnabled: Bool
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
@@ -1068,7 +1057,7 @@ private struct MotionPanel: View {
   let closeUnavailableReason: String?
 
   var body: some View {
-    let session = workspace.controllerSessionProjection
+    let session = controllerSession
     SectionPanel(
       title: "MANUAL RELATIVE MOTION",
       panel: .motion,
@@ -1196,11 +1185,7 @@ private struct MotionPanel: View {
           .font(.caption2)
           .foregroundStyle(.secondary)
           Button {
-            Task {
-              _ = await workspace.submitControllerSessionRequest(
-                session.request(.clearAlarm)
-              )
-            }
+            submit(PlotterAppUIActionID.controllerClearAlarm)
           } label: {
             Label(
               session.alarmClearInProgress ? "Clearing Alarm…" : "Clear Alarm",
@@ -1261,8 +1246,9 @@ private struct MotionPanel: View {
   }
 
   private func submit(_ actionID: PlotterUIActionID) {
-    guard let request = plotterUIProjection.request(for: actionID) else { return }
-    Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
+    Task {
+      _ = await plotterUIIntentSink.submitProjectedAction(actionID, in: plotterUIProjection)
+    }
   }
 
   private func actionID(for direction: JogDirection) -> PlotterUIActionID {

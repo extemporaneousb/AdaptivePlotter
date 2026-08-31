@@ -11,7 +11,7 @@ import Testing
 struct ApplicationLifecycleTests {
   @Test("operator window has a stable restoration identifier")
   func singletonOperatorWindow() {
-    #expect(AdaptivePlotterScenePolicy.singletonWindowID == "operator-workspace")
+    #expect(AdaptivePlotterScenePolicy.singletonWindowID == "operator-application")
   }
 
   @Test("closing the last window terminates the local application")
@@ -31,23 +31,14 @@ struct ApplicationLifecycleTests {
     #expect(!delegate.applicationShouldSaveApplicationState(NSApplication.shared))
   }
 
-  @Test("workspace drain has a bounded application-termination deadline")
-  @MainActor
-  func applicationTerminationIsBounded() {
-    #expect(
-      AdaptivePlotterApplicationDelegate.terminationDeadlineNanoseconds
-        == 3_000_000_000
-    )
-  }
-
   @Test("application composition injects artifact reset runtime and shutdown closes admission")
   @MainActor
   func applicationOwnsArtifactResetRuntimeLifecycle() async {
     let delegate = AdaptivePlotterApplicationDelegate()
 
-    #expect(!delegate.workspace.artifactResetEpisodeSnapshot.admissionClosed)
-    await delegate.workspace.shutdown()
-    #expect(delegate.workspace.artifactResetEpisodeSnapshot.admissionClosed)
+    #expect(!delegate.applicationRuntime.artifactResetEpisodeSnapshot.admissionClosed)
+    await delegate.applicationRuntime.shutdown()
+    #expect(delegate.applicationRuntime.artifactResetEpisodeSnapshot.admissionClosed)
   }
 
   @Test("recording startup failure remains a visible diagnostic-only fallback")
@@ -59,7 +50,7 @@ struct ApplicationLifecycleTests {
     let diagnostic = composition.recordingDiagnostic
     #expect(diagnostic?.contains("Point-selection recording is unavailable") == true)
 
-    let workspace = OperatorWorkspace(
+    let workspace = PlotterApplicationRuntime(
       pointSelectionRuntime: composition.runtime,
       pointSelectionRecordingDiagnostic: diagnostic,
       penInteractionRuntime: nominalPenInteractionRuntime(),
@@ -98,7 +89,7 @@ struct ApplicationLifecycleTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     let policy = AdaptivePlotterLaunchPolicy(arguments: [
       "AdaptivePlotter", "-AdaptivePlotterStartSimulated", "YES",
     ])
@@ -124,7 +115,7 @@ struct ApplicationLifecycleTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
 
     await workspace.performApplicationStartup(
       AdaptivePlotterLaunchPolicy(arguments: ["AdaptivePlotter"])

@@ -8,6 +8,83 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## EA-11C final-composition staged completion transaction
+
+Prepared 2026-08-31 inside the existing sole-owner
+`TRANCHE-FINAL-COMPOSITION` task/worktree. The current source contains the
+candidate topology: one `PlotterApplicationRuntime`, nested
+`PlotterApplicationState.environmentStates` source-indexed by
+`OperatorFrameMode`, direct `PlotterApp -> EpisodeRuntime` dependency, one
+projection-bound public `PlotterUIIntentSink` conformance, and one
+`PlotterApplicationResidualOperationAdapter` backed directly by package
+`PlotterOperationRegistry`. The adapter owns only residual root operations;
+the point-selection, manual-motion, Pen Interaction, Boundary, calibration,
+Drawing, controller-session, observation, speech, and artifact runtimes retain
+their distinct typed rules, tasks, registries where applicable, and Stop lanes.
+
+The root uses nominal `PlotterApplicationResidualEffectPort` methods for serial
+discovery, monotonic time, and telemetry, plus nominal
+`PlotterApplicationStatePersistencePort` methods for accepted-checkpoint and
+paper-revision persistence. The obsolete `WorkflowTelemetryActions` and
+`AcceptedLearningPathCheckpointActions` closure façades are absent. The public
+sink validates exact immutable projection membership and revisions, then
+delegates to the typed feature owner; the root does not add a redundant
+`PlotterIntentGateway` reevaluator.
+
+The sole bounded tranche critic found one red-line family: root shutdown could
+return after cancelling and discarding artifact/reset and tip-calibration task
+handles while cancellation-insensitive lower work still settled. The bounded
+repair closes admission, cancels, retains, and joins the exact active operation
+before root persistence or AppKit termination. No critic recheck was performed
+or is allowed. `PlotterArtifactResetEpisodeTests` passed 12/12, including a
+suspended durable-persistence join proof; `PlotterTipCalibrationEpisodeTests`
+passed 7/7, including a suspended lower-effect join proof;
+`PlotterEpisodeCompositionTests` passed 5/5; and `ApplicationLifecycleTests`
+passed 9/9. These focused receipts are software-only and do not prove physical
+controller/camera/motion/pen/paper/click/ink behavior.
+
+The current frozen identities are Sources
+`cb2542b187fdab818346b9f04c6143c5009dabcb6caf12530ce30436061eb895`
+and Tests
+`776a77a369363f9d472bb37ea5f15feda8bf81b4c05840b3561030cdda9ae6e2`.
+The direct feature/runtime identities are artifact reset
+`bae21fabde8ed8b133612781436d210e67e956d0fa59f5d25875cf514a2d8fdd`,
+tip calibration
+`18ba1440b81503eb6981ad0ace7717ec149c8a4cd38a3bbef1023c45a2cf771c`,
+application root
+`80a37a6ce50ad26c059ced8ee971a61121936b725baf9f4400d4432adea2f377`,
+artifact-reset tests
+`11451c747a8a6c14ffa048b28ebbf8d9d02f49c0eb2d85e49ce5573785db7cab`,
+tip-calibration tests
+`676486ca501c037198a47aa9f586a0d9084eec2f84e53f00d1a1727dfe4b0048`,
+and composition tests
+`ea2bc92fd98b7430a0d43833499d767a0011cdc58972723817a17fe3a838e9ed`.
+
+The staged completion is one common Blackdog task/worktree/landing:
+`TASK-FFD5D897`, attempt `TASK-FFD5D897-06c5758ade77`, targeting `main`, for
+`TRANCHE-FINAL-COMPOSITION` and `EA-11C`. It becomes canonical only upon
+successful Blackdog landing of this exact candidate; no landed commit hash is
+asserted before that transaction completes.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts plus 35/35 in 18.569 seconds | frozen source/test candidate before the final receipt-only sync |
+| `DIFF` | passed — `git diff --check`; clean | staged worktree diff |
+| `QUICK` | passed — `make quick-test`; build 0.53 seconds and 820/820 in 15.286 seconds with 10 configured exclusions | frozen Sources/Tests identities |
+| `JOURNEY` | passed — `make journey-test`; build 0.25 seconds and 10/10 in 5.127 seconds | frozen Sources/Tests identities |
+| `STRICT` | passed — `make strict-check`; strict build 37.01 seconds, strict test build 46.06 seconds, 830/830 in 15.992 seconds, docs 35/35 in 18.402 seconds, signing/launcher/negative-bundle passed, no warnings or errors | frozen Sources/Tests identities |
+| `CRITIC` | passed — sole bounded critic returned one shutdown-lifetime red-line family; repaired with affected proof and no critic recheck | tranche boundary |
+| `BUILD` | passed — `swift build`; 0.48 seconds after the focused repair build | final EA-11C overlay |
+| `COMPOSITION` | passed — `swift test --filter PlotterEpisodeCompositionTests`; 5/5 | production-root composition and shutdown contract |
+| `AFFECTED-CONSUMERS` | passed — `sh Scripts/check_episode_cutover.sh EA-11C --consumer-only`; 4 exact scans | direct public/root consumers |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh EA-11C`; 9 exact zero-match scans | superseded root types, ports, ingress, task, fixture, and mode branch |
+
+The source-derived `TASK-METRIC` also passed: direct `OperatorWorkspace` task
+owners decreased from EA-01 9 and FIX-03 9 to current 0, with no added owner.
+This is staged semantic completion, not a pre-land Git claim. GATE-01 was not
+run in this task and may proceed only after the successful Blackdog landing.
+No attended physical or remote-Git evidence occurred or is claimed.
+
 ## Sprint tranche-policy correction
 
 Prepared 2026-08-31 in active Blackdog task `TASK-86758196` after EA-10B landed
@@ -21,11 +98,10 @@ one landing containing the ordered typed authority slices `EA-10G`, `EA-10C`,
 `2d488025a6b8a5fa129023a1a61e98b817106990`, and canonical main target/landing
 `a1cfb05ca58f6805a973748958915fdbdd0ec117`. Its successor tranches are
 `TRANCHE-DEVICE-ENVIRONMENT` (`EA-11A`, then `EA-11B`) and
-`TRANCHE-FINAL-COMPOSITION` (`EA-11C`). The Device tranche now has a staged
-completion transaction, so the executable ordinary frontier is
-`TRANCHE-FINAL-COMPOSITION` only after successful Blackdog landing of that
-exact Device candidate; this staged evidence neither lands nor dispatches that
-successor.
+`TRANCHE-FINAL-COMPOSITION` (`EA-11C`). The Device tranche landed on canonical
+`main` at `3308e1bf2c19159be7b207226280f54b5ebf0662`; the current sole-owner
+task is therefore executing `TRANCHE-FINAL-COMPOSITION` / `EA-11C` from that
+base.
 The canonical contract and capsule reject a completed tranche or
 successor selection unless the tranche row and every slice completion row share
 one nonempty Blackdog task/landing. Capsule prompt material carries each slice's
@@ -45,15 +121,13 @@ again. This correction
 does not authorize attended physical or remote-Git work, and `GATE-01` remains
 unchanged downstream after `TRANCHE-FINAL-COMPOSITION`.
 
-## TRANCHE-DEVICE-ENVIRONMENT staged completion transaction — landing required
+## TRANCHE-DEVICE-ENVIRONMENT staged completion transaction — landed
 
-The active candidate is Blackdog task `TASK-4C16F56F`, attempt
-`TASK-4C16F56F-8af99cc51c68`, targeting `main`. The plan stages
-`TRANCHE-DEVICE-ENVIRONMENT`, `EA-11A`, and `EA-11B` complete as one
-task/worktree/landing transaction. That staged completion becomes canonical
-only upon successful Blackdog landing of this exact candidate into `main`; no
-landed commit hash is asserted before that transaction completes. The current
-post-QUICK-repair tree is
+Blackdog task `TASK-4C16F56F`, attempt
+`TASK-4C16F56F-8af99cc51c68`, landed `TRANCHE-DEVICE-ENVIRONMENT`, `EA-11A`,
+and `EA-11B` as one task/worktree/landing transaction on canonical `main` at
+`3308e1bf2c19159be7b207226280f54b5ebf0662`. Its frozen post-QUICK-repair tree
+is
 Sources `06a072ec2730f81f6edf2188ce38f75887e318a054a54e8d9888688085fee042`
 and Tests
 `7314c9bfd15ead6298aeb074bac6f9770b1a3e30106bd8bff73891f9929cb2cb`.
@@ -163,10 +237,10 @@ transaction described here.
 
 ## TRANCHE-DEVICE-ENVIRONMENT staged completion transaction
 
-The staged completion is one common Blackdog task/worktree/landing:
+The landed completion is one common Blackdog task/worktree/landing:
 `TASK-4C16F56F`, attempt `TASK-4C16F56F-8af99cc51c68`, target `main`, for the
-tranche and both authority slices. It becomes canonical only upon successful
-Blackdog landing of that exact candidate; no landed commit hash exists yet.
+tranche and both authority slices. Its canonical landed commit is
+`3308e1bf2c19159be7b207226280f54b5ebf0662`.
 The frozen aggregate remains Sources
 `06a072ec2730f81f6edf2188ce38f75887e318a054a54e8d9888688085fee042` and
 Tests `7314c9bfd15ead6298aeb074bac6f9770b1a3e30106bd8bff73891f9929cb2cb`.
@@ -1235,19 +1309,21 @@ GATE-01 reduction or continuation proof is still unmeasured remains `pending`:
 | WORKSPACE-REDUCTION | pending | `METRICS/WORKSPACE-REDUCTION` |
 | SAFETY-EVIDENCE | pending | `FIX-02/LINK-SAFETY`, `EA-07/SIM`, `EA-09/UI` |
 
-FIX-03 now supplies one reproducible source-count comparison for
+FIX-03 supplied the reproducible intermediate source-count comparison for
 `workspace-task-owners`: the pinned EA-01 baseline and pre-correction EA-09
 landing both contain nine direct stored workspace Task owners, while the FIX-03
-tree contains eight. Three still-unmeasured metric names remain `pending`, not
+tree contains eight. EA-11C's masked all-production-source scan now proves the
+legacy `OperatorWorkspace` declaration absent and the current direct stored
+owner count is zero. Three still-unmeasured metric names remain `pending`, not
 invented numbers or reductions; the 6-to-6 policy-state and 7-to-10 adapter
-rows retain their exact failed pre-relocation facts. After EA-11C, the final
-`PILOT` gate must replace every remaining pending cell and remeasure both failed
-rows from source before it can pass:
+rows retain their exact failed pre-relocation facts. GATE-01 must replace every
+remaining pending cell and remeasure both failed rows from source before it can
+pass:
 
 | Reduction metric | Baseline | Current | Requirement |
 | --- | --- | --- | --- |
 | independent-admission-sites | pending | pending | decreased |
-| workspace-task-owners | 9 | 8 | decreased |
+| workspace-task-owners | 9 | 0 | decreased |
 | environment-mode-branches | pending | pending | decreased |
 | direct-effect-calls | pending | pending | decreased |
 | operator-workspace-policy-state | 6 | 6 | decreased |
@@ -2471,6 +2547,8 @@ EA-11C. Detailed scope and limitations remain in the named evidence sections.
 | TRANCHE-DEVICE-ENVIRONMENT | `TASK-4C16F56F` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `CRITIC=passed` | TRANCHE-DEVICE-ENVIRONMENT staged completion transaction |
 | EA-11A | `TASK-4C16F56F` | `BUILD=passed`, `SESSION=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-11A staged authority-slice completion |
 | EA-11B | `TASK-4C16F56F` | `BUILD=passed`, `OBSERVATION-CONFIG=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-11B staged authority-slice completion |
+| TRANCHE-FINAL-COMPOSITION | `TASK-FFD5D897` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `CRITIC=passed` | EA-11C final-composition staged completion transaction |
+| EA-11C | `TASK-FFD5D897` | `BUILD=passed`, `COMPOSITION=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-11C final-composition staged completion transaction |
 
 ## Wave admission blockers
 
@@ -2482,10 +2560,10 @@ never skips ahead to later work. An empty table means Current Evidence adds no
 admission blocker beyond the canonical ledger and live Blackdog claims. The
 former EA-10C standalone blocker was removed by the canonical tranche-policy
 correction. `TRANCHE-LEARNING` landed, and
-`TRANCHE-DEVICE-ENVIRONMENT` has a staged completion transaction that becomes
-canonical only upon successful Blackdog landing of `TASK-4C16F56F`, attempt
-`TASK-4C16F56F-8af99cc51c68`. The executable ordinary frontier is then
-`TRANCHE-FINAL-COMPOSITION`; no successor dispatch is authorized here.
+`TRANCHE-DEVICE-ENVIRONMENT` landed through `TASK-4C16F56F`, attempt
+`TASK-4C16F56F-8af99cc51c68`, at
+`3308e1bf2c19159be7b207226280f54b5ebf0662`. The active ordinary frontier is
+`TRANCHE-FINAL-COMPOSITION`; no later successor dispatch is authorized here.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

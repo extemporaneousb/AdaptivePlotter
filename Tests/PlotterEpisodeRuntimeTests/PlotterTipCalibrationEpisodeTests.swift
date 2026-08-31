@@ -110,9 +110,18 @@ struct PlotterTipCalibrationEpisodeTests {
     let active = Task { await runtime.submit(.beginFourMarkBatch) }
     await port.waitForCallCount(1)
 
-    await runtime.stop()
+    let stopCompletion = CompletionProbe()
+    let stop = Task {
+      await runtime.stop()
+      await stopCompletion.markCompleted()
+    }
+    while !(await runtime.snapshot()).admissionClosed { await Task.yield() }
+    #expect(!(await stopCompletion.completed))
+    #expect((await runtime.snapshot()).activeOperationID != nil)
     #expect(await runtime.submit(.beginFourMarkBatch) == .cancelled)
     await port.releaseSuspendedRequest()
+    await stop.value
+    #expect(await stopCompletion.completed)
     #expect(await active.value == .cancelled)
 
     let snapshot = await runtime.snapshot()
@@ -219,6 +228,12 @@ private actor TipPortFixture: PlotterTipCalibrationEffectPort {
     continuation.resume(returning: suspendedResponse ?? .cancelled)
     suspendedResponse = nil
   }
+}
+
+private actor CompletionProbe {
+  private(set) var completed = false
+
+  func markCompleted() { completed = true }
 }
 
 private func callKind(_ request: PlotterTipCalibrationEffectRequest) -> TipCallKind {

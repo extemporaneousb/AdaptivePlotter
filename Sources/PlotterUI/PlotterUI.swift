@@ -67,6 +67,10 @@ public enum PlotterUIIntent: Hashable, Sendable {
   case retainedLearningAction(PlotterUIActionID)
   case retainedLearningReset(PlotterUIActionID)
   case retainedComparisonReview(PlotterUIRetainedComparisonIntent)
+  /// Application-composition action bound to this exact immutable projection.
+  /// The identifier is resolved only by the root application runtime; no
+  /// controller, camera, persistence, or feature port crosses the UI boundary.
+  case applicationAction(PlotterUIActionID)
   case requestIncidentPackage
   /// A rendered control whose window-local draft cannot currently form a
   /// typed episode intent. The compiler publishes it only with an unsatisfied
@@ -1466,6 +1470,19 @@ public enum PlotterUIRequestDisposition: Hashable, Sendable {
 @MainActor
 public protocol PlotterUIIntentSink: AnyObject {
   func submitPlotterUIRequest(_ request: PlotterUIRequest) async -> PlotterUIRequestDisposition
+}
+
+extension PlotterUIIntentSink {
+  /// Submits only an action compiled into the supplied immutable projection.
+  /// A missing or unavailable action never reaches the application sink.
+  @discardableResult
+  public func submitProjectedAction(
+    _ actionID: PlotterUIActionID,
+    in projection: PlotterUIProjection
+  ) async -> PlotterUIRequestDisposition? {
+    guard let request = projection.request(for: actionID) else { return nil }
+    return await submitPlotterUIRequest(request)
+  }
 }
 
 /// Deterministic bounded compiler for semantic actions. Runtime revision order

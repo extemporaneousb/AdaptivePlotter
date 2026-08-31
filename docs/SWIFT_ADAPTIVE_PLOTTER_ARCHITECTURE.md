@@ -26,7 +26,7 @@ EpisodeRuntime -> EpisodeCore
   PlotterOperationRegistry bound by the point-selection and manual-motion production compositions
   typed lanes, move-only effect permits, original handles, exact Stop
   operation-bound completion, typed result/refusal, shared cancellation, terminal record
-  internal target with no package product or direct application import
+  internal target with no package product; EA-11C requires a direct PlotterApp target dependency
 
 PlotterModel
   coordinate-space types, geometry, deterministic drawing-program catalog
@@ -87,8 +87,10 @@ PlotterRuntime
   paper and append-only drawing-run evidence
   causal nonphysical simulator and workflow telemetry
 
-PlotterApp -> PlotterEpisodeRuntime + PlotterUI + retained application/runtime dependencies
-  OperatorWorkspace projection/adaptation and retained artifact commits
+PlotterApp -> EpisodeRuntime + PlotterEpisodeRuntime + PlotterUI + retained application/runtime dependencies
+  PlotterApplicationRuntime root composition, projection/adaptation, and retained artifact commits
+  one source-indexed PlotterApplicationState with PlotterApplicationEnvironmentState values
+  one PlotterApplicationResidualOperationAdapter backed by package PlotterOperationRegistry
   one production PlotterUIIntentSink with exact current membership, bound-intent,
   availability, UI-revision, and runtime-revision validation
   typed point-selection, Learning-mode, manual-motion, Pen Interaction, Drawing, Comparison,
@@ -742,7 +744,7 @@ separately from automatic overlay analysis. Supervised Pen-Up travel does not
 acquire an exact Vision lease and therefore never claims that Vision owns
 processing or that preview is held merely because motion is active.
 
-`OperatorWorkspace` is the `@Observable` application composition and
+`PlotterApplicationRuntime` is the `@Observable` application composition and
 presentation owner. It composes controller/camera actors through typed actions,
 owns the retained Learning Path attempts,
 commits the retained artifact dependency graph, routes view intent, and reads
@@ -766,7 +768,7 @@ and awaits the runtime owner; the old Task-returning helper is absent.
 The deleted `submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` helpers cannot recreate semantic ingress or test-only transition authority; focused tests use generic submissions and bounded observable-state waits.
 The deleted `awaitContinuationSettlement` task-owner/polling helper has no replacement helper, poll, sleep, or state.
 
-For EA-06, `OperatorWorkspace` holds one `PlotterManualMotionRuntime` reference
+For EA-06, `PlotterApplicationRuntime` holds one `PlotterManualMotionRuntime` reference
 and one copied `PlotterManualMotionRuntimeSnapshot`; it does not own manual
 semantic admission, an active manual operation, a cancellation task, a mode-
 specific executor, or a second terminal result. `manualMotionEpisodePresentation`
@@ -1632,6 +1634,40 @@ identity, refuse stale or closed admission, own their bounded task/subscription
 work, and close admission before shutdown settlement. App and SwiftUI hold only immutable
 projections plus typed request sinks; they do not recreate arbitrary closure
 facades or a second semantic effect authority.
+
+## EA-11C root composition candidate
+
+The final-composition package remains pending its unrun gates and landing, but
+the current source topology is explicit: `PlotterApplicationRuntime`
+is the MainActor root, `PlotterApplicationState` owns the single source-indexed
+map of residual `PlotterApplicationEnvironmentState` values, and the root is
+the only production `PlotterUIIntentSink` conformer. The sink validates exact
+projection membership plus UI/runtime revisions and delegates the accepted
+request to the owning typed feature runtime. The root does not compose a
+redundant `PlotterIntentGateway`; internal gateway evaluation remains within
+the point-selection and manual-motion runtimes.
+
+`PlotterApp` directly depends on `EpisodeRuntime`. The root's one
+`PlotterApplicationResidualOperationAdapter` is backed by package
+`PlotterOperationRegistry` and owns only residual application operations. It is
+not a second task registry and it does not subsume the point-selection,
+manual-motion, Pen Interaction, Boundary, calibration, Drawing,
+controller-session, observation, speech, or artifact runtime tasks and Stop
+lanes. Root lower work uses nominal `PlotterApplicationResidualEffectPort` and
+`PlotterApplicationStatePersistencePort` boundaries rather than arbitrary
+effect or persistence closures.
+
+The root's synchronous `admissionState` latch is set before shutdown performs
+its first suspension. Shutdown then closes/cancels/joins the residual registry
+and every named feature owner. Accepted root state persists before its matching
+immutable projection or successful terminal is published. Deadline expiry,
+waiter cancellation, append failure, or a remaining owner produces an exact
+nonterminal owner/progress/recovery result; it cannot become a false
+`terminated` or `quiescent` state. The discoverable
+`PlotterEpisodeCompositionTests` suite currently contains five focused tests
+and has passed 5/5. That result does not satisfy the unrun `BUILD`,
+`AFFECTED-CONSUMERS`, `DIFF`, or `DELETE` gates and does not make EA-11C or its
+tranche complete.
 
 ## Drawing Studio ownership
 

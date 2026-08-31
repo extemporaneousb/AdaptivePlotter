@@ -112,12 +112,21 @@ ACTION_ENUMS = {
         ROOT / "Sources/PlotterEpisodeModel/PlotterDrawingDraft.swift",
     "VideoSettingsVisibilityAction": ROOT / "Sources/PlotterApp/WorkbenchLayout.swift",
 }
-PORT_STRUCTS = {
-    "WorkflowTelemetryActions",
-    "AcceptedLearningPathCheckpointActions",
+PORT_PROTOCOLS = {
+    "PlotterApplicationResidualEffectPort": {
+        "discoverSerialDevices",
+        "nowNanoseconds",
+        "recordWorkflowTelemetry",
+    },
+    "PlotterApplicationStatePersistencePort": {
+        "loadAcceptedLearningPathCheckpoint",
+        "saveAcceptedLearningPathCheckpoint",
+        "clearAcceptedLearningPathCheckpoint",
+        "persistPaperRevisionContext",
+    },
 }
 TASK_FILES = {
-    "OperatorWorkspace": ROOT / "Sources/PlotterApp/OperatorWorkspace.swift",
+    "PlotterApplicationResidualHandle": ROOT / "Sources/PlotterApp/OperatorWorkspace.swift",
     "CameraSourceSession": ROOT / "Sources/PlotterApp/CameraComposition.swift",
     "PlotterObservationConfigurationRuntime": ROOT / "Sources/PlotterApp/PlotterObservationConfigurationRuntime.swift",
     "AdaptivePlotterApplicationDelegate": ROOT / "Sources/PlotterApp/AdaptivePlotterApp.swift",
@@ -131,6 +140,7 @@ TASK_FILES = {
     "NativeSpeechAnnouncer": ROOT / "Sources/PlotterRuntime/SpeechAnnouncements.swift",
     "RunInterpreter": ROOT / "Sources/PlotterRuntime/RunInterpreter.swift",
 }
+APPLICATION_ROOT_TYPES = ("PlotterApplicationRuntime",)
 
 
 class ContractError(ValueError):
@@ -174,7 +184,10 @@ def seams(cell: str) -> set[str]:
 
 
 def braced_block(text: str, declaration: str) -> str:
-    match = re.search(rf"\b(?:enum|struct)\s+{re.escape(declaration)}\b[^{{]*{{", text)
+    match = re.search(
+        rf"\b(?:actor|class|enum|protocol|struct)\s+{re.escape(declaration)}\b[^{{]*{{",
+        text,
+    )
     if match is None:
         fail(f"source declaration missing: {declaration}")
     depth = 1
@@ -195,9 +208,40 @@ def enum_cases(path: Path, name: str) -> set[str]:
     return set(re.findall(r"^\s*case\s+([A-Za-z_][A-Za-z0-9_]*)", block, re.MULTILINE))
 
 
-def port_fields(name: str, workspace_text: str) -> set[str]:
-    block = braced_block(workspace_text, name)
-    return set(re.findall(r"^\s*let\s+([A-Za-z_][A-Za-z0-9_]*)\s*:", block, re.MULTILINE))
+def port_methods(name: str, workspace_text: str) -> set[str]:
+    blocks = [braced_block(workspace_text, name)]
+    for match in re.finditer(rf"\bextension\s+{re.escape(name)}\b[^{{]*{{", workspace_text):
+        depth = 1
+        index = match.end()
+        while index < len(workspace_text) and depth:
+            if workspace_text[index] == "{":
+                depth += 1
+            elif workspace_text[index] == "}":
+                depth -= 1
+            index += 1
+        if depth:
+            fail(f"unterminated source extension: {name}")
+        blocks.append(workspace_text[match.end() : index - 1])
+    return set(
+        re.findall(
+            r"^\s*func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+            "\n".join(blocks),
+            re.MULTILINE,
+        )
+    )
+
+
+def application_root_source() -> tuple[str, Path, str]:
+    matches: list[tuple[str, Path, str]] = []
+    for path in (ROOT / "Sources/PlotterApp").glob("*.swift"):
+        text = path.read_text(encoding="utf-8")
+        for name in APPLICATION_ROOT_TYPES:
+            if re.search(rf"\bfinal\s+class\s+{re.escape(name)}\b", text):
+                matches.append((name, path, text))
+    if len(matches) != 1:
+        identities = [(name, str(path.relative_to(ROOT))) for name, path, _ in matches]
+        fail(f"application root declaration must be unique: {identities}")
+    return matches[0]
 
 
 def inventory_rows(plan: str) -> tuple[list[dict[str, object]], set[str]]:
@@ -276,7 +320,7 @@ def validate_action_cases(rows: list[dict[str, object]]) -> None:
 
 
 def validate_guards(rows: list[dict[str, object]]) -> None:
-    text = (ROOT / "Sources/PlotterApp/OperatorWorkspace.swift").read_text(encoding="utf-8")
+    root_name, _path, text = application_root_source()
     actual_names = set(
         re.findall(
             r"^\s*(?:private\s+)?(?:var|func)\s+([A-Za-z_][A-Za-z0-9_]*UnavailableReason)\b",
@@ -284,24 +328,110 @@ def validate_guards(rows: list[dict[str, object]]) -> None:
             re.MULTILINE,
         )
     )
-    actual = {f"OperatorWorkspace.{name}" for name in actual_names}
+    actual = set(actual_names)
     guard_seams = set().union(*(row["seams"] for row in rows if row["category"] == "guard"))
-    assigned = {seam for seam in guard_seams if seam.startswith("OperatorWorkspace.") and seam.endswith("UnavailableReason")}
-    require_exact_family("OperatorWorkspace named guards", actual, assigned)
+    assigned = {
+        seam.rsplit(".", 1)[-1]
+        for seam in guard_seams
+        if seam.split(".", 1)[0] in APPLICATION_ROOT_TYPES
+        and seam.endswith("UnavailableReason")
+    }
+    require_exact_family(f"{root_name} named guards", actual, assigned)
 
 
 def validate_ports(rows: list[dict[str, object]]) -> None:
-    text = (ROOT / "Sources/PlotterApp/OperatorWorkspace.swift").read_text(encoding="utf-8")
+    _root_name, _path, text = application_root_source()
     actual: set[str] = set()
-    for name in PORT_STRUCTS:
-        actual.update(f"{name}.{field}" for field in port_fields(name, text))
+    for name, expected_methods in PORT_PROTOCOLS.items():
+        methods = port_methods(name, text)
+        if methods != expected_methods:
+            fail(
+                f"{name} method mismatch; expected={sorted(expected_methods)}, "
+                f"actual={sorted(methods)}"
+            )
+        actual.update(f"{name}.{method}" for method in methods)
     port_seams = set().union(*(row["seams"] for row in rows if row["category"] == "direct-port"))
-    assigned = {seam for seam in port_seams if seam.split(".", 1)[0] in PORT_STRUCTS}
+    assigned = {seam for seam in port_seams if seam.split(".", 1)[0] in PORT_PROTOCOLS}
     require_exact_family("injected direct ports", actual, assigned)
+
+
+def validate_ea11c_target_topology() -> None:
+    root_name, root_path, root_text = application_root_source()
+    if root_name != "PlotterApplicationRuntime":
+        fail(f"EA-11C application root is not PlotterApplicationRuntime: {root_name}")
+    plotter_app_corpus = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in (ROOT / "Sources/PlotterApp").glob("*.swift")
+    )
+    if re.search(r"\b(?:class|struct)\s+OperatorWorkspace\b", plotter_app_corpus):
+        fail("retired OperatorWorkspace declaration remains")
+
+    package_text = (ROOT / "Package.swift").read_text(encoding="utf-8")
+    plotter_app_target = re.search(
+        r"\.executableTarget\(\s*name:\s*\"PlotterApp\"(?P<body>.*?)\n\s*\),",
+        package_text,
+        re.DOTALL,
+    )
+    if plotter_app_target is None or '"EpisodeRuntime"' not in plotter_app_target.group("body"):
+        fail("PlotterApp must depend directly on EpisodeRuntime")
+
+    state_block = braced_block(root_text, "PlotterApplicationState")
+    state_declaration = re.compile(
+        r"\bvar\s+environmentStates\s*:\s*"
+        r"\[OperatorFrameMode\s*:\s*PlotterApplicationEnvironmentState\]"
+    )
+    if state_declaration.search(state_block) is None:
+        fail("PlotterApplicationState must own the typed environmentStates map")
+    if len(state_declaration.findall(root_text)) != 1:
+        fail("environmentStates must have exactly one declaration in PlotterApplicationState")
+
+    adapter_block = braced_block(root_text, "PlotterApplicationResidualOperationAdapter")
+    for token in (
+        "PlotterOperationRegistry<",
+        "private let registry: Registry",
+        "registry.register(",
+        "registry.stop(",
+        "registry.shutdown()",
+    ):
+        if token not in adapter_block:
+            fail(f"residual operation adapter is missing {token}")
+    if root_text.count("PlotterOperationRegistry<") != 1:
+        fail("PlotterApp root must have exactly one package-registry-backed residual adapter")
+    if "PlotterApplicationResidualOperationAdapter()" not in root_text:
+        fail("PlotterApplicationRuntime does not retain the residual adapter")
+    if "PlotterIntentGateway" in root_text:
+        fail("PlotterApplicationRuntime must not add a redundant root PlotterIntentGateway reevaluator")
+
+    sink_conformers: list[Path] = []
+    for path in (ROOT / "Sources/PlotterApp").glob("*.swift"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if re.search(
+            r"\b(?:actor|class|struct)\s+[A-Za-z_][A-Za-z0-9_]*[^{{]{0,500}"
+            r"\bPlotterUIIntentSink\b",
+            text,
+            re.DOTALL,
+        ):
+            sink_conformers.append(path)
+    if sink_conformers != [root_path]:
+        fail(
+            "PlotterUIIntentSink must have exactly one production conformer: "
+            f"{[str(path.relative_to(ROOT)) for path in sink_conformers]}"
+        )
+
+    suite_path = ROOT / "Tests/PlotterAppTests/PlotterEpisodeCompositionTests.swift"
+    suite_text = suite_path.read_text(encoding="utf-8")
+    if '@Suite("PlotterEpisodeCompositionTests")' not in suite_text:
+        fail("PlotterEpisodeCompositionTests suite is not discoverable")
+    if len(re.findall(r"^\s*@Test\b", suite_text, re.MULTILINE)) < 1:
+        fail("PlotterEpisodeCompositionTests must contain at least one focused test")
 
 
 def task_names(owner: str, path: Path) -> set[str]:
     text = path.read_text(encoding="utf-8")
+    try:
+        text = braced_block(text, owner)
+    except ContractError:
+        pass
     visibility = r"(?:private\s+)?" if owner == "RunInterpreter" else r"private\s+"
     names = set(
         re.findall(
@@ -315,18 +445,29 @@ def task_names(owner: str, path: Path) -> set[str]:
 
 
 def validate_tasks(rows: list[dict[str, object]]) -> None:
+    root_name, root_path, _text = application_root_source()
+    root_actual = {
+        seam.rsplit(".", 1)[-1] for seam in task_names(root_name, root_path)
+    }
     actual = set().union(*(task_names(owner, path) for owner, path in TASK_FILES.items()))
     task_seams = set().union(
         *(row["seams"] for row in rows if row["category"] == "task-cancel-owner")
     )
+    root_assigned = {
+        seam.rsplit(".", 1)[-1]
+        for seam in task_seams
+        if seam.split(".", 1)[0] in APPLICATION_ROOT_TYPES
+    }
+    require_exact_family(f"{root_name} declared Task owners", root_actual, root_assigned)
     assigned = actual.intersection(task_seams)
     require_exact_family("declared Task owners", actual, assigned)
 
 
 def validate_ui_consumers(rows: list[dict[str, object]]) -> None:
     actual: set[str] = set()
+    root_name, root_path, _text = application_root_source()
     for path in (ROOT / "Sources/PlotterApp").glob("*.swift"):
-        if path.name == "OperatorWorkspace.swift":
+        if path == root_path:
             continue
         text = path.read_text(encoding="utf-8")
         actual.update(
@@ -335,7 +476,14 @@ def validate_ui_consumers(rows: list[dict[str, object]]) -> None:
         )
     ui_seams = set().union(*(row["seams"] for row in rows if row["category"] == "ui-consumer"))
     assigned = {seam for seam in ui_seams if seam.startswith("UI.")}
-    require_exact_family("direct SwiftUI OperatorWorkspace consumers", actual, assigned)
+    if root_name == "PlotterApplicationRuntime":
+        if actual:
+            fail(
+                "direct SwiftUI application-root consumers remain after EA-11C: "
+                f"{sorted(actual)}"
+            )
+        return
+    require_exact_family("direct SwiftUI application-root consumers", actual, assigned)
 
 
 def validate_source_seams(rows: list[dict[str, object]]) -> None:
@@ -396,6 +544,13 @@ def validate_manifest() -> tuple[list[dict[str, object]], list[dict[str, str]]]:
     plan = PLAN.read_text(encoding="utf-8")
     rows, _ = inventory_rows(plan)
     completed_packages = completed_assignable_packages(plan)
+    root_name, _root_path, _root_text = application_root_source()
+    if root_name == "PlotterApplicationRuntime":
+        # A staged EA-11C candidate has already replaced the historical
+        # inventory seams even before its ledger row can truthfully be marked
+        # complete. Validate the positive target topology below and treat only
+        # that package's delete rows as historical for live-source equality.
+        completed_packages.add("EA-11C")
     live_rows = [
         row
         for row in rows
@@ -410,6 +565,7 @@ def validate_manifest() -> tuple[list[dict[str, object]], list[dict[str, str]]]:
     validate_tasks(live_rows)
     validate_ui_consumers(live_rows)
     validate_source_seams(live_rows)
+    validate_ea11c_target_topology()
     scans = scan_rows(plan)
     return rows, scans
 

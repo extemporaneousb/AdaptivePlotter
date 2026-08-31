@@ -298,6 +298,7 @@ public final class PlotterArtifactResetRuntime {
   private var lastComparisonIdentity: String?
   private var terminalHistory: [PlotterArtifactResetTerminalRecord] = []
   private var activeTask: Task<Void, Never>?
+  private var operationSettlementWaiters: [CheckedContinuation<Void, Never>] = []
 
   public init(
     effectPort: any PlotterArtifactResetEffectPort,
@@ -355,16 +356,10 @@ public final class PlotterArtifactResetRuntime {
     return facts.lowerOwnerBlocker
   }
 
-  public func shutdown() {
+  public func shutdown() async {
     admissionClosed = true
     activeTask?.cancel()
-    activeTask = nil
-    if let intent = activeIntent {
-      phase = .cancelled("Artifact/reset admission closed.")
-      recordTerminal(intent: intent, detail: "Artifact/reset admission closed.")
-    }
-    activeOperationID = nil
-    activeIntent = nil
+    await awaitActiveOperationSettlement()
   }
 
   @discardableResult
@@ -380,11 +375,7 @@ public final class PlotterArtifactResetRuntime {
     let operationID = PlotterArtifactResetOperationID()
     activeOperationID = operationID
     activeIntent = intent
-    defer {
-      activeOperationID = nil
-      activeIntent = nil
-      activeTask = nil
-    }
+    defer { finishActiveOperation() }
 
     switch intent {
     case .compareSavedLearning(let checkpoint, let comparisonIdentity):
@@ -543,6 +534,22 @@ public final class PlotterArtifactResetRuntime {
       recordTerminal(intent: intent, detail: detail)
       return false
     }
+  }
+
+  private func awaitActiveOperationSettlement() async {
+    guard activeOperationID != nil else { return }
+    await withCheckedContinuation { continuation in
+      operationSettlementWaiters.append(continuation)
+    }
+  }
+
+  private func finishActiveOperation() {
+    activeOperationID = nil
+    activeIntent = nil
+    activeTask = nil
+    let waiters = operationSettlementWaiters
+    operationSettlementWaiters.removeAll(keepingCapacity: false)
+    for waiter in waiters { waiter.resume() }
   }
 
   private func apply(_ fact: PlotterArtifactResetEffectFact) {

@@ -28,6 +28,10 @@ struct PlotterAppUIProjection: Sendable {
   let drawingDraftProjection: PlotterDrawingDraftProjectionReference
   let workbenchCapability: WorkbenchCapabilityPresentation
   let incidentPackage: PlotterUIIncidentPackageState
+  let controllerSession: PlotterControllerSessionProjection
+  let observationConfiguration: PlotterObservationConfigurationProjection
+  let paperManagementUnavailableReason: String?
+  let motionRequestStatus: MotionRequestStatusPresentation
 }
 
 enum PlotterAppUIActionID {
@@ -44,6 +48,37 @@ enum PlotterAppUIActionID {
   static let drawingOpen = PlotterUIActionID(rawValue: "drawing.draft.open")
   static let drawingClose = PlotterUIActionID(rawValue: "drawing.draft.close")
   static let incidentPackage = PlotterUIActionID(rawValue: "incident.package.request")
+  static let controllerRefresh = PlotterUIActionID(rawValue: "application.controller.refresh")
+  static let controllerConnection = PlotterUIActionID(rawValue: "application.controller.connection")
+  static let controllerMotion = PlotterUIActionID(rawValue: "application.controller.motion")
+  static let controllerProbe = PlotterUIActionID(rawValue: "application.controller.probe")
+  static let controllerClearAlarm = PlotterUIActionID(rawValue: "application.controller.clear-alarm")
+  static let observationRefresh = PlotterUIActionID(rawValue: "application.observation.refresh")
+  static let observationSimulated = PlotterUIActionID(rawValue: "application.observation.simulated")
+  static let observationStop = PlotterUIActionID(rawValue: "application.observation.stop")
+  static let observationRestart = PlotterUIActionID(rawValue: "application.observation.restart")
+  static let observationDiagnostics = PlotterUIActionID(rawValue: "application.observation.diagnostics")
+  static let observationRegion = PlotterUIActionID(rawValue: "application.observation.region")
+  static let paperNewSheet = PlotterUIActionID(rawValue: "application.paper.new-sheet")
+  static let paperContactPlane = PlotterUIActionID(rawValue: "application.paper.contact-plane")
+
+  static func controllerDevice(_ identifier: String) -> PlotterUIActionID {
+    PlotterUIActionID(rawValue: "application.controller.device.\(identifier)")
+  }
+
+  static func observationCamera(_ identifier: String) -> PlotterUIActionID {
+    PlotterUIActionID(rawValue: "application.observation.camera.\(identifier)")
+  }
+
+  static func observationCadence(_ value: Int) -> PlotterUIActionID {
+    PlotterUIActionID(rawValue: "application.observation.cadence.\(value)")
+  }
+
+  static func observationOverlay(_ value: String, enabled: Bool) -> PlotterUIActionID {
+    PlotterUIActionID(
+      rawValue: "application.observation.overlay.\(value).\(enabled ? "on" : "off")"
+    )
+  }
 
   static func pointSelection(_ submission: PlotterPointSelectionSubmission) -> PlotterUIActionID {
     PlotterUIActionID(rawValue: "learning.point-selection.\(submission.selectionID.rawValue)")

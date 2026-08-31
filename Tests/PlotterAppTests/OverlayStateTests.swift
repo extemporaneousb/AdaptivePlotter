@@ -153,7 +153,7 @@ struct OverlayStateTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       loadOverlayPreference: { preference.load() },
@@ -186,7 +186,7 @@ struct OverlayStateTests {
       providesInspectionOverlay: true,
       providesAutomaticAnalysisResult: true
     )
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let before = workspace.testActionSurfacePresentation
     #expect(before.overlays.map(\.provenance.kind) == [.penCap])

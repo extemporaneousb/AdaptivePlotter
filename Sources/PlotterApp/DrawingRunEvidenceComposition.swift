@@ -3,17 +3,17 @@ import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterRuntime
 
-actor OperatorWorkspaceDrawingRunFactSource: PlotterDrawingRunFactSource {
-  private weak var workspace: OperatorWorkspace?
+actor PlotterApplicationRuntimeDrawingRunFactSource: PlotterDrawingRunFactSource {
+  private weak var application: PlotterApplicationRuntime?
 
-  func install(_ workspace: OperatorWorkspace) {
-    self.workspace = workspace
+  func install(_ application: PlotterApplicationRuntime) {
+    self.application = application
   }
 
   func drawingRunFacts(
     for environment: PlotterEnvironment
   ) async -> PlotterDrawingRunExternalFacts {
-    guard let workspace else {
+    guard let application else {
       return PlotterDrawingRunExternalFacts(
         environment: environment,
         interactiveLearningIsComplete: false,
@@ -24,23 +24,23 @@ actor OperatorWorkspaceDrawingRunFactSource: PlotterDrawingRunFactSource {
         penActuationProfile: .initialDefaults
       )
     }
-    return await workspace.currentDrawingRunFacts(for: environment)
+    return await application.currentDrawingRunFacts(for: environment)
   }
 }
 
 struct PlotterDrawingRunComposition: Sendable {
   let runtime: PlotterDrawingRunRuntime
-  let factSource: OperatorWorkspaceDrawingRunFactSource
-  let interpreter: OperatorWorkspaceDrawingRunInterpreterPort
-  let camera: OperatorWorkspaceDrawingRunCameraPort
+  let factSource: PlotterApplicationRuntimeDrawingRunFactSource
+  let interpreter: PlotterApplicationRuntimeDrawingRunInterpreterPort
+  let camera: PlotterApplicationRuntimeDrawingRunCameraPort
 
   static func make(
     machineSession: (any PlotterMachineSession),
     observationSession: any PlotterObservationCameraSessionPort
   ) -> Self {
-    let factSource = OperatorWorkspaceDrawingRunFactSource()
-    let interpreter = OperatorWorkspaceDrawingRunInterpreterPort(session: machineSession)
-    let camera = OperatorWorkspaceDrawingRunCameraPort(session: observationSession)
+    let factSource = PlotterApplicationRuntimeDrawingRunFactSource()
+    let interpreter = PlotterApplicationRuntimeDrawingRunInterpreterPort(session: machineSession)
+    let camera = PlotterApplicationRuntimeDrawingRunCameraPort(session: observationSession)
     let evidence = DrawingRunEvidenceComposition.port
     return Self(
       runtime: PlotterDrawingRunRuntime(

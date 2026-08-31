@@ -8,11 +8,11 @@ import Testing
 
 @Suite("Operator workspace computation diagnostics", .serialized)
 @MainActor
-struct OperatorWorkspaceComputationDiagnosticsTests {
+struct PlotterApplicationRuntimeComputationDiagnosticsTests {
   @Test("presentation probes expose current recomputation owners without fixed cost assertions")
   func presentationProbeBaseline() async throws {
     let log = EventLog()
-    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), log: log)
+    let workspace = plotterApplicationRuntime(machine: try LowerMachineSessionFixture(log: log), log: log)
     workspace.resetComputationDiagnosticsForTesting()
 
     let current = workspace.testCurrentLearningPathItemID
@@ -45,7 +45,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
   @Test("one semantic revision reuses Learning selection and Action Surface caches")
   func presentationCacheReuse() async throws {
     let log = EventLog()
-    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), log: log)
+    let workspace = plotterApplicationRuntime(machine: try LowerMachineSessionFixture(log: log), log: log)
     workspace.resetComputationDiagnosticsForTesting()
 
     let current = workspace.testCurrentLearningPathItemID
@@ -85,7 +85,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
   func cachedProjectionParity() async throws {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
-    let workspace = workspace(machine: machine, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, log: log)
 
     func expectParity(_ selected: LearningPathItemID) {
       let cached = workspace.testLearningPathProjection(selectedItemID: selected)
@@ -120,7 +120,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       positionObserver: { camera.trackMachinePosition($0) }
     )
     let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       boundaryRuntimeAccess: boundaryRuntimeAccess,
@@ -267,7 +267,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       observationSessionOverride: resolvedObservationSession(camera),
       log: log
@@ -303,7 +303,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
     let gate = TestInspectionSuspension()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       observationSessionOverride: resolvedObservationSession(camera, inspectionGate: gate),
       log: log
@@ -358,7 +358,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let machine = try LowerMachineSessionFixture(log: log, penRequestGate: gate)
     let camera = try TestObservationCameraSession()
     let traffic = TestAnalysisUpdateSource()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       observationSessionOverride: resolvedObservationSession(
         camera,
@@ -411,7 +411,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
     let traffic = TestAnalysisUpdateSource()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       observationSessionOverride: resolvedObservationSession(
         camera,
@@ -497,7 +497,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
     let camera = try TestObservationCameraSession()
     let traffic = TestAnalysisUpdateSource()
     let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       observationSessionOverride: resolvedObservationSession(
         camera,

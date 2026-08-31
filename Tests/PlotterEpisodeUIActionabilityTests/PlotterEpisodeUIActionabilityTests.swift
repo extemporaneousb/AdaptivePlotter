@@ -698,7 +698,7 @@ struct PlotterEpisodeUIActionabilityTests {
 
 @MainActor
 private struct UIWorkspaceFixture {
-  let workspace: OperatorWorkspace
+  let workspace: PlotterApplicationRuntime
   let incidentService: PlotterIncidentPackageUIService
   let incidentProvider: UnavailableIncidentSourceProbe
 
@@ -729,27 +729,30 @@ private func makeProductionWorkspace() -> UIWorkspaceFixture {
     simulatedAdapter: manualMotionComposition.causalSimulatorEffectAdapter
   )
   let speechEffectRuntime = PlotterSpeechEffectRuntime(announcer: NativeSpeechAnnouncer())
+  let statePersistencePort = UIActionabilityStatePersistencePort()
+  let residualEffectPort = UIActionabilityResidualEffectPort()
   let boundaryComposition = PlotterBoundaryComposition.make(
     machineSession: machineSession,
     causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
-    checkpointActions: .init(load: { .absent }, save: { _ in }, clear: {}),
+    statePersistencePort: statePersistencePort,
     speechEffectRuntime: speechEffectRuntime
   )
-  let workspace = OperatorWorkspace(
+  let workspace = PlotterApplicationRuntime(
     machineSession: machineSession,
     observationSession: resolvedObservationSession,
     manualMotionComposition: manualMotionComposition,
     penInteractionRuntime: penInteractionRuntime,
     boundaryRuntime: boundaryComposition.runtime,
     speechEffectRuntime: speechEffectRuntime,
+    statePersistencePort: statePersistencePort,
     drawingDraftRuntime: PlotterDrawingDraftRuntime(),
     drawingRunComposition: PlotterDrawingRunComposition.make(
       machineSession: machineSession,
       observationSession: resolvedObservationSession
     ),
     incidentPackageUIService: incidentService,
+    residualEffectPort: residualEffectPort,
     serialDevices: [],
-    serialDeviceDiscovery: { [] },
     observationPreferences: UserDefaultsObservationPreferencePort(
       defaults: UserDefaults(suiteName: "PlotterEpisodeUIActionabilityTests.\(UUID())")!
     )
@@ -760,6 +763,24 @@ private func makeProductionWorkspace() -> UIWorkspaceFixture {
     incidentService: incidentService,
     incidentProvider: incidentProvider
   )
+}
+
+private struct UIActionabilityStatePersistencePort: PlotterApplicationStatePersistencePort {
+  func loadAcceptedLearningPathCheckpoint() -> AcceptedLearningPathCheckpointLoadResult {
+    .absent
+  }
+
+  func saveAcceptedLearningPathCheckpoint(
+    _: AcceptedLearningPathCheckpoint
+  ) throws {}
+
+  func clearAcceptedLearningPathCheckpoint() throws {}
+
+  func persistPaperRevisionContext(_: PaperRevisionContext) throws {}
+}
+
+private struct UIActionabilityResidualEffectPort: PlotterApplicationResidualEffectPort {
+  func discoverSerialDevices() -> [MachineLinkDescriptor] { [] }
 }
 
 private actor UnavailableIncidentSourceProbe: PlotterIncidentPackageUISourceProvider {

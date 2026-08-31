@@ -5,12 +5,18 @@ from __future__ import annotations
 
 import unittest
 
-from check_episode_inventory import PLAN, PORT_STRUCTS, scan_rows, validate_manifest
+from check_episode_inventory import (
+    PLAN,
+    PORT_PROTOCOLS,
+    application_root_source,
+    scan_rows,
+    validate_manifest,
+)
 
 
 class EpisodeInventoryTests(unittest.TestCase):
     def test_live_port_inventory_excludes_retired_announcement_actions(self) -> None:
-        self.assertNotIn("AnnouncementActions", PORT_STRUCTS)
+        self.assertNotIn("AnnouncementActions", PORT_PROTOCOLS)
         rows, _scans = validate_manifest()
         ports = {row["id"]: row["seams"] for row in rows if row["category"] == "direct-port"}
         self.assertEqual({"PlotterSpeechEffectRuntime.shutdown"}, ports["PRT-003"])
@@ -53,7 +59,7 @@ class EpisodeInventoryTests(unittest.TestCase):
         composition_source = (
             PLAN.parent.parent / "Sources/PlotterApp/PlotterCameraCalibrationComposition.swift"
         ).read_text(encoding="utf-8")
-        self.assertIn("return await workspace.executeCameraCalibrationEffect(request)", composition_source)
+        self.assertIn("return await application.executeCameraCalibrationEffect(request)", composition_source)
 
         self.assertIn(
             {
@@ -143,7 +149,7 @@ class EpisodeInventoryTests(unittest.TestCase):
             seams["INT-014"],
         )
         self.assertEqual(
-            {"OperatorWorkspace.borderValidationActionUnavailableReason"}, seams["GRD-009"]
+            {"PlotterApplicationRuntime.borderValidationActionUnavailableReason"}, seams["GRD-009"]
         )
         self.assertEqual(
             {"PlotterBorderValidationRuntime.activeTask"}, seams["TSK-016"]
@@ -160,9 +166,7 @@ class EpisodeInventoryTests(unittest.TestCase):
         runtime_source = (root / "Sources/PlotterEpisodeRuntime/PlotterBorderValidationRuntime.swift").read_text(
             encoding="utf-8"
         )
-        workspace_source = (root / "Sources/PlotterApp/OperatorWorkspace.swift").read_text(
-            encoding="utf-8"
-        )
+        _root_name, _root_path, workspace_source = application_root_source()
         for token in (
             "case borderValidation(PlotterBorderValidationIntent)",
             "case borderValidations",
@@ -246,18 +250,19 @@ class EpisodeInventoryTests(unittest.TestCase):
             seams["INT-015"],
         )
         self.assertEqual(
-            {"OperatorWorkspace.artifactResetUnavailableReason"}, seams["GRD-010"]
+            {"PlotterApplicationRuntime.artifactResetUnavailableReason"}, seams["GRD-010"]
         )
         self.assertEqual({"AcceptedLearningPathCheckpoint"}, seams["OWN-022"])
         self.assertEqual({"PlotterArtifactResetRuntime"}, seams["OWN-023"])
         self.assertEqual(
             {
-                "AcceptedLearningPathCheckpointActions.load",
-                "AcceptedLearningPathCheckpointActions.save",
-                "AcceptedLearningPathCheckpointActions.clear",
+                "PlotterApplicationStatePersistencePort.loadAcceptedLearningPathCheckpoint",
+                "PlotterApplicationStatePersistencePort.saveAcceptedLearningPathCheckpoint",
+                "PlotterApplicationStatePersistencePort.clearAcceptedLearningPathCheckpoint",
+                "PlotterApplicationStatePersistencePort.persistPaperRevisionContext",
                 "PlotterArtifactResetEffectPort.execute",
                 "PlotterArtifactResetPersistencePort.persist",
-                "OperatorWorkspaceArtifactResetRelay",
+                "PlotterApplicationRuntimeArtifactResetRelay",
             },
             seams["PRT-005"],
         )
@@ -277,7 +282,7 @@ class EpisodeInventoryTests(unittest.TestCase):
                 "PlotterArtifactResetEpisodeTests",
                 "ArtifactResetPortFixture",
                 "AcceptedLearningPathLegacyMigrationTests",
-                "OperatorWorkspaceTests",
+                "PlotterApplicationRuntimeTests",
             },
             seams["FIX-015"],
         )
@@ -286,9 +291,7 @@ class EpisodeInventoryTests(unittest.TestCase):
         app_source = (root / "Sources/PlotterApp/AdaptivePlotterApp.swift").read_text(
             encoding="utf-8"
         )
-        workspace_source = (root / "Sources/PlotterApp/OperatorWorkspace.swift").read_text(
-            encoding="utf-8"
-        )
+        _root_name, _root_path, workspace_source = application_root_source()
         composition_source = (root / "Sources/PlotterApp/PlotterArtifactResetComposition.swift").read_text(
             encoding="utf-8"
         )
@@ -297,7 +300,7 @@ class EpisodeInventoryTests(unittest.TestCase):
         )
         for token in (
             "PlotterArtifactResetComposition.make()",
-            "artifactResetComposition.install(on: workspace)",
+            "artifactResetComposition.install(on: application)",
         ):
             self.assertIn(token, app_source)
         for token in (
@@ -348,6 +351,26 @@ class EpisodeInventoryTests(unittest.TestCase):
             if scan["package"] == "EA-10F"
         }
         self.assertEqual(expected_scans, actual_scans)
+
+    def test_ea11c_target_topology_and_nominal_root_ports(self) -> None:
+        rows, _scans = validate_manifest()
+        seams = {row["id"]: row["seams"] for row in rows}
+        self.assertEqual(
+            {
+                "PlotterApplicationResidualEffectPort.discoverSerialDevices",
+                "PlotterApplicationResidualEffectPort.nowNanoseconds",
+                "PlotterApplicationResidualEffectPort.recordWorkflowTelemetry",
+            },
+            seams["PRT-004"],
+        )
+        self.assertTrue(
+            {
+                "PlotterApplicationStatePersistencePort.loadAcceptedLearningPathCheckpoint",
+                "PlotterApplicationStatePersistencePort.saveAcceptedLearningPathCheckpoint",
+                "PlotterApplicationStatePersistencePort.clearAcceptedLearningPathCheckpoint",
+                "PlotterApplicationStatePersistencePort.persistPaperRevisionContext",
+            }.issubset(seams["PRT-005"])
+        )
 
 
 if __name__ == "__main__":

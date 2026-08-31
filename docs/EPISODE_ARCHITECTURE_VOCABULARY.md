@@ -190,15 +190,41 @@ separate and is directly available only inside causal simulation.
 
 ## Canonical target seams
 
-- `PlotterIntentGateway` is the single public submission façade for migrated
-  `PlotterIntent` cases. It owns no feature rules, reducer state, evidence
-  acceptance, effect lanes, tasks, device ports, or persistence.
-- `PlotterOperationRegistry` is the sole target application-level owner of
-  effect identity, lanes, original task/handle, `StopCapability`, cancellation,
-  and terminal disposition.
+- `PlotterIntentGateway` is an internal typed evaluator composed by the
+  point-selection and manual-motion runtimes. It owns no public application
+  ingress, feature rules, reducer state, evidence acceptance, effect lanes,
+  tasks, device ports, or persistence. EA-11C adds no root gateway reevaluator.
+- `PlotterOperationRegistry` is the sole target application-level operation
+  mechanism for effect identity, lanes, original task/handle,
+  `StopCapability`, cancellation, and terminal disposition. Typed feature
+  runtimes retain their distinct registry-backed coordination; EA-11C adds one
+  shared residual root adapter backed by the same package actor. “Sole” does not
+  mean one monolithic registry instance owns all feature runtimes.
+- `PlotterApplicationRuntime` is the MainActor application
+  composition/runtime. It owns root admission, the immutable aggregate
+  projection, residual application state, and lifecycle joining; it does not
+  absorb the named feature runtimes' semantic rules, tasks, exact Stop lanes,
+  device effects, or evidence authority.
+- `PlotterApplicationState` is the canonical residual application schema. Its
+  `environmentStates` map indexes `PlotterApplicationEnvironmentState` by the
+  typed LIVE/SIMULATED source; parallel live/simulated/active state owners are
+  forbidden.
+- `PlotterApplicationResidualOperationAdapter` is the root's sole residual
+  application-operation adapter around package `PlotterOperationRegistry`. It
+  is not a second task registry and has no authority over internal feature
+  runtime coordination.
+- `PlotterApplicationResidualEffectPort` and
+  `PlotterApplicationStatePersistencePort` are nominal lower ports. The former
+  executes only admitted residual effects; the latter persists the accepted
+  candidate before the matching projection or successful terminal can publish.
 
-During migration, exactly one ingress exists per semantic intent. Migrated
-intents use `PlotterIntentGateway`; unmigrated intents retain their one declared
-current owner. No intent may be reachable through both. `EA-11C` makes the
-gateway the globally exclusive public mutation ingress. `GATE-02` later
-verifies that landed fact and moves no authority.
+During migration, exactly one public application ingress exists per rendered
+semantic action. One production `PlotterUIIntentSink` binds submissions to
+exact immutable projection members and revisions before delegating to the
+already-authoritative typed feature runtime. Internal feature-runtime
+`PlotterIntentGateway` evaluators are not competing public ingress and are not
+repeated at the root. Root shutdown synchronously
+closes MainActor admission before its first await, then closes/cancels/joins the
+residual registry and named feature owners; an unresolved owner, failed append,
+deadline, or cancelled waiter cannot be called terminated or quiescent.
+`GATE-02` later verifies that landed fact and moves no authority.

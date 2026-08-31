@@ -84,7 +84,7 @@ struct PenCapAppearanceSelectionTests {
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
     let persisted = PenCapSelectionBox()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       loadPenCapAppearanceSelection: { nil },
@@ -141,7 +141,7 @@ struct PenCapAppearanceSelectionTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log, motionGuardInitiallyActive: false)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       loadPenCapAppearanceSelection: { nil },
@@ -228,7 +228,7 @@ struct PenCapAppearanceSelectionTests {
       automaticAnalysisError: "Injected automatic Vision reconfiguration failure."
     )
     let reconfigurationGate = TestConfigurationSuspension()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       observationSessionOverride: resolvedObservationSession(
         camera,
@@ -283,7 +283,7 @@ struct PenCapAppearanceSelectionTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession(providesInspectionOverlay: true)
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
@@ -309,7 +309,7 @@ struct PenCapAppearanceSelectionTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       loadPenCapAppearanceSelection: { nil },
@@ -352,7 +352,7 @@ struct PenCapAppearanceSelectionTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       loadPenCapAppearanceSelection: { nil },
@@ -374,7 +374,7 @@ struct PenCapAppearanceSelectionTests {
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
     let simulated = testPenCapAppearanceSelection(source: .simulated)
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       loadPenCapAppearanceSelection: { simulated },
@@ -415,7 +415,7 @@ struct PenCapAppearanceSelectionTests {
       color: PenCapColor(red: 20, green: 80, blue: 220)
     )
     let persisted = PenCapSelectionBox()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       loadPenCapAppearanceSelection: { live },
@@ -461,7 +461,7 @@ struct PenCapAppearanceSelectionTests {
       color: PenCapColor(red: 20, green: 80, blue: 220),
       cameraConfigurationID: CameraConfigurationID()
     )
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       loadPenCapAppearanceSelection: { live },
@@ -486,7 +486,7 @@ struct PenCapAppearanceSelectionTests {
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
     let invalid = testPenCapAppearanceSelection(color: PenCapColor(red: 4, green: 4, blue: 4))
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       loadPenCapAppearanceSelection: { invalid },
@@ -513,7 +513,7 @@ struct PenCapAppearanceSelectionTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       loadPenCapAppearanceSelection: { nil },
@@ -563,7 +563,7 @@ struct PenCapAppearanceSelectionTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -607,7 +607,7 @@ struct PenCapAppearanceSelectionTests {
   }
 
   private func performExactPenStop(
-    _ workspace: OperatorWorkspace,
+    _ workspace: PlotterApplicationRuntime,
     owner: LearningPathItemID
   ) async throws {
     let strip = try #require(
@@ -641,7 +641,7 @@ struct PenCapAppearanceSelectionTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))

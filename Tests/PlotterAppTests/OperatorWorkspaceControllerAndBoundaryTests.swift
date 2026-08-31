@@ -7,12 +7,12 @@ import Testing
 @testable import PlotterApp
 @testable import PlotterRuntime
 
-extension OperatorWorkspaceTests {
+extension PlotterApplicationRuntimeTests {
   @Test("failed Connect exposes the typed alarm and explicit Clear Alarm reprobes without enabling motion")
   func alarmClearUIStateAndAuthority() async throws {
     let fixture = AlarmClearWorkspaceFixture()
     let descriptor = fixture.descriptor
-    let workspace = OperatorWorkspace(
+    let workspace = PlotterApplicationRuntime(
       machineSession: ClosurePlotterMachineSession(
         select: { _ in await fixture.select() },
         snapshot: { await fixture.snapshot() },
@@ -36,8 +36,8 @@ extension OperatorWorkspaceTests {
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService(),
+      residualEffectPort: ControllerBoundaryResidualEffectPort(devices: [descriptor]),
       serialDevices: [descriptor],
-      serialDeviceDiscovery: { [descriptor] },
     )
 
     await submitControllerSession(workspace, .selectSerialDevice(descriptor))
@@ -93,7 +93,7 @@ extension OperatorWorkspaceTests {
   func assertedLimitDisarmsAlarmClearUI() async throws {
     let fixture = AlarmClearWorkspaceFixture(alarmPins: "X")
     let descriptor = fixture.descriptor
-    let workspace = OperatorWorkspace(
+    let workspace = PlotterApplicationRuntime(
       machineSession: ClosurePlotterMachineSession(
         select: { _ in await fixture.select() },
         snapshot: { await fixture.snapshot() },
@@ -117,8 +117,8 @@ extension OperatorWorkspaceTests {
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
       drawingRunComposition: nominalDrawingRunComposition(),
       incidentPackageUIService: nominalIncidentPackageUIService(),
+      residualEffectPort: ControllerBoundaryResidualEffectPort(devices: [descriptor]),
       serialDevices: [descriptor],
-      serialDeviceDiscovery: { [descriptor] },
     )
 
     await submitControllerSession(workspace, .selectSerialDevice(descriptor))
@@ -155,7 +155,7 @@ extension OperatorWorkspaceTests {
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
     await machine.setPenState(.unknown)
-    let workspace = workspace(machine: machine, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
 
@@ -176,7 +176,15 @@ extension OperatorWorkspaceTests {
       log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
-    let workspace = workspace(machine: machine, workflowTelemetry: telemetry, log: log)
+    let workspace = plotterApplicationRuntime(
+      machine: machine,
+      residualEffectPort: TestApplicationResidualEffectPort(
+        discoverDevices: { [machine.descriptor] },
+        readNanoseconds: { 1 },
+        recordTelemetry: { await telemetry.record($0) }
+      ),
+      log: log
+    )
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.submitTestManualPen(.lower)
@@ -211,7 +219,7 @@ extension OperatorWorkspaceTests {
   func manualPenDownStop() async throws {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
-    let workspace = workspace(machine: machine, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.submitTestManualPen(.lower)
@@ -242,7 +250,7 @@ extension OperatorWorkspaceTests {
     )
     let camera = try TestObservationCameraSession()
     let reconfigurationGate = TestConfigurationSuspension()
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       observationSessionOverride: resolvedObservationSession(
         camera,
@@ -354,7 +362,7 @@ extension OperatorWorkspaceTests {
   func capSettlementAcceptsNewestStableExactFrame() async throws {
     let log = EventLog()
     let camera = try TestObservationCameraSession(capCentroidXOffsets: [0, 1, 2])
-    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     let accepted = try await workspace.captureStableWorkflowCap(newerThan: 50)
@@ -370,7 +378,7 @@ extension OperatorWorkspaceTests {
   func capSettlementRefusesUnstableCentroids() async throws {
     let log = EventLog()
     let camera = try TestObservationCameraSession(capCentroidXOffsets: [0, 3, 1])
-    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     do {
@@ -386,7 +394,7 @@ extension OperatorWorkspaceTests {
   func capSettlementRefusesConfigurationChange() async throws {
     let log = EventLog()
     let camera = try TestObservationCameraSession(rotatesConfiguration: true)
-    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     do {
@@ -402,7 +410,7 @@ extension OperatorWorkspaceTests {
   func capSettlementRefusesMismatchedExactFrameProvenance() async throws {
     let log = EventLog()
     let camera = try TestObservationCameraSession(corruptsMeasurementFrameHash: true)
-    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     do {
@@ -422,7 +430,7 @@ extension OperatorWorkspaceTests {
       providesInspectionOverlay: true,
       providesAutomaticAnalysisResult: true
     )
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
 
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     #expect(workspace.exactWorkflowVisionOwner == nil)
@@ -446,7 +454,7 @@ extension OperatorWorkspaceTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = workspace(machine: machine, camera: camera, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let displayedFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
     let region = PixelRect(
@@ -472,7 +480,7 @@ extension OperatorWorkspaceTests {
     let camera = try TestObservationCameraSession()
     let magenta = PenCapColor(red: 190, green: 30, blue: 170)
     let selection = testPenCapAppearanceSelection(color: magenta)
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       loadPenCapAppearanceSelection: { selection },
@@ -490,7 +498,7 @@ extension OperatorWorkspaceTests {
   func manualStopHasNoBoundaryEvidence() async throws {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
-    let workspace = workspace(machine: machine, log: log)
+    let workspace = plotterApplicationRuntime(machine: machine, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
 
@@ -545,7 +553,7 @@ extension OperatorWorkspaceTests {
       log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       log: log
     )
@@ -581,7 +589,7 @@ extension OperatorWorkspaceTests {
     )
     let camera = try TestObservationCameraSession()
     let speechAnnouncer = ScriptedSpeechAnnouncer(log: log, outcomes: [.failed("test failure")])
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
       speechAnnouncer: speechAnnouncer,
@@ -696,14 +704,12 @@ extension OperatorWorkspaceTests {
     let checkpointBox = ArtifactResetCheckpointStoreFixture(
       checkpoint: try acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity)
     )
-    let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) },
-      clear: { checkpointBox.clear() }
+    let checkpointActions = ControllerBoundaryStatePersistencePort(
+      checkpointStore: checkpointBox
     )
-    let workspace = workspace(
+    let workspace = plotterApplicationRuntime(
       machine: machine,
-      learningPathCheckpointActions: checkpointActions,
+      statePersistencePort: checkpointActions,
       tipCalibrationSemanticIdentities: identities,
       log: log
     )
@@ -766,17 +772,15 @@ extension OperatorWorkspaceTests {
     let machine = try LowerMachineSessionFixture(log: log)
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
     let checkpointBox = ArtifactResetCheckpointStoreFixture()
-    let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
-      load: { checkpointBox.load() },
-      save: { checkpointBox.save($0) },
-      clear: { checkpointBox.clear() }
+    let checkpointActions = ControllerBoundaryStatePersistencePort(
+      checkpointStore: checkpointBox
     )
     let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()
     let firstCamera = try TestObservationCameraSession()
-    let first = workspace(
+    let first = plotterApplicationRuntime(
       machine: machine,
       camera: firstCamera,
-      learningPathCheckpointActions: checkpointActions,
+      statePersistencePort: checkpointActions,
       tipCalibrationSemanticIdentities: identities,
       boundaryRuntimeAccess: boundaryRuntimeAccess,
       log: log
@@ -831,10 +835,10 @@ extension OperatorWorkspaceTests {
     let motionLogAtRelaunch = await log.values
 
     let relaunchedCamera = try TestObservationCameraSession()
-    let relaunched = workspace(
+    let relaunched = plotterApplicationRuntime(
       machine: machine,
       camera: relaunchedCamera,
-      learningPathCheckpointActions: checkpointActions,
+      statePersistencePort: checkpointActions,
       tipCalibrationSemanticIdentities: identities,
       log: log
     )
@@ -925,7 +929,7 @@ extension OperatorWorkspaceTests {
     let stopLog = EventLog()
     let stopMachine = try LowerMachineSessionFixture(log: stopLog, holdCancellationSettlement: true)
     let stopCamera = try TestObservationCameraSession()
-    let stopWorkspace = workspace(
+    let stopWorkspace = plotterApplicationRuntime(
       machine: stopMachine,
       camera: stopCamera,
       log: stopLog
@@ -1101,4 +1105,36 @@ private actor AlarmClearWorkspaceFixture {
       lastProbe: lastProbe
     )
   }
+}
+
+private struct ControllerBoundaryResidualEffectPort: PlotterApplicationResidualEffectPort {
+  let discovery: PlotterFixedSerialDeviceDiscoveryAdapter
+
+  init(devices: [MachineLinkDescriptor]) {
+    discovery = PlotterFixedSerialDeviceDiscoveryAdapter(devices: devices)
+  }
+
+  func discoverSerialDevices() -> [MachineLinkDescriptor] {
+    discovery.discoverSerialDevices()
+  }
+}
+
+private struct ControllerBoundaryStatePersistencePort: PlotterApplicationStatePersistencePort {
+  let checkpointStore: ArtifactResetCheckpointStoreFixture
+
+  func loadAcceptedLearningPathCheckpoint() -> AcceptedLearningPathCheckpointLoadResult {
+    checkpointStore.load()
+  }
+
+  func saveAcceptedLearningPathCheckpoint(
+    _ checkpoint: AcceptedLearningPathCheckpoint
+  ) throws {
+    checkpointStore.save(checkpoint)
+  }
+
+  func clearAcceptedLearningPathCheckpoint() throws {
+    checkpointStore.clear()
+  }
+
+  func persistPaperRevisionContext(_ context: PaperRevisionContext) throws {}
 }

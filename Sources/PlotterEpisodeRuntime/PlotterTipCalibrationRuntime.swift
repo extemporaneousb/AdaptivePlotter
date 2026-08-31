@@ -212,6 +212,7 @@ public final class PlotterTipCalibrationRuntime {
   private let effectPort: any PlotterTipCalibrationEffectPort
   private var admissionClosed = false
   private var activeTask: Task<PlotterTipCalibrationEffectResult, Never>?
+  private var operationSettlementWaiters: [CheckedContinuation<Void, Never>] = []
   private var terminalHistory: [PlotterTipCalibrationTerminalRecord] = []
 
   public private(set) var activeOperationID: PlotterTipCalibrationOperationID?
@@ -300,6 +301,7 @@ public final class PlotterTipCalibrationRuntime {
     let operationID = PlotterTipCalibrationOperationID()
     activeOperationID = operationID
     activeIntent = intent
+    defer { finishActiveOperation(operationID: operationID) }
     phase = phaseForAdmission(intent, operationID: operationID)
     let request = request(for: intent, operationID: operationID)
     let task: Task<PlotterTipCalibrationEffectResult, Never> = Task { @MainActor [weak self, effectPort] in
@@ -314,19 +316,19 @@ public final class PlotterTipCalibrationRuntime {
     let result = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
 
     guard activeOperationID == operationID, activeIntent == intent, !admissionClosed else {
+      if admissionClosed, activeOperationID == operationID, activeIntent == intent {
+        record(operationID: operationID, intent: intent, outcome: .cancelled)
+      }
       return .cancelled
     }
-    activeTask = nil
-    activeOperationID = nil
-    activeIntent = nil
     let outcome = apply(result, for: intent)
     record(operationID: operationID, intent: intent, outcome: outcome)
     return outcome
   }
 
-  /// Close admission before cancelling the exact active task. Late port facts are ignored.
-  public func stop() { closeAdmission() }
-  public func shutdown() { closeAdmission() }
+  /// Close admission before cancelling and joining the exact active task.
+  public func stop() async { await closeAdmission() }
+  public func shutdown() async { await closeAdmission() }
 
   public func snapshot() -> PlotterTipCalibrationRuntimeSnapshot {
     PlotterTipCalibrationRuntimeSnapshot(
@@ -483,16 +485,27 @@ public final class PlotterTipCalibrationRuntime {
     return outcome
   }
 
-  private func closeAdmission() {
-    guard !admissionClosed else { return }
+  private func closeAdmission() async {
     admissionClosed = true
-    let operationID = activeOperationID
-    let intent = activeIntent
     activeTask?.cancel()
+    await awaitActiveOperationSettlement()
+  }
+
+  private func awaitActiveOperationSettlement() async {
+    guard activeOperationID != nil else { return }
+    await withCheckedContinuation { continuation in
+      operationSettlementWaiters.append(continuation)
+    }
+  }
+
+  private func finishActiveOperation(operationID: PlotterTipCalibrationOperationID) {
+    guard activeOperationID == operationID else { return }
     activeTask = nil
     activeOperationID = nil
     activeIntent = nil
-    if let intent { record(operationID: operationID, intent: intent, outcome: .cancelled) }
+    let waiters = operationSettlementWaiters
+    operationSettlementWaiters.removeAll(keepingCapacity: false)
+    for waiter in waiters { waiter.resume() }
   }
 
   private func record(

@@ -26,9 +26,7 @@ struct CameraCompositionVisionLifecycleTests {
       live: capture,
       vision: worker,
       analysisPipeline: pipeline,
-      plannedDrawingObserver: { request in
-        await observationGate.observe(request)
-      }
+      plannedDrawingObserver: observationGate
     )
 
     _ = await session.discover()
@@ -161,9 +159,7 @@ struct CameraCompositionVisionLifecycleTests {
       live: capture,
       vision: worker,
       analysisPipeline: pipeline,
-      plannedDrawingObserver: { _ in
-        fatalError("planned drawing observation is outside this test")
-      }
+      plannedDrawingObserver: worker
     )
 
     _ = await session.discover()
@@ -174,44 +170,14 @@ struct CameraCompositionVisionLifecycleTests {
     try await waitUntil { await pipeline.diagnostics().submittedFrameCount == 1 }
     let before = await session.visionDiagnostics()
 
-    let (selected, expiredScope) = try await session.withExclusiveVisionLease { scope in
-      await driver.emit(value: 2, captureNanoseconds: 200)
-      try await waitUntil { await capture.diagnostics().receivedFrameCount == 2 }
-      let selected = try #require(
-        try await scope.captureFrame(newerThanNanoseconds: 100)
+    let (selected, expiredScope) = try await session.withExclusiveVisionLease(
+      ReturnOnlyBatchLeaseOperation(
+        driver: driver,
+        capture: capture,
+        session: session,
+        before: before
       )
-
-      let returnOnly = await session.visionDiagnostics()
-      #expect(
-        returnOnly.capture.ordinaryPreviewPublicationCount
-          == before.capture.ordinaryPreviewPublicationCount
-      )
-      #expect(returnOnly.capture.explicitExactPublicationCount == 0)
-      #expect(returnOnly.capture.returnOnlyExactRequestCount == 1)
-      #expect(returnOnly.capture.lastReturnOnlyExactFrameID == selected.frame.id)
-      #expect(
-        returnOnly.pipeline.submittedFrameCount
-          == before.pipeline.submittedFrameCount
-      )
-
-      #expect(try await scope.publishValidatedFrame(selected) == .published)
-      #expect(try await scope.publishValidatedFrame(selected) == .alreadyPublished)
-      let explicitlyPublished = await session.visionDiagnostics()
-      #expect(
-        explicitlyPublished.capture.ordinaryPreviewPublicationCount
-          == before.capture.ordinaryPreviewPublicationCount
-      )
-      #expect(explicitlyPublished.capture.explicitExactPublicationCount == 1)
-      #expect(
-        explicitlyPublished.capture.lastExplicitlyPublishedExactFrameID
-          == selected.frame.id
-      )
-      #expect(
-        explicitlyPublished.pipeline.submittedFrameCount
-          == before.pipeline.submittedFrameCount
-      )
-      return (selected, scope)
-    }
+    )
 
     try await waitUntil {
       let diagnostics = await session.visionDiagnostics()
@@ -255,16 +221,16 @@ struct CameraCompositionVisionLifecycleTests {
       live: capture,
       vision: worker,
       analysisPipeline: pipeline,
-      plannedDrawingObserver: { _ in
-        fatalError("planned drawing observation is outside this test")
-      }
+      plannedDrawingObserver: worker
     )
 
     _ = await session.discover()
     _ = await session.start()
     _ = await session.setAutomaticInspection(.twoFPS, requestedFeatures: [.penCap])
 
-    let value = try await session.withExclusiveVisionLease { _ in 17 }
+    let value = try await session.withExclusiveVisionLease(
+      ConstantBatchLeaseOperation(value: 17)
+    )
     #expect(value == 17)
     var diagnostics = await session.visionDiagnostics()
     #expect(diagnostics.exclusiveLeaseBeginCount == 1)
@@ -275,9 +241,7 @@ struct CameraCompositionVisionLifecycleTests {
     #expect(diagnostics.automaticResumeAfterExclusiveCount == 1)
 
     do {
-      _ = try await session.withExclusiveVisionLease { _ -> Int in
-        throw BatchLeaseTestError.expectedFailure
-      }
+      _ = try await session.withExclusiveVisionLease(FailingBatchLeaseOperation())
       Issue.record("Expected the batch body failure")
     } catch let error as BatchLeaseTestError {
       #expect(error == .expectedFailure)
@@ -292,10 +256,9 @@ struct CameraCompositionVisionLifecycleTests {
 
     let cancellationProbe = BatchLeaseCancellationProbe()
     let cancelled = Task {
-      try await session.withExclusiveVisionLease { _ in
-        await cancellationProbe.markStarted()
-        try await Task.sleep(nanoseconds: 60_000_000_000)
-      }
+      try await session.withExclusiveVisionLease(
+        CancellableBatchLeaseOperation(probe: cancellationProbe)
+      )
     }
     try await waitUntil { await cancellationProbe.hasStarted }
     cancelled.cancel()
@@ -336,9 +299,7 @@ struct CameraCompositionVisionLifecycleTests {
       live: capture,
       vision: worker,
       analysisPipeline: pipeline,
-      plannedDrawingObserver: { _ in
-        fatalError("planned drawing observation is outside this test")
-      }
+      plannedDrawingObserver: worker
     )
 
     _ = await session.discover()
@@ -417,9 +378,7 @@ struct CameraCompositionVisionLifecycleTests {
       live: capture,
       vision: worker,
       analysisPipeline: pipeline,
-      plannedDrawingObserver: { _ in
-        fatalError("planned drawing observation is outside this test")
-      }
+      plannedDrawingObserver: worker
     )
 
     _ = await session.discover()
@@ -502,14 +461,10 @@ struct CameraCompositionVisionLifecycleTests {
       live: capture,
       vision: worker,
       analysisPipeline: pipeline,
-      plannedDrawingObserver: { request in
-        await worker.observePlannedDrawingInk(
-          request,
-          checkpointHandler: { checkpoint in
-            await checkpointGate.receive(checkpoint)
-          }
-        )
-      }
+      plannedDrawingObserver: CheckpointedPlannedDrawingObserver(
+        worker: worker,
+        checkpointGate: checkpointGate
+      )
     )
 
     _ = await session.discover()
@@ -549,6 +504,79 @@ struct CameraCompositionVisionLifecycleTests {
   }
 }
 
+private struct ReturnOnlyBatchLeaseOperation: CameraSourceSessionVisionLeaseOperation {
+  let driver: VisionLifecycleCameraDriver
+  let capture: CameraCapture
+  let session: CameraSourceSession
+  let before: CameraSourceSessionVisionDiagnostics
+
+  func perform(
+    in scope: CameraSourceSessionVisionLeaseScope
+  ) async throws -> (DisplayedFrame, CameraSourceSessionVisionLeaseScope) {
+    await driver.emit(value: 2, captureNanoseconds: 200)
+    try await waitUntil { await capture.diagnostics().receivedFrameCount == 2 }
+    let selected = try #require(
+      try await scope.captureFrame(newerThanNanoseconds: 100)
+    )
+
+    let returnOnly = await session.visionDiagnostics()
+    #expect(
+      returnOnly.capture.ordinaryPreviewPublicationCount
+        == before.capture.ordinaryPreviewPublicationCount
+    )
+    #expect(returnOnly.capture.explicitExactPublicationCount == 0)
+    #expect(returnOnly.capture.returnOnlyExactRequestCount == 1)
+    #expect(returnOnly.capture.lastReturnOnlyExactFrameID == selected.frame.id)
+    #expect(
+      returnOnly.pipeline.submittedFrameCount
+        == before.pipeline.submittedFrameCount
+    )
+
+    #expect(try await scope.publishValidatedFrame(selected) == .published)
+    #expect(try await scope.publishValidatedFrame(selected) == .alreadyPublished)
+    let explicitlyPublished = await session.visionDiagnostics()
+    #expect(
+      explicitlyPublished.capture.ordinaryPreviewPublicationCount
+        == before.capture.ordinaryPreviewPublicationCount
+    )
+    #expect(explicitlyPublished.capture.explicitExactPublicationCount == 1)
+    #expect(
+      explicitlyPublished.capture.lastExplicitlyPublishedExactFrameID
+        == selected.frame.id
+    )
+    #expect(
+      explicitlyPublished.pipeline.submittedFrameCount
+        == before.pipeline.submittedFrameCount
+    )
+    return (selected, scope)
+  }
+}
+
+private struct ConstantBatchLeaseOperation<Value: Sendable>:
+  CameraSourceSessionVisionLeaseOperation
+{
+  let value: Value
+
+  func perform(in _: CameraSourceSessionVisionLeaseScope) async throws -> Value {
+    value
+  }
+}
+
+private struct FailingBatchLeaseOperation: CameraSourceSessionVisionLeaseOperation {
+  func perform(in _: CameraSourceSessionVisionLeaseScope) async throws -> Int {
+    throw BatchLeaseTestError.expectedFailure
+  }
+}
+
+private struct CancellableBatchLeaseOperation: CameraSourceSessionVisionLeaseOperation {
+  let probe: BatchLeaseCancellationProbe
+
+  func perform(in _: CameraSourceSessionVisionLeaseScope) async throws {
+    await probe.markStarted()
+    try await Task.sleep(nanoseconds: 60_000_000_000)
+  }
+}
+
 private enum BatchLeaseTestError: Error, Equatable {
   case expectedFailure
 }
@@ -561,11 +589,11 @@ private actor BatchLeaseCancellationProbe {
   }
 }
 
-private actor HeldPlannedObservation {
+private actor HeldPlannedObservation: CameraPlannedDrawingObserverPort {
   private(set) var startedCount = 0
   private var continuation: CheckedContinuation<Void, Never>?
 
-  func observe(
+  func observePlannedDrawingInk(
     _ request: PlannedDrawingObservationRequest
   ) async -> PlannedDrawingObservationOutcome {
     startedCount += 1
@@ -584,6 +612,22 @@ private actor HeldPlannedObservation {
   func release() {
     continuation?.resume()
     continuation = nil
+  }
+}
+
+private struct CheckpointedPlannedDrawingObserver: CameraPlannedDrawingObserverPort {
+  let worker: VisionWorker
+  let checkpointGate: PlannedObservationLifecycleCheckpointGate
+
+  func observePlannedDrawingInk(
+    _ request: PlannedDrawingObservationRequest
+  ) async -> PlannedDrawingObservationOutcome {
+    await worker.observePlannedDrawingInk(
+      request,
+      checkpointHandler: { checkpoint in
+        await checkpointGate.receive(checkpoint)
+      }
+    )
   }
 }
 

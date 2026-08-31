@@ -119,8 +119,9 @@ status, completion, action-strip, Stop, sparse-action, availability,
 retained-candidate, or reachability compilers are forbidden compatibility
 shadows.
 
-`OperatorWorkspace` remains the observable App composition owner, not a second
-UI compiler or semantic policy owner. EA-04 point selection, EA-06 manual
+The EA-11C candidate names the observable App composition/runtime
+`PlotterApplicationRuntime`; the rename itself is not completion. The root is
+not a second UI compiler or semantic policy owner. EA-04 point selection, EA-06 manual
 motion, EA-07 causal simulation, EA-08A draft, and EA-08B run effects remain
 owned by their typed runtimes and lower device/evidence authorities. Pane,
 window, viewport, selection, and unsubmitted manual text are UI-local reducers;
@@ -161,6 +162,36 @@ For every migrated effect-bearing or domain-authority-changing `PlotterIntent`:
   disposition, while existing device owners repeat fresh physical safety;
 - the superseded action, state, guard, task, effect, and fixture path is removed
   in the same landing.
+
+Global application exclusivity is a topology rule, not permission to merge
+feature authorities. The production `PlotterApplicationRuntime` is the one
+public `PlotterUIIntentSink` conformer and accepts only an exact member of an
+immutable projection with matching UI/runtime revisions before delegating to
+the owning typed feature runtime. Internal `PlotterIntentGateway` evaluators
+remain inside the point-selection and manual-motion runtimes; the root does not
+reevaluate the accepted request through a redundant gateway. Named feature
+runtimes retain their typed rules, tasks, handles, Stop capabilities, and
+terminal truth.
+
+The package `PlotterOperationRegistry` is the one application operation
+mechanism. EA-11C gives `PlotterApplicationRuntime` one shared
+`PlotterApplicationResidualOperationAdapter` for residual root-owned work; the
+adapter is backed directly by `PlotterOperationRegistry` through PlotterApp's
+declared `EpisodeRuntime` dependency. It is not an ad-hoc task registry, and it
+does not replace the distinct registry-backed coordination inside the manual,
+point-selection, Pen, Boundary, calibration, Drawing, controller-session,
+observation, speech, or artifact runtimes.
+
+Residual application state is one `PlotterApplicationState` whose
+`PlotterApplicationEnvironmentState` values are indexed by typed source. The
+root uses nominal `PlotterApplicationResidualEffectPort` and
+`PlotterApplicationStatePersistencePort` boundaries; accepted residual state
+is durably persisted before the matching projection or successful terminal is
+published. Shutdown synchronously closes the root MainActor admission latch
+before its first await, then closes/cancels/joins the residual registry and
+every named feature owner. A deadline, waiter cancellation, persistence error,
+or remaining nonterminal owner must expose its exact owner/progress/recovery
+state and cannot be reported as application termination or quiescence.
 
 Observability is required product behavior. Every refused intent names its typed
 failed requirement, authoritative owner, compared revisions, and exact remedy.

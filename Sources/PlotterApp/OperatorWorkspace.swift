@@ -1,4 +1,5 @@
 import EpisodeCore
+import EpisodeRuntime
 import Foundation
 import Observation
 import PlotterEpisodeModel
@@ -263,7 +264,7 @@ private enum ContextualStopLifecycleState: Hashable {
   }
 }
 
-private enum StoppableOperationOwner {
+private enum PlotterRetainedStopHandle {
   case boundary(Task<Void, Never>)
   case batch(Task<Void, Never>)
   case motion(Task<MotionOutcome, Never>)
@@ -295,27 +296,27 @@ private enum StoppableOperationOwner {
   }
 }
 
-private struct StoppableOperationSegment {
+private struct PlotterRetainedStopSegment {
   let target: ContextualStopTarget
-  let owner: StoppableOperationOwner
+  let owner: PlotterRetainedStopHandle
 }
 
-private struct ActiveStoppableOperation {
+private struct PlotterRetainedStopRegistration {
   let target: ContextualStopTarget
-  let owner: StoppableOperationOwner
-  var segment: StoppableOperationSegment? = nil
+  let owner: PlotterRetainedStopHandle
+  var segment: PlotterRetainedStopSegment? = nil
   var possibleInkLocation: BlacklistedToolContactLocation? = nil
   var state: ContextualStopLifecycleState = .available
 
-  var presentationSignature: StoppableOperationPresentationSignature {
-    StoppableOperationPresentationSignature(target: target, state: state)
+  var presentationSignature: PlotterRetainedStopPresentationSignature {
+    PlotterRetainedStopPresentationSignature(target: target, state: state)
   }
 }
 
 /// Only the root capability and its public cancellation lifecycle are projected.
 /// Sparse-tip segment owners and the possible-ink slot remain runtime safety
 /// state and must not make an unchanged Stop button rebuild Learning.
-private struct StoppableOperationPresentationSignature: Hashable {
+private struct PlotterRetainedStopPresentationSignature: Hashable {
   let target: ContextualStopTarget
   let state: ContextualStopLifecycleState
 }
@@ -456,21 +457,23 @@ struct StableWorkflowCapCaptureRequest: Sendable {
   let newerThanNanoseconds: UInt64
 }
 
-struct StableWorkflowCapCaptureRunner: Sendable {
-  private let runAction:
-    @Sendable (StableWorkflowCapCaptureRequest) async throws -> StableWorkflowCapInspection
+protocol StableWorkflowCapCapturePort: Sendable {
+  func captureStableWorkflowCap(
+    _ request: StableWorkflowCapCaptureRequest
+  ) async throws -> StableWorkflowCapInspection
+}
 
-  init(
-    _ runAction: @escaping @Sendable (StableWorkflowCapCaptureRequest) async throws
-      -> StableWorkflowCapInspection
-  ) {
-    self.runAction = runAction
+struct StableWorkflowCapCaptureRunner: Sendable {
+  private let port: any StableWorkflowCapCapturePort
+
+  init(port: any StableWorkflowCapCapturePort) {
+    self.port = port
   }
 
   func run(
     _ request: StableWorkflowCapCaptureRequest
   ) async throws -> StableWorkflowCapInspection {
-    try await runAction(request)
+    try await port.captureStableWorkflowCap(request)
   }
 }
 
@@ -507,15 +510,15 @@ struct TipCalibrationSemanticIdentityState: Hashable, Sendable {
   }
 }
 
-enum OperatorWorkspaceComputationPhase: Hashable, Sendable {
+enum PlotterApplicationRuntimeComputationPhase: Hashable, Sendable {
   case began
   case ended
 }
 
-enum OperatorWorkspaceComputationEvent: Hashable, Sendable {
-  case penRequest(PenCommand, OperatorWorkspaceComputationPhase)
-  case boundaryMotion(BoundaryDirection, OperatorWorkspaceComputationPhase)
-  case supervisedTravel(LearningMotionAction, OperatorWorkspaceComputationPhase)
+enum PlotterApplicationRuntimeComputationEvent: Hashable, Sendable {
+  case penRequest(PenCommand, PlotterApplicationRuntimeComputationPhase)
+  case boundaryMotion(BoundaryDirection, PlotterApplicationRuntimeComputationPhase)
+  case supervisedTravel(LearningMotionAction, PlotterApplicationRuntimeComputationPhase)
   case visionAnalysisRevision(
     revision: UInt64,
     phase: PlotterSceneAnalysisPhase,
@@ -536,7 +539,7 @@ enum OperatorWorkspaceComputationEvent: Hashable, Sendable {
 /// Observation-ignored counters and a bounded event trace for deterministic
 /// presentation-computation tests. These diagnostics never participate in
 /// workflow authority, presentation state, motion, Vision, or persistence.
-struct OperatorWorkspaceComputationDiagnostics: Equatable, Sendable {
+struct PlotterApplicationRuntimeComputationDiagnostics: Equatable, Sendable {
   static let maximumRetainedEventCount = 256
 
   fileprivate(set) var learningSessionReadCount = 0
@@ -556,9 +559,9 @@ struct OperatorWorkspaceComputationDiagnostics: Equatable, Sendable {
   fileprivate(set) var visionAnalysisRevisionCount = 0
   fileprivate(set) var semanticPresentationRevision: UInt64 = 0
   fileprivate(set) var droppedEventCount = 0
-  fileprivate(set) var events: [OperatorWorkspaceComputationEvent] = []
+  fileprivate(set) var events: [PlotterApplicationRuntimeComputationEvent] = []
 
-  fileprivate mutating func record(_ event: OperatorWorkspaceComputationEvent) {
+  fileprivate mutating func record(_ event: PlotterApplicationRuntimeComputationEvent) {
     if events.count == Self.maximumRetainedEventCount {
       events.removeFirst()
       droppedEventCount += 1
@@ -663,9 +666,252 @@ private struct ActionSurfaceDiagnosticSignature: Equatable {
   let pointSelectionPurpose: PlotterExactPointSelectionPurpose?
 }
 
+enum PlotterApplicationResidualLane: Hashable, Sendable {
+  case machine
+  case exactWorkflow
+  case projection
+  case persistence
+}
+
+enum PlotterApplicationResidualIntent: Hashable, Sendable {
+  case learningAction(String)
+
+  var isLearningAction: Bool {
+    if case .learningAction = self { return true }
+    return false
+  }
+}
+
+enum PlotterApplicationResidualResult: Hashable, Sendable {
+  case completed
+  case cancelled
+}
+
+/// Root-owned effects that do not belong to one of the typed feature
+/// runtimes. The protocol is deliberately behavioral: composition supplies a
+/// nominal adapter, never a bag of stored closures.
+protocol PlotterApplicationResidualEffectPort:
+  PlotterControllerSerialDeviceDiscoveryPort, Sendable
+{
+  func nowNanoseconds() -> UInt64
+  func recordWorkflowTelemetry(_ event: WorkflowTelemetryEvent) async
+}
+
+extension PlotterApplicationResidualEffectPort {
+  func discoverSerialDevices() -> [MachineLinkDescriptor] {
+    SerialPortDiscovery.discover()
+  }
+
+  func nowNanoseconds() -> UInt64 {
+    UInt64(ProcessInfo.processInfo.systemUptime * 1_000_000_000)
+  }
+
+  func recordWorkflowTelemetry(_ event: WorkflowTelemetryEvent) async {}
+}
+
+struct PlotterApplicationDefaultResidualEffectPort: PlotterApplicationResidualEffectPort {}
+
+/// The one durable boundary for source-indexed application state. A missing
+/// port means the composition has no LIVE persistence capability; SIMULATED
+/// state can never reach this port.
+protocol PlotterApplicationStatePersistencePort: Sendable {
+  func loadAcceptedLearningPathCheckpoint() -> AcceptedLearningPathCheckpointLoadResult
+  func saveAcceptedLearningPathCheckpoint(
+    _ checkpoint: AcceptedLearningPathCheckpoint
+  ) throws
+  func clearAcceptedLearningPathCheckpoint() throws
+  func persistPaperRevisionContext(_ context: PaperRevisionContext) throws
+}
+
+private struct PlotterApplicationEffectLease: Hashable, Sendable {
+  let id: UUID
+}
+
+private enum PlotterApplicationPaperAction: Hashable, Sendable {
+  case newSheetOnCurrentPlane
+  case contactPlaneChanged
+}
+
+private enum PlotterApplicationBoundAction: Hashable, Sendable {
+  case controller(PlotterControllerSessionRequest)
+  case observation(PlotterObservationOperatorSubmission)
+  case paper(PlotterApplicationPaperAction)
+}
+
+struct PlotterApplicationResidualContext: PlotterOperationContext {
+  typealias IntentIdentity = PlotterApplicationResidualIntent
+  typealias Environment = PlotterEnvironment
+  typealias AwaitedResult = String
+
+  let owningSubsystem: EpisodeAuthorityID
+  let resultCurrentlyAwaited: String
+}
+
+@MainActor
+private protocol PlotterApplicationResidualOperationEffect: AnyObject, Sendable {
+  func run() async
+}
+
+private actor PlotterApplicationResidualHandle: PlotterOperationHandle {
+  typealias OperationContext = PlotterApplicationResidualContext
+  typealias TerminalDisposition = PlotterApplicationResidualResult
+
+  private let identity: PlotterOperationIdentity<PlotterApplicationResidualContext>
+  private let operation: any PlotterApplicationResidualOperationEffect
+  private var task: Task<PlotterApplicationResidualResult, Never>?
+  private var cancellationRequested = false
+
+  init(
+    identity: PlotterOperationIdentity<PlotterApplicationResidualContext>,
+    operation: any PlotterApplicationResidualOperationEffect
+  ) {
+    self.identity = identity
+    self.operation = operation
+  }
+
+  func start() {
+    guard task == nil else { return }
+    let operation = operation
+    let task = Task<PlotterApplicationResidualResult, Never> {
+      await operation.run()
+      return Task.isCancelled ? .cancelled : .completed
+    }
+    self.task = task
+    if cancellationRequested { task.cancel() }
+  }
+
+  func requestCancellation() {
+    cancellationRequested = true
+    task?.cancel()
+  }
+
+  func waitForSettlement()
+    async -> PlotterOperationResult<OperationContext, TerminalDisposition>
+  {
+    let disposition = await task?.value ?? (cancellationRequested ? .cancelled : .completed)
+    return PlotterOperationResult(
+      identity: identity,
+      disposition: disposition,
+      settledAt: Date()
+    )
+  }
+}
+
+@MainActor
+private final class PlotterApplicationLearningOperation:
+  PlotterApplicationResidualOperationEffect
+{
+  unowned let application: PlotterApplicationRuntime
+  let kind: ExerciseActionKind
+  let ownerID: LearningPathItemID
+
+  init(
+    application: PlotterApplicationRuntime,
+    kind: ExerciseActionKind,
+    ownerID: LearningPathItemID
+  ) {
+    self.application = application
+    self.kind = kind
+    self.ownerID = ownerID
+  }
+
+  func run() async {
+    await application.performAdmittedExerciseAction(kind, for: ownerID)
+  }
+}
+
+/// The sole owner of residual operation admission, the retained typed handle,
+/// registry-minted Stop authority, and terminal settlement. The application
+/// runtime keeps only a synchronous reservation ID so two root submissions
+/// cannot cross the first suspension together.
+private actor PlotterApplicationResidualOperationAdapter {
+  private typealias Registry = PlotterOperationRegistry<
+    PlotterApplicationResidualLane,
+    PlotterApplicationResidualContext,
+    PlotterApplicationResidualHandle
+  >
+
+  private let registry: Registry
+  private var eventRevision: UInt64 = 0
+
+  init() {
+    let lanes = try! PlotterOperationLaneConfiguration(
+      machine: PlotterApplicationResidualLane.machine,
+      exactWorkflowCaptureVision: .exactWorkflow,
+      backgroundAnalysis: .projection,
+      durableAppend: .persistence,
+      backgroundAnalysisLimit: 4
+    )
+    registry = Registry(lanes: lanes)
+  }
+
+  func run(
+    identity: PlotterOperationIdentity<PlotterApplicationResidualContext>,
+    context: PlotterApplicationResidualContext,
+    effect: any PlotterApplicationResidualOperationEffect
+  ) async {
+    let handle = PlotterApplicationResidualHandle(identity: identity, operation: effect)
+    let registration: PlotterOperationRegistration<PlotterApplicationResidualContext>
+    do {
+      registration = try await registry.register(
+        identity: identity,
+        lane: .exactWorkflow,
+        context: context,
+        handle: handle,
+        cancellationAvailable: true
+      )
+    } catch {
+      return
+    }
+    let completion = registration.completionCapability
+    let permit = registration.takePermit()
+    let revision = eventRevision
+    eventRevision &+= 1
+    let attribution = PlotterOperationEventAttribution(
+      identity: identity,
+      eventID: EpisodeEventID(rawValue: UUID()),
+      sequence: EpisodeEventSequence(rawValue: revision),
+      preStateRevision: EpisodeStateRevision(rawValue: revision),
+      postStateRevision: EpisodeStateRevision(rawValue: revision &+ 1),
+      recordedAt: Date()
+    )
+    switch await registry.start(permit, for: identity, attributedTo: attribution) {
+    case .accepted:
+      await handle.start()
+      let result = await handle.waitForSettlement()
+      _ = await registry.settle(result, using: completion)
+    case .admissionClosed:
+      return
+    case .retired:
+      return
+    case .cancellationInProgress:
+      return
+    case .identityMismatch:
+      preconditionFailure("Residual application operation attribution diverged.")
+    case .attributionRefused:
+      preconditionFailure("Residual application operation attribution diverged.")
+    }
+  }
+
+  func stopLearningAction(_ actionID: UUID) async {
+    let snapshot = await registry.snapshot()
+    guard let active = snapshot.active.first(where: {
+      $0.lane == .exactWorkflow
+        && $0.identity.effectID.rawValue == actionID
+        && $0.identity.intentIdentity.isLearningAction
+    }), let capability = active.stopCapability
+    else { return }
+    _ = await registry.stop(using: capability)
+  }
+
+  func shutdown() async {
+    _ = await registry.shutdown()
+  }
+}
+
 @MainActor
 @Observable
-final class OperatorWorkspace:
+final class PlotterApplicationRuntime:
   PlotterUIIntentSink,
   PlotterControllerSessionIntentSink,
   PlotterLearningActivityFactProviding,
@@ -677,6 +923,19 @@ final class OperatorWorkspace:
   PlotterArtifactResetEffectPort,
   PlotterArtifactResetPersistencePort
 {
+  private enum AdmissionState: Equatable, Sendable {
+    case open
+    case closing
+    case closed
+  }
+
+  private enum StartupState: Equatable, Sendable {
+    case notStarted
+    case starting
+    case started
+    case cancelled
+  }
+
   private enum ExerciseAttemptMode: Equatable, Sendable {
     case normal
     case replacement
@@ -726,7 +985,7 @@ final class OperatorWorkspace:
 
   /// One complete learning authority value. LIVE and SIMULATED use the same
   /// contract while retaining independent storage and independent lifetimes.
-  private struct LearningSessionState {
+  private struct PlotterApplicationEnvironmentState {
     var selectedDiscoverySequenceID: DiscoverySequenceID = .penInteraction
     var discoveryTransactions: [DiscoverySequenceID: DiscoveryTransaction] = [:]
     var discoveryError: String?
@@ -762,6 +1021,22 @@ final class OperatorWorkspace:
 
   }
 
+  /// Canonical mutable application state. Feature runtimes retain their own
+  /// typed operational state; this value owns only the source-indexed residual
+  /// application facts and the synchronous root residual-effect reservation.
+  private struct PlotterApplicationState {
+    var environmentStates: [OperatorFrameMode: PlotterApplicationEnvironmentState]
+    var residualLearningAdmissionID: UUID?
+
+    init(
+      live: PlotterApplicationEnvironmentState,
+      simulated: PlotterApplicationEnvironmentState
+    ) {
+      environmentStates = [.live: live, .simulated: simulated]
+      residualLearningAdmissionID = nil
+    }
+  }
+
   private enum MotionPriors {
     static let stepMM = "50"
     static let feedMMPerMinute = "500"
@@ -769,16 +1044,6 @@ final class OperatorWorkspace:
     /// Reaching this distance is never a Boundary Discovery result.
     static let boundaryWireSegmentMM = 50.0
     static let boundaryFeedMMPerMinute = 500.0
-  }
-
-  struct WorkflowTelemetryActions: Sendable {
-    let record: @Sendable (WorkflowTelemetryEvent) async -> Void
-  }
-
-  struct AcceptedLearningPathCheckpointActions: Sendable {
-    let load: @Sendable () -> AcceptedLearningPathCheckpointLoadResult
-    let save: @Sendable (AcceptedLearningPathCheckpoint) throws -> Void
-    let clear: @Sendable () throws -> Void
   }
 
   private(set) var livePenCapAppearanceSelection: PenCapAppearanceSelection? {
@@ -877,7 +1142,7 @@ final class OperatorWorkspace:
   @ObservationIgnored private var actionSurfacePresentationCache:
     ActionSurfacePresentationCache?
   @ObservationIgnored private var computationDiagnostics =
-    OperatorWorkspaceComputationDiagnostics()
+    PlotterApplicationRuntimeComputationDiagnostics()
   @ObservationIgnored private var lastLearningActionStripDiagnosticSignature:
     LearningActionStripDiagnosticSignature?
   @ObservationIgnored private var lastActionSurfaceDiagnosticSignature:
@@ -886,8 +1151,12 @@ final class OperatorWorkspace:
   @ObservationIgnored private var currentPlotterUIBindingSemanticRevision: UInt64?
   @ObservationIgnored private var currentPlotterUIResetPlans:
     [PlotterUIActionID: LearningVacatePlan] = [:]
-  @ObservationIgnored private var activeLearningActionTask: Task<Void, Never>?
-  @ObservationIgnored private var activeLearningActionID: UUID?
+  @ObservationIgnored private var currentApplicationActions:
+    [PlotterUIActionID: PlotterApplicationBoundAction] = [:]
+  @ObservationIgnored private var admissionState: AdmissionState = .open
+  @ObservationIgnored private var startupState: StartupState = .notStarted
+  @ObservationIgnored private let residualOperationAdapter =
+    PlotterApplicationResidualOperationAdapter()
   @ObservationIgnored private var semanticPresentationUpdateDepth = 0
   @ObservationIgnored private var semanticPresentationChangeIsPending = false
   @ObservationIgnored private var actionSurfaceInvalidationIsPending = false
@@ -905,8 +1174,8 @@ final class OperatorWorkspace:
   }
   private(set) var lastMotionGuardActivationText = "not activated"
   private(set) var lastContextualStopAuditRecord: ContextualStopAuditRecord? {
-    get { activeLearningSession.lastContextualStopAuditRecord }
-    set { activeLearningSession.lastContextualStopAuditRecord = newValue }
+    get { currentEnvironmentState.lastContextualStopAuditRecord }
+    set { currentEnvironmentState.lastContextualStopAuditRecord = newValue }
   }
 
   private(set) var cameraSnapshot: CameraCaptureSnapshot? {
@@ -991,8 +1260,10 @@ final class OperatorWorkspace:
   var simulatedAnnotationsAreVisible = true {
     didSet { invalidateActionSurfacePresentation() }
   }
-  private var liveLearningSession: LearningSessionState
-  private var simulatedLearningSession: LearningSessionState
+  /// Canonical residual application state is source-indexed in one root value.
+  /// Typed feature projections remain owned by their respective runtimes and
+  /// are read when compiling the immutable application projection.
+  @ObservationIgnored private var applicationState: PlotterApplicationState
   @ObservationIgnored
   private lazy var liveTipCalibrationRuntime = PlotterTipCalibrationRuntime(effectPort: self)
   @ObservationIgnored
@@ -1038,30 +1309,29 @@ final class OperatorWorkspace:
     }
   }
   @ObservationIgnored
-  private var activeLearningSession: LearningSessionState {
+  private var currentEnvironmentState: PlotterApplicationEnvironmentState {
     _read {
       computationDiagnostics.learningSessionReadCount += 1
-      if frameMode == .live {
-        yield liveLearningSession
-      } else {
-        yield simulatedLearningSession
+      guard let state = applicationState.environmentStates[frameMode] else {
+        preconditionFailure("Missing canonical application state for \(frameMode).")
       }
+      yield state
     }
     _modify {
       computationDiagnostics.learningSessionWriteCount += 1
       defer { markSemanticPresentationChanged() }
-      if frameMode == .live {
-        yield &liveLearningSession
-      } else {
-        yield &simulatedLearningSession
+      guard var state = applicationState.environmentStates[frameMode] else {
+        preconditionFailure("Missing canonical application state for \(frameMode).")
       }
+      defer { applicationState.environmentStates[frameMode] = state }
+      yield &state
     }
   }
 
   @discardableResult
   private func mutateActiveLearningSession<Result>(
     invalidatesActionSurface: Bool = true,
-    _ transition: (inout LearningSessionState) throws -> Result
+    _ transition: (inout PlotterApplicationEnvironmentState) throws -> Result
   ) rethrows -> Result {
     computationDiagnostics.learningSessionWriteCount += 1
     defer {
@@ -1069,18 +1339,20 @@ final class OperatorWorkspace:
         invalidatesActionSurface: invalidatesActionSurface
       )
     }
-    if frameMode == .live {
-      return try transition(&liveLearningSession)
+    guard var state = applicationState.environmentStates[frameMode] else {
+      preconditionFailure("Missing canonical application state for \(frameMode).")
     }
-    return try transition(&simulatedLearningSession)
+    let result = try transition(&state)
+    applicationState.environmentStates[frameMode] = state
+    return result
   }
 
-  var computationDiagnosticsForTesting: OperatorWorkspaceComputationDiagnostics {
+  var computationDiagnosticsForTesting: PlotterApplicationRuntimeComputationDiagnostics {
     computationDiagnostics
   }
 
   func resetComputationDiagnosticsForTesting() {
-    computationDiagnostics = OperatorWorkspaceComputationDiagnostics()
+    computationDiagnostics = PlotterApplicationRuntimeComputationDiagnostics()
     computationDiagnostics.semanticPresentationRevision = semanticPresentationRevision
     lastLearningActionStripDiagnosticSignature = nil
     lastActionSurfaceDiagnosticSignature = nil
@@ -1164,16 +1436,16 @@ final class OperatorWorkspace:
       || oldValue?.stickyAmbiguity != newValue?.stickyAmbiguity
   }
   var selectedDiscoverySequenceID: DiscoverySequenceID {
-    get { activeLearningSession.selectedDiscoverySequenceID }
-    set { activeLearningSession.selectedDiscoverySequenceID = newValue }
+    get { currentEnvironmentState.selectedDiscoverySequenceID }
+    set { currentEnvironmentState.selectedDiscoverySequenceID = newValue }
   }
   private(set) var discoveryTransactions: [DiscoverySequenceID: DiscoveryTransaction] {
-    get { activeLearningSession.discoveryTransactions }
-    set { activeLearningSession.discoveryTransactions = newValue }
+    get { currentEnvironmentState.discoveryTransactions }
+    set { currentEnvironmentState.discoveryTransactions = newValue }
   }
   private(set) var discoveryError: String? {
-    get { activeLearningSession.discoveryError }
-    set { activeLearningSession.discoveryError = newValue }
+    get { currentEnvironmentState.discoveryError }
+    set { currentEnvironmentState.discoveryError = newValue }
   }
   private var acceptedBoundaryAggregates: [BoundaryDirection: BoundarySideAggregate] {
     currentBoundarySnapshot?.acceptedAggregates ?? [:]
@@ -1242,52 +1514,52 @@ final class OperatorWorkspace:
     set { cameraCalibrationRuntime.replaceFailure(newValue) }
   }
   private(set) var localPreFrameBaseline: DisplayedFrame? {
-    get { activeLearningSession.borderValidation.localPreFrameBaseline }
-    set { activeLearningSession.borderValidation.localPreFrameBaseline = newValue }
+    get { currentEnvironmentState.borderValidation.localPreFrameBaseline }
+    set { currentEnvironmentState.borderValidation.localPreFrameBaseline = newValue }
   }
   private(set) var borderValidationRevealPosition: MachinePosition? {
-    get { activeLearningSession.borderValidation.revealPosition }
-    set { activeLearningSession.borderValidation.revealPosition = newValue }
+    get { currentEnvironmentState.borderValidation.revealPosition }
+    set { currentEnvironmentState.borderValidation.revealPosition = newValue }
   }
   private(set) var borderValidationTipRegistrationRevisionID: LearningArtifactRevisionID? {
-    get { activeLearningSession.borderValidation.tipRegistrationRevisionID }
-    set { activeLearningSession.borderValidation.tipRegistrationRevisionID = newValue }
+    get { currentEnvironmentState.borderValidation.tipRegistrationRevisionID }
+    set { currentEnvironmentState.borderValidation.tipRegistrationRevisionID = newValue }
   }
   private(set) var borderValidationObservationRegion: PixelRect? {
-    get { activeLearningSession.borderValidation.observationRegion }
-    set { activeLearningSession.borderValidation.observationRegion = newValue }
+    get { currentEnvironmentState.borderValidation.observationRegion }
+    set { currentEnvironmentState.borderValidation.observationRegion = newValue }
   }
   private(set) var lastProtocolPoseSettlement: ProtocolPoseSettlement? {
-    get { activeLearningSession.lastProtocolPoseSettlement }
-    set { activeLearningSession.lastProtocolPoseSettlement = newValue }
+    get { currentEnvironmentState.lastProtocolPoseSettlement }
+    set { currentEnvironmentState.lastProtocolPoseSettlement = newValue }
   }
   private(set) var explorationError: String? {
-    get { activeLearningSession.explorationError }
-    set { activeLearningSession.explorationError = newValue }
+    get { currentEnvironmentState.explorationError }
+    set { currentEnvironmentState.explorationError = newValue }
   }
   private(set) var explorationPostFrame: DisplayedFrame? {
-    get { activeLearningSession.borderValidation.postFrame }
-    set { activeLearningSession.borderValidation.postFrame = newValue }
+    get { currentEnvironmentState.borderValidation.postFrame }
+    set { currentEnvironmentState.borderValidation.postFrame = newValue }
   }
   private(set) var borderValidationProgram: DrawingProgram? {
-    get { activeLearningSession.borderValidation.program }
-    set { activeLearningSession.borderValidation.program = newValue }
+    get { currentEnvironmentState.borderValidation.program }
+    set { currentEnvironmentState.borderValidation.program = newValue }
   }
   private(set) var drawingBorderPlan: ExecutionPlanRevision? {
-    get { activeLearningSession.borderValidation.drawingBorderPlan }
-    set { activeLearningSession.borderValidation.drawingBorderPlan = newValue }
+    get { currentEnvironmentState.borderValidation.drawingBorderPlan }
+    set { currentEnvironmentState.borderValidation.drawingBorderPlan = newValue }
   }
   private(set) var borderValidationDrawingOutcome: DrawingPlanOutcome? {
-    get { activeLearningSession.borderValidation.drawingOutcome }
-    set { activeLearningSession.borderValidation.drawingOutcome = newValue }
+    get { currentEnvironmentState.borderValidation.drawingOutcome }
+    set { currentEnvironmentState.borderValidation.drawingOutcome = newValue }
   }
   private(set) var lastFrameObservation: PlannedDrawingObservation? {
-    get { activeLearningSession.borderValidation.inkObservation }
-    set { activeLearningSession.borderValidation.inkObservation = newValue }
+    get { currentEnvironmentState.borderValidation.inkObservation }
+    set { currentEnvironmentState.borderValidation.inkObservation = newValue }
   }
   private(set) var explorationInkStatus: String {
-    get { activeLearningSession.borderValidation.inkStatus }
-    set { activeLearningSession.borderValidation.inkStatus = newValue }
+    get { currentEnvironmentState.borderValidation.inkStatus }
+    set { currentEnvironmentState.borderValidation.inkStatus = newValue }
   }
   private var activeBorderValidationOperation: ActiveBorderValidationOperation? {
     didSet {
@@ -1297,16 +1569,16 @@ final class OperatorWorkspace:
   }
   private(set) var lastAnnouncementResultText = "No announcement has run."
   private(set) var lastTravelFeedSelection: TravelFeedSelection? {
-    get { activeLearningSession.borderValidation.lastTravelFeedSelection }
-    set { activeLearningSession.borderValidation.lastTravelFeedSelection = newValue }
+    get { currentEnvironmentState.borderValidation.lastTravelFeedSelection }
+    set { currentEnvironmentState.borderValidation.lastTravelFeedSelection = newValue }
   }
   private(set) var borderValidationAssessment: BorderValidationAssessment? {
-    get { activeLearningSession.borderValidation.assessment }
-    set { activeLearningSession.borderValidation.assessment = newValue }
+    get { currentEnvironmentState.borderValidation.assessment }
+    set { currentEnvironmentState.borderValidation.assessment = newValue }
   }
   private(set) var learningArtifactGraph: LearningDependencyGraph {
-    get { activeLearningSession.learningArtifactGraph }
-    set { activeLearningSession.learningArtifactGraph = newValue }
+    get { currentEnvironmentState.learningArtifactGraph }
+    set { currentEnvironmentState.learningArtifactGraph = newValue }
   }
   private var currentPenInteractionSnapshot: PlotterPenInteractionRuntimeSnapshot? {
     frameMode == .live ? livePenInteractionSnapshot : simulatedPenInteractionSnapshot
@@ -1333,7 +1605,7 @@ final class OperatorWorkspace:
       lowerOperationInFlight: retainedPenRequestInProgress
         || machineSnapshot?.machine.operationInFlight == true,
       stickyAmbiguity: learningStickyAmbiguityReason,
-      capSelectionAvailable: !hasShutdown
+      capSelectionAvailable: applicationAdmissionIsOpen
         && (displayedFrameAvailable || observationRuntime != nil || frameMode == .simulated)
     )
   }
@@ -1398,22 +1670,22 @@ final class OperatorWorkspace:
   private(set) var comparisonAttemptHistories:
     [AttemptCompatibility: ExerciseAttemptHistory<BorderValidationAssessment>]
   {
-    get { activeLearningSession.borderValidation.comparisonAttemptHistories }
-    set { activeLearningSession.borderValidation.comparisonAttemptHistories = newValue }
+    get { currentEnvironmentState.borderValidation.comparisonAttemptHistories }
+    set { currentEnvironmentState.borderValidation.comparisonAttemptHistories = newValue }
   }
   var activeExerciseAttemptID: ExerciseAttemptID? {
-    activeLearningSession.exerciseAttempt.id
+    currentEnvironmentState.exerciseAttempt.id
   }
   var activeExerciseAttemptOwnerID: LearningPathItemID? {
-    activeLearningSession.exerciseAttempt.ownerID
+    currentEnvironmentState.exerciseAttempt.ownerID
   }
   private(set) var restartableExerciseItemID: LearningPathItemID? {
-    get { activeLearningSession.restartableExerciseItemID }
-    set { activeLearningSession.restartableExerciseItemID = newValue }
+    get { currentEnvironmentState.restartableExerciseItemID }
+    set { currentEnvironmentState.restartableExerciseItemID = newValue }
   }
   private(set) var acceptedArtifactCheckpointStatus: AcceptedArtifactCheckpointStatus {
-    get { activeLearningSession.acceptedArtifactCheckpointStatus }
-    set { activeLearningSession.acceptedArtifactCheckpointStatus = newValue }
+    get { currentEnvironmentState.acceptedArtifactCheckpointStatus }
+    set { currentEnvironmentState.acceptedArtifactCheckpointStatus = newValue }
   }
   private(set) var recoverableTipCalibrationCheckpoint: AcceptedTipCalibrationCheckpoint? {
     get { tipCalibrationRuntime.recoverableCheckpoint }
@@ -1429,20 +1701,20 @@ final class OperatorWorkspace:
     savedLearningState.appliedCheckpoint
   }
   private var activeMachineCameraCheckpoint: AcceptedMachineCameraCheckpoint? {
-    get { activeLearningSession.activeMachineCameraCheckpoint }
-    set { activeLearningSession.activeMachineCameraCheckpoint = newValue }
+    get { currentEnvironmentState.activeMachineCameraCheckpoint }
+    set { currentEnvironmentState.activeMachineCameraCheckpoint = newValue }
   }
   private var activeStageFourCheckpoint: AcceptedStageFourCheckpoint? {
-    get { activeLearningSession.activeStageFourCheckpoint }
-    set { activeLearningSession.activeStageFourCheckpoint = newValue }
+    get { currentEnvironmentState.activeStageFourCheckpoint }
+    set { currentEnvironmentState.activeStageFourCheckpoint = newValue }
   }
   private(set) var controllerPoseApplicability: ControllerPoseApplicability {
-    get { activeLearningSession.controllerPoseApplicability }
-    set { activeLearningSession.controllerPoseApplicability = newValue }
+    get { currentEnvironmentState.controllerPoseApplicability }
+    set { currentEnvironmentState.controllerPoseApplicability = newValue }
   }
   private(set) var learningAuthorityError: String? {
-    get { activeLearningSession.learningAuthorityError }
-    set { activeLearningSession.learningAuthorityError = newValue }
+    get { currentEnvironmentState.learningAuthorityError }
+    set { currentEnvironmentState.learningAuthorityError = newValue }
   }
 
   @ObservationIgnored private let machineSession: (any PlotterMachineSession)?
@@ -1455,21 +1727,21 @@ final class OperatorWorkspace:
   @ObservationIgnored private let drawingDraftRuntime: PlotterDrawingDraftRuntime
   @ObservationIgnored private let drawingRunRuntime: PlotterDrawingRunRuntime
   @ObservationIgnored private let incidentPackageUIService: PlotterIncidentPackageUIService
-  @ObservationIgnored private let drawingRunFactSource: OperatorWorkspaceDrawingRunFactSource
+  @ObservationIgnored private let drawingRunFactSource: PlotterApplicationRuntimeDrawingRunFactSource
   @ObservationIgnored private let drawingRunInterpreterPort:
-    OperatorWorkspaceDrawingRunInterpreterPort
-  @ObservationIgnored private let drawingRunCameraPort: OperatorWorkspaceDrawingRunCameraPort
+    PlotterApplicationRuntimeDrawingRunInterpreterPort
+  @ObservationIgnored private let drawingRunCameraPort: PlotterApplicationRuntimeDrawingRunCameraPort
   @ObservationIgnored private let observationPreferences: any PlotterObservationPreferencePort
   @ObservationIgnored private let speechEffectRuntime: PlotterSpeechEffectRuntime
   @ObservationIgnored private var artifactResetRuntime: PlotterArtifactResetRuntime!
   @ObservationIgnored private lazy var cameraCalibrationRuntime = PlotterCameraCalibrationRuntime(
-    effectPort: OperatorWorkspaceCameraCalibrationEffectPort(workspace: self)
+    effectPort: PlotterApplicationRuntimeCameraCalibrationEffectPort(application: self)
   )
   /// These ports are capabilities of the LIVE learning session only. The
   /// active accessors deliberately return nil for SIMULATED before any
   /// workflow can load, save, or clear physical durable authority.
-  @ObservationIgnored private let liveAcceptedLearningPathCheckpointActions:
-    AcceptedLearningPathCheckpointActions?
+  @ObservationIgnored private let statePersistencePort:
+    (any PlotterApplicationStatePersistencePort)?
   @ObservationIgnored private let drawingEvidencePort: DrawingRunEvidencePort
   private var drawingEvidenceArchive = DrawingRunEvidenceArchive()
   private(set) var drawingEvidenceError: String?
@@ -1501,7 +1773,7 @@ final class OperatorWorkspace:
     }
     return PlotterBoundaryExternalFacts(
       environment: environment,
-      learningEnabled: isCurrentEnvironment && learningIsEnabled && !hasShutdown,
+      learningEnabled: isCurrentEnvironment && learningIsEnabled && applicationAdmissionIsOpen,
       controllerSessionEstablished: isCurrentEnvironment && sessionEstablished,
       motionAuthorized: isCurrentEnvironment && sessionMotionAuthorized,
       foreignLowerOperationInFlight: isCurrentEnvironment
@@ -1582,17 +1854,18 @@ final class OperatorWorkspace:
   func submitBoundaryIntent(_ intent: PlotterBoundaryIntent) async
     -> PlotterBoundaryDisposition?
   {
+    guard applicationAdmissionIsOpen else { return nil }
     guard let reference = currentBoundarySnapshot?.projection.reference else { return nil }
     return await boundaryRuntime.submit(
       PlotterBoundarySubmission(projection: reference, intent: intent)
     )
   }
-  private var activeAcceptedLearningPathCheckpointActions:
-    AcceptedLearningPathCheckpointActions?
+  private var activeStatePersistencePort:
+    (any PlotterApplicationStatePersistencePort)?
   {
-    frameMode == .live ? liveAcceptedLearningPathCheckpointActions : nil
+    frameMode == .live ? statePersistencePort : nil
   }
-  @ObservationIgnored private let workflowTelemetryActions: WorkflowTelemetryActions?
+  @ObservationIgnored private let residualEffectPort: any PlotterApplicationResidualEffectPort
   @ObservationIgnored private let simulatedLearningRuntime: SimulatedLearningRuntime
   @ObservationIgnored private let causalSimulatorEffectAdapter:
     PlotterCausalSimulatorEffectAdapter
@@ -1602,7 +1875,6 @@ final class OperatorWorkspace:
     PlotterPenInteractionRuntimeSnapshot?
   @ObservationIgnored private var liveBoundarySnapshot: PlotterBoundaryRuntimeSnapshot?
   @ObservationIgnored private var simulatedBoundarySnapshot: PlotterBoundaryRuntimeSnapshot?
-  @ObservationIgnored private let nowNanoseconds: @Sendable () -> UInt64
   @ObservationIgnored private var observationProjectionTask: Task<Void, Never>?
   @ObservationIgnored private var drawingRunProjectionTask: Task<Void, Never>?
   private(set) var pointSelectionEpisodeProjection: PlotterEpisodeProjection
@@ -1619,69 +1891,60 @@ final class OperatorWorkspace:
   @ObservationIgnored private var drawingDraftSynchronizationGeneration: UInt64 = 0
   @ObservationIgnored private var learningActivityFactRevision: UInt64 = 0
   private var controllerSessionID: UUID {
-    get { activeLearningSession.controllerSessionID }
-    set { activeLearningSession.controllerSessionID = newValue }
+    get { currentEnvironmentState.controllerSessionID }
+    set { currentEnvironmentState.controllerSessionID = newValue }
   }
   private var explorationCoordinateRevision: UInt64 {
-    get { activeLearningSession.explorationCoordinateRevision }
-    set { activeLearningSession.explorationCoordinateRevision = newValue }
+    get { currentEnvironmentState.explorationCoordinateRevision }
+    set { currentEnvironmentState.explorationCoordinateRevision = newValue }
   }
   private var explorationPaperInstanceRevision: UUID {
-    get { activeLearningSession.explorationPaperInstanceRevision }
-    set { activeLearningSession.explorationPaperInstanceRevision = newValue }
+    get { currentEnvironmentState.explorationPaperInstanceRevision }
+    set { currentEnvironmentState.explorationPaperInstanceRevision = newValue }
   }
   private var explorationPaperContactPlaneRevision: UUID {
-    get { activeLearningSession.explorationPaperContactPlaneRevision }
-    set { activeLearningSession.explorationPaperContactPlaneRevision = newValue }
+    get { currentEnvironmentState.explorationPaperContactPlaneRevision }
+    set { currentEnvironmentState.explorationPaperContactPlaneRevision = newValue }
   }
-  @ObservationIgnored private let persistPaperRevisionContext:
-    @Sendable (PaperRevisionContext) throws -> Void
-  @ObservationIgnored private var activeStoppableOperation: ActiveStoppableOperation? {
+  @ObservationIgnored private var retainedStopRegistration: PlotterRetainedStopRegistration? {
     didSet {
       computationDiagnostics.stoppableOperationMutationCount += 1
-      guard oldValue?.presentationSignature != activeStoppableOperation?.presentationSignature
+      guard oldValue?.presentationSignature != retainedStopRegistration?.presentationSignature
       else { return }
       computationDiagnostics.stoppableOperationSemanticInvalidationCount += 1
       markSemanticPresentationChanged()
     }
   }
   @ObservationIgnored private var sparseTipPenUpAuthorization: SparseTipPenUpAuthorization?
-  private var activeStopTarget: ContextualStopTarget? { activeStoppableOperation?.target }
+  private var activeStopTarget: ContextualStopTarget? { retainedStopRegistration?.target }
   private var stopDispositionLatch: ContextualStopDispositionLatch? {
-    activeStoppableOperation?.state.latch
+    retainedStopRegistration?.state.latch
   }
   private var jogCancelRequestInProgress: Bool {
-    activeStoppableOperation?.state.cancellationRequestInProgress == true
+    retainedStopRegistration?.state.cancellationRequestInProgress == true
   }
-  @ObservationIgnored private var hasShutdown = false {
-    didSet {
-      guard oldValue != hasShutdown else { return }
-      markSemanticPresentationChanged()
-    }
-  }
-  @ObservationIgnored private var lifetimeGeneration: UInt64 = 0
-  @ObservationIgnored private var activeHardwareIntentCount = 0 {
-    didSet {
-      guard oldValue != activeHardwareIntentCount else { return }
-      markSemanticPresentationChanged(invalidatesActionSurface: false)
-    }
-  }
-  @ObservationIgnored private var intentDrainWaiters: [CheckedContinuation<Void, Never>] = []
+  @ObservationIgnored private var admittedApplicationEffects: Set<UUID> = []
+  @ObservationIgnored private var applicationEffectSettlementWaiters:
+    [CheckedContinuation<Void, Never>] = []
+  @ObservationIgnored private var shutdownSettlementWaiters:
+    [CheckedContinuation<Void, Never>] = []
+  private var applicationAdmissionIsOpen: Bool { admissionState == .open }
+  private var applicationAdmissionIsClosed: Bool { admissionState != .open }
   private var activeExerciseAttemptMode: ExerciseAttemptMode? {
-    activeLearningSession.exerciseAttempt.mode
+    currentEnvironmentState.exerciseAttempt.mode
   }
   private var acceptedAttemptSequence: UInt64 {
-    get { activeLearningSession.acceptedAttemptSequence }
-    set { activeLearningSession.acceptedAttemptSequence = newValue }
+    get { currentEnvironmentState.acceptedAttemptSequence }
+    set { currentEnvironmentState.acceptedAttemptSequence = newValue }
   }
   @ObservationIgnored private var lastSimulatedProtocolCaptureNanoseconds: UInt64 = 0
   private var currentBorderValidationGroup: AttemptGroupIdentity {
-    get { activeLearningSession.borderValidation.group }
-    set { activeLearningSession.borderValidation.group = newValue }
+    get { currentEnvironmentState.borderValidation.group }
+    set { currentEnvironmentState.borderValidation.group = newValue }
   }
   private var activeMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint? {
-    get { activeLearningSession.activeMachineArtifactCheckpoint }
-    set { activeLearningSession.activeMachineArtifactCheckpoint = newValue }
+    get { currentEnvironmentState.activeMachineArtifactCheckpoint }
+    set { currentEnvironmentState.activeMachineArtifactCheckpoint = newValue }
   }
 
   init(
@@ -1694,23 +1957,17 @@ final class OperatorWorkspace:
     penInteractionRuntime: PlotterPenInteractionRuntime,
     boundaryRuntime: PlotterBoundaryRuntime,
     speechEffectRuntime: PlotterSpeechEffectRuntime = PlotterSpeechEffectRuntime(),
-    acceptedLearningPathCheckpointActions: AcceptedLearningPathCheckpointActions? = nil,
+    statePersistencePort: (any PlotterApplicationStatePersistencePort)? = nil,
     artifactResetRuntime: PlotterArtifactResetRuntime? = nil,
     drawingDraftRuntime: PlotterDrawingDraftRuntime,
     drawingRunComposition: PlotterDrawingRunComposition,
     incidentPackageUIService: PlotterIncidentPackageUIService,
     tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
-    persistPaperRevisionContext: @escaping @Sendable (PaperRevisionContext) throws -> Void = { _ in },
-    workflowTelemetryActions: WorkflowTelemetryActions? = nil,
+    residualEffectPort: any PlotterApplicationResidualEffectPort =
+      PlotterApplicationDefaultResidualEffectPort(),
     serialDevices: [MachineLinkDescriptor] = [],
-    serialDeviceDiscovery: @escaping @Sendable () -> [MachineLinkDescriptor] = {
-      SerialPortDiscovery.discover()
-    },
     observationPreferences: any PlotterObservationPreferencePort =
-      UserDefaultsObservationPreferencePort(),
-    nowNanoseconds: @escaping @Sendable () -> UInt64 = {
-      UInt64(ProcessInfo.processInfo.systemUptime * 1_000_000_000)
-    }
+      UserDefaultsObservationPreferencePort()
   ) {
     let resolvedManualMotionComposition: PlotterManualMotionRuntimeComposition
     if let manualMotionComposition {
@@ -1742,15 +1999,17 @@ final class OperatorWorkspace:
       )
     )
     overlayPreferenceState = .loaded(observationPreferences.loadOverlayPreference())
-    liveLearningSession = LearningSessionState(
-      source: .live,
-      paperInstanceRevision: tipCalibrationSemanticIdentities.paperInstance.rawValue,
-      paperContactPlaneRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
-    )
-    simulatedLearningSession = LearningSessionState(
-      source: .simulated,
-      paperInstanceRevision: tipCalibrationSemanticIdentities.paperInstance.rawValue,
-      paperContactPlaneRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
+    applicationState = PlotterApplicationState(
+      live: PlotterApplicationEnvironmentState(
+        source: .live,
+        paperInstanceRevision: tipCalibrationSemanticIdentities.paperInstance.rawValue,
+        paperContactPlaneRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
+      ),
+      simulated: PlotterApplicationEnvironmentState(
+        source: .simulated,
+        paperInstanceRevision: tipCalibrationSemanticIdentities.paperInstance.rawValue,
+        paperContactPlaneRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
+      )
     )
     self.machineSession = machineSession
     if let observationSession {
@@ -1781,13 +2040,13 @@ final class OperatorWorkspace:
     let legacyPenCapAppearance = loadedLegacyPenCapAppearance.flatMap {
       $0.persistedLiveRejectionReason == nil ? $0 : nil
     }
-    if acceptedLearningPathCheckpointActions == nil, let legacyPenCapAppearance {
+    if statePersistencePort == nil, let legacyPenCapAppearance {
       // Isolated/test compositions without durable checkpoint capability may
       // inject an ephemeral selection. Production always supplies the package
       // port and never treats this as a second persistence authority.
       livePenCapAppearanceSelection = legacyPenCapAppearance
       persistedPenCapAppearanceLoadState = .accepted
-    } else if acceptedLearningPathCheckpointActions == nil,
+    } else if statePersistencePort == nil,
       let reason = loadedLegacyPenCapAppearance?.persistedLiveRejectionReason
     {
       livePenCapAppearanceSelection = nil
@@ -1800,37 +2059,35 @@ final class OperatorWorkspace:
     self.observationPreferences = observationPreferences
     // The former UserDefaults value is migration input only. The accepted
     // Learning package is now the sole durable appearance owner.
-    if acceptedLearningPathCheckpointActions != nil {
+    if statePersistencePort != nil {
       try? observationPreferences.clearLegacyPenCapAppearance()
     }
     self.speechEffectRuntime = speechEffectRuntime
     self.artifactResetRuntime = artifactResetRuntime
-    liveAcceptedLearningPathCheckpointActions = acceptedLearningPathCheckpointActions
+    self.statePersistencePort = statePersistencePort
     machineGeometryIdentity = tipCalibrationSemanticIdentities.machineGeometry
     toolAssemblyRevision = tipCalibrationSemanticIdentities.toolAssembly
     penContactProfileRevision = tipCalibrationSemanticIdentities.penContactProfile
     cameraMountRevision = tipCalibrationSemanticIdentities.cameraMountRevision
     cameraReframingRevision = tipCalibrationSemanticIdentities.cameraReframingRevision
-    self.persistPaperRevisionContext = persistPaperRevisionContext
-    self.workflowTelemetryActions = workflowTelemetryActions
+    self.residualEffectPort = residualEffectPort
     simulatedLearningRuntime = resolvedManualMotionComposition.simulatedRuntime
     controllerSessionRuntime = PlotterControllerSessionRuntime(
       lowerSession: machineSession,
       simulatedSession: resolvedManualMotionComposition.simulatedRuntime,
-      discoverSerialDevices: serialDeviceDiscovery
+      serialDeviceDiscovery: residualEffectPort
     )
     causalSimulatorEffectAdapter =
       resolvedManualMotionComposition.causalSimulatorEffectAdapter
     self.serialDevices = serialDevices
-    self.nowNanoseconds = nowNanoseconds
     if self.artifactResetRuntime == nil {
       self.artifactResetRuntime = PlotterArtifactResetRuntime(
         effectPort: self,
         persistencePort: self
       )
     }
-    if let acceptedLearningPathCheckpointActions {
-      switch acceptedLearningPathCheckpointActions.load() {
+    if let statePersistencePort {
+      switch statePersistencePort.loadAcceptedLearningPathCheckpoint() {
       case .absent:
         self.artifactResetRuntime.installSavedLearningFact(.absent)
         acceptedArtifactCheckpointStatus = .unavailable
@@ -1851,7 +2108,7 @@ final class OperatorWorkspace:
               penCapAppearance: legacyPenCapAppearance.acceptedCheckpoint(),
               referenceFrame: loadedCheckpoint.referenceFrame
             )
-            try acceptedLearningPathCheckpointActions.save(checkpoint)
+            try statePersistencePort.saveAcceptedLearningPathCheckpoint(checkpoint)
           } else {
             checkpoint = loadedCheckpoint
           }
@@ -1882,12 +2139,11 @@ final class OperatorWorkspace:
         acceptedArtifactCheckpointStatus = .rejected(reason)
       }
     }
-    drawingRunProjectionTask = Task { [weak self, drawingRunFactSource, drawingRunRuntime] in
-      guard let self else { return }
-      await drawingRunFactSource.install(self)
+    drawingRunProjectionTask = Task { [weak self, drawingRunRuntime] in
+      await self?.installDrawingRunFactSource()
       let snapshots = await drawingRunRuntime.snapshots(environment: .live)
       for await snapshot in snapshots {
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, let self else { return }
         self.installDrawingRunSnapshot(snapshot)
       }
     }
@@ -1900,6 +2156,13 @@ final class OperatorWorkspace:
         }
       }
     }
+  }
+
+  /// Installation is explicit because the lower fact source retains only a
+  /// weak relay. Awaiters must never treat the relay's absence as an installed
+  /// application with empty facts.
+  private func installDrawingRunFactSource() async {
+    await drawingRunFactSource.install(self)
   }
 
   private func submitObservationIntent(
@@ -2094,7 +2357,7 @@ final class OperatorWorkspace:
     computationDiagnostics.actionSurfaceBuildCount += 1
     let surfaceFrame =
       frozenPointSelectionFrame
-      ?? (activeLearningSession.borderValidation.comparisonReviewIsPinned
+      ?? (currentEnvironmentState.borderValidation.comparisonReviewIsPinned
         ? explorationPostFrame
         : nil)
       ?? ({
@@ -2210,6 +2473,7 @@ final class OperatorWorkspace:
   }
 
   func submitDrawingDraft(_ submission: PlotterDrawingDraftSubmission) {
+    guard applicationAdmissionIsOpen else { return }
     Task { @MainActor [weak self] in
       await self?.performDrawingDraftSubmission(submission)
     }
@@ -2218,6 +2482,7 @@ final class OperatorWorkspace:
   private func performDrawingDraftSubmission(
     _ submission: PlotterDrawingDraftSubmission
   ) async {
+    guard applicationAdmissionIsOpen else { return }
     installDrawingRunSnapshot(
       await drawingRunRuntime.snapshot(environment: manualMotionEnvironment)
     )
@@ -2230,7 +2495,7 @@ final class OperatorWorkspace:
     case .applied:
       drawingEvidenceError = nil
       if submission.intent == .open {
-        activeLearningSession.borderValidation.comparisonReviewIsPinned = false
+        currentEnvironmentState.borderValidation.comparisonReviewIsPinned = false
       }
       await synchronizeDrawingRunProjection()
     case .refused(let refusal):
@@ -2287,7 +2552,7 @@ final class OperatorWorkspace:
 
   var workbenchCapabilityPresentation: WorkbenchCapabilityPresentation {
     let learning: WorkbenchLearningCapabilityState
-    if activeLearningSession.drawingReadinessAssessment?.state == .ready {
+    if currentEnvironmentState.drawingReadinessAssessment?.state == .ready {
       learning = .adaptiveDrawingReady
     } else if interactiveLearningIsComplete {
       learning = .interactiveLearningComplete
@@ -2548,7 +2813,9 @@ final class OperatorWorkspace:
   }
 
   func submitDrawingRun(_ submission: PlotterDrawingRunSubmission) async {
+    guard applicationAdmissionIsOpen else { return }
     let result = await drawingRunRuntime.submit(submission)
+    guard applicationAdmissionIsOpen else { return }
     installDrawingRunSnapshot(result.snapshot)
     guard case .applied = result.disposition,
       case .beginNewRun = submission.intent
@@ -2845,10 +3112,11 @@ final class OperatorWorkspace:
   }
 
   var completedDrawingComparisonReviewIsPinned: Bool {
-    activeLearningSession.borderValidation.comparisonReviewIsPinned
+    currentEnvironmentState.borderValidation.comparisonReviewIsPinned
   }
 
   func submitCompletedComparisonReview(_ intent: CompletedComparisonReviewIntent) {
+    guard applicationAdmissionIsOpen else { return }
     switch intent {
     case .reviewComparison:
       Task { @MainActor [weak self] in
@@ -2860,7 +3128,8 @@ final class OperatorWorkspace:
   }
 
   func reviewCompletedDrawingComparison() async {
-    guard completedDrawingComparisonReviewIsAvailable,
+    guard applicationAdmissionIsOpen,
+      completedDrawingComparisonReviewIsAvailable,
       !drawingRunIsActive
     else { return }
     if drawingStudioIsPresented {
@@ -2872,11 +3141,11 @@ final class OperatorWorkspace:
       )
       guard !drawingStudioIsPresented else { return }
     }
-    activeLearningSession.borderValidation.comparisonReviewIsPinned = true
+    currentEnvironmentState.borderValidation.comparisonReviewIsPinned = true
   }
 
   func resumeLivePreviewAfterDrawingComparison() {
-    activeLearningSession.borderValidation.comparisonReviewIsPinned = false
+    currentEnvironmentState.borderValidation.comparisonReviewIsPinned = false
   }
 
   private func borderValidationPredictionOverlays(
@@ -2979,7 +3248,7 @@ final class OperatorWorkspace:
 
   var cameraDevices: [CameraDevice] { cameraSnapshot?.devices ?? [] }
   var selectedCameraID: CameraDeviceID? { cameraSnapshot?.selectedDeviceID }
-  var isShutdown: Bool { hasShutdown }
+  var isShutdown: Bool { applicationAdmissionIsClosed }
 
   var currentCameraCalibrationBusyReason: String? {
     cameraCalibrationRuntimePhase.map {
@@ -3034,7 +3303,7 @@ final class OperatorWorkspace:
       passiveProbe: passiveProbeResult,
       simulatedSnapshot: simulatedLearningSnapshot,
       machineError: machineError,
-      admissionClosed: hasShutdown,
+      admissionClosed: applicationAdmissionIsClosed,
       controllerBusyReason: currentCameraCalibrationBusyReason,
       discoveryBusyReason: discoveryBusyReason,
       foreignOperationInFlight: passiveProbeInProgress || jogRequestInProgress
@@ -3279,6 +3548,9 @@ final class OperatorWorkspace:
   }
 
   private var observationSourceChangeUnavailableReason: String? {
+    if observationRuntime == nil {
+      return "The retained observation runtime is unavailable."
+    }
     if let reason = currentCameraCalibrationBusyReason { return reason }
     if frameModeSwitchInProgress { return "A frame source switch is already in progress." }
     if activeExerciseAttemptOwnerID != nil {
@@ -3299,8 +3571,8 @@ final class OperatorWorkspace:
   }
 
   private(set) var borderValidationStep: BorderValidationStep {
-    get { activeLearningSession.borderValidation.step }
-    set { activeLearningSession.borderValidation.step = newValue }
+    get { currentEnvironmentState.borderValidation.step }
+    set { currentEnvironmentState.borderValidation.step = newValue }
   }
   var activeDiscoverySequenceID: DiscoverySequenceID? {
     discoveryTransactions.first { _, transaction in
@@ -3372,12 +3644,12 @@ final class OperatorWorkspace:
   private var artifactResetAdmissionFacts: PlotterArtifactResetAdmissionFacts {
     PlotterArtifactResetAdmissionFacts(
       environment: manualMotionEnvironment,
-      possibleInkBlocked: activeStoppableOperation?.possibleInkLocation != nil
+      possibleInkBlocked: retainedStopRegistration?.possibleInkLocation != nil
         || activeBorderValidationOperation?.strokeState == .possibleInk,
       activeStopBlocked: activeStopTarget != nil || activeBorderValidationOperation != nil,
       motionSettlementBlocked: passiveProbeInProgress || jogRequestInProgress
         || retainedPenRequestInProgress || jogCancelRequestInProgress
-        || machineSnapshot?.machine.operationInFlight == true || activeHardwareIntentCount > 0,
+        || machineSnapshot?.machine.operationInFlight == true || admittedApplicationEffects.count > 0,
       lowerOwnerBlocker: artifactResetLowerOwnerBlocker
     )
   }
@@ -3388,7 +3660,8 @@ final class OperatorWorkspace:
 
   @discardableResult
   func performLearningVacate(_ plan: LearningVacatePlan) async -> Bool {
-    await submitArtifactReset(plan)
+    guard applicationAdmissionIsOpen else { return false }
+    return await submitArtifactReset(plan)
   }
 
   /// Cancels and settles only Learning-owned work before clearing the selected
@@ -3396,7 +3669,8 @@ final class OperatorWorkspace:
   /// is neither cancelled nor used as a reset gate.
   @discardableResult
   func submitResetAllLearning(_ previewPlan: LearningVacatePlan) async -> Bool {
-    guard previewPlan.scope == .all,
+    guard applicationAdmissionIsOpen,
+      previewPlan.scope == .all,
       previewPlan.source == (frameMode == .live ? .live : .simulated)
     else {
       learningAuthorityError =
@@ -3423,9 +3697,10 @@ final class OperatorWorkspace:
   }
 
   private func cancelAndSettleLearningForReset() async -> Bool {
-    let actionTask = activeLearningActionTask
-    let actionID = activeLearningActionID
-    actionTask?.cancel()
+    let actionID = applicationState.residualLearningAdmissionID
+    if let actionID {
+      await residualOperationAdapter.stopLearningAction(actionID)
+    }
 
     await cameraCalibrationRuntime.shutdown()
 
@@ -3434,15 +3709,13 @@ final class OperatorWorkspace:
     }
     if let ownerID = activeExerciseAttemptOwnerID {
       await cancelExerciseAttempt(ownerID)
-    } else if let operation = activeStoppableOperation {
+    } else if let operation = retainedStopRegistration {
       await cancelAndSettleStoppableOperation(operation, intent: .cancelAttempt)
     }
     guard await cancelAndSettleBoundaryForReset() else { return false }
 
-    await actionTask?.value
-    if actionTask != nil, activeLearningActionID == actionID {
-      activeLearningActionID = nil
-      activeLearningActionTask = nil
+    if applicationState.residualLearningAdmissionID == actionID {
+      applicationState.residualLearningAdmissionID = nil
     }
     let learningStopStillActive = activeStopTarget != nil
     guard activeExerciseAttemptID == nil,
@@ -3497,7 +3770,7 @@ final class OperatorWorkspace:
       return false
     }
 
-    activeLearningSession.exerciseAttempt.finish()
+    currentEnvironmentState.exerciseAttempt.finish()
     restartableExerciseItemID = nil
     explorationError = nil
     learningAuthorityError = nil
@@ -3530,12 +3803,12 @@ final class OperatorWorkspace:
   private func persistLearningPathPrefixBeforeVacate(
     _ plan: LearningVacatePlan
   ) -> PersistedLearningPrefix? {
-    guard frameMode == .live, let actions = activeAcceptedLearningPathCheckpointActions else {
+    guard frameMode == .live, let actions = activeStatePersistencePort else {
       return .unchanged
     }
     do {
       if plan.anchor == .humanGuidedDiscovery(.penInteraction) {
-        try actions.clear()
+        try actions.clearAcceptedLearningPathCheckpoint()
         return .cleared
       }
 
@@ -3562,7 +3835,7 @@ final class OperatorWorkspace:
             ?? recoverableTipCalibrationCheckpoint : nil,
         stageFour: nil
       )
-      try actions.save(checkpoint)
+      try actions.saveAcceptedLearningPathCheckpoint(checkpoint)
       return .saved(checkpoint)
     } catch {
       learningAuthorityError =
@@ -3858,7 +4131,7 @@ final class OperatorWorkspace:
   func submitObservationConfiguration(
     _ submission: PlotterObservationOperatorSubmission
   ) async {
-    guard !hasShutdown else { return }
+    guard applicationAdmissionIsOpen else { return }
     guard submission.reference.revision == semanticPresentationRevision,
       submission.reference.capabilityID == controllerSessionID
     else { return }
@@ -4010,14 +4283,147 @@ final class OperatorWorkspace:
     manualDraft: ManualMotionDraft,
     includesLearningPath: Bool,
     pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement? = nil,
-    pendingPointSelection: PlotterPointSelectionSubmission? = nil
+    pendingPointSelection: PlotterPointSelectionSubmission? = nil,
+    observationViewport: ActionSurfaceViewportState? = nil
   ) -> PlotterAppUIProjection {
     let learningPath = includesLearningPath
       ? learningPathProjection(selectedItemID: selectedItemID) : nil
     let currentLearning = learningPresentationBase()
     let manual = manualMotionEpisodePresentation(for: manualDraft)
     let drawing = drawingStudioPresentation
+    let controller = controllerSessionProjection
+    let observation = observationConfigurationProjection
     var candidates: [PlotterUIActionCandidate] = []
+    var applicationActions: [PlotterUIActionID: PlotterApplicationBoundAction] = [:]
+    func bindApplicationAction(
+      id: PlotterUIActionID,
+      title: String,
+      action: PlotterApplicationBoundAction,
+      unavailableReason: String? = nil,
+      owner: String
+    ) {
+      applicationActions[id] = action
+      candidates.append(uiCandidate(
+        id: id,
+        title: title,
+        intent: .applicationAction(id),
+        unavailableReason: unavailableReason,
+        owner: owner
+      ))
+    }
+    bindApplicationAction(
+      id: PlotterAppUIActionID.controllerRefresh,
+      title: "Refresh controllers",
+      action: .controller(controller.request(.refreshSerialDevices)),
+      owner: "PlotterControllerSessionRuntime"
+    )
+    for device in controller.serialDevices {
+      bindApplicationAction(
+        id: PlotterAppUIActionID.controllerDevice(device.identifier),
+        title: "Select \(device.displayName)",
+        action: .controller(controller.request(.selectSerialDevice(device))),
+        unavailableReason: controller.selectionUnavailableReason,
+        owner: "PlotterControllerSessionRuntime"
+      )
+    }
+    bindApplicationAction(
+      id: PlotterAppUIActionID.controllerConnection,
+      title: controller.connectionActionTitle,
+      action: .controller(controller.request(.toggleConnection)),
+      unavailableReason: controller.connectionUnavailableReason,
+      owner: "PlotterControllerSessionRuntime"
+    )
+    bindApplicationAction(
+      id: PlotterAppUIActionID.controllerMotion,
+      title: controller.motionAuthorized ? "Disable Motion" : "Enable Motion",
+      action: .controller(controller.request(.toggleMotionAuthorization)),
+      unavailableReason: controller.motionAuthorizationUnavailableReason,
+      owner: "PlotterControllerSessionRuntime"
+    )
+    bindApplicationAction(
+      id: PlotterAppUIActionID.controllerClearAlarm,
+      title: "Clear Alarm",
+      action: .controller(controller.request(.clearAlarm)),
+      unavailableReason: controller.alarmClearUnavailableReason,
+      owner: "PlotterControllerSessionRuntime"
+    )
+    bindApplicationAction(
+      id: PlotterAppUIActionID.observationRefresh,
+      title: "Refresh cameras",
+      action: .observation(observation.request(.refresh)),
+      owner: "PlotterObservationConfigurationRuntime"
+    )
+    bindApplicationAction(
+      id: PlotterAppUIActionID.observationSimulated,
+      title: "Use simulated source",
+      action: .observation(observation.request(.selectSource(.simulated, nil))),
+      unavailableReason: observation.sourceChangeUnavailableReason,
+      owner: "PlotterObservationConfigurationRuntime"
+    )
+    for camera in observation.cameraDevices {
+      bindApplicationAction(
+        id: PlotterAppUIActionID.observationCamera(camera.id.rawValue),
+        title: "Use \(camera.name)",
+        action: .observation(observation.request(.selectSource(.live, camera.id))),
+        unavailableReason: observation.sourceChangeUnavailableReason,
+        owner: "PlotterObservationConfigurationRuntime"
+      )
+    }
+    bindApplicationAction(
+      id: PlotterAppUIActionID.observationDiagnostics,
+      title: "Refresh observation diagnostics",
+      action: .observation(observation.request(.requestDiagnostics)),
+      owner: "PlotterObservationConfigurationRuntime"
+    )
+    for cadence in VisionAnalysisCadence.allCases {
+      bindApplicationAction(
+        id: PlotterAppUIActionID.observationCadence(cadence.rawValue),
+        title: "Set analysis cadence to \(cadence.rawValue)",
+        action: .observation(observation.request(.setCadence(cadence))),
+        unavailableReason: observation.frameMode == .live ? nil : "SIMULATED owns its cadence.",
+        owner: "PlotterObservationConfigurationRuntime"
+      )
+    }
+    for overlay in UserSceneOverlay.allCases {
+      let enabled = !observation.enabledOverlays.contains(overlay)
+      bindApplicationAction(
+        id: PlotterAppUIActionID.observationOverlay(overlay.rawValue, enabled: enabled),
+        title: "\(enabled ? "Enable" : "Disable") \(overlay.rawValue) overlay",
+        action: .observation(observation.request(.setOverlay(overlay, enabled: enabled))),
+        owner: "PlotterObservationConfigurationRuntime"
+      )
+    }
+    if let displayedFrame,
+      let region = observationViewport?.selectedRegion(
+        frameWidth: displayedFrame.frame.width,
+        frameHeight: displayedFrame.frame.height
+      )
+    {
+      let nextRegion = observation.regionLock?.matches(displayedFrame) == true ? nil : region
+      bindApplicationAction(
+        id: PlotterAppUIActionID.observationRegion,
+        title: nextRegion == nil ? "Unlock analysis region" : "Lock analysis region",
+        action: .observation(observation.request(
+          .setRegion(nextRegion, displayedFrame: displayedFrame)
+        )),
+        unavailableReason: observation.calibrationBusyReason,
+        owner: "PlotterObservationConfigurationRuntime"
+      )
+    }
+    bindApplicationAction(
+      id: PlotterAppUIActionID.paperNewSheet,
+      title: "New sheet on current contact plane",
+      action: .paper(.newSheetOnCurrentPlane),
+      unavailableReason: paperManagementUnavailableReason,
+      owner: "PlotterApplicationRuntime"
+    )
+    bindApplicationAction(
+      id: PlotterAppUIActionID.paperContactPlane,
+      title: "Paper contact plane changed",
+      action: .paper(.contactPlaneChanged),
+      unavailableReason: paperManagementUnavailableReason,
+      owner: "PlotterApplicationRuntime"
+    )
     candidates.append(uiCandidate(
       id: PlotterAppUIActionID.learningMode,
       title: learningModePresentation.actionTitle,
@@ -4177,6 +4583,23 @@ final class OperatorWorkspace:
       owner: "PlotterIncidentPackageUIService"
     ))
 
+    if applicationAdmissionIsClosed {
+      candidates = candidates.map { candidate in
+        PlotterUIActionCandidate(
+          id: candidate.id,
+          title: candidate.title,
+          intent: candidate.intent,
+          reachability: candidate.reachability,
+          requirements: candidate.requirements + [PlotterUIRequirement(
+            id: "application.admission.closed",
+            isSatisfied: false,
+            owner: "PlotterApplicationRuntime",
+            remedy: "The application is shutting down; no successor effect can start."
+          )]
+        )
+      }
+    }
+
     let runtimeRevisions = currentPlotterUIRuntimeRevisions()
     let semantic = PlotterUICompiler().compile(PlotterUICompilerInput(
       revision: plotterUIRevision(
@@ -4184,7 +4607,8 @@ final class OperatorWorkspace:
         manualDraft: manualDraft,
         includesLearningPath: includesLearningPath,
         pendingDrawingPlacement: pendingDrawingPlacement,
-        pendingPointSelection: pendingPointSelection
+        pendingPointSelection: pendingPointSelection,
+        observationViewport: observationViewport
       ),
       runtimeRevisions: runtimeRevisions,
       candidates: candidates,
@@ -4194,6 +4618,7 @@ final class OperatorWorkspace:
     currentPlotterUIProjection = semantic
     currentPlotterUIBindingSemanticRevision = semanticPresentationRevision
     currentPlotterUIResetPlans = resetPlans
+    currentApplicationActions = applicationActions
     return PlotterAppUIProjection(
       semantic: semantic,
       actionSurface: actionSurfacePresentation,
@@ -4210,7 +4635,11 @@ final class OperatorWorkspace:
       drawingStudioPanelChangeUnavailableReason: drawingStudioPanelChangeUnavailableReason,
       drawingDraftProjection: drawingDraftSnapshot.projection,
       workbenchCapability: workbenchCapabilityPresentation,
-      incidentPackage: semantic.incidentPackage
+      incidentPackage: semantic.incidentPackage,
+      controllerSession: controller,
+      observationConfiguration: observation,
+      paperManagementUnavailableReason: paperManagementUnavailableReason,
+      motionRequestStatus: motionRequestStatusPresentation
     )
   }
 
@@ -4308,10 +4737,11 @@ final class OperatorWorkspace:
     manualDraft: ManualMotionDraft,
     includesLearningPath: Bool,
     pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?,
-    pendingPointSelection: PlotterPointSelectionSubmission?
+    pendingPointSelection: PlotterPointSelectionSubmission?,
+    observationViewport: ActionSurfaceViewportState?
   ) -> PlotterUIRevision {
     var hash: UInt64 = 14_695_981_039_346_656_037
-    for byte in "\(semanticPresentationRevision)|\(selectedItemID)|\(manualDraft.xDistanceMM)|\(manualDraft.yDistanceMM)|\(manualDraft.feedMMPerMinute)|\(includesLearningPath)|\(String(describing: pendingDrawingPlacement))|\(String(describing: pendingPointSelection))".utf8 {
+    for byte in "\(semanticPresentationRevision)|\(selectedItemID)|\(manualDraft.xDistanceMM)|\(manualDraft.yDistanceMM)|\(manualDraft.feedMMPerMinute)|\(includesLearningPath)|\(String(describing: pendingDrawingPlacement))|\(String(describing: pendingPointSelection))|\(String(describing: observationViewport))".utf8 {
       hash ^= UInt64(byte)
       hash &*= 1_099_511_628_211
     }
@@ -4353,6 +4783,14 @@ final class OperatorWorkspace:
         token: String(drawingRunSnapshot.projection.runRevision.rawValue)
       ))
     }
+    revisions.append(PlotterUIRuntimeRevision(
+      owner: "PlotterControllerSessionRuntime",
+      token: String(controllerSessionProjection.reference.revision)
+    ))
+    revisions.append(PlotterUIRuntimeRevision(
+      owner: "PlotterObservationConfigurationRuntime",
+      token: String(observationConfigurationProjection.reference.revision)
+    ))
     return revisions
   }
 
@@ -4378,6 +4816,15 @@ final class OperatorWorkspace:
     let currentUIRevision = currentProjection.revision
     let currentRuntimeRevisions = currentPlotterUIRuntimeRevisions().sorted { $0.owner < $1.owner }
     let submittedRuntimeRevisions = request.runtimeRevisions.sorted { $0.owner < $1.owner }
+    if applicationAdmissionIsClosed {
+      return plotterUIRefusal(
+        request,
+        reason: .retainedOwnerRefused,
+        currentUIRevision: currentUIRevision,
+        currentRuntimeRevisions: currentRuntimeRevisions,
+        remedy: "The root application runtime is shut down; no successor effect can start."
+      )
+    }
     if request.uiRevision != currentUIRevision
       || currentPlotterUIBindingSemanticRevision != semanticPresentationRevision
     {
@@ -4546,7 +4993,7 @@ final class OperatorWorkspace:
           remedy: "Use the exact typed Pen Interaction request bound by the current projection."
         )
       }
-      await performExerciseAction(kind, for: resolved.owner)
+      await submitProjectionBoundLearningAction(kind, for: resolved.owner)
     case .retainedLearningReset(let actionID) where request.actionID == actionID:
       guard let plan = currentPlotterUIResetPlans[actionID] else {
         return plotterUIRefusal(
@@ -4578,6 +5025,26 @@ final class OperatorWorkspace:
       submitCompletedComparisonReview(
         intent == .reviewExactFrame ? .reviewComparison : .resumeLivePreview
       )
+    case .applicationAction(let actionID) where actionID == request.actionID:
+      guard let action = currentApplicationActions[actionID] else {
+        return plotterUIRefusal(
+          request,
+          reason: .unknownAction,
+          currentUIRevision: currentUIRevision,
+          currentRuntimeRevisions: currentRuntimeRevisions,
+          remedy: "Refresh the application projection and use its exact bound action."
+        )
+      }
+      switch action {
+      case .controller(let submission):
+        _ = await submitControllerSessionRequest(submission)
+      case .observation(let submission):
+        await submitObservationConfiguration(submission)
+      case .paper(.newSheetOnCurrentPlane):
+        await recordNewPaperSheetOnCurrentPlane()
+      case .paper(.contactPlaneChanged):
+        await recordPaperContactPlaneChanged()
+      }
     case .requestIncidentPackage where request.actionID == PlotterAppUIActionID.incidentPackage:
       await requestIncidentPackageFromPlotterUI()
     default:
@@ -4974,9 +5441,9 @@ final class OperatorWorkspace:
       ),
       drawing: .init(
         currentStep: borderValidationStep,
-        phase: activeLearningSession.borderValidation.phase,
+        phase: currentEnvironmentState.borderValidation.phase,
         decisionIsInFlight:
-          activeLearningSession.borderValidation.activeStep
+          currentEnvironmentState.borderValidation.activeStep
             == .compareIntendedAndObservedGeometry,
         drawingBorderPath: drawingBorderPlan?.strokes.first?.path.points.map(
           MachinePosition.init(point:)
@@ -5022,16 +5489,16 @@ final class OperatorWorkspace:
   }
 
   func answerCurrentQuestion(_ choice: OperatorChoice) async {
-    guard let sequenceID = activeDiscoverySequenceID else { return }
+    guard applicationAdmissionIsOpen, let sequenceID = activeDiscoverySequenceID else { return }
     await answerDiscoverySequence(choice, for: sequenceID)
   }
 
-  func performExerciseAction(
+  private func submitProjectionBoundLearningAction(
     _ kind: ExerciseActionKind,
     for ownerID: LearningPathItemID
   ) async {
     guard learningIsEnabled, !learningResetInProgress else { return }
-    guard !hasShutdown,
+    guard applicationAdmissionIsOpen,
       let strip = selectedOperatorActionPresentation(for: ownerID).actionStrip,
       strip.ownerID == ownerID,
       let action = strip.actions.first(where: { $0.kind == kind }),
@@ -5067,30 +5534,55 @@ final class OperatorWorkspace:
       break
     }
 
-    guard activeLearningActionTask == nil else { return }
+    guard applicationState.residualLearningAdmissionID == nil else { return }
     let actionID = UUID()
-    let task = Task { @MainActor [weak self] in
-      guard let self else { return }
-      await self.performAdmittedExerciseAction(kind, for: ownerID)
-    }
-    activeLearningActionID = actionID
-    activeLearningActionTask = task
-    await withTaskCancellationHandler {
-      await task.value
-    } onCancel: {
-      task.cancel()
-    }
-    if activeLearningActionID == actionID {
-      activeLearningActionID = nil
-      activeLearningActionTask = nil
+    // This reservation is only a synchronous root-admission latch. The
+    // adapter's registry owns the retained task, Stop capability, and
+    // settlement once execution crosses the first suspension.
+    applicationState.residualLearningAdmissionID = actionID
+    await runResidualLearningAction(kind, ownerID: ownerID, actionID: actionID)
+    if applicationState.residualLearningAdmissionID == actionID {
+      applicationState.residualLearningAdmissionID = nil
     }
   }
 
-  private func performAdmittedExerciseAction(
+  private func runResidualLearningAction(
+    _ kind: ExerciseActionKind,
+    ownerID: LearningPathItemID,
+    actionID: UUID
+  ) async {
+    guard applicationAdmissionIsOpen else { return }
+    let requestID = IntentRequestID(rawValue: actionID)
+    let identity = PlotterOperationIdentity<PlotterApplicationResidualContext>(
+      episodeID: EpisodeID(rawValue: actionID),
+      requestID: requestID,
+      intentIdentity: .learningAction("\(ownerID.id):\(String(describing: kind))"),
+      effectID: EpisodeEffectID(rawValue: actionID),
+      effectRevision: EpisodeRevisionIdentifier(
+        rawValue: "application-residual-\(semanticPresentationRevision)"
+      ),
+      environment: frameMode == .live ? .live : .simulated
+    )
+    let operation = PlotterApplicationLearningOperation(
+      application: self,
+      kind: kind,
+      ownerID: ownerID
+    )
+    await residualOperationAdapter.run(
+      identity: identity,
+      context: PlotterApplicationResidualContext(
+        owningSubsystem: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime"),
+        resultCurrentlyAwaited: "retained Learning action settlement"
+      ),
+      effect: operation
+    )
+  }
+
+  fileprivate func performAdmittedExerciseAction(
     _ kind: ExerciseActionKind,
     for ownerID: LearningPathItemID
   ) async {
-    guard !Task.isCancelled else { return }
+    guard applicationAdmissionIsOpen, !Task.isCancelled else { return }
     switch kind {
     case .boundary:
       return
@@ -5409,7 +5901,7 @@ final class OperatorWorkspace:
   func executeCameraCalibrationEffect(
     _ request: PlotterCameraCalibrationEffectRequest
   ) async -> PlotterCameraCalibrationEffectResult {
-    guard !hasShutdown else { return .cancelled }
+    guard applicationAdmissionIsOpen else { return .cancelled }
     switch request {
     case .captureReference:
       await captureCameraCalibrationReferenceEffect()
@@ -5975,7 +6467,7 @@ final class OperatorWorkspace:
   }
 
   private func requireCalibrationContinuation() throws {
-    guard !hasShutdown, !Task.isCancelled else {
+    guard applicationAdmissionIsOpen, !Task.isCancelled else {
       throw LearningPathOperationError.requiredState(
         "Application shutdown cancelled automatic current-camera calibration."
       )
@@ -6089,6 +6581,7 @@ final class OperatorWorkspace:
   }
 
   func submitPointSelection(_ submission: PlotterPointSelectionSubmission) {
+    guard applicationAdmissionIsOpen else { return }
     Task { @MainActor [weak self] in
       await self?.performPointSelectionSubmission(submission)
     }
@@ -6701,7 +7194,7 @@ final class OperatorWorkspace:
     if frameMode == .simulated {
       let simulatedOutcome = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
         .down,
-        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.sparseTipCalibration")
+        owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.sparseTipCalibration")
       )
       applySimulatedCausalImmediateOutcome(
         simulatedOutcome,
@@ -6750,7 +7243,7 @@ final class OperatorWorkspace:
         if frameMode == .simulated {
           let admission = await causalSimulatorEffectAdapter.admitRetainedWorkflowDrawing(
             delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy),
-            owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.sparseTipCalibration")
+            owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.sparseTipCalibration")
           )
           let operation: PlotterCausalSimulatorOperation
           switch admission {
@@ -6858,7 +7351,7 @@ final class OperatorWorkspace:
     if frameMode == .simulated {
       let simulatedOutcome = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
         .up,
-        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.sparseTipCalibration")
+        owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.sparseTipCalibration")
       )
       applySimulatedCausalImmediateOutcome(
         simulatedOutcome,
@@ -6913,7 +7406,7 @@ final class OperatorWorkspace:
       if truth.penPose == .down {
         let outcome = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
           .up,
-          owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.sparseTipCalibration")
+          owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.sparseTipCalibration")
         )
         applySimulatedCausalImmediateOutcome(
           outcome,
@@ -7515,9 +8008,9 @@ final class OperatorWorkspace:
     }
     explorationError = nil
     restartableExerciseItemID = nil
-    borderValidationRuntime.replaceSnapshot(activeLearningSession.borderValidation)
+    borderValidationRuntime.replaceSnapshot(currentEnvironmentState.borderValidation)
     let snapshot = await borderValidationRuntime.submit(.begin)
-    activeLearningSession.borderValidation = snapshot
+    currentEnvironmentState.borderValidation = snapshot
     switch snapshot.phase {
     case .accepted:
       finishActiveExerciseAttempt(disposition: .succeeded)
@@ -7554,13 +8047,13 @@ final class OperatorWorkspace:
     case .begin, .retryFrom:
       return
     }
-    borderValidationRuntime.replaceSnapshot(activeLearningSession.borderValidation)
+    borderValidationRuntime.replaceSnapshot(currentEnvironmentState.borderValidation)
     guard borderValidationRuntime.snapshot().activeOperationID == nil,
       case .reviewingComparison = borderValidationRuntime.snapshot().phase
     else { return }
 
     let snapshot = await borderValidationRuntime.submit(intent)
-    activeLearningSession.borderValidation = snapshot
+    currentEnvironmentState.borderValidation = snapshot
     switch snapshot.phase {
     case .accepted:
       explorationError = nil
@@ -7659,12 +8152,7 @@ final class OperatorWorkspace:
     _ snapshot: PlotterBorderValidationSnapshot,
     source: OperatorFrameMode
   ) {
-    switch source {
-    case .live:
-      liveLearningSession.borderValidation = snapshot
-    case .simulated:
-      simulatedLearningSession.borderValidation = snapshot
-    }
+    applicationState.environmentStates[source]?.borderValidation = snapshot
     guard frameMode == source else { return }
     switch snapshot.phase {
     case .possibleInk(let detail):
@@ -7759,7 +8247,7 @@ final class OperatorWorkspace:
 
   private func learningActivityFact(revision: UInt64) -> PlotterLearningActivityFact {
     return PlotterLearningActivityFact(
-      owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.LearningActivityAdapter"),
+      owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.LearningActivityAdapter"),
       revision: CapabilityFactRevision(rawValue: revision),
       activeCameraCalibration: cameraCalibrationRuntimePhase != nil,
       activeAttempt: activeExerciseAttemptOwnerID != nil,
@@ -8280,9 +8768,8 @@ final class OperatorWorkspace:
   }
 
   private func reconcileAutomaticVisionAnalysis() async {
-    guard !hasShutdown, let observationRuntime else { return }
+    guard applicationAdmissionIsOpen, let observationRuntime else { return }
     if automaticVisionAnalysisShouldRun {
-      let generation = lifetimeGeneration
       _ = await submitObservationIntent(.configureAutomaticAnalysis(
         cadence: visionAnalysisCadence,
         features: requestedSceneFeatures,
@@ -8290,7 +8777,7 @@ final class OperatorWorkspace:
         penCapColor: livePenCapColor
       ))
       let snapshot = await observationRuntime.snapshot()
-      guard canCommit(generation), frameMode == .live else { return }
+      guard applicationAdmissionIsOpen, frameMode == .live else { return }
       cameraSnapshot = snapshot
       return
     }
@@ -8313,8 +8800,23 @@ final class OperatorWorkspace:
   }
 
   func performApplicationStartup(_ policy: AdaptivePlotterLaunchPolicy) async {
+    guard applicationAdmissionIsOpen, startupState == .notStarted else { return }
+    startupState = .starting
+    await installDrawingRunFactSource()
+    guard applicationAdmissionIsOpen, !Task.isCancelled else {
+      startupState = .cancelled
+      return
+    }
     await loadDrawingEvidenceArchive()
+    guard applicationAdmissionIsOpen, !Task.isCancelled else {
+      startupState = .cancelled
+      return
+    }
     await refreshSerialDevices()
+    guard applicationAdmissionIsOpen, !Task.isCancelled else {
+      startupState = .cancelled
+      return
+    }
     switch policy.startupRoute {
     case .preferredCamera:
       await startPreferredCameraAtStartup()
@@ -8323,8 +8825,17 @@ final class OperatorWorkspace:
         observationConfigurationProjection.request(.selectSource(.simulated, nil))
       )
     }
+    guard applicationAdmissionIsOpen, !Task.isCancelled else {
+      startupState = .cancelled
+      return
+    }
     await synchronizeDrawingDraft()
     await synchronizeDrawingRunProjection()
+    guard applicationAdmissionIsOpen, !Task.isCancelled else {
+      startupState = .cancelled
+      return
+    }
+    startupState = .started
   }
 
   private func loadDrawingEvidenceArchive() async {
@@ -8416,6 +8927,7 @@ final class OperatorWorkspace:
   func submitControllerSessionRequest(
     _ request: PlotterControllerSessionRequest
   ) async -> PlotterControllerSessionDisposition {
+    guard applicationAdmissionIsOpen else { return .cancelled }
     let facts = controllerSessionFacts
     guard request.reference == facts.reference else {
       return .refused("The controller-session projection changed; use the current action.")
@@ -8439,7 +8951,7 @@ final class OperatorWorkspace:
       motionAuthorizationActionInProgress = false
     }
     let disposition = await controllerSessionRuntime.submit(request, facts: facts)
-    guard !hasShutdown else { return .cancelled }
+    guard applicationAdmissionIsOpen else { return .cancelled }
     guard case .completed(let result) = disposition else {
       if case .refused(let reason) = disposition { machineError = reason }
       return disposition
@@ -8532,7 +9044,7 @@ final class OperatorWorkspace:
       let pose: SimulatedLearningPenPose = command.commandedState == .up ? .up : .down
       let simulatedOutcome = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
         pose,
-        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.retainedPenNormalization")
+        owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.retainedPenNormalization")
       )
       let outcome: PenOutcome? = if let refusal = simulatedOutcome.refusal {
         .refused(.controllerRejected("causal simulator refusal: \(refusal)"))
@@ -8552,12 +9064,12 @@ final class OperatorWorkspace:
       }
       return outcome
     }
-    guard let generation = beginHardwareIntent() else {
+    guard let generation = beginApplicationEffect() else {
       return nil
     }
     var hardwareIntentRequiresEnd = true
     defer {
-      if hardwareIntentRequiresEnd { endHardwareIntent() }
+      if hardwareIntentRequiresEnd { settleApplicationEffect(generation) }
     }
     guard learningPenCommandUnavailableReason(for: command) == nil, let machineSession else {
       return nil
@@ -8573,11 +9085,11 @@ final class OperatorWorkspace:
       profile: profile
     )
     let snapshot = await machineSession.snapshot()
-    guard canCommit(generation) else {
+    guard applicationEffectCanCommit(generation) else {
       withBatchedSemanticPresentationUpdate {
         retainedPenRequestInProgress = false
         computationDiagnostics.record(.penRequest(command, .ended))
-        endHardwareIntent()
+        settleApplicationEffect(generation)
         hardwareIntentRequiresEnd = false
       }
       return nil
@@ -8586,7 +9098,7 @@ final class OperatorWorkspace:
       machineSnapshot = snapshot
       retainedPenRequestInProgress = false
       computationDiagnostics.record(.penRequest(command, .ended))
-      endHardwareIntent()
+      settleApplicationEffect(generation)
       hardwareIntentRequiresEnd = false
     }
     return outcome
@@ -8629,7 +9141,7 @@ final class OperatorWorkspace:
   }
 
   func startDiscoverySequence(_ sequenceID: DiscoverySequenceID) async {
-    guard !hasShutdown, !Task.isCancelled else { return }
+    guard applicationAdmissionIsOpen, !Task.isCancelled else { return }
     guard discoveryStartUnavailableReason(for: sequenceID) == nil else { return }
     if sequenceID == .penInteraction {
       let exactPointSelection = pointSelectionEpisodeProjection.exactPointSelection
@@ -8670,7 +9182,7 @@ final class OperatorWorkspace:
         finishActiveExerciseAttempt(disposition: .refused(discoveryError ?? "Pen cap selection refused."))
         return
       }
-      guard !hasShutdown, !Task.isCancelled else { return }
+      guard applicationAdmissionIsOpen, !Task.isCancelled else { return }
     }
     var transaction = DiscoveryTransaction(sequenceID: sequenceID)
     do {
@@ -8688,7 +9200,7 @@ final class OperatorWorkspace:
   }
 
   private func advanceDiscoverySequence(_ sequenceID: DiscoverySequenceID) async {
-    while !hasShutdown, activeDiscoverySequenceID == sequenceID,
+    while applicationAdmissionIsOpen, activeDiscoverySequenceID == sequenceID,
       let step = discoveryTransactions[sequenceID]?.currentStep
     {
       switch step.action {
@@ -8802,12 +9314,12 @@ final class OperatorWorkspace:
     } else {
       restartableExerciseItemID = nil
     }
-    activeStoppableOperation = nil
+    retainedStopRegistration = nil
   }
 
   func stopCurrentOperation(capabilityID: ContextualStopCapabilityID) async {
     guard !jogCancelRequestInProgress,
-      let operation = activeStoppableOperation,
+      let operation = retainedStopRegistration,
       operation.target.capabilityID == capabilityID,
       latchContextualStopDisposition(
         for: operation.target,
@@ -8897,18 +9409,18 @@ final class OperatorWorkspace:
       return
     }
     guard let machineSession else { return }
-    let generation: UInt64?
+    let generation: PlotterApplicationEffectLease?
     if intent == .shutdown {
       // Shutdown has already closed new hardware admission. This cancel is the
       // settlement of the exact owner admitted before that boundary, so it
       // must not attempt to reopen ordinary command admission.
       generation = nil
     } else {
-      guard let admittedGeneration = beginHardwareIntent() else { return }
+      guard let admittedGeneration = beginApplicationEffect() else { return }
       generation = admittedGeneration
     }
     defer {
-      if generation != nil { endHardwareIntent() }
+      if let generation { settleApplicationEffect(generation) }
     }
     guard beginCancellationRequest(for: target, intent: intent) else { return }
     defer { finishCancellationRequest(for: target) }
@@ -8916,7 +9428,7 @@ final class OperatorWorkspace:
     updateContextualStopAudit(for: target, outcome: String(describing: outcome))
     let snapshot = await machineSession.snapshot()
     if let generation {
-      guard canCommit(generation) else { return }
+      guard applicationEffectCanCommit(generation) else { return }
       machineSnapshot = snapshot
     }
   }
@@ -8927,7 +9439,7 @@ final class OperatorWorkspace:
     actor: String,
     action: String
   ) -> Bool {
-    guard var operation = activeStoppableOperation,
+    guard var operation = retainedStopRegistration,
       operation.target.capabilityID == target.capabilityID,
       case .available = operation.state
     else { return false }
@@ -8940,7 +9452,7 @@ final class OperatorWorkspace:
     if case .sparseTipBatch = operation.target {
       sparseTipPenUpAuthorization = nil
     }
-    activeStoppableOperation = operation
+    retainedStopRegistration = operation
     lastContextualStopAuditRecord = ContextualStopAuditRecord(
       capabilityID: target.capabilityID,
       actor: actor,
@@ -8953,30 +9465,30 @@ final class OperatorWorkspace:
 
   private func installStoppableOperation(
     target: ContextualStopTarget,
-    owner: StoppableOperationOwner
+    owner: PlotterRetainedStopHandle
   ) {
-    if var operation = activeStoppableOperation,
+    if var operation = retainedStopRegistration,
       case .sparseTipBatch = operation.target,
       operation.target.capabilityID == target.capabilityID
     {
       precondition(operation.segment == nil, "Only one sparse-tip batch segment may be active.")
-      operation.segment = StoppableOperationSegment(target: target, owner: owner)
-      activeStoppableOperation = operation
+      operation.segment = PlotterRetainedStopSegment(target: target, owner: owner)
+      retainedStopRegistration = operation
       return
     }
-    precondition(activeStoppableOperation == nil, "Only one contextual Stop owner may exist.")
-    activeStoppableOperation = ActiveStoppableOperation(target: target, owner: owner)
+    precondition(retainedStopRegistration == nil, "Only one contextual Stop owner may exist.")
+    retainedStopRegistration = PlotterRetainedStopRegistration(target: target, owner: owner)
   }
 
   private func clearStoppableOperation(matching target: ContextualStopTarget) {
-    guard var operation = activeStoppableOperation else { return }
+    guard var operation = retainedStopRegistration else { return }
     if operation.target == target {
-      activeStoppableOperation = nil
+      retainedStopRegistration = nil
       return
     }
     guard operation.segment?.target == target else { return }
     operation.segment = nil
-    activeStoppableOperation = operation
+    retainedStopRegistration = operation
   }
 
   private func sparseTipBatchCapabilityID() throws -> ContextualStopCapabilityID {
@@ -9001,7 +9513,7 @@ final class OperatorWorkspace:
 
   private func requireSparseTipBatchContinuation() throws {
     guard !Task.isCancelled,
-      let operation = activeStoppableOperation,
+      let operation = retainedStopRegistration,
       case .sparseTipBatch = operation.target,
       operation.state.latch == nil
     else {
@@ -9018,20 +9530,20 @@ final class OperatorWorkspace:
       authorization.coordinateRevision == explorationCoordinateRevision,
       authorization.paperInstanceRevision == explorationPaperInstanceRevision,
       activeExerciseAttemptID == authorization.attemptID,
-      let operation = activeStoppableOperation,
+      let operation = retainedStopRegistration,
       case .sparseTipBatch(let capabilityID, let attemptID) = operation.target,
       attemptID == authorization.attemptID,
       capabilityID == authorization.capabilityID,
       operation.state.latch == nil,
       !Task.isCancelled,
-      !hasShutdown
+      applicationAdmissionIsOpen
     else { return false }
     return true
   }
 
   private func authorizeSparseTipPenUp() throws {
     guard let attemptID = activeExerciseAttemptID,
-      let operation = activeStoppableOperation,
+      let operation = retainedStopRegistration,
       case .sparseTipBatch(let capabilityID, let ownedAttemptID) = operation.target,
       attemptID == ownedAttemptID,
       operation.state.latch == nil
@@ -9056,7 +9568,7 @@ final class OperatorWorkspace:
     if frameMode == .simulated {
       let simulatedOutcome = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
         .up,
-        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.sparseTipCalibration")
+        owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.sparseTipCalibration")
       )
       applySimulatedCausalImmediateOutcome(
         simulatedOutcome,
@@ -9089,9 +9601,9 @@ final class OperatorWorkspace:
 
   private func cancelSparseTipSegmentIfRequested(
     target: ContextualStopTarget,
-    owner: StoppableOperationOwner
+    owner: PlotterRetainedStopHandle
   ) async throws {
-    guard let operation = activeStoppableOperation,
+    guard let operation = retainedStopRegistration,
       case .sparseTipBatch = operation.target,
       operation.segment?.target == target,
       let latch = operation.state.latch
@@ -9106,26 +9618,26 @@ final class OperatorWorkspace:
   private func setSparseTipBatchPossibleInkLocation(
     _ location: BlacklistedToolContactLocation
   ) {
-    guard var operation = activeStoppableOperation,
+    guard var operation = retainedStopRegistration,
       case .sparseTipBatch = operation.target
     else { return }
     operation.possibleInkLocation = location
-    activeStoppableOperation = operation
+    retainedStopRegistration = operation
   }
 
   private func clearSparseTipBatchPossibleInkLocation(
     matching location: BlacklistedToolContactLocation
   ) {
-    guard var operation = activeStoppableOperation,
+    guard var operation = retainedStopRegistration,
       case .sparseTipBatch = operation.target,
       operation.possibleInkLocation == location
     else { return }
     operation.possibleInkLocation = nil
-    activeStoppableOperation = operation
+    retainedStopRegistration = operation
   }
 
   private func cancelAndSettleStoppableOperation(
-    _ operation: ActiveStoppableOperation,
+    _ operation: PlotterRetainedStopRegistration,
     intent: JogCancelIntent
   ) async {
     if case .sparseTipBatch = operation.target {
@@ -9145,23 +9657,23 @@ final class OperatorWorkspace:
     for target: ContextualStopTarget,
     intent: JogCancelIntent
   ) -> Bool {
-    guard var operation = activeStoppableOperation,
+    guard var operation = retainedStopRegistration,
       operation.target.capabilityID == target.capabilityID,
       case .latched(let latch, false) = operation.state,
       latch.intent == intent
     else { return false }
     operation.state = .latched(latch, cancellationRequestInProgress: true)
-    activeStoppableOperation = operation
+    retainedStopRegistration = operation
     return true
   }
 
   private func finishCancellationRequest(for target: ContextualStopTarget) {
-    guard var operation = activeStoppableOperation,
+    guard var operation = retainedStopRegistration,
       operation.target.capabilityID == target.capabilityID,
       case .latched(let latch, true) = operation.state
     else { return }
     operation.state = .latched(latch, cancellationRequestInProgress: false)
-    activeStoppableOperation = operation
+    retainedStopRegistration = operation
   }
 
   private func updateContextualStopAudit(
@@ -9226,6 +9738,7 @@ final class OperatorWorkspace:
   }
 
   func submitManualMotionIntent(_ intent: PlotterManualMotionIntent) async {
+    guard applicationAdmissionIsOpen else { return }
     if let reason = manualMotionRuntimePresentation.attentionReason {
       machineError = reason
       return
@@ -9294,7 +9807,7 @@ final class OperatorWorkspace:
   private func observeManualMotionSettlement(
     effectID: EpisodeEffectID
   ) async -> PlotterManualMotionRuntimeSnapshot? {
-    while !Task.isCancelled, !hasShutdown {
+    while !Task.isCancelled, applicationAdmissionIsOpen {
       try? await Task.sleep(nanoseconds: 20_000_000)
       let snapshot = await manualMotionRuntime.currentSnapshot()
       installManualMotionSnapshot(snapshot)
@@ -9383,22 +9896,22 @@ final class OperatorWorkspace:
   private func discoverCameras() async {
 
     guard currentCameraCalibrationBusyReason == nil else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
+    guard let generation = beginApplicationEffect() else { return }
+    defer { settleApplicationEffect(generation) }
     guard observationRuntime != nil else {
       cameraError = "Native camera composition is unavailable."
       return
     }
     _ = await submitObservationIntent(.refreshSources)
     guard let snapshot = await observationRuntime?.snapshot() else { return }
-    guard canCommit(generation) else { return }
+    guard applicationEffectCanCommit(generation) else { return }
     cameraSnapshot = snapshot
     updateCameraError()
   }
 
   private func startPreferredCameraAtStartup() async {
     await discoverCameras()
-    guard !hasShutdown, cameraError == nil else { return }
+    guard applicationAdmissionIsOpen, cameraError == nil else { return }
     let preferred =
       cameraDevices.first(where: {
         $0.name.localizedCaseInsensitiveContains("C920")
@@ -9409,7 +9922,7 @@ final class OperatorWorkspace:
     if selectedCameraID != preferred.id {
       await selectCamera(preferred.id)
     }
-    guard !hasShutdown, cameraError == nil, selectedCameraID == preferred.id else { return }
+    guard applicationAdmissionIsOpen, cameraError == nil, selectedCameraID == preferred.id else { return }
     await startCamera()
   }
 
@@ -9418,8 +9931,8 @@ final class OperatorWorkspace:
       cameraError = currentCameraCalibrationBusyReason
       return
     }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
+    guard let generation = beginApplicationEffect() else { return }
+    defer { settleApplicationEffect(generation) }
     guard observationRuntime != nil, activeDiscoverySequenceID == nil,
       activeBorderValidationOperation == nil
     else {
@@ -9452,13 +9965,13 @@ final class OperatorWorkspace:
       guard let snapshot = await observationRuntime?.snapshot() else {
         throw LearningPathOperationError.freshFrameUnavailable
       }
-      guard canCommit(generation) else { return }
+      guard applicationEffectCanCommit(generation) else { return }
       cameraSnapshot = snapshot
       displayedFrame = nil
       latestLiveCameraFrame = nil
     } catch {
       let snapshot = await observationRuntime?.snapshot()
-      guard canCommit(generation) else { return }
+      guard applicationEffectCanCommit(generation) else { return }
       cameraError = actionableDescription(error)
       cameraSnapshot = snapshot
     }
@@ -9467,12 +9980,12 @@ final class OperatorWorkspace:
   private func startCamera() async {
 
     guard currentCameraCalibrationBusyReason == nil else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
+    guard let generation = beginApplicationEffect() else { return }
+    defer { settleApplicationEffect(generation) }
     guard observationRuntime != nil else { return }
     _ = await submitObservationIntent(.startLiveSource)
     guard let snapshot = await observationRuntime?.snapshot() else { return }
-    guard canCommit(generation) else { return }
+    guard applicationEffectCanCommit(generation) else { return }
     frameMode = .live
     cameraSnapshot = snapshot
     displayedFrame = cameraSnapshot?.latestFrame
@@ -9485,13 +9998,13 @@ final class OperatorWorkspace:
   private func stopCamera() async {
 
     guard currentCameraCalibrationBusyReason == nil else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
+    guard let generation = beginApplicationEffect() else { return }
+    defer { settleApplicationEffect(generation) }
     clearAutomaticVisionPresentation()
     guard observationRuntime != nil else { return }
     _ = await submitObservationIntent(.stopLiveSource)
     guard let snapshot = await observationRuntime?.snapshot() else { return }
-    guard canCommit(generation) else { return }
+    guard applicationEffectCanCommit(generation) else { return }
     cameraSnapshot = snapshot
     latestLiveCameraFrame = nil
     updateCameraError()
@@ -9500,8 +10013,8 @@ final class OperatorWorkspace:
   private func restartCamera() async {
 
     guard currentCameraCalibrationBusyReason == nil else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
+    guard let generation = beginApplicationEffect() else { return }
+    defer { settleApplicationEffect(generation) }
     guard activeDiscoverySequenceID == nil, activeBorderValidationOperation == nil else {
       cameraError = "Finish the current discovery or learning action before restarting the camera."
       return
@@ -9511,7 +10024,7 @@ final class OperatorWorkspace:
     guard observationRuntime != nil else { return }
     _ = await submitObservationIntent(.restartLiveSource)
     guard let snapshot = await observationRuntime?.snapshot() else { return }
-    guard canCommit(generation) else { return }
+    guard applicationEffectCanCommit(generation) else { return }
     frameMode = .live
     cameraSnapshot = snapshot
     displayedFrame = cameraSnapshot?.latestFrame
@@ -9560,12 +10073,11 @@ final class OperatorWorkspace:
   private func observePlannedDrawingInk(
     owner: ExactWorkflowVisionOwner,
     request: PlannedDrawingObservationRequest,
-    using observer: @Sendable (PlannedDrawingObservationRequest) async
-      -> PlannedDrawingObservationOutcome
+    using observer: any PlotterDrawingRunVisionPort
   ) async throws -> PlannedDrawingObservationOutcome {
     try beginExactWorkflowVision(owner)
     defer { endExactWorkflowVision(owner) }
-    return await observer(request)
+    return await observer.observePlannedDrawingInk(request)
   }
 
   func captureStableWorkflowCap(
@@ -9606,8 +10118,8 @@ final class OperatorWorkspace:
 
   private func transitionObservationSource(_ mode: OperatorFrameMode) async {
 
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
+    guard let generation = beginApplicationEffect() else { return }
+    defer { settleApplicationEffect(generation) }
     guard mode != frameMode || displayedFrame == nil else { return }
     if let reason = observationSourceChangeUnavailableReason {
       cameraError = reason
@@ -9624,7 +10136,7 @@ final class OperatorWorkspace:
     case .live:
       _ = await submitObservationIntent(.startLiveSource)
       guard let snapshot = await observationRuntime?.snapshot() else { return }
-      guard canCommit(generation) else { return }
+      guard applicationEffectCanCommit(generation) else { return }
       frameMode = .live
       cameraSnapshot = snapshot
       displayedFrame = cameraSnapshot?.latestFrame
@@ -9634,7 +10146,7 @@ final class OperatorWorkspace:
     case .simulated:
       _ = await submitObservationIntent(.stopLiveSource)
       guard let snapshot = await observationRuntime?.snapshot() else { return }
-      guard canCommit(generation) else { return }
+      guard applicationEffectCanCommit(generation) else { return }
       let penReset = await submitPenInteraction(.reset, environment: .simulated)
       guard case .applied = penReset else {
         if case .refused(let refusal) = penReset {
@@ -9644,21 +10156,23 @@ final class OperatorWorkspace:
       }
       cameraSnapshot = snapshot
       latestLiveCameraFrame = nil
-      simulatedLearningSession = LearningSessionState(
+      let retainedContactPlane = applicationState.environmentStates[.simulated]?
+        .explorationPaperContactPlaneRevision ?? UUID()
+      applicationState.environmentStates[.simulated] = PlotterApplicationEnvironmentState(
         source: .simulated,
         paperInstanceRevision: UUID(),
-        paperContactPlaneRevision: simulatedLearningSession.explorationPaperContactPlaneRevision
+        paperContactPlaneRevision: retainedContactPlane
       )
       markSemanticPresentationChanged()
       frameMode = .simulated
       do {
         let scene = try await captureSimulatedProtocolScene()
-        guard canCommit(generation) else { return }
+        guard applicationEffectCanCommit(generation) else { return }
         lastSimulatedProtocolCaptureNanoseconds = scene.displayedFrame.frame.captureNanoseconds
         applySimulatedProtocolScene(scene)
         explorationPaperInstanceRevision = scene.toolPaperRevision
       } catch {
-        guard canCommit(generation) else { return }
+        guard applicationEffectCanCommit(generation) else { return }
         displayedFrame = nil
         cameraError = actionableDescription(error)
       }
@@ -9722,24 +10236,44 @@ final class OperatorWorkspace:
   }
 
   func shutdown() async {
-    guard !hasShutdown else { return }
-    persistAcceptedLearningPathCheckpoint()
-    hasShutdown = true
+    switch admissionState {
+    case .closed:
+      return
+    case .closing:
+      await withCheckedContinuation { continuation in
+        shutdownSettlementWaiters.append(continuation)
+      }
+      return
+    case .open:
+      break
+    }
+    // Close every public/root admission path synchronously before the first
+    // suspension. The shared registry then cancels and joins the exact
+    // residual owners it admitted; it never substitutes a timeout for truth.
+    admissionState = .closing
+    startupState = .cancelled
+    markSemanticPresentationChanged()
+    let observationSubscription = observationProjectionTask
+    let drawingSubscription = drawingRunProjectionTask
+    observationSubscription?.cancel()
+    drawingSubscription?.cancel()
+    observationProjectionTask = nil
+    drawingRunProjectionTask = nil
+    await artifactResetRuntime.shutdown()
+    await liveTipCalibrationRuntime.shutdown()
+    await simulatedTipCalibrationRuntime.shutdown()
+
+    await residualOperationAdapter.shutdown()
+    applicationState.residualLearningAdmissionID = nil
+    await observationSubscription?.value
+    await drawingSubscription?.value
     await controllerSessionRuntime.shutdown()
-    artifactResetRuntime.shutdown()
     installDrawingRunSnapshot(
       await drawingRunRuntime.beginShutdown(environment: .live)
     )
-    drawingRunProjectionTask?.cancel()
-    drawingRunProjectionTask = nil
-    lifetimeGeneration &+= 1
-    let learningAction = activeLearningActionTask
-    learningAction?.cancel()
     if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
       await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
     }
-    observationProjectionTask?.cancel()
-    observationProjectionTask = nil
     await cameraCalibrationRuntime.shutdown()
     await pointSelectionRuntime.shutdown()
     await penInteractionRuntime.shutdown()
@@ -9748,18 +10282,25 @@ final class OperatorWorkspace:
     await boundaryRuntime.shutdown()
     await manualMotionRuntime.shutdown()
     await stopAndSettleActiveMotionForShutdown()
-    await learningAction?.value
-    activeLearningActionID = nil
-    activeLearningActionTask = nil
-    await waitForHardwareIntentsToDrain()
+    await awaitApplicationEffectsSettlement()
     await observationRuntime?.shutdown()
+    // Persistence occurs only after admission is closed and every effect owner
+    // has settled, while the source-indexed semantic state is still intact.
+    persistAcceptedLearningPathCheckpoint()
     await clearCameraAuthority()
     await clearMachineAuthority(clearSelection: true)
+    admissionState = .closed
+    let waiters = shutdownSettlementWaiters
+    shutdownSettlementWaiters.removeAll(keepingCapacity: false)
+    for waiter in waiters { waiter.resume() }
   }
 
-  private func receive(_ frame: DisplayedFrame, generation: UInt64? = nil) {
-    guard !hasShutdown, frameMode == .live else { return }
-    if let generation, !canCommit(generation) { return }
+  private func receive(
+    _ frame: DisplayedFrame,
+    generation: PlotterApplicationEffectLease? = nil
+  ) {
+    guard applicationAdmissionIsOpen, frameMode == .live else { return }
+    if let generation, !applicationEffectCanCommit(generation) { return }
     guard case .live(let deviceID) = frame.source, deviceID == selectedCameraID else { return }
     let hadLiveFrame = latestLiveCameraFrame != nil
     let cameraWasLive = cameraIsLive
@@ -9934,7 +10475,7 @@ final class OperatorWorkspace:
           action: "Cancel Attempt"
         )
       else { return }
-      if let operation = activeStoppableOperation {
+      if let operation = retainedStopRegistration {
         await cancelAndSettleStoppableOperation(operation, intent: .cancelAttempt)
       }
     }
@@ -9952,7 +10493,7 @@ final class OperatorWorkspace:
     ownerID: LearningPathItemID,
     mode: ExerciseAttemptMode
   ) {
-    _ = activeLearningSession.exerciseAttempt.begin(ownerID: ownerID, mode: mode)
+    _ = currentEnvironmentState.exerciseAttempt.begin(ownerID: ownerID, mode: mode)
   }
 
   private func finishActiveExerciseAttempt(disposition: ExerciseAttemptDisposition) {
@@ -9968,7 +10509,7 @@ final class OperatorWorkspace:
       pendingToolContactEvidence = []
       Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
     }
-    activeLearningSession.exerciseAttempt.finish()
+    currentEnvironmentState.exerciseAttempt.finish()
   }
 
   private func recordAttempt<Value: Hashable & Sendable>(
@@ -10199,11 +10740,11 @@ final class OperatorWorkspace:
   }
 
   private func borderValidationPayloadSnapshot() -> PlotterBorderValidationSnapshot {
-    activeLearningSession.borderValidation
+    currentEnvironmentState.borderValidation
   }
 
   private func restoreBorderValidationPayload(_ snapshot: PlotterBorderValidationSnapshot) {
-    activeLearningSession.borderValidation = snapshot
+    currentEnvironmentState.borderValidation = snapshot
   }
 
   private func advanceBorderValidationAfterSuccess(_ step: BorderValidationStep) {
@@ -10461,7 +11002,7 @@ final class OperatorWorkspace:
   }
 
   private func clearMachineAuthority(clearSelection: Bool) async {
-    if !hasShutdown {
+    if applicationAdmissionIsOpen {
       guard await clearDiscoveryAuthority() else {
         machineError = learningAuthorityError
         return
@@ -10551,7 +11092,7 @@ final class OperatorWorkspace:
     clearTip: Bool = false,
     clearStageFour: Bool = false
   ) -> Bool {
-    guard frameMode == .live, let actions = activeAcceptedLearningPathCheckpointActions else {
+    guard frameMode == .live, let actions = activeStatePersistencePort else {
       return true
     }
     // Do not manufacture an empty startup candidate merely because an
@@ -10584,7 +11125,7 @@ final class OperatorWorkspace:
       {
         return true
       }
-      try actions.save(checkpoint)
+      try actions.saveAcceptedLearningPathCheckpoint(checkpoint)
       artifactResetRuntime.installSavedLearningFact(.applied(
         checkpoint,
         opticalComparison: "Saved from the current accepted Learning prefix."
@@ -10771,7 +11312,7 @@ final class OperatorWorkspace:
     if step.rawValue <= BorderValidationStep.revealAndObserveNewInk.rawValue {
       overlayResultChannels.clearWorkflow(source: frameMode, owner: .borderValidation)
     }
-    activeLearningSession.borderValidation.rewind(
+    currentEnvironmentState.borderValidation.rewind(
       from: step,
       sourceIsSimulated: frameMode == .simulated
     )
@@ -10924,12 +11465,12 @@ final class OperatorWorkspace:
     resetTipCalibrationRuntimeForCurrentPaper()
     explicitRegistrationCapAnchorEvidence = []
     lastProtocolPoseSettlement = nil
-    activeLearningSession.borderValidation = PlotterBorderValidationSnapshot(
+    currentEnvironmentState.borderValidation = PlotterBorderValidationSnapshot(
       sourceIsSimulated: frameMode == .simulated
     )
     learningArtifactGraph = LearningDependencyGraph()
     _ = await submitPenInteraction(.reset)
-    activeLearningSession.exerciseAttempt.finish()
+    currentEnvironmentState.exerciseAttempt.finish()
     restartableExerciseItemID = nil
     return true
   }
@@ -10938,7 +11479,7 @@ final class OperatorWorkspace:
   /// latched motion owner. This bypasses normal intent admission without
   /// exposing a second cancellation route to the UI.
   private func stopAndSettleActiveMotionForShutdown() async {
-    guard let operation = activeStoppableOperation else { return }
+    guard let operation = retainedStopRegistration else { return }
     let target = operation.target
     switch target {
     case .exerciseMotion, .borderValidation, .sparseTipBatch, .sparseTipBatchSegment:
@@ -10967,7 +11508,7 @@ final class OperatorWorkspace:
   }
 
   private func clearCameraAuthority() async {
-    if !hasShutdown {
+    if applicationAdmissionIsOpen {
       guard await clearDiscoveryAuthority() else {
         cameraError = learningAuthorityError
         return
@@ -11297,7 +11838,7 @@ final class OperatorWorkspace:
     ownerID: LearningPathItemID,
     action: LearningMotionAction
   ) async throws -> MachinePosition {
-    guard !hasShutdown, !Task.isCancelled else {
+    guard applicationAdmissionIsOpen, !Task.isCancelled else {
       throw LearningPathOperationError.requiredState(
         "Application shutdown closed admission for supervised Pen-Up travel."
       )
@@ -11320,7 +11861,7 @@ final class OperatorWorkspace:
     if frameMode == .simulated {
       let admission = await causalSimulatorEffectAdapter.admitRetainedWorkflowTravel(
         delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy),
-        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.supervisedPenUpTravel")
+        owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.supervisedPenUpTravel")
       )
       let operation: PlotterCausalSimulatorOperation
       switch admission {
@@ -11345,7 +11886,7 @@ final class OperatorWorkspace:
       installStoppableOperation(target: target, owner: .simulated(owner))
       defer { clearStoppableOperation(matching: target) }
       try await cancelSparseTipSegmentIfRequested(target: target, owner: .simulated(owner))
-      if hasShutdown || Task.isCancelled {
+      if applicationAdmissionIsClosed || Task.isCancelled {
         _ = latchContextualStopDisposition(
           for: target,
           intent: .shutdown,
@@ -11399,7 +11940,7 @@ final class OperatorWorkspace:
     installStoppableOperation(target: target, owner: .motion(owner))
     defer { clearStoppableOperation(matching: target) }
     try await cancelSparseTipSegmentIfRequested(target: target, owner: .motion(owner))
-    if hasShutdown || Task.isCancelled {
+    if applicationAdmissionIsClosed || Task.isCancelled {
       _ = latchContextualStopDisposition(
         for: target,
         intent: .shutdown,
@@ -11456,7 +11997,7 @@ final class OperatorWorkspace:
     if frameMode == .simulated {
       let lowered = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
         .down,
-        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.drawingBorderTrial")
+        owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.drawingBorderTrial")
       )
       applySimulatedCausalImmediateOutcome(
         lowered,
@@ -11470,7 +12011,7 @@ final class OperatorWorkspace:
           let delta = try pair.0.vector(to: pair.1)
           let admission = await causalSimulatorEffectAdapter.admitRetainedWorkflowDrawing(
             delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy),
-            owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.drawingBorderTrial")
+            owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.drawingBorderTrial")
           )
           let operation: PlotterCausalSimulatorOperation
           switch admission {
@@ -11501,7 +12042,7 @@ final class OperatorWorkspace:
       } catch {
         let raised = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
           .up,
-          owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.drawingBorderTrial")
+          owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.drawingBorderTrial")
         )
         applySimulatedCausalImmediateOutcome(
           raised,
@@ -11512,7 +12053,7 @@ final class OperatorWorkspace:
       activeBorderValidationOperation?.strokeState = .completedNaturally
       let raised = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
         .up,
-        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.drawingBorderTrial")
+        owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.drawingBorderTrial")
       )
       applySimulatedCausalImmediateOutcome(
         raised,
@@ -11656,9 +12197,7 @@ final class OperatorWorkspace:
           )
         ]
       ),
-      using: { [drawingRunCameraPort] request in
-        await drawingRunCameraPort.observePlannedDrawingInk(request)
-      }
+      using: drawingRunCameraPort
     )
     switch outcome {
     case .observed(let observation):
@@ -11684,29 +12223,29 @@ final class OperatorWorkspace:
     lastSceneMeasurement = nil
   }
 
-  private func beginHardwareIntent() -> UInt64? {
-    guard !hasShutdown else { return nil }
-    activeHardwareIntentCount += 1
-    return lifetimeGeneration
+  private func beginApplicationEffect() -> PlotterApplicationEffectLease? {
+    guard applicationAdmissionIsOpen else { return nil }
+    let lease = PlotterApplicationEffectLease(id: UUID())
+    admittedApplicationEffects.insert(lease.id)
+    return lease
   }
 
-  private func endHardwareIntent() {
-    precondition(activeHardwareIntentCount > 0)
-    activeHardwareIntentCount -= 1
-    guard activeHardwareIntentCount == 0 else { return }
-    let waiters = intentDrainWaiters
-    intentDrainWaiters.removeAll(keepingCapacity: false)
+  private func settleApplicationEffect(_ lease: PlotterApplicationEffectLease) {
+    precondition(admittedApplicationEffects.remove(lease.id) != nil)
+    guard admittedApplicationEffects.count == 0 else { return }
+    let waiters = applicationEffectSettlementWaiters
+    applicationEffectSettlementWaiters.removeAll(keepingCapacity: false)
     for waiter in waiters { waiter.resume() }
   }
 
-  private func canCommit(_ generation: UInt64) -> Bool {
-    !hasShutdown && lifetimeGeneration == generation
+  private func applicationEffectCanCommit(_ lease: PlotterApplicationEffectLease) -> Bool {
+    applicationAdmissionIsOpen && admittedApplicationEffects.contains(lease.id)
   }
 
-  private func waitForHardwareIntentsToDrain() async {
-    guard activeHardwareIntentCount > 0 else { return }
+  private func awaitApplicationEffectsSettlement() async {
+    guard admittedApplicationEffects.count > 0 else { return }
     await withCheckedContinuation { continuation in
-      intentDrainWaiters.append(continuation)
+      applicationEffectSettlementWaiters.append(continuation)
     }
   }
 
@@ -11801,12 +12340,16 @@ final class OperatorWorkspace:
   }
 
   private func recordWorkflowTelemetry(_ event: WorkflowTelemetryEvent) async {
-    await workflowTelemetryActions?.record(event)
+    await residualEffectPort.recordWorkflowTelemetry(event)
+  }
+
+  private func nowNanoseconds() -> UInt64 {
+    residualEffectPort.nowNanoseconds()
   }
 
 }
 
-extension OperatorWorkspace {
+extension PlotterApplicationRuntime {
   func execute(_ request: PlotterArtifactResetEffectRequest) async
     -> PlotterArtifactResetEffectResult
   {
@@ -11829,7 +12372,7 @@ extension OperatorWorkspace {
       case .acceptComparison(_, let assessment):
         try commitComparisonAttemptAndArtifact(assessment)
         borderValidationAssessment = assessment
-        activeLearningSession.borderValidation.comparisonReviewIsPinned = true
+        currentEnvironmentState.borderValidation.comparisonReviewIsPinned = true
         await persistCompletedPictureFrameEvidence()
         return .completed(.comparisonAccepted(assessment))
       case .rejectComparison(_, let reason):
@@ -11941,7 +12484,7 @@ extension OperatorWorkspace {
   }
 }
 
-extension OperatorWorkspace {
+extension PlotterApplicationRuntime {
   func executeArtifactResetEffect(
     _ request: PlotterArtifactResetEffectRequest
   ) async -> PlotterArtifactResetEffectResult {
@@ -12135,12 +12678,12 @@ extension OperatorWorkspace {
         return .completed(.paperReplacementPersisted(plan))
       }
       guard let transition = plan.paperReplacement,
-        let actions = activeAcceptedLearningPathCheckpointActions
+        let actions = activeStatePersistencePort
       else {
         return .failed("LIVE paper replacement requires durable identity and checkpoint authority.")
       }
       do {
-        try persistPaperRevisionContext(transition.current)
+        try actions.persistPaperRevisionContext(transition.current)
       } catch {
         return .failed("Paper identity durable write/read-back failed: \(actionableDescription(error))")
       }
@@ -12149,13 +12692,15 @@ extension OperatorWorkspace {
           // An absent in-memory graph cannot support a replacement checkpoint;
           // clear any old-paper package rather than retain stale durable
           // authority across the committed paper identity.
-          try actions.clear()
+          try actions.clearAcceptedLearningPathCheckpoint()
         } else {
-          try actions.save(try paperReplacementCheckpoint(for: transition))
+          try actions.saveAcceptedLearningPathCheckpoint(
+            try paperReplacementCheckpoint(for: transition)
+          )
         }
       } catch {
         do {
-          try persistPaperRevisionContext(transition.previous)
+          try actions.persistPaperRevisionContext(transition.previous)
         } catch {
           return .failed(
             "Canonical checkpoint save failed and paper identity rollback failed: \(actionableDescription(error))"
@@ -12294,7 +12839,7 @@ extension OperatorWorkspace {
   }
 }
 
-extension OperatorWorkspace: PlotterTipCalibrationEffectPort {
+extension PlotterApplicationRuntime: PlotterTipCalibrationEffectPort {
   func execute(
     _ request: PlotterTipCalibrationEffectRequest
   ) async -> PlotterTipCalibrationEffectResult {
@@ -12321,7 +12866,7 @@ extension OperatorWorkspace: PlotterTipCalibrationEffectPort {
     } catch let error as LearningPathOperationError {
       let failure = workflowFailure(for: error)
       if failure.kind == .possibleInk || failure.kind == .ambiguous,
-        let location = activeStoppableOperation?.possibleInkLocation
+        let location = retainedStopRegistration?.possibleInkLocation
       {
         return .completed(.possibleInk(PlotterTipCalibrationPossibleInkFact(
           location: location,

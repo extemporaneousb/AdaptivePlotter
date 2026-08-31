@@ -200,7 +200,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["TRANCHE-DEVICE-ENVIRONMENT"]["status"])
         for slice_id in contract.TRANCHE_SLICES["TRANCHE-DEVICE-ENVIRONMENT"]:
             self.assertEqual("complete", rows[slice_id]["status"])
-        self.assertEqual("pending", rows["TRANCHE-FINAL-COMPOSITION"]["status"])
+        self.assertEqual("complete", rows["TRANCHE-FINAL-COMPOSITION"]["status"])
+        self.assertEqual("complete", rows["EA-11C"]["status"])
         self.assertEqual("authority-slice", rows["EA-10G"]["class"])
         self.assertEqual("authority-slice", rows["EA-10C"]["class"])
         evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
@@ -459,7 +460,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         consumed = self.consume()
         self.assertEqual(created, consumed)
         self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("TRANCHE-FINAL-COMPOSITION", consumed["contract"]["package"]["id"])
+        self.assertEqual("GATE-01", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -483,35 +484,28 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["TRANCHE-FINAL-COMPOSITION", "pending", "TRANCHE-DEVICE-ENVIRONMENT", "software"]
-                and row[4].startswith("Tranche: one Blackdog task/worktree/landing")
-                and row[5] == "`DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `CRITIC`"
+                and row[:4] == ["GATE-01", "pending", "TRANCHE-FINAL-COMPOSITION", "gate"]
+                and row[4].startswith("Decide pilot continuation")
+                and row[5] == "`DOC`, `DIFF`, `PILOT`"
             ):
                 ledger_rows.append((selected, row))
         self.assertEqual(1, len(ledger_rows))
         selected, selected_row = ledger_rows[0]
-        self.assertEqual("TRANCHE-FINAL-COMPOSITION", selected_row[0])
+        self.assertEqual("GATE-01", selected_row[0])
         self.assertNotEqual("FIX-02", selected_row[0])
-        self.assertEqual(
-            ["EA-11C"],
-            [item["id"] for item in consumed["contract"]["ordered_authority_slices"]],
-        )
-        self.assertTrue(all(item["class"] == "authority-slice" for item in consumed["contract"]["ordered_authority_slices"]))
-        for authority_slice in consumed["contract"]["ordered_authority_slices"]:
-            self.assertTrue(authority_slice["current_owner_inventory"])
-            self.assertTrue(authority_slice["same_slice_deletion_scans"])
-        self.assertIn("authority slice current-owner inventory row", purposes)
-        self.assertIn("authority slice same-landing deletion scan row", purposes)
+        self.assertEqual([], consumed["contract"]["ordered_authority_slices"])
+        self.assertNotIn("authority slice current-owner inventory row", purposes)
+        self.assertNotIn("authority slice same-landing deletion scan row", purposes)
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
-    def test_final_composition_tranche_is_selected_after_staged_device_completion(self) -> None:
+    def test_pilot_gate_is_selected_after_staged_final_composition(self) -> None:
         created = self.build_and_write()
 
         self.assertEqual("selected", created["launch"]["state"])
-        self.assertEqual("TRANCHE-FINAL-COMPOSITION", created["contract"]["frontier"]["package_id"])
-        self.assertEqual("EA-11C", created["contract"]["ordered_authority_slices"][0]["id"])
-        self.assertNotEqual("GATE-01", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("GATE-01", created["contract"]["frontier"]["package_id"])
+        self.assertEqual([], created["contract"]["ordered_authority_slices"])
+        self.assertNotEqual("VAL-01", created["contract"]["frontier"]["package_id"])
 
     def test_contract_import_does_not_emit_bytecode_into_clean_repository(self) -> None:
         cache_path = self.root / "Scripts/__pycache__"
@@ -574,15 +568,15 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
 
     def test_removed_and_dependency_ineligible_terminal_history_is_visible_but_nonblocking(self) -> None:
         removed = self.terminal_task("TASK-REMOVED", "FIX-04")
-        ineligible = self.terminal_task("TASK-INELIGIBLE", "GATE-01")
+        ineligible = self.terminal_task("TASK-INELIGIBLE", "VAL-01")
         created = self.build_and_write({"tasks": [removed, ineligible]})
 
         self.assertEqual("selected", created["launch"]["state"])
-        self.assertEqual("TRANCHE-FINAL-COMPOSITION", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("GATE-01", created["contract"]["frontier"]["package_id"])
         self.assertEqual([], created["blackdog"]["live_blockers"])
         self.assertEqual(
             [
-                {"task_id": "TASK-INELIGIBLE", "package_id": "GATE-01", "disposition": "dependency-ineligible-package"},
+                {"task_id": "TASK-INELIGIBLE", "package_id": "VAL-01", "disposition": "dependency-ineligible-package"},
                 {"task_id": "TASK-REMOVED", "package_id": "FIX-04", "disposition": "removed-package"},
             ],
             created["blackdog"]["terminal_history"],
@@ -590,7 +584,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual(created, self.consume({"tasks": [removed, ineligible]}))
 
     def test_current_eligible_or_unverifiable_terminal_history_fails_closed(self) -> None:
-        recoverable = self.terminal_task("TASK-RECOVERABLE", "TRANCHE-FINAL-COMPOSITION")
+        recoverable = self.terminal_task("TASK-RECOVERABLE", "GATE-01")
         created = self.build_and_write({"tasks": [recoverable]})
         self.assertEqual("claim_resolution", created["launch"]["state"])
         self.assertEqual("TASK-RECOVERABLE", created["blackdog"]["live_blockers"][0]["task_id"])
@@ -626,9 +620,9 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         with self.assertRaisesRegex(capsule.CapsuleError, "capsule is stale"):
             self.consume()
 
-    def test_rehashed_broad_tranche_tampering_is_rejected_against_current_contract(self) -> None:
+    def test_rehashed_selected_gate_tampering_is_rejected_against_current_contract(self) -> None:
         created = self.build_and_write()
-        created["contract"]["ordered_authority_slices"][0]["current_owner_inventory"] = []
+        created["contract"]["expanded_gates"][0]["procedure"] = "tampered"
         created.pop("payload_sha256")
         created["payload_sha256"] = capsule.sha256_bytes(capsule.canonical_bytes(created))
         self.rewrite(created)
