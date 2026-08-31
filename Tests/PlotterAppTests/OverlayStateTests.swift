@@ -151,8 +151,8 @@ struct OverlayStateTests {
   func preferenceSurvivesLifecycle() async throws {
     let preference = OverlayPreferenceRecorder(loaded: [.penCap])
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(
       machine: machine,
       camera: camera,
@@ -163,14 +163,14 @@ struct OverlayStateTests {
 
     #expect(workspace.overlayPreferenceState.enabled == [.penCap])
     #expect(workspace.overlayPreferenceState.lastMutationSource == .persistenceLoad)
-    workspace.setOverlay(.armatureEnvelope, enabled: true)
+    await submitObservationConfigurationForTest(workspace, .setOverlay(.armatureEnvelope, enabled: true))
     #expect(preference.saved == [Set(UserSceneOverlay.allCases)])
 
-    await workspace.startCamera()
-    await workspace.stopCamera()
-    await workspace.restartCamera()
-    await workspace.switchFrameMode(.simulated)
-    await workspace.switchFrameMode(.live)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    await submitObservationConfigurationForTest(workspace, .stopLiveSource)
+    await submitObservationConfigurationForTest(workspace, .restartLiveSource)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
     #expect(workspace.overlayPreferenceState.lastMutationSource == .operatorAction)
@@ -181,13 +181,13 @@ struct OverlayStateTests {
   @Test("entering and leaving Learning preserves the current overlay presentation context")
   func learningVisibilityDoesNotResetOverlays() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture(
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession(
       providesInspectionOverlay: true,
       providesAutomaticAnalysisResult: true
     )
     let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let before = workspace.testActionSurfacePresentation
     #expect(before.overlays.map(\.provenance.kind) == [.penCap])
 

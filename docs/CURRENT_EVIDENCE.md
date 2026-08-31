@@ -21,9 +21,10 @@ one landing containing the ordered typed authority slices `EA-10G`, `EA-10C`,
 `2d488025a6b8a5fa129023a1a61e98b817106990`, and canonical main target/landing
 `a1cfb05ca58f6805a973748958915fdbdd0ec117`. Its successor tranches are
 `TRANCHE-DEVICE-ENVIRONMENT` (`EA-11A`, then `EA-11B`) and
-`TRANCHE-FINAL-COMPOSITION` (`EA-11C`). The verified ordinary frontier is
-`TRANCHE-DEVICE-ENVIRONMENT`, which now depends on complete
-`TRANCHE-LEARNING`; this landing reconciliation neither selects nor claims that
+`TRANCHE-FINAL-COMPOSITION` (`EA-11C`). The Device tranche now has a staged
+completion transaction, so the executable ordinary frontier is
+`TRANCHE-FINAL-COMPOSITION` only after successful Blackdog landing of that
+exact Device candidate; this staged evidence neither lands nor dispatches that
 successor.
 The canonical contract and capsule reject a completed tranche or
 successor selection unless the tranche row and every slice completion row share
@@ -43,6 +44,177 @@ defect may receive one narrow repair and affected validation but never criticism
 again. This correction
 does not authorize attended physical or remote-Git work, and `GATE-01` remains
 unchanged downstream after `TRANCHE-FINAL-COMPOSITION`.
+
+## TRANCHE-DEVICE-ENVIRONMENT staged completion transaction — landing required
+
+The active candidate is Blackdog task `TASK-4C16F56F`, attempt
+`TASK-4C16F56F-8af99cc51c68`, targeting `main`. The plan stages
+`TRANCHE-DEVICE-ENVIRONMENT`, `EA-11A`, and `EA-11B` complete as one
+task/worktree/landing transaction. That staged completion becomes canonical
+only upon successful Blackdog landing of this exact candidate into `main`; no
+landed commit hash is asserted before that transaction completes. The current
+post-QUICK-repair tree is
+Sources `06a072ec2730f81f6edf2188ce38f75887e318a054a54e8d9888688085fee042`
+and Tests
+`7314c9bfd15ead6298aeb074bac6f9770b1a3e30106bd8bff73891f9929cb2cb`.
+
+| Order | Slice | Frozen identities | Current typed authority and lower path | Required zero-match deletion proof | Accepted slice evidence |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `EA-11A` | Sources `fad8bc86f755020696b121c91b55c6848a65d5f48012ea9c5b4afea68255dd6b`; Tests `4fd6378386c707559741e18161478695b5491840f38ebc05cb315c5d14bd6f51` | `PlotterControllerSessionRuntime` admits identity-bound `PlotterControllerSessionIntent` requests through its sink and uses nominal `PlotterMachineSession`/`PersistentMachineSession`; `MachineController` and `RunInterpreter` retain lower safety/effect ownership. | `MachineActions`, `performControllerConnectionAction`, `machineActions.`, `pendingBoundaryStopCapabilities`, `MachineFixture` | `BUILD` 31.26s; `SESSION` 4/4; affected consumers 2 scans; clean `DIFF`; `DELETE` 5 zero-match scans. |
+| 2 | `EA-11B` | Sources `06a072ec2730f81f6edf2188ce38f75887e318a054a54e8d9888688085fee042`; Tests `7314c9bfd15ead6298aeb074bac6f9770b1a3e30106bd8bff73891f9929cb2cb` | `PlotterObservationConfigurationRuntime` admits identity-bound `PlotterObservationOperatorIntent` submissions through nominal `PlotterObservationCameraSessionPort`/`CameraSourceSession`; `CameraCapture`, `VisionWorker`, `PlotterSceneAnalysisPipeline`, and exact-frame/evidence applicability retain their distinct lower ownership. | `CameraActions`, `setVisionAnalysisCadence`, `cameraActions.`, `visionUpdateTask`, `CameraFixture` | Earlier accepted receipt: `BUILD` 32.01s; `OBSERVATION-CONFIG` 4/4 in 0.021s after a 28.06s build; affected consumers 2 scans; clean `DIFF`; `DELETE` 5 zero-match scans. The post-QUICK repair evidence below supersedes current-tree claims. |
+
+EA-11A's accepted controller runtime/test identities remained unchanged through
+EA-11B. The first focused checker stops were real inventory drift: EA-11A still
+required the deleted `MachineActions` closure facade; EA-11B still required the
+deleted `CameraActions` facade and a retired frame-mode workspace guard. The
+bounded reconciliation removed only those obsolete *current* declarations,
+registered the actual typed runtimes/task owner, and retained every same-slice
+deletion scan. The controller runtime now centralizes typed serial-selection,
+connection, passive-probe, alarm-clear, and Motion-authorisation admission;
+the observation runtime centralizes typed source/configuration ordering and
+shutdown. The residual workspace source-change reason is only a copied-fact
+pre-submission projection, not a competing authority.
+
+The sole bounded critic returned `RETASK` with exactly three red-lines and no
+deferrals: controller post-cancel effect start, observation post-close restart,
+and fabricated nil-or-mismatched camera-start identity. There was no critic
+recheck. The controller repair added effect-boundary cancellation/shutdown
+checks before lower work can start; its runtime SHA-256 is
+`299c018a39714ce0218631d8efa33ac4c5e339a8e0210a036168359ae02297ab` and its
+focused-test SHA-256 is
+`750228d965ff27855719d9c4af44d285c590aa4dfab8613ad5f4f11ea1ff8a6b`.
+The observation repair closes admission before restart work and binds camera
+start to the exact requested and settled lifecycle identity: a nil or
+mismatched settled record becomes a typed failure and never `.started`. Its
+runtime SHA-256 is
+`99b5b4f6ab575c5bd42d9dc8c1d6542e3b99d8cb1a13c6d6681b73e78ff46e55`, its
+focused-test SHA-256 is
+`958728d2b8bd665626f5aacda075f3ca9af4b98d239c2d008a34c693435a0ece`, and
+`CameraComposition` SHA-256 is
+`01f571edec38868296e76b30209e0668b4bd177e1415fff709788d8042935542`.
+
+Nonpass history remains material: the first affected build failed because the
+controller repair supplied an untyped `nil`; after the minimal source correction
+the build passed in 29.02 seconds. The first focused command then failed at
+test compilation because the observation mismatch fixture used `String` rather
+than `UUID`, so zero tests ran; the test-only correction retained the repaired
+source build. Current affected validation is `BUILD` exit 0 in 29.02 seconds
+with no warnings/errors; controller 5/5 (9.55-second build, 0.004-second
+tests); observation 7/7 (0.25-second build, 0.403-second tests); EA-11A
+consumers 2/delete 5; EA-11B consumers 2/delete 5; and clean `DIFF`.
+
+The first boundary `DOC` passed 35/35 in 18.666 seconds (19.61 seconds wall)
+and `DIFF` was clean in 0.03 seconds. `QUICK` then failed with exit 2 after 819
+tests and 5 issues, with 10 exclusions: build 0.67 seconds, tests 16.367
+seconds, 18.75 seconds wall. The surviving exact failures were two
+`OperatorWorkspaceComputationDiagnostics` timeouts waiting for post-identification
+analysis resubscription (lines 408 and 493) and one
+`CameraCompositionVisionLifecycle` `stableCapTimedOut` at line 322. Two other
+Camera-lifecycle issue records were truncated; this evidence does not invent
+their detail.
+
+The root cause was an incomplete observation cutover: it removed
+`CameraSourceSession`'s sole automatic-pipeline frame-ingestion task, so runtime
+forwarding missed standalone lower consumers and exact frames during exclusive
+Vision leases; nonnil reconfiguration also retained a stale semantic
+subscription. The repair restores `CameraSourceSession.automaticInspectionFrameTask`
+as the single automatic-ingestion owner, keeps runtime frame-event and semantic
+analysis-update observation distinct, and keeps pipeline newest-only
+state/progress distinct. Repair SHA-256 values are observation runtime
+`518f5aeb0c716e4c4b8f2f6898a615115e39706cb60b21c50e0e1cbf824c2a9b`,
+`CameraComposition`
+`12e610fbb9663233ca2f5d7075493d72ba0249b9f4d19082b94a2e4318fc9402`, and
+observation tests
+`d2fde392826a730d2b2ac21b915d0ad96684997d9637ad43ce574fd27c8bda3a`.
+
+Targeted repair validation passed: `BUILD` 28.89 seconds;
+`OBSERVATION-CONFIG` 8/8 (17.94-second build, 0.429-second tests);
+computation diagnostics 9/9 (0.26-second build, 0.536-second tests); and
+camera lifecycle 6/6 (0.27-second build, 0.039-second tests). The consumer
+checker then truthfully stopped on missing
+`CameraSourceSession.automaticInspectionFrameTask`; full `DELETE` and `DIFF`
+have not yet been rerun.
+
+The current identities were mechanically recomputed as SHA-256 over the sorted
+per-file SHA-256 manifest of `*.swift` files under `Sources` and `Tests`
+respectively: Sources
+`06a072ec2730f81f6edf2188ce38f75887e318a054a54e8d9888688085fee042`; Tests
+`7314c9bfd15ead6298aeb074bac6f9770b1a3e30106bd8bff73891f9929cb2cb`.
+There is no automatic retry or redraw. LIVE, SIMULATED, replay, automated, and
+attended physical evidence remain distinct; no hardware, attended physical, or
+remote-Git evidence exists. The three original critic red-line repairs remain
+the sole critic result and no critic recheck occurred. The final receipts below
+supersede the earlier post-QUICK pending-gate state. The executable capsule
+frontier is now `TRANCHE-FINAL-COMPOSITION` only after this staged Device-tranche
+proof; that does not dispatch `EA-11C`. No successor dispatch is authorized
+before the successful Blackdog landing condition is satisfied.
+
+Routed-document review for this candidate: [README](../README.md),
+[Product Contract](PRODUCT_CONTRACT.md),
+[Learning Path Operating Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md),
+[Learning Path Button Transitions](LEARNING_PATH_BUTTON_TRANSITIONS.md),
+[Episode Architecture Vocabulary](EPISODE_ARCHITECTURE_VOCABULARY.md),
+[Document Routing](INDEX.md), and [Roadmap](ROADMAP.md) were reviewed and need
+no change: none presents the deleted closure facades or stale workspace seams as
+current authority. [Swift Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md)
+is updated with the current typed topology. The execution plan retains current
+inventory and exact deletion scans while staging the common completion
+transaction described here.
+
+## TRANCHE-DEVICE-ENVIRONMENT staged completion transaction
+
+The staged completion is one common Blackdog task/worktree/landing:
+`TASK-4C16F56F`, attempt `TASK-4C16F56F-8af99cc51c68`, target `main`, for the
+tranche and both authority slices. It becomes canonical only upon successful
+Blackdog landing of that exact candidate; no landed commit hash exists yet.
+The frozen aggregate remains Sources
+`06a072ec2730f81f6edf2188ce38f75887e318a054a54e8d9888688085fee042` and
+Tests `7314c9bfd15ead6298aeb074bac6f9770b1a3e30106bd8bff73891f9929cb2cb`.
+Physical validation remains skipped.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; 35/35 in 19.061 seconds tests and 20.00 seconds wall | final staged Sources/Tests identity |
+| `DIFF` | passed — `git diff --check`; clean in 0.03 seconds | final staged worktree diff receipt |
+| `QUICK` | passed — `make quick-test`; 820/820 with 10 exclusions, 14.378-second tests and 15.90-second wall | final staged Sources/Tests identity |
+| `JOURNEY` | passed — `make journey-test`; 5/5, 4.908-second tests and 6.05-second wall | final staged Sources/Tests identity |
+| `STRICT` | passed — `make strict-check`; strict build 39.81 seconds, test build 46.97 seconds, 825/825 in 14.693 seconds, docs 35/35 in 18.098 seconds, 134.32 seconds wall; signing/launcher/negative-bundle passed; no warnings/errors/issues | final staged Sources/Tests identity |
+| `CRITIC` | passed — sole bounded critic returned `RETASK` with three red-lines and no deferrals; all repaired without a critic recheck | passed-with-repairs tranche contract record |
+
+## EA-11A staged authority-slice completion
+
+EA-11A shares the exact staged Device-tranche landing transaction above. Its
+final accepted overlay is runtime
+`299c018a39714ce0218631d8efa33ac4c5e339a8e0210a036168359ae02297ab` and tests
+`750228d965ff27855719d9c4af44d285c590aa4dfab8613ad5f4f11ea1ff8a6b`; those
+repairs preserve controller post-cancel effect-boundary closure.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; 29.02 seconds, no warnings/errors | final EA-11A overlay |
+| `SESSION` | passed — `swift test --filter PlotterControllerSessionEpisodeTests`; 5/5 | typed controller-session admission, cancellation, and shutdown |
+| `AFFECTED-CONSUMERS` | passed — EA-11A consumer gate; 2 exact scans | typed controller sink and surviving lower routes |
+| `DIFF` | passed — `git diff --check`; clean | final staged worktree diff receipt |
+| `DELETE` | passed — EA-11A delete gate; 5 exact zero-match scans | retired controller closure facade, ingress, task, and fixture |
+
+## EA-11B staged authority-slice completion
+
+EA-11B shares the exact staged Device-tranche landing transaction above. Its
+final accepted current tree is runtime
+`518f5aeb0c716e4c4b8f2f6898a615115e39706cb60b21c50e0e1cbf824c2a9b`,
+`CameraComposition`
+`12e610fbb9663233ca2f5d7075493d72ba0249b9f4d19082b94a2e4318fc9402`, and tests
+`d2fde392826a730d2b2ac21b915d0ad96684997d9637ad43ce574fd27c8bda3a`.
+The final repair retains the lower automatic-ingestion task, current
+post-identification diagnostics, and exact workflow lifecycle behavior.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; 28.89 seconds | final EA-11B current tree |
+| `OBSERVATION-CONFIG` | passed — `swift test --filter PlotterObservationConfigurationEpisodeTests`; 8/8 | typed observation admission, source/configuration ordering, and shutdown |
+| `AFFECTED-CONSUMERS` | passed — EA-11B consumer gate; 2 exact scans; computation diagnostics 9/9 and camera lifecycle 6/6 passed as affected support | typed observation route plus lower ingestion/lifecycle support |
+| `DIFF` | passed — `git diff --check`; clean | final staged worktree diff receipt |
+| `DELETE` | passed — EA-11B delete gate; 5 exact zero-match scans | retired camera closure facade, ingress, task, and fixture |
 
 ## TRANCHE-LEARNING landed-slice register
 
@@ -387,10 +559,10 @@ The current diagnostics are `TASK-2F141403` → `FIX-04` →
 `dependency-ineligible-package`. They remain visible; they are not claims,
 retries, cancellation decisions, or evidence that either historical package
 passed. `GATE-01` remains unchanged downstream after
-`TRANCHE-FINAL-COMPOSITION`. With no live blocker, the verified ordinary
-frontier is `TRANCHE-DEVICE-ENVIRONMENT`, which now depends on complete
-`TRANCHE-LEARNING`; this evidence update does not select or claim that
-successor.
+`TRANCHE-FINAL-COMPOSITION`. The Device tranche is staged complete, so the
+executable ordinary frontier is `TRANCHE-FINAL-COMPOSITION` only upon
+successful Blackdog landing of the exact Device transaction; this evidence
+update does not select or claim that successor.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
@@ -457,7 +629,7 @@ they grant no admission, effect, cancellation, settlement, persistence, result,
 or publication choice and use no sleep, polling, or `Task.yield`.
 
 `PlotterBoundaryComposition` retains lower authority instead of duplicating it.
-LIVE uses the existing `MachineActions`/`RunInterpreter` fixed 50 mm renewal,
+LIVE uses the nominal `PlotterMachineSession`/`RunInterpreter` fixed 50 mm renewal,
 controller Stop, and supervised center travel/Pen seams. SIMULATED uses the sole
 EA-07 `PlotterCausalSimulatorEffectAdapter`, invokes zero LIVE effect or
 persistence, and remains explicitly nonphysical. Camera, Vision, controller
@@ -1847,9 +2019,9 @@ The source RETASK applies that partial-discard rule identically in
 be accepted and later rejected solely because discard reported partial byte
 progress. The registry retains `ManualMotionOperationHandle`, not an erased
 closure or replacement cancellation task, and the episode model/runtime add no
-`@unchecked Sendable` authority escape. The lower `MachineActions` closure
-facade remains only for unmigrated controller-session owners scheduled in
-EA-11A; it does not own EA-06 admission, Stop, or settlement.
+`@unchecked Sendable` authority escape. The former `MachineActions` closure
+facade was retired by EA-11A; the nominal `PlotterMachineSession` lower port
+does not own EA-06 admission, Stop, or settlement.
 
 Direct LIVE Pen now admits through the nominal async
 `PenActuationOperation` returned by `RunInterpreter`, retaining the exact
@@ -2296,6 +2468,9 @@ EA-11C. Detailed scope and limitations remain in the named evidence sections.
 | EA-10D | `TASK-5C0B3F27` | `BUILD=passed`, `TIP-CAL=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-10D landed authority-slice evidence |
 | EA-10E | `TASK-5C0B3F27` | `BUILD=passed`, `BORDER-VALIDATION=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-10E landed authority-slice evidence |
 | EA-10F | `TASK-5C0B3F27` | `BUILD=passed`, `ARTIFACT-RESET=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-10F landed authority-slice evidence |
+| TRANCHE-DEVICE-ENVIRONMENT | `TASK-4C16F56F` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `CRITIC=passed` | TRANCHE-DEVICE-ENVIRONMENT staged completion transaction |
+| EA-11A | `TASK-4C16F56F` | `BUILD=passed`, `SESSION=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-11A staged authority-slice completion |
+| EA-11B | `TASK-4C16F56F` | `BUILD=passed`, `OBSERVATION-CONFIG=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-11B staged authority-slice completion |
 
 ## Wave admission blockers
 
@@ -2306,9 +2481,11 @@ or canonical correction. The selector stops at that first eligible row; it
 never skips ahead to later work. An empty table means Current Evidence adds no
 admission blocker beyond the canonical ledger and live Blackdog claims. The
 former EA-10C standalone blocker was removed by the canonical tranche-policy
-correction. `TRANCHE-LEARNING` landed, so the verified ordinary frontier is
-`TRANCHE-DEVICE-ENVIRONMENT`, which depends on complete
-`TRANCHE-LEARNING`; this evidence record neither selects nor claims it.
+correction. `TRANCHE-LEARNING` landed, and
+`TRANCHE-DEVICE-ENVIRONMENT` has a staged completion transaction that becomes
+canonical only upon successful Blackdog landing of `TASK-4C16F56F`, attempt
+`TASK-4C16F56F-8af99cc51c68`. The executable ordinary frontier is then
+`TRANCHE-FINAL-COMPOSITION`; no successor dispatch is authorized here.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

@@ -11,7 +11,7 @@ import Testing
 func simulatedOverlayStatusIsCausalAndExact() async throws {
   let harness = makeCausalSimulatorAppFixture()
   let workspace = harness.workspace
-  await workspace.switchFrameMode(.simulated)
+  await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
 
   let frame = try #require(workspace.displayedFrame)
   let cap = workspace.overlayCardPresentation(for: .penCap)
@@ -44,12 +44,12 @@ func simulatedOverlayStatusIsCausalAndExact() async throws {
   #expect(surface.analyzedOverlayFrame?.matches(frame) == true)
   #expect(surface.overlays.map(\.provenance.kind) == [.penCap, .armatureEstimate])
 
-  workspace.setOverlay(.penCap, enabled: false)
+  await submitObservationConfigurationForTest(workspace, .setOverlay(.penCap, enabled: false))
   #expect(workspace.overlayCardPresentation(for: .penCap).status.state == .off)
   #expect(workspace.overlayCardPresentation(for: .armatureEnvelope).status == armature.status)
   #expect(workspace.testActionSurfacePresentation.overlays.map(\.provenance.kind) == [.armatureEstimate])
 
-  workspace.setOverlay(.penCap, enabled: true)
+  await submitObservationConfigurationForTest(workspace, .setOverlay(.penCap, enabled: true))
   #expect(workspace.overlayCardPresentation(for: .penCap).statusText == cap.statusText)
   #expect(workspace.testActionSurfacePresentation.analyzedOverlayFrame?.matches(frame) == true)
   await workspace.shutdown()
@@ -60,9 +60,9 @@ func simulatedOverlayStatusIsCausalAndExact() async throws {
 func simulatedManualPenDownDrawing() async throws {
   let harness = makeCausalSimulatorAppFixture()
   let workspace = harness.workspace
-  await workspace.switchFrameMode(.simulated)
-  await workspace.performControllerConnectionAction()
-  await workspace.activateMotionGuard()
+  await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
+  await submitControllerSession(workspace, .toggleConnection)
+  await submitControllerSession(workspace, .toggleMotionAuthorization)
   await workspace.submitTestManualPen(.lower)
 
   #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
@@ -90,7 +90,7 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
     journalFileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
       "simulated-camera-refresh-\(UUID().uuidString).json"
     ),
-    machineActions: nil,
+    machineSession: nil,
     simulatedRuntime: runtime,
     simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
   )
@@ -116,7 +116,7 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
   #expect(raised.refusal == nil)
 
   let workspace = OperatorWorkspace(
-    cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
+    observationSession: CameraComposition.makeIsolatedObservationSessionForTesting(),
     manualMotionComposition: composition,
     penInteractionRuntime: nominalPenInteractionRuntime(
       manualMotionComposition: composition
@@ -127,15 +127,13 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
     incidentPackageUIService: nominalIncidentPackageUIService(),
     serialDevices: [],
     serialDeviceDiscovery: { [] },
-    loadSelectedSerialIdentifier: { nil },
-    persistSelectedSerialIdentifier: { _ in }
   )
-  await workspace.switchFrameMode(.simulated)
+  await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
   let beforeFrame = try #require(workspace.displayedFrame?.frame)
   let beforeSnapshot = await runtime.snapshot()
   let beforeInk = await runtime.persistentInk()
 
-  await workspace.refreshVideoSources()
+  await submitObservationConfigurationForTest(workspace, .refresh)
 
   let afterFrame = try #require(workspace.displayedFrame?.frame)
   let afterSnapshot = await runtime.snapshot()

@@ -35,12 +35,12 @@ struct PlotterDrawingRunComposition: Sendable {
   let camera: OperatorWorkspaceDrawingRunCameraPort
 
   static func make(
-    machineActions: OperatorWorkspace.MachineActions,
-    cameraActions: OperatorWorkspace.CameraActions
+    machineSession: (any PlotterMachineSession),
+    observationSession: any PlotterObservationCameraSessionPort
   ) -> Self {
     let factSource = OperatorWorkspaceDrawingRunFactSource()
-    let interpreter = OperatorWorkspaceDrawingRunInterpreterPort(actions: machineActions)
-    let camera = OperatorWorkspaceDrawingRunCameraPort(actions: cameraActions)
+    let interpreter = OperatorWorkspaceDrawingRunInterpreterPort(session: machineSession)
+    let camera = OperatorWorkspaceDrawingRunCameraPort(session: observationSession)
     let evidence = DrawingRunEvidenceComposition.port
     return Self(
       runtime: PlotterDrawingRunRuntime(

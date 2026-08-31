@@ -18,26 +18,27 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
   override init() {
     let manualMotionComposition = PlotterManualMotionComposition.production
     let penInteractionRuntime = PlotterPenInteractionComposition.makeRuntime(
-      machineActions: MachineSessionComposition.actions,
+      machineSession: MachineSessionComposition.session,
       simulatedAdapter: manualMotionComposition.causalSimulatorEffectAdapter
     )
     let boundaryComposition = PlotterBoundaryComposition.make(
-      machineActions: MachineSessionComposition.actions,
+      machineSession: MachineSessionComposition.session,
       causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
       checkpointActions: AcceptedArtifactCheckpointComposition.actions,
       speechEffectRuntime: SpeechComposition.runtime
     )
     let drawingRunComposition = PlotterDrawingRunComposition.make(
-      machineActions: MachineSessionComposition.actions,
-      cameraActions: CameraComposition.actions
+      machineSession: MachineSessionComposition.session,
+      observationSession: CameraComposition.observationSession
     )
     let artifactResetComposition = PlotterArtifactResetComposition.make()
     let incidentPackageUIService = PlotterIncidentPackageUIService(
       sourceProvider: PlotterIncidentPackageUIUnavailableSourceProvider()
     )
     workspace = OperatorWorkspace(
-      machineActions: MachineSessionComposition.actions,
-      cameraActions: CameraComposition.actions,
+      machineSession: MachineSessionComposition.session,
+      observationSession: CameraComposition.observationSession,
+      observationRecordingStore: CameraComposition.recordingStore,
       pointSelectionRuntime: PointSelectionComposition.production.runtime,
       pointSelectionRecordingDiagnostic:
         PointSelectionComposition.production.recordingDiagnostic,
@@ -512,7 +513,10 @@ struct OperatorWorkspaceView: View {
     else { return }
     layout = disposition.layout
     guard disposition.shouldRefreshDiagnostics else { return }
-    Task { await workspace.refreshVideoDiagnostics() }
+    let projection = workspace.observationConfigurationProjection
+    Task {
+      await workspace.submitObservationConfiguration(projection.request(.requestDiagnostics))
+    }
   }
 }
 
@@ -732,6 +736,7 @@ private struct VideoSettingsContents: View {
   @Binding var viewport: ActionSurfaceViewportState
 
   var body: some View {
+    let projection = workspace.observationConfigurationProjection
     VStack(alignment: .leading, spacing: 12) {
       SectionPanel(title: "CAMERA") {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -740,32 +745,34 @@ private struct VideoSettingsContents: View {
             .foregroundStyle(.secondary)
           Picker("Camera", selection: sourceSelection) {
             Text("Simulator").tag(Optional(VideoSourceChoice.simulated))
-            ForEach(workspace.cameraDevices) { device in
+            ForEach(projection.cameraDevices) { device in
               Text(device.name).tag(Optional(VideoSourceChoice.live(device.id)))
             }
           }
           .labelsHidden()
           .frame(maxWidth: .infinity)
-          .disabled(workspace.frameModeSwitchUnavailableReason != nil)
-          .help(workspace.frameModeSwitchUnavailableReason ?? "Choose the video source")
+          .disabled(projection.sourceChangeUnavailableReason != nil)
+          .help(projection.sourceChangeUnavailableReason ?? "Choose the video source")
 
           Button {
-            Task { await workspace.refreshVideoSources() }
+            Task {
+              await workspace.submitObservationConfiguration(projection.request(.refresh))
+            }
           } label: {
             Label("Refresh", systemImage: "arrow.clockwise")
           }
-          .operatorButton(isEnabled: workspace.currentCameraCalibrationBusyReason == nil)
-          .help(workspace.currentCameraCalibrationBusyReason ?? "Refresh camera choices")
+          .operatorButton(isEnabled: projection.calibrationBusyReason == nil)
+          .help(projection.calibrationBusyReason ?? "Refresh camera choices")
         }
 
-        if workspace.frameMode == .simulated {
-          Text(workspace.simulatorEvidenceLabel)
+        if projection.frameMode == .simulated {
+          Text(projection.simulatorEvidenceLabel)
             .font(.caption.monospaced().bold())
             .foregroundStyle(.blue)
-          Text(workspace.simulatorLearningSummary)
+          Text(projection.simulatorSummary)
             .font(.caption)
             .foregroundStyle(.secondary)
-        } else if workspace.cameraDevices.isEmpty {
+        } else if projection.cameraDevices.isEmpty {
           Text("No discovered camera.")
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -777,16 +784,16 @@ private struct VideoSettingsContents: View {
       overlayControls
 
       SectionPanel(title: "STATUS") {
-        fact("State", workspace.cameraStateText)
-        fact("Capture path", workspace.captureThroughputText)
-        fact("Analysis path", workspace.visionThroughputText)
-        if let error = workspace.cameraError {
+        fact("State", projection.cameraStateText)
+        fact("Capture path", projection.captureThroughputText)
+        fact("Analysis path", projection.visionThroughputText)
+        if let error = projection.cameraError {
           Text(error)
             .font(.caption.monospaced())
             .foregroundStyle(.orange)
             .textSelection(.enabled)
         }
-        if let error = workspace.visionError {
+        if let error = projection.visionError {
           Text(error)
             .font(.caption.monospaced())
             .foregroundStyle(.orange)
@@ -798,28 +805,35 @@ private struct VideoSettingsContents: View {
   }
 
   private var analysisViewportControls: some View {
+    let projection = workspace.observationConfigurationProjection
     let displayedFrame = actionSurfacePresentation.displayedFrame
     let region = displayedFrame.flatMap {
       viewport.selectedRegion(frameWidth: $0.frame.width, frameHeight: $0.frame.height)
     }
     let regionIsLocked =
       displayedFrame.map {
-        workspace.videoAnalysisRegionLock?.matches($0) == true
+        projection.regionLock?.matches($0) == true
       } ?? false
 
     return SectionPanel(title: "ANALYSIS VIEWPORT") {
       Picker(
         "Frames per second",
         selection: Binding(
-          get: { workspace.visionAnalysisCadence },
-          set: { cadence in Task { await workspace.setVisionAnalysisCadence(cadence) } }
+          get: { projection.cadence },
+          set: { cadence in
+            Task {
+              await workspace.submitObservationConfiguration(
+                projection.request(.setCadence(cadence))
+              )
+            }
+          }
         )
       ) {
         ForEach(VisionAnalysisCadence.allCases, id: \.self) { cadence in
           Text("\(cadence.rawValue)").tag(cadence)
         }
       }
-      .disabled(workspace.frameMode != .live)
+      .disabled(projection.frameMode != .live)
 
       Slider(value: $viewport.zoom, in: 0...1) {
         Text("Zoom")
@@ -840,9 +854,10 @@ private struct VideoSettingsContents: View {
           set: { shouldLock in
             guard let displayedFrame else { return }
             Task {
-              await workspace.setVideoAnalysisRegion(
-                shouldLock ? region : nil,
-                for: displayedFrame
+              await workspace.submitObservationConfiguration(
+                projection.request(
+                  .setRegion(shouldLock ? region : nil, displayedFrame: displayedFrame)
+                )
               )
             }
           }
@@ -850,7 +865,7 @@ private struct VideoSettingsContents: View {
       )
       .disabled(
         displayedFrame == nil || region == nil
-          || workspace.currentCameraCalibrationBusyReason != nil
+          || projection.calibrationBusyReason != nil
       )
 
       Text(
@@ -864,14 +879,15 @@ private struct VideoSettingsContents: View {
   }
 
   private var overlayControls: some View {
-    SectionPanel(title: "OVERLAYS") {
+    let projection = workspace.observationConfigurationProjection
+    return SectionPanel(title: "OVERLAYS") {
       VStack(alignment: .leading, spacing: 10) {
-        ForEach(UserSceneOverlay.allCases) { overlay in
-          overlayCard(workspace.overlayCardPresentation(for: overlay))
+        ForEach(projection.overlayCards, id: \.overlay) { presentation in
+          overlayCard(presentation, projection: projection)
         }
       }
 
-      if let selection = workspace.penCapAppearanceSelection {
+      if let selection = projection.penCapAppearance {
         HStack(spacing: 8) {
           Circle()
             .fill(selection.color.swiftUIColor)
@@ -902,7 +918,10 @@ private struct VideoSettingsContents: View {
     }
   }
 
-  private func overlayCard(_ presentation: OverlayCardPresentation) -> some View {
+  private func overlayCard(
+    _ presentation: OverlayCardPresentation,
+    projection: PlotterObservationConfigurationProjection
+  ) -> some View {
     VStack(alignment: .leading, spacing: 9) {
       HStack(alignment: .center, spacing: 10) {
         VStack(alignment: .leading, spacing: 2) {
@@ -919,8 +938,14 @@ private struct VideoSettingsContents: View {
         Toggle(
           presentation.title,
           isOn: Binding(
-            get: { workspace.overlayPreferenceState.enabled.contains(presentation.overlay) },
-            set: { workspace.setOverlay(presentation.overlay, enabled: $0) }
+            get: { projection.enabledOverlays.contains(presentation.overlay) },
+            set: { enabled in
+              Task {
+                await workspace.submitObservationConfiguration(
+                  projection.request(.setOverlay(presentation.overlay, enabled: enabled))
+                )
+              }
+            }
           )
         )
         .labelsHidden()
@@ -979,11 +1004,12 @@ private struct VideoSettingsContents: View {
   }
 
   private var sourceSelection: Binding<VideoSourceChoice?> {
-    Binding(
+    let projection = workspace.observationConfigurationProjection
+    return Binding(
       get: {
-        switch workspace.frameMode {
-        case .simulated: .simulated
-        case .live: workspace.selectedCameraID.map(VideoSourceChoice.live)
+        switch projection.frameMode {
+        case .simulated: return VideoSourceChoice.simulated
+        case .live: return projection.selectedCameraID.map(VideoSourceChoice.live)
         }
       },
       set: { selection in
@@ -991,9 +1017,13 @@ private struct VideoSettingsContents: View {
         Task {
           switch selection {
           case .simulated:
-            await workspace.switchFrameMode(.simulated)
+            await workspace.submitObservationConfiguration(
+              projection.request(.selectSource(.simulated, nil))
+            )
           case .live(let id):
-            await workspace.selectAndStartCamera(id)
+            await workspace.submitObservationConfiguration(
+              projection.request(.selectSource(.live, id))
+            )
           }
         }
       }
@@ -1038,6 +1068,7 @@ private struct MotionPanel: View {
   let closeUnavailableReason: String?
 
   var body: some View {
+    let session = workspace.controllerSessionProjection
     SectionPanel(
       title: "MANUAL RELATIVE MOTION",
       panel: .motion,
@@ -1148,12 +1179,12 @@ private struct MotionPanel: View {
         .font(.caption2)
         .foregroundStyle(.secondary)
 
-      fact("Controller link", workspace.controllerConnectionText)
-      fact("Controller", workspace.controllerStateText)
-      fact("Controller alert", workspace.controllerAttentionText ?? "none reported")
-      fact("Limit inputs", workspace.controllerLimitInputsText)
-      fact("Alarm unlock", workspace.controllerAlarmUnlockReadinessText)
-      if let alarm = workspace.controllerAlarmEvidenceText {
+      fact("Controller link", session.controllerConnectionText)
+      fact("Controller", session.controllerStateText)
+      fact("Controller alert", session.controllerAttentionText ?? "none reported")
+      fact("Limit inputs", session.controllerLimitInputsText)
+      fact("Alarm unlock", session.controllerAlarmUnlockReadinessText)
+      if let alarm = session.controllerAlarmEvidenceText {
         VStack(alignment: .leading, spacing: 5) {
           Text("Reported alarm: \(alarm)")
             .font(.caption.monospaced())
@@ -1165,32 +1196,36 @@ private struct MotionPanel: View {
           .font(.caption2)
           .foregroundStyle(.secondary)
           Button {
-            Task { await workspace.clearControllerAlarm() }
+            Task {
+              _ = await workspace.submitControllerSessionRequest(
+                session.request(.clearAlarm)
+              )
+            }
           } label: {
             Label(
-              workspace.controllerAlarmClearInProgress ? "Clearing Alarm…" : "Clear Alarm",
+              session.alarmClearInProgress ? "Clearing Alarm…" : "Clear Alarm",
               systemImage: "exclamationmark.triangle.fill"
             )
           }
           .operatorButton(
             .negative,
-            isEnabled: workspace.controllerAlarmClearActionUnavailableReason == nil
+            isEnabled: session.alarmClearUnavailableReason == nil
           )
           .help(
-            workspace.controllerAlarmClearActionUnavailableReason
+            session.alarmClearUnavailableReason
               ?? "Send one explicit alarm-unlock request, then run a fresh passive controller probe"
           )
         }
       }
-      fact("Motor power", workspace.motorPowerText)
-      fact("Motion", workspace.motionGuardIsActive ? "enabled" : "disabled")
-      fact("Motion request", workspace.motionPermissionText)
+      fact("Motor power", session.motorPowerText)
+      fact("Motion", session.motionAuthorized ? "enabled" : "disabled")
+      fact("Motion request", presentation.jogControlsUnavailableReason == nil ? "request eligible" : "unavailable")
       fact("Manual mode", presentation.modeText)
       fact("Learning", learningIsEnabled ? "on" : "off — manual operation")
-      fact("MPos", workspace.machinePositionText)
-      fact("Operation", workspace.currentOperationText)
-      fact("Last outcome", workspace.lastMotionOutcomeText)
-      fact("Last pen", workspace.lastPenOutcomeText)
+      fact("MPos", session.machinePositionText)
+      fact("Operation", session.currentOperationText)
+      fact("Last outcome", session.lastMotionOutcomeText)
+      fact("Last pen", session.lastPenOutcomeText)
 
       if let reason = presentation.jogControlsUnavailableReason {
         Text(reason)

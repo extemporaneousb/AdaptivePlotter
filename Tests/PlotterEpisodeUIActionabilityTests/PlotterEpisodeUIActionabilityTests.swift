@@ -721,39 +721,38 @@ private struct UIWorkspaceFixture {
 private func makeProductionWorkspace() -> UIWorkspaceFixture {
   let incidentProvider = UnavailableIncidentSourceProbe()
   let incidentService = PlotterIncidentPackageUIService(sourceProvider: incidentProvider)
-  let cameraActions = CameraComposition.makeIsolatedActionsForTesting()
+  let resolvedObservationSession = CameraComposition.makeIsolatedObservationSessionForTesting()
   let manualMotionComposition = PlotterManualMotionComposition.production
+  let machineSession = MachineSessionComposition.session
   let penInteractionRuntime = PlotterPenInteractionComposition.makeRuntime(
-    machineActions: MachineSessionComposition.actions,
+    machineSession: machineSession,
     simulatedAdapter: manualMotionComposition.causalSimulatorEffectAdapter
   )
   let speechEffectRuntime = PlotterSpeechEffectRuntime(announcer: NativeSpeechAnnouncer())
   let boundaryComposition = PlotterBoundaryComposition.make(
-    machineActions: MachineSessionComposition.actions,
+    machineSession: machineSession,
     causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
     checkpointActions: .init(load: { .absent }, save: { _ in }, clear: {}),
     speechEffectRuntime: speechEffectRuntime
   )
   let workspace = OperatorWorkspace(
-    cameraActions: cameraActions,
+    machineSession: machineSession,
+    observationSession: resolvedObservationSession,
     manualMotionComposition: manualMotionComposition,
     penInteractionRuntime: penInteractionRuntime,
     boundaryRuntime: boundaryComposition.runtime,
     speechEffectRuntime: speechEffectRuntime,
     drawingDraftRuntime: PlotterDrawingDraftRuntime(),
     drawingRunComposition: PlotterDrawingRunComposition.make(
-      machineActions: MachineSessionComposition.actions,
-      cameraActions: cameraActions
+      machineSession: machineSession,
+      observationSession: resolvedObservationSession
     ),
     incidentPackageUIService: incidentService,
     serialDevices: [],
     serialDeviceDiscovery: { [] },
-    loadSelectedSerialIdentifier: { nil },
-    persistSelectedSerialIdentifier: { _ in },
-    loadPenCapAppearanceSelection: { nil },
-    persistPenCapAppearanceSelection: { _ in },
-    loadOverlayPreference: { nil },
-    persistOverlayPreference: { _ in }
+    observationPreferences: UserDefaultsObservationPreferencePort(
+      defaults: UserDefaults(suiteName: "PlotterEpisodeUIActionabilityTests.\(UUID())")!
+    )
   )
   boundaryComposition.install(on: workspace)
   return UIWorkspaceFixture(

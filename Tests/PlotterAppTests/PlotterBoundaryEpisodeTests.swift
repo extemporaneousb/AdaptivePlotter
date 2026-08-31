@@ -413,7 +413,7 @@ struct PlotterBoundaryEpisodeTests {
       clear: { checkpointStore.clear() }
     )
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
+    let machine = try LowerMachineSessionFixture(log: log)
     let lowerGate = BoundaryRenewalMotionGate()
     let runtimeAccess = TestBoundaryRuntimeAccess()
     let workspace = workspace(
@@ -433,7 +433,7 @@ struct PlotterBoundaryEpisodeTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.performTestExerciseAction(
       .applySavedLearning,
       for: workspace.testCurrentLearningPathItemID
@@ -694,7 +694,7 @@ struct PlotterBoundaryEpisodeTests {
       clear: { checkpointStore.clear() }
     )
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
+    let machine = try LowerMachineSessionFixture(log: log)
     let lowerGate = BoundaryRenewalMotionGate()
     let runtimeAccess = TestBoundaryRuntimeAccess()
     let workspace = workspace(
@@ -712,7 +712,7 @@ struct PlotterBoundaryEpisodeTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     let penOwner = workspace.testCurrentLearningPathItemID
     await workspace.performTestExerciseAction(.applySavedLearning, for: penOwner)
     #expect(workspace.penInteractionCompleted)
@@ -755,8 +755,8 @@ struct PlotterBoundaryEpisodeTests {
     #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == penRevision)
     #expect(Set(workspace.learningArtifactGraph.revisions) == graphBeforeReset)
     #expect(checkpointStore.checkpoint?.checkpointID == checkpointBeforeReset?.checkpointID)
-    #expect(workspace.controllerSessionEstablished)
-    #expect(workspace.motionAuthorizationEnabled)
+    #expect(workspace.controllerSessionProjection.sessionEstablished)
+    #expect(workspace.controllerSessionProjection.motionAuthorized)
     #expect(workspace.currentBoundarySnapshot?.projection.publicationRecoveryCapabilityID == recovery)
     #expect(
       workspace.learningAuthorityError?.contains("Boundary publication is incomplete") == true

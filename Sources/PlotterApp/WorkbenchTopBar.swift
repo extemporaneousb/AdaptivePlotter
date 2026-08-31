@@ -86,9 +86,10 @@ struct WorkbenchToolbar: ToolbarContent {
 
   var body: some ToolbarContent {
     ToolbarItem(placement: .principal) {
-      let controllerSlot = WorkbenchControllerSlotPresentation(mode: workspace.frameMode)
+      let session = workspace.controllerSessionProjection
+      let controllerSlot = WorkbenchControllerSlotPresentation(mode: session.environment)
       let motionAction = WorkbenchMotionAuthorizationActionPresentation(
-        isAuthorized: workspace.motionAuthorizationEnabled
+        isAuthorized: session.motionAuthorized
       )
       HStack(spacing: 8) {
         if !controllerSlot.isSerialSelectionEnabled {
@@ -100,77 +101,92 @@ struct WorkbenchToolbar: ToolbarContent {
           Picker(
             "Controller",
             selection: Binding(
-              get: { workspace.selectedSerialDevice },
+              get: { session.selectedSerialDevice },
               set: { device in
                 guard let device else { return }
-                Task { await workspace.selectSerialDevice(device) }
+                Task {
+                  _ = await workspace.submitControllerSessionRequest(
+                    session.request(.selectSerialDevice(device))
+                  )
+                }
               }
             )
           ) {
             Text("Select Controller").tag(nil as MachineLinkDescriptor?)
-            ForEach(workspace.serialDevices, id: \.identifier) { device in
+            ForEach(session.serialDevices, id: \.identifier) { device in
               Text(device.displayName).tag(Optional(device))
             }
           }
           .labelsHidden()
           .pickerStyle(.menu)
           .frame(width: 220)
-          .disabled(workspace.controllerSelectionUnavailableReason != nil)
-          .help("Controller selection is remembered between launches")
+          .disabled(session.selectionUnavailableReason != nil)
+          .help(session.selectionUnavailableReason ?? "Select one available controller")
         }
 
-        Button(workspace.controllerConnectionActionTitle) {
-          Task { await workspace.performControllerConnectionAction() }
+        Button(session.connectionActionTitle) {
+          Task {
+            _ = await workspace.submitControllerSessionRequest(
+              session.request(.toggleConnection)
+            )
+          }
         }
         .operatorButton(
-          workspace.controllerSessionEstablished ? .negative : .affirmative,
-          isEnabled: workspace.controllerConnectionActionUnavailableReason == nil
+          session.sessionEstablished ? .negative : .affirmative,
+          isEnabled: session.connectionUnavailableReason == nil
         )
         .help(
-          workspace.controllerConnectionActionUnavailableReason
-            ?? "\(workspace.controllerConnectionActionTitle) the selected controller"
+          session.connectionUnavailableReason
+            ?? "\(session.connectionActionTitle) the selected controller"
         )
 
         Button(motionAction.title) {
-          Task { await workspace.performMotionAuthorizationAction() }
+          Task {
+            _ = await workspace.submitControllerSessionRequest(
+              session.request(.toggleMotionAuthorization)
+            )
+          }
         }
         .operatorButton(
           motionAction.role,
-          isEnabled: workspace.motionAuthorizationActionUnavailableReason == nil
+          isEnabled: session.motionAuthorizationUnavailableReason == nil
         )
         .help(
-          workspace.motionAuthorizationActionUnavailableReason
+          session.motionAuthorizationUnavailableReason
             ?? "\(motionAction.title) for this controller session"
         )
       }
     }
 
     ToolbarItem(placement: .primaryAction) {
+      let session = workspace.controllerSessionProjection
       HStack(spacing: 12) {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
           WorkbenchStatusIndicator(
             indicator: .camera,
-            label: workspace.frameMode == .simulated
+            label: session.environment == .simulated
               ? "Simulator"
-              : WorkbenchConnectionIndicator.camera.label(isActive: workspace.cameraIsLive),
-            color: workspace.frameMode == .simulated
+              : WorkbenchConnectionIndicator.camera.label(
+                isActive: workspace.observationConfigurationProjection.cameraIsLive
+              ),
+            color: session.environment == .simulated
               ? .blue
-              : workspace.cameraIsLive ? .green : .red
+              : workspace.observationConfigurationProjection.cameraIsLive ? .green : .red
           )
         }
         WorkbenchStatusIndicator(
           indicator: .plotter,
           label: WorkbenchConnectionIndicator.plotter.label(
-            isActive: workspace.controllerSessionEstablished
+            isActive: session.sessionEstablished
           ),
-          color: workspace.controllerSessionEstablished ? .green : .red
+          color: session.sessionEstablished ? .green : .red
         )
         WorkbenchStatusIndicator(
           indicator: .motionGuard,
           label: WorkbenchConnectionIndicator.motionGuard.label(
-            isActive: workspace.motionAuthorizationEnabled
+            isActive: session.motionAuthorized
           ),
-          color: workspace.motionAuthorizationEnabled ? .green : .red
+          color: session.motionAuthorized ? .green : .red
         )
         MotionRequestStatusView(presentation: workspace.motionRequestStatusPresentation)
         if let capabilityPresentation {

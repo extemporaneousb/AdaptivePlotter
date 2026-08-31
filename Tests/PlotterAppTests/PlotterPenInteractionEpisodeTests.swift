@@ -529,9 +529,9 @@ struct PlotterPenInteractionEpisodeTests {
     let runtime = fixture.penInteractionRuntime
     let liveBefore = await runtime.snapshot(environment: .live)
 
-    await workspace.switchFrameMode(.simulated)
-    await workspace.performControllerConnectionAction()
-    await workspace.activateMotionGuard()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
+    await submitControllerSession(workspace, .toggleConnection)
+    await submitControllerSession(workspace, .toggleMotionAuthorization)
     try await preparePenQuestion(workspace)
     let firstActive = await runtime.snapshot(environment: .simulated)
     let firstOperation = try #require(firstActive.projection.reference.operationID)
@@ -549,14 +549,14 @@ struct PlotterPenInteractionEpisodeTests {
     #expect(firstTerminal.acceptedHistory.attempts.first?.disposition == .cancelled)
     #expect(!firstTerminal.projection.physicalEvidenceClaimed)
 
-    await workspace.switchFrameMode(.live)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let liveAfterFirstSession = await runtime.snapshot(environment: .live)
     #expect(liveAfterFirstSession.projection.phase == liveBefore.projection.phase)
     #expect(liveAfterFirstSession.profile == liveBefore.profile)
     #expect(liveAfterFirstSession.acceptedHistory.records.isEmpty)
     #expect(liveAfterFirstSession.projection.reference.operationID == nil)
 
-    await workspace.switchFrameMode(.simulated)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
     let fresh = await runtime.snapshot(environment: .simulated)
     #expect(fresh.projection.phase == .idle)
     #expect(fresh.profile == .initialDefaults)
@@ -583,7 +583,7 @@ struct PlotterPenInteractionEpisodeTests {
 private struct ProductionPenWorkspaceFixture {
   let workspace: OperatorWorkspace
   let runtime: PlotterPenInteractionRuntime
-  let machine: MachineFixture
+  let machine: LowerMachineSessionFixture
   let lowerGate: PenRequestGate
 }
 
@@ -593,15 +593,15 @@ private func makeProductionPenWorkspace(
 ) throws -> ProductionPenWorkspaceFixture {
   let log = EventLog()
   let lowerGate = PenRequestGate()
-  let machine = try MachineFixture(log: log, penRequestGate: lowerGate)
-  let camera = try CameraFixture()
+  let machine = try LowerMachineSessionFixture(log: log, penRequestGate: lowerGate)
+  let camera = try TestObservationCameraSession()
   var capturedRuntime: PlotterPenInteractionRuntime?
   let workspace = workspace(
     machine: machine,
     camera: camera,
-    penInteractionRuntimeFactory: { machineActions, manualMotionComposition in
+    penInteractionRuntimeFactory: { machineSession, manualMotionComposition in
       let port = OperatorWorkspacePenInteractionActuationPort(
-        machineActions: machineActions,
+        machineSession: machineSession,
         simulatedAdapter: manualMotionComposition.causalSimulatorEffectAdapter,
         nowNanoseconds: { 1 }
       )
@@ -624,12 +624,12 @@ private func makeProductionPenWorkspace(
 @MainActor
 private func preparePenQuestion(
   _ workspace: OperatorWorkspace,
-  machine: MachineFixture? = nil
+  machine: LowerMachineSessionFixture? = nil
 ) async throws {
   if let machine {
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
   }
   let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
   let startID = PlotterAppUIActionID.retainedLearning(.start, owner: owner)

@@ -31,22 +31,22 @@ enum PlotterManualMotionComposition {
   /// intents or transfer semantic ownership; each caller retains its existing
   /// lifecycle while direct controller calls remain centralized here.
   static func beginNativeRelativeMotion(
-    using actions: OperatorWorkspace.MachineActions,
+    using actions: (any PlotterMachineSession),
     request: RelativeJogRequest
   ) async -> RelativeJogAdmission {
     await actions.beginRelativeJog(request)
   }
 
   static func beginNativePenCommand(
-    using actions: OperatorWorkspace.MachineActions,
+    using actions: (any PlotterMachineSession),
     command: PenCommand,
     profile: PenActuationProfile
   ) async -> PenActuationAdmission {
-    await actions.beginPenActuation(command, profile)
+    await actions.beginPenActuation(command, profile: profile)
   }
 
   static func settleNativePenCommand(
-    using actions: OperatorWorkspace.MachineActions,
+    using actions: (any PlotterMachineSession),
     command: PenCommand,
     profile: PenActuationProfile
   ) async -> PenOutcome {
@@ -58,7 +58,7 @@ enum PlotterManualMotionComposition {
 
   static func makeRuntimeComposition(
     journalFileURL: URL,
-    machineActions: OperatorWorkspace.MachineActions?,
+    machineSession: (any PlotterMachineSession)?,
     simulatedRuntime: SimulatedLearningRuntime,
     simulatedExecutionPacing: any SimulatedLearningExecutionPacing,
     recordingStore: EpisodeRecordingStore? = nil,
@@ -73,7 +73,7 @@ enum PlotterManualMotionComposition {
     let runtime = try! PlotterManualMotionRuntime(
       journalFileURL: journalFileURL,
       liveAdapter: LiveManualMotionAdapter(
-        actions: machineActions,
+        actions: machineSession,
         recordingRouter: recordingRouter ?? controllerRecordingRouter
       ),
       simulatedAdapter: simulatedAdapter,
@@ -142,7 +142,7 @@ enum PlotterManualMotionComposition {
     }
     return makeRuntimeComposition(
       journalFileURL: artifactDirectory.appendingPathComponent("manual-motion-journal.json"),
-      machineActions: MachineSessionComposition.actions,
+      machineSession: MachineSessionComposition.session,
       simulatedRuntime: simulatedRuntime,
       simulatedExecutionPacing: pacing,
       recordingStore: recordingStore,
@@ -560,7 +560,7 @@ private enum LiveNativeManualMotionHandle: Sendable {
 
 private actor LiveManualMotionOperation: PlotterManualMotionOperation {
   private let request: PlotterManualMotionEffectRequest
-  private let actions: OperatorWorkspace.MachineActions?
+  private let actions: (any PlotterMachineSession)?
   private let recordingRouter: ManualMotionControllerRecordingRouter
   private let controllerRecorder: PlotterManualMotionControllerRecorder?
   private var didStart = false
@@ -573,7 +573,7 @@ private actor LiveManualMotionOperation: PlotterManualMotionOperation {
 
   init(
     request: PlotterManualMotionEffectRequest,
-    actions: OperatorWorkspace.MachineActions?,
+    actions: (any PlotterMachineSession)?,
     recordingRouter: ManualMotionControllerRecordingRouter,
     controllerRecorder: PlotterManualMotionControllerRecorder?
   ) {
@@ -589,7 +589,7 @@ private actor LiveManualMotionOperation: PlotterManualMotionOperation {
     guard let actions else {
       publish(.failed(PlotterEffectFailure(
         code: .environmentFailure,
-        owner: EpisodeAuthorityID(rawValue: "OperatorWorkspace.MachineActions"),
+        owner: EpisodeAuthorityID(rawValue: "(any PlotterMachineSession)"),
         summary: "Native machine composition is unavailable."
       )))
       return
@@ -689,7 +689,7 @@ private actor LiveManualMotionOperation: PlotterManualMotionOperation {
 
   private func settle(
     _ handle: LiveNativeManualMotionHandle,
-    actions: OperatorWorkspace.MachineActions
+    actions: (any PlotterMachineSession)
   ) async {
     let disposition: PlotterManualMotionOperationDisposition
     switch handle {
@@ -729,7 +729,7 @@ private actor LiveManualMotionOperation: PlotterManualMotionOperation {
 
 private struct LiveManualMotionAdapter: PlotterManualMotionEffectAdapter, Sendable {
   let environment = PlotterEnvironment.live
-  let actions: OperatorWorkspace.MachineActions?
+  let actions: (any PlotterMachineSession)?
   let recordingRouter: ManualMotionControllerRecordingRouter
 
   func makeOperation(
@@ -748,7 +748,7 @@ private struct LiveManualMotionAdapter: PlotterManualMotionEffectAdapter, Sendab
 private func livePenDisposition(
   _ outcome: PenOutcome,
   command: PenCommand,
-  actions: OperatorWorkspace.MachineActions
+  actions: (any PlotterMachineSession)
 ) async -> PlotterManualMotionOperationDisposition {
   let observation = liveObservation(await actions.snapshot())
   switch outcome {
@@ -770,7 +770,7 @@ private func livePenDisposition(
 
 private func liveJogDisposition(
   _ outcome: MotionOutcome,
-  actions: OperatorWorkspace.MachineActions
+  actions: (any PlotterMachineSession)
 ) async -> PlotterManualMotionOperationDisposition {
   let observation = liveObservation(await actions.snapshot())
   switch outcome {
@@ -800,7 +800,7 @@ private func liveJogDisposition(
 
 private func liveDrawingDisposition(
   _ outcome: DrawingStrokeOutcome,
-  actions: OperatorWorkspace.MachineActions
+  actions: (any PlotterMachineSession)
 ) async -> PlotterManualMotionOperationDisposition {
   let observation = liveObservation(await actions.snapshot())
   switch outcome {

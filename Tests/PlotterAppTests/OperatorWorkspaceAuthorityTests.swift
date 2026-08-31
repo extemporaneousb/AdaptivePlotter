@@ -19,7 +19,7 @@ extension OperatorWorkspaceTests {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
+    let machine = try LowerMachineSessionFixture(log: log)
     let counter = ManualMotionAmbiguousInvocationCounter()
     let actions = manualMotionWorkspaceActions(
       machine: machine,
@@ -33,15 +33,15 @@ extension OperatorWorkspaceTests {
     let simulatedLearning = SimulatedLearningRuntime()
     let composition = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("journal.json"),
-      machineActions: actions,
+      machineSession: actions,
       simulatedRuntime: simulatedLearning,
       simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
     )
     let workspace = OperatorWorkspace(
-      machineActions: actions,
+      machineSession: actions,
       manualMotionComposition: composition,
       penInteractionRuntime: nominalPenInteractionRuntime(
-        machineActions: actions,
+        machineSession: actions,
         manualMotionComposition: composition
       ),
       boundaryRuntime: nominalBoundaryRuntime(),
@@ -50,15 +50,10 @@ extension OperatorWorkspaceTests {
       incidentPackageUIService: nominalIncidentPackageUIService(),
       serialDevices: [machine.descriptor],
       serialDeviceDiscovery: { [machine.descriptor] },
-      loadSelectedSerialIdentifier: { nil },
-      persistSelectedSerialIdentifier: { _ in },
-      loadPenCapAppearanceSelection: { nil },
-      persistPenCapAppearanceSelection: { _ in },
-      loadOverlayPreference: { nil },
-      persistOverlayPreference: { _ in }
+      observationPreferences: TestObservationPreferencePort()
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
 
     let intent = try manualAmbiguityJog()
     await workspace.submitManualMotionIntent(intent)
@@ -109,13 +104,13 @@ extension OperatorWorkspaceTests {
     let simulatedLearning = SimulatedLearningRuntime()
     let composition = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("journal.json"),
-      machineActions: nil,
+      machineSession: nil,
       simulatedRuntime: simulatedLearning,
       simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
     )
     let workspace = OperatorWorkspace(
-      machineActions: nil,
-      cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
+      machineSession: nil,
+      observationSession: CameraComposition.makeIsolatedObservationSessionForTesting(),
       manualMotionComposition: composition,
       penInteractionRuntime: nominalPenInteractionRuntime(
         manualMotionComposition: composition
@@ -126,16 +121,11 @@ extension OperatorWorkspaceTests {
       incidentPackageUIService: nominalIncidentPackageUIService(),
       serialDevices: [],
       serialDeviceDiscovery: { [] },
-      loadSelectedSerialIdentifier: { nil },
-      persistSelectedSerialIdentifier: { _ in },
-      loadPenCapAppearanceSelection: { nil },
-      persistPenCapAppearanceSelection: { _ in },
-      loadOverlayPreference: { nil },
-      persistOverlayPreference: { _ in }
+      observationPreferences: TestObservationPreferencePort()
     )
-    await workspace.switchFrameMode(.simulated)
-    await workspace.performControllerConnectionAction()
-    await workspace.activateMotionGuard()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
+    await submitControllerSession(workspace, .toggleConnection)
+    await submitControllerSession(workspace, .toggleMotionAuthorization)
 
     let retainedOwner = EpisodeAuthorityID(rawValue: "test.simulatedAmbiguitySetup")
     await simulatedLearning.injectFault(.ambiguityBeforeNextBoundarySegment)
@@ -202,13 +192,13 @@ extension OperatorWorkspaceTests {
     let pacing = FirstOperationSuspensionPacing()
     let composition = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("journal.json"),
-      machineActions: nil,
+      machineSession: nil,
       simulatedRuntime: simulatedRuntime,
       simulatedExecutionPacing: pacing
     )
     let workspace = OperatorWorkspace(
-      machineActions: nil,
-      cameraActions: CameraComposition.makeIsolatedActionsForTesting(),
+      machineSession: nil,
+      observationSession: CameraComposition.makeIsolatedObservationSessionForTesting(),
       manualMotionComposition: composition,
       penInteractionRuntime: nominalPenInteractionRuntime(
         manualMotionComposition: composition
@@ -219,16 +209,11 @@ extension OperatorWorkspaceTests {
       incidentPackageUIService: nominalIncidentPackageUIService(),
       serialDevices: [],
       serialDeviceDiscovery: { [] },
-      loadSelectedSerialIdentifier: { nil },
-      persistSelectedSerialIdentifier: { _ in },
-      loadPenCapAppearanceSelection: { nil },
-      persistPenCapAppearanceSelection: { _ in },
-      loadOverlayPreference: { nil },
-      persistOverlayPreference: { _ in }
+      observationPreferences: TestObservationPreferencePort()
     )
-    await workspace.switchFrameMode(.simulated)
-    await workspace.performControllerConnectionAction()
-    await workspace.activateMotionGuard()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
+    await submitControllerSession(workspace, .toggleConnection)
+    await submitControllerSession(workspace, .toggleMotionAuthorization)
 
     let manualOwner = Task { await workspace.submitTestManualJog(.xPositive) }
     await pacing.waitUntilSuspended()
@@ -325,7 +310,7 @@ extension OperatorWorkspaceTests {
     }
     let runtime = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
-      machineActions: actions,
+      machineSession: actions,
       simulatedRuntime: SimulatedLearningRuntime(),
       simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero),
       recordingStore: store,
@@ -360,22 +345,22 @@ extension OperatorWorkspaceTests {
       try? FileManager.default.removeItem(at: displaced)
     }
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
+    let machine = try LowerMachineSessionFixture(log: log)
     let actions = manualMotionWorkspaceActions(machine: machine)
     let simulated = SimulatedLearningRuntime()
     let composition = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
-      machineActions: actions,
+      machineSession: actions,
       simulatedRuntime: simulated,
       simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero)
     )
     let gate = PlotterManualMotionTerminalPublicationGate()
     await composition.runtime.installTerminalPublicationGateForTesting(gate)
     let workspace = OperatorWorkspace(
-      machineActions: actions,
+      machineSession: actions,
       manualMotionComposition: composition,
       penInteractionRuntime: nominalPenInteractionRuntime(
-        machineActions: actions,
+        machineSession: actions,
         manualMotionComposition: composition
       ),
       boundaryRuntime: nominalBoundaryRuntime(),
@@ -384,15 +369,10 @@ extension OperatorWorkspaceTests {
       incidentPackageUIService: nominalIncidentPackageUIService(),
       serialDevices: [machine.descriptor],
       serialDeviceDiscovery: { [machine.descriptor] },
-      loadSelectedSerialIdentifier: { nil },
-      persistSelectedSerialIdentifier: { _ in },
-      loadPenCapAppearanceSelection: { nil },
-      persistPenCapAppearanceSelection: { _ in },
-      loadOverlayPreference: { nil },
-      persistOverlayPreference: { _ in }
+      observationPreferences: TestObservationPreferencePort()
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
 
     let intent = PlotterManualMotionIntent.jog(try PlotterJogRequest(
@@ -478,7 +458,7 @@ extension OperatorWorkspaceTests {
       router: recordingRouter,
       clock: clock
     )
-    let actions = OperatorWorkspace.MachineActions(
+    let actions = ClosurePlotterMachineSession(
       select: { _ in throw ManualMotionReceiptTestError.unused },
       snapshot: { nil },
       requestPassiveProbe: { throw ManualMotionReceiptTestError.unused },
@@ -510,7 +490,7 @@ extension OperatorWorkspaceTests {
     )
     let runtime = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
-      machineActions: actions,
+      machineSession: actions,
       simulatedRuntime: SimulatedLearningRuntime(),
       simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero),
       recordingStore: store,
@@ -619,7 +599,7 @@ extension OperatorWorkspaceTests {
     }
     let runtime = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
-      machineActions: actions,
+      machineSession: actions,
       simulatedRuntime: SimulatedLearningRuntime(),
       simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero),
       recordingStore: store,
@@ -727,7 +707,7 @@ extension OperatorWorkspaceTests {
       clock: clock
     )
     let operation = ManualMotionStopOperation()
-    let actions = OperatorWorkspace.MachineActions(
+    let actions = ClosurePlotterMachineSession(
       select: { _ in throw ManualMotionReceiptTestError.unused },
       snapshot: { nil },
       requestPassiveProbe: { throw ManualMotionReceiptTestError.unused },
@@ -760,7 +740,7 @@ extension OperatorWorkspaceTests {
     )
     let runtime = PlotterManualMotionComposition.makeRuntimeComposition(
       journalFileURL: directory.appendingPathComponent("manual-motion-journal.json"),
-      machineActions: actions,
+      machineSession: actions,
       simulatedRuntime: SimulatedLearningRuntime(),
       simulatedExecutionPacing: SimulatedLearningInteractivePacing(stepDelay: .zero),
       recordingStore: store,
@@ -807,11 +787,11 @@ extension OperatorWorkspaceTests {
     #expect(MachinePositionAcceptancePolicy.accepts(reproduced, target: target))
 
     let log = EventLog()
-    let machine = try MachineFixture(
+    let machine = try LowerMachineSessionFixture(
       log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0.012, dy: 0.011)
     )
-    let camera = try CameraFixture()
+    let camera = try TestObservationCameraSession()
     let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()
     let workspace = workspace(
       machine: machine,
@@ -820,8 +800,8 @@ extension OperatorWorkspaceTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
@@ -840,7 +820,7 @@ extension OperatorWorkspaceTests {
       centerArrivalIsAccepted: false
     )
     try await machine.setPosition(x: 100, y: 50)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
 
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
@@ -875,11 +855,11 @@ extension OperatorWorkspaceTests {
     #expect(!MachinePositionAcceptancePolicy.accepts(outside, target: target))
 
     let log = EventLog()
-    let machine = try MachineFixture(
+    let machine = try LowerMachineSessionFixture(
       log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0.501, dy: 0)
     )
-    let camera = try CameraFixture()
+    let camera = try TestObservationCameraSession()
     let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()
     let workspace = workspace(
       machine: machine,
@@ -888,8 +868,8 @@ extension OperatorWorkspaceTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
@@ -908,7 +888,7 @@ extension OperatorWorkspaceTests {
       centerArrivalIsAccepted: false
     )
     try await machine.setPosition(x: 100, y: 50)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     let acceptedAggregates = workspace.testAcceptedBoundaryAggregates
     let acceptedCenter = workspace.testEstimatedMachineCenter
 
@@ -951,12 +931,12 @@ extension OperatorWorkspaceTests {
   @Test("source-indexed sessions preserve LIVE and replace SIMULATED independently")
   func simulatedLearningDoesNotReplaceLiveAuthority() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
@@ -985,7 +965,7 @@ extension OperatorWorkspaceTests {
     let liveBoundaryRevisionID = try #require(
       workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveY))?.id
     )
-    await workspace.switchFrameMode(.simulated)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
     #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == nil)
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveY))
@@ -993,7 +973,7 @@ extension OperatorWorkspaceTests {
     )
     workspace.selectedDiscoverySequenceID = .boundaryNegativeX
 
-    await workspace.switchFrameMode(.live)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id == livePenRevisionID
     )
@@ -1001,11 +981,11 @@ extension OperatorWorkspaceTests {
       workspace.learningArtifactGraph.currentRevision(for: .boundarySideAggregate(.positiveY))?.id
         == liveBoundaryRevisionID
     )
-    await workspace.switchFrameMode(.simulated)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
     #expect(workspace.learningArtifactGraph.currentRevision(for: .penInteraction) == nil)
     #expect(workspace.discoveryTransactions.isEmpty)
     #expect(workspace.selectedDiscoverySequenceID == .penInteraction)
-    await workspace.switchFrameMode(.live)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     #expect(
       workspace.learningArtifactGraph.currentRevision(for: .penInteraction)?.id == livePenRevisionID
     )
@@ -1015,12 +995,12 @@ extension OperatorWorkspaceTests {
   @Test("logical boundary owner exposes Stop without a moving-state timer or natural success")
   func boundaryOwnerDoesNotAssumeMovingOrNaturalSuccess() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log, reportsBoundaryMoving: false)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log, reportsBoundaryMoving: false)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
@@ -1054,12 +1034,12 @@ extension OperatorWorkspaceTests {
   @Test("invalid manual step text does not gate Boundary Discovery")
   func manualStepTextIsNotBoundaryAuthority() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
@@ -1097,7 +1077,7 @@ extension OperatorWorkspaceTests {
   @Test("Boundary names connection and Motion as external dependencies")
   func boundaryExternalDependencyBlockers() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log, motionGuardInitiallyActive: false)
+    let machine = try LowerMachineSessionFixture(log: log, motionGuardInitiallyActive: false)
     let workspace = workspace(machine: machine, log: log)
     let connectionBlocker =
       "Blocked by controller connection. Use Connect for the selected plotter in the workbench toolbar; Enable Motion depends on a connected session."
@@ -1109,15 +1089,15 @@ extension OperatorWorkspaceTests {
         == connectionBlocker
     )
 
-    await workspace.selectSerialDevice(machine.descriptor)
-    await workspace.performControllerConnectionAction()
+    await submitControllerSession(workspace, .selectSerialDevice(machine.descriptor))
+    await submitControllerSession(workspace, .toggleConnection)
 
     #expect(
       workspace.discoveryStartUnavailableReason(for: .boundaryPositiveX)
         == motionBlocker
     )
 
-    await workspace.activateMotionGuard()
+    await submitControllerSession(workspace, .toggleMotionAuthorization)
 
     #expect(workspace.discoveryStartUnavailableReason(for: .boundaryPositiveX) == nil)
     await workspace.shutdown()
@@ -1126,12 +1106,12 @@ extension OperatorWorkspaceTests {
   @Test("shutdown stops an active boundary before draining and erasing its authority")
   func authorityClearingStopsBeforeErasure() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(
@@ -1188,8 +1168,8 @@ extension OperatorWorkspaceTests {
     "announcement failure is advisory and Exercise 1.1 preserves output-before-actuation order")
   func announcementFailureDoesNotGatePenInteraction() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let speechAnnouncer = ScriptedSpeechAnnouncer(
       log: log,
       outcomes: [.failed("output unavailable"), .completed]
@@ -1201,8 +1181,8 @@ extension OperatorWorkspaceTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
@@ -1230,10 +1210,10 @@ extension OperatorWorkspaceTests {
   @Test("review projections are inert and preserve the runtime current owner")
   func reviewProjectionIsInert() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
+    let machine = try LowerMachineSessionFixture(log: log)
     let workspace = workspace(machine: machine, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
 
     let current = workspace.testCurrentLearningPathItemID
     let transactionCount = workspace.discoveryTransactions.count
@@ -1265,12 +1245,12 @@ extension OperatorWorkspaceTests {
   @Test("Boundary Cancel is unavailable until its movement owner settles")
   func boundaryCancelUnavailableDuringMotion() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
@@ -1477,8 +1457,8 @@ private actor ManualMotionStopOperation {
 
 private func manualMotionReceiptActions(
   operation: @escaping @Sendable () async -> Void
-) -> OperatorWorkspace.MachineActions {
-  OperatorWorkspace.MachineActions(
+) -> (any PlotterMachineSession) {
+  ClosurePlotterMachineSession(
     select: { _ in throw ManualMotionReceiptTestError.unused },
     snapshot: { nil },
     requestPassiveProbe: { throw ManualMotionReceiptTestError.unused },
@@ -1573,10 +1553,10 @@ private final class BoundaryCenterArrivalObservationWaiter {
 }
 
 private func manualMotionWorkspaceActions(
-  machine: MachineFixture,
+  machine: LowerMachineSessionFixture,
   beginRelativeJog: (@Sendable (RelativeJogRequest) async -> RelativeJogAdmission)? = nil
-) -> OperatorWorkspace.MachineActions {
-  OperatorWorkspace.MachineActions(
+) -> (any PlotterMachineSession) {
+  ClosurePlotterMachineSession(
     select: { _ in await machine.snapshot() },
     snapshot: { await machine.snapshot() },
     requestPassiveProbe: { await machine.passiveProbeResult() },

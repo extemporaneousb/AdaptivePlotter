@@ -39,7 +39,7 @@ struct PlotterBoundaryComposition: Sendable {
 
   @MainActor
   static func make(
-    machineActions: OperatorWorkspace.MachineActions,
+    machineSession: (any PlotterMachineSession),
     causalSimulator: PlotterCausalSimulatorEffectAdapter,
     checkpointActions: OperatorWorkspace.AcceptedLearningPathCheckpointActions,
     speechEffectRuntime: PlotterSpeechEffectRuntime
@@ -48,7 +48,7 @@ struct PlotterBoundaryComposition: Sendable {
     let runtime = PlotterBoundaryRuntime(
       factSource: relay,
       effectPort: OperatorWorkspaceBoundaryEffectPort(
-        actions: machineActions,
+        actions: machineSession,
         causalSimulator: causalSimulator,
         speechEffectRuntime: speechEffectRuntime
       ),
@@ -68,13 +68,13 @@ private actor OperatorWorkspaceBoundaryEffectPort: PlotterBoundaryEffectPort {
     case simulated(PlotterCausalSimulatorOperation, isBoundary: Bool)
   }
 
-  private let actions: OperatorWorkspace.MachineActions
+  private let actions: (any PlotterMachineSession)
   private let causalSimulator: PlotterCausalSimulatorEffectAdapter
   private let speechEffectRuntime: PlotterSpeechEffectRuntime
   private var owners: [UUID: LowerOwner] = [:]
 
   init(
-    actions: OperatorWorkspace.MachineActions,
+    actions: (any PlotterMachineSession),
     causalSimulator: PlotterCausalSimulatorEffectAdapter,
     speechEffectRuntime: PlotterSpeechEffectRuntime
   ) {
@@ -166,7 +166,7 @@ private actor OperatorWorkspaceBoundaryEffectPort: PlotterBoundaryEffectPort {
       segment: RelativeJogRequest(delta: delta, feedMMPerMinute: 500),
       renewalBounds: .fixed(50)
     )
-    switch await actions.beginBoundaryMotion(request, nil) {
+    switch await actions.beginBoundaryMotion(request, renewalPlanner: nil) {
     case .admitted(let operation):
       let id = UUID()
       owners[id] = .liveSide(operation)

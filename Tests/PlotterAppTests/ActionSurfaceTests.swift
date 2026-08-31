@@ -236,7 +236,7 @@ func stage33AcceptancePreservesLockedViewport() async throws {
       frameHeight: frame.frame.height
     )
   )
-  await workspace.setVideoAnalysisRegion(lockedRegion, for: frame)
+  await submitObservationConfigurationForTest(workspace, .setRegion(lockedRegion, displayedFrame: frame))
   #expect(workspace.videoAnalysisRegionLock?.region == lockedRegion)
   #expect(workspace.testActionSurfacePresentation.analysisRegionIsLocked)
 

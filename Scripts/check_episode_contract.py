@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "7926bcaaf91f544e3416e2ffc0c84fb2539dcce89b9eefc683c6b5abee5f60af"
+EXPECTED_LEDGER_SHA256 = "0dc480ce0d950fddaccca234f1703f2a6d6807f2668600890d52ce8e351d983d"
 
 
 EXPECTED_GATES = {
@@ -216,6 +216,9 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-10D",
     "EA-10E",
     "EA-10F",
+    "TRANCHE-DEVICE-ENVIRONMENT",
+    "EA-11A",
+    "EA-11B",
 }
 
 TRANCHE_SLICES = {
@@ -778,7 +781,7 @@ def validate_architecture(text: str) -> None:
         "A fact or admission refusal settles that same minted owner into one terminal refusal with zero lower effect",
         "One runtime-owned `operationTasks` lane per environment performs retained Pen Up normalization before side acquisition and center travel, lower settlement, and terminal publication",
         "`PlotterBoundaryAdmissionGate` and `PlotterBoundaryTerminalPublicationGate` can hold only the post-reservation/pre-fact and post-lower/pre-publication scheduling boundaries",
-        "The nominal `PlotterBoundaryComposition` adapts LIVE side acquisition to the retained `MachineActions`/`RunInterpreter` fixed 50 mm renewal and controller Stop owner",
+        "The nominal `PlotterBoundaryComposition` adapts LIVE side acquisition to the retained `PlotterMachineSession`/`RunInterpreter` fixed 50 mm renewal and controller Stop owner",
         "SIMULATED invokes no LIVE lower effect or persistence and publishes explicitly nonphysical truth",
         "Persistence failure retains an identity-bound recovery capability and staged candidate; recovery retries publication only and never resends motion",
         "`PlotterBoundaryProjectionSink` is Sendable and the runtime-owned weak sink publishes immutable snapshots without a workspace observer Task, latch, retry, unchecked relay, or effect authority",
@@ -796,7 +799,7 @@ def validate_architecture(text: str) -> None:
         "`PlotterBoundaryRuntime` refuses `.centerRetryMismatch(expected:submitted:)`",
         "`.centerArrivalAlreadyAccepted` after accepted arrival, with zero lower effect",
         "LIVE advisory preparation is a runtime-invoked pre-admission port step",
-        "reacquires the complete external effect identity immediately before `MachineActions.beginBoundaryMotion`",
+        "reacquires the complete external effect identity immediately before `PlotterMachineSession.beginBoundaryMotion`",
         "`beginShutdown()` closes admission",
         "cancels retained speech before `shutdown()` joins the operation task",
         "retained Pen admission route checks shutdown both at entry and after each suspension before it creates a `DiscoveryTransaction`",
@@ -1708,6 +1711,10 @@ def _validate_legacy_evidence_archive(text: str, rows: dict[str, dict[str, objec
                 for phrase in ("four P1 red-lines", "without a critic recheck"):
                     if phrase not in detailed_gates["CRITIC"]:
                         fail(f"{package_id} CRITIC detail lacks landed red-line history: {phrase}")
+            elif package_id == "TRANCHE-DEVICE-ENVIRONMENT":
+                for phrase in ("three red-lines", "no deferrals", "all repaired", "without a critic recheck"):
+                    if phrase not in detailed_gates["CRITIC"]:
+                        fail(f"{package_id} CRITIC detail lacks staged red-line repair history: {phrase}")
             elif "UNANIMOUS PASS — no material disagreement" not in detailed_gates["CRITIC"]:
                 fail(f"{package_id} CRITIC detail lacks the exact unanimous verdict")
         if "ARCHIVED" in detailed_gates and "d33d4ff" not in detailed_gates["ARCHIVED"]:
@@ -2632,7 +2639,7 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "`TASK-2F141403` → `FIX-04` → `removed-package`",
         "`TASK-D2DFC053` → `GATE-01` → `dependency-ineligible-package`",
         "unknown or unverifiable replay identity",
-        "the verified ordinary frontier is `TRANCHE-DEVICE-ENVIRONMENT`, which now depends on complete `TRANCHE-LEARNING`",
+        "The Device tranche now has a staged completion transaction, so the executable ordinary frontier is `TRANCHE-FINAL-COMPOSITION` only after successful Blackdog landing of that exact Device candidate",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3176,6 +3183,21 @@ def validate_wave_frontier(
                 fail(f"landed Learning tranche lacks successor-frontier evidence: {phrase}")
         if blockers:
             fail("landed Learning tranche must not retain an ordinary-wave blocker")
+        return
+
+    if selected == "TRANCHE-FINAL-COMPOSITION":
+        for phrase in (
+            "TRANCHE-DEVICE-ENVIRONMENT staged completion transaction",
+            "`TASK-4C16F56F`",
+            "`TASK-4C16F56F-8af99cc51c68`",
+            "successful Blackdog landing",
+            "`TRANCHE-FINAL-COMPOSITION`",
+            "No successor dispatch is authorized",
+        ):
+            if phrase not in normalized:
+                fail(f"staged Device tranche lacks successor-frontier evidence: {phrase}")
+        if blockers:
+            fail("staged Device tranche must not retain an ordinary-wave blocker")
         return
 
     if selected is not None:

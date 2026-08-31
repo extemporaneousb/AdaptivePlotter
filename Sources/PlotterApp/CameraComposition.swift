@@ -1,4 +1,5 @@
 import Foundation
+import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
@@ -6,10 +7,10 @@ import PlotterRuntime
 struct OperatorWorkspaceDrawingRunCameraPort:
   PlotterDrawingRunCameraPort, PlotterDrawingRunVisionPort
 {
-  let actions: OperatorWorkspace.CameraActions
+  let session: any PlotterObservationCameraSessionPort
 
   func captureFrame(newerThan captureNanoseconds: UInt64) async throws -> DisplayedFrame {
-    guard let frame = try await actions.captureFrame(captureNanoseconds),
+    guard let frame = try await session.captureFrame(newerThanNanoseconds: captureNanoseconds),
       frame.frame.captureNanoseconds > captureNanoseconds
     else { throw LearningPathOperationError.freshFrameUnavailable }
     return frame
@@ -18,81 +19,115 @@ struct OperatorWorkspaceDrawingRunCameraPort:
   func observePlannedDrawingInk(
     _ request: PlannedDrawingObservationRequest
   ) async -> PlannedDrawingObservationOutcome {
-    guard let observe = actions.observePlannedDrawingInk else {
-      preconditionFailure("The production Drawing Run composition requires Vision observation.")
+    return await session.observePlannedDrawingInk(request)
+  }
+}
+
+protocol PlotterObservationCameraSessionPort: Sendable {
+  func discover() async -> CameraCaptureSnapshot
+  func select(_ id: CameraDeviceID) async throws -> CameraCaptureSnapshot
+  func start() async -> CameraCaptureSnapshot
+  func startLifecycle() async -> PlotterObservationCameraLifecycleResult
+  func stop() async -> CameraCaptureSnapshot
+  func restart() async -> CameraCaptureSnapshot
+  func snapshot() async -> CameraCaptureSnapshot
+  func frames() async -> AsyncStream<DisplayedFrame>
+  func inspectWorkflowScene(
+    newerThanNanoseconds boundary: UInt64,
+    requestedFeatures: SceneFeatureSet,
+    analysisRegion: PixelRect?
+  ) async throws -> LiveSceneInspection?
+  func captureFrame(newerThanNanoseconds boundary: UInt64) async throws -> DisplayedFrame?
+  func captureStableWorkflowCap(
+    _ request: StableWorkflowCapCaptureRequest
+  ) async throws -> StableWorkflowCapInspection
+  func setSceneAnalysisRegion(_ region: PixelRect?) async
+  func setPenCapColor(_ color: PenCapColor) async
+  func setAutomaticInspection(
+    _ cadence: VisionAnalysisCadence?,
+    requestedFeatures: SceneFeatureSet
+  ) async -> PlotterSceneAnalysisSnapshot
+  func analysisUpdates() async -> AsyncStream<PlotterSceneAnalysisSnapshot>
+  func visionDiagnostics() async -> CameraSourceSessionVisionDiagnostics
+  func observePlannedDrawingInk(
+    _ request: PlannedDrawingObservationRequest
+  ) async -> PlannedDrawingObservationOutcome
+}
+
+struct PlotterObservationCameraLifecycleResult: Sendable {
+  let snapshot: CameraCaptureSnapshot
+  let requestedStream: CameraStreamIdentity?
+  let settledStream: CameraStreamIdentity?
+
+  /// A camera configuration is not authoritative until the lower camera owner
+  /// returns an exact frame carrying both source and configuration identity.
+  /// Absence therefore remains nil instead of borrowing a pre-start frame.
+  static func exactFrameBacked(
+    _ snapshot: CameraCaptureSnapshot
+  ) -> PlotterObservationCameraLifecycleResult {
+    let stream: CameraStreamIdentity?
+    if case .running = snapshot.state, let frame = snapshot.latestFrame {
+      stream = CameraStreamIdentity(
+        source: CameraSourceIdentity(rawValue: String(describing: frame.source)),
+        configuration: CameraConfigurationIdentity(
+          rawValue: frame.frame.cameraConfigurationID.rawValue
+        )
+      )
+    } else {
+      stream = nil
     }
-    return await observe(request)
+    return .init(snapshot: snapshot, requestedStream: stream, settledStream: stream)
+  }
+}
+
+extension PlotterObservationCameraSessionPort {
+  func startLifecycle() async -> PlotterObservationCameraLifecycleResult {
+    .exactFrameBacked(await start())
   }
 }
 
 enum CameraComposition {
   private static let session = CameraSourceSession()
 
-  static let actions = makeActions(session: session)
+  static let observationSession: any PlotterObservationCameraSessionPort = session
+  static let recordingStore: EpisodeRecordingStore? = {
+    let id = EpisodeRecordingID(rawValue: UUID())
+    do {
+      let base = try FileManager.default.url(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask,
+        appropriateFor: nil,
+        create: true
+      )
+      let directory = base
+        .appendingPathComponent("AdaptivePlotter", isDirectory: true)
+        .appendingPathComponent("EpisodeRecordings", isDirectory: true)
+        .appendingPathComponent(id.rawValue.uuidString, isDirectory: true)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      return try EpisodeRecordingStore.open(
+        directoryURL: directory,
+        recordingID: id,
+        schemaRevision: EpisodeRecordingSchemaRevision(
+          rawValue: "adaptive-plotter-observation-configuration-v1"
+        ),
+        frameRetentionPolicy: EpisodeFrameRetentionPolicy(
+          maximumUniqueFrameCount: 256,
+          maximumTotalUniqueFrameBytes: 1_024 * 1_024 * 1_024
+        )
+      )
+    } catch {
+      return nil
+    }
+  }()
 
   /// Produces an independently owned camera/vision composition for tests that
   /// exercise multiple workspaces concurrently in one process. Production uses
   /// `actions`, whose single session remains the application-wide hardware
   /// authority.
-  static func makeIsolatedActionsForTesting() -> OperatorWorkspace.CameraActions {
-    makeActions(session: CameraSourceSession())
-  }
-
-  private static func makeActions(session: CameraSourceSession) -> OperatorWorkspace.CameraActions {
-    OperatorWorkspace.CameraActions(
-      discover: {
-        await session.discover()
-      },
-      select: { id in
-        try await session.select(id)
-      },
-      start: {
-        await session.start()
-      },
-      stop: {
-        await session.stop()
-      },
-      restart: {
-        await session.restart()
-      },
-      snapshot: {
-        await session.snapshot()
-      },
-      frames: {
-        await session.frames()
-      },
-      inspectWorkflowScene: { boundary, features, region in
-        try await session.inspectWorkflowScene(
-          newerThanNanoseconds: boundary,
-          requestedFeatures: features,
-          analysisRegion: region
-        )
-      },
-      captureFrame: { boundary in
-        try await session.captureFrame(newerThanNanoseconds: boundary)
-      },
-      captureStableWorkflowCap: StableWorkflowCapCaptureRunner { request in
-        try await session.captureStableWorkflowCap(request)
-      },
-      setSceneAnalysisRegion: { region in
-        await session.setSceneAnalysisRegion(region)
-      },
-      setPenCapColor: { color in
-        await session.setPenCapColor(color)
-      },
-      setAutomaticInspection: { cadence, features in
-        await session.setAutomaticInspection(cadence, requestedFeatures: features)
-      },
-      analysisUpdates: {
-        await session.analysisUpdates()
-      },
-      visionDiagnostics: {
-        await session.visionDiagnostics()
-      },
-      observePlannedDrawingInk: { request in
-        await session.observePlannedDrawingInk(request)
-      },
-    )
+  static func makeIsolatedObservationSessionForTesting()
+    -> any PlotterObservationCameraSessionPort
+  {
+    CameraSourceSession()
   }
 }
 func boundedlyAwaitNewestCameraValue<Value: Sendable>(
@@ -208,7 +243,7 @@ struct CameraSourceSessionVisionLeaseScope: Sendable {
   }
 }
 
-actor CameraSourceSession {
+actor CameraSourceSession: PlotterObservationCameraSessionPort {
   private struct VisionComputationLease: Sendable {
     let id: UUID
     let previewPauseToken: CameraPreviewPauseToken
@@ -564,13 +599,17 @@ actor CameraSourceSession {
 
   private func pauseAutomaticInspection() async {
     let pipelineIsRunning = await analysisPipeline.snapshot().state != .stopped
-    guard automaticInspectionFrameTask != nil || pipelineIsRunning else { return }
+    let frameTask = automaticInspectionFrameTask
+    guard frameTask != nil || pipelineIsRunning else { return }
     automaticPauseCallCount &+= 1
-    if automaticInspectionFrameTask != nil {
+    if frameTask != nil {
       automaticFrameSubscriptionCancellationCount &+= 1
     }
-    automaticInspectionFrameTask?.cancel()
     automaticInspectionFrameTask = nil
+    if let frameTask {
+      frameTask.cancel()
+      _ = await frameTask.value
+    }
     await analysisPipeline.stop()
   }
 

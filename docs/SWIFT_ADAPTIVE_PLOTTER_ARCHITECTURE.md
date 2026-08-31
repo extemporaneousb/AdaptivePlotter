@@ -626,6 +626,24 @@ link at `PersistentMachineSession` composition; the decorator reports exact
 transport facts only to the currently attached operation-bound recorder and
 returns the native receipts and failures unchanged.
 
+`PlotterControllerSessionRuntime` is the one typed controller-session
+admission, request-ordering, refusal, active-task, terminal-disposition, and
+shutdown owner. `PlotterControllerSessionIntent` and its identity-bound request
+enter through `PlotterControllerSessionIntentSink`; the runtime projects the
+immutable controller-session reference, availability, connection, alarm, and
+Motion status through `PlotterControllerSessionRules`. Its nominal lower port
+is `PlotterMachineSession`, composed in production as
+`PersistentMachineSession`; that lower session retains
+`MachineController`/`RunInterpreter`, transport, serial-device, alarm-clear,
+and effect authority. `OperatorWorkspace` supplies copied external facts and
+projects the runtime result, but it is not a parallel controller-session
+admission or task owner. SwiftUI reads
+`controllerSessionProjection` and submits a typed request only through
+`submitControllerSessionRequest`; explicit connection, passive-probe,
+alarm-clear, and Motion-authorisation actions therefore cannot become arbitrary
+workspace closure calls. Shutdown closes the runtime before the lower session is
+retired, so no request can start after cancellation.
+
 `CameraCapture` owns device discovery, authorization, selection, capture
 sessions, exact stamped frames, and scoped preview publication holds. A hold
 does not stop raw capture. Exact workflow capture materializes the newest raw
@@ -635,14 +653,38 @@ Publication is active-generation checked and idempotent. `VisionWorker` owns
 bounded inference and returns measurements; it never supplies motion or click
 authority.
 
-`CameraSourceSession` owns automatic-analysis configuration and exclusive Vision
-leases. Reapplying identical cadence/features, analysis region, or cap color is
-a no-op; it does not restart the pipeline or its frame subscription. Semantic
+`CameraSourceSession` owns automatic-analysis configuration, the sole
+`automaticInspectionFrameTask` that ingests automatic-pipeline frames, and
+exclusive Vision leases. Reapplying identical cadence/features, analysis region,
+or cap color is a no-op; it does not restart the pipeline or its frame
+subscription. Semantic
 pipeline revisions are pushed to `OperatorWorkspace`. Video Settings counters
 and lifecycle statistics are pull-only diagnostics and do not invalidate the
 Learning presentation. One caller-supplied exact workflow batch owns one lease
 from preview hold through automatic-analysis restoration, including failure or
 cancellation settlement.
+
+`PlotterObservationConfigurationRuntime` is the one typed
+observation-source/configuration admission, ordering, ambient-subscription,
+recording, refusal, and shutdown owner. `PlotterObservationOperatorIntent` is
+submitted with an immutable
+`PlotterObservationConfigurationReference`; the runtime returns a typed
+disposition and publishes camera/frame/analysis/diagnostic events. Its nominal
+lower port is `PlotterObservationCameraSessionPort`, composed as
+`CameraSourceSession`. `CameraCapture` retains device and exact-frame ownership,
+`CameraSourceSession` retains source and exclusive-Vision-lease ownership,
+`VisionWorker` retains inference, and `PlotterSceneAnalysisPipeline` retains
+newest-only analysis state and progress. The runtime owns distinct
+`frameSubscription` frame-event/recording observation and `analysisSubscription`
+semantic-analysis-update observation, while `CameraSourceSession` alone owns
+automatic frame ingestion. `OperatorWorkspace` owns the presentation-only
+`observationProjectionTask` that installs copied immutable snapshots. The one
+residual workspace source-change refusal is a pre-submission conflict
+projection, not a second source/configuration owner. SwiftUI reads
+`observationConfigurationProjection` and submits only through
+`submitObservationConfiguration`. Stop, source selection/restart, cadence,
+region, overlay, and diagnostics remain explicit typed actions; none retries or
+redraws automatically.
 
 `NativeSpeechAnnouncer` owns lower AVFoundation speech synthesis,
 identity-bound queueing, bounded timeout/completion, and shutdown cancellation.
@@ -700,8 +742,9 @@ separately from automatic overlay analysis. Supervised Pen-Up travel does not
 acquire an exact Vision lease and therefore never claims that Vision owns
 processing or that preview is held merely because motion is active.
 
-`OperatorWorkspace` is the single `@Observable` application owner. It composes
-controller/camera actors through typed actions, owns Learning Path attempts,
+`OperatorWorkspace` is the `@Observable` application composition and
+presentation owner. It composes controller/camera actors through typed actions,
+owns the retained Learning Path attempts,
 commits the retained artifact dependency graph, routes view intent, and reads
 current copied state into `PlotterUICompilerInput` and publishes one immutable
 `PlotterUIProjection`. For EA-04 it owns a
@@ -1213,7 +1256,7 @@ tests. They cannot admit, choose, cancel, execute, settle, persist, or publish
 work and require no sleep, polling, or `Task.yield`.
 
 The nominal `PlotterBoundaryComposition` adapts LIVE side acquisition to the
-retained `MachineActions`/`RunInterpreter` fixed 50 mm renewal and controller
+retained `PlotterMachineSession`/`RunInterpreter` fixed 50 mm renewal and controller
 Stop owner, and SIMULATED acquisition to the retained EA-07
 `PlotterCausalSimulatorEffectAdapter`. Center travel retains its lower supervised
 travel/Pen owner. LIVE revalidates exact effect facts before lower execution and
@@ -1221,7 +1264,7 @@ requires controller-settled Idle/final MPos for acceptance. SIMULATED invokes no
 LIVE lower effect or persistence and publishes explicitly nonphysical truth.
 The LIVE side adapter derives the retained advisory from
 `DiscoverySequenceCatalog`, submits it through the typed
-`PlotterSpeechEffectRuntime` before `MachineActions.beginBoundaryMotion`, and
+`PlotterSpeechEffectRuntime` before `PlotterMachineSession.beginBoundaryMotion`, and
 proceeds when its advisory-only result settles. `NativeSpeechAnnouncer` remains
 the lower synthesis/identity-queue/timeout owner; no workspace announcement
 route remains. Historical EA-10B record only: the former composition-only
@@ -1256,7 +1299,7 @@ LIVE advisory preparation is a runtime-invoked pre-admission port step, not
 part of lower `admitSide`. After the awaited advisory the runtime rechecks the
 exact cancellation/shutdown owner, republishes the pre-motion phase, and
 reacquires the complete external effect identity immediately before
-`MachineActions.beginBoundaryMotion`. `beginShutdown()` closes admission and
+`PlotterMachineSession.beginBoundaryMotion`. `beginShutdown()` closes admission and
 records the first-winning cancellation without joining; App composition then
 cancels retained speech before `shutdown()` joins the operation task. Stop or
 shutdown during suspended speech therefore settles without lower admission.
@@ -1569,6 +1612,26 @@ persists the immutable admitted paper plan before in-memory projection.
 `AcceptedLearningPathLegacyMigrationAdapter` saves canonical state before
 reversible legacy cleanup and preserves legacy bytes if cleanup fails. The
 deleted legacy stores are not compatibility owners.
+
+## Current device-environment authority slices
+
+The pending `TRANCHE-DEVICE-ENVIRONMENT` candidate has two as-built typed
+authority slices, but has not yet passed its tranche boundary gates or landed.
+EA-11A routes controller-session operator requests through
+`PlotterControllerSessionRuntime` and the nominal `PlotterMachineSession` lower
+port. EA-11B routes observation-source/configuration requests through
+`PlotterObservationConfigurationRuntime` and the nominal
+`PlotterObservationCameraSessionPort`. Neither transfer changes the retained
+lower ownership of `MachineController`, `RunInterpreter`, `CameraCapture`,
+`CameraSourceSession`, `VisionWorker`, `PlotterSceneAnalysisPipeline`, or the
+exact-frame/evidence applicability owners. EA-11B leaves automatic pipeline
+frame ingestion at `CameraSourceSession.automaticInspectionFrameTask`, keeps
+runtime frame/analysis observation separate, and keeps newest-only pipeline
+state/progress at `PlotterSceneAnalysisPipeline`. Both runtimes bind request
+identity, refuse stale or closed admission, own their bounded task/subscription
+work, and close admission before shutdown settlement. App and SwiftUI hold only immutable
+projections plus typed request sinks; they do not recreate arbitrary closure
+facades or a second semantic effect authority.
 
 ## Drawing Studio ownership
 

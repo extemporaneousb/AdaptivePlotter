@@ -12,7 +12,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
   @Test("presentation probes expose current recomputation owners without fixed cost assertions")
   func presentationProbeBaseline() async throws {
     let log = EventLog()
-    let workspace = workspace(machine: try MachineFixture(log: log), log: log)
+    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), log: log)
     workspace.resetComputationDiagnosticsForTesting()
 
     let current = workspace.testCurrentLearningPathItemID
@@ -45,7 +45,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
   @Test("one semantic revision reuses Learning selection and Action Surface caches")
   func presentationCacheReuse() async throws {
     let log = EventLog()
-    let workspace = workspace(machine: try MachineFixture(log: log), log: log)
+    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), log: log)
     workspace.resetComputationDiagnosticsForTesting()
 
     let current = workspace.testCurrentLearningPathItemID
@@ -84,7 +84,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
   @Test("cached projection matches an uncached projector after representative transitions")
   func cachedProjectionParity() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
+    let machine = try LowerMachineSessionFixture(log: log)
     let workspace = workspace(machine: machine, log: log)
 
     func expectParity(_ selected: LearningPathItemID) {
@@ -97,9 +97,9 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
 
     expectParity(.humanGuidedDiscovery(.penInteraction))
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     expectParity(.humanGuidedDiscovery(.penInteraction))
-    await workspace.performMotionAuthorizationAction()
+    await submitControllerSession(workspace, .toggleMotionAuthorization)
     expectParity(.humanGuidedDiscovery(.penInteraction))
     await workspace.submitTestPlotterUIAction(PlotterAppUIActionID.learningMode)
     try await waitUntil { !workspace.testLearningIsEnabled }
@@ -113,8 +113,8 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
   @Test("Exercise 1.4 batch consumes typed outcomes without per-segment recomputation")
   func stageThreeFourBatchConsumesTypedOutcomes() async throws {
     let log = EventLog()
-    let camera = try CameraFixture()
-    let machine = try MachineFixture(
+    let camera = try TestObservationCameraSession()
+    let machine = try LowerMachineSessionFixture(
       log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0),
       positionObserver: { camera.trackMachinePosition($0) }
@@ -127,8 +127,8 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
@@ -147,7 +147,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       centerArrivalIsAccepted: false
     )
     try await machine.setPosition(x: 100, y: 50)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
 
     let boundaryOwner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
@@ -265,22 +265,22 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
   @Test("one hundred pull-only Vision diagnostics refreshes preserve the Learning base")
   func diagnosticsOnlyAnalysisPreservesLearningBase() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(
       machine: machine,
-      cameraActionsOverride: cameraActions(camera),
+      observationSessionOverride: resolvedObservationSession(camera),
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     workspace.resetComputationDiagnosticsForTesting()
     _ = workspace.currentExerciseActionStripPresentation
     let baseline = workspace.computationDiagnosticsForTesting
 
     for _ in 0..<100 {
-      await workspace.refreshVideoDiagnostics()
+      await submitObservationConfigurationForTest(workspace, .requestDiagnostics)
       _ = workspace.currentExerciseActionStripPresentation
     }
 
@@ -300,17 +300,17 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
   @Test("held exact workflow publishes its typed Vision owner and suspends overlays")
   func heldExactWorkflowPublishesTypedOwner() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let gate = CameraInspectionGate()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
+    let gate = TestInspectionSuspension()
     let workspace = workspace(
       machine: machine,
-      cameraActionsOverride: cameraActions(camera, inspectionGate: gate),
+      observationSessionOverride: resolvedObservationSession(camera, inspectionGate: gate),
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
@@ -355,20 +355,20 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
   func heldPenUpWithAnalysisTraffic() async throws {
     let log = EventLog()
     let gate = PenRequestGate()
-    let machine = try MachineFixture(log: log, penRequestGate: gate)
-    let camera = try CameraFixture()
-    let traffic = CameraAnalysisTrafficFixture()
+    let machine = try LowerMachineSessionFixture(log: log, penRequestGate: gate)
+    let camera = try TestObservationCameraSession()
+    let traffic = TestAnalysisUpdateSource()
     let workspace = workspace(
       machine: machine,
-      cameraActionsOverride: cameraActions(
+      observationSessionOverride: resolvedObservationSession(
         camera,
         analysisUpdates: { traffic.updates() }
       ),
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     try await waitForExecutorTurns(
       conditionDescription: "initial analysis subscription"
     ) {
@@ -408,20 +408,20 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
   @Test("Boundary Stop remains published while bounded analysis revisions arrive")
   func heldBoundaryWithAnalysisTraffic() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let traffic = CameraAnalysisTrafficFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
+    let traffic = TestAnalysisUpdateSource()
     let workspace = workspace(
       machine: machine,
-      cameraActionsOverride: cameraActions(
+      observationSessionOverride: resolvedObservationSession(
         camera,
         analysisUpdates: { traffic.updates() }
       ),
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     try await waitForExecutorTurns(
       conditionDescription: "initial analysis subscription"
     ) {
@@ -493,13 +493,13 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
   @Test("typed Boundary center travel can settle naturally after bounded analysis traffic")
   func heldSupervisedTravelWithAnalysisTraffic() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
-    let traffic = CameraAnalysisTrafficFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
+    let traffic = TestAnalysisUpdateSource()
     let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()
     let workspace = workspace(
       machine: machine,
-      cameraActionsOverride: cameraActions(
+      observationSessionOverride: resolvedObservationSession(
         camera,
         analysisUpdates: { traffic.updates() }
       ),
@@ -507,8 +507,8 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     try await waitForExecutorTurns(
       conditionDescription: "initial analysis subscription"
     ) {
@@ -537,7 +537,7 @@ struct OperatorWorkspaceComputationDiagnosticsTests {
       centerArrivalIsAccepted: false
     )
     try await machine.setPosition(x: 100, y: 50)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     let owner = LearningPathItemID.humanGuidedDiscovery(
       .pairedBoundaryDiscoveryAndCentering
     )

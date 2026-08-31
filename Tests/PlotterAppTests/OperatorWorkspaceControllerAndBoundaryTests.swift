@@ -13,7 +13,7 @@ extension OperatorWorkspaceTests {
     let fixture = AlarmClearWorkspaceFixture()
     let descriptor = fixture.descriptor
     let workspace = OperatorWorkspace(
-      machineActions: .init(
+      machineSession: ClosurePlotterMachineSession(
         select: { _ in await fixture.select() },
         snapshot: { await fixture.snapshot() },
         requestPassiveProbe: { await fixture.requestPassiveProbe() },
@@ -38,21 +38,20 @@ extension OperatorWorkspaceTests {
       incidentPackageUIService: nominalIncidentPackageUIService(),
       serialDevices: [descriptor],
       serialDeviceDiscovery: { [descriptor] },
-      loadSelectedSerialIdentifier: { descriptor.identifier },
-      persistSelectedSerialIdentifier: { _ in }
     )
 
-    await workspace.performControllerConnectionAction()
+    await submitControllerSession(workspace, .selectSerialDevice(descriptor))
+    await submitControllerSession(workspace, .toggleConnection)
 
-    #expect(!workspace.controllerSessionEstablished)
-    #expect(!workspace.motionAuthorizationEnabled)
-    #expect(workspace.controllerAlarmEvidenceText == "ALARM:1")
-    #expect(workspace.controllerAttentionText == "Controller alarm: ALARM:1")
-    #expect(workspace.controllerLimitInputsText == "clear — sampled Pn has no X/Y/Z")
+    #expect(!workspace.controllerSessionProjection.sessionEstablished)
+    #expect(!workspace.controllerSessionProjection.motionAuthorized)
+    #expect(workspace.controllerSessionProjection.controllerAlarmEvidenceText == "ALARM:1")
+    #expect(workspace.controllerSessionProjection.controllerAttentionText == "Controller alarm: ALARM:1")
+    #expect(workspace.controllerSessionProjection.controllerLimitInputsText == "clear — sampled Pn has no X/Y/Z")
     #expect(
-      workspace.controllerAlarmUnlockReadinessText == "armed — manual clear available"
+      workspace.controllerSessionProjection.controllerAlarmUnlockReadinessText == "armed — manual clear available"
     )
-    #expect(workspace.controllerAlarmClearActionUnavailableReason == nil)
+    #expect(workspace.controllerSessionProjection.alarmClearUnavailableReason == nil)
     let expectedRequestStatus = MotionRequestStatusPresentation.needsAttention(
       "Controller alarm: ALARM:1"
     )
@@ -73,14 +72,14 @@ extension OperatorWorkspaceTests {
     #expect(controllerStatus.detail == [PresentationFragment.text("Controller alarm: ALARM:1")])
     #expect(await fixture.actions == ["select", "probe:alarm"])
 
-    await workspace.clearControllerAlarm()
+    await submitControllerSession(workspace, .clearAlarm)
 
     #expect(await fixture.actions == ["select", "probe:alarm", "clear-alarm", "probe:ready"])
-    #expect(workspace.controllerAlarmEvidenceText == nil)
-    #expect(workspace.controllerAttentionText == nil)
-    #expect(workspace.controllerSessionEstablished)
-    #expect(!workspace.motionAuthorizationEnabled)
-    #expect(workspace.motionGuardActivationUnavailableReason == nil)
+    #expect(workspace.controllerSessionProjection.controllerAlarmEvidenceText == nil)
+    #expect(workspace.controllerSessionProjection.controllerAttentionText == nil)
+    #expect(workspace.controllerSessionProjection.sessionEstablished)
+    #expect(!workspace.controllerSessionProjection.motionAuthorized)
+    #expect(workspace.controllerSessionProjection.motionAuthorizationUnavailableReason == nil)
     #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason
       == "Enable Motion before requesting movement.")
     #expect(
@@ -95,7 +94,7 @@ extension OperatorWorkspaceTests {
     let fixture = AlarmClearWorkspaceFixture(alarmPins: "X")
     let descriptor = fixture.descriptor
     let workspace = OperatorWorkspace(
-      machineActions: .init(
+      machineSession: ClosurePlotterMachineSession(
         select: { _ in await fixture.select() },
         snapshot: { await fixture.snapshot() },
         requestPassiveProbe: { await fixture.requestPassiveProbe() },
@@ -120,22 +119,21 @@ extension OperatorWorkspaceTests {
       incidentPackageUIService: nominalIncidentPackageUIService(),
       serialDevices: [descriptor],
       serialDeviceDiscovery: { [descriptor] },
-      loadSelectedSerialIdentifier: { descriptor.identifier },
-      persistSelectedSerialIdentifier: { _ in }
     )
 
-    await workspace.performControllerConnectionAction()
+    await submitControllerSession(workspace, .selectSerialDevice(descriptor))
+    await submitControllerSession(workspace, .toggleConnection)
 
-    #expect(workspace.controllerLimitInputsText == "asserted — Pn:X")
+    #expect(workspace.controllerSessionProjection.controllerLimitInputsText == "asserted — Pn:X")
     #expect(
-      workspace.controllerAlarmUnlockReadinessText
+      workspace.controllerSessionProjection.controllerAlarmUnlockReadinessText
         == "blocked — Pn:X is physically asserted"
     )
     #expect(
-      workspace.controllerAlarmClearActionUnavailableReason
+      workspace.controllerSessionProjection.alarmClearUnavailableReason
         == ControllerAlarmClearRefusal.axisLimitAsserted("X").actionableDescription
     )
-    await workspace.clearControllerAlarm()
+    await submitControllerSession(workspace, .clearAlarm)
     #expect(await fixture.actions == ["select", "probe:alarm"])
     await workspace.shutdown()
   }
@@ -152,19 +150,19 @@ extension OperatorWorkspaceTests {
   @Test("unknown pen still admits an operator-authored manual direction request")
   func unknownPenAllowsManualMotion() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(
+    let machine = try LowerMachineSessionFixture(
       log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
     await machine.setPenState(.unknown)
     let workspace = workspace(machine: machine, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
 
     #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
     await workspace.submitTestManualJog(.xPositive)
 
-    #expect(workspace.machinePositionText == "X 50.000   Y 0.000")
+    #expect(workspace.controllerSessionProjection.machinePositionText == "X 50.000   Y 0.000")
     #expect(await machine.requestedFeeds == [500])
     #expect(await machine.requestedDrawingStrokes.isEmpty)
     await workspace.shutdown()
@@ -174,13 +172,13 @@ extension OperatorWorkspaceTests {
   func manualPenDownSquare() async throws {
     let log = EventLog()
     let telemetry = WorkflowTelemetryFixture()
-    let machine = try MachineFixture(
+    let machine = try LowerMachineSessionFixture(
       log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
     let workspace = workspace(machine: machine, workflowTelemetry: telemetry, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.submitTestManualPen(.lower)
 
     #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
@@ -199,9 +197,9 @@ extension OperatorWorkspaceTests {
     #expect(strokes.count == 4)
     #expect(strokes.map(\.delta.dx) == [2, 0, -2, 0])
     #expect(strokes.map(\.delta.dy) == [0, 2, 0, -2])
-    #expect(workspace.machinePositionText == "X 0.000   Y 0.000")
+    #expect(workspace.controllerSessionProjection.machinePositionText == "X 0.000   Y 0.000")
     #expect(workspace.penStateText.contains("commanded down"))
-    #expect(workspace.lastMotionOutcomeText == "drawing completed at X 0.000 Y 0.000")
+    #expect(workspace.controllerSessionProjection.lastMotionOutcomeText == "drawing completed at X 0.000 Y 0.000")
     let events = await telemetry.events
     #expect(events.count == 8)
     #expect(events.allSatisfy { $0.operation == .manualDrawingStroke })
@@ -212,10 +210,10 @@ extension OperatorWorkspaceTests {
   @Test("manual Pen Down Stop remains capability-bound and raises once after cancellation")
   func manualPenDownStop() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
+    let machine = try LowerMachineSessionFixture(log: log)
     let workspace = workspace(machine: machine, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.submitTestManualPen(.lower)
 
     let owner = Task { await workspace.submitTestManualJog(.xPositive) }
@@ -238,22 +236,22 @@ extension OperatorWorkspaceTests {
   @Test("Learning can be turned off without changing machine authorization or learned evidence")
   func learningOffPreservesDirectAuthority() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(
+    let machine = try LowerMachineSessionFixture(
       log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
-    let camera = try CameraFixture()
-    let reconfigurationGate = CameraReconfigurationGate()
+    let camera = try TestObservationCameraSession()
+    let reconfigurationGate = TestConfigurationSuspension()
     let workspace = workspace(
       machine: machine,
-      cameraActionsOverride: cameraActions(
+      observationSessionOverride: resolvedObservationSession(
         camera,
         reconfigurationGate: reconfigurationGate
       ),
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     let revisions = workspace.learningArtifactGraph.revisions
     await workspace.submitTestPlotterUIAction(PlotterAppUIActionID.learningMode)
     try await waitUntil { !workspace.testLearningIsEnabled }
@@ -262,8 +260,8 @@ extension OperatorWorkspaceTests {
     #expect(workspace.pointSelectionEpisodeProjection.currentReason == nil)
     #expect(workspace.learningAuthorityError == nil)
     #expect(workspace.testLearningModePresentation.actionTitle == "Turn Learning On")
-    #expect(workspace.controllerSessionEstablished)
-    #expect(workspace.motionAuthorizationEnabled)
+    #expect(workspace.controllerSessionProjection.sessionEstablished)
+    #expect(workspace.controllerSessionProjection.motionAuthorized)
     #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
     #expect(workspace.learningArtifactGraph.revisions == revisions)
     let disabledOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
@@ -278,13 +276,13 @@ extension OperatorWorkspaceTests {
 
     await workspace.submitTestManualJog(.xPositive)
     #expect(await machine.requestedDrawingStrokes.isEmpty)
-    #expect(workspace.machinePositionText == "X 50.000   Y 0.000")
+    #expect(workspace.controllerSessionProjection.machinePositionText == "X 50.000   Y 0.000")
 
     await workspace.submitTestPlotterUIAction(PlotterAppUIActionID.learningMode)
     try await waitUntil { workspace.testLearningIsEnabled }
     #expect(workspace.testLearningIsEnabled)
 
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     await workspace.performTestExerciseAction(
       .start,
@@ -355,9 +353,9 @@ extension OperatorWorkspaceTests {
   @Test("cap settlement accepts bounded wobble and retains the newest exact frame")
   func capSettlementAcceptsNewestStableExactFrame() async throws {
     let log = EventLog()
-    let camera = try CameraFixture(capCentroidXOffsets: [0, 1, 2])
-    let workspace = workspace(machine: try MachineFixture(log: log), camera: camera, log: log)
-    await workspace.startCamera()
+    let camera = try TestObservationCameraSession(capCentroidXOffsets: [0, 1, 2])
+    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     let accepted = try await workspace.captureStableWorkflowCap(newerThan: 50)
     #expect(accepted.inspection.displayedFrame.frame.captureNanoseconds == 53)
@@ -371,9 +369,9 @@ extension OperatorWorkspaceTests {
   @Test("cap settlement refuses unstable multi-frame centroid evidence")
   func capSettlementRefusesUnstableCentroids() async throws {
     let log = EventLog()
-    let camera = try CameraFixture(capCentroidXOffsets: [0, 3, 1])
-    let workspace = workspace(machine: try MachineFixture(log: log), camera: camera, log: log)
-    await workspace.startCamera()
+    let camera = try TestObservationCameraSession(capCentroidXOffsets: [0, 3, 1])
+    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     do {
       _ = try await workspace.captureStableWorkflowCap(newerThan: 50)
@@ -387,9 +385,9 @@ extension OperatorWorkspaceTests {
   @Test("cap settlement refuses a camera configuration change across exact frames")
   func capSettlementRefusesConfigurationChange() async throws {
     let log = EventLog()
-    let camera = try CameraFixture(rotatesConfiguration: true)
-    let workspace = workspace(machine: try MachineFixture(log: log), camera: camera, log: log)
-    await workspace.startCamera()
+    let camera = try TestObservationCameraSession(rotatesConfiguration: true)
+    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     do {
       _ = try await workspace.captureStableWorkflowCap(newerThan: 50)
@@ -403,9 +401,9 @@ extension OperatorWorkspaceTests {
   @Test("cap settlement refuses measurement provenance from another exact frame")
   func capSettlementRefusesMismatchedExactFrameProvenance() async throws {
     let log = EventLog()
-    let camera = try CameraFixture(corruptsMeasurementFrameHash: true)
-    let workspace = workspace(machine: try MachineFixture(log: log), camera: camera, log: log)
-    await workspace.startCamera()
+    let camera = try TestObservationCameraSession(corruptsMeasurementFrameHash: true)
+    let workspace = workspace(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     do {
       _ = try await workspace.captureStableWorkflowCap(newerThan: 50)
@@ -419,14 +417,14 @@ extension OperatorWorkspaceTests {
   @Test("selected scene overlays directly own bounded LIVE analysis")
   func selectedSceneOverlaysOwnAnalysis() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture(
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession(
       providesInspectionOverlay: true,
       providesAutomaticAnalysisResult: true
     )
     let workspace = workspace(machine: machine, camera: camera, log: log)
 
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     #expect(workspace.exactWorkflowVisionOwner == nil)
     #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
     #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS])
@@ -434,7 +432,7 @@ extension OperatorWorkspaceTests {
     #expect(workspace.testActionSurfacePresentation.overlays.count == 1)
 
     for overlay in UserSceneOverlay.allCases {
-      workspace.setOverlay(overlay, enabled: false)
+      await submitObservationConfigurationForTest(workspace, .setOverlay(overlay, enabled: false))
     }
     try await waitUntil { camera.recordedAutomaticInspectionRequests.last == .some(nil) }
     #expect(workspace.overlayPreferenceState.enabled.isEmpty)
@@ -446,10 +444,10 @@ extension OperatorWorkspaceTests {
   @Test("full-frame viewport canonicalizes to unlocked default analysis")
   func fullFrameViewportCanonicalizesToDefaultAnalysis() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let displayedFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
     let region = PixelRect(
       x: 0,
@@ -458,8 +456,8 @@ extension OperatorWorkspaceTests {
       height: displayedFrame.frame.height
     )
 
-    await workspace.setVideoAnalysisRegion(region, for: displayedFrame)
-    await workspace.setVisionAnalysisCadence(.fiveFPS)
+    await submitObservationConfigurationForTest(workspace, .setRegion(region, displayedFrame: displayedFrame))
+    await submitObservationConfigurationForTest(workspace, .setCadence(.fiveFPS))
 
     #expect(workspace.videoAnalysisRegionLock == nil)
     #expect(camera.recordedSceneAnalysisRegionRequests.contains { $0 == nil })
@@ -470,8 +468,8 @@ extension OperatorWorkspaceTests {
   @Test("persisted pen-cap appearance configures the camera Vision owner")
   func persistedPenCapAppearanceConfiguresVision() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let magenta = PenCapColor(red: 190, green: 30, blue: 170)
     let selection = testPenCapAppearanceSelection(color: magenta)
     let workspace = workspace(
@@ -481,7 +479,7 @@ extension OperatorWorkspaceTests {
       log: log
     )
 
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     #expect(workspace.penCapAppearanceSelection == selection)
     #expect(camera.recordedPenCapColorRequests.last == magenta)
@@ -491,10 +489,10 @@ extension OperatorWorkspaceTests {
   @Test("manual contextual Stop sends one cancel and creates no boundary evidence")
   func manualStopHasNoBoundaryEvidence() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
+    let machine = try LowerMachineSessionFixture(log: log)
     let workspace = workspace(machine: machine, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
 
     let request = RelativeJogRequest(
       delta: try Vector2(dx: 1, dy: 0),
@@ -506,8 +504,8 @@ extension OperatorWorkspaceTests {
     let capabilityID = try #require(
       workspace.testManualMotionEpisodePresentation.stopAction?.capabilityID
     )
-    #expect(workspace.controllerSessionEstablished)
-    #expect(workspace.motionAuthorizationEnabled)
+    #expect(workspace.controllerSessionProjection.sessionEstablished)
+    #expect(workspace.controllerSessionProjection.motionAuthorized)
     if case .busy = workspace.motionRequestStatusPresentation {
       // Expected: authorization remains enabled while transient availability is busy.
     } else {
@@ -543,7 +541,7 @@ extension OperatorWorkspaceTests {
   @Test("manual jog terminal projection preserves the typed operator intent")
   func manualJogTelemetryNamesOperationAndDistance() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(
+    let machine = try LowerMachineSessionFixture(
       log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0)
     )
@@ -552,7 +550,7 @@ extension OperatorWorkspaceTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
 
     let request = RelativeJogRequest(
       delta: try Vector2(dx: -100, dy: 0),
@@ -574,14 +572,14 @@ extension OperatorWorkspaceTests {
     "boundary Stop commits controller evidence without consulting Camera or Vision")
   func boundaryStopCompletesTransaction() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(
+    let machine = try LowerMachineSessionFixture(
       log: log,
       feedLimits: ControllerAxisFeedLimits(
         maximumXFeedMMPerMinute: 900,
         maximumYFeedMMPerMinute: 600
       )
     )
-    let camera = try CameraFixture()
+    let camera = try TestObservationCameraSession()
     let speechAnnouncer = ScriptedSpeechAnnouncer(log: log, outcomes: [.failed("test failure")])
     let workspace = workspace(
       machine: machine,
@@ -590,8 +588,8 @@ extension OperatorWorkspaceTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(
@@ -693,7 +691,7 @@ extension OperatorWorkspaceTests {
   @Test("all four typed boundaries commit with no Camera composition")
   func allBoundaryDirectionsNeedNoCamera() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
+    let machine = try LowerMachineSessionFixture(log: log)
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
     let checkpointBox = ArtifactResetCheckpointStoreFixture(
       checkpoint: try acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity)
@@ -710,7 +708,7 @@ extension OperatorWorkspaceTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.performTestExerciseAction(
       .applySavedLearning,
       for: workspace.testCurrentLearningPathItemID
@@ -765,7 +763,7 @@ extension OperatorWorkspaceTests {
   )
   func acceptedBoundariesSurviveSoftwareRelaunchWithoutReplayingMotion() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
+    let machine = try LowerMachineSessionFixture(log: log)
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
     let checkpointBox = ArtifactResetCheckpointStoreFixture()
     let checkpointActions = OperatorWorkspace.AcceptedLearningPathCheckpointActions(
@@ -774,17 +772,21 @@ extension OperatorWorkspaceTests {
       clear: { checkpointBox.clear() }
     )
     let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()
+    let firstCamera = try TestObservationCameraSession()
     let first = workspace(
       machine: machine,
-      camera: try CameraFixture(),
+      camera: firstCamera,
       learningPathCheckpointActions: checkpointActions,
       tipCalibrationSemanticIdentities: identities,
       boundaryRuntimeAccess: boundaryRuntimeAccess,
       log: log
     )
     await first.establishMachineSession(machine.descriptor)
-    await first.requestPassiveProbe()
-    await first.startCamera()
+    await submitControllerSession(first, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(
+      first,
+      .selectSource(.live, firstCamera.device.id)
+    )
     #expect(
       first.cameraIsLive,
       "state=\(first.cameraStateText) source=\(String(describing: first.latestLiveCameraFrame?.source)) age=\(first.frameAgeText)"
@@ -828,9 +830,10 @@ extension OperatorWorkspaceTests {
     let cancelCountAtRelaunch = await machine.cancelCount
     let motionLogAtRelaunch = await log.values
 
+    let relaunchedCamera = try TestObservationCameraSession()
     let relaunched = workspace(
       machine: machine,
-      camera: try CameraFixture(),
+      camera: relaunchedCamera,
       learningPathCheckpointActions: checkpointActions,
       tipCalibrationSemanticIdentities: identities,
       log: log
@@ -856,8 +859,11 @@ extension OperatorWorkspaceTests {
     #expect(relaunched.controllerPoseApplicability == .currentSession)
     #expect(relaunched.testAcceptedBoundaryAggregates == first.testAcceptedBoundaryAggregates)
     await relaunched.establishMachineSession(machine.descriptor)
-    await relaunched.requestPassiveProbe()
-    await relaunched.startCamera()
+    await submitControllerSession(relaunched, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(
+      relaunched,
+      .selectSource(.live, relaunchedCamera.device.id)
+    )
 
     #expect(relaunched.testAcceptedBoundaryAggregates == first.testAcceptedBoundaryAggregates)
     #expect(relaunched.testEstimatedMachineCenter == first.testEstimatedMachineCenter)
@@ -886,7 +892,7 @@ extension OperatorWorkspaceTests {
     }
     #expect(relaunched.controllerPoseApplicability == .currentSession)
     let restoredRevisions = relaunched.learningArtifactGraph.revisions
-    #expect(relaunched.motionAuthorizationEnabled)
+    #expect(relaunched.controllerSessionProjection.motionAuthorized)
     #expect(relaunched.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
     #expect(relaunched.testManualMotionEpisodePresentation.penDownUnavailableReason == nil)
 
@@ -917,15 +923,19 @@ extension OperatorWorkspaceTests {
   @Test("active Boundary motion exposes only Stop and rejects a programmatic Cancel")
   func activeBoundaryHasOnlyStop() async throws {
     let stopLog = EventLog()
-    let stopMachine = try MachineFixture(log: stopLog, holdCancellationSettlement: true)
+    let stopMachine = try LowerMachineSessionFixture(log: stopLog, holdCancellationSettlement: true)
+    let stopCamera = try TestObservationCameraSession()
     let stopWorkspace = workspace(
       machine: stopMachine,
-      camera: try CameraFixture(),
+      camera: stopCamera,
       log: stopLog
     )
     await stopWorkspace.establishMachineSession(stopMachine.descriptor)
-    await stopWorkspace.requestPassiveProbe()
-    await stopWorkspace.startCamera()
+    await submitControllerSession(stopWorkspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(
+      stopWorkspace,
+      .selectSource(.live, stopCamera.device.id)
+    )
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await stopWorkspace.performTestExerciseAction(.start, for: prerequisitePenOwner)
     let prerequisitePenRequest = try #require(

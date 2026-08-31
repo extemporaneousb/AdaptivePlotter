@@ -667,6 +667,7 @@ private struct ActionSurfaceDiagnosticSignature: Equatable {
 @Observable
 final class OperatorWorkspace:
   PlotterUIIntentSink,
+  PlotterControllerSessionIntentSink,
   PlotterLearningActivityFactProviding,
   PlotterPenInteractionProjectionSink,
   PlotterDrawingDraftIntentSink,
@@ -770,62 +771,6 @@ final class OperatorWorkspace:
     static let boundaryFeedMMPerMinute = 500.0
   }
 
-  struct MachineActions: Sendable {
-    let select: @Sendable (MachineLinkDescriptor) async throws -> RunInterpreterSnapshot
-    let snapshot: @Sendable () async -> RunInterpreterSnapshot?
-    let requestPassiveProbe: @Sendable () async throws -> PassiveProbeResult
-    let requestControllerAlarmClear: @Sendable () async -> ControllerAlarmClearOutcome
-    let activateMotionGuard: @Sendable () async -> MotionGuardActivationOutcome
-    let deactivateMotionGuard: @Sendable () async -> Void
-    let beginRelativeJog: @Sendable (RelativeJogRequest) async -> RelativeJogAdmission
-    let beginDrawingStroke: @Sendable (DrawingStrokeRequest) async -> DrawingStrokeAdmission
-    let beginDrawingPlan: (@Sendable (DrawingPlanRequest) async -> DrawingPlanAdmission)?
-    let beginPenActuation: @Sendable (PenCommand, PenActuationProfile) async
-      -> PenActuationAdmission
-    let beginBoundaryMotion:
-      @Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
-        -> BoundaryMotionAdmission
-    let requestJogCancel: @Sendable (JogCancelIntent) async -> JogCancelOutcome
-    let disconnect: @Sendable () async -> Void
-
-    init(
-      select: @escaping @Sendable (MachineLinkDescriptor) async throws -> RunInterpreterSnapshot,
-      snapshot: @escaping @Sendable () async -> RunInterpreterSnapshot?,
-      requestPassiveProbe: @escaping @Sendable () async throws -> PassiveProbeResult,
-      requestControllerAlarmClear: @escaping @Sendable () async -> ControllerAlarmClearOutcome,
-      activateMotionGuard: @escaping @Sendable () async -> MotionGuardActivationOutcome,
-      deactivateMotionGuard: @escaping @Sendable () async -> Void,
-      beginRelativeJog: @escaping @Sendable (RelativeJogRequest) async -> RelativeJogAdmission,
-      beginDrawingStroke: @escaping @Sendable (DrawingStrokeRequest) async
-        -> DrawingStrokeAdmission,
-      beginDrawingPlan: (
-        @Sendable (DrawingPlanRequest) async
-          -> DrawingPlanAdmission
-      )? = nil,
-      beginPenActuation: @escaping @Sendable (PenCommand, PenActuationProfile) async ->
-        PenActuationAdmission,
-      beginBoundaryMotion: @escaping @Sendable (
-        BoundaryMotionRequest, BoundaryMotionRenewalPlanner?
-      ) async -> BoundaryMotionAdmission,
-      requestJogCancel: @escaping @Sendable (JogCancelIntent) async -> JogCancelOutcome,
-      disconnect: @escaping @Sendable () async -> Void
-    ) {
-      self.select = select
-      self.snapshot = snapshot
-      self.requestPassiveProbe = requestPassiveProbe
-      self.requestControllerAlarmClear = requestControllerAlarmClear
-      self.activateMotionGuard = activateMotionGuard
-      self.deactivateMotionGuard = deactivateMotionGuard
-      self.beginRelativeJog = beginRelativeJog
-      self.beginDrawingStroke = beginDrawingStroke
-      self.beginDrawingPlan = beginDrawingPlan
-      self.beginPenActuation = beginPenActuation
-      self.beginBoundaryMotion = beginBoundaryMotion
-      self.requestJogCancel = requestJogCancel
-      self.disconnect = disconnect
-    }
-  }
-
   struct WorkflowTelemetryActions: Sendable {
     let record: @Sendable (WorkflowTelemetryEvent) async -> Void
   }
@@ -834,75 +779,6 @@ final class OperatorWorkspace:
     let load: @Sendable () -> AcceptedLearningPathCheckpointLoadResult
     let save: @Sendable (AcceptedLearningPathCheckpoint) throws -> Void
     let clear: @Sendable () throws -> Void
-  }
-
-  struct CameraActions: Sendable {
-    let discover: @Sendable () async -> CameraCaptureSnapshot
-    let select: @Sendable (CameraDeviceID) async throws -> CameraCaptureSnapshot
-    let start: @Sendable () async -> CameraCaptureSnapshot
-    let stop: @Sendable () async -> CameraCaptureSnapshot
-    let restart: @Sendable () async -> CameraCaptureSnapshot
-    let snapshot: @Sendable () async -> CameraCaptureSnapshot
-    let frames: @Sendable () async -> AsyncStream<DisplayedFrame>
-    let inspectWorkflowScene:
-      @Sendable (UInt64, SceneFeatureSet, PixelRect?) async throws -> LiveSceneInspection?
-    let captureFrame: @Sendable (UInt64) async throws -> DisplayedFrame?
-    let captureStableWorkflowCap: StableWorkflowCapCaptureRunner
-    let setSceneAnalysisRegion: @Sendable (PixelRect?) async -> Void
-    let setPenCapColor: @Sendable (PenCapColor) async -> Void
-    let setAutomaticInspection:
-      @Sendable (VisionAnalysisCadence?, SceneFeatureSet) async
-        -> PlotterSceneAnalysisSnapshot
-    let analysisUpdates: @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot>
-    let visionDiagnostics: @Sendable () async -> CameraSourceSessionVisionDiagnostics
-    let observePlannedDrawingInk:
-      (
-        @Sendable (PlannedDrawingObservationRequest) async
-          -> PlannedDrawingObservationOutcome
-      )?
-
-    init(
-      discover: @escaping @Sendable () async -> CameraCaptureSnapshot,
-      select: @escaping @Sendable (CameraDeviceID) async throws -> CameraCaptureSnapshot,
-      start: @escaping @Sendable () async -> CameraCaptureSnapshot,
-      stop: @escaping @Sendable () async -> CameraCaptureSnapshot,
-      restart: @escaping @Sendable () async -> CameraCaptureSnapshot,
-      snapshot: @escaping @Sendable () async -> CameraCaptureSnapshot,
-      frames: @escaping @Sendable () async -> AsyncStream<DisplayedFrame>,
-      inspectWorkflowScene: @escaping @Sendable (
-        UInt64, SceneFeatureSet, PixelRect?
-      ) async throws -> LiveSceneInspection?,
-      captureFrame: @escaping @Sendable (UInt64) async throws -> DisplayedFrame?,
-      captureStableWorkflowCap: StableWorkflowCapCaptureRunner,
-      setSceneAnalysisRegion: @escaping @Sendable (PixelRect?) async -> Void,
-      setPenCapColor: @escaping @Sendable (PenCapColor) async -> Void,
-      setAutomaticInspection: @escaping @Sendable (
-        VisionAnalysisCadence?, SceneFeatureSet
-      ) async -> PlotterSceneAnalysisSnapshot,
-      analysisUpdates: @escaping @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot>,
-      visionDiagnostics: @escaping @Sendable () async -> CameraSourceSessionVisionDiagnostics,
-      observePlannedDrawingInk: (
-        @Sendable (PlannedDrawingObservationRequest) async
-          -> PlannedDrawingObservationOutcome
-      )? = nil
-    ) {
-      self.discover = discover
-      self.select = select
-      self.start = start
-      self.stop = stop
-      self.restart = restart
-      self.snapshot = snapshot
-      self.frames = frames
-      self.inspectWorkflowScene = inspectWorkflowScene
-      self.captureFrame = captureFrame
-      self.captureStableWorkflowCap = captureStableWorkflowCap
-      self.setSceneAnalysisRegion = setSceneAnalysisRegion
-      self.setPenCapColor = setPenCapColor
-      self.setAutomaticInspection = setAutomaticInspection
-      self.analysisUpdates = analysisUpdates
-      self.visionDiagnostics = visionDiagnostics
-      self.observePlannedDrawingInk = observePlannedDrawingInk
-    }
   }
 
   private(set) var livePenCapAppearanceSelection: PenCapAppearanceSelection? {
@@ -1452,13 +1328,13 @@ final class OperatorWorkspace:
     PlotterPenInteractionAdmissionFacts(
       environment: environment,
       learningEnabled: learningIsEnabled,
-      controllerSessionEstablished: controllerSessionEstablished,
-      motionAuthorized: motionAuthorizationEnabled,
+      controllerSessionEstablished: sessionEstablished,
+      motionAuthorized: sessionMotionAuthorized,
       lowerOperationInFlight: retainedPenRequestInProgress
         || machineSnapshot?.machine.operationInFlight == true,
       stickyAmbiguity: learningStickyAmbiguityReason,
       capSelectionAvailable: !hasShutdown
-        && (displayedFrameAvailable || cameraActions != nil || frameMode == .simulated)
+        && (displayedFrameAvailable || observationRuntime != nil || frameMode == .simulated)
     )
   }
 
@@ -1569,8 +1445,9 @@ final class OperatorWorkspace:
     set { activeLearningSession.learningAuthorityError = newValue }
   }
 
-  @ObservationIgnored private let machineActions: MachineActions?
-  @ObservationIgnored private let cameraActions: CameraActions?
+  @ObservationIgnored private let machineSession: (any PlotterMachineSession)?
+  @ObservationIgnored private let controllerSessionRuntime: PlotterControllerSessionRuntime
+  @ObservationIgnored private let observationRuntime: PlotterObservationConfigurationRuntime?
   @ObservationIgnored private let pointSelectionRuntime: PlotterPointSelectionRuntime
   @ObservationIgnored private let manualMotionRuntime: PlotterManualMotionRuntime
   @ObservationIgnored private let penInteractionRuntime: PlotterPenInteractionRuntime
@@ -1582,8 +1459,7 @@ final class OperatorWorkspace:
   @ObservationIgnored private let drawingRunInterpreterPort:
     OperatorWorkspaceDrawingRunInterpreterPort
   @ObservationIgnored private let drawingRunCameraPort: OperatorWorkspaceDrawingRunCameraPort
-  @ObservationIgnored private let persistPenCapAppearanceSelection:
-    @Sendable (PenCapAppearanceSelection?) -> Void
+  @ObservationIgnored private let observationPreferences: any PlotterObservationPreferencePort
   @ObservationIgnored private let speechEffectRuntime: PlotterSpeechEffectRuntime
   @ObservationIgnored private var artifactResetRuntime: PlotterArtifactResetRuntime!
   @ObservationIgnored private lazy var cameraCalibrationRuntime = PlotterCameraCalibrationRuntime(
@@ -1626,8 +1502,8 @@ final class OperatorWorkspace:
     return PlotterBoundaryExternalFacts(
       environment: environment,
       learningEnabled: isCurrentEnvironment && learningIsEnabled && !hasShutdown,
-      controllerSessionEstablished: isCurrentEnvironment && controllerSessionEstablished,
-      motionAuthorized: isCurrentEnvironment && motionAuthorizationEnabled,
+      controllerSessionEstablished: isCurrentEnvironment && sessionEstablished,
+      motionAuthorized: isCurrentEnvironment && sessionMotionAuthorized,
       foreignLowerOperationInFlight: isCurrentEnvironment
         && (retainedPenRequestInProgress
           || (machineSnapshot?.machine.operationInFlight == true
@@ -1726,14 +1602,9 @@ final class OperatorWorkspace:
     PlotterPenInteractionRuntimeSnapshot?
   @ObservationIgnored private var liveBoundarySnapshot: PlotterBoundaryRuntimeSnapshot?
   @ObservationIgnored private var simulatedBoundarySnapshot: PlotterBoundaryRuntimeSnapshot?
-  @ObservationIgnored private let serialDeviceDiscovery: @Sendable () -> [MachineLinkDescriptor]
-  @ObservationIgnored private let persistSelectedSerialIdentifier: @Sendable (String) -> Void
-  @ObservationIgnored private let persistOverlayPreference:
-    @Sendable (Set<UserSceneOverlay>) -> Void
   @ObservationIgnored private let nowNanoseconds: @Sendable () -> UInt64
-  @ObservationIgnored private var frameTask: Task<Void, Never>?
+  @ObservationIgnored private var observationProjectionTask: Task<Void, Never>?
   @ObservationIgnored private var drawingRunProjectionTask: Task<Void, Never>?
-  @ObservationIgnored private var visionUpdateTask: Task<Void, Never>?
   private(set) var pointSelectionEpisodeProjection: PlotterEpisodeProjection
   private(set) var pointSelectionRecordingDiagnostic: String?
   private(set) var manualMotionEpisodeSnapshot: PlotterManualMotionRuntimeSnapshot?
@@ -1782,7 +1653,6 @@ final class OperatorWorkspace:
   private var jogCancelRequestInProgress: Bool {
     activeStoppableOperation?.state.cancellationRequestInProgress == true
   }
-  @ObservationIgnored private var rememberedSerialDeviceIdentifier: String?
   @ObservationIgnored private var hasShutdown = false {
     didSet {
       guard oldValue != hasShutdown else { return }
@@ -1815,8 +1685,9 @@ final class OperatorWorkspace:
   }
 
   init(
-    machineActions: MachineActions? = nil,
-    cameraActions: CameraActions? = nil,
+    machineSession: (any PlotterMachineSession)? = nil,
+    observationSession: (any PlotterObservationCameraSessionPort)? = nil,
+    observationRecordingStore: EpisodeRecordingStore? = nil,
     pointSelectionRuntime: PlotterPointSelectionRuntime = PlotterPointSelectionRuntime(),
     pointSelectionRecordingDiagnostic: String? = nil,
     manualMotionComposition: PlotterManualMotionRuntimeComposition? = nil,
@@ -1835,41 +1706,8 @@ final class OperatorWorkspace:
     serialDeviceDiscovery: @escaping @Sendable () -> [MachineLinkDescriptor] = {
       SerialPortDiscovery.discover()
     },
-    loadSelectedSerialIdentifier: @escaping @Sendable () -> String? = {
-      UserDefaults.standard.string(forKey: "AdaptivePlotter.selectedSerialDeviceIdentifier")
-    },
-    persistSelectedSerialIdentifier: @escaping @Sendable (String) -> Void = { identifier in
-      UserDefaults.standard.set(
-        identifier, forKey: "AdaptivePlotter.selectedSerialDeviceIdentifier")
-    },
-    loadPenCapAppearanceSelection: @escaping @Sendable () -> PenCapAppearanceSelection? = {
-      guard
-        let data = UserDefaults.standard.data(
-          forKey: "AdaptivePlotter.penCapAppearanceSelection")
-      else { return nil }
-      return try? JSONDecoder().decode(PenCapAppearanceSelection.self, from: data)
-    },
-    persistPenCapAppearanceSelection:
-      @escaping @Sendable (PenCapAppearanceSelection?) -> Void = { selection in
-        if let selection, let data = try? JSONEncoder().encode(selection) {
-          UserDefaults.standard.set(data, forKey: "AdaptivePlotter.penCapAppearanceSelection")
-        } else {
-          UserDefaults.standard.removeObject(forKey: "AdaptivePlotter.penCapAppearanceSelection")
-        }
-      },
-    loadOverlayPreference: @escaping @Sendable () -> Set<UserSceneOverlay>? = {
-      guard
-        let values = UserDefaults.standard.stringArray(
-          forKey: "AdaptivePlotter.userSceneOverlays")
-      else { return nil }
-      return Set(values.compactMap(UserSceneOverlay.init(rawValue:)))
-    },
-    persistOverlayPreference: @escaping @Sendable (Set<UserSceneOverlay>) -> Void = { values in
-      UserDefaults.standard.set(
-        values.map(\.rawValue).sorted(),
-        forKey: "AdaptivePlotter.userSceneOverlays"
-      )
-    },
+    observationPreferences: any PlotterObservationPreferencePort =
+      UserDefaultsObservationPreferencePort(),
     nowNanoseconds: @escaping @Sendable () -> UInt64 = {
       UInt64(ProcessInfo.processInfo.systemUptime * 1_000_000_000)
     }
@@ -1883,7 +1721,7 @@ final class OperatorWorkspace:
         journalFileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
           "plotter-manual-motion-\(UUID().uuidString).json"
         ),
-        machineActions: machineActions,
+        machineSession: machineSession,
         simulatedRuntime: simulatedRuntime,
         simulatedExecutionPacing: SimulatedLearningInteractivePacing()
       )
@@ -1903,7 +1741,7 @@ final class OperatorWorkspace:
         contactPlane: tipCalibrationSemanticIdentities.paperContactPlane
       )
     )
-    overlayPreferenceState = .loaded(loadOverlayPreference())
+    overlayPreferenceState = .loaded(observationPreferences.loadOverlayPreference())
     liveLearningSession = LearningSessionState(
       source: .live,
       paperInstanceRevision: tipCalibrationSemanticIdentities.paperInstance.rawValue,
@@ -1914,8 +1752,15 @@ final class OperatorWorkspace:
       paperInstanceRevision: tipCalibrationSemanticIdentities.paperInstance.rawValue,
       paperContactPlaneRevision: tipCalibrationSemanticIdentities.paperContactPlane.rawValue
     )
-    self.machineActions = machineActions
-    self.cameraActions = cameraActions
+    self.machineSession = machineSession
+    if let observationSession {
+      observationRuntime = PlotterObservationConfigurationRuntime(
+        lower: observationSession,
+        recordingStore: observationRecordingStore
+      )
+    } else {
+      observationRuntime = nil
+    }
     self.pointSelectionRuntime = pointSelectionRuntime
     manualMotionRuntime = resolvedManualMotionComposition.runtime
     self.penInteractionRuntime = penInteractionRuntime
@@ -1932,7 +1777,7 @@ final class OperatorWorkspace:
       revision: PlotterProjectionRevision(rawValue: 0),
       projectedAt: Date()
     )
-    let loadedLegacyPenCapAppearance = loadPenCapAppearanceSelection()
+    let loadedLegacyPenCapAppearance = observationPreferences.loadLegacyPenCapAppearance()
     let legacyPenCapAppearance = loadedLegacyPenCapAppearance.flatMap {
       $0.persistedLiveRejectionReason == nil ? $0 : nil
     }
@@ -1952,11 +1797,11 @@ final class OperatorWorkspace:
       persistedPenCapAppearanceLoadState = .absent
     }
     simulatedPenCapAppearanceSelection = nil
-    self.persistPenCapAppearanceSelection = persistPenCapAppearanceSelection
+    self.observationPreferences = observationPreferences
     // The former UserDefaults value is migration input only. The accepted
     // Learning package is now the sole durable appearance owner.
     if acceptedLearningPathCheckpointActions != nil {
-      persistPenCapAppearanceSelection(nil)
+      try? observationPreferences.clearLegacyPenCapAppearance()
     }
     self.speechEffectRuntime = speechEffectRuntime
     self.artifactResetRuntime = artifactResetRuntime
@@ -1969,24 +1814,20 @@ final class OperatorWorkspace:
     self.persistPaperRevisionContext = persistPaperRevisionContext
     self.workflowTelemetryActions = workflowTelemetryActions
     simulatedLearningRuntime = resolvedManualMotionComposition.simulatedRuntime
+    controllerSessionRuntime = PlotterControllerSessionRuntime(
+      lowerSession: machineSession,
+      simulatedSession: resolvedManualMotionComposition.simulatedRuntime,
+      discoverSerialDevices: serialDeviceDiscovery
+    )
     causalSimulatorEffectAdapter =
       resolvedManualMotionComposition.causalSimulatorEffectAdapter
     self.serialDevices = serialDevices
-    self.serialDeviceDiscovery = serialDeviceDiscovery
-    self.persistSelectedSerialIdentifier = persistSelectedSerialIdentifier
-    self.persistOverlayPreference = persistOverlayPreference
-    rememberedSerialDeviceIdentifier = loadSelectedSerialIdentifier()
     self.nowNanoseconds = nowNanoseconds
     if self.artifactResetRuntime == nil {
       self.artifactResetRuntime = PlotterArtifactResetRuntime(
         effectPort: self,
         persistencePort: self
       )
-    }
-    if let rememberedSerialDeviceIdentifier {
-      selectedSerialDevice = serialDevices.first {
-        $0.identifier == rememberedSerialDeviceIdentifier
-      }
     }
     if let acceptedLearningPathCheckpointActions {
       switch acceptedLearningPathCheckpointActions.load() {
@@ -2049,6 +1890,55 @@ final class OperatorWorkspace:
         guard !Task.isCancelled else { return }
         self.installDrawingRunSnapshot(snapshot)
       }
+    }
+    if let observationRuntime {
+      observationProjectionTask = Task { @MainActor [weak self, observationRuntime] in
+        let updates = await observationRuntime.updates()
+        for await event in updates {
+          guard !Task.isCancelled, let self else { return }
+          self.installObservationEvent(event)
+        }
+      }
+    }
+  }
+
+  private func submitObservationIntent(
+    _ intent: PlotterObservationConfigurationIntent
+  ) async -> PlotterObservationConfigurationDisposition? {
+    guard let observationRuntime else { return nil }
+    let reference = await observationRuntime.reference()
+    return await observationRuntime.submit(.init(reference: reference, intent: intent))
+  }
+
+  private func installObservationEvent(_ event: PlotterObservationRuntimeEvent) {
+    switch event {
+    case .camera(let snapshot):
+      cameraSnapshot = snapshot
+      if let latest = snapshot.latestFrame { receive(latest) }
+      updateCameraError()
+    case .frame(let frame):
+      receive(frame)
+    case .analysis(let snapshot):
+      guard snapshot.revision != visionAnalysisSnapshot.revision else { return }
+      let priorFrameID = visionAnalysisSnapshot.latestResult?.displayedFrame.frame.id
+      visionAnalysisSnapshot = snapshot
+      visionError = snapshot.lastError
+      computationDiagnostics.visionAnalysisRevisionCount += 1
+      computationDiagnostics.record(.visionAnalysisRevision(
+        revision: snapshot.revision,
+        phase: snapshot.phase,
+        latestResultFrameID: snapshot.latestResult?.displayedFrame.frame.id,
+        lastError: snapshot.lastError
+      ))
+      if priorFrameID != snapshot.latestResult?.displayedFrame.frame.id,
+        let result = snapshot.latestResult
+      {
+        receiveVision(result)
+      }
+    case .diagnostics(let diagnostics):
+      videoVisionDiagnostics = diagnostics
+    case .failure(let detail):
+      cameraError = detail
     }
   }
 
@@ -2626,7 +2516,7 @@ final class OperatorWorkspace:
     let capturedFacts = drawingDraftExternalFacts
     let draft = await drawingDraftRuntime.synchronize(capturedFacts)
     installDrawingDraftSnapshot(draft)
-    let interpreter = environment == .live ? await machineActions?.snapshot() : nil
+    let interpreter = environment == .live ? await machineSession?.snapshot() : nil
     let runPlan: PlotterDrawingRunPlan?
     if let program = draft.program,
       let plan = draft.plan,
@@ -3118,34 +3008,62 @@ final class OperatorWorkspace:
     return true
   }
 
-  /// A responsive operator session remains established while its one owner is
-  /// moving or actuating. This is status truth, not motion admission.
-  var controllerSessionEstablished: Bool {
-    if frameMode == .simulated {
-      return simulatedLearningSnapshot?.session == .connected
+  /// Immutable controller/session UI contract. All controller controls render
+  /// this one value and submit its exact revision/capability-bound requests.
+  var controllerSessionProjection: PlotterControllerSessionProjection {
+    PlotterControllerSessionRules.project(controllerSessionFacts)
+  }
+
+  private var controllerSessionFacts: PlotterControllerSessionFacts {
+    let discoveryBusyReason: String? = if let activeDiscoverySequenceID,
+      !activePenInteractionNeedsControllerSetup
+    {
+      "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title) first."
+    } else {
+      nil
     }
+    return PlotterControllerSessionFacts(
+      reference: PlotterControllerSessionReference(
+        revision: semanticPresentationRevision,
+        capabilityID: controllerSessionID
+      ),
+      environment: frameMode,
+      selectedSerialDevice: selectedSerialDevice,
+      serialDevices: serialDevices,
+      machineSnapshot: machineSnapshot,
+      passiveProbe: passiveProbeResult,
+      simulatedSnapshot: simulatedLearningSnapshot,
+      machineError: machineError,
+      admissionClosed: hasShutdown,
+      controllerBusyReason: currentCameraCalibrationBusyReason,
+      discoveryBusyReason: discoveryBusyReason,
+      foreignOperationInFlight: passiveProbeInProgress || jogRequestInProgress
+        || retainedPenRequestInProgress || jogCancelRequestInProgress
+        || activeBorderValidationOperation != nil
+        || machineSnapshot?.machine.operationInFlight == true,
+      frameModeSwitchInProgress: frameModeSwitchInProgress,
+      connectionActionInProgress: controllerConnectionActionInProgress,
+      alarmClearInProgress: controllerAlarmClearInProgress,
+      motionActionInProgress: motionAuthorizationActionInProgress,
+      lowerSessionAvailable: machineSession != nil
+    )
+  }
+
+  private var rawSessionEstablished: Bool {
+    if frameMode == .simulated { return simulatedLearningSnapshot?.session == .connected }
     guard passiveProbeResult?.blockers.isEmpty == true,
       let machine = machineSnapshot?.machine,
       machine.controllerState?.isRecognized == true,
       machine.stickyAmbiguity == nil
     else { return false }
     switch machine.connection {
-    case .connected, .moving, .actuatingPen:
-      return true
-    case .disconnected, .connecting, .probing, .blocked:
-      return false
+    case .connected, .moving, .actuatingPen: return true
+    case .disconnected, .connecting, .probing, .blocked: return false
     }
   }
 
-  /// Session authorization only. Transient operation ownership, Pen pose, and
-  /// editable manual fields are presented separately as request availability.
-  var motionAuthorizationEnabled: Bool {
-    if frameMode == .simulated {
-      return simulatedLearningSnapshot?.motionAuthorization == .enabled
-    }
-    return controllerSessionEstablished
-      && machineSnapshot?.machine.motionGuardState == .active
-  }
+  private var sessionEstablished: Bool { controllerSessionProjection.sessionEstablished }
+  private var sessionMotionAuthorized: Bool { controllerSessionProjection.motionAuthorized }
 
   var cameraStateText: String {
     guard frameMode == .live else { return "causal simulated frame" }
@@ -3248,7 +3166,7 @@ final class OperatorWorkspace:
 
   var controllerConnectionText: String {
     if frameMode == .simulated {
-      return controllerSessionEstablished ? "simulator connected" : "simulator disconnected"
+      return sessionEstablished ? "simulator connected" : "simulator disconnected"
     }
     guard selectedSerialDevice != nil else { return "not selected" }
     if controllerIsConnected { return "connected" }
@@ -3286,7 +3204,7 @@ final class OperatorWorkspace:
   }
 
   var motionGuardIsActive: Bool {
-    motionAuthorizationEnabled
+    sessionMotionAuthorized
   }
 
   var motionGuardStateText: String {
@@ -3294,104 +3212,12 @@ final class OperatorWorkspace:
   }
 
   private var activePenInteractionNeedsControllerSetup: Bool {
-    guard !controllerSessionEstablished,
+    guard !rawSessionEstablished,
       activeDiscoverySequenceID == .penInteraction,
       let step = discoveryTransactions[.penInteraction]?.currentStep
     else { return false }
     if case .awaitPhysicalPenConfirmation = step.action { return true }
     return false
-  }
-
-  var controllerSelectionUnavailableReason: String? {
-    if let reason = currentCameraCalibrationBusyReason { return reason }
-    if serialDevices.isEmpty { return "No serial controllers are available." }
-    if let activeDiscoverySequenceID, !activePenInteractionNeedsControllerSetup {
-      return
-        "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title); use Stop while its motion is active."
-    }
-    if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
-      || motionAuthorizationActionInProgress
-    {
-      return "Wait for the current controller operation."
-    }
-    return nil
-  }
-
-  var motionGuardActivationUnavailableReason: String? {
-    if let reason = currentCameraCalibrationBusyReason { return reason }
-    if motionAuthorizationActionInProgress {
-      return "A Motion authorization action is in progress."
-    }
-    if motionAuthorizationEnabled { return "Motion is already enabled." }
-    if !controllerSessionEstablished {
-      return frameMode == .simulated
-        ? "Connect the learning simulator first."
-        : "Connect the selected plotter first."
-    }
-    if frameMode == .simulated { return nil }
-    guard let snapshot = machineSnapshot else {
-      return MotionRefusal.notConnected.actionableDescription
-    }
-    let machine = snapshot.machine
-    if let ambiguity = machine.stickyAmbiguity {
-      return MotionRefusal.stickyAmbiguity(ambiguity).actionableDescription
-    }
-    if machine.operationInFlight || snapshot.currentOperation != .idle {
-      return MotionRefusal.operationInFlight.actionableDescription
-    }
-    guard let controllerState = machine.controllerState, controllerState.isRecognized else {
-      return MotionRefusal.controllerStateUnknown.actionableDescription
-    }
-    if controllerState.isAlarm {
-      return MotionRefusal.controllerAlarm("controller is in Alarm").actionableDescription
-    }
-    if controllerState != .idle {
-      return MotionRefusal.controllerNotIdle(controllerState).actionableDescription
-    }
-    if machine.pins.hasRelevantLimitAsserted {
-      return MotionRefusal.relevantLimitAsserted(machine.pins.rawValue).actionableDescription
-    }
-    if machine.position == nil {
-      return MotionRefusal.machinePositionUnknown.actionableDescription
-    }
-    return nil
-  }
-
-  var motionAuthorizationActionUnavailableReason: String? {
-    guard motionAuthorizationEnabled else {
-      return motionGuardActivationUnavailableReason
-    }
-    return controllerConnectionActionUnavailableReason
-  }
-
-  var controllerConnectionActionTitle: String {
-    if frameMode == .simulated {
-      return controllerSessionEstablished ? "Disconnect" : "Connect"
-    }
-    return controllerLinkIsOpen ? "Disconnect" : "Connect"
-  }
-
-  var controllerConnectionActionUnavailableReason: String? {
-    if let reason = currentCameraCalibrationBusyReason { return reason }
-    if controllerConnectionActionInProgress {
-      return "The controller connection action is already in progress."
-    }
-    if let activeDiscoverySequenceID, !activePenInteractionNeedsControllerSetup {
-      return
-        "Finish \(DiscoverySequenceCatalog.definition(for: activeDiscoverySequenceID).title) first."
-    }
-    if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
-      || jogCancelRequestInProgress || motionAuthorizationActionInProgress
-      || activeBorderValidationOperation != nil
-    {
-      return "Wait for the current operation."
-    }
-    if frameMode == .simulated {
-      return simulatedLearningSnapshot?.currentOperation == nil
-        ? nil : "Stop or finish the current simulated operation first."
-    }
-    if controllerLinkIsOpen { return nil }
-    return passiveProbeUnavailableReason
   }
 
   var controllerAlarmEvidenceText: String? {
@@ -3452,45 +3278,7 @@ final class OperatorWorkspace:
     }
   }
 
-  var controllerAlarmClearActionUnavailableReason: String? {
-    if let reason = currentCameraCalibrationBusyReason { return reason }
-    if frameMode == .simulated { return "SIMULATED owns no physical controller alarm." }
-    if controllerAlarmClearInProgress { return "Clear Alarm is already in progress." }
-    if controllerConnectionActionInProgress { return "Wait for the controller connection action." }
-    if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
-      || jogCancelRequestInProgress || motionAuthorizationActionInProgress
-      || machineSnapshot?.machine.operationInFlight == true
-      || machineSnapshot?.currentOperation != .idle
-      || activeBorderValidationOperation != nil || activeDiscoverySequenceID != nil
-    {
-      return "Wait for the current operation before clearing the controller alarm."
-    }
-    if let ambiguity = machineSnapshot?.machine.stickyAmbiguity {
-      return ControllerAlarmClearRefusal.stickyAmbiguity(ambiguity).actionableDescription
-    }
-    guard controllerAlarmEvidenceText != nil else {
-      return ControllerAlarmClearRefusal.noCurrentAlarmEvidence.actionableDescription
-    }
-    guard let readiness = machineSnapshot?.machine.controllerAlarmClearReadiness else {
-      return ControllerAlarmClearRefusal.currentLimitStateUnknown(
-        "no current controller snapshot"
-      ).actionableDescription
-    }
-    switch readiness {
-    case .armed:
-      return nil
-    case .blockedByAxisLimit(let pins):
-      return ControllerAlarmClearRefusal.axisLimitAsserted(pins).actionableDescription
-    case .limitStateUnknown:
-      return ControllerAlarmClearRefusal.currentLimitStateUnknown(
-        "the latest alarm probe did not establish axis-limit inputs"
-      ).actionableDescription
-    case .unavailable:
-      return ControllerAlarmClearRefusal.noCurrentAlarmEvidence.actionableDescription
-    }
-  }
-
-  var frameModeSwitchUnavailableReason: String? {
+  private var observationSourceChangeUnavailableReason: String? {
     if let reason = currentCameraCalibrationBusyReason { return reason }
     if frameModeSwitchInProgress { return "A frame source switch is already in progress." }
     if activeExerciseAttemptOwnerID != nil {
@@ -4043,39 +3831,99 @@ final class OperatorWorkspace:
     return .ready
   }
 
-  func refreshVideoSources() async {
+  var observationConfigurationProjection: PlotterObservationConfigurationProjection {
+    .init(
+      reference: .init(revision: semanticPresentationRevision, capabilityID: controllerSessionID),
+      frameMode: frameMode,
+      cameraDevices: cameraDevices,
+      selectedCameraID: selectedCameraID,
+      cameraIsLive: cameraIsLive,
+      sourceChangeUnavailableReason: observationSourceChangeUnavailableReason,
+      calibrationBusyReason: currentCameraCalibrationBusyReason,
+      simulatorEvidenceLabel: simulatorEvidenceLabel,
+      simulatorSummary: simulatorLearningSummary,
+      cameraStateText: cameraStateText,
+      captureThroughputText: captureThroughputText,
+      visionThroughputText: visionThroughputText,
+      cameraError: cameraError,
+      visionError: visionError,
+      cadence: visionAnalysisCadence,
+      regionLock: videoAnalysisRegionLock,
+      overlayCards: UserSceneOverlay.allCases.map { overlayCardPresentation(for: $0) },
+      enabledOverlays: overlayPreferenceState.enabled,
+      penCapAppearance: penCapAppearanceSelection
+    )
+  }
+
+  func submitObservationConfiguration(
+    _ submission: PlotterObservationOperatorSubmission
+  ) async {
+    guard !hasShutdown else { return }
+    guard submission.reference.revision == semanticPresentationRevision,
+      submission.reference.capabilityID == controllerSessionID
+    else { return }
+    switch submission.intent {
+    case .refresh:
+      await refreshObservationSources()
+    case .selectSource(.simulated, _):
+      await transitionObservationSource(.simulated)
+    case .selectSource(.live, let id):
+      guard let id else {
+        await transitionObservationSource(.live)
+        return
+      }
+      await selectCamera(id)
+      guard selectedCameraID == id, cameraError == nil else { return }
+      await startCamera()
+    case .stopLiveSource:
+      await stopCamera()
+    case .restartLiveSource:
+      await restartCamera()
+    case .setCadence(let cadence):
+      guard visionAnalysisCadence != cadence else { return }
+      visionAnalysisCadence = cadence
+      markSemanticPresentationChanged()
+      await reconcileAutomaticVisionAnalysis()
+    case .setRegion(let region, let displayedFrame):
+      await applyVideoAnalysisRegion(region, for: displayedFrame)
+    case .setOverlay(let overlay, let enabled):
+      let prior = overlayPreferenceState
+      overlayPreferenceState.applyOperatorSelection(overlay, enabled: enabled)
+      do {
+        try observationPreferences.persistOverlayPreference(overlayPreferenceState.enabled)
+      } catch {
+        overlayPreferenceState = prior
+        visionError = "Overlay preference was not saved: \(actionableDescription(error))"
+        return
+      }
+      markSemanticPresentationChanged()
+      await reconcileAutomaticVisionAnalysis()
+    case .requestDiagnostics:
+      await requestVideoDiagnostics()
+    }
+  }
+
+  private func refreshObservationSources() async {
     if frameMode == .simulated {
       await refreshSimulatedContent()
     } else {
       await discoverCameras()
     }
-    await refreshVideoDiagnostics()
+    await requestVideoDiagnostics()
   }
 
   /// Pull-only operational diagnostics for the Video Settings surface. This
   /// cache is deliberately absent from Learning projection revisions and does
   /// not create a high-rate observation stream.
-  func refreshVideoDiagnostics() async {
-    guard frameMode == .live, let cameraActions else {
+  private func requestVideoDiagnostics() async {
+    guard frameMode == .live, observationRuntime != nil else {
       videoVisionDiagnostics = nil
       return
     }
-    videoVisionDiagnostics = await cameraActions.visionDiagnostics()
+    _ = await submitObservationIntent(.requestDiagnostics)
   }
 
-  func selectAndStartCamera(_ id: CameraDeviceID) async {
-    await selectCamera(id)
-    guard selectedCameraID == id, cameraError == nil else { return }
-    await startCamera()
-  }
-
-  func setVisionAnalysisCadence(_ cadence: VisionAnalysisCadence) async {
-    guard visionAnalysisCadence != cadence else { return }
-    visionAnalysisCadence = cadence
-    await reconcileAutomaticVisionAnalysis()
-  }
-
-  func setVideoAnalysisRegion(
+  private func applyVideoAnalysisRegion(
     _ region: PixelRect?,
     for displayedFrame: DisplayedFrame
   ) async {
@@ -4104,9 +3952,7 @@ final class OperatorWorkspace:
         region: $0
       )
     }
-    await cameraActions?.setSceneAnalysisRegion(
-      frameMode == .live ? videoAnalysisRegionLock?.region : nil
-    )
+    markSemanticPresentationChanged()
     await reconcileAutomaticVisionAnalysis()
   }
 
@@ -5082,8 +4928,8 @@ final class OperatorWorkspace:
       penActuationProfile: effectivePenActuationProfile,
       selectedBoundaryDirection: selectedBoundary,
       controller: .init(
-        sessionEstablished: controllerSessionEstablished,
-        motionAuthorized: motionAuthorizationEnabled,
+        sessionEstablished: sessionEstablished,
+        motionAuthorized: sessionMotionAuthorized,
         cameraStateText: cameraStateText,
         machineError: controllerAttentionText,
         controllerTravelUnavailableReason: learningCarriageMotionUnavailableReason
@@ -5337,7 +5183,7 @@ final class OperatorWorkspace:
         let selection = PenCapAppearanceSelection(checkpoint: appearance)
         livePenCapAppearanceSelection = selection
         persistedPenCapAppearanceLoadState = .accepted
-        await cameraActions?.setPenCapColor(selection.color)
+        await reconcileAutomaticVisionAnalysis()
       }
       restoreInteractiveLearningCompletionFromEvidence()
       return (checkpoint, opticalComparison)
@@ -5453,7 +5299,7 @@ final class OperatorWorkspace:
   }
 
   private func captureProtocolFrame(newerThan boundary: UInt64) async throws -> DisplayedFrame {
-    guard let cameraActions else { throw LearningPathOperationError.freshFrameUnavailable }
+    guard let observationRuntime else { throw LearningPathOperationError.freshFrameUnavailable }
     if frameMode == .simulated {
       let scene = try await captureSimulatedProtocolScene(newerThan: boundary)
       guard
@@ -5466,7 +5312,7 @@ final class OperatorWorkspace:
       applySimulatedProtocolScene(scene)
       return scene.displayedFrame
     }
-    guard let frame = try await cameraActions.captureFrame(boundary),
+    guard let frame = try await observationRuntime.captureFrame(newerThanNanoseconds: boundary),
       frame.frame.captureNanoseconds > boundary
     else { throw LearningPathOperationError.freshFrameUnavailable }
     displayedFrame = frame
@@ -6069,12 +5915,12 @@ final class OperatorWorkspace:
       refreshedBaseline = nil
       passiveProbe = nil
     } else {
-      guard let machineActions else {
+      guard let machineSession else {
         throw LearningPathOperationError.requiredState(
           "A connected controller session is required for sparse-tip evidence."
         )
       }
-      let probe = try await machineActions.requestPassiveProbe()
+      let probe = try await machineSession.requestPassiveProbe()
       try requireSparseTipBatchContinuation()
       guard sparseTipPenUpAuthorizationIsCurrent,
         probe.blockers.isEmpty,
@@ -6207,15 +6053,15 @@ final class OperatorWorkspace:
       )
     }
 
-    guard let machineActions else {
+    guard let machineSession else {
       throw LearningPathOperationError.requiredState(
         "A connected controller session is required for exact calibration evidence."
       )
     }
-    let probe = try await machineActions.requestPassiveProbe()
+    let probe = try await machineSession.requestPassiveProbe()
     try requireCalibrationContinuation()
     let refreshedBaseline = try ControllerContextBaseline(probe: probe)
-    let snapshot = await machineActions.snapshot()
+    let snapshot = await machineSession.snapshot()
     try requireCalibrationContinuation()
     guard let snapshot, snapshot.currentOperation == .idle,
       snapshot.machine.connection == .connected,
@@ -6358,7 +6204,7 @@ final class OperatorWorkspace:
       selection.color.blue == sample.blue
     else { throw CancellationError() }
     guard frameMode == .live else { return }
-    await cameraActions?.setPenCapColor(selection.color)
+    await reconcileAutomaticVisionAnalysis()
     guard !Task.isCancelled,
       pointSelectionEpisodeProjection.exactPointSelection.request?.id == selectionID
     else { throw CancellationError() }
@@ -6388,7 +6234,7 @@ final class OperatorWorkspace:
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
-    if let reason = controllerPoseRevalidationUnavailableReason {
+    if let reason = retainedPoseApplicabilityRefusal {
       explorationError = reason
       throw LearningPathOperationError.requiredState(reason)
     }
@@ -6658,8 +6504,8 @@ final class OperatorWorkspace:
       try requireSparseTipBatchContinuation()
       if frameMode == .simulated {
         simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
-      } else if let machineActions {
-        let finalSnapshot = await machineActions.snapshot()
+      } else if let machineSession {
+        let finalSnapshot = await machineSession.snapshot()
         guard finalSnapshot?.currentOperation == .idle,
           finalSnapshot?.machine.controllerState == .idle,
           finalSnapshot?.machine.penState == .up,
@@ -6864,18 +6710,18 @@ final class OperatorWorkspace:
       if let refusal = simulatedOutcome.refusal { throw refusal }
       lower = .commandedAndSettled(command: .lower, commandedState: .down)
     } else {
-      guard let machineActions else {
+      guard let machineSession else {
         throw LearningPathOperationError.requiredState("Machine composition is unavailable.")
       }
       lower = await PlotterManualMotionComposition.settleNativePenCommand(
-        using: machineActions,
+        using: machineSession,
         command: .lower,
         profile: currentPenActuationProfile
       )
     }
     guard case .commandedAndSettled(command: .lower, commandedState: .down) = lower else {
-      if frameMode == .live, let machineActions {
-        machineSnapshot = await machineActions.snapshot()
+      if frameMode == .live, let machineSession {
+        machineSnapshot = await machineSession.snapshot()
       }
       switch lower {
       case .ambiguous:
@@ -6938,7 +6784,7 @@ final class OperatorWorkspace:
             y: outcome.finalMPos.yMM
           )
         } else {
-          guard let machineActions else {
+          guard let machineSession else {
             throw LearningPathOperationError.requiredState(
               "Machine composition is unavailable."
             )
@@ -6953,7 +6799,7 @@ final class OperatorWorkspace:
             )
           )
           let operation: DrawingStrokeOperation
-          switch await machineActions.beginDrawingStroke(request) {
+          switch await machineSession.beginDrawingStroke(request) {
           case .admitted(let admitted):
             operation = admitted
           case .rejected(let outcome):
@@ -6974,25 +6820,25 @@ final class OperatorWorkspace:
           case .completed(let evidence):
             finalPosition = evidence.finalPosition
           case .cancelled(_, let penRaiseOutcome):
-            machineSnapshot = await machineActions.snapshot()
+            machineSnapshot = await machineSession.snapshot()
             throw LearningPathOperationError.possibleInk(
               "The calibration circle was stopped; Pen Up outcome: \(penRaiseOutcome)"
             )
           case .ambiguous(let ambiguity):
-            machineSnapshot = await machineActions.snapshot()
+            machineSnapshot = await machineSession.snapshot()
             throw LearningPathOperationError.possibleInk(
               ambiguity.actionableDescription
             )
           case .refused(let refusal):
-            machineSnapshot = await machineActions.snapshot()
+            machineSnapshot = await machineSession.snapshot()
             throw LearningPathOperationError.controllerRefused(String(describing: refusal))
           }
         }
         guard MachinePositionAcceptancePolicy.accepts(finalPosition, target: expected) else {
           if frameMode == .simulated {
             simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
-          } else if let machineActions {
-            machineSnapshot = await machineActions.snapshot()
+          } else if let machineSession {
+            machineSnapshot = await machineSession.snapshot()
           }
           throw LearningPathOperationError.controllerFailed(
             String(
@@ -7021,18 +6867,18 @@ final class OperatorWorkspace:
       if let refusal = simulatedOutcome.refusal { throw refusal }
       raise = .commandedAndSettled(command: .raise, commandedState: .up)
     } else {
-      guard let machineActions else {
+      guard let machineSession else {
         throw LearningPathOperationError.requiredState("Machine composition is unavailable.")
       }
       raise = await PlotterManualMotionComposition.settleNativePenCommand(
-        using: machineActions,
+        using: machineSession,
         command: .raise,
         profile: currentPenActuationProfile
       )
     }
     guard case .commandedAndSettled(command: .raise, commandedState: .up) = raise else {
-      if frameMode == .live, let machineActions {
-        machineSnapshot = await machineActions.snapshot()
+      if frameMode == .live, let machineSession {
+        machineSnapshot = await machineSession.snapshot()
       }
       blacklistedToolContactLocations.insert(location)
       throw operationError(for: raise, possibleInk: true)
@@ -7078,15 +6924,15 @@ final class OperatorWorkspace:
       }
       return
     }
-    guard let machineActions,
+    guard let machineSession,
       machineSnapshot?.machine.stickyAmbiguity == nil
     else { return }
     _ = await PlotterManualMotionComposition.settleNativePenCommand(
-      using: machineActions,
+      using: machineSession,
       command: .raise,
       profile: currentPenActuationProfile
     )
-    machineSnapshot = await machineActions.snapshot()
+    machineSnapshot = await machineSession.snapshot()
   }
 
   private func undoSparseTipClick() async {
@@ -7745,13 +7591,13 @@ final class OperatorWorkspace:
   }
 
   private var learningConnectionAndMotionUnavailableReason: String? {
-    if !controllerSessionEstablished {
+    if !sessionEstablished {
       let target = frameMode == .simulated ? "learning simulator" : "selected plotter"
       let detail = controllerAttentionText.map { " Current controller state: \($0)" } ?? ""
       return
         "Blocked by controller connection. Use Connect for the \(target) in the workbench toolbar; Enable Motion depends on a connected session.\(detail)"
     }
-    if !motionAuthorizationEnabled {
+    if !sessionMotionAuthorized {
       return
         "Blocked by Motion authorization. Use Enable Motion in the workbench toolbar for this connected session."
     }
@@ -7766,12 +7612,12 @@ final class OperatorWorkspace:
       if simulatedLearningSnapshot?.currentOperation != nil {
         return "Stop or finish the current simulated operation first."
       }
-      if requiresCamera, cameraActions == nil {
+      if requiresCamera, observationRuntime == nil {
         return "The simulator camera composition is unavailable."
       }
       return nil
     }
-    if let reason = controllerPoseRevalidationUnavailableReason { return reason }
+    if let reason = retainedPoseApplicabilityRefusal { return reason }
     if let reason = controllerCarriageTravelUnavailableReason { return reason }
     if requiresCamera, !cameraIsLive { return "A current LIVE camera frame is required." }
     return nil
@@ -7832,12 +7678,12 @@ final class OperatorWorkspace:
 
   var workbenchStatusText: String {
     if let actionableError { return actionableError }
-    if !controllerSessionEstablished {
+    if !sessionEstablished {
       return frameMode == .simulated
         ? "Press Connect to start the nonphysical learning simulator session."
         : "Select the remembered controller and press Connect."
     }
-    if !motionAuthorizationEnabled {
+    if !sessionMotionAuthorized {
       return frameMode == .simulated
         ? "Simulator connected. Enable Motion before this action."
         : "Plotter connected. Enable Motion before this action."
@@ -8057,15 +7903,6 @@ final class OperatorWorkspace:
     if case .ambiguous(let ambiguity) = machineSnapshot?.lastPenOutcome {
       return ambiguity.actionableDescription
     }
-    return nil
-  }
-
-  var passiveProbeUnavailableReason: String? {
-    if let reason = currentCameraCalibrationBusyReason { return reason }
-    if passiveProbeInProgress { return "Controller connection inspection is already in progress." }
-    if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
-    if machineActions == nil { return "Native machine composition is unavailable." }
-    if selectedSerialDevice == nil { return "Select one serial device first." }
     return nil
   }
 
@@ -8295,8 +8132,8 @@ final class OperatorWorkspace:
   private func refreshManualEnvironmentSnapshot() async {
     if frameMode == .simulated {
       simulatedLearningSnapshot = await simulatedLearningRuntime.snapshot()
-    } else if let machineActions {
-      machineSnapshot = await machineActions.snapshot()
+    } else if let machineSession {
+      machineSnapshot = await machineSession.snapshot()
     }
   }
 
@@ -8313,7 +8150,7 @@ final class OperatorWorkspace:
   }
 
   private var controllerCarriageTravelUnavailableReason: String? {
-    if let reason = controllerMotionSafetyUnavailableReason { return reason }
+    if let reason = retainedCarriageSafetyRefusal { return reason }
     guard let machine = machineSnapshot?.machine else {
       return MotionRefusal.notConnected.actionableDescription
     }
@@ -8324,17 +8161,17 @@ final class OperatorWorkspace:
   }
 
   private var learningCarriageMotionUnavailableReason: String? {
-    if let reason = controllerPoseRevalidationUnavailableReason { return reason }
+    if let reason = retainedPoseApplicabilityRefusal { return reason }
     return controllerCarriageTravelUnavailableReason
   }
 
-  private var controllerMotionSafetyUnavailableReason: String? {
+  private var retainedCarriageSafetyRefusal: String? {
     if jogRequestInProgress { return "A relative jog is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
       return "SIMULATED source cannot issue physical machine commands. Switch to LIVE first."
     }
-    if machineActions == nil { return "Native machine composition is unavailable." }
+    if machineSession == nil { return "Native machine composition is unavailable." }
     if selectedSerialDevice == nil { return "Select and connect one serial device." }
     guard let snapshot = machineSnapshot else {
       return MotionRefusal.notConnected.actionableDescription
@@ -8370,7 +8207,7 @@ final class OperatorWorkspace:
     return nil
   }
 
-  private var controllerPoseRevalidationUnavailableReason: String? {
+  private var retainedPoseApplicabilityRefusal: String? {
     guard frameMode == .live else { return nil }
     if case .requiresVisualRevalidation = controllerPoseApplicability {
       return
@@ -8383,14 +8220,14 @@ final class OperatorWorkspace:
     if retainedPenRequestInProgress { return "A retained pen command is already in progress." }
     if frameModeSwitchInProgress { return "Wait for the frame source switch to finish." }
     if frameMode == .simulated {
-      if !controllerSessionEstablished { return "Connect the learning simulator first." }
-      if !motionAuthorizationEnabled { return "Enable simulated Motion first." }
+      if !sessionEstablished { return "Connect the learning simulator first." }
+      if !sessionMotionAuthorized { return "Enable simulated Motion first." }
       if simulatedLearningSnapshot?.currentOperation != nil {
         return "Stop or finish the current simulated operation first."
       }
       return nil
     }
-    if machineActions == nil { return "Native machine composition is unavailable." }
+    if machineSession == nil { return "Native machine composition is unavailable." }
     if selectedSerialDevice == nil { return "Select and connect one serial device." }
     guard let snapshot = machineSnapshot else {
       return PenRefusal.notConnected.actionableDescription
@@ -8427,13 +8264,6 @@ final class OperatorWorkspace:
     return nil
   }
 
-  func setOverlay(_ overlay: UserSceneOverlay, enabled: Bool) {
-    guard !hasShutdown else { return }
-    overlayPreferenceState.applyOperatorSelection(overlay, enabled: enabled)
-    persistOverlayPreference(overlayPreferenceState.enabled)
-    Task { await reconcileAutomaticVisionAnalysis() }
-  }
-
   private var sceneAnalysisIsRequested: Bool {
     !overlayPreferenceState.enabled.isEmpty
   }
@@ -8450,53 +8280,36 @@ final class OperatorWorkspace:
   }
 
   private func reconcileAutomaticVisionAnalysis() async {
-    guard !hasShutdown, let cameraActions else { return }
+    guard !hasShutdown, let observationRuntime else { return }
     if automaticVisionAnalysisShouldRun {
       let generation = lifetimeGeneration
-      await cameraActions.setSceneAnalysisRegion(videoAnalysisRegionLock?.region)
-      let snapshot = await cameraActions.setAutomaticInspection(
-        visionAnalysisCadence,
-        requestedSceneFeatures
-      )
+      _ = await submitObservationIntent(.configureAutomaticAnalysis(
+        cadence: visionAnalysisCadence,
+        features: requestedSceneFeatures,
+        region: videoAnalysisRegionLock?.region,
+        penCapColor: livePenCapColor
+      ))
+      let snapshot = await observationRuntime.snapshot()
       guard canCommit(generation), frameMode == .live else { return }
-      visionAnalysisSnapshot = snapshot
-      visionError = snapshot.lastError
-      beginVisionUpdates(generation: generation)
-      if let result = snapshot.latestResult { receiveVision(result) }
+      cameraSnapshot = snapshot
       return
     }
 
-    visionUpdateTask?.cancel()
-    visionUpdateTask = nil
-    let snapshot = await cameraActions.setAutomaticInspection(nil, [])
-    visionAnalysisSnapshot = snapshot
-    visionError = snapshot.lastError
-    let cameraSnapshot = await cameraActions.snapshot()
+    _ = await submitObservationIntent(.configureAutomaticAnalysis(
+      cadence: nil,
+      features: [],
+      region: nil,
+      penCapColor: livePenCapColor
+    ))
+    let cameraSnapshot = await observationRuntime.snapshot()
     self.cameraSnapshot = cameraSnapshot
     if let latest = cameraSnapshot.latestFrame { displayedFrame = latest }
   }
 
   func refreshSerialDevices() async {
-
-    guard currentCameraCalibrationBusyReason == nil else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    guard !passiveProbeInProgress && !jogRequestInProgress && !retainedPenRequestInProgress else { return }
-    let discovered = serialDeviceDiscovery()
-    if let selectedSerialDevice,
-      !discovered.contains(where: { $0.identifier == selectedSerialDevice.identifier })
-    {
-      await machineActions?.disconnect()
-      guard canCommit(generation) else { return }
-      await clearMachineAuthority(clearSelection: true)
-    }
-    guard canCommit(generation) else { return }
-    serialDevices = discovered
-    if selectedSerialDevice == nil, let rememberedSerialDeviceIdentifier {
-      selectedSerialDevice = discovered.first {
-        $0.identifier == rememberedSerialDeviceIdentifier
-      }
-    }
+    _ = await submitControllerSessionRequest(
+      controllerSessionProjection.request(.refreshSerialDevices)
+    )
   }
 
   func performApplicationStartup(_ policy: AdaptivePlotterLaunchPolicy) async {
@@ -8506,7 +8319,9 @@ final class OperatorWorkspace:
     case .preferredCamera:
       await startPreferredCameraAtStartup()
     case .simulated:
-      await switchFrameMode(.simulated)
+      await submitObservationConfiguration(
+        observationConfigurationProjection.request(.selectSource(.simulated, nil))
+      )
     }
     await synchronizeDrawingDraft()
     await synchronizeDrawingRunProjection()
@@ -8598,180 +8413,84 @@ final class OperatorWorkspace:
     }
   }
 
-  func disconnectMachineSession() async {
-
-    guard currentCameraCalibrationBusyReason == nil else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    guard selectedSerialDevice != nil, !passiveProbeInProgress, !jogRequestInProgress,
-      !retainedPenRequestInProgress
-    else { return }
-    await machineActions?.disconnect()
-    guard canCommit(generation) else { return }
-    await clearMachineAuthority(clearSelection: false)
-  }
-
-  func performControllerConnectionAction() async {
-    guard controllerConnectionActionUnavailableReason == nil else { return }
-    controllerConnectionActionInProgress = true
-    defer { controllerConnectionActionInProgress = false }
-    if frameMode == .simulated {
-      let response =
-        if controllerSessionEstablished {
-          await simulatedLearningRuntime.disconnect()
-        } else {
-          await simulatedLearningRuntime.connect()
-        }
-      applySimulatedSnapshotResponse(
-        response,
-        action: controllerSessionEstablished ? "Disconnect simulator" : "Connect simulator"
-      )
-      return
+  func submitControllerSessionRequest(
+    _ request: PlotterControllerSessionRequest
+  ) async -> PlotterControllerSessionDisposition {
+    let facts = controllerSessionFacts
+    guard request.reference == facts.reference else {
+      return .refused("The controller-session projection changed; use the current action.")
     }
-    if controllerLinkIsOpen {
-      await disconnectMachineSession()
-    } else {
-      await connectSelectedController()
+    switch request.intent {
+    case .refreshSerialDevices, .selectSerialDevice:
+      break
+    case .toggleConnection:
+      controllerConnectionActionInProgress = true
+    case .requestPassiveProbe:
+      passiveProbeInProgress = true
+    case .clearAlarm:
+      controllerAlarmClearInProgress = true
+    case .toggleMotionAuthorization:
+      motionAuthorizationActionInProgress = true
     }
-  }
-
-  /// Updates only the operator's pending device choice. A picker change is not
-  /// a successful connection and cannot turn the status indicator green.
-  func selectSerialDevice(_ descriptor: MachineLinkDescriptor) async {
-
-    guard currentCameraCalibrationBusyReason == nil else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    guard activeDiscoverySequenceID == nil || activePenInteractionNeedsControllerSetup,
-      activeBorderValidationOperation == nil
-    else { return }
-    guard !passiveProbeInProgress && !jogRequestInProgress && !retainedPenRequestInProgress else { return }
-    guard serialDevices.contains(where: { $0.identifier == descriptor.identifier }) else { return }
-    if selectedSerialDevice?.identifier != descriptor.identifier, machineSnapshot != nil {
-      await machineActions?.disconnect()
-      guard canCommit(generation) else { return }
-      await clearMachineAuthority(clearSelection: false)
+    defer {
+      controllerConnectionActionInProgress = false
+      passiveProbeInProgress = false
+      controllerAlarmClearInProgress = false
+      motionAuthorizationActionInProgress = false
     }
-    guard canCommit(generation) else { return }
-    selectedSerialDevice = descriptor
-    rememberedSerialDeviceIdentifier = descriptor.identifier
-    persistSelectedSerialIdentifier(descriptor.identifier)
-  }
-
-  /// Test/support entrypoint for establishing the same selected-device session
-  /// without asserting that its passive inspection succeeded.
-  func establishMachineSession(_ descriptor: MachineLinkDescriptor) async {
-
-    guard currentCameraCalibrationBusyReason == nil else { return }
-    await selectSerialDevice(descriptor)
-    await openSelectedMachineSession()
-  }
-
-  func connectSelectedController() async {
-
-    guard currentCameraCalibrationBusyReason == nil else { return }
-    guard selectedSerialDevice != nil else { return }
-    await openSelectedMachineSession()
-    guard machineError == nil, machineSnapshot != nil else { return }
-    await requestPassiveProbe()
-  }
-
-  private func openSelectedMachineSession() async {
-    guard currentCameraCalibrationBusyReason == nil else { return }
-    guard let descriptor = selectedSerialDevice else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    guard !passiveProbeInProgress && !jogRequestInProgress && !retainedPenRequestInProgress else { return }
-    guard let machineActions else {
-      machineError = "Native machine composition is unavailable."
-      return
+    let disposition = await controllerSessionRuntime.submit(request, facts: facts)
+    guard !hasShutdown else { return .cancelled }
+    guard case .completed(let result) = disposition else {
+      if case .refused(let reason) = disposition { machineError = reason }
+      return disposition
     }
-    machineError = nil
-    do {
-      let snapshot = try await machineActions.select(descriptor)
-      guard canCommit(generation) else { return }
+    await applyControllerSessionResult(result)
+    return disposition
+  }
+
+  private func applyControllerSessionResult(
+    _ result: PlotterControllerSessionEffectResult
+  ) async {
+    switch result {
+    case .discovered(let devices, let retiredLowerSession):
+      serialDevices = devices
+      if retiredLowerSession { await clearMachineAuthority(clearSelection: true) }
+    case .selected(let descriptor, let retiredLowerSession):
+      if retiredLowerSession { await clearMachineAuthority(clearSelection: false) }
+      selectedSerialDevice = descriptor
+      machineError = nil
+    case .liveSession(let snapshot, let probe, let error):
       machineSnapshot = snapshot
-      passiveProbeResult = nil
-      lastMotionGuardActivationText = "not activated"
-    } catch {
-      guard canCommit(generation) else { return }
-      machineError = actionableDescription(error)
-      machineSnapshot = nil
-      passiveProbeResult = nil
-    }
-  }
-
-  func requestPassiveProbe() async {
-
-    guard currentCameraCalibrationBusyReason == nil else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    guard passiveProbeUnavailableReason == nil, let machineActions else { return }
-    passiveProbeInProgress = true
-    machineError = nil
-    passiveProbeResult = nil
-    defer { passiveProbeInProgress = false }
-    let operation = Task { try await machineActions.requestPassiveProbe() }
-    await Task.yield()
-    let interimSnapshot = await machineActions.snapshot()
-    if canCommit(generation) { machineSnapshot = interimSnapshot }
-    do {
-      let result = try await operation.value
-      let finalSnapshot = await machineActions.snapshot()
-      guard canCommit(generation) else { return }
-      passiveProbeResult = result
-      machineSnapshot = finalSnapshot
-      await revalidateParkedAcceptedArtifactCheckpoint(
-        with: result,
-        currentPosition: finalSnapshot?.machine.position
-      )
-    } catch {
-      let finalSnapshot = await machineActions.snapshot()
-      guard canCommit(generation) else { return }
-      machineError = actionableDescription(error)
-      machineSnapshot = finalSnapshot
-    }
-  }
-
-  /// Explicit operator-owned alarm unlock. `$X` acknowledgement is never
-  /// treated as connection or motion authority; this action always follows it
-  /// with a complete passive probe before publishing current controller facts.
-  func clearControllerAlarm() async {
-    guard controllerAlarmClearActionUnavailableReason == nil, let machineActions else { return }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    controllerAlarmClearInProgress = true
-    machineError = nil
-    defer { controllerAlarmClearInProgress = false }
-
-    let outcome = await machineActions.requestControllerAlarmClear()
-    var snapshot = await machineActions.snapshot()
-    guard canCommit(generation) else { return }
-    machineSnapshot = snapshot
-    guard outcome == .acknowledged else {
-      machineError = outcome.actionableDescription
-      return
-    }
-
-    passiveProbeInProgress = true
-    passiveProbeResult = nil
-    defer { passiveProbeInProgress = false }
-    do {
-      let probe = try await machineActions.requestPassiveProbe()
-      snapshot = await machineActions.snapshot()
-      guard canCommit(generation) else { return }
       passiveProbeResult = probe
-      machineSnapshot = snapshot
-      await revalidateParkedAcceptedArtifactCheckpoint(
-        with: probe,
-        currentPosition: snapshot?.machine.position
-      )
-    } catch {
-      snapshot = await machineActions.snapshot()
-      guard canCommit(generation) else { return }
-      machineError = actionableDescription(error)
-      machineSnapshot = snapshot
+      machineError = error
+      lastMotionGuardActivationText = snapshot?.machine.motionGuardState == .active
+        ? "activated for this controller session" : "not activated"
+      if let probe {
+        await revalidateParkedAcceptedArtifactCheckpoint(
+          with: probe,
+          currentPosition: snapshot?.machine.position
+        )
+      }
+    case .liveDisconnected:
+      await clearMachineAuthority(clearSelection: false)
+    case .simulated(let snapshot, let action, let refusal):
+      simulatedLearningSnapshot = snapshot
+      simulatorPenState = simulatorPenState(from: snapshot.penPose)
+      simulatorLearningSummary = refusal.map {
+        "\(action) refused: \($0). Simulation is nonphysical evidence."
+      } ?? "\(action) completed. Simulation is nonphysical evidence."
     }
+  }
+
+  /// Test support still uses the production typed selection/connection seam;
+  /// it cannot directly invoke the lower machine session.
+  func establishMachineSession(_ descriptor: MachineLinkDescriptor) async {
+    _ = await submitControllerSessionRequest(
+      controllerSessionProjection.request(.selectSerialDevice(descriptor))
+    )
+    _ = await submitControllerSessionRequest(
+      controllerSessionProjection.request(.toggleConnection)
+    )
   }
 
   @discardableResult
@@ -8840,7 +8559,7 @@ final class OperatorWorkspace:
     defer {
       if hardwareIntentRequiresEnd { endHardwareIntent() }
     }
-    guard learningPenCommandUnavailableReason(for: command) == nil, let machineActions else {
+    guard learningPenCommandUnavailableReason(for: command) == nil, let machineSession else {
       return nil
     }
     withBatchedSemanticPresentationUpdate {
@@ -8849,11 +8568,11 @@ final class OperatorWorkspace:
       computationDiagnostics.record(.penRequest(command, .began))
     }
     let outcome = await PlotterManualMotionComposition.settleNativePenCommand(
-      using: machineActions,
+      using: machineSession,
       command: command,
       profile: profile
     )
-    let snapshot = await machineActions.snapshot()
+    let snapshot = await machineSession.snapshot()
     guard canCommit(generation) else {
       withBatchedSemanticPresentationUpdate {
         retainedPenRequestInProgress = false
@@ -9177,7 +8896,7 @@ final class OperatorWorkspace:
       )
       return
     }
-    guard let machineActions else { return }
+    guard let machineSession else { return }
     let generation: UInt64?
     if intent == .shutdown {
       // Shutdown has already closed new hardware admission. This cancel is the
@@ -9193,9 +8912,9 @@ final class OperatorWorkspace:
     }
     guard beginCancellationRequest(for: target, intent: intent) else { return }
     defer { finishCancellationRequest(for: target) }
-    let outcome = await machineActions.requestJogCancel(intent)
+    let outcome = await machineSession.requestJogCancel(intent)
     updateContextualStopAudit(for: target, outcome: String(describing: outcome))
-    let snapshot = await machineActions.snapshot()
+    let snapshot = await machineSession.snapshot()
     if let generation {
       guard canCommit(generation) else { return }
       machineSnapshot = snapshot
@@ -9346,16 +9065,16 @@ final class OperatorWorkspace:
       if let refusal = simulatedOutcome.refusal { throw refusal }
       outcome = .commandedAndSettled(command: .raise, commandedState: .up)
     } else {
-      guard let machineActions else {
+      guard let machineSession else {
         throw LearningPathOperationError.requiredState("Machine composition is unavailable.")
       }
       outcome = await PlotterManualMotionComposition.settleNativePenCommand(
-        using: machineActions,
+        using: machineSession,
         command: .raise,
         profile: currentPenActuationProfile
       )
       guard case .commandedAndSettled(command: .raise, commandedState: .up) = outcome else {
-        machineSnapshot = await machineActions.snapshot()
+        machineSnapshot = await machineSession.snapshot()
         throw operationError(for: outcome, possibleInk: false)
       }
     }
@@ -9465,69 +9184,6 @@ final class OperatorWorkspace:
       disposition: latch.intent,
       outcome: outcome
     )
-  }
-
-  func activateMotionGuard() async {
-    if frameMode == .simulated {
-      guard motionGuardActivationUnavailableReason == nil else { return }
-      motionAuthorizationActionInProgress = true
-      defer { motionAuthorizationActionInProgress = false }
-      applySimulatedSnapshotResponse(
-        await simulatedLearningRuntime.enableMotion(),
-        action: "Enable simulated motion"
-      )
-      return
-    }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    guard motionGuardActivationUnavailableReason == nil, let machineActions else { return }
-    motionAuthorizationActionInProgress = true
-    machineError = nil
-    defer { motionAuthorizationActionInProgress = false }
-    let outcome = await machineActions.activateMotionGuard()
-    let snapshot = await machineActions.snapshot()
-    guard canCommit(generation) else { return }
-    machineSnapshot = snapshot
-    switch outcome {
-    case .activated:
-      lastMotionGuardActivationText = "activated for this controller session"
-    case .refused(let refusal):
-      lastMotionGuardActivationText = "refused: \(refusal.actionableDescription)"
-      machineError = refusal.actionableDescription
-    }
-  }
-
-  func performMotionAuthorizationAction() async {
-    guard motionAuthorizationActionUnavailableReason == nil else { return }
-    if motionAuthorizationEnabled {
-      await deactivateMotionGuard()
-    } else {
-      await activateMotionGuard()
-    }
-  }
-
-  private func deactivateMotionGuard() async {
-    if frameMode == .simulated {
-      guard motionAuthorizationActionUnavailableReason == nil else { return }
-      motionAuthorizationActionInProgress = true
-      defer { motionAuthorizationActionInProgress = false }
-      applySimulatedSnapshotResponse(
-        await simulatedLearningRuntime.disableMotion(),
-        action: "Disable simulated motion"
-      )
-      return
-    }
-    guard let generation = beginHardwareIntent() else { return }
-    defer { endHardwareIntent() }
-    guard motionAuthorizationActionUnavailableReason == nil, let machineActions else { return }
-    motionAuthorizationActionInProgress = true
-    machineError = nil
-    defer { motionAuthorizationActionInProgress = false }
-    await machineActions.deactivateMotionGuard()
-    let snapshot = await machineActions.snapshot()
-    guard canCommit(generation) else { return }
-    machineSnapshot = snapshot
-    lastMotionGuardActivationText = "not activated"
   }
 
   private func manualJogIntent(
@@ -9724,22 +9380,23 @@ final class OperatorWorkspace:
     }
   }
 
-  func discoverCameras() async {
+  private func discoverCameras() async {
 
     guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard let cameraActions else {
+    guard observationRuntime != nil else {
       cameraError = "Native camera composition is unavailable."
       return
     }
-    let snapshot = await cameraActions.discover()
+    _ = await submitObservationIntent(.refreshSources)
+    guard let snapshot = await observationRuntime?.snapshot() else { return }
     guard canCommit(generation) else { return }
     cameraSnapshot = snapshot
     updateCameraError()
   }
 
-  func startPreferredCameraAtStartup() async {
+  private func startPreferredCameraAtStartup() async {
     await discoverCameras()
     guard !hasShutdown, cameraError == nil else { return }
     let preferred =
@@ -9756,14 +9413,14 @@ final class OperatorWorkspace:
     await startCamera()
   }
 
-  func selectCamera(_ id: CameraDeviceID) async {
+  private func selectCamera(_ id: CameraDeviceID) async {
     guard currentCameraCalibrationBusyReason == nil else {
       cameraError = currentCameraCalibrationBusyReason
       return
     }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard let cameraActions, activeDiscoverySequenceID == nil,
+    guard observationRuntime != nil, activeDiscoverySequenceID == nil,
       activeBorderValidationOperation == nil
     else {
       cameraError =
@@ -9785,27 +9442,36 @@ final class OperatorWorkspace:
     }
     cameraError = nil
     do {
-      let snapshot = try await cameraActions.select(id)
+      let disposition = await submitObservationIntent(.selectLiveSource(id))
+      switch disposition {
+      case .failed(let detail)?, .refused(let detail)?:
+        throw LearningPathOperationError.requiredState(detail)
+      case .applied(_)?, .stale?, nil:
+        break
+      }
+      guard let snapshot = await observationRuntime?.snapshot() else {
+        throw LearningPathOperationError.freshFrameUnavailable
+      }
       guard canCommit(generation) else { return }
       cameraSnapshot = snapshot
       displayedFrame = nil
       latestLiveCameraFrame = nil
     } catch {
-      let snapshot = await cameraActions.snapshot()
+      let snapshot = await observationRuntime?.snapshot()
       guard canCommit(generation) else { return }
       cameraError = actionableDescription(error)
       cameraSnapshot = snapshot
     }
   }
 
-  func startCamera() async {
+  private func startCamera() async {
 
     guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    guard let cameraActions else { return }
-    if let livePenCapColor { await cameraActions.setPenCapColor(livePenCapColor) }
-    let snapshot = await cameraActions.start()
+    guard observationRuntime != nil else { return }
+    _ = await submitObservationIntent(.startLiveSource)
+    guard let snapshot = await observationRuntime?.snapshot() else { return }
     guard canCommit(generation) else { return }
     frameMode = .live
     cameraSnapshot = snapshot
@@ -9813,27 +9479,25 @@ final class OperatorWorkspace:
     latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
     reconcileCameraDependentLearningAuthority(with: displayedFrame)
     updateCameraError()
-    beginFrameUpdates(generation: generation)
     await reconcileAutomaticVisionAnalysis()
   }
 
-  func stopCamera() async {
+  private func stopCamera() async {
 
     guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
-    frameTask?.cancel()
-    frameTask = nil
     clearAutomaticVisionPresentation()
-    guard let cameraActions else { return }
-    let snapshot = await cameraActions.stop()
+    guard observationRuntime != nil else { return }
+    _ = await submitObservationIntent(.stopLiveSource)
+    guard let snapshot = await observationRuntime?.snapshot() else { return }
     guard canCommit(generation) else { return }
     cameraSnapshot = snapshot
     latestLiveCameraFrame = nil
     updateCameraError()
   }
 
-  func restartCamera() async {
+  private func restartCamera() async {
 
     guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginHardwareIntent() else { return }
@@ -9842,13 +9506,11 @@ final class OperatorWorkspace:
       cameraError = "Finish the current discovery or learning action before restarting the camera."
       return
     }
-    frameTask?.cancel()
-    frameTask = nil
     clearAutomaticVisionPresentation()
     videoAnalysisRegionLock = nil
-    guard let cameraActions else { return }
-    if let livePenCapColor { await cameraActions.setPenCapColor(livePenCapColor) }
-    let snapshot = await cameraActions.restart()
+    guard observationRuntime != nil else { return }
+    _ = await submitObservationIntent(.restartLiveSource)
+    guard let snapshot = await observationRuntime?.snapshot() else { return }
     guard canCommit(generation) else { return }
     frameMode = .live
     cameraSnapshot = snapshot
@@ -9857,7 +9519,6 @@ final class OperatorWorkspace:
     reconcileCameraDependentLearningAuthority(with: displayedFrame)
     lastSceneMeasurement = nil
     updateCameraError()
-    beginFrameUpdates(generation: generation)
     await reconcileAutomaticVisionAnalysis()
   }
 
@@ -9881,7 +9542,7 @@ final class OperatorWorkspace:
     requestedFeatures: SceneFeatureSet,
     analysisRegion: PixelRect?
   ) async throws -> LiveSceneInspection? {
-    guard let cameraActions else { return nil }
+    guard let observationRuntime else { return nil }
     if frameMode == .live, livePenCapAppearanceSelection == nil,
       !requestedFeatures.intersection([.penCap, .armatureEnvelope]).isEmpty
     {
@@ -9889,10 +9550,10 @@ final class OperatorWorkspace:
         "Use Identify Pen Cap before requesting LIVE pen-cap analysis."
       )
     }
-    return try await cameraActions.inspectWorkflowScene(
-      boundary,
-      requestedFeatures,
-      analysisRegion
+    return try await observationRuntime.inspectWorkflowScene(
+      newerThanNanoseconds: boundary,
+      requestedFeatures: requestedFeatures,
+      analysisRegion: analysisRegion
     )
   }
 
@@ -9918,10 +9579,10 @@ final class OperatorWorkspace:
         "Use Identify Pen Cap before requesting LIVE pen-cap analysis."
       )
     }
-    guard let cameraActions else {
+    guard let observationRuntime else {
       throw LearningPathOperationError.freshFrameUnavailable
     }
-    return try await cameraActions.captureStableWorkflowCap.run(
+    return try await observationRuntime.captureStableWorkflowCap(
       StableWorkflowCapCaptureRequest(newerThanNanoseconds: initialBoundary)
     )
   }
@@ -9943,39 +9604,36 @@ final class OperatorWorkspace:
     exactWorkflowVisionOwner = nil
   }
 
-  func switchFrameMode(_ mode: OperatorFrameMode) async {
+  private func transitionObservationSource(_ mode: OperatorFrameMode) async {
 
     guard let generation = beginHardwareIntent() else { return }
     defer { endHardwareIntent() }
     guard mode != frameMode || displayedFrame == nil else { return }
-    if let reason = frameModeSwitchUnavailableReason {
+    if let reason = observationSourceChangeUnavailableReason {
       cameraError = reason
       return
     }
     await cancelPointSelectionRequest()
-    guard let cameraActions else { return }
+    guard observationRuntime != nil else { return }
     frameModeSwitchInProgress = true
     defer { frameModeSwitchInProgress = false }
-    frameTask?.cancel()
-    frameTask = nil
     clearAutomaticVisionPresentation()
     videoAnalysisRegionLock = nil
-    await cameraActions.setSceneAnalysisRegion(nil)
     cameraError = nil
     switch mode {
     case .live:
-      if let livePenCapColor { await cameraActions.setPenCapColor(livePenCapColor) }
-      let snapshot = await cameraActions.start()
+      _ = await submitObservationIntent(.startLiveSource)
+      guard let snapshot = await observationRuntime?.snapshot() else { return }
       guard canCommit(generation) else { return }
       frameMode = .live
       cameraSnapshot = snapshot
       displayedFrame = cameraSnapshot?.latestFrame
       latestLiveCameraFrame = validatedLiveCameraFrame(in: snapshot)
       updateCameraError()
-      beginFrameUpdates(generation: generation)
       await reconcileAutomaticVisionAnalysis()
     case .simulated:
-      let snapshot = await cameraActions.stop()
+      _ = await submitObservationIntent(.stopLiveSource)
+      guard let snapshot = await observationRuntime?.snapshot() else { return }
       guard canCommit(generation) else { return }
       let penReset = await submitPenInteraction(.reset, environment: .simulated)
       guard case .applied = penReset else {
@@ -10063,17 +9721,11 @@ final class OperatorWorkspace:
     }
   }
 
-  func stopObserving() {
-    frameTask?.cancel()
-    frameTask = nil
-    visionUpdateTask?.cancel()
-    visionUpdateTask = nil
-  }
-
   func shutdown() async {
     guard !hasShutdown else { return }
     persistAcceptedLearningPathCheckpoint()
     hasShutdown = true
+    await controllerSessionRuntime.shutdown()
     artifactResetRuntime.shutdown()
     installDrawingRunSnapshot(
       await drawingRunRuntime.beginShutdown(environment: .live)
@@ -10086,7 +9738,8 @@ final class OperatorWorkspace:
     if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
       await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
     }
-    stopObserving()
+    observationProjectionTask?.cancel()
+    observationProjectionTask = nil
     await cameraCalibrationRuntime.shutdown()
     await pointSelectionRuntime.shutdown()
     await penInteractionRuntime.shutdown()
@@ -10099,22 +9752,9 @@ final class OperatorWorkspace:
     activeLearningActionID = nil
     activeLearningActionTask = nil
     await waitForHardwareIntentsToDrain()
-    _ = await cameraActions?.stop()
-    await machineActions?.disconnect()
+    await observationRuntime?.shutdown()
     await clearCameraAuthority()
     await clearMachineAuthority(clearSelection: true)
-  }
-
-  private func beginFrameUpdates(generation: UInt64) {
-    frameTask?.cancel()
-    guard canCommit(generation), let cameraActions, frameMode == .live else { return }
-    frameTask = Task { [weak self] in
-      let stream = await cameraActions.frames()
-      for await frame in stream {
-        guard !Task.isCancelled, let self else { return }
-        self.receive(frame, generation: generation)
-      }
-    }
   }
 
   private func receive(_ frame: DisplayedFrame, generation: UInt64? = nil) {
@@ -10131,43 +9771,12 @@ final class OperatorWorkspace:
     if let lock = videoAnalysisRegionLock, !lock.matches(frame) {
       videoAnalysisRegionLock = nil
       Task {
-        await cameraActions?.setSceneAnalysisRegion(nil)
         await reconcileAutomaticVisionAnalysis()
       }
     }
 
     guard case .stopped = visionAnalysisSnapshot.phase.state else { return }
     displayedFrame = frame
-  }
-
-  private func beginVisionUpdates(generation: UInt64) {
-    guard canCommit(generation), let cameraActions,
-      case .running = visionAnalysisSnapshot.phase.state
-    else { return }
-    visionUpdateTask?.cancel()
-    visionUpdateTask = Task { [weak self] in
-      let stream = await cameraActions.analysisUpdates()
-      for await snapshot in stream {
-        guard !Task.isCancelled, let self, self.canCommit(generation) else { return }
-        guard snapshot.revision != self.visionAnalysisSnapshot.revision else { continue }
-        let priorResultFrameID =
-          self.visionAnalysisSnapshot.latestResult?.displayedFrame.frame.id
-        let resultChanged =
-          priorResultFrameID != snapshot.latestResult?.displayedFrame.frame.id
-        self.visionAnalysisSnapshot = snapshot
-        self.computationDiagnostics.visionAnalysisRevisionCount += 1
-        self.computationDiagnostics.record(
-          .visionAnalysisRevision(
-            revision: snapshot.revision,
-            phase: snapshot.phase,
-            latestResultFrameID: snapshot.latestResult?.displayedFrame.frame.id,
-            lastError: snapshot.lastError
-          )
-        )
-        self.visionError = snapshot.lastError
-        if resultChanged, let result = snapshot.latestResult { self.receiveVision(result) }
-      }
-    }
   }
 
   private func defaultInkRegion(for frame: StampedFrame) -> PixelRect {
@@ -10748,7 +10357,6 @@ final class OperatorWorkspace:
     if let lock = videoAnalysisRegionLock, !lock.matches(result.displayedFrame) {
       videoAnalysisRegionLock = nil
       Task {
-        await cameraActions?.setSceneAnalysisRegion(nil)
         await reconcileAutomaticVisionAnalysis()
       }
     }
@@ -11446,13 +11054,13 @@ final class OperatorWorkspace:
     }
     if let reason = learningConnectionAndMotionUnavailableReason { return reason }
     if frameMode == .simulated {
-      if cameraActions == nil { return "The simulator camera composition is unavailable." }
+      if observationRuntime == nil { return "The simulator camera composition is unavailable." }
       if simulatedLearningSnapshot?.currentOperation != nil {
         return "Stop or finish the current simulated operation first."
       }
       return nil
     }
-    if let reason = controllerPoseRevalidationUnavailableReason { return reason }
+    if let reason = retainedPoseApplicabilityRefusal { return reason }
     if step != .compareIntendedAndObservedGeometry,
       machineSnapshot?.machine.penState != .up
     {
@@ -11763,7 +11371,7 @@ final class OperatorWorkspace:
       return try MachinePosition(x: outcome.finalMPos.xMM, y: outcome.finalMPos.yMM)
     }
 
-    guard let machineActions else {
+    guard let machineSession else {
       throw LearningPathOperationError.requiredState("Machine composition is unavailable.")
     }
     let request = RelativeJogRequest(
@@ -11772,7 +11380,7 @@ final class OperatorWorkspace:
     )
     let operation: RelativeJogOperation
     switch await PlotterManualMotionComposition.beginNativeRelativeMotion(
-      using: machineActions,
+      using: machineSession,
       request: request
     ) {
     case .admitted(let admitted):
@@ -11800,7 +11408,7 @@ final class OperatorWorkspace:
       )
       await requestSingleJogCancel(for: target, intent: .shutdown)
       _ = await owner.value
-      machineSnapshot = await machineActions.snapshot()
+      machineSnapshot = await machineSession.snapshot()
       throw LearningPathOperationError.requiredState(
         "Application shutdown cancelled supervised Pen-Up travel during admission."
       )
@@ -11809,19 +11417,19 @@ final class OperatorWorkspace:
     switch outcome {
     case .acceptedThenCompleted(let finalPosition):
       if !isSparseTipBatchTravel {
-        machineSnapshot = await machineActions.snapshot()
+        machineSnapshot = await machineSession.snapshot()
       }
       return finalPosition
     case .cancelled:
-      machineSnapshot = await machineActions.snapshot()
+      machineSnapshot = await machineSession.snapshot()
       throw LearningPathOperationError.controllerCancelled(
         "\(action.title) was stopped or cancelled; no arrival artifact was accepted."
       )
     case .ambiguous(let ambiguity):
-      machineSnapshot = await machineActions.snapshot()
+      machineSnapshot = await machineSession.snapshot()
       throw LearningPathOperationError.controllerAmbiguous(ambiguity.actionableDescription)
     case .refused(let refusal):
-      machineSnapshot = await machineActions.snapshot()
+      machineSnapshot = await machineSession.snapshot()
       throw LearningPathOperationError.controllerRefused(refusal.actionableDescription)
     }
   }
@@ -12070,8 +11678,6 @@ final class OperatorWorkspace:
   }
 
   private func clearAutomaticVisionPresentation() {
-    visionUpdateTask?.cancel()
-    visionUpdateTask = nil
     visionAnalysisSnapshot = .stopped
     videoVisionDiagnostics = nil
     visionError = nil

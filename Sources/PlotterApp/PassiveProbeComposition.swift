@@ -3,16 +3,43 @@ import OSLog
 import PlotterEpisodeRuntime
 import PlotterRuntime
 
+/// Nominal lower-machine capability retained by `PersistentMachineSession`.
+/// Upper episode runtimes depend on this protocol instead of receiving an
+/// arbitrary bag of effect-producing closures.
+protocol PlotterMachineSession: Actor {
+  func select(_ descriptor: MachineLinkDescriptor) async throws -> RunInterpreterSnapshot
+  func snapshot() async -> RunInterpreterSnapshot?
+  func requestPassiveProbe() async throws -> PassiveProbeResult
+  func requestControllerAlarmClear() async -> ControllerAlarmClearOutcome
+  func activateMotionGuard() async -> MotionGuardActivationOutcome
+  func deactivateMotionGuard() async
+  func beginRelativeJog(_ request: RelativeJogRequest) async -> RelativeJogAdmission
+  func beginDrawingStroke(_ request: DrawingStrokeRequest) async -> DrawingStrokeAdmission
+  func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission
+  func beginPenActuation(
+    _ command: PenCommand,
+    profile: PenActuationProfile
+  ) async -> PenActuationAdmission
+  func beginBoundaryMotion(
+    _ request: BoundaryMotionRequest,
+    renewalPlanner: BoundaryMotionRenewalPlanner?
+  ) async -> BoundaryMotionAdmission
+  func requestJogCancel(_ intent: JogCancelIntent) async -> JogCancelOutcome
+  @discardableResult
+  func recordWorkflowTelemetry(_ event: WorkflowTelemetryEvent) async -> Bool
+  func disconnect() async
+}
+
 struct OperatorWorkspaceDrawingRunInterpreterPort: PlotterDrawingRunInterpreterPort {
-  let actions: OperatorWorkspace.MachineActions
+  let session: any PlotterMachineSession
 
   func snapshot() async -> RunInterpreterSnapshot? {
-    await actions.snapshot()
+    await session.snapshot()
   }
 
   func normalizePenUp(profile: PenActuationProfile) async -> PenOutcome {
     await PlotterManualMotionComposition.settleNativePenCommand(
-      using: actions,
+      using: session,
       command: .raise,
       profile: profile
     )
@@ -20,7 +47,7 @@ struct OperatorWorkspaceDrawingRunInterpreterPort: PlotterDrawingRunInterpreterP
 
   func travelToObservationPosition(_ request: RelativeJogRequest) async -> MotionOutcome {
     switch await PlotterManualMotionComposition.beginNativeRelativeMotion(
-      using: actions,
+      using: session,
       request: request
     ) {
     case .admitted(let operation):
@@ -31,61 +58,16 @@ struct OperatorWorkspaceDrawingRunInterpreterPort: PlotterDrawingRunInterpreterP
   }
 
   func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission {
-    guard let begin = actions.beginDrawingPlan else {
-      preconditionFailure("The production Drawing Run composition requires plan execution.")
-    }
-    return await begin(request)
+    await session.beginDrawingPlan(request)
   }
 
   func requestStop(_ intent: JogCancelIntent) async -> JogCancelOutcome {
-    await actions.requestJogCancel(intent)
+    await session.requestJogCancel(intent)
   }
 }
 
 enum MachineSessionComposition {
-  private static let session = PersistentMachineSession()
-
-  static let actions = OperatorWorkspace.MachineActions(
-    select: { descriptor in
-      try await session.select(descriptor)
-    },
-    snapshot: {
-      await session.snapshot()
-    },
-    requestPassiveProbe: {
-      try await session.requestPassiveProbe()
-    },
-    requestControllerAlarmClear: {
-      await session.requestControllerAlarmClear()
-    },
-    activateMotionGuard: {
-      await session.activateMotionGuard()
-    },
-    deactivateMotionGuard: {
-      await session.deactivateMotionGuard()
-    },
-    beginRelativeJog: { request in
-      await session.beginRelativeJog(request)
-    },
-    beginDrawingStroke: { request in
-      await session.beginDrawingStroke(request)
-    },
-    beginDrawingPlan: { request in
-      await session.beginDrawingPlan(request)
-    },
-    beginPenActuation: { command, profile in
-      await session.beginPenActuation(command, profile: profile)
-    },
-    beginBoundaryMotion: { request, renewalPlanner in
-      await session.beginBoundaryMotion(request, renewalPlanner: renewalPlanner)
-    },
-    requestJogCancel: { intent in
-      await session.requestJogCancel(intent)
-    },
-    disconnect: {
-      await session.disconnect()
-    }
-  )
+  static let session: any PlotterMachineSession = PersistentMachineSession()
 
   static let workflowTelemetryActions = OperatorWorkspace.WorkflowTelemetryActions(
     record: { event in
@@ -202,7 +184,7 @@ struct MachineSessionRetentionPolicy: Sendable {
 
 /// Owns one controller, interpreter, serial link, and best-effort journal for
 /// the explicitly selected device. Repeated probes and jogs reuse that session.
-actor PersistentMachineSession {
+actor PersistentMachineSession: PlotterMachineSession {
   private static let logger = Logger(
     subsystem: "com.adaptiveplotter.app",
     category: "workflow-telemetry"

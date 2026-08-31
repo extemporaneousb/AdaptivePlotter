@@ -113,14 +113,13 @@ ACTION_ENUMS = {
     "VideoSettingsVisibilityAction": ROOT / "Sources/PlotterApp/WorkbenchLayout.swift",
 }
 PORT_STRUCTS = {
-    "MachineActions",
     "WorkflowTelemetryActions",
     "AcceptedLearningPathCheckpointActions",
-    "CameraActions",
 }
 TASK_FILES = {
     "OperatorWorkspace": ROOT / "Sources/PlotterApp/OperatorWorkspace.swift",
     "CameraSourceSession": ROOT / "Sources/PlotterApp/CameraComposition.swift",
+    "PlotterObservationConfigurationRuntime": ROOT / "Sources/PlotterApp/PlotterObservationConfigurationRuntime.swift",
     "AdaptivePlotterApplicationDelegate": ROOT / "Sources/PlotterApp/AdaptivePlotterApp.swift",
     "CameraCapture": ROOT / "Sources/PlotterRuntime/CameraCapture.swift",
     "PlotterSceneAnalysisPipeline": ROOT / "Sources/PlotterRuntime/PlotterSceneAnalysisPipeline.swift",

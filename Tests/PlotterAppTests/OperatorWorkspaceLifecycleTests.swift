@@ -12,20 +12,20 @@ struct OperatorWorkspaceLifecycleTests {
   func motionAuthorizationActionToggles() async {
     let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
-    await workspace.switchFrameMode(.simulated)
-    await workspace.performControllerConnectionAction()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
+    await submitControllerSession(workspace, .toggleConnection)
 
-    #expect(!workspace.motionAuthorizationEnabled)
-    #expect(workspace.motionAuthorizationActionUnavailableReason == nil)
+    #expect(!workspace.controllerSessionProjection.motionAuthorized)
+    #expect(workspace.controllerSessionProjection.motionAuthorizationUnavailableReason == nil)
 
-    await workspace.performMotionAuthorizationAction()
+    await submitControllerSession(workspace, .toggleMotionAuthorization)
 
-    #expect(workspace.motionAuthorizationEnabled)
-    #expect(workspace.motionAuthorizationActionUnavailableReason == nil)
+    #expect(workspace.controllerSessionProjection.motionAuthorized)
+    #expect(workspace.controllerSessionProjection.motionAuthorizationUnavailableReason == nil)
 
-    await workspace.performMotionAuthorizationAction()
+    await submitControllerSession(workspace, .toggleMotionAuthorization)
 
-    #expect(!workspace.motionAuthorizationEnabled)
+    #expect(!workspace.controllerSessionProjection.motionAuthorized)
     #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason
       == "Enable Motion before requesting movement.")
     await workspace.shutdown()
@@ -204,9 +204,9 @@ struct OperatorWorkspaceLifecycleTests {
   func boundaryAmbiguityDoesNotDependOnText() async throws {
     let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
-    await workspace.switchFrameMode(.simulated)
-    await workspace.performControllerConnectionAction()
-    await workspace.activateMotionGuard()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
+    await submitControllerSession(workspace, .toggleConnection)
+    await submitControllerSession(workspace, .toggleMotionAuthorization)
 
     let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     try requireEnabledPublicAction(.start, owner: penOwner, workspace: workspace)

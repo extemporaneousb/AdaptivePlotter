@@ -5,7 +5,7 @@ import PlotterEpisodeRuntime
 import PlotterRuntime
 
 struct OperatorWorkspacePenInteractionActuationPort: PlotterPenInteractionActuationPort {
-  let machineActions: OperatorWorkspace.MachineActions?
+  let machineSession: (any PlotterMachineSession)?
   let simulatedAdapter: PlotterCausalSimulatorEffectAdapter
   let nowNanoseconds: @Sendable () -> UInt64
 
@@ -14,7 +14,7 @@ struct OperatorWorkspacePenInteractionActuationPort: PlotterPenInteractionActuat
   ) async -> PlotterPenInteractionActuationSettlement {
     switch request.environment {
     case .live:
-      guard let machineActions else {
+      guard let machineSession else {
         return PlotterPenInteractionActuationSettlement(
           operationID: request.operationID,
           outcome: .refused(.notConnected),
@@ -25,11 +25,11 @@ struct OperatorWorkspacePenInteractionActuationPort: PlotterPenInteractionActuat
         )
       }
       let outcome = await PlotterManualMotionComposition.settleNativePenCommand(
-        using: machineActions,
+        using: machineSession,
         command: request.command,
         profile: request.profile
       )
-      let snapshot = await machineActions.snapshot()
+      let snapshot = await machineSession.snapshot()
       return PlotterPenInteractionActuationSettlement(
         operationID: request.operationID,
         outcome: outcome,
@@ -76,14 +76,14 @@ struct OperatorWorkspacePenInteractionActuationPort: PlotterPenInteractionActuat
 
 enum PlotterPenInteractionComposition {
   static func makeRuntime(
-    machineActions: OperatorWorkspace.MachineActions?,
+    machineSession: (any PlotterMachineSession)?,
     simulatedAdapter: PlotterCausalSimulatorEffectAdapter,
     nowNanoseconds: @escaping @Sendable () -> UInt64 = {
       DispatchTime.now().uptimeNanoseconds
     }
   ) -> PlotterPenInteractionRuntime {
     PlotterPenInteractionRuntime(port: OperatorWorkspacePenInteractionActuationPort(
-      machineActions: machineActions,
+      machineSession: machineSession,
       simulatedAdapter: simulatedAdapter,
       nowNanoseconds: nowNanoseconds
     ))

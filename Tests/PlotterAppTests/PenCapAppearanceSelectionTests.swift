@@ -81,8 +81,8 @@ struct PenCapAppearanceSelectionTests {
   @Test("Exercise 1.1 cannot ask a question or actuate before an accepted cap click")
   func clickPrecedesSequenceAndMachineActions() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let persisted = PenCapSelectionBox()
     let workspace = workspace(
       machine: machine,
@@ -91,9 +91,9 @@ struct PenCapAppearanceSelectionTests {
       persistPenCapAppearanceSelection: { persisted.value = $0 },
       log: log
     )
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     await log.clear()
 
     await workspace.performTestExerciseAction(
@@ -139,8 +139,8 @@ struct PenCapAppearanceSelectionTests {
   @Test("cap identification survives external controller and Motion setup")
   func capIdentificationPrecedesControllerSetup() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log, motionGuardInitiallyActive: false)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log, motionGuardInitiallyActive: false)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(
       machine: machine,
       camera: camera,
@@ -153,7 +153,7 @@ struct PenCapAppearanceSelectionTests {
     let motionBlocker =
       "Blocked by Motion authorization. Use Enable Motion in the workbench toolbar for this connected session."
 
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     let identifyAction = try #require(
       workspace.currentExerciseActionStripPresentation?.actions.first
@@ -182,8 +182,8 @@ struct PenCapAppearanceSelectionTests {
     #expect(disconnectedNext.unavailableReason == connectionBlocker)
     #expect(disconnectedAdjustment.unavailableReason == connectionBlocker)
     #expect(disconnectedAdjustment.isEnabled == false)
-    #expect(workspace.controllerSelectionUnavailableReason == nil)
-    #expect(workspace.controllerConnectionActionUnavailableReason == "Select one serial device first.")
+    #expect(workspace.controllerSessionProjection.selectionUnavailableReason == nil)
+    #expect(workspace.controllerSessionProjection.connectionUnavailableReason == "Select one serial device first.")
 
     let blockedSetpointID = PlotterAppUIActionID.penInteractionSetpoint(
       disconnectedAdjustment.command,
@@ -199,9 +199,9 @@ struct PenCapAppearanceSelectionTests {
     #expect(blockedProjection.request(for: blockedSetpointID) == nil)
     #expect(await machine.requestedPenCommands.isEmpty)
 
-    await workspace.selectSerialDevice(machine.descriptor)
-    #expect(workspace.controllerConnectionActionUnavailableReason == nil)
-    await workspace.performControllerConnectionAction()
+    await submitControllerSession(workspace, .selectSerialDevice(machine.descriptor))
+    #expect(workspace.controllerSessionProjection.connectionUnavailableReason == nil)
+    await submitControllerSession(workspace, .toggleConnection)
 
     let connectedStrip = try #require(workspace.currentExerciseActionStripPresentation)
     #expect(
@@ -211,7 +211,7 @@ struct PenCapAppearanceSelectionTests {
     #expect(connectedStrip.penSetpointAdjustment?.unavailableReason == motionBlocker)
     try requireStep(workspace, "answer-initially-up")
 
-    await workspace.activateMotionGuard()
+    await submitControllerSession(workspace, .toggleMotionAuthorization)
 
     let readyStrip = try #require(workspace.currentExerciseActionStripPresentation)
     #expect(readyStrip.actions.first { $0.kind == .choice(.yes) }?.unavailableReason == nil)
@@ -223,14 +223,14 @@ struct PenCapAppearanceSelectionTests {
   @Test("first Pen question does not wait for held or failing Vision reconfiguration")
   func firstQuestionPrecedesVisionReconfiguration() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture(
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession(
       automaticAnalysisError: "Injected automatic Vision reconfiguration failure."
     )
-    let reconfigurationGate = CameraReconfigurationGate()
+    let reconfigurationGate = TestConfigurationSuspension()
     let workspace = workspace(
       machine: machine,
-      cameraActionsOverride: cameraActions(
+      observationSessionOverride: resolvedObservationSession(
         camera,
         reconfigurationGate: reconfigurationGate
       ),
@@ -238,8 +238,8 @@ struct PenCapAppearanceSelectionTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     await workspace.performTestExerciseAction(
       .start,
       for: .humanGuidedDiscovery(.penInteraction)
@@ -281,12 +281,12 @@ struct PenCapAppearanceSelectionTests {
   @Test("re-entering Exercise 1.1 retains exact scene overlays on its frozen frame")
   func learnedAppearanceProducesFrozenFrameOverlays() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture(providesInspectionOverlay: true)
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession(providesInspectionOverlay: true)
     let workspace = workspace(machine: machine, camera: camera, log: log)
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
 
     await workspace.performTestExerciseAction(
       .start,
@@ -307,17 +307,17 @@ struct PenCapAppearanceSelectionTests {
   @Test("stale click remains pending and performs no machine action")
   func staleClickRemainsPending() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(
       machine: machine,
       camera: camera,
       loadPenCapAppearanceSelection: { nil },
       log: log
     )
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
+    await submitControllerSession(workspace, .requestPassiveProbe)
     await log.clear()
     await workspace.performTestExerciseAction(
       .start,
@@ -350,8 +350,8 @@ struct PenCapAppearanceSelectionTests {
   @Test("LIVE overlay preference remains On while learned color is unavailable")
   func unlearnedLiveOverlayStatus() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(
       machine: machine,
       camera: camera,
@@ -359,7 +359,7 @@ struct PenCapAppearanceSelectionTests {
       log: log
     )
 
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
     #expect(workspace.overlayStatus(for: .penCap).state == .unavailable)
@@ -371,8 +371,8 @@ struct PenCapAppearanceSelectionTests {
   @Test("persisted SIMULATED appearance cannot authorize LIVE Vision or exact workflow")
   func persistedSimulatedAppearanceIsRefusedForLive() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let simulated = testPenCapAppearanceSelection(source: .simulated)
     let workspace = workspace(
       machine: machine,
@@ -381,7 +381,7 @@ struct PenCapAppearanceSelectionTests {
       log: log
     )
 
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     #expect(workspace.livePenCapAppearanceSelection == nil)
     #expect(workspace.simulatedPenCapAppearanceSelection == nil)
@@ -409,8 +409,8 @@ struct PenCapAppearanceSelectionTests {
   @Test("SIMULATED identification has a separate owner and cannot erase LIVE appearance")
   func simulatedIdentificationDoesNotReplaceLiveAppearance() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let live = testPenCapAppearanceSelection(
       color: PenCapColor(red: 20, green: 80, blue: 220)
     )
@@ -423,7 +423,7 @@ struct PenCapAppearanceSelectionTests {
       log: log
     )
 
-    await workspace.switchFrameMode(.simulated)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
     await workspace.performTestExerciseAction(
       .start,
       for: .humanGuidedDiscovery(.penInteraction)
@@ -455,8 +455,8 @@ struct PenCapAppearanceSelectionTests {
   @Test("valid persisted LIVE appearance survives relaunch and camera configuration change")
   func persistedLiveAppearanceSurvivesCameraLifecycle() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let live = testPenCapAppearanceSelection(
       color: PenCapColor(red: 20, green: 80, blue: 220),
       cameraConfigurationID: CameraConfigurationID()
@@ -468,11 +468,11 @@ struct PenCapAppearanceSelectionTests {
       log: log
     )
 
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     #expect(workspace.livePenCapAppearanceSelection == live)
     #expect(camera.recordedPenCapColorRequests.last == live.color)
 
-    await workspace.restartCamera()
+    await submitObservationConfigurationForTest(workspace, .restartLiveSource)
     #expect(workspace.livePenCapAppearanceSelection == live)
     #expect(workspace.persistedPenCapAppearanceLoadState == .accepted)
     #expect(camera.recordedPenCapColorRequests.last == live.color)
@@ -483,8 +483,8 @@ struct PenCapAppearanceSelectionTests {
   @Test("invalid persisted LIVE appearance is ignored without changing overlay preference")
   func invalidPersistedLiveAppearanceIsRefused() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let invalid = testPenCapAppearanceSelection(color: PenCapColor(red: 4, green: 4, blue: 4))
     let workspace = workspace(
       machine: machine,
@@ -493,7 +493,7 @@ struct PenCapAppearanceSelectionTests {
       log: log
     )
 
-    await workspace.startCamera()
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
     #expect(workspace.livePenCapAppearanceSelection == nil)
     guard case .refused(let reason) = workspace.persistedPenCapAppearanceLoadState else {
@@ -511,8 +511,8 @@ struct PenCapAppearanceSelectionTests {
   @Test("accepted click then exact Pen Stop cannot revive Exercise 1.1")
   func acceptedClickImmediateCancelDoesNotRevive() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(
       machine: machine,
       camera: camera,
@@ -520,8 +520,8 @@ struct PenCapAppearanceSelectionTests {
       log: log
     )
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     await log.clear()
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
@@ -561,12 +561,12 @@ struct PenCapAppearanceSelectionTests {
   @Test("Restart, Learning Off, reset, and source switch cannot revive a stopped click")
   func recoveryTransitionsDoNotReviveCancelledClick() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
     await workspace.performTestExerciseAction(.start, for: owner)
@@ -597,7 +597,7 @@ struct PenCapAppearanceSelectionTests {
     let plan = try #require(workspace.resetAllLearningPlan)
     let didVacate = await workspace.performLearningVacate(plan)
     #expect(didVacate)
-    await workspace.switchFrameMode(.simulated)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
 
     #expect(workspace.frameMode == .simulated)
     #expect(workspace.discoveryTransactions[.penInteraction] == nil)
@@ -639,12 +639,12 @@ struct PenCapAppearanceSelectionTests {
   @Test("shutdown settles an accepted-click continuation without starting a sequence")
   func shutdownDoesNotReviveAcceptedClick() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(machine: machine, camera: camera, log: log)
     await workspace.establishMachineSession(machine.descriptor)
-    await workspace.requestPassiveProbe()
-    await workspace.startCamera()
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
 
     await workspace.performTestExerciseAction(.start, for: owner)

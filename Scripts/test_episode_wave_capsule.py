@@ -197,6 +197,10 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["TRANCHE-LEARNING"]["status"])
         for slice_id in contract.TRANCHE_SLICES["TRANCHE-LEARNING"]:
             self.assertEqual("complete", rows[slice_id]["status"])
+        self.assertEqual("complete", rows["TRANCHE-DEVICE-ENVIRONMENT"]["status"])
+        for slice_id in contract.TRANCHE_SLICES["TRANCHE-DEVICE-ENVIRONMENT"]:
+            self.assertEqual("complete", rows[slice_id]["status"])
+        self.assertEqual("pending", rows["TRANCHE-FINAL-COMPOSITION"]["status"])
         self.assertEqual("authority-slice", rows["EA-10G"]["class"])
         self.assertEqual("authority-slice", rows["EA-10C"]["class"])
         evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
@@ -455,7 +459,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         consumed = self.consume()
         self.assertEqual(created, consumed)
         self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("TRANCHE-DEVICE-ENVIRONMENT", consumed["contract"]["package"]["id"])
+        self.assertEqual("TRANCHE-FINAL-COMPOSITION", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -479,17 +483,17 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["TRANCHE-DEVICE-ENVIRONMENT", "pending", "TRANCHE-LEARNING", "software"]
+                and row[:4] == ["TRANCHE-FINAL-COMPOSITION", "pending", "TRANCHE-DEVICE-ENVIRONMENT", "software"]
                 and row[4].startswith("Tranche: one Blackdog task/worktree/landing")
                 and row[5] == "`DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `CRITIC`"
             ):
                 ledger_rows.append((selected, row))
         self.assertEqual(1, len(ledger_rows))
         selected, selected_row = ledger_rows[0]
-        self.assertEqual("TRANCHE-DEVICE-ENVIRONMENT", selected_row[0])
+        self.assertEqual("TRANCHE-FINAL-COMPOSITION", selected_row[0])
         self.assertNotEqual("FIX-02", selected_row[0])
         self.assertEqual(
-            ["EA-11A", "EA-11B"],
+            ["EA-11C"],
             [item["id"] for item in consumed["contract"]["ordered_authority_slices"]],
         )
         self.assertTrue(all(item["class"] == "authority-slice" for item in consumed["contract"]["ordered_authority_slices"]))
@@ -501,12 +505,12 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
-    def test_device_environment_tranche_is_selected_after_learning_landing(self) -> None:
+    def test_final_composition_tranche_is_selected_after_staged_device_completion(self) -> None:
         created = self.build_and_write()
 
         self.assertEqual("selected", created["launch"]["state"])
-        self.assertEqual("TRANCHE-DEVICE-ENVIRONMENT", created["contract"]["frontier"]["package_id"])
-        self.assertEqual("EA-11A", created["contract"]["ordered_authority_slices"][0]["id"])
+        self.assertEqual("TRANCHE-FINAL-COMPOSITION", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("EA-11C", created["contract"]["ordered_authority_slices"][0]["id"])
         self.assertNotEqual("GATE-01", created["contract"]["frontier"]["package_id"])
 
     def test_contract_import_does_not_emit_bytecode_into_clean_repository(self) -> None:
@@ -574,7 +578,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write({"tasks": [removed, ineligible]})
 
         self.assertEqual("selected", created["launch"]["state"])
-        self.assertEqual("TRANCHE-DEVICE-ENVIRONMENT", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("TRANCHE-FINAL-COMPOSITION", created["contract"]["frontier"]["package_id"])
         self.assertEqual([], created["blackdog"]["live_blockers"])
         self.assertEqual(
             [
@@ -586,7 +590,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual(created, self.consume({"tasks": [removed, ineligible]}))
 
     def test_current_eligible_or_unverifiable_terminal_history_fails_closed(self) -> None:
-        recoverable = self.terminal_task("TASK-RECOVERABLE", "TRANCHE-DEVICE-ENVIRONMENT")
+        recoverable = self.terminal_task("TASK-RECOVERABLE", "TRANCHE-FINAL-COMPOSITION")
         created = self.build_and_write({"tasks": [recoverable]})
         self.assertEqual("claim_resolution", created["launch"]["state"])
         self.assertEqual("TASK-RECOVERABLE", created["blackdog"]["live_blockers"][0]["task_id"])
@@ -637,7 +641,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
         rows = contract.validate_plan(plan)
         rows = {package_id: dict(row) for package_id, row in rows.items()}
-        tranche_id = "TRANCHE-LEARNING"
+        tranche_id = "TRANCHE-DEVICE-ENVIRONMENT"
         slices = contract.TRANCHE_SLICES[tranche_id]
         rows[tranche_id]["status"] = "complete"
         for slice_id in slices:
@@ -645,8 +649,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         contract.validate_tranche_landing_evidence(evidence, rows)
 
         mismatched = evidence.replace(
-            "| EA-10C | `TASK-5C0B3F27` |",
-            "| EA-10C | `TASK-OTHER` |",
+            "| EA-11B | `TASK-4C16F56F` |",
+            "| EA-11B | `TASK-OTHER` |",
         )
         with self.assertRaisesRegex(ValueError, "one common Blackdog landing"):
             contract.validate_tranche_landing_evidence(mismatched, rows)

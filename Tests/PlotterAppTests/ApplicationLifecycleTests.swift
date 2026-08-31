@@ -96,8 +96,8 @@ struct ApplicationLifecycleTests {
   @MainActor
   func simulatedStartupIsCameraSafe() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(machine: machine, camera: camera, log: log)
     let policy = AdaptivePlotterLaunchPolicy(arguments: [
       "AdaptivePlotter", "-AdaptivePlotterStartSimulated", "YES",
@@ -122,8 +122,8 @@ struct ApplicationLifecycleTests {
   @MainActor
   func normalStartupRemainsCameraFirst() async throws {
     let log = EventLog()
-    let machine = try MachineFixture(log: log)
-    let camera = try CameraFixture()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
     let workspace = workspace(machine: machine, camera: camera, log: log)
 
     await workspace.performApplicationStartup(
