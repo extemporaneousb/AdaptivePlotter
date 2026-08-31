@@ -19,6 +19,11 @@ from typing import Callable
 
 
 SCHEMA = "adaptiveplotter.episode-wave-launch.v1"
+TRANCHE_SLICES = {
+    "TRANCHE-LEARNING": ["EA-10G", "EA-10C", "EA-10D", "EA-10E", "EA-10F"],
+    "TRANCHE-DEVICE-ENVIRONMENT": ["EA-11A", "EA-11B"],
+    "TRANCHE-FINAL-COMPOSITION": ["EA-11C"],
+}
 DEFAULT_CAPSULE = Path(".VE/run-multi-agent-wave/launch-capsule.json")
 MAX_CAPSULE_BYTES = 262_144
 MAX_CONSUMPTION_BYTES = 65_536
@@ -252,6 +257,69 @@ def exact_table_cell_pointers(
     return result
 
 
+def table_row_pointers(
+    contract: ModuleType,
+    path: str,
+    text: str,
+    header: list[str],
+    column: int,
+    token: str,
+    purpose: str,
+) -> list[dict[str, object]]:
+    """Return exact pointers only from the named canonical table."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if contract.cells(line) != header:
+            continue
+        result: list[dict[str, object]] = []
+        for line_number, candidate in enumerate(lines[index + 2 :], start=index + 3):
+            if not candidate.startswith("|"):
+                break
+            row = contract.cells(candidate)
+            if len(row) != len(header):
+                raise CapsuleError(f"malformed table row in {path}: {candidate}")
+            if row[column].strip("`") == token:
+                result.append(pointer(path, text, line_number, line_number, purpose))
+        return result
+    raise CapsuleError(f"missing canonical table in {path}: {' / '.join(header)}")
+
+
+def slice_contract_bindings(
+    contract: ModuleType,
+    plan_path: str,
+    plan: str,
+    slice_id: str,
+) -> dict[str, list[dict[str, object]]]:
+    return {
+        "current_owner_inventory": table_row_pointers(
+            contract,
+            plan_path,
+            plan,
+            [
+                "Inventory ID",
+                "Category",
+                "Current source seams",
+                "Current owner and behavior",
+                "Disposition",
+                "Cutover",
+                "Focused command",
+            ],
+            5,
+            slice_id,
+            "authority slice current-owner inventory row",
+        ),
+        "same_slice_deletion_scans": table_row_pointers(
+            contract,
+            plan_path,
+            plan,
+            ["Package", "Scan class", "Paths", "Zero-match literal"],
+            0,
+            slice_id,
+            "authority slice same-landing deletion scan row",
+        ),
+    }
+
+
 def package_pointers(
     root: Path,
     contract: ModuleType,
@@ -300,6 +368,14 @@ def package_pointers(
             result.extend(exact_table_cell_pointers(contract, evidence_path, evidence, 0, dependency, "dependency evidence row"))
         for gate in rows[package_id]["gates"]:
             result.extend(exact_table_cell_pointers(contract, plan_path, plan, 0, gate, "required gate catalog row"))
+
+        for slice_id in TRANCHE_SLICES.get(package_id, []):
+            result.extend(exact_table_cell_pointers(contract, plan_path, plan, 0, slice_id, "ordered authority slice row"))
+            slice_bindings = slice_contract_bindings(contract, plan_path, plan, slice_id)
+            result.extend(slice_bindings["current_owner_inventory"])
+            result.extend(slice_bindings["same_slice_deletion_scans"])
+            for gate in rows[slice_id]["gates"]:
+                result.extend(exact_table_cell_pointers(contract, plan_path, plan, 0, gate, "authority slice gate catalog row"))
 
         outcome = str(rows[package_id]["outcome"]).lower()
         vocabulary_sections = {"## Specifications and state", "## Canonical target seams"}
@@ -397,6 +473,8 @@ def build_capsule(
     package: dict[str, object] | None = None
     dependencies: list[dict[str, object]] = []
     expanded_gates: list[dict[str, object]] = []
+    slices: list[dict[str, object]] = []
+    plan = (root / "docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md").read_text(encoding="utf-8")
     if isinstance(package_id, str):
         row = rows[package_id]
         package = {
@@ -414,11 +492,30 @@ def build_capsule(
             {"id": gate, "procedure": gates[gate][0], "owner": gates[gate][1]}
             for gate in row["gates"]
         ]
+        slices = []
+        for slice_id in TRANCHE_SLICES.get(package_id, []):
+            slice_bindings = slice_contract_bindings(
+                contract,
+                "docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md",
+                plan,
+                slice_id,
+            )
+            slices.append({
+                "id": slice_id,
+                "class": rows[slice_id]["class"],
+                "dependencies": rows[slice_id]["dependencies"],
+                "outcome": rows[slice_id]["outcome"],
+                "gates": [
+                    {"id": gate, "procedure": gates[gate][0], "owner": gates[gate][1]}
+                    for gate in rows[slice_id]["gates"]
+                ],
+                "current_owner_inventory": slice_bindings["current_owner_inventory"],
+                "same_slice_deletion_scans": slice_bindings["same_slice_deletion_scans"],
+            })
     live_summary = summary if summary is not None else read_blackdog_summary(root)
     claims = unfinished_claims(live_summary)
     launch_state = "claim_resolution" if claims else frontier["state"]
     bindings = {path: sha256_file(root / path) for path in AUTHORITY_PATHS}
-    plan = (root / "docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md").read_text(encoding="utf-8")
     capsule: dict[str, object] = {
         "schema": SCHEMA,
         "repository": state,
@@ -435,6 +532,7 @@ def build_capsule(
             "package": package,
             "dependency_rows": dependencies,
             "expanded_gates": expanded_gates,
+            "ordered_authority_slices": slices,
             "wave_admission_blockers": blockers,
         },
         "pointers": package_pointers(

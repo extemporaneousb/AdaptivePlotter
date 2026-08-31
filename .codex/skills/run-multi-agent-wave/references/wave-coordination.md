@@ -3,8 +3,10 @@
 This reference owns selection and coordination mechanics only. It cannot change
 a WorkPackage's scope, dependencies, execution class, authority transfer,
 deletions, gates, or evidence boundary. One wave is exactly one canonical
-WorkPackage executed in exactly one Blackdog task worktree. Multiple workers may
-operate inside that boundary; multiple package tasks are not one wave.
+selectable work item executed in exactly one Blackdog task worktree. A named
+tranche is that work item and carries its fixed ordered typed authority slices;
+the slices are not individually selected, claimed, or landed. Multiple workers
+may operate inside that boundary; multiple tranche tasks are not one wave.
 
 ## 1. Reconcile authority and reservations
 
@@ -53,7 +55,8 @@ Only when no unfinished claim exists, examine rows in their literal order in the
 canonical ledger. A row is eligible only when all of these are true:
 
 1. its status is `pending`;
-2. its class is `repository`, `software`, or `gate`;
+2. its class is selectable: `repository`, `software`, or `gate`; an
+   `authority-slice` is not selectable;
 3. every dependency row is landed `complete`;
 4. every required gate resolves to its exact command or evidence procedure;
 5. Current Evidence and the package contract contain no unresolved blocker,
@@ -96,6 +99,11 @@ deleting, weakening, or paraphrasing its constraints. Append a section titled
   landings, cleanup, tags, or remote refs, and never spawn child agents.
 - All workers use the one returned task worktree. Filesystem changes are already
   shared; do not ask for patches to be blindly reapplied or merged.
+- For a tranche, use every ordered slice's current-owner inventory and exact
+  same-slice deletion-scan pointers in its assignment. Never describe the
+  tranche as a broad authority cutover. Completion and successor selection are
+  invalid unless the tranche root and every slice completion row name one same
+  nonempty Blackdog task/landing.
 - Before dispatch, record task ID, target branch, base HEAD, worktree path,
   `git status --short`, the complete pre-existing diff/untracked set, and content
   identities for files about to be leased. Existing changes are a protected
@@ -135,9 +143,9 @@ deleting, weakening, or paraphrasing its constraints. Append a section titled
   All SwiftPM/build/test commands run serially. A validation worker runs the
   exact package gates and returns exact commands and outcomes. No validation
   runs against a changing tree.
-- After a stable integrated candidate passes its focused validation, but before
-  broad `QUICK` or `STRICT` gates, dispatch exactly one fresh-context read-only
-  critic against the actual candidate worktree. The critic checks the compiled
+- At a tranche boundary, after every ordered slice passes its build, focused,
+  affected-consumer, `DIFF`, and `DELETE` checks, dispatch at most one bounded
+  fresh-context read-only critic against the actual candidate worktree. The critic checks the compiled
   package outcome, authority transfer, deletions, preserved behavior, evidence
   classes, package scope, accepted-slice register, and final diff. It reports
   only material acceptance blockers, at most three per pass. Every blocker names
@@ -145,22 +153,19 @@ deleting, weakening, or paraphrasing its constraints. Append a section titled
   smallest sufficient correction. Nonblocking observations become follow-up
   candidates and do not delay this package.
 - Classify every handoff and critic result as `ACCEPT`, `RETASK`, or `REJECT`.
-  Retask only the responsible worker for an exact material blocker. Corrections
-  return to the same critic for delta-only rechecks; every passed dimension stays
-  closed unless a changed line invalidates it. Allow at most two
-  correction/recheck cycles for the wave. If a material blocker remains after
-  the second recheck, stop with typed operator judgment containing concrete,
-  complete choices. Do not commission another fresh critic or continue retasking.
-  Commentary, confidence, or a clean compile is not proof of completeness.
-- After critic `ACCEPT`, run the package's final gates serially, including broad
-  `QUICK` and `STRICT` gates only once on the accepted candidate. If a failed
-  gate requires a source, test, or product change, run the affected focused
-  validation and return only that delta to the same critic within the remaining
-  two-cycle budget. If the only post-gate changes are evidence or ledger
-  documentation and source and test hashes are unchanged, rerun only the
-  documentation and diff-hygiene gates. Once critic acceptance and final gates
-  cover the same hashes, land immediately. Never commission a post-pass, fresh,
-  confirmation, or precautionary critic.
+  Retask only a red-line blocker: compiler/test failure, duplicate
+  effect-producing authority, unauthorized motion, a Stop/shutdown race capable
+  of starting effects, automatic retry/redraw with possible ink, destructive
+  persistence ordering, or fabricated evidence. Record all other findings in
+  Current Evidence as deferred follow-up without retasking. Commentary,
+  confidence, or a clean compile is not proof of completeness.
+- After the one critic, run tranche-final gates serially. A red-line gate defect
+  may receive one narrowly authorized repair and affected validation, but it
+  never reopens criticism or creates a critic recheck loop. If the only post-gate
+  changes are evidence or ledger documentation and source and test hashes are
+  unchanged, rerun only documentation and diff-hygiene gates. Once required
+  gates cover the repaired candidate, land immediately. Never commission a
+  post-pass, fresh, confirmation, precautionary, or delta-recheck critic.
 - Before landing, require a quiescent tree, inspect the complete diff and
   untracked set, prove every deletion/forbidden-path scan, reconcile Current
   Evidence and ledger status, and verify that no protected baseline or accepted
@@ -168,10 +173,8 @@ deleting, weakening, or paraphrasing its constraints. Append a section titled
 - If the target becomes stale, stop workers. Execute only Blackdog's exact emitted
   stale-recovery action; never resolve with ours/theirs, reset, force, or skipped
   validation. Re-establish content identities, inspect the rebased diff, and
-  run affected focused validation. Return only the changed delta to the same
-  critic within the existing two-cycle budget, then repeat affected final gates.
-  If no critic cycle remains, stop with typed operator judgment rather than
-  commissioning another critic.
+  run affected validation and repeat only affected final gates. Do not reopen
+  criticism after stale recovery.
 
 ## 4. Worker assignment and status contract
 

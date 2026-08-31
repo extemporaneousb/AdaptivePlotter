@@ -169,6 +169,15 @@ def matching_paths(specification: str) -> list[Path]:
     return sorted(paths)
 
 
+CONSUMER_SCAN_CLASSES = {
+    "direct-port",
+    "duplicate-ingress",
+    "forbidden-import",
+    "forbidden-conformance",
+    "environment-branch",
+}
+
+
 def main(argv: list[str]) -> int:
     try:
         _rows, scans = validate_manifest()
@@ -178,13 +187,16 @@ def main(argv: list[str]) -> int:
     if argv == ["--validate-manifest"]:
         print("episode cutover manifest passed")
         return 0
-    if len(argv) != 1 or argv[0] not in CUTOVER_PACKAGES:
+    consumer_only = len(argv) == 2 and argv[1] == "--consumer-only"
+    if (len(argv) not in {1, 2} or not argv or argv[0] not in CUTOVER_PACKAGES or (len(argv) == 2 and not consumer_only)):
         allowed = ", ".join(sorted(CUTOVER_PACKAGES))
-        print(f"usage: check_episode_cutover.py <PACKAGE-ID>; allowed: {allowed}", file=sys.stderr)
+        print(f"usage: check_episode_cutover.py <PACKAGE-ID> [--consumer-only]; allowed: {allowed}", file=sys.stderr)
         return 2
     package = argv[0]
     failures: list[str] = []
     package_scans = [row for row in scans if row["package"] == package]
+    if consumer_only:
+        package_scans = [row for row in package_scans if row["class"] in CONSUMER_SCAN_CLASSES]
     for scan in package_scans:
         literal = scan["literal"]
         for path in matching_paths(scan["paths"]):
@@ -214,7 +226,8 @@ def main(argv: list[str]) -> int:
         except (OSError, ContractError) as error:
             print(f"episode cutover EA-09: {error}", file=sys.stderr)
             return 1
-    print(f"episode cutover {package} passed: {len(package_scans)} zero-match scans")
+    scope = "consumer" if consumer_only else "zero-match"
+    print(f"episode cutover {package} passed: {len(package_scans)} {scope} scans")
     return 0
 
 

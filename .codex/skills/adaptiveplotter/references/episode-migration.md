@@ -21,7 +21,9 @@ package execution path.
 - `compile episode package <ID>` is read-only. It returns the exact prompt for
   the named package as a preview and then stops.
 - `execute episode package <ID>` is the only ordinary mutation mode. It executes
-  one named `repository`, `software`, or `gate` package.
+  one named selectable `repository`, `software`, or `gate` work item. A named
+  software tranche may carry its canonical ordered `authority-slice` rows in
+  one Blackdog task/worktree/landing; an authority slice is never executed alone.
 - `$run-multi-agent-wave` is the automatic mutation mode. It reconciles active
   claims first, then selects at most one eligible ordinary package and acts as a
   coordinator under its complete wave-coordination reference. It cannot change
@@ -84,9 +86,12 @@ execution class for the requested mode, and fully expanded exact gates.
   does not satisfy a dependency.
 - Every required gate must resolve to an exact command or evidence procedure.
   An undefined gate makes the package ineligible.
-- One package must represent one reviewable atomic outcome and one
+- One selectable work item must represent one reviewable atomic outcome and one
   rollback/evidence/decision boundary. A `software` cutover transfers exactly
-  one product authority with same-landing deletion. A `repository`,
+  one product authority with same-landing deletion, except an explicitly named
+  canonical tranche may execute its enumerated ordered authority slices while
+  preserving each slice's separate typed owner and same-slice deletion. An
+  `authority-slice` is not selectable or independently landable. A `repository`,
   `attended-physical`, `remote-git`, or `gate` package transfers no product
   authority. If inventory disproves the recorded boundary, stop and amend the
   canonical ledger in a dedicated repository package; do not silently rescope
@@ -164,9 +169,17 @@ canonical plan. Never add an alternate plan.
 
 ## Validate, assess, and land
 
-Run the package's exact focused checks first, then its replay, causal simulation,
-UI actionability, deletion/forbidden-import/direct-port scans, and repository
-gates in the recorded order. SwiftPM commands that share `.build` run serially.
+Run each authority slice's build, focused suite, affected-consumer scan, `DIFF`,
+and deletion/forbidden-path checks before starting the next slice. At the named
+tranche boundary run `QUICK`, `JOURNEY`, `STRICT`, and at most one bounded critic;
+batch documentation/evidence synchronization there. A red-line gate defect may
+receive a narrowly authorized repair and affected validation, never a critic
+recheck. Record non-red-line findings
+in Current Evidence without retasking. Stop on compiler/test failure, duplicate
+effect-producing authority, unauthorized motion, a Stop/shutdown race capable of
+starting effects, automatic retry/redraw with possible ink, destructive
+persistence ordering, or fabricated evidence. SwiftPM commands that share
+`.build` run serially.
 Record software, replay, simulation, controller, camera, operator, and physical
 claims as separate evidence classes.
 

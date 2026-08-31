@@ -136,15 +136,10 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["EA-10A"]["status"])
         self.assertEqual("complete", rows["EA-10B"]["status"])
         self.assertEqual("pending", rows["GATE-01"]["status"])
-        self.assertEqual(
-            {
-                "EA-10C": {
-                    "blocker": "Old per-package successor dispatch is prohibited pending the new tranche-policy correction",
-                    "required_input_or_correction": "Land EA-10B and verify canonical-main cleanup, then apply the named tranche-policy correction before selecting or dispatching EA-10C; do not infer successor authority from EA-10B task-local completion",
-                }
-            },
-            blockers,
-        )
+        self.assertEqual({}, blockers)
+        self.assertEqual("pending", rows["TRANCHE-LEARNING"]["status"])
+        self.assertEqual("authority-slice", rows["EA-10G"]["class"])
+        self.assertEqual("authority-slice", rows["EA-10C"]["class"])
         evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
         self.assertIn("Drawing Boundary episode cutover completion candidate", evidence)
         self.assertIn("TASK-6DAB256F", evidence)
@@ -400,8 +395,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write()
         consumed = self.consume()
         self.assertEqual(created, consumed)
-        self.assertEqual("evidence_blocked", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("EA-10C", consumed["contract"]["package"]["id"])
+        self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
+        self.assertEqual("TRANCHE-LEARNING", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -425,27 +420,34 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in selected_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["EA-10C", "pending", "EA-10B", "software"]
-                and row[4].startswith("Cutover: transfer camera-from-cap calibration")
-                and row[5] == "`DOC`, `DIFF`, `QUICK`, `STRICT`, `CAMERA-CAL`, `DELETE`"
+                and row[:4] == ["TRANCHE-LEARNING", "pending", "EA-10B", "software"]
+                and row[4].startswith("Tranche: one Blackdog task/worktree/landing")
+                and row[5] == "`DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `CRITIC`"
             ):
                 ledger_rows.append((selected, row))
         self.assertEqual(1, len(ledger_rows))
         selected, selected_row = ledger_rows[0]
-        self.assertEqual("EA-10C", selected_row[0])
+        self.assertEqual("TRANCHE-LEARNING", selected_row[0])
         self.assertNotEqual("FIX-02", selected_row[0])
+        self.assertEqual(
+            ["EA-10G", "EA-10C", "EA-10D", "EA-10E", "EA-10F"],
+            [item["id"] for item in consumed["contract"]["ordered_authority_slices"]],
+        )
+        self.assertTrue(all(item["class"] == "authority-slice" for item in consumed["contract"]["ordered_authority_slices"]))
+        for authority_slice in consumed["contract"]["ordered_authority_slices"]:
+            self.assertTrue(authority_slice["current_owner_inventory"])
+            self.assertTrue(authority_slice["same_slice_deletion_scans"])
+        self.assertIn("authority slice current-owner inventory row", purposes)
+        self.assertIn("authority slice same-landing deletion scan row", purposes)
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
-    def test_current_evidence_blocker_stops_at_first_eligible_package(self) -> None:
+    def test_learning_tranche_is_selected_without_a_standalone_slice_blocker(self) -> None:
         created = self.build_and_write()
 
-        self.assertEqual("evidence_blocked", created["launch"]["state"])
-        self.assertEqual("EA-10C", created["contract"]["frontier"]["package_id"])
-        self.assertEqual(
-            "Old per-package successor dispatch is prohibited pending the new tranche-policy correction",
-            created["contract"]["frontier"]["blocker"]["blocker"],
-        )
+        self.assertEqual("selected", created["launch"]["state"])
+        self.assertEqual("TRANCHE-LEARNING", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("EA-10G", created["contract"]["ordered_authority_slices"][0]["id"])
         self.assertNotEqual("GATE-01", created["contract"]["frontier"]["package_id"])
 
     def test_contract_import_does_not_emit_bytecode_into_clean_repository(self) -> None:
@@ -493,6 +495,44 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.rewrite(created)
         with self.assertRaisesRegex(capsule.CapsuleError, "capsule is stale"):
             self.consume()
+
+    def test_rehashed_broad_tranche_tampering_is_rejected_against_current_contract(self) -> None:
+        created = self.build_and_write()
+        created["contract"]["ordered_authority_slices"][0]["current_owner_inventory"] = []
+        created.pop("payload_sha256")
+        created["payload_sha256"] = capsule.sha256_bytes(capsule.canonical_bytes(created))
+        self.rewrite(created)
+        with self.assertRaisesRegex(capsule.CapsuleError, "capsule is stale"):
+            self.consume()
+
+    def test_completed_tranche_requires_one_common_task_landing(self) -> None:
+        contract = capsule.import_contract(self.root)
+        plan = (self.root / "docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md").read_text(encoding="utf-8")
+        evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
+        rows = contract.validate_plan(plan)
+        rows = {package_id: dict(row) for package_id, row in rows.items()}
+        tranche_id = "TRANCHE-LEARNING"
+        slices = contract.TRANCHE_SLICES[tranche_id]
+        rows[tranche_id]["status"] = "complete"
+        for slice_id in slices:
+            rows[slice_id]["status"] = "complete"
+        lines = evidence.splitlines()
+        completion_header = "| Package | Blackdog task | Gate results | Evidence section |"
+        insert_at = lines.index(completion_header) + 2
+        fixtures = [
+            f"| {package_id} | `TASK-TRANCHE` | `DOC=passed` | fixture |"
+            for package_id in [tranche_id, *slices]
+        ]
+        lines[insert_at:insert_at] = fixtures
+        complete_evidence = "\n".join(lines) + "\n"
+        contract.validate_tranche_landing_evidence(complete_evidence, rows)
+
+        mismatched = complete_evidence.replace(
+            "| EA-10C | `TASK-TRANCHE` |",
+            "| EA-10C | `TASK-OTHER` |",
+        )
+        with self.assertRaisesRegex(ValueError, "one common Blackdog landing"):
+            contract.validate_tranche_landing_evidence(mismatched, rows)
 
     def test_changed_head_is_rejected(self) -> None:
         self.build_and_write()

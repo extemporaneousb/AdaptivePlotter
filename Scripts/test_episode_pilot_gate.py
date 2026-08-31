@@ -46,14 +46,17 @@ class PilotGateTests(unittest.TestCase):
             "DOC-03": ["DOC", "DIFF"],
             "EA-10A": ["DOC", "DIFF", "QUICK", "STRICT", "PEN", "DELETE"],
             "EA-10B": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "BOUNDARY", "DELETE"],
-            "EA-10C": ["DOC", "DIFF", "QUICK", "STRICT", "CAMERA-CAL", "DELETE"],
-            "EA-10D": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "TIP-CAL", "DELETE"],
-            "EA-10E": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "BORDER-VALIDATION", "DELETE"],
-            "EA-10F": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "ARTIFACT-RESET", "DELETE"],
-            "EA-10G": ["DOC", "DIFF", "QUICK", "STRICT", "SPEECH", "DELETE"],
-            "EA-11A": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "SESSION", "DELETE"],
-            "EA-11B": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "OBSERVATION-CONFIG", "DELETE"],
-            "EA-11C": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "COMPOSITION", "DELETE"],
+            "TRANCHE-LEARNING": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"],
+            "EA-10G": ["BUILD", "SPEECH", "AFFECTED-CONSUMERS", "DIFF", "DELETE"],
+            "EA-10C": ["BUILD", "CAMERA-CAL", "AFFECTED-CONSUMERS", "DIFF", "DELETE"],
+            "EA-10D": ["BUILD", "TIP-CAL", "AFFECTED-CONSUMERS", "DIFF", "DELETE"],
+            "EA-10E": ["BUILD", "BORDER-VALIDATION", "AFFECTED-CONSUMERS", "DIFF", "DELETE"],
+            "EA-10F": ["BUILD", "ARTIFACT-RESET", "AFFECTED-CONSUMERS", "DIFF", "DELETE"],
+            "TRANCHE-DEVICE-ENVIRONMENT": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"],
+            "EA-11A": ["BUILD", "SESSION", "AFFECTED-CONSUMERS", "DIFF", "DELETE"],
+            "EA-11B": ["BUILD", "OBSERVATION-CONFIG", "AFFECTED-CONSUMERS", "DIFF", "DELETE"],
+            "TRANCHE-FINAL-COMPOSITION": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"],
+            "EA-11C": ["BUILD", "COMPOSITION", "AFFECTED-CONSUMERS", "DIFF", "DELETE"],
         })
         ledger = [
             "| ID | Status | Dependencies | Class | Atomic package outcome | Required gates |",
@@ -63,14 +66,17 @@ class PilotGateTests(unittest.TestCase):
             "DOC-03": "FIX-03",
             "EA-10A": "DOC-03",
             "EA-10B": "EA-10A",
-            "EA-10C": "EA-10B",
+            "TRANCHE-LEARNING": "EA-10B",
+            "EA-10G": "EA-10B",
+            "EA-10C": "EA-10G",
             "EA-10D": "EA-10C",
             "EA-10E": "EA-10D",
             "EA-10F": "EA-10E",
-            "EA-10G": "EA-10F",
-            "EA-11A": "EA-10G",
-            "EA-11B": "EA-10G",
-            "EA-11C": "EA-11A, EA-11B",
+            "TRANCHE-DEVICE-ENVIRONMENT": "TRANCHE-LEARNING",
+            "EA-11A": "TRANCHE-LEARNING",
+            "EA-11B": "EA-11A",
+            "TRANCHE-FINAL-COMPOSITION": "TRANCHE-DEVICE-ENVIRONMENT",
+            "EA-11C": "TRANCHE-DEVICE-ENVIRONMENT",
         }
         for package in pilot.REQUIRED_PACKAGES:
             dependencies = (
@@ -79,8 +85,9 @@ class PilotGateTests(unittest.TestCase):
                 else exact_later_dependencies.get(package, "DOC-00")
             )
             gate_cell = ", ".join(f"`{gate}`" for gate in gates[package])
-            ledger.append(f"| {package} | complete | {dependencies} | software | outcome | {gate_cell} |")
-        ledger.append("| GATE-01 | pending | EA-11C | gate | decision only | `DOC`, `DIFF`, `PILOT` |")
+            execution_class = "authority-slice" if package.startswith("EA-10") and package not in {"EA-10A", "EA-10B"} or package in {"EA-11A", "EA-11B", "EA-11C"} else "software"
+            ledger.append(f"| {package} | complete | {dependencies} | {execution_class} | outcome | {gate_cell} |")
+        ledger.append("| GATE-01 | pending | TRANCHE-FINAL-COMPOSITION | gate | decision only | `DOC`, `DIFF`, `PILOT` |")
         inventory = [
             "| Inventory ID | Category | Current source seams | Current owner and behavior | Disposition | Cutover | Focused command |",
             "| --- | --- | --- | --- | --- | --- | --- |",
@@ -153,6 +160,15 @@ class PilotGateTests(unittest.TestCase):
     def test_missing_completion_evidence_fails_closed(self) -> None:
         self._replace(self.root / pilot.EVIDENCE, "| EA-09 | `TASK-A1` |", "| OMITTED | `TASK-A1` |")
         with self.assertRaisesRegex(pilot.GateError, "Current Evidence rows are absent"):
+            pilot.evaluate(self.root)
+
+    def test_tranche_slice_with_different_landing_task_fails_closed(self) -> None:
+        self._replace(
+            self.root / pilot.EVIDENCE,
+            "| EA-10G | `TASK-A1` |",
+            "| EA-10G | `TASK-DIFFERENT` |",
+        )
+        with self.assertRaisesRegex(pilot.GateError, "one common Blackdog landing"):
             pilot.evaluate(self.root)
 
     def test_failed_detailed_gate_fails_closed(self) -> None:

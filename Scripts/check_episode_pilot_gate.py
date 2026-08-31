@@ -28,8 +28,14 @@ REQUIRED_PACKAGES = (
     "EA-02B", "EA-03A", "EA-03B", "EA-05A", "EA-05B", "EA-05C", "EA-04",
     "FIX-02", "EA-06", "EA-07", "EA-08A", "EA-08B", "EA-09", "FIX-03",
     "DOC-03", "EA-10A", "EA-10B", "EA-10C", "EA-10D", "EA-10E", "EA-10F",
-    "EA-10G", "EA-11A", "EA-11B", "EA-11C",
+    "TRANCHE-LEARNING", "EA-10G", "TRANCHE-DEVICE-ENVIRONMENT", "EA-11A", "EA-11B",
+    "TRANCHE-FINAL-COMPOSITION", "EA-11C",
 )
+TRANCHE_SLICES = {
+    "TRANCHE-LEARNING": ("EA-10G", "EA-10C", "EA-10D", "EA-10E", "EA-10F"),
+    "TRANCHE-DEVICE-ENVIRONMENT": ("EA-11A", "EA-11B"),
+    "TRANCHE-FINAL-COMPOSITION": ("EA-11C",),
+}
 MIGRATED_CUTOVERS = (
     "EA-04", "EA-06", "EA-07", "EA-08A", "EA-08B", "EA-09", "FIX-03",
     "EA-10A", "EA-10B", "EA-10C", "EA-10D", "EA-10E", "EA-10F", "EA-10G",
@@ -119,10 +125,16 @@ def parse_ledger(plan: str) -> dict[str, dict[str, object]]:
     gate = result.get("GATE-01")
     if gate is None:
         fail("required GATE-01 ledger row is absent")
-    if gate["dependencies"] != ["EA-11C"] or gate["class"] != "gate" or gate["gates"] != ["DOC", "DIFF", "PILOT"]:
+    if gate["dependencies"] != ["TRANCHE-FINAL-COMPOSITION"] or gate["class"] != "gate" or gate["gates"] != ["DOC", "DIFF", "PILOT"]:
         fail(f"GATE-01 contract mismatch: {gate}")
     if gate["status"] not in {"pending", "complete"}:
         fail(f"GATE-01 has invalid status: {gate['status']}")
+    for tranche, slices in TRANCHE_SLICES.items():
+        if result[tranche]["class"] != "software":
+            fail(f"tranche must remain selectable software work: {tranche}")
+        for slice_id in slices:
+            if result[slice_id]["class"] != "authority-slice":
+                fail(f"tranche slice must not be independently selectable: {slice_id}")
     return result
 
 
@@ -150,7 +162,8 @@ def validate_completion_evidence(
     if unfinished:
         fail(f"required packages remain task-local candidates: {unfinished}")
     rows: dict[str, list[str]] = {}
-    for package, _task, results, title in table(evidence, COMPLETION_HEADER):
+    tasks: dict[str, str] = {}
+    for package, task, results, title in table(evidence, COMPLETION_HEADER):
         if package in rows:
             fail(f"duplicate completion evidence row: {package}")
         pairs = re.findall(r"`([A-Z][A-Z0-9-]*)=([a-z-]+)`", results)
@@ -173,9 +186,14 @@ def validate_completion_evidence(
         if list(detailed) != gates:
             fail(f"missing or reordered detailed evidence for {package}: {list(detailed)}")
         rows[package] = gates
+        tasks[package] = uncode(task)
     missing = [package for package in REQUIRED_PACKAGES if package not in rows]
     if missing:
         fail(f"required landed Current Evidence rows are absent: {missing}")
+    for tranche, slices in TRANCHE_SLICES.items():
+        task_ids = {tasks[tranche], *(tasks[slice_id] for slice_id in slices)}
+        if len(task_ids) != 1 or not next(iter(task_ids)):
+            fail(f"tranche and authority slices lack one common Blackdog landing: {tranche}")
     return {package: set(gates) for package, gates in rows.items()}
 
 

@@ -8,6 +8,36 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Sprint tranche-policy correction
+
+Prepared 2026-08-31 in active Blackdog task `TASK-86758196` after EA-10B landed
+on canonical `main` at `a388859`. This policy becomes canonical only with that
+task's verified landing. The historical EA-10B candidate record below is retained
+as evidence history; it is not a live successor blocker in this candidate. The
+remaining ordinary software frontier on the landed policy is `TRANCHE-LEARNING`,
+one Blackdog task/worktree and one landing containing the ordered typed authority slices `EA-10G`,
+`EA-10C`, `EA-10D`, `EA-10E`, and `EA-10F`. Its successor tranches are
+`TRANCHE-DEVICE-ENVIRONMENT` (`EA-11A`, then `EA-11B`) and
+`TRANCHE-FINAL-COMPOSITION` (`EA-11C`). No individual slice is selected or
+claimed. The canonical contract and capsule reject a completed tranche or
+successor selection unless the tranche row and every slice completion row share
+one nonempty Blackdog task/landing. Capsule prompt material carries each slice's
+current-owner inventory row and exact same-slice deletion scans, so a tranche
+cannot be treated as one broad authority cutover.
+
+Every slice still requires build, its exact focused suite, affected-consumer
+scan, `DIFF`, and `DELETE` before the next slice. Only a tranche boundary runs
+`QUICK`, `JOURNEY`, `STRICT`, batched documentation/evidence synchronization,
+and at most one bounded critic with no critic recheck. Non-red-line observations are recorded here as
+deferred follow-up without retask. Red-line blockers remain compiler/test
+failure, duplicate effect-producing authority, unauthorized motion, a
+Stop/shutdown race that can start effects, automatic retry/redraw with possible
+ink, destructive persistence ordering, or fabricated evidence. A red-line final-gate
+defect may receive one narrow repair and affected validation but never criticism
+again. This correction
+does not authorize attended physical or remote-Git work, and `GATE-01` remains
+unchanged downstream after `TRANCHE-FINAL-COMPOSITION`.
+
 ## Drawing Boundary episode cutover completion candidate
 
 Selected 2026-08-30 as software package `EA-10B` in task `TASK-6DAB256F`.
@@ -1904,18 +1934,16 @@ EA-11C. Detailed scope and limitations remain in the named evidence sections.
 ## Wave admission blockers
 
 This is the sole machine-readable list of Current Evidence conditions that stop
-an otherwise dependency-ready pending ordinary package from launching. A row
+an otherwise dependency-ready pending selectable work item from launching. A row
 must name the exact package, the observed blocker, and the required user input
 or canonical correction. The selector stops at that first eligible row; it
 never skips ahead to later work. An empty table means Current Evidence adds no
 admission blocker beyond the canonical ledger and live Blackdog claims. The
-current EA-10C row is blocked from old per-package dispatch until the new
-tranche-policy correction is canonical. EA-10B landing and cleanup remain
-operational obligations, not permission to dispatch the successor.
+former EA-10C standalone blocker was removed by the canonical tranche-policy
+correction; the selector now admits `TRANCHE-LEARNING`, never EA-10C alone.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |
-| EA-10C | Old per-package successor dispatch is prohibited pending the new tranche-policy correction | Land EA-10B and verify canonical-main cleanup, then apply the named tranche-policy correction before selecting or dispatching EA-10C; do not infer successor authority from EA-10B task-local completion |
 
 ## Machine-link transcript observability correction
 

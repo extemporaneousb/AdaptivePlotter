@@ -69,20 +69,21 @@ rg -Fq '$run-multi-agent-wave' \
     .codex/skills/run-multi-agent-wave/SKILL.md ||
     fail "wave skill is missing its explicit invocation"
 
+wave_protocol_normalized=$(tr '\n' ' ' < .codex/skills/run-multi-agent-wave/references/wave-coordination.md | tr -s '[:space:]' ' ')
+
 for phrase in \
     'One wave is exactly one canonical' \
-    'WorkPackage executed in exactly one Blackdog task worktree.' \
+    'selectable work item executed in exactly one Blackdog task worktree.' \
+    'tranche is that work item and carries its fixed ordered typed authority slices' \
     'Select the first eligible row.' \
     'No two live workers may' \
     'write the same file' \
     'Editing stops before validation begins.' \
-    'exactly one fresh-context read-only' \
-    'same critic for delta-only rechecks' \
-    'at most two' \
-    'correction/recheck cycles' \
-    'Never commission a post-pass, fresh,' \
+    'at most one bounded' \
+    'Retask only a red-line blocker' \
+    'Never commission a post-pass, fresh, confirmation, precautionary, or delta-recheck critic.' \
     "execute episode package <ID>"; do
-    rg -Fq "$phrase" .codex/skills/run-multi-agent-wave/references/wave-coordination.md ||
+    printf '%s\n' "$wave_protocol_normalized" | rg -Fq "$phrase" ||
         fail "wave coordination contract is missing: $phrase"
 done
 

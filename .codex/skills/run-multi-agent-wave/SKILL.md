@@ -28,9 +28,12 @@ authorities.
    the complete ledger/evidence contract, and live repository-wide Blackdog
    claims. A stale capsule is discarded, never interpreted.
 2. Use only the verified capsule's package-specific pointers for prompt
-   compilation and coordination. Do not reread the complete ledger, vocabulary,
-   Current Evidence, or coordination protocol at startup. Mutable canonical
-   documents remain authority; the capsule is only a validated read accelerator.
+   compilation and coordination. For a tranche, every ordered authority slice
+   includes its current-owner inventory and exact same-slice deletion-scan
+   pointers; do not flatten those slices into one broad cutover. Do not reread
+   the complete ledger, vocabulary, Current Evidence, or coordination protocol
+   at startup. Mutable canonical documents remain authority; the capsule is only
+   a validated read accelerator.
 3. Resolve every live claim reported by the capsule before looking for new work.
    Fetch its current Blackdog `next_action`; never cache lifecycle actions in the
    capsule. Resume only verified
@@ -38,8 +41,10 @@ authorities.
    task/thread messaging capability to request one bounded non-overlapping
    offload from its active coordinator. Never cancel, replace, or infer that a
    claim is stale.
-4. With no claim, deterministically select the first eligible pending
-   `repository`, `software`, or `gate` row in canonical ledger order. This
+4. With no claim, deterministically select the first eligible pending selectable
+   `repository`, `software`, or `gate` row in canonical ledger order. An
+   `authority-slice` is carried only by its named tranche and is never claimed
+   individually. This
    invocation authorizes that selection. It does not authorize an
    `attended-physical` or `remote-git` package.
 5. Apply `$adaptiveplotter execute episode package <ID>` to the selected ID and
@@ -51,18 +56,22 @@ authorities.
    bounded read-only inspection, delegation, acceptance, retasking, and landing.
    Do not implement, edit, or run validation yourself. Use fewer agents when
    work is not safely disjoint, and preserve a slot for the one fresh critic.
-7. Bound acceptance criticism. After a stable integrated candidate passes its
-   focused validation, commission exactly one fresh-context read-only critic
-   before broad `QUICK` or `STRICT` gates. Accept at most three material blockers
-   per pass. Corrections return to the same critic for delta-only rechecks; a
-   passed dimension stays closed unless a changed line invalidates it. Permit at
-   most two correction/recheck cycles, then stop with typed operator judgment if
-   a blocker remains. After critic acceptance, run final gates serially and land
-   as soon as acceptance and gates cover the same hashes. A docs-only evidence
-   update with unchanged source and test hashes reruns only documentation and
-   diff-hygiene gates. Never commission a post-pass, fresh, confirmation, or
-   precautionary critic.
-8. Require a serial documentation integrator in every wave. The same landing
+7. For a named tranche, run per-slice build, focused, affected-consumer, `DIFF`,
+   and `DELETE` checks as each typed authority slice closes. At the tranche
+   boundary, use at most one bounded fresh-context critic and run `QUICK`,
+   `JOURNEY`, and `STRICT` once on the stable integrated candidate. Retask only
+   red-line defects: compiler/test failure, duplicate effect-producing authority,
+   unauthorized motion, a Stop/shutdown race that can start effects, automatic
+   retry/redraw with possible ink, destructive persistence ordering, or fabricated
+   evidence. Record other findings in Current Evidence without retasking. A
+   docs-only evidence update with unchanged source and test hashes reruns only
+   documentation and diff-hygiene gates. A red-line final-gate defect may receive
+   a narrowly authorized repair and affected validation but never reopens
+   criticism. Never commission a post-pass, fresh, confirmation, precautionary,
+   or delta-recheck critic.
+8. Require a serial documentation integrator in every wave. A tranche completion
+   and successor capsule are valid only when its root and every slice completion
+   row name the one same nonempty Blackdog task/landing. The same landing
    updates the execution-plan ledger row, Current Evidence gate table and detail,
    and every routed canonical document affected by the package, including current
    architecture when as-built topology or ownership changes. Record a reviewed

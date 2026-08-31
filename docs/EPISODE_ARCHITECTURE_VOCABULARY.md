@@ -121,17 +121,22 @@ and software tests cannot promote a camera observation or physical-ink claim.
   assessments. It is not mutable state and cannot restore an effect capability.
 - `WorkPackage` is one bounded repository migration unit with one atomic package
   outcome, exact dependencies, one rollback/evidence/decision boundary, and
-  exact required validation gates. A `software` outcome is exactly one of:
+  exact required validation gates. A selectable `software` outcome is exactly one of:
   `Foundation`, which adds one isolated contract/service with no production
   caller or current authority transfer; `Correction`, which replaces one named
   coupled invariant inside its current owners; or `Cutover`, which transfers
   exactly one product authority and deletes its superseded path in the same
-  landing.
+  landing; or `Tranche`, which is one Blackdog task/worktree/landing containing
+  a fixed ordered set of separately typed `authority-slice` Cutovers. A slice
+  retains its own owner, same-slice deletion, build, focused suite,
+  affected-consumer, `DIFF`, and `DELETE` proof, but is never independently
+  selected, claimed, or landed. Broad `QUICK`, `JOURNEY`, `STRICT`, batched
+  evidence/docs, and at most one bounded critic occur only at a Tranche boundary.
   `repository`, `attended-physical`, `remote-git`, and `gate` packages transfer
   no product authority; they respectively change contracts, acquire evidence,
   create the named remote artifact, or record a decision.
 - `BlackdogTask` is the branch-backed implementation transaction used to execute
-  one `WorkPackage`. Blackdog lifecycle completion is evidence about that
+  one selectable `WorkPackage` or one `Tranche`. Blackdog lifecycle completion is evidence about that
   transaction, not proof that the package or migration is complete.
 
 Current `RunLedger` is retained as low-level device diagnostic history below

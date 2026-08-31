@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "8bd2b30b8f73ae12bf5ad6919f52f4404f453521acc4dde4e0de1382dc711026"
+EXPECTED_LEDGER_SHA256 = "b9f269687266ade1051e34681c565ef9e6007d3a8083d2c6e9d0d105ca1ee578"
 
 
 EXPECTED_GATES = {
@@ -39,12 +39,13 @@ EXPECTED_GATES = {
     "DOC": ("`make docs-check`", "repository"),
     "DIFF": ("`git diff --check`", "repository"),
     "CRITIC": (
-        "A fresh-context read-only critic inspects the actual candidate tree, runs `make docs-check` and `git diff --check`, gives PASS on all ten readiness dimensions in the execution prompt, and ends exactly `UNANIMOUS PASS — no material disagreement`; Current Evidence records that verdict while the full transient report is not checked in",
-        "DOC-01",
+        "At most one bounded fresh-context read-only critic per tranche boundary inspects the stable actual candidate and reports only red-line blockers; Current Evidence records its verdict and every deferred non-red-line finding while the full transient report is not checked in",
+        "tranche boundary",
     ),
     "QUICK": ("`make quick-test`", "repository"),
     "JOURNEY": ("`make journey-test`", "repository"),
     "STRICT": ("`make strict-check`", "repository"),
+    "BUILD": ("`swift build`", "authority slice"),
     "INVENTORY": (
         "`sh Scripts/check_episode_inventory.sh` proves every semantic intent, guard, owner, direct device/evidence port, environment branch, task/cancel owner, persistence path, UI consumer, and high-level fixture has one stable inventory ID, one current owner, one disposition, and one cutover package",
         "EA-01",
@@ -90,6 +91,10 @@ EXPECTED_GATES = {
         "EA-11B",
     ),
     "COMPOSITION": ("`swift test --filter PlotterEpisodeCompositionTests`", "EA-11C"),
+    "AFFECTED-CONSUMERS": (
+        "`sh Scripts/check_episode_cutover.sh <PACKAGE-ID> --consumer-only` proves the exact direct-port, duplicate-ingress, forbidden-import, forbidden-conformance, and environment-branch consumer scans for that slice; it does not substitute for `DELETE`",
+        "EA-01",
+    ),
     "DELETE": (
         "`sh Scripts/check_episode_cutover.sh <PACKAGE-ID>` executes the exact zero-match deleted-symbol, forbidden-import, forbidden-conformance, direct-port, duplicate-ingress, task-owner, fixture, and environment-branch scans recorded by EA-01 for that package; any unassigned remaining consumer fails",
         "EA-01",
@@ -136,15 +141,18 @@ EXPECTED_PACKAGE_SHAPES = {
     "DOC-03": (["FIX-03"], "repository", ["DOC", "DIFF"]),
     "EA-10A": (["DOC-03"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "PEN", "DELETE"]),
     "EA-10B": (["EA-10A"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "BOUNDARY", "DELETE"]),
-    "EA-10C": (["EA-10B"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "CAMERA-CAL", "DELETE"]),
-    "EA-10D": (["EA-10C"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "TIP-CAL", "DELETE"]),
-    "EA-10E": (["EA-10D"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "BORDER-VALIDATION", "DELETE"]),
-    "EA-10F": (["EA-10E"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "ARTIFACT-RESET", "DELETE"]),
-    "EA-10G": (["EA-10F"], "software", ["DOC", "DIFF", "QUICK", "STRICT", "SPEECH", "DELETE"]),
-    "EA-11A": (["EA-10G"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "SESSION", "DELETE"]),
-    "EA-11B": (["EA-10G"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "OBSERVATION-CONFIG", "DELETE"]),
-    "EA-11C": (["EA-11A", "EA-11B"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "COMPOSITION", "DELETE"]),
-    "GATE-01": (["EA-11C"], "gate", ["DOC", "DIFF", "PILOT"]),
+    "TRANCHE-LEARNING": (["EA-10B"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"]),
+    "EA-10G": (["EA-10B"], "authority-slice", ["BUILD", "SPEECH", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "EA-10C": (["EA-10G"], "authority-slice", ["BUILD", "CAMERA-CAL", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "EA-10D": (["EA-10C"], "authority-slice", ["BUILD", "TIP-CAL", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "EA-10E": (["EA-10D"], "authority-slice", ["BUILD", "BORDER-VALIDATION", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "EA-10F": (["EA-10E"], "authority-slice", ["BUILD", "ARTIFACT-RESET", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "TRANCHE-DEVICE-ENVIRONMENT": (["TRANCHE-LEARNING"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"]),
+    "EA-11A": (["TRANCHE-LEARNING"], "authority-slice", ["BUILD", "SESSION", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "EA-11B": (["EA-11A"], "authority-slice", ["BUILD", "OBSERVATION-CONFIG", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "TRANCHE-FINAL-COMPOSITION": (["TRANCHE-DEVICE-ENVIRONMENT"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"]),
+    "EA-11C": (["TRANCHE-DEVICE-ENVIRONMENT"], "authority-slice", ["BUILD", "COMPOSITION", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "GATE-01": (["TRANCHE-FINAL-COMPOSITION"], "gate", ["DOC", "DIFF", "PILOT"]),
     "VAL-01": (["GATE-01"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
     "GATE-02": (["VAL-01"], "gate", ["DOC", "DIFF", "FINAL-GATE"]),
 }
@@ -169,14 +177,9 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
     "FIX-03": "Correction",
     "EA-10A": "Cutover",
     "EA-10B": "Cutover",
-    "EA-10C": "Cutover",
-    "EA-10D": "Cutover",
-    "EA-10E": "Cutover",
-    "EA-10F": "Cutover",
-    "EA-10G": "Cutover",
-    "EA-11A": "Cutover",
-    "EA-11B": "Cutover",
-    "EA-11C": "Cutover",
+    "TRANCHE-LEARNING": "Tranche",
+    "TRANCHE-DEVICE-ENVIRONMENT": "Tranche",
+    "TRANCHE-FINAL-COMPOSITION": "Tranche",
 }
 
 
@@ -205,6 +208,12 @@ EXPECTED_COMPLETE_PACKAGES = {
     "DOC-03",
     "EA-10A",
     "EA-10B",
+}
+
+TRANCHE_SLICES = {
+    "TRANCHE-LEARNING": ["EA-10G", "EA-10C", "EA-10D", "EA-10E", "EA-10F"],
+    "TRANCHE-DEVICE-ENVIRONMENT": ["EA-11A", "EA-11B"],
+    "TRANCHE-FINAL-COMPOSITION": ["EA-11C"],
 }
 
 # Canonical Current Evidence has final passed evidence for every complete row.
@@ -301,6 +310,33 @@ def parse_gate_tokens(cell: str, package_id: str) -> list[str]:
     if not re.fullmatch(r"`[A-Z][A-Z0-9-]*`(?:, `[A-Z][A-Z0-9-]*`)*", cell):
         fail(f"{package_id} required gates are not an exact token list: {cell}")
     return re.findall(r"`([A-Z][A-Z0-9-]*)`", cell)
+
+
+def validate_tranche_landing_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
+    """Require one landed Blackdog task for every completed tranche and slice."""
+    completion_rows = markdown_table(
+        text,
+        ["Package", "Blackdog task", "Gate results", "Evidence section"],
+    )
+    completion_tasks = {
+        package: task.strip("`")
+        for package, task, _results, _section in completion_rows
+    }
+    for tranche_id, slices in TRANCHE_SLICES.items():
+        tranche_complete = rows[tranche_id]["status"] == "complete"
+        completed_slices = [slice_id for slice_id in slices if rows[slice_id]["status"] == "complete"]
+        if not tranche_complete and completed_slices:
+            fail(f"completed authority slice lacks its completed tranche: {completed_slices}")
+        if not tranche_complete:
+            continue
+        missing = [package_id for package_id in [tranche_id, *slices] if package_id not in completion_tasks]
+        if missing:
+            fail(f"completed tranche lacks Current Evidence landing rows: {missing}")
+        task_ids = {completion_tasks[tranche_id], *(completion_tasks[slice_id] for slice_id in slices)}
+        if not all(rows[slice_id]["status"] == "complete" for slice_id in slices):
+            fail(f"completed tranche has incomplete authority slice: {tranche_id}")
+        if len(task_ids) != 1 or not next(iter(task_ids)):
+            fail(f"tranche and authority slices lack one common Blackdog landing: {tranche_id}")
 
 
 def validate_product_contract(text: str) -> None:
@@ -765,6 +801,18 @@ def validate_architecture(text: str) -> None:
 def validate_plan(text: str) -> dict[str, dict[str, object]]:
     validate_architecture(ARCHITECTURE_PATH.read_text(encoding="utf-8"))
     normalized = re.sub(r"\s+", " ", text)
+    inventory_rows = markdown_table(
+        text,
+        [
+            "Inventory ID",
+            "Category",
+            "Current source seams",
+            "Current owner and behavior",
+            "Disposition",
+            "Cutover",
+            "Focused command",
+        ],
+    )
     scan_rows = markdown_table(
         text, ["Package", "Scan class", "Paths", "Zero-match literal"]
     )
@@ -1029,11 +1077,9 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "/tmp/ea10b-doc-final.jnbNGm",
         "/tmp/ea10b-diff-final.Vcy9oB",
         "/tmp/ea10b-strict-final-resumable.oonlrS",
-        "EA-10B is semantically complete as a task-local landing candidate",
-        "Blackdog landing and canonical-main cleanup remain pending",
-        "EA-10C is not selected or dispatched",
-        "old per-package dispatch is prohibited pending the new tranche-policy correction",
-        "GATE-01 remains unchanged downstream after EA-11C",
+        "The final task-local sentence is historical",
+        "EA-10B subsequently landed on canonical `main` at `a388859`",
+        "successor policy is now the explicit tranche sequence below",
         "no physical or remote-Git validation is claimed",
     ):
         if required_phrase not in normalized:
@@ -1047,11 +1093,11 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
 
     rows: dict[str, dict[str, object]] = {}
     allowed_status = {"complete", "pending", "blocked"}
-    allowed_classes = {"repository", "software", "attended-physical", "remote-git", "gate"}
+    allowed_classes = {"repository", "software", "authority-slice", "attended-physical", "remote-git", "gate"}
     for package_id, status, dependency_cell, execution_class, outcome, gate_cell in ledger_rows:
         if package_id in rows:
             fail(f"duplicate ledger package ID: {package_id}")
-        if not re.fullmatch(r"(?:DOC|FIX|BASE|EA|VAL|GATE)-[0-9]{2}[A-Z]?", package_id):
+        if not re.fullmatch(r"(?:(?:DOC|FIX|BASE|EA|VAL|GATE)-[0-9]{2}[A-Z]?|TRANCHE-(?:LEARNING|DEVICE-ENVIRONMENT|FINAL-COMPOSITION))", package_id):
             fail(f"invalid ledger package ID: {package_id}")
         if status not in allowed_status:
             fail(f"{package_id} has invalid status {status}")
@@ -1117,6 +1163,23 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             fail(f"{package_id} Foundation must add exactly one isolated contract or service")
         if kind == "Cutover" and "DELETE" not in rows[package_id]["gates"]:
             fail(f"{package_id} is a Cutover without the required DELETE gate")
+        if kind == "Tranche" and "CRITIC" not in rows[package_id]["gates"]:
+            fail(f"{package_id} is a Tranche without the bounded boundary CRITIC gate")
+
+    for tranche_id, slices in TRANCHE_SLICES.items():
+        if rows[tranche_id]["class"] != "software":
+            fail(f"{tranche_id} must be selectable software work")
+        for slice_id in slices:
+            slice_row = rows[slice_id]
+            if slice_row["class"] != "authority-slice":
+                fail(f"{slice_id} must remain a non-selectable authority slice")
+            expected_slice_gates = {"BUILD", "AFFECTED-CONSUMERS", "DIFF", "DELETE"}
+            if not expected_slice_gates.issubset(set(slice_row["gates"])):
+                fail(f"{slice_id} omits a required per-slice gate")
+            if not any(row[5].strip("`") == slice_id for row in inventory_rows):
+                fail(f"{slice_id} lacks a current-owner inventory binding")
+            if not any(row[0].strip("`") == slice_id for row in scan_rows):
+                fail(f"{slice_id} lacks a same-slice deletion scan binding")
 
     outcome_requirements = {
         "EA-02A": (
@@ -1315,7 +1378,7 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "`ActiveStoppableOperation`",
             "`LearningSessionState`",
             "may not absorb an unnamed feature migration",
-            "any unassigned inventory item fails the package",
+            "any unassigned inventory item fails the slice",
         ),
     }
     for package_id, phrases in outcome_requirements.items():
@@ -1391,8 +1454,9 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "`UI.announceBoundaryAdvisory`",
         "none of the three seams owns semantic admission, actionability, effect, Stop, settlement, evidence, controller, announcement, or UI authority",
         "so none owns Learning actionability, controller, camera, Vision, persistence, Stop, or episode admission",
-        "Wave selection takes the first eligible row in this table's literal order",
+        "Wave selection takes the first eligible selectable row in this table's literal order",
         "`attended-physical` and `remote-git` still require their own explicit package and execution-class authorization",
+        "Contract and capsule admission reject a completed tranche or successor selection unless its tranche row and every slice completion row share one nonempty Blackdog task/landing",
     ):
         if required_phrase not in normalized:
             fail(f"completion or gate contract is missing: {required_phrase}")
@@ -2987,6 +3051,7 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         missing = sorted(complete_packages.difference(evidence_by_package))
         extra = sorted(set(evidence_by_package).difference(complete_packages))
         fail(f"complete-package evidence mismatch; missing={missing}, extra={extra}")
+    validate_tranche_landing_evidence(text, rows)
 
     historical_section = re.search(
         r"^## Historical: initial canonical episode migration documentation$(.*?)(?=^## |\Z)",
@@ -3054,33 +3119,25 @@ def validate_wave_frontier(
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
     if selected is not None:
-        if selected != "EA-10C":
+        if selected != "TRANCHE-LEARNING":
             fail(f"unexpected current ordinary wave frontier: {selected}")
         for phrase in (
-            "Pilot dependency-cycle correction",
-            "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
-            "GATE-01 was not run and is not complete",
-            "Pen Interaction episode cutover completion candidate",
-            "`TASK-539931AC`, attempt `TASK-539931AC-49f2e7307f76`",
-            "This is task-local semantic completion and a landing candidate, not operational landing",
-            "EA-10A is semantically complete as a task-local landing candidate",
-            "EA-10C is not selected or dispatched",
-            "old per-package successor dispatch is prohibited pending the new tranche-policy correction",
-            "The retired `PHYSICAL-BASE` result is `failed`",
+            "Sprint tranche-policy correction",
+            "`TASK-86758196`",
+            "`TRANCHE-LEARNING`",
+            "`EA-10G`, `EA-10C`, `EA-10D`, `EA-10E`, and `EA-10F`",
+            "No individual slice is selected or claimed",
+            "at most one bounded critic",
+            "`GATE-01` remains unchanged downstream after `TRANCHE-FINAL-COMPOSITION`",
         ):
             if phrase not in normalized:
                 fail(f"current ordinary wave frontier lacks evidence: {phrase}")
+        if blockers:
+            fail("tranche frontier must not retain the retired standalone evidence blocker")
         return
 
     first_eligible = first_eligible_ordinary(rows)
     if first_eligible is not None and first_eligible in blockers:
-        if first_eligible == "EA-10C":
-            expected_blocker = {
-                "blocker": "Old per-package successor dispatch is prohibited pending the new tranche-policy correction",
-                "required_input_or_correction": "Land EA-10B and verify canonical-main cleanup, then apply the named tranche-policy correction before selecting or dispatching EA-10C; do not infer successor authority from EA-10B task-local completion",
-            }
-            if blockers[first_eligible] != expected_blocker:
-                fail(f"EA-10C tranche-policy wave blocker drifted: {blockers[first_eligible]}")
         return
 
     incomplete = [package_id for package_id, row in rows.items() if row["status"] != "complete"]
@@ -3160,8 +3217,11 @@ def validate_protocol(text: str, skill: str, wave_skill: str, wave_protocol: str
 
     wave_protocol_normalized = re.sub(r"\s+", " ", wave_protocol)
     for phrase in (
-        "One wave is exactly one canonical WorkPackage executed in exactly one Blackdog task worktree.",
+        "One wave is exactly one canonical selectable work item executed in exactly one Blackdog task worktree.",
+        "tranche is that work item and carries its fixed ordered typed authority slices",
         "Use its exact package-specific pointers instead of loading the whole ledger",
+        "current-owner inventory and exact same-slice deletion-scan pointers",
+        "Completion and successor selection are invalid unless the tranche root and every slice completion row name one same nonempty Blackdog task/landing.",
         "At most four agents are active at once",
         "Assign exactly one serial documentation integrator",
         "sole workflow-metadata generation exception",
@@ -3171,10 +3231,9 @@ def validate_protocol(text: str, skill: str, wave_skill: str, wave_protocol: str
         "Select the first eligible row.",
         "No two live workers may write the same file",
         "Editing stops before validation begins.",
-        "exactly one fresh-context read-only critic",
-        "same critic for delta-only rechecks",
-        "at most two correction/recheck cycles",
-        "Never commission a post-pass, fresh, confirmation, or precautionary critic.",
+        "at most one bounded fresh-context read-only critic",
+        "Retask only a red-line blocker",
+        "Never commission a post-pass, fresh, confirmation, precautionary, or delta-recheck critic.",
         "If the target becomes stale, stop workers.",
         "STATUS: ACCEPT_CANDIDATE | BLOCKED | FAILED",
         "no lifecycle/Git/hardware/remote/child-agent action and no unassigned edit",
