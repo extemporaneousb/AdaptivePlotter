@@ -3,8 +3,11 @@ import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterRuntime
 
-actor PlotterApplicationRuntimeDrawingRunFactSource: PlotterDrawingRunFactSource {
+@MainActor
+final class PlotterApplicationRuntimeDrawingRunFactSource: PlotterDrawingRunFactSource {
   private weak var application: PlotterApplicationRuntime?
+
+  nonisolated init() {}
 
   func install(_ application: PlotterApplicationRuntime) {
     self.application = application
@@ -30,9 +33,12 @@ actor PlotterApplicationRuntimeDrawingRunFactSource: PlotterDrawingRunFactSource
 
 struct PlotterDrawingRunComposition: Sendable {
   let runtime: PlotterDrawingRunRuntime
-  let factSource: PlotterApplicationRuntimeDrawingRunFactSource
-  let interpreter: PlotterApplicationRuntimeDrawingRunInterpreterPort
-  let camera: PlotterApplicationRuntimeDrawingRunCameraPort
+  private let factSource: PlotterApplicationRuntimeDrawingRunFactSource
+
+  @MainActor
+  func install(on application: PlotterApplicationRuntime) {
+    factSource.install(application)
+  }
 
   static func make(
     machineSession: (any PlotterMachineSession),
@@ -50,9 +56,7 @@ struct PlotterDrawingRunComposition: Sendable {
         vision: camera,
         evidence: evidence
       ),
-      factSource: factSource,
-      interpreter: interpreter,
-      camera: camera
+      factSource: factSource
     )
   }
 }

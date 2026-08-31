@@ -8,37 +8,38 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
-## GATE-01 source-derived inspection — continuation refused
+## GATE-01 source-derived correction complete — gate pending
 
-The post-EA-11C repository inspection did not pass `GATE-01`. The one invoked
+The prior post-EA-11C repository inspection did not pass `GATE-01`. The one invoked
 `sh Scripts/check_episode_pilot_gate.sh` command exited 1 with
 `episode Pilot gate failed: missing table: Validation / Result / Scope` because
 the Pilot checker did not accept EA-06's canonical alternate detailed-evidence
-header. Static inspection also proved that parser repair alone cannot pass the
-gate: the unchanged `operator-workspace-adapters` 7-to-10 threshold currently
-fails.
+header. Static inspection also proved that parser repair alone could not pass
+the gate because `operator-workspace-adapters` was 7-to-10. That historical
+refusal caused FIX-05; the correction now satisfies all six source-derived
+thresholds, but `GATE-01` itself has not been rerun and no continuation decision
+is claimed here.
 
-The exact current source-backed metric facts that already have stable identity
-sets are:
+The exact current source-backed metric facts are:
 
 | Reduction metric | Baseline | Current | Requirement |
 | --- | --- | --- | --- |
-| independent-admission-sites | pending | pending | decreased |
+| independent-admission-sites | 18 | 2 | decreased |
 | workspace-task-owners | 9 | 0 | decreased |
-| environment-mode-branches | pending | pending | decreased |
-| direct-effect-calls | pending | pending | decreased |
+| environment-mode-branches | 2 | 0 | decreased |
+| direct-effect-calls | 40 | 0 | decreased |
 | operator-workspace-policy-state | 6 | 1 | decreased |
-| operator-workspace-adapters | 7 | 10 | not-increased |
+| operator-workspace-adapters | 7 | 7 | not-increased |
 
-The inspection also produced three candidate operational proxies: application-
-owned independent admission families measured 18-to-2, duplicate application
-environment/effect-owner families measured 2-to-0 while excluding the retained
-causal simulator, and arbitrary stored closure-effect member identities measured
-40-to-0. Those proxies are not yet the literal metrics and therefore do not fill
-the pending cells above. `FIX-05` must install pinned executable EA-01-to-
-candidate source-identity manifests for all six rows, reconcile those three
-operational units to the literal names, and fail if the reconciliation is not
-source-defensible.
+`PYTHONDONTWRITEBYTECODE=1 ./.VE/bin/python
+Scripts/check_episode_pilot_metrics.py` passed against baseline
+`96253197a42dc6052ef76ad53c4c94c1c5f745a1` and the frozen candidate, reporting
+exactly `independent-admission-sites=18->2, workspace-task-owners=9->0,
+environment-mode-branches=2->0, direct-effect-calls=40->0,
+operator-workspace-policy-state=6->1, operator-workspace-adapters=7->7`. The
+checker pins source identities and literal inclusion/exclusion rules and rejects
+identity drift, replacement closure runners, renamed root adapters, legacy
+workspace tasks, and public-sink drift; it does not trust this table's counts.
 
 | Pilot predicate | Result | Evidence |
 | --- | --- | --- |
@@ -46,19 +47,69 @@ source-defensible.
 | REPLAY | passed | `EA-05B/REPLAY` |
 | DEVICE-OWNERS | passed | `EA-05A/RECORDING`, `FIX-02/LINK-OBS`, `FIX-02/LINK-SAFETY` |
 | ENVIRONMENT-GRAMMAR | pending | `EA-07/SIM`, `EA-09/UI` |
-| SAME-SLICE-DELETION | pending | `EA-04/DELETE`, `EA-06/DELETE`, `EA-07/DELETE`, `EA-08A/DELETE`, `EA-08B/DELETE`, `EA-09/DELETE`, `FIX-03/DELETE`, `EA-10A/DELETE`, `EA-10B/DELETE`, `EA-10C/DELETE`, `EA-10D/DELETE`, `EA-10E/DELETE`, `EA-10F/DELETE`, `EA-10G/DELETE`, `EA-11A/DELETE`, `EA-11B/DELETE`, `EA-11C/DELETE` |
+| SAME-SLICE-DELETION | pending | `EA-04/DELETE`, `EA-06/DELETE`, `EA-07/DELETE`, `EA-08A/DELETE`, `EA-08B/DELETE`, `EA-09/DELETE`, `FIX-03/DELETE`, `EA-10A/DELETE`, `EA-10B/DELETE`, `EA-10C/DELETE`, `EA-10D/DELETE`, `EA-10E/DELETE`, `EA-10F/DELETE`, `EA-10G/DELETE`, `EA-11A/DELETE`, `EA-11B/DELETE`, `EA-11C/DELETE`, `FIX-05/DELETE` |
 | AUTHORITY-REDUCTION | pending | `EA-01/INVENTORY`, `METRICS/AUTHORITY-REDUCTION` |
 | OBSERVABILITY | pending | `EA-05C/INCIDENT`, `EA-06/MOTION`, `EA-09/UI` |
 | WORKSPACE-REDUCTION | pending | `METRICS/WORKSPACE-REDUCTION` |
 | SAFETY-EVIDENCE | pending | `FIX-02/LINK-SAFETY`, `EA-07/SIM`, `EA-09/UI` |
 
-The sole next ordinary package is pending software package `FIX-05`; `GATE-01`
-now depends on it and remains pending. The historical `TASK-2F141403` FIX-04
-diagnostic described a then-removed package and is not a current replay or
-completion claim. After terminal cleanup, `TASK-D2DFC053` remains visible as
-`GATE-01` terminal history with disposition `dependency-ineligible-package`
-while FIX-05 is pending. No physical, hardware, remote-Git, or continuation
-decision occurred.
+The canonical ledger frontier is now pending gate package `GATE-01`. FIX-05 is
+the completed software prerequisite, and its Blackdog landing must succeed
+before the older `TASK-D2DFC053` GATE-01 history becomes current-eligible for
+exact lifecycle inspection or recovery. No competing GATE-01 task is authorized.
+The historical `TASK-2F141403` FIX-04 diagnostic remains removed-package
+history. No physical, hardware, remote-Git, Pilot rerun, or continuation decision
+occurred.
+
+## FIX-05 root authority and Pilot-metric correction
+
+Prepared 2026-08-31 inside the existing sole-owner Blackdog task
+`TASK-2BF894FC`, attempt `TASK-2BF894FC-06f14a3e1a5b`. The correction deletes
+the application-root stored `drawingRunFactSource`, `drawingRunInterpreterPort`,
+and `drawingRunCameraPort`. `PlotterDrawingRunRuntime` now privately retains its
+one nominal facts, interpreter, camera, and Vision capabilities; the composition
+object is construction-only. Border execution reuses the existing machine
+session and observation reuses the existing observation runtime. No wrapper,
+type erasure, duplicate authority, new root property, automatic retry/redraw,
+or absorbed feature runtime was introduced.
+
+The frozen aggregate Sources identity is
+`47e88fc2c40c845cd370f8d635e257c4fa5e707bdb682725ab2be72e11464f45`
+and Tests identity is
+`776a77a369363f9d472bb37ea5f15feda8bf81b4c05840b3561030cdda9ae6e2`.
+The three changed production identities are
+`DrawingRunEvidenceComposition.swift`
+`7e113ee9d7cce63d4d8f5f1be146381d2f40c57d9ab47b66d315e9e6d8d3e0c9`,
+`OperatorWorkspace.swift`
+`38025ced236784b0f9165c1b5a09d0bb772940349626e6d80b60540d281c769b`,
+and `PlotterObservationConfigurationRuntime.swift`
+`590a8ffc4dbf4b5859a5546395b54bb460b9039c85ace9a73db1b3fc62e9266a`.
+The metric checker identity is
+`bcf868181bcab592301000b3e9130152319580dd8c4fafe09446bf93e1d45935`.
+
+The checker unit suite passed 9/9 and its live source inspection proved all six
+literal results: `18->2`, `9->0`, `2->0`, `40->0`, `6->1`, and `7->7` in the
+ledger order. The focused inventory/Pilot suites passed 20/20, the canonical
+inventory passed 119 entries and 162 scans, and the source-level affected suites
+passed Drawing Run 13/13, Boundary 18/18, workspace/controller 21/21, and camera
+composition/Vision lifecycle 6/6. There was no FIX-05 critic or critic recheck.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; build complete in 0.62 seconds | frozen Sources identity |
+| `COMPOSITION` | passed — `swift test --filter PlotterEpisodeCompositionTests`; 5/5 in 0.084 seconds | production-root composition and shutdown |
+| `PILOT-METRICS` | passed — metric unit suite 9/9 plus live checker `18->2`, `9->0`, `2->0`, `40->0`, `6->1`, `7->7` | pinned EA-01 and frozen candidate source identities |
+| `AFFECTED-CONSUMERS` | passed — `sh Scripts/check_episode_cutover.sh FIX-05 --consumer-only`; 3 consumer scans | removed root ports and direct consumers |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh FIX-05`; 6 zero-match scans | exact three properties as deleted-symbol and direct-port scans |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts, metric units 9/9 in 1.431 seconds, capsule 35/35 in 18.862 seconds, and repository contract | canonical completion synchronization |
+| `DIFF` | passed — `git diff --check`; clean | complete staged worktree diff |
+| `QUICK` | passed — `make quick-test`; build 0.65 seconds and 820/820 in 15.150 seconds | frozen Sources and Tests identities |
+| `STRICT` | passed — `make strict-check`; strict build 36.79 seconds, strict test build 46.64 seconds, 830/830 in 16.415 seconds, app signing/launcher/bundle validation passed, metric units 9/9 in 1.502 seconds, capsule 35/35 in 17.939 seconds, and both contracts passed | exact FIX-05 candidate |
+
+This is staged semantic completion through the sole retained task. Canonical
+Git completion still requires successful Blackdog landing and cleanup. It does
+not claim `PILOT`, a GATE-01 pass, attended physical evidence, or remote-Git
+action.
 
 ## EA-11C final-composition staged completion transaction
 
@@ -150,10 +201,10 @@ one landing containing the ordered typed authority slices `EA-10G`, `EA-10C`,
 `2d488025a6b8a5fa129023a1a61e98b817106990`, and canonical main target/landing
 `a1cfb05ca58f6805a973748958915fdbdd0ec117`. Its successor tranches are
 `TRANCHE-DEVICE-ENVIRONMENT` (`EA-11A`, then `EA-11B`) and
-`TRANCHE-FINAL-COMPOSITION` (`EA-11C`). The Device tranche landed on canonical
-`main` at `3308e1bf2c19159be7b207226280f54b5ebf0662`; the current sole-owner
-task is therefore executing `TRANCHE-FINAL-COMPOSITION` / `EA-11C` from that
-base.
+`TRANCHE-FINAL-COMPOSITION` (`EA-11C`). At the time of this policy record, the
+Device tranche had landed on canonical `main` at
+`3308e1bf2c19159be7b207226280f54b5ebf0662` and the then-current sole-owner task
+was executing `TRANCHE-FINAL-COMPOSITION` / `EA-11C` from that base.
 The canonical contract and capsule reject a completed tranche or
 successor selection unless the tranche row and every slice completion row share
 one nonempty Blackdog task/landing. Capsule prompt material carries each slice's
@@ -2559,9 +2610,9 @@ This table is machine-checked against every `complete` row in the canonical
 execution-plan ledger. Gate names match each package's required gates exactly,
 and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
-stale task-local candidates. FIX-03, DOC-03, EA-10A, and the task-local EA-10B
-landing candidate have final completion evidence; GATE-01 remains pending after
-EA-11C. Detailed scope and limitations remain in the named evidence sections.
+stale task-local candidates. FIX-03, DOC-03, the later tranches, EA-11C, and
+FIX-05 have final completion evidence; `GATE-01` remains pending and unrun.
+Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
 | --- | --- | --- | --- |
@@ -2601,6 +2652,7 @@ EA-11C. Detailed scope and limitations remain in the named evidence sections.
 | EA-11B | `TASK-4C16F56F` | `BUILD=passed`, `OBSERVATION-CONFIG=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-11B staged authority-slice completion |
 | TRANCHE-FINAL-COMPOSITION | `TASK-FFD5D897` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `CRITIC=passed` | EA-11C final-composition staged completion transaction |
 | EA-11C | `TASK-FFD5D897` | `BUILD=passed`, `COMPOSITION=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-11C final-composition staged completion transaction |
+| FIX-05 | `TASK-2BF894FC` | `BUILD=passed`, `COMPOSITION=passed`, `PILOT-METRICS=passed`, `AFFECTED-CONSUMERS=passed`, `DELETE=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed` | FIX-05 root authority and Pilot-metric correction |
 
 ## Wave admission blockers
 
@@ -2615,10 +2667,11 @@ correction. `TRANCHE-LEARNING` landed, and
 `TRANCHE-DEVICE-ENVIRONMENT` landed through `TASK-4C16F56F`, attempt
 `TASK-4C16F56F-8af99cc51c68`, at
 `3308e1bf2c19159be7b207226280f54b5ebf0662`, and
-`TRANCHE-FINAL-COMPOSITION` subsequently completed through `TASK-FFD5D897`.
-The active ordinary frontier is now `FIX-05`; `GATE-01` is dependency-ineligible
-until that software correction completes, and no later successor dispatch is
-authorized here.
+`TRANCHE-FINAL-COMPOSITION` subsequently completed through `TASK-FFD5D897`, and
+FIX-05 completed through `TASK-2BF894FC`, attempt
+`TASK-2BF894FC-06f14a3e1a5b`. The active ordinary frontier is now `GATE-01`.
+That gate has not been rerun or claimed passed, and no later successor dispatch
+is authorized here.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

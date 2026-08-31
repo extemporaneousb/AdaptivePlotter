@@ -61,6 +61,7 @@ CUTOVER_PACKAGES = {
     "EA-11A",
     "EA-11B",
     "EA-11C",
+    "FIX-05",
 }
 ASSIGNABLE_PACKAGES = CUTOVER_PACKAGES | {
     "FIX-00",
@@ -92,6 +93,7 @@ FOCUSED_COMMANDS = {
     "EA-11A": "swift test --filter PlotterControllerSessionEpisodeTests",
     "EA-11B": "swift test --filter PlotterObservationConfigurationEpisodeTests",
     "EA-11C": "swift test --filter PlotterEpisodeCompositionTests",
+    "FIX-05": "swift test --filter PlotterEpisodeCompositionTests",
 }
 SCAN_CLASSES = {
     "deleted-symbol",
@@ -426,6 +428,97 @@ def validate_ea11c_target_topology() -> None:
         fail("PlotterEpisodeCompositionTests must contain at least one focused test")
 
 
+def production_conformers(protocol: str) -> set[str]:
+    result: set[str] = set()
+    declaration = re.compile(
+        r"\b(?:actor|class|struct|extension)\s+"
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+        r"(?P<header>[^{}]*)\{",
+        re.DOTALL,
+    )
+    for path in (ROOT / "Sources/PlotterApp").glob("*.swift"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in declaration.finditer(text):
+            header = match.group("header")
+            if ":" not in header:
+                continue
+            conformances = header.split(":", 1)[1]
+            if re.search(rf"\b{re.escape(protocol)}\b", conformances):
+                result.add(match.group("name"))
+    return result
+
+
+def validate_fix05_drawing_run_ownership() -> None:
+    _root_name, _root_path, root_text = application_root_source()
+    root_block = braced_block(root_text, "PlotterApplicationRuntime")
+    removed_root_properties = {
+        "drawingRunFactSource",
+        "drawingRunInterpreterPort",
+        "drawingRunCameraPort",
+    }
+    remaining = sorted(name for name in removed_root_properties if name in root_block)
+    if remaining:
+        fail(f"FIX-05 Drawing Run root properties remain: {remaining}")
+
+    runtime_property = re.compile(
+        r"^\s*@ObservationIgnored\s+private\s+let\s+"
+        r"drawingRunRuntime\s*:\s*PlotterDrawingRunRuntime\b",
+        re.MULTILINE,
+    )
+    if len(runtime_property.findall(root_block)) != 1:
+        fail("FIX-05 root must store exactly one typed drawingRunRuntime")
+    if re.search(
+        r"^\s*(?:@ObservationIgnored\s+)?private\s+(?:let|var)\s+"
+        r"[A-Za-z_][A-Za-z0-9_]*\s*:\s*PlotterDrawingRunComposition\b",
+        root_block,
+        re.MULTILINE,
+    ):
+        fail("FIX-05 root must not store a Drawing Run composition wrapper")
+
+    runtime_text = (
+        ROOT / "Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift"
+    ).read_text(encoding="utf-8")
+    runtime_block = braced_block(runtime_text, "PlotterDrawingRunRuntime")
+    expected_ports = {
+        "facts": "PlotterDrawingRunFactSource",
+        "interpreter": "PlotterDrawingRunInterpreterPort",
+        "camera": "PlotterDrawingRunCameraPort",
+        "vision": "PlotterDrawingRunVisionPort",
+        "evidence": "PlotterDrawingRunEvidencePort",
+    }
+    for name, port in expected_ports.items():
+        stored_port = re.compile(
+            rf"^\s*private\s+let\s+{re.escape(name)}\s*:\s*any\s+"
+            rf"{re.escape(port)}\b",
+            re.MULTILINE,
+        )
+        if len(stored_port.findall(runtime_block)) != 1:
+            fail(f"PlotterDrawingRunRuntime must store exactly one {name}: any {port}")
+
+    expected_conformers = {
+        "PlotterDrawingRunFactSource": {
+            "PlotterApplicationRuntimeDrawingRunFactSource",
+        },
+        "PlotterDrawingRunInterpreterPort": {
+            "PlotterApplicationRuntimeDrawingRunInterpreterPort",
+        },
+        "PlotterDrawingRunCameraPort": {
+            "PlotterApplicationRuntimeDrawingRunCameraPort",
+        },
+        "PlotterDrawingRunVisionPort": {
+            "PlotterApplicationRuntimeDrawingRunCameraPort",
+            "PlotterObservationConfigurationRuntime",
+        },
+    }
+    for protocol, expected in expected_conformers.items():
+        actual = production_conformers(protocol)
+        if actual != expected:
+            fail(
+                f"FIX-05 {protocol} conformers mismatch; "
+                f"expected={sorted(expected)}, actual={sorted(actual)}"
+            )
+
+
 def task_names(owner: str, path: Path) -> set[str]:
     text = path.read_text(encoding="utf-8")
     try:
@@ -566,6 +659,7 @@ def validate_manifest() -> tuple[list[dict[str, object]], list[dict[str, str]]]:
     validate_ui_consumers(live_rows)
     validate_source_seams(live_rows)
     validate_ea11c_target_topology()
+    validate_fix05_drawing_run_ownership()
     scans = scan_rows(plan)
     return rows, scans
 

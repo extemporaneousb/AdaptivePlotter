@@ -1727,10 +1727,6 @@ final class PlotterApplicationRuntime:
   @ObservationIgnored private let drawingDraftRuntime: PlotterDrawingDraftRuntime
   @ObservationIgnored private let drawingRunRuntime: PlotterDrawingRunRuntime
   @ObservationIgnored private let incidentPackageUIService: PlotterIncidentPackageUIService
-  @ObservationIgnored private let drawingRunFactSource: PlotterApplicationRuntimeDrawingRunFactSource
-  @ObservationIgnored private let drawingRunInterpreterPort:
-    PlotterApplicationRuntimeDrawingRunInterpreterPort
-  @ObservationIgnored private let drawingRunCameraPort: PlotterApplicationRuntimeDrawingRunCameraPort
   @ObservationIgnored private let observationPreferences: any PlotterObservationPreferencePort
   @ObservationIgnored private let speechEffectRuntime: PlotterSpeechEffectRuntime
   @ObservationIgnored private var artifactResetRuntime: PlotterArtifactResetRuntime!
@@ -1986,9 +1982,6 @@ final class PlotterApplicationRuntime:
     self.drawingDraftRuntime = drawingDraftRuntime
     drawingRunRuntime = drawingRunComposition.runtime
     self.incidentPackageUIService = incidentPackageUIService
-    drawingRunFactSource = drawingRunComposition.factSource
-    drawingRunInterpreterPort = drawingRunComposition.interpreter
-    drawingRunCameraPort = drawingRunComposition.camera
     drawingEvidencePort = DrawingRunEvidenceComposition.port
     drawingDraftSnapshot = PlotterDrawingDraftSnapshot.initial(
       environment: .live,
@@ -2139,8 +2132,8 @@ final class PlotterApplicationRuntime:
         acceptedArtifactCheckpointStatus = .rejected(reason)
       }
     }
+    drawingRunComposition.install(on: self)
     drawingRunProjectionTask = Task { [weak self, drawingRunRuntime] in
-      await self?.installDrawingRunFactSource()
       let snapshots = await drawingRunRuntime.snapshots(environment: .live)
       for await snapshot in snapshots {
         guard !Task.isCancelled, let self else { return }
@@ -2156,13 +2149,6 @@ final class PlotterApplicationRuntime:
         }
       }
     }
-  }
-
-  /// Installation is explicit because the lower fact source retains only a
-  /// weak relay. Awaiters must never treat the relay's absence as an installed
-  /// application with empty facts.
-  private func installDrawingRunFactSource() async {
-    await drawingRunFactSource.install(self)
   }
 
   private func submitObservationIntent(
@@ -8802,11 +8788,6 @@ final class PlotterApplicationRuntime:
   func performApplicationStartup(_ policy: AdaptivePlotterLaunchPolicy) async {
     guard applicationAdmissionIsOpen, startupState == .notStarted else { return }
     startupState = .starting
-    await installDrawingRunFactSource()
-    guard applicationAdmissionIsOpen, !Task.isCancelled else {
-      startupState = .cancelled
-      return
-    }
     await loadDrawingEvidenceArchive()
     guard applicationAdmissionIsOpen, !Task.isCancelled else {
       startupState = .cancelled
@@ -12069,9 +12050,14 @@ final class PlotterApplicationRuntime:
       drawingFeedMMPerMinute: 100,
       penActuationProfile: currentPenActuationProfile
     )
+    guard let machineSession else {
+      throw LearningPathOperationError.requiredState(
+        "Native machine composition is unavailable for Drawing Border execution."
+      )
+    }
     _ = await performSpeechEffect("Drawing the four-edge Drawing Border.")
     let operation: DrawingPlanOperation
-    switch await drawingRunInterpreterPort.beginDrawingPlan(request) {
+    switch await machineSession.beginDrawingPlan(request) {
     case .admitted(let admitted):
       operation = admitted
     case .rejected(let outcome):
@@ -12090,7 +12076,7 @@ final class PlotterApplicationRuntime:
     defer { clearStoppableOperation(matching: target) }
     let outcome = await owner.value
     borderValidationDrawingOutcome = outcome
-    machineSnapshot = await drawingRunInterpreterPort.snapshot()
+    machineSnapshot = await machineSession.snapshot()
     switch outcome {
     case .completed:
       activeBorderValidationOperation?.strokeState = .completedNaturally
@@ -12164,6 +12150,9 @@ final class PlotterApplicationRuntime:
       baseline: ExactFrameProvenance(frame: baseline.frame),
       post: ExactFrameProvenance(frame: post.frame)
     )
+    guard let observationRuntime else {
+      throw LearningPathOperationError.freshFrameUnavailable
+    }
     let outcome = try await observePlannedDrawingInk(
       owner: .borderValidation,
       request: PlannedDrawingObservationRequest(
@@ -12197,7 +12186,7 @@ final class PlotterApplicationRuntime:
           )
         ]
       ),
-      using: drawingRunCameraPort
+      using: observationRuntime
     )
     switch outcome {
     case .observed(let observation):

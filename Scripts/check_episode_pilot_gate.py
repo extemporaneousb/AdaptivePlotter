@@ -39,7 +39,7 @@ TRANCHE_SLICES = {
 MIGRATED_CUTOVERS = (
     "EA-04", "EA-06", "EA-07", "EA-08A", "EA-08B", "EA-09", "FIX-03",
     "EA-10A", "EA-10B", "EA-10C", "EA-10D", "EA-10E", "EA-10F", "EA-10G",
-    "EA-11A", "EA-11B", "EA-11C",
+    "EA-11A", "EA-11B", "EA-11C", "FIX-05",
 )
 PREDICATES = {
     "GENERICITY": ("EA-02A/CORE", "EA-02B/PLOTTER-MODEL"),

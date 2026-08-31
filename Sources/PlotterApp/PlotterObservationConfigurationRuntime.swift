@@ -542,3 +542,5 @@ actor PlotterObservationConfigurationRuntime {
     return value
   }
 }
+
+extension PlotterObservationConfigurationRuntime: PlotterDrawingRunVisionPort {}

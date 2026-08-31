@@ -57,6 +57,10 @@ class PilotGateTests(unittest.TestCase):
             "EA-11B": ["BUILD", "OBSERVATION-CONFIG", "AFFECTED-CONSUMERS", "DIFF", "DELETE"],
             "TRANCHE-FINAL-COMPOSITION": ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"],
             "EA-11C": ["BUILD", "COMPOSITION", "AFFECTED-CONSUMERS", "DIFF", "DELETE"],
+            "FIX-05": [
+                "BUILD", "COMPOSITION", "PILOT-METRICS", "AFFECTED-CONSUMERS",
+                "DELETE", "DOC", "DIFF", "QUICK", "STRICT",
+            ],
         })
         ledger = [
             "| ID | Status | Dependencies | Class | Atomic package outcome | Required gates |",
@@ -208,6 +212,17 @@ class PilotGateTests(unittest.TestCase):
         line = next(line for line in plan.splitlines() if "| `EA-09` | `focused` |" in line)
         (self.root / pilot.PLAN).write_text(plan.replace(line + "\n", "", 1), encoding="utf-8")
         with self.assertRaisesRegex(pilot.GateError, "lack inventory rows"):
+            pilot.evaluate(self.root)
+
+    def test_fix05_delete_is_required_by_same_slice_predicate(self) -> None:
+        self.assertIn("FIX-05", pilot.MIGRATED_CUTOVERS)
+        self.assertIn("FIX-05/DELETE", pilot.PREDICATES["SAME-SLICE-DELETION"])
+        self._replace(
+            self.root / pilot.EVIDENCE,
+            "`FIX-05/DELETE`",
+            "`EA-11C/DELETE`",
+        )
+        with self.assertRaisesRegex(pilot.GateError, "evidence mismatch"):
             pilot.evaluate(self.root)
 
     def test_non_decreasing_authority_metric_fails_closed(self) -> None:

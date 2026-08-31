@@ -6,9 +6,13 @@ from __future__ import annotations
 import unittest
 
 from check_episode_inventory import (
+    CUTOVER_PACKAGES,
+    FOCUSED_COMMANDS,
     PLAN,
     PORT_PROTOCOLS,
     application_root_source,
+    braced_block,
+    production_conformers,
     scan_rows,
     validate_manifest,
 )
@@ -370,6 +374,75 @@ class EpisodeInventoryTests(unittest.TestCase):
                 "PlotterApplicationStatePersistencePort.clearAcceptedLearningPathCheckpoint",
                 "PlotterApplicationStatePersistencePort.persistPaperRevisionContext",
             }.issubset(seams["PRT-005"])
+        )
+
+    def test_fix05_drawing_run_ports_are_runtime_owned_and_root_absent(self) -> None:
+        self.assertIn("FIX-05", CUTOVER_PACKAGES)
+        self.assertEqual(
+            "swift test --filter PlotterEpisodeCompositionTests",
+            FOCUSED_COMMANDS["FIX-05"],
+        )
+        rows, scans = validate_manifest()
+        seams = {row["id"]: row["seams"] for row in rows}
+        self.assertEqual(
+            {
+                "PlotterDrawingRunRuntime.facts",
+                "PlotterDrawingRunRuntime.interpreter",
+                "PlotterDrawingRunRuntime.camera",
+                "PlotterDrawingRunRuntime.vision",
+            },
+            seams["OWN-024"],
+        )
+
+        expected_scans = {
+            (scan_class, "Sources/PlotterApp/*.swift", literal)
+            for literal in (
+                "drawingRunFactSource",
+                "drawingRunInterpreterPort",
+                "drawingRunCameraPort",
+            )
+            for scan_class in ("deleted-symbol", "direct-port")
+        }
+        actual_scans = {
+            (scan["class"], scan["paths"], scan["literal"])
+            for scan in scans
+            if scan["package"] == "FIX-05"
+        }
+        self.assertEqual(expected_scans, actual_scans)
+
+        _root_name, _root_path, root_source = application_root_source()
+        root_block = braced_block(root_source, "PlotterApplicationRuntime")
+        for retired_property in (
+            "drawingRunFactSource",
+            "drawingRunInterpreterPort",
+            "drawingRunCameraPort",
+        ):
+            self.assertNotIn(retired_property, root_block)
+        self.assertEqual(1, root_block.count("drawingRunRuntime: PlotterDrawingRunRuntime"))
+        self.assertNotRegex(
+            root_block,
+            r"(?m)^\s*(?:@ObservationIgnored\s+)?private\s+(?:let|var)\s+"
+            r"[A-Za-z_][A-Za-z0-9_]*\s*:\s*PlotterDrawingRunComposition\b",
+        )
+
+        self.assertEqual(
+            {"PlotterApplicationRuntimeDrawingRunFactSource"},
+            production_conformers("PlotterDrawingRunFactSource"),
+        )
+        self.assertEqual(
+            {"PlotterApplicationRuntimeDrawingRunInterpreterPort"},
+            production_conformers("PlotterDrawingRunInterpreterPort"),
+        )
+        self.assertEqual(
+            {"PlotterApplicationRuntimeDrawingRunCameraPort"},
+            production_conformers("PlotterDrawingRunCameraPort"),
+        )
+        self.assertEqual(
+            {
+                "PlotterApplicationRuntimeDrawingRunCameraPort",
+                "PlotterObservationConfigurationRuntime",
+            },
+            production_conformers("PlotterDrawingRunVisionPort"),
         )
 
 

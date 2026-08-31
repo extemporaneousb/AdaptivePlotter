@@ -45,6 +45,7 @@ validate-app: app validate-launcher
 docs-check:
 	@sh Scripts/check_episode_documentation.sh
 	@./.VE/bin/python Scripts/check_episode_contract.py
+	@PYTHONDONTWRITEBYTECODE=1 ./.VE/bin/python Scripts/test_episode_pilot_metrics.py
 	@$(MAKE) wave-capsule-test
 	@sh Scripts/check_repository_contract.sh
 

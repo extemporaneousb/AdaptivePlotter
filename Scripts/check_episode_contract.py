@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "c32a6a58560e8fc77f4c73b79dbc630754e1d6f6335f0fca9da8faedb29c1ba2"
+EXPECTED_LEDGER_SHA256 = "64205a8b6735105d258ea14d29e8b687d666ccffcbcf54de96a8cb6bcb44b1c8"
 
 
 EXPECTED_GATES = {
@@ -230,6 +230,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-11B",
     "TRANCHE-FINAL-COMPOSITION",
     "EA-11C",
+    "FIX-05",
 }
 
 TRANCHE_SLICES = {
@@ -1347,17 +1348,23 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "FIX-05": (
             "transfer remaining cross-owner façade/port/fact-source/adapter ownership out of the application root",
             "removing at least three qualifying top-level stored `PlotterApplicationRuntime` properties",
-            "`operator-workspace-adapters` decreases from the EA-01 baseline 7 to at most 7 rather than the current failing 10",
+            "`operator-workspace-adapters` decreases from the EA-01 baseline 7 to 7 after the pre-correction failing 10",
             "wrapper aggregation, another root property, type erasure, nominal-port exemption, or absorbing a typed feature runtime does not count",
             "exactly one residual `PlotterOperationRegistry` adapter",
             "no automatic motion or redraw",
             "Install a pinned executable source-identity manifest checker for all six Pilot metrics",
             "EA-01 commit `96253197a42dc6052ef76ad53c4c94c1c5f745a1`",
-            "application admission families 18-to-2",
-            "duplicate application environment families 2-to-0",
-            "arbitrary stored closure-effect member identities 40-to-0",
+            "`independent-admission-sites` 18-to-2",
+            "`workspace-task-owners` 9-to-0",
+            "`environment-mode-branches` 2-to-0",
+            "`direct-effect-calls` 40-to-0",
+            "`operator-workspace-policy-state` 6-to-1",
+            "`operator-workspace-adapters` 7-to-7",
             "If any literal metric cannot be pinned and proved, FIX-05 fails",
-            "do not claim `PILOT` or GATE-01",
+            "`drawingRunFactSource`, `drawingRunInterpreterPort`, and `drawingRunCameraPort` absent",
+            "Completed by `TASK-2BF894FC`, attempt `TASK-2BF894FC-06f14a3e1a5b`",
+            "package FIX-05 complete, migration remains incomplete",
+            "`PILOT` and GATE-01 remain unclaimed",
         ),
         "DOC-03": (
             "Relocate the unchanged `GATE-01` Pilot continuation decision after `EA-11C`",
@@ -2703,7 +2710,14 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "`TASK-2F141403` → `FIX-04` → `removed-package`",
         "`TASK-D2DFC053` → `GATE-01` → `dependency-ineligible-package`",
         "unknown or unverifiable replay identity",
-        "The Device tranche landed on canonical `main` at `3308e1bf2c19159be7b207226280f54b5ebf0662`; the current sole-owner task is therefore executing `TRANCHE-FINAL-COMPOSITION` / `EA-11C` from that base",
+        "At the time of this policy record, the Device tranche had landed on canonical `main` at `3308e1bf2c19159be7b207226280f54b5ebf0662` and the then-current sole-owner task was executing `TRANCHE-FINAL-COMPOSITION` / `EA-11C` from that base",
+        "FIX-05 root authority and Pilot-metric correction",
+        "`TASK-2BF894FC`, attempt `TASK-2BF894FC-06f14a3e1a5b`",
+        "deletes the application-root stored `drawingRunFactSource`, `drawingRunInterpreterPort`, and `drawingRunCameraPort`",
+        "`PlotterDrawingRunRuntime` now privately retains its one nominal facts, interpreter, camera, and Vision capabilities",
+        "independent-admission-sites=18->2, workspace-task-owners=9->0, environment-mode-branches=2->0, direct-effect-calls=40->0, operator-workspace-policy-state=6->1, operator-workspace-adapters=7->7",
+        "The canonical ledger frontier is now pending gate package `GATE-01`",
+        "does not claim `PILOT`, a GATE-01 pass, attended physical evidence, or remote-Git action",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3069,12 +3083,12 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         if requirement != expected_metric_requirements[name]:
             fail(f"reduction metric requirement drifted: {name}")
         expected_counts = {
-            "independent-admission-sites": ("pending", "pending"),
+            "independent-admission-sites": ("18", "2"),
             "workspace-task-owners": ("9", "0"),
-            "environment-mode-branches": ("pending", "pending"),
-            "direct-effect-calls": ("pending", "pending"),
+            "environment-mode-branches": ("2", "0"),
+            "direct-effect-calls": ("40", "0"),
             "operator-workspace-policy-state": ("6", "1"),
-            "operator-workspace-adapters": ("7", "10"),
+            "operator-workspace-adapters": ("7", "7"),
         }
         if (baseline, current) != expected_counts[name]:
             fail(
@@ -3284,6 +3298,15 @@ def validate_wave_frontier(
     if selected == "GATE-01":
         if rows["FIX-05"]["status"] != "complete":
             fail("GATE-01 cannot be selected before FIX-05 completes")
+        for phrase in (
+            "FIX-05 root authority and Pilot-metric correction",
+            "`TASK-2BF894FC`, attempt `TASK-2BF894FC-06f14a3e1a5b`",
+            "The canonical ledger frontier is now pending gate package `GATE-01`",
+            "`GATE-01` remains pending and unrun",
+            "does not claim `PILOT`, a GATE-01 pass",
+        ):
+            if phrase not in normalized:
+                fail(f"GATE-01 frontier lacks FIX-05 completion evidence: {phrase}")
         if blockers:
             fail("GATE-01 frontier must not retain an ordinary-wave blocker")
         return

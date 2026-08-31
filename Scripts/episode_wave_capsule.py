@@ -53,6 +53,7 @@ AUTHORITY_PATHS = (
     ".codex/skills/run-multi-agent-wave/references/wave-coordination.md",
     "Scripts/check_episode_contract.py",
     "Scripts/check_episode_pilot_gate.py",
+    "Scripts/check_episode_pilot_metrics.py",
     "Scripts/episode_wave_capsule.py",
 )
 
