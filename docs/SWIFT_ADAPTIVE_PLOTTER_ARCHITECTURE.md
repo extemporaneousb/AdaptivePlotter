@@ -644,13 +644,13 @@ Learning presentation. One caller-supplied exact workflow batch owns one lease
 from preview hold through automatic-analysis restoration, including failure or
 cancellation settlement.
 
-`NativeSpeechAnnouncer` owns AVFoundation speech synthesis, identity-bound
-queueing, bounded timeout/completion, and shutdown cancellation. It is
-output-only: `OperatorWorkspace.announcementActions` currently invokes it for
-advisory Learning cues, records the typed result, and proceeds through the
-button/controller authority even when speech fails. The target plan dispositions
-that application-level effect path in `EA-10G` while retaining native synthesis
-below the episode runtime.
+`NativeSpeechAnnouncer` owns lower AVFoundation speech synthesis,
+identity-bound queueing, bounded timeout/completion, and shutdown cancellation.
+`PlotterSpeechEffectRuntime` owns application-level advisory speech admission,
+identity-bound terminal tracking, ordering, and shutdown; its lower port reaches
+the native announcer from the App/Boundary composition rather than from a
+workspace announcement route. Advisory failure remains non-authorizing and
+does not change button or controller authority.
 
 `OverlayPreferenceState` contains only the persistent operator selections
 `penCap` and `armatureEnvelope`. `SceneFeatureSet` expands the armature dependency

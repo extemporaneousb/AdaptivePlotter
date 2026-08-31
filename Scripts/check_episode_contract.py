@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "a584803f6a89979f098033f87f18a67bbd668344143a293ca7bc97f5674d9e90"
+EXPECTED_LEDGER_SHA256 = "7926bcaaf91f544e3416e2ffc0c84fb2539dcce89b9eefc683c6b5abee5f60af"
 
 
 EXPECTED_GATES = {
@@ -210,6 +210,12 @@ EXPECTED_COMPLETE_PACKAGES = {
     "EA-10A",
     "EA-10B",
     "DOC-04",
+    "TRANCHE-LEARNING",
+    "EA-10G",
+    "EA-10C",
+    "EA-10D",
+    "EA-10E",
+    "EA-10F",
 }
 
 TRANCHE_SLICES = {
@@ -1697,8 +1703,13 @@ def _validate_legacy_evidence_archive(text: str, rows: dict[str, dict[str, objec
                 f"{package_id} detailed evidence gates must be {expected_gates}; "
                 f"found {list(detailed_gates)}"
             )
-        if "CRITIC" in detailed_gates and "UNANIMOUS PASS — no material disagreement" not in detailed_gates["CRITIC"]:
-            fail(f"{package_id} CRITIC detail lacks the exact unanimous verdict")
+        if "CRITIC" in detailed_gates:
+            if package_id == "TRANCHE-LEARNING":
+                for phrase in ("four P1 red-lines", "without a critic recheck"):
+                    if phrase not in detailed_gates["CRITIC"]:
+                        fail(f"{package_id} CRITIC detail lacks landed red-line history: {phrase}")
+            elif "UNANIMOUS PASS — no material disagreement" not in detailed_gates["CRITIC"]:
+                fail(f"{package_id} CRITIC detail lacks the exact unanimous verdict")
         if "ARCHIVED" in detailed_gates and "d33d4ff" not in detailed_gates["ARCHIVED"]:
             fail(f"{package_id} ARCHIVED detail lacks d33d4ff")
         evidence_by_package[package_id] = actual_gates
@@ -2621,7 +2632,7 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "`TASK-2F141403` → `FIX-04` → `removed-package`",
         "`TASK-D2DFC053` → `GATE-01` → `dependency-ineligible-package`",
         "unknown or unverifiable replay identity",
-        "the verified ordinary frontier is `TRANCHE-LEARNING`, which now depends on complete `DOC-04`",
+        "the verified ordinary frontier is `TRANCHE-DEVICE-ENVIRONMENT`, which now depends on complete `TRANCHE-LEARNING`",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3133,9 +3144,7 @@ def validate_wave_frontier(
     normalized = re.sub(r"\s+", " ", evidence)
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
-    if selected is not None:
-        if selected != "TRANCHE-LEARNING":
-            fail(f"unexpected current ordinary wave frontier: {selected}")
+    if selected == "TRANCHE-LEARNING":
         for phrase in (
             "Sprint tranche-policy correction",
             "`TASK-86758196`",
@@ -3153,6 +3162,24 @@ def validate_wave_frontier(
         if blockers:
             fail("tranche frontier must not retain the retired standalone evidence blocker")
         return
+
+    if selected == "TRANCHE-DEVICE-ENVIRONMENT":
+        for phrase in (
+            "`TRANCHE-LEARNING` landed",
+            "`TASK-5C0B3F27`",
+            "`TASK-5C0B3F27-77bbbc6c5a59`",
+            "`2d488025a6b8a5fa129023a1a61e98b817106990`",
+            "`a1cfb05ca58f6805a973748958915fdbdd0ec117`",
+            "`TRANCHE-DEVICE-ENVIRONMENT`",
+        ):
+            if phrase not in normalized:
+                fail(f"landed Learning tranche lacks successor-frontier evidence: {phrase}")
+        if blockers:
+            fail("landed Learning tranche must not retain an ordinary-wave blocker")
+        return
+
+    if selected is not None:
+        fail(f"unexpected current ordinary wave frontier: {selected}")
 
     first_eligible = first_eligible_ordinary(rows)
     if first_eligible is not None and first_eligible in blockers:
