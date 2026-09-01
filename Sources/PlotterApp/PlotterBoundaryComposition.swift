@@ -17,11 +17,21 @@ final class PlotterApplicationRuntimeBoundaryRelay: PlotterBoundaryFactSource,
     guard let application else {
       preconditionFailure("The Boundary composition must be installed before admission.")
     }
-    return application.currentBoundaryExternalFacts(for: environment)
+    return await application.currentBoundaryExternalFacts(for: environment)
   }
 
   func publishBoundarySnapshot(_ snapshot: PlotterBoundaryRuntimeSnapshot) async {
-    application?.installBoundarySnapshot(snapshot)
+    guard let application else { return }
+    if snapshot.projection.reference.environment == .live,
+      snapshot.projection.reference.operationID == nil,
+      snapshot.projection.terminal != nil
+    {
+      // The lower controller-session owner has settled. Refresh its complete
+      // snapshot before publishing the Boundary terminal so every dependent
+      // admission and presentation observes the terminal Idle/MPos.
+      _ = await application.refreshControllerSessionSnapshot()
+    }
+    application.installBoundarySnapshot(snapshot)
   }
 
 }

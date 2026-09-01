@@ -988,7 +988,7 @@ func installAcceptedBoundaryTestProjection(
   environment: PlotterEnvironment,
   centerArrivalIsAccepted: Bool = true
 ) async throws {
-  let facts = workspace.currentBoundaryExternalFacts(for: environment)
+  let facts = await workspace.currentBoundaryExternalFacts(for: environment)
   let checkpoint = try acceptedBoundaryTestCheckpoint(
     centerArrivalIsAccepted: centerArrivalIsAccepted,
     controllerSessionID: facts.controllerSessionID,

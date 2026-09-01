@@ -10,6 +10,49 @@ import Testing
 @Suite("Drawing Studio run episode", .serialized)
 @MainActor
 struct PlotterDrawingRunEpisodeTests {
+  @Test("saved drawing projection requires complete paper identity and no new exact-frame request")
+  func savedDrawingProjectionCurrentness() throws {
+    let paper = PaperRevisionContext(
+      instance: PaperInstanceRevision(),
+      contactPlane: PaperContactPlaneRevision()
+    )
+    let identity = LearningPathSemanticIdentity(
+      machineGeometry: MachineGeometryIdentity(),
+      toolAssembly: ToolAssemblyRevision(),
+      penContactProfile: PenContactProfileRevision(),
+      paperInstance: paper.instance,
+      paperContactPlane: paper.contactPlane,
+      cameraMountRevision: UUID(),
+      cameraReframingRevision: UUID()
+    )
+    #expect(PlotterApplicationRuntime.savedDrawingEvidenceIsCurrentForPresentation(
+      paper,
+      savedIdentity: identity,
+      exactPointSelectionIsActive: false
+    ))
+    #expect(!PlotterApplicationRuntime.savedDrawingEvidenceIsCurrentForPresentation(
+      paper,
+      savedIdentity: identity,
+      exactPointSelectionIsActive: true
+    ))
+    #expect(!PlotterApplicationRuntime.savedDrawingEvidenceIsCurrentForPresentation(
+      PaperRevisionContext(
+        instance: PaperInstanceRevision(),
+        contactPlane: paper.contactPlane
+      ),
+      savedIdentity: identity,
+      exactPointSelectionIsActive: false
+    ))
+    #expect(!PlotterApplicationRuntime.savedDrawingEvidenceIsCurrentForPresentation(
+      PaperRevisionContext(
+        instance: paper.instance,
+        contactPlane: PaperContactPlaneRevision()
+      ),
+      savedIdentity: identity,
+      exactPointSelectionIsActive: false
+    ))
+  }
+
   @Test("exact projection and complete facts are revalidated before effects")
   func exactPlanAndFactRevalidation() async throws {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()

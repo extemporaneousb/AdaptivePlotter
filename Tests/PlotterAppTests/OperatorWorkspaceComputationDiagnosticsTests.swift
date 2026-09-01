@@ -208,7 +208,9 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     let diagnostics = workspace.computationDiagnosticsForTesting
     #expect(strokesAfterBatch.count - strokesBefore == 64)
     #expect(probesAfterBatch - probesBefore == 5)
-    #expect(snapshotsAfterBatch - snapshotsBefore == 1)
+    // One owner read admits the effect from current settled MPos; one publishes
+    // the terminal controller truth. The 64 drawing segments must not add reads.
+    #expect(snapshotsAfterBatch - snapshotsBefore == 2)
     #expect(
       Array(penCommandsAfterBatch.dropFirst(penCommandsBefore))
         == [.raise, .lower, .raise, .lower, .raise, .lower, .raise, .lower, .raise]

@@ -479,7 +479,9 @@ struct ActionSurfacePresentation: Sendable {
         $0.source == displayedFrame.source
           && $0.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID ? $0 : nil
       }
-      self.pointSelectionRequest = pointSelectionRequest
+      self.pointSelectionRequest = pointSelectionRequest.flatMap {
+        $0.matchesExactDisplayedFrame(displayedFrame) ? $0 : nil
+      }
       self.analyzedOverlayFrame = analyzedOverlayFrame.flatMap {
         $0.matches(displayedFrame) ? $0 : nil
       }
@@ -500,6 +502,18 @@ struct ActionSurfacePresentation: Sendable {
     guard case .simulated = displayedFrame?.source else { return nil }
     return "SIMULATED"
   }
+
+  func acceptsPendingPointSelection(_ submission: PlotterPointSelectionSubmission) -> Bool {
+    guard let request = pointSelectionRequest else { return false }
+    return submission.selectionID == request.id
+      && submission.frame == request.frame
+      && submission.presentationTransformRevision == request.presentationTransformRevision
+  }
+}
+
+struct ActionSurfacePointSelectionPendingIdentity: Hashable, Sendable {
+  let request: PlotterPointSelectionRequest?
+  let viewportRevision: PresentationTransformRevision
 }
 
 enum ExactFramePointSubmissionBuilder {
@@ -564,6 +578,10 @@ struct ActionSurface: View {
     let frameImage = presentation.displayedFrame.flatMap {
       imageCache.image(from: $0.frame)
     }
+    let pointSelectionPendingIdentity = ActionSurfacePointSelectionPendingIdentity(
+      request: presentation.pointSelectionRequest,
+      viewportRevision: viewport.presentationTransformRevision
+    )
     GeometryReader { proxy in
       Canvas { context, size in
         guard let displayedFrame = presentation.displayedFrame,
@@ -648,7 +666,9 @@ struct ActionSurface: View {
       }
       .overlay(alignment: .bottom) {
         HStack(spacing: 8) {
-          if pendingPointSelection != nil {
+          if let pendingPointSelection,
+            presentation.acceptsPendingPointSelection(pendingPointSelection)
+          {
             Button("Apply Learning Point") {
               submitPendingPointSelection()
             }
@@ -709,6 +729,14 @@ struct ActionSurface: View {
       .onChange(of: presentation.viewportContext, initial: true) { _, context in
         viewport.synchronize(with: context)
       }
+      .onChange(of: pointSelectionPendingIdentity, initial: true) { prior, current in
+        guard let pendingPointSelection else { return }
+        if prior.viewportRevision != current.viewportRevision
+          || !presentation.acceptsPendingPointSelection(pendingPointSelection)
+        {
+          self.pendingPointSelection = nil
+        }
+      }
       .accessibilityValue(
         [
           presentation.analyzedOverlayFrame.map {
@@ -735,7 +763,12 @@ struct ActionSurface: View {
   }
 
   private func submitPendingPointSelection() {
-    guard let submission = pendingPointSelection else { return }
+    guard let submission = pendingPointSelection,
+      presentation.acceptsPendingPointSelection(submission)
+    else {
+      pendingPointSelection = nil
+      return
+    }
     let intent = PlotterUIIntent.pointSelection(submission)
     guard let request = plotterUIProjection.request(matching: intent) else { return }
     Task {
@@ -1127,6 +1160,12 @@ private extension DisplayedFrame {
       archivedBytes: archiveBinding.archivedBytes,
       archivedByteLocator: archiveBinding.archivedByteLocator
     )
+  }
+}
+
+extension PlotterPointSelectionRequest {
+  func matchesExactDisplayedFrame(_ displayedFrame: DisplayedFrame) -> Bool {
+    frame == displayedFrame.pointSelectionSubmissionReference(archiveBinding: frame)
   }
 }
 

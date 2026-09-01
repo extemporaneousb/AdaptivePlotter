@@ -485,6 +485,74 @@ struct PlotterBoundaryEpisodeTests {
     await workspace.shutdown()
   }
 
+  @Test("LIVE center refreshes settled controller MPos and publishes terminal position")
+  func liveCenterUsesControllerSessionTruthInsteadOfPresentationCache() async throws {
+    let identities = TipCalibrationSemanticIdentityState.ephemeral()
+    let checkpointStore = try BoundaryRecoveryCheckpointStore(
+      checkpoint: acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity)
+    )
+    let log = EventLog()
+    let machine = try LowerMachineSessionFixture(
+      log: log,
+      relativeJogSettlementOffset: try Vector2<MachineSpace>(dx: 0, dy: 0)
+    )
+    let runtimeAccess = TestBoundaryRuntimeAccess()
+    let workspace = plotterApplicationRuntime(
+      machine: machine,
+      statePersistencePort: checkpointStore,
+      tipCalibrationSemanticIdentities: identities,
+      boundaryRuntimeAccess: runtimeAccess,
+      log: log
+    )
+    await workspace.establishMachineSession(machine.descriptor)
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await workspace.performTestExerciseAction(
+      .applySavedLearning,
+      for: workspace.testCurrentLearningPathItemID
+    )
+    #expect(workspace.penInteractionCompleted)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: try #require(runtimeAccess.runtime),
+      workspace: workspace,
+      environment: .live,
+      centerArrivalIsAccepted: false
+    )
+
+    // Reproduce the incident: presentation says X 49.997/Y 0 while the
+    // controller-session owner has since settled at X 100/Y 50.
+    try await machine.setPosition(x: 49.997, y: 0)
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    #expect(workspace.machineSnapshot?.machine.position == (try MachinePosition(x: 49.997, y: 0)))
+    try await machine.setPosition(x: 100, y: 50)
+    let snapshotCallsBeforeCenter = await machine.snapshotCallCount
+
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      .pairedBoundaryDiscoveryAndCentering
+    )
+    try requireEnabledPublicAction(
+      .boundary(.moveToEstimatedCenter(retry: false)),
+      owner: owner,
+      workspace: workspace
+    )
+    await workspace.performTestExerciseAction(
+      .boundary(.moveToEstimatedCenter(retry: false)),
+      for: owner
+    )
+    try await waitForAcceptedBoundaryCenterArrival(workspace: workspace)
+
+    let center = try MachinePosition(x: 0, y: 0)
+    #expect(workspace.testCenterArrivalPosition == center)
+    #expect(workspace.machineSnapshot?.machine.position == center)
+    #expect(await machine.snapshotCallCount > snapshotCallsBeforeCenter)
+    #expect(!workspace.testBoundaryCenterArrivalRetryRequired)
+    #expect(
+      workspace.currentExerciseActionStripPresentation?.actions.contains {
+        $0.kind == .boundary(.moveToEstimatedCenter(retry: true))
+      } == false
+    )
+    await workspace.shutdown()
+  }
+
   @Test("foreign Stop refuses and exact Stop publishes one atomic accepted terminal")
   func exactStopPublishesAtomically() async throws {
     let terminalGate = PlotterBoundaryTerminalPublicationGate(held: true)

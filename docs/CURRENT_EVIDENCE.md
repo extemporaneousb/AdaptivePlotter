@@ -65,18 +65,76 @@ Source inspection found pending exact-frame UI submissions similarly retained
 across request/frame changes. Those are software diagnoses prompted by the
 attended observations, not passed physical evidence.
 
-`PHYSICAL-FINAL` is failed and `VAL-01` remains pending. `FIX-06` is the sole
-next ordinary correction package and makes VAL-01 dependency-ineligible until
-the stale-currentness invariant is repaired, software gates pass, and a new
-signed build exists. Sections 1 through 6 must then be executed from the start;
-this failed prefix cannot be resumed, combined with simulator evidence, or
-upgraded to a passed attended run. VAL-01 remains incomplete; migration remains
-incomplete.
+`PHYSICAL-FINAL` is failed and `VAL-01` remains pending. At the failed frontier,
+`FIX-06` is the sole next ordinary correction package recorded by this incident;
+that correction is now complete in `TASK-4194B778`, attempt
+`TASK-4194B778-238b4ef7adb1`. Sections 1 through 6 must be executed from the
+start on the corrected exact signed build; this failed prefix cannot be resumed,
+combined with simulator evidence, or upgraded to a passed attended run. VAL-01
+remains incomplete; migration remains incomplete.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
 | `DOC` | passed — `make docs-check`; documentation and architecture contracts passed; Pilot 13/13, Pilot metrics 9/9, and wave-capsule 35/35 | failed attended evidence, FIX-06 ledger/dependency insertion, and exact frontier fixtures |
 | `DIFF` | passed — `git diff --check`; no output | documentation/repository correction only; no product Source or Swift Test changed |
+
+## FIX-06 external-fact currentness correction
+
+Prepared 2026-09-01 in Blackdog task `TASK-4194B778`, attempt
+`TASK-4194B778-238b4ef7adb1`. The defect was not exercise-mode ownership. The
+typed Boundary runtime asked the application fact adapter for MPos, and that
+adapter answered from `machineSnapshot`, a presentation cache, while the
+controller session and `RunInterpreter` already owned newer settled facts. The
+adapter now refreshes the existing controller-session snapshot immediately
+before an effect derives a position and again before a terminal Boundary fact
+is published. LIVE admission requires connected Idle, no lower operation, no
+sticky ambiguity, and a present settled MPos. The runtime and controller retain
+their existing safety authority; there is no second MPos owner, automatic retry,
+or bypass ingress.
+
+The same audit moved every other position-derived effect in
+`OperatorWorkspace` to that fresh lower-owner query: current camera-calibration
+sampling, sparse-tip batch admission, local-baseline capture, Drawing Border
+start/confirmation, reveal/return, and returned-position verification. Remaining
+`machineSnapshot` reads are presentation, readiness, or summary projections and
+do not compute a motion target. The computation diagnostic proves a sparse-tip
+batch performs exactly one admission read plus one terminal publication read,
+not one snapshot per drawing segment.
+
+Exact-frame point selection now exposes a request only when request identity,
+frame id/hash/source/configuration/capture sequence/dimensions/row layout/pixel
+format, archive binding, and viewport presentation revision all match. Pending
+UI submission is cleared when that identity or presentation revision changes;
+the semantic action compiler also omits stale submissions. Reset, environment
+replacement, a new request, and a new displayed frame therefore invalidate the
+old click before dispatch. The point runtime's refusal of a forged stale
+submission remains defense in depth.
+
+Restored Drawing Evidence now projects as current only when both paper-instance
+identity and contact-plane identity match. Beginning a new exact-frame Learning
+request hides the prior saved-path presentation without deleting its durable
+checkpoint. This prevents unrelated restored paper from leaking into the new
+exercise while preserving the last complete evidence package.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; application compiled successfully | corrected application source |
+| `BOUNDARY` | passed — `swift test --filter PlotterBoundaryEpisodeTests`; 19/19 | stale cached MPos, current settlement, terminal publication, Stop and retry contracts |
+| `POINT` | passed — `swift test --filter PlotterPointSelectionEpisodeTests`; 11/11 | exact-frame point runtime plus current-click regression |
+| `UI` | passed — `swift test --filter PlotterEpisodeUIActionabilityTests`; 18/18 | stale pending point omitted from semantic UI |
+| `ARTIFACT-RESET` | passed — `swift test --filter PlotterArtifactResetEpisodeTests`; 12/12 | reset invalidation and durable-artifact boundary |
+| `DRAW-RUN` | passed — `swift test --filter PlotterDrawingRunEpisodeTests`; 14/14 | full paper identity and saved-path presentation currentness |
+| `DOC` | passed — `make docs-check` | canonical ledger, evidence, contract hash, and capsule frontier |
+| `DIFF` | passed — `git diff --check`; no output | final task candidate |
+| `QUICK` | passed — `make quick-test`; 823/823 | aggregate software regression suite |
+| `JOURNEY` | passed — `make journey-test`; 10/10 | serial causal journeys |
+| `STRICT` | passed — `make strict-check`; strict concurrency/signing suite and 833/833 tests | final candidate; no attended motion or ink claim |
+
+`FIX-06` is complete only as software evidence. No controller, camera, motion,
+pen, paper, operator-click, or observed-ink validation was performed by this
+task. `PHYSICAL-FINAL` remains failed; `VAL-01` remains the attended-physical
+authorization boundary and must rerun sections 1 through 6 from the beginning on
+the exact corrected signed build.
 
 ## GATE-01 Pilot continuation passed
 
@@ -2708,8 +2766,8 @@ execution-plan ledger. Gate names match each package's required gates exactly,
 and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
 stale task-local candidates. FIX-03, DOC-03, the later tranches, EA-11C,
-FIX-05, and GATE-01 have final completion evidence; `VAL-01` remains pending at
-the attended-physical authorization boundary.
+FIX-05, GATE-01, and FIX-06 have final completion evidence; `VAL-01` remains
+pending at the attended-physical authorization boundary.
 Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
@@ -2752,6 +2810,7 @@ Detailed scope and limitations remain in the named evidence sections.
 | EA-11C | `TASK-FFD5D897` | `BUILD=passed`, `COMPOSITION=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-11C final-composition staged completion transaction |
 | FIX-05 | `TASK-2BF894FC` | `BUILD=passed`, `COMPOSITION=passed`, `PILOT-METRICS=passed`, `AFFECTED-CONSUMERS=passed`, `DELETE=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed` | FIX-05 root authority and Pilot-metric correction |
 | GATE-01 | `TASK-5E431BE7` | `DOC=passed`, `DIFF=passed`, `PILOT=passed` | GATE-01 Pilot continuation decision |
+| FIX-06 | `TASK-4194B778` | `BUILD=passed`, `BOUNDARY=passed`, `POINT=passed`, `UI=passed`, `ARTIFACT-RESET=passed`, `DRAW-RUN=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-06 external-fact currentness correction |
 
 ## Wave admission blockers
 
@@ -2768,9 +2827,10 @@ correction. `TRANCHE-LEARNING` landed, and
 `3308e1bf2c19159be7b207226280f54b5ebf0662`, and
 `TRANCHE-FINAL-COMPOSITION` subsequently completed through `TASK-FFD5D897`, and
 FIX-05 completed through `TASK-2BF894FC`, attempt
-`TASK-2BF894FC-06f14a3e1a5b`, and GATE-01 completed through `TASK-5E431BE7`,
-attempt `TASK-5E431BE7-59658505ced4`. No ordinary software or gate package is
-eligible before `VAL-01`; the next frontier is an attended-physical
+`TASK-2BF894FC-06f14a3e1a5b`, GATE-01 completed through `TASK-5E431BE7`,
+attempt `TASK-5E431BE7-59658505ced4`, and FIX-06 completed through
+`TASK-4194B778`, attempt `TASK-4194B778-238b4ef7adb1`. No ordinary software or
+gate package is eligible before `VAL-01`; the next frontier is an attended-physical
 authorization boundary, not a launchable wave. No later successor dispatch is
 authorized here.
 

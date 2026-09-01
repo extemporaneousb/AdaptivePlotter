@@ -1756,8 +1756,11 @@ final class PlotterApplicationRuntime:
 
   func currentBoundaryExternalFacts(
     for environment: PlotterEnvironment
-  ) -> PlotterBoundaryExternalFacts {
+  ) async -> PlotterBoundaryExternalFacts {
     let isCurrentEnvironment = environment == penInteractionEnvironment
+    let liveSnapshot = environment == .live
+      ? await refreshControllerSessionSnapshot()
+      : nil
     let position: MachinePosition? = if environment == .simulated {
       if let snapshot = simulatedLearningSnapshot {
         try? MachinePosition(x: snapshot.mpos.xMM, y: snapshot.mpos.yMM)
@@ -1765,7 +1768,7 @@ final class PlotterApplicationRuntime:
         nil
       }
     } else {
-      machineSnapshot?.machine.position
+      liveSnapshot?.machine.position
     }
     return PlotterBoundaryExternalFacts(
       environment: environment,
@@ -1774,18 +1777,29 @@ final class PlotterApplicationRuntime:
       motionAuthorized: isCurrentEnvironment && sessionMotionAuthorized,
       foreignLowerOperationInFlight: isCurrentEnvironment
         && (retainedPenRequestInProgress
-          || (machineSnapshot?.machine.operationInFlight == true
+          || (liveSnapshot?.machine.operationInFlight == true
             && currentBoundarySnapshot?.projection.reference.operationID == nil)),
       stickyAmbiguity: isCurrentEnvironment ? learningStickyAmbiguityReason : nil,
       controllerSessionID: controllerSessionID,
       coordinateRevision: explorationCoordinateRevision,
       machinePosition: position,
       interpreterIsIdle: environment == .simulated
-        || machineSnapshot?.currentOperation == .idle,
+        || liveSnapshot?.currentOperation == .idle,
       passiveProbe: environment == .live ? passiveProbeResult : nil,
       penActuationProfile: currentPenActuationProfile,
       semanticIdentity: currentLearningPathSemanticIdentity
     )
+  }
+
+  /// Refreshes the existing controller-session projection from its lower
+  /// owner. `machineSnapshot` is a presentation cache; effect-bearing code
+  /// must call this boundary instead of treating that cache as current MPos.
+  @discardableResult
+  func refreshControllerSessionSnapshot() async -> RunInterpreterSnapshot? {
+    guard let machineSession else { return machineSnapshot }
+    let snapshot = await machineSession.snapshot()
+    machineSnapshot = snapshot
+    return snapshot
   }
 
   func installBoundarySnapshot(_ snapshot: PlotterBoundaryRuntimeSnapshot) {
@@ -2374,13 +2388,18 @@ final class PlotterApplicationRuntime:
         } ?? "post-boundary-presentation"
       )
     }
+    let surfacePointSelectionRequest = pointSelectionRequest.flatMap { request in
+      surfaceFrame.map(request.matchesExactDisplayedFrame) == true ? request : nil
+    }
     let tipPresentation: ActionSurfaceTipPresentation =
-      if let pointSelectionRequest, pointSelectionRequest.purpose == .toolContact {
+      if let pointSelectionRequest = surfacePointSelectionRequest,
+        pointSelectionRequest.purpose == .toolContact
+      {
         .collectingClicks(
           prompt: pointSelectionRequest.prompt,
           clicks: selectedToolContactPoints
         )
-      } else if let pointSelectionRequest {
+      } else if let pointSelectionRequest = surfacePointSelectionRequest {
         .awaitingClick(pointSelectionRequest.prompt)
       } else if tipCameraRegistration != nil {
         .calibrated(prediction: nil)
@@ -2400,7 +2419,7 @@ final class PlotterApplicationRuntime:
         videoAnalysisRegionLock?.matches($0) == true
       } ?? false,
       analyzedOverlayFrame: overlayComposition.analyzedFrame,
-      pointSelectionRequest: pointSelectionRequest,
+      pointSelectionRequest: surfacePointSelectionRequest,
       tipPresentation: tipPresentation,
       completedComparisonReview: completedComparisonReviewPresentation,
       drawingStudioCanvas: drawingStudioIsPresented ? drawingStudioPresentation.canvas : nil
@@ -3032,7 +3051,11 @@ final class PlotterApplicationRuntime:
     }
     if let savedCandidate {
       for record in drawingEvidenceArchive.records
-      where record.paper.contactPlane == savedCandidate.semanticIdentity.paperContactPlane {
+      where Self.savedDrawingEvidenceIsCurrentForPresentation(
+        record.paper,
+        savedIdentity: savedCandidate.semanticIdentity,
+        exactPointSelectionIsActive: pointSelectionRequest != nil
+      ) {
         guard let plan = record.plan.executionPlan else { continue }
         for stroke in plan.strokes {
           guard let projected = try? Polyline(
@@ -3074,6 +3097,16 @@ final class PlotterApplicationRuntime:
       )
     }
     return overlays
+  }
+
+  nonisolated static func savedDrawingEvidenceIsCurrentForPresentation(
+    _ recordPaper: PaperRevisionContext,
+    savedIdentity: LearningPathSemanticIdentity,
+    exactPointSelectionIsActive: Bool
+  ) -> Bool {
+    !exactPointSelectionIsActive
+      && recordPaper.instance == savedIdentity.paperInstance
+      && recordPaper.contactPlane == savedIdentity.paperContactPlane
   }
 
   var completedComparisonReviewPresentation: CompletedComparisonReviewPresentation {
@@ -4279,6 +4312,10 @@ final class PlotterApplicationRuntime:
     let drawing = drawingStudioPresentation
     let controller = controllerSessionProjection
     let observation = observationConfigurationProjection
+    let actionSurface = actionSurfacePresentation
+    let currentPendingPointSelection = pendingPointSelection.flatMap {
+      actionSurface.acceptsPendingPointSelection($0) ? $0 : nil
+    }
     var candidates: [PlotterUIActionCandidate] = []
     var applicationActions: [PlotterUIActionID: PlotterApplicationBoundAction] = [:]
     func bindApplicationAction(
@@ -4420,7 +4457,7 @@ final class PlotterApplicationRuntime:
     candidates.append(contentsOf: manualUIActions(draft: manualDraft, presentation: manual).map {
       uiCandidate(action: $0, owner: "PlotterManualMotionRuntime")
     })
-    if let pendingPointSelection {
+    if let pendingPointSelection = currentPendingPointSelection {
       candidates.append(uiCandidate(
         id: PlotterAppUIActionID.pointSelection(pendingPointSelection),
         title: "Apply exact-frame Learning point",
@@ -4593,7 +4630,7 @@ final class PlotterApplicationRuntime:
         manualDraft: manualDraft,
         includesLearningPath: includesLearningPath,
         pendingDrawingPlacement: pendingDrawingPlacement,
-        pendingPointSelection: pendingPointSelection,
+        pendingPointSelection: currentPendingPointSelection,
         observationViewport: observationViewport
       ),
       runtimeRevisions: runtimeRevisions,
@@ -4607,7 +4644,7 @@ final class PlotterApplicationRuntime:
     currentApplicationActions = applicationActions
     return PlotterAppUIProjection(
       semantic: semantic,
-      actionSurface: actionSurfacePresentation,
+      actionSurface: actionSurface,
       exercisePaneProtection: currentLearning.exercisePaneProtection,
       learningMode: learningModePresentation,
       learningPath: learningPath,
@@ -5930,7 +5967,8 @@ final class PlotterApplicationRuntime:
       } catch { return .failed(cameraCalibrationEffectFailure(actionableDescription(error))) }
     case .captureSample(let operationID, _, let expected):
       do {
-        guard protocolPositionsMatch(try currentMachinePosition(), expected) else {
+        guard protocolPositionsMatch(try await currentSettledMachinePositionForEffect(), expected)
+        else {
           throw LearningPathOperationError.requiredState("Camera calibration is not at its required sample position.")
         }
         let capture = try await captureCurrentCameraCapAnchorEvidence(
@@ -6824,7 +6862,7 @@ final class PlotterApplicationRuntime:
       )
       let initialPenUp = try await normalizeSparseTipBatchPenUp()
       var drawnEvidence: [DrawnToolContactEvidence] = []
-      var batchPosition = try currentMachinePosition()
+      var batchPosition = try await currentSettledMachinePositionForEffect()
       var finalPenUpTimestamp = initialPenUp.timestamp
       var controllerContextBaseline: ControllerContextBaseline?
 
@@ -11679,7 +11717,7 @@ final class PlotterApplicationRuntime:
         "A current accepted pen-tip calibration and settled Pen-Up position are required."
       )
     }
-    let revealPosition = try currentMachinePosition()
+    let revealPosition = try await currentSettledMachinePositionForEffect()
     let frame = try await captureProtocolFrame(
       newerThan: displayedFrame?.frame.captureNanoseconds ?? 0
     )
@@ -11693,7 +11731,7 @@ final class PlotterApplicationRuntime:
     ) else {
       throw LearningPathOperationError.requiredState("The Drawing Border plan is unavailable.")
     }
-    let current = try currentMachinePosition()
+    let current = try await currentSettledMachinePositionForEffect()
     if let delta = try Self.supervisedTravelDelta(from: current, to: destination) {
       let final = try await performSupervisedPenUpTravel(
         delta: delta,
@@ -11715,11 +11753,40 @@ final class PlotterApplicationRuntime:
   }
 
   private func currentMachinePosition() throws -> MachinePosition {
+    // Presentation-only projection of the last published lower-owner fact.
+    // Motion/evidence effects must use currentSettledMachinePositionForEffect().
     if frameMode == .simulated, let position = simulatedLearningSnapshot?.mpos {
       return try MachinePosition(x: position.xMM, y: position.yMM)
     }
     guard let position = machineSnapshot?.machine.position else {
       throw LearningPathOperationError.requiredState("Current controller MPos is unavailable.")
+    }
+    return position
+  }
+
+  private func currentSettledMachinePositionForEffect() async throws -> MachinePosition {
+    if frameMode == .simulated, let snapshot = simulatedLearningSnapshot {
+      guard snapshot.session == .connected,
+        snapshot.currentOperation == nil,
+        snapshot.stickyAmbiguity == nil
+      else {
+        throw LearningPathOperationError.requiredState(
+          "The simulated controller did not publish a current settled MPos."
+        )
+      }
+      return try MachinePosition(x: snapshot.mpos.xMM, y: snapshot.mpos.yMM)
+    }
+    guard let snapshot = await refreshControllerSessionSnapshot(),
+      snapshot.currentOperation == .idle,
+      snapshot.machine.connection == .connected,
+      snapshot.machine.controllerState == .idle,
+      !snapshot.machine.operationInFlight,
+      snapshot.machine.stickyAmbiguity == nil,
+      let position = snapshot.machine.position
+    else {
+      throw LearningPathOperationError.requiredState(
+        "The controller-session owner did not publish a current settled Idle/MPos."
+      )
     }
     return position
   }
@@ -11738,23 +11805,6 @@ final class PlotterApplicationRuntime:
       && snapshot.machine.penState == .up
       && !snapshot.machine.operationInFlight
       && snapshot.machine.stickyAmbiguity == nil
-  }
-
-  private func protocolSettlementIsCurrent(
-    _ settlement: ProtocolPoseSettlement?,
-    expectedTarget: MachinePosition?
-  ) -> Bool {
-    guard let settlement, let expectedTarget,
-      settlement.controllerSessionID == controllerSessionID,
-      settlement.coordinateRevision == explorationCoordinateRevision,
-      settlement.toolPaperRevision == explorationPaperInstanceRevision,
-      protocolPositionsMatch(settlement.target, expectedTarget),
-      protocolPositionsMatch(settlement.actual, expectedTarget),
-      controllerIsPenUpAndIdle,
-      let current = try? currentMachinePosition(),
-      protocolPositionsMatch(current, settlement.actual)
-    else { return false }
-    return true
   }
 
   private func protocolPositionsMatch(
@@ -11963,7 +12013,7 @@ final class PlotterApplicationRuntime:
       throw LearningPathOperationError.requiredState("The Drawing Border plan is unavailable.")
     }
     let start = MachinePosition(point: startPoint)
-    let current = try currentMachinePosition()
+    let current = try await currentSettledMachinePositionForEffect()
     guard
       recordProtocolPoseSettlement(
         action: .confirmDrawingBorderStart,
@@ -12110,7 +12160,7 @@ final class PlotterApplicationRuntime:
         "The local baseline, reveal position, Drawing Border plan, and current accepted pen-tip calibration are required."
       )
     }
-    let current = try currentMachinePosition()
+    let current = try await currentSettledMachinePositionForEffect()
     if !protocolPositionsMatch(current, revealPosition) {
       let delta = try Vector2<MachineSpace>(
         dx: revealPosition.point.x - current.point.x,
@@ -12417,7 +12467,7 @@ extension PlotterApplicationRuntime {
         return .completed(.baselineCaptured(frame, revealPosition: revealPosition))
       case .moveToDrawingBorderStart:
         try await moveToRecordedDrawingBorderStart()
-        let position = try currentMachinePosition()
+        let position = try await currentSettledMachinePositionForEffect()
         return .completed(.movedToStart(position, feed: lastTravelFeedSelection))
       case .drawDrawingBorder:
         try await drawDrawingBorderTrial()

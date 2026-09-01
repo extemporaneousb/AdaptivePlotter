@@ -312,6 +312,104 @@ func viewportCameraConfigurationChangeResetsOperatorViewport() throws {
   #expect(viewport.visibleRegion(frameWidth: 640, frameHeight: 480) == nil)
 }
 
+@Test("Exact-frame point UI hides mismatched requests and accepts only its current submission")
+func exactFramePointPresentationCurrentness() throws {
+  let displayed = try testDisplayedFrame()
+  let request = PlotterPointSelectionRequest(
+    frame: exactPointSelectionFrame(displayed),
+    sourceObservationID: PlotterObservationID(rawValue: UUID()),
+    presentationTransformRevision: PlotterPresentationTransformRevision(),
+    prompt: "Click the pen cap.",
+    purpose: .penCapAppearance,
+    requiredPointCount: 1
+  )
+  let current = ActionSurfacePresentation(
+    displayedFrame: displayed,
+    overlays: [],
+    pointSelectionRequest: request
+  )
+  let submission = try #require(ExactFramePointSubmissionBuilder.submission(
+    presentation: current,
+    viewport: ActionSurfaceViewportState(),
+    at: CGPoint(x: 1, y: 1),
+    viewSize: CGSize(width: 2, height: 2)
+  ))
+  #expect(current.pointSelectionRequest == request)
+  #expect(current.acceptsPendingPointSelection(submission))
+  #expect(!current.acceptsPendingPointSelection(PlotterPointSelectionSubmission(
+    selectionID: submission.selectionID,
+    frame: submission.frame,
+    point: submission.point,
+    presentationTransformRevision: PlotterPresentationTransformRevision()
+  )))
+
+  let replacement = PlotterPointSelectionRequest(
+    frame: request.frame,
+    sourceObservationID: PlotterObservationID(rawValue: UUID()),
+    presentationTransformRevision: PlotterPresentationTransformRevision(),
+    prompt: request.prompt,
+    purpose: request.purpose,
+    requiredPointCount: request.requiredPointCount
+  )
+  let replaced = ActionSurfacePresentation(
+    displayedFrame: displayed,
+    overlays: [],
+    pointSelectionRequest: replacement
+  )
+  #expect(!replaced.acceptsPendingPointSelection(submission))
+
+  let changedFrames = [
+    try testDisplayedFrame(),
+    DisplayedFrame(source: .simulated, frame: displayed.frame),
+    DisplayedFrame(
+      source: displayed.source,
+      frame: try testFrame(
+        id: displayed.frame.id,
+        configuration: CameraConfigurationID(),
+        sequence: displayed.frame.sequence
+      )
+    ),
+    DisplayedFrame(
+      source: displayed.source,
+      frame: try testFrame(
+        id: displayed.frame.id,
+        configuration: displayed.frame.cameraConfigurationID,
+        sequence: displayed.frame.sequence,
+        bytes: Array(repeating: 0, count: 16)
+      )
+    ),
+  ]
+  for changedFrame in changedFrames {
+    let stale = ActionSurfacePresentation(
+      displayedFrame: changedFrame,
+      overlays: [],
+      pointSelectionRequest: request
+    )
+    #expect(stale.pointSelectionRequest == nil)
+    #expect(!stale.acceptsPendingPointSelection(submission))
+  }
+
+  let viewportRevision = PresentationTransformRevision()
+  #expect(
+    ActionSurfacePointSelectionPendingIdentity(
+      request: request,
+      viewportRevision: viewportRevision
+    ) != ActionSurfacePointSelectionPendingIdentity(
+      request: request,
+      viewportRevision: PresentationTransformRevision()
+    )
+  )
+  #expect(
+    ActionSurfacePointSelectionPendingIdentity(
+      request: request,
+      viewportRevision: viewportRevision
+    ) != ActionSurfacePointSelectionPendingIdentity(
+      request: nil,
+      viewportRevision: viewportRevision
+    )
+  )
+}
+
 @Test("Explicit Full Fit and zoom actions replace a preserved operator viewport")
 func explicitViewportActionsReplacePreservedOperatorViewport() throws {
   let configuration = CameraConfigurationID()

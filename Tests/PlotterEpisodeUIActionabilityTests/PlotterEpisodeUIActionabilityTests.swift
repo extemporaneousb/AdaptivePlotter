@@ -423,7 +423,7 @@ struct PlotterEpisodeUIActionabilityTests {
   }
 
   @MainActor
-  @Test("window-local manual point and placement revisions stale prior requests")
+  @Test("window-local stale points are omitted while current manual and placement inputs revise UI")
   func localInputRevisionsStalePriorRequests() async throws {
     let fixture = makeProductionWorkspace()
     let original = fixture.projection()
@@ -439,16 +439,10 @@ struct PlotterEpisodeUIActionabilityTests {
     )
 
     let beforePoint = fixture.projection()
-    let pointRequest = try #require(
-      beforePoint.semantic.request(for: PlotterAppUIActionID.learningMode)
-    )
     let point = pointSelectionSubmission()
     let pointProjection = fixture.projection(pendingPointSelection: point)
-    #expect(pointProjection.semantic.revision != beforePoint.semantic.revision)
-    #expect(
-      refusalReason(await fixture.workspace.submitPlotterUIRequest(pointRequest))
-        == .staleUIRevision
-    )
+    #expect(pointProjection.semantic.revision == beforePoint.semantic.revision)
+    #expect(pointProjection.semantic.action(id: PlotterAppUIActionID.pointSelection(point)) == nil)
 
     let beforePlacement = fixture.projection()
     let placementRequest = try #require(
@@ -485,13 +479,13 @@ struct PlotterEpisodeUIActionabilityTests {
       PlotterAppUIActionID.manualPenUp,
       PlotterAppUIActionID.manualPenDown,
       PlotterAppUIActionID.drawingOpen,
-      PlotterAppUIActionID.pointSelection(pendingPoint),
       PlotterAppUIActionID.incidentPackage,
     ]
     for id in fixedIDs {
       let action = try #require(semantic.action(id: id), "Missing rendered action \(id.rawValue)")
       #expect((semantic.request(for: id) != nil) == action.isAvailable)
     }
+    #expect(semantic.action(id: PlotterAppUIActionID.pointSelection(pendingPoint)) == nil)
 
     for control in projected.drawingStudio.controls {
       let id = PlotterAppUIActionID.drawingRun(control.intent)
