@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "0b5621959cc51250feb9cdc4d145d9174ce39c018c624e2a7931a14fae1f4e22"
+EXPECTED_LEDGER_SHA256 = "c251a6eb5990c0b920255886f56e9433f9d2575b38d4a8dab2a9650f7c20c30f"
 
 
 EXPECTED_GATES = {
@@ -162,7 +162,8 @@ EXPECTED_PACKAGE_SHAPES = {
     "EA-11C": (["TRANCHE-DEVICE-ENVIRONMENT"], "authority-slice", ["BUILD", "COMPOSITION", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
     "FIX-05": (["TRANCHE-FINAL-COMPOSITION"], "software", ["BUILD", "COMPOSITION", "PILOT-METRICS", "AFFECTED-CONSUMERS", "DELETE", "DOC", "DIFF", "QUICK", "STRICT"]),
     "GATE-01": (["FIX-05"], "gate", ["DOC", "DIFF", "PILOT"]),
-    "VAL-01": (["GATE-01"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
+    "FIX-06": (["GATE-01"], "software", ["BUILD", "BOUNDARY", "POINT", "UI", "ARTIFACT-RESET", "DRAW-RUN", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
+    "VAL-01": (["FIX-06"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
     "GATE-02": (["VAL-01"], "gate", ["DOC", "DIFF", "FINAL-GATE"]),
 }
 
@@ -185,6 +186,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
     "EA-09": "Cutover",
     "FIX-03": "Correction",
     "FIX-05": "Correction",
+    "FIX-06": "Correction",
     "EA-10A": "Cutover",
     "EA-10B": "Cutover",
     "TRANCHE-LEARNING": "Tranche",
@@ -2724,6 +2726,13 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "episode Pilot gate passed: 9 predicates, 6 reduction metrics, 18 cutover scan sets",
         "No product Source or Swift Test changed, no critic was commissioned, and no QUICK, JOURNEY, STRICT, physical, or remote-Git gate was run for GATE-01",
         "`VAL-01` remains pending and requires separate attended-physical authorization",
+        "VAL-01 attended run stopped in section 1 — PHYSICAL-FINAL failed",
+        "`TASK-34B309FC`, attempt `TASK-34B309FC-cf2854ea5b7f`",
+        "The run stopped under the runbook's unexpected-motion rule",
+        "The delta equals accepted center minus cached presentation MPos `(49.997, 0)`",
+        "Incident export | failed",
+        "`PHYSICAL-FINAL` is failed and `VAL-01` remains pending",
+        "`FIX-06` is the sole next ordinary correction package",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3317,14 +3326,32 @@ def validate_wave_frontier(
             fail("GATE-01 frontier must not retain an ordinary-wave blocker")
         return
 
+    if selected == "FIX-06":
+        if rows["GATE-01"]["status"] != "complete":
+            fail("FIX-06 cannot be selected before GATE-01 completes")
+        for phrase in (
+            "VAL-01 attended run stopped in section 1 — PHYSICAL-FINAL failed",
+            "`TASK-34B309FC`, attempt `TASK-34B309FC-cf2854ea5b7f`",
+            "two accepted relative commands moved away from center",
+            "no complete incident-package source provider was configured",
+            "`FIX-06` is the sole next ordinary correction package",
+            "VAL-01 remains incomplete; migration remains incomplete",
+        ):
+            if phrase not in normalized:
+                fail(f"FIX-06 frontier lacks failed attended evidence: {phrase}")
+        if blockers:
+            fail("FIX-06 frontier must not retain an ordinary-wave blocker")
+        return
+
     if selected is not None:
         fail(f"unexpected current ordinary wave frontier: {selected}")
 
     if (
         rows["GATE-01"]["status"] == "complete"
+        and rows["FIX-06"]["status"] == "complete"
         and rows["VAL-01"]["status"] == "pending"
         and rows["VAL-01"]["class"] == "attended-physical"
-        and rows["VAL-01"]["dependencies"] == ["GATE-01"]
+        and rows["VAL-01"]["dependencies"] == ["FIX-06"]
     ):
         for phrase in (
             "GATE-01 Pilot continuation decision",

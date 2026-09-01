@@ -8,6 +8,76 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## VAL-01 attended run stopped in section 1 — PHYSICAL-FINAL failed
+
+The operator-authorized attended run used canonical commit
+`36bc02623ba6aae445ac920ac1846365ce8e8fad` and the signed bundle at
+`.build/AdaptivePlotter.app`. The executable SHA-256 was
+`de0e736fe89ac23d0c87db52316af920d9f4605f9fa7818a07c5e3b8dabf0a1f`,
+identifier `com.bullard.AdaptivePlotter`, local signing authority
+`AdaptivePlotter Local Development`, and build timestamp
+`2026-08-31 21:55:35 -0700`. The host was macOS 15.7.9 build 24G830 with Apple
+Swift 6.1.2. The operator remained with the mechanism; this record does not
+claim an independently captured operator identity, paper description, pen
+description, or cutoff-reachability artifact.
+
+The run stopped under the runbook's unexpected-motion rule. It was not resumed
+after the failure for evidence purposes. This documentation correction is
+Blackdog task `TASK-34B309FC`, attempt `TASK-34B309FC-cf2854ea5b7f`; it performs
+no controller, camera, pen, or motion effect and changes no product Source or
+Swift Test.
+
+| Runbook section | Result | Exact attended evidence and limitation |
+| --- | --- | --- |
+| Preconditions | partial | One intended bundle process, signed executable, live camera, intended serial controller, and Motion-enabled UI were visible. Complete pen, paper, cutoff, and operator identity fields were not captured, so preconditions are not passed evidence. |
+| 1. Establish machine-space authority | failed | Initial Exercise 1.1 exact-frame Pen Cap selection repeatedly returned a frame-currentness refusal and became usable only after operator reset/state changes. Four Boundary sides were then operator-stopped and accepted at X- `-77.074`, X+ `99.994`, Y- `-91.415`, and Y+ `58.570` mm, yielding center `(11.460, -16.4225)`. Move to Center issued unsafe motion away from that center; its retry issued another unsafe move. |
+| 2. Exercise 1.3 | skipped | Section 1 ambiguity terminated the run. |
+| 3. Exercise 1.4 | skipped | Section 1 ambiguity terminated the run; no calibration-circle or observed-ink claim exists. |
+| 4. Checkpoint recovery | skipped | Startup did display an unattributed prior execution path, but no complete unchanged/replaced-paper recovery branch was executed. |
+| 5. Exercise 2.1 | skipped | No Drawing Border motion or ink was attempted. |
+| 6. Drawing Studio | skipped | No physical Drawing Studio plan was executed. |
+
+Controller session database
+`MachineSessions/session-3f08d964-9f1f-4ca7-b36c-574fc58a9cd3.sqlite`
+contains run `d253d76e-4f39-4186-9145-1fe2468bce17`. Its first center request was
+delta `(-38.537, -16.4225)` and settled near `(-115.623, 42.159)`; the retry
+sent the identical delta and settled at `(-154.147, 25.726)`. The app then
+reported a `170.886 mm` center residual against a `0.500 mm` tolerance. The
+delta equals accepted center minus cached presentation MPos `(49.997, 0)`, not
+accepted center minus the latest Y+ controller terminal. These controller facts
+prove repeated stale-relative-command admission; they do not substitute for the
+operator's unexpected-motion observation.
+
+| Evidence class | Result |
+| --- | --- |
+| Controller acceptance and final Idle/MPos | failed — two accepted relative commands moved away from center; the session transcript contains both exact requests and terminals. |
+| Camera/exact frame | failed — the initial cap selection exposed stale exact-frame behavior; later LIVE frames were visible, but the original refusal was not durably exported with complete request/UI revision provenance. |
+| Stop | partial — each Boundary side used its exact operator Stop and retained final MPos; center travel completed before intervention and therefore supplied no successful center Stop case. |
+| Operator observation | failed — the operator directly reported unexpected motion outside the accepted Boundary and terminated the run. |
+| Observed ink | unavailable — no claim is made; later ink-producing sections were skipped. |
+| Incident export | failed — the visible request was refused because no complete incident-package source provider was configured, so no bounded incident package was exported. |
+
+Persistence inspection also found two restored Drawing Evidence records for
+paper instance `7504B1A4-41F9-4277-8B6F-5046EE31CBD5` being considered beside a
+saved candidate for paper instance `0A299E7F-9E10-4855-AA8D-D280576175FD` solely
+because both used contact plane `A4E7EBD9-1AA0-4D5E-928F-DE71D5F44E11`.
+Source inspection found pending exact-frame UI submissions similarly retained
+across request/frame changes. Those are software diagnoses prompted by the
+attended observations, not passed physical evidence.
+
+`PHYSICAL-FINAL` is failed and `VAL-01` remains pending. `FIX-06` is the sole
+next ordinary correction package and makes VAL-01 dependency-ineligible until
+the stale-currentness invariant is repaired, software gates pass, and a new
+signed build exists. Sections 1 through 6 must then be executed from the start;
+this failed prefix cannot be resumed, combined with simulator evidence, or
+upgraded to a passed attended run. VAL-01 remains incomplete; migration remains
+incomplete.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts passed; Pilot 13/13, Pilot metrics 9/9, and wave-capsule 35/35 | failed attended evidence, FIX-06 ledger/dependency insertion, and exact frontier fixtures |
+| `DIFF` | passed — `git diff --check`; no output | documentation/repository correction only; no product Source or Swift Test changed |
+
 ## GATE-01 Pilot continuation passed
 
 The prior post-EA-11C repository inspection did not pass `GATE-01`. The one invoked
