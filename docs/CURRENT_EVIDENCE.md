@@ -8,6 +8,41 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## FIX-08 operator-throughput correction requested
+
+On 2026-09-01 the operator explicitly requested removal of the green
+**Apply Learning Point** confirmation from the middle of the camera surface,
+the exact cadence choices `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5` frames per
+second, and `500` mm/min app-owned XY travel and drawing requests. The operator
+also explicitly directed that this change add no new guard or interlock.
+
+Current-source inspection found one existing owner for each behavior. The
+Action Surface already derives an exact-frame point submission from the camera
+tap but stages it behind the green **Apply Learning Point** confirmation.
+`VisionAnalysisCadence` and the existing Video Settings picker expose only `2`,
+`5`, and `10` FPS. Manual, Boundary, supervised travel, and Drawing Run baseline
+positioning already request `500` mm/min, while Drawing Studio drawing, Drawing
+Border drawing, and sparse four-circle calibration still use `100` mm/min. The
+known controller top feed is `500` mm/min.
+
+Pending software package `FIX-08` removes only the redundant point confirmation,
+routes the tap through the same projection-bound sink, replaces the cadence
+choices, and normalizes every app-owned XY request to `500` mm/min. It preserves
+the existing point-selection, observation, drawing-run, controller, and Stop
+owners. No new guard, interlock, retry, redraw, or UI ingress is authorized; no
+firmware setting changes, controller action, camera action, motion, Pen command,
+or physical speed/click result occurs or is claimed by this repository task.
+
+This contract correction is Blackdog task `TASK-275293EA`, attempt
+`TASK-275293EA-2397cbccc458`. `FIX-08` is the sole next ordinary software
+package. `VAL-01` is dependency-ineligible until FIX-08 is complete and a new
+signed build exists; migration remains incomplete.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts plus 13/13, 9/9, and 35/35 checker/capsule tests | final contract, ledger hash, and capsule frontier synchronization |
+| `DIFF` | passed — `git diff --check`; no output | repository-only correction |
+
 ## VAL-01 Exercise 1.4 click-frame handoff stopped — FIX-07 required
 
 On 2026-09-01 the operator ran the corrected signed application from canonical
@@ -103,9 +138,9 @@ or observed-ink outcome. `VAL-01` remains pending.
 
 `FIX-07` is complete as software/repository evidence. No attended camera click,
 controller, motion, Stop, paper, or observed-ink validation was performed by
-this task. No ordinary software or gate package is eligible before `VAL-01`.
-That row is an attended-physical authorization boundary, not a launchable wave;
-`VAL-01` remains pending and requires separate attended-physical authorization.
+this task. At that landing no ordinary software or gate package was eligible
+before `VAL-01`; the later operator-authorized FIX-08 request supersedes that
+frontier without changing the historical FIX-07 evidence.
 
 ## VAL-01 attended run stopped in section 1 — PHYSICAL-FINAL failed
 
@@ -281,8 +316,8 @@ workspace tasks, and public-sink drift; it does not trust this table's counts.
 | WORKSPACE-REDUCTION | passed | `METRICS/WORKSPACE-REDUCTION` |
 | SAFETY-EVIDENCE | passed | `FIX-02/LINK-SAFETY`, `EA-07/SIM`, `EA-09/UI` |
 
-The ordinary software/gate backlog now stops at `VAL-01`, the explicit
-attended-physical authorization boundary. `VAL-01` was not selected, started, or
+At the GATE-01 decision, the ordinary software/gate backlog stopped at `VAL-01`,
+the explicit attended-physical authorization boundary. `VAL-01` was not selected, started, or
 claimed. The older `TASK-D2DFC053` correction and historical `TASK-2F141403`
 FIX-04 diagnostic remain terminal history; neither owns current work. No
 physical, hardware, motion, observed-ink, or remote-Git action occurred.
@@ -2865,8 +2900,8 @@ execution-plan ledger. Gate names match each package's required gates exactly,
 and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
 stale task-local candidates. FIX-03, DOC-03, the later tranches, EA-11C,
-FIX-05, GATE-01, FIX-06, and FIX-07 have final completion evidence; `VAL-01` remains
-pending at the attended-physical authorization boundary.
+FIX-05, GATE-01, FIX-06, and FIX-07 have final completion evidence. `FIX-08`
+is pending before `VAL-01`.
 Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
@@ -2930,11 +2965,10 @@ FIX-05 completed through `TASK-2BF894FC`, attempt
 `TASK-2BF894FC-06f14a3e1a5b`, GATE-01 completed through `TASK-5E431BE7`,
 attempt `TASK-5E431BE7-59658505ced4`, FIX-06 completed through
 `TASK-4194B778`, attempt `TASK-4194B778-238b4ef7adb1`, and FIX-07 completed
-through `TASK-EA60F469`, attempt `TASK-EA60F469-a83fe1fa0c15`. No ordinary
-software or gate package is eligible before `VAL-01`. The current frontier is
-an attended-physical authorization boundary, not a launchable wave. Current
-Evidence adds no separate blocker. No later successor dispatch is authorized
-here.
+through `TASK-EA60F469`, attempt `TASK-EA60F469-a83fe1fa0c15`. The later
+operator-authorized throughput request makes pending software package `FIX-08`
+the sole ordinary frontier before `VAL-01`. Current Evidence adds no separate
+blocker. No later successor dispatch is authorized here.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

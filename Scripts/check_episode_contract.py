@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "71187530594ee1d2e5e250f864bcab99041b098264abc7f10d232056929fbea1"
+EXPECTED_LEDGER_SHA256 = "4f19340b756f37e8088434122acb7b8da4718dae489c250bf435bc9be57eb09b"
 
 
 EXPECTED_GATES = {
@@ -46,6 +46,10 @@ EXPECTED_GATES = {
     "JOURNEY": ("`make journey-test`", "repository"),
     "STRICT": ("`make strict-check`", "repository"),
     "BUILD": ("`swift build`", "authority slice"),
+    "THROUGHPUT": (
+        "`swift test --filter PlotterOperatorThroughputPolicyTests`",
+        "FIX-08",
+    ),
     "INVENTORY": (
         "`sh Scripts/check_episode_inventory.sh` proves every semantic intent, guard, owner, direct device/evidence port, environment branch, task/cancel owner, persistence path, UI consumer, and high-level fixture has one stable inventory ID, one current owner, one disposition, and one cutover package; once EA-11C target source appears it also proves the exact positive target-topology manifest, direct `PlotterApp -> EpisodeRuntime` dependency, one public sink conformer, one package-registry-backed residual adapter, nominal ports, and discoverable composition suite",
         "EA-01",
@@ -164,7 +168,8 @@ EXPECTED_PACKAGE_SHAPES = {
     "GATE-01": (["FIX-05"], "gate", ["DOC", "DIFF", "PILOT"]),
     "FIX-06": (["GATE-01"], "software", ["BUILD", "BOUNDARY", "POINT", "UI", "ARTIFACT-RESET", "DRAW-RUN", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
     "FIX-07": (["FIX-06"], "software", ["BUILD", "TIP-CAL", "POINT", "UI", "ARTIFACT-RESET", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
-    "VAL-01": (["FIX-07"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
+    "FIX-08": (["FIX-07"], "software", ["BUILD", "THROUGHPUT", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
+    "VAL-01": (["FIX-08"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
     "GATE-02": (["VAL-01"], "gate", ["DOC", "DIFF", "FINAL-GATE"]),
 }
 
@@ -189,6 +194,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
     "FIX-05": "Correction",
     "FIX-06": "Correction",
     "FIX-07": "Correction",
+    "FIX-08": "Correction",
     "EA-10A": "Cutover",
     "EA-10B": "Cutover",
     "TRANCHE-LEARNING": "Tranche",
@@ -2723,7 +2729,7 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "deletes the application-root stored `drawingRunFactSource`, `drawingRunInterpreterPort`, and `drawingRunCameraPort`",
         "`PlotterDrawingRunRuntime` now privately retains its one nominal facts, interpreter, camera, and Vision capabilities",
         "independent-admission-sites=18->2, workspace-task-owners=9->0, environment-mode-branches=2->0, direct-effect-calls=40->0, operator-workspace-policy-state=6->1, operator-workspace-adapters=7->7",
-        "The ordinary software/gate backlog now stops at `VAL-01`, the explicit attended-physical authorization boundary",
+        "At the GATE-01 decision, the ordinary software/gate backlog stopped at `VAL-01`, the explicit attended-physical authorization boundary",
         "does not claim `PILOT`, a GATE-01 pass, attended physical evidence, or remote-Git action",
         "GATE-01 Pilot continuation decision",
         "`TASK-5E431BE7`, attempt `TASK-5E431BE7-59658505ced4`",
@@ -2743,6 +2749,12 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "`FIX-07` was the sole next ordinary correction package after this stopped attempt",
         "FIX-07 explicit exact click-frame replacement",
         "`TASK-EA60F469`, attempt `TASK-EA60F469-a83fe1fa0c15`",
+        "FIX-08 operator-throughput correction requested",
+        "`TASK-275293EA`, attempt `TASK-275293EA-2397cbccc458`",
+        "green **Apply Learning Point** confirmation",
+        "exact cadence choices `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5` frames per second",
+        "Drawing Studio drawing, Drawing Border drawing, and sparse four-circle calibration still use `100` mm/min",
+        "`FIX-08` is the sole next ordinary software package",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3371,6 +3383,26 @@ def validate_wave_frontier(
             fail("FIX-07 frontier must not retain an ordinary-wave blocker")
         return
 
+    if selected == "FIX-08":
+        if rows["FIX-07"]["status"] != "complete":
+            fail("FIX-08 cannot be selected before FIX-07 completes")
+        for phrase in (
+            "FIX-08 operator-throughput correction requested",
+            "`TASK-275293EA`, attempt `TASK-275293EA-2397cbccc458`",
+            "green **Apply Learning Point** confirmation",
+            "exact cadence choices `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5` frames per second",
+            "Drawing Studio drawing, Drawing Border drawing, and sparse four-circle calibration still use `100` mm/min",
+            "known controller top feed is `500` mm/min",
+            "No new guard, interlock, retry, redraw, or UI ingress is authorized",
+            "`FIX-08` is the sole next ordinary software package",
+            "`VAL-01` is dependency-ineligible until FIX-08 is complete",
+        ):
+            if phrase not in normalized:
+                fail(f"FIX-08 frontier lacks operator-throughput evidence: {phrase}")
+        if blockers:
+            fail("FIX-08 frontier must not retain an ordinary-wave blocker")
+        return
+
     if selected is not None:
         fail(f"unexpected current ordinary wave frontier: {selected}")
 
@@ -3378,9 +3410,10 @@ def validate_wave_frontier(
         rows["GATE-01"]["status"] == "complete"
         and rows["FIX-06"]["status"] == "complete"
         and rows["FIX-07"]["status"] == "complete"
+        and rows["FIX-08"]["status"] == "complete"
         and rows["VAL-01"]["status"] == "pending"
         and rows["VAL-01"]["class"] == "attended-physical"
-        and rows["VAL-01"]["dependencies"] == ["FIX-07"]
+        and rows["VAL-01"]["dependencies"] == ["FIX-08"]
     ):
         for phrase in (
             "GATE-01 Pilot continuation decision",
