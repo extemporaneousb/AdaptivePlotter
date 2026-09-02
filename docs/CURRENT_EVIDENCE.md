@@ -8,6 +8,70 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DOC-05 model/UI consolidation audit and plan correction complete
+
+Blackdog task `TASK-5168D237`, attempt `TASK-5168D237-5c8c54d403c2`, records
+the repository-only correction after two independent read-only audits disproved
+the post-FIX-09 FIX-10 launch boundary. The source audits found:
+
+- `PlotterBorderValidationRuntime.state` and
+  `PlotterApplicationEnvironmentState.borderValidation` are simultaneous mutable
+  Border Validation snapshots. Root forwarding setters, `replaceSnapshot`,
+  reset, effect, comparison, and projection paths copy or mutate both, so the
+  current architecture cannot truthfully call the runtime the sole mutable
+  owner;
+- the one production `PlotterUIIntentSink` conformer and its stale-projection
+  refusal are real, but typed Learning meaning is erased into
+  `PlotterApplicationBoundAction`, `currentApplicationActions`,
+  `currentPlotterUIResetPlans`, and opaque `applicationAction`,
+  `retainedLearningAction`, and `retainedLearningReset` cases, then recovered by
+  ID at dispatch. Residual Learning operation identity also uses a fresh UUID
+  and reflected action text rather than one model-owned ordered Learning event
+  record;
+- current rendered-action gaps include **Discard Camera Samples** without a
+  sample-owning request, tip commit retry during busy commit/revalidation,
+  default-enabled Learning candidates whose resolved request may be nil, and
+  **Apply Drawing Placement** presentation that may silently return when its
+  exact projection request is absent. Completed-comparison, Drawing Studio, and
+  all other effect-bearing controls require the same exact-request audit;
+- exact zero-consumer candidates include `ContextualStopActionPresentation`,
+  `StableWorkflowCapCaptureRunner`,
+  `PlotterSystemSerialDeviceDiscoveryAdapter`,
+  `ActionSurfaceOverlayStyleToken`/`styleToken(for:)`, the zero-caller
+  `PlotterBorderValidationIntent.retryFrom`, and the dead action IDs
+  `controllerProbe`, `observationStop`, and `observationRestart`.
+
+The canonical plan now inserts pending software
+`TRANCHE-MODEL-UI-CONSOLIDATION` with ordered authority slices `EA-12A`,
+`EA-12B`, and `EA-12C`. It first makes the Border runtime the sole mutable
+owner, then carries typed model-owned Learning request/availability end-to-end,
+then establishes one truthful Learning episode identity and ordered event/state-
+change record without merging the distinct feature journals or feature runtime
+owners. `FIX-10` remains narrowly incident-source/export work and now depends
+on that tranche. Therefore the sole first eligible ordinary package after
+DOC-05 is `TRANCHE-MODEL-UI-CONSOLIDATION`; FIX-10 is not eligible.
+
+This package changes canonical planning, reference, evidence, and fail-closed
+checker/fixture contracts only. It claims no product-source deletion or runtime
+behavior change, no completed consolidation, no incident source/export, and no
+attended controller, camera, motion, Pen, paper, click, ink, or operator-speed
+evidence. Package DOC-05 complete; migration remains incomplete.
+
+Reviewed no change: [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md)
+already refuses `PHYSICAL-FINAL` until the incident correction has landed;
+[Episode Architecture Vocabulary](EPISODE_ARCHITECTURE_VOCABULARY.md) already
+owns the correct target terms and treats its deleted-owner wording as migration
+history; [Learning Path Operating Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md)
+already describes rejection as discarding no samples and exposes commit retry
+only after an atomic acceptance failure; [Document Routing](INDEX.md) already
+assigns one noncompeting authority to each changed document; `blackdog.toml`
+already routes this work through `docs/INDEX.md` and needs no new route.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts plus 13/13, 9/9, and 39/39 checker/capsule tests; canonical authorities agree on DOC-05, the ordered consolidation tranche, current `PlotterApplicationRuntime`/deleted-owner topology, and dependent FIX-10 frontier | repository documentation and deterministic contract checks only |
+| `DIFF` | passed — `git diff --check`; no output | documentation and checker candidate only |
+
 ## FIX-09 initial Learning responsiveness and truthful controls complete
 
 Blackdog task `TASK-9C229F54`, attempt `TASK-9C229F54-1984133960c1`,
@@ -76,11 +140,13 @@ Its five-sample direct-construction medians were 6,240 ns for an unsealed
 passive frame versus 16,643,532 ns with eager SHA-256. This is before/after
 local software evidence that passive construction removes the hash from that
 path; it is not attended app CPU or transition evidence.
-`FIX-10` is the sole next ordinary software package;
-it must add one real canonical incident source and bounded export coordinator,
-not merge unrelated journals or make the UI service a recorder. `VAL-01` is
-dependency-ineligible until FIX-10 is complete, so attended validation cannot
-truthfully pass while Incident Package remains unavailable.
+The later DOC-05 audit supersedes this section's then-current FIX-10 frontier.
+FIX-10 still must add one real canonical incident source and bounded export
+coordinator rather than merge unrelated journals or make the UI service a
+recorder, but it is dependency-ineligible until
+`TRANCHE-MODEL-UI-CONSOLIDATION` completes. `VAL-01` remains dependency-
+ineligible until FIX-10 is complete, so attended validation cannot truthfully
+pass while Incident Package remains unavailable.
 
 ## FIX-08 operator-throughput correction complete
 
@@ -3015,8 +3081,10 @@ and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
 stale task-local candidates. FIX-03, DOC-03, the later tranches, EA-11C,
 FIX-05, GATE-01, FIX-06, FIX-07, FIX-08, and FIX-09 have final completion
-evidence. FIX-10 is the next ordinary software package; `VAL-01` remains
-dependency-ineligible until its incident-source/export dependency is complete.
+evidence. DOC-05 has final repository-only completion evidence. The pending
+model/UI consolidation tranche is the next ordinary software package; FIX-10
+depends on it, and `VAL-01` remains dependency-ineligible until its later
+incident-source/export dependency is complete.
 Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
@@ -3063,6 +3131,7 @@ Detailed scope and limitations remain in the named evidence sections.
 | FIX-07 | `TASK-EA60F469` | `BUILD=passed`, `TIP-CAL=passed`, `POINT=passed`, `UI=passed`, `ARTIFACT-RESET=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-07 explicit exact click-frame replacement |
 | FIX-08 | `TASK-EB3E64FA` | `BUILD=passed`, `THROUGHPUT=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-08 operator-throughput correction complete |
 | FIX-09 | `TASK-9C229F54` | `BUILD=passed`, `RESPONSIVENESS=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-09 initial Learning responsiveness and truthful controls complete |
+| DOC-05 | `TASK-5168D237` | `DOC=passed`, `DIFF=passed` | DOC-05 model/UI consolidation audit and plan correction complete |
 
 ## Wave admission blockers
 
@@ -3073,23 +3142,21 @@ or canonical correction. The selector stops at that first eligible row; it
 never skips ahead to later work. An empty table means Current Evidence adds no
 admission blocker beyond the canonical ledger and live Blackdog claims.
 
-The dependency-ready ordinary frontier is pending software package `FIX-10`.
-The immediately preceding `FIX-09 initial Learning responsiveness and truthful
-controls complete` result belongs to `TASK-9C229F54`, attempt
-`TASK-9C229F54-1984133960c1`. Its current proof includes: Confirm publishes
-`.confirming` before any predecessor wait; held speech playback does not delay
-the Pen command or next prompt; each camera action publishes a busy runtime/UI
-revision before its first lower suspension; one semantic Connect/Disconnect
-action controls title, role, and dispatch; the best-effort 10 FPS
-device-delivery cap reports applied or unapplied truth while passive preview
-performs zero hashing, analysis/exact boundaries share one instrumented
-memoized digest, and passive root presentation publishes no exact-frame facts;
-and the Incident Package action is disabled
-when its complete source does not exist. `FIX-09` is complete as
-software/repository evidence. `FIX-10` is the sole next ordinary software
-package. `VAL-01` is dependency-ineligible until FIX-10 is complete. Current
-Evidence adds no separate blocker, and only FIX-10—not a later successor—is
-authorized by this frontier.
+The dependency-ready ordinary frontier is pending software package
+`TRANCHE-MODEL-UI-CONSOLIDATION`. The immediately preceding repository
+correction is `DOC-05 model/UI consolidation audit and plan correction
+complete`, recorded by `TASK-5168D237`, attempt
+`TASK-5168D237-5c8c54d403c2`. Its two source/doc audits disproved immediate
+FIX-10 selection because duplicate Border state, opaque App Learning registries,
+unjournaled Learning identity, and enabled controls without exact current
+requests prevent one truthful canonical incident source. The tranche executes
+`EA-12A`, `EA-12B`, and `EA-12C` in that exact order in one task/worktree/
+landing, requires net deletion and a fresh bounded critic, and authorizes no
+attended or remote-Git work. `FIX-10` is dependency-ineligible until the tranche
+is complete; `VAL-01` is dependency-ineligible until FIX-10 is complete.
+Current Evidence adds no separate blocker, and only
+`TRANCHE-MODEL-UI-CONSOLIDATION`—not FIX-10 or a later successor—is authorized
+by this frontier.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

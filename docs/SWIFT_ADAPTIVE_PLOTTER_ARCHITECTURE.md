@@ -26,7 +26,7 @@ EpisodeRuntime -> EpisodeCore
   PlotterOperationRegistry bound by the point-selection and manual-motion production compositions
   typed lanes, move-only effect permits, original handles, exact Stop
   operation-bound completion, typed result/refusal, shared cancellation, terminal record
-  internal target with no package product; EA-11C requires a direct PlotterApp target dependency
+  internal target with no package product; PlotterApp directly depends on it
 
 PlotterModel
   coordinate-space types, geometry, deterministic drawing-program catalog
@@ -263,8 +263,8 @@ device adapter, application composition, or app caller.
 EA-04 binds one registry lane to the pen-cap continuation only. Every other
 runtime, controller, camera, Vision, persistence, simulator, Stop, and
 cancellation owner remains unchanged; accepted point-selection evidence and
-continuation cancellation now belong to the episode runtime rather than a
-parallel `OperatorWorkspace` task/closure path.
+continuation cancellation now belong to the episode runtime rather than the
+historical/deleted `OperatorWorkspace` task/closure path.
 
 `PlotterEpisodeRuntime` depends inward only on `EpisodeCore`, `EpisodeRuntime`,
 `PlotterEpisodeModel`, and `PlotterRuntime`, and is not exposed as a package
@@ -317,15 +317,15 @@ calibration, exploration, motion, or exercise-attempt work receives the typed
 refusal from `PlotterLearningIntentRules.modeAvailability`.
 `PlotterPointSelectionRuntime.setLearningEnabled` accepts a typed `PlotterLearningActivityFactProviding` and obtains a fresh fact inside the FIFO boundary for initial evaluation.
 It reacquires a fresh fact after exact continuation cancellation before reevaluation.
-`OperatorWorkspace` passes the provider through the Task hop rather than capturing a fact before it.
+`PlotterApplicationRuntime` passes the provider through the Task hop rather than capturing a fact before it.
 `PlotterPointSelectionActivityOwner(selectionID: PlotterPointSelectionID, exerciseAttemptID: UUID)` binds the exact selection and attempt identity across those initial and post-suspension evaluations.
-The same item and selection with a successor attempt token typed-refuses, and `OperatorWorkspace` rechecks the exact attempt identity before post-runtime attempt cancellation.
+The same item and selection with a successor attempt token typed-refuses, and `PlotterApplicationRuntime` rechecks the exact attempt identity before post-runtime attempt cancellation.
 For a latched continuation, the FIFO remains held while `setLearningEnabled` latches that owner, awaits `registry.stop`, and privately clears the runtime continuation handle without publishing episode-state mutation.
 It reacquires the fresh typed fact and reevaluates the bound exact owner against the still-private `.continuing` plus `continuationIsActive` state.
 An admitted Off event clears selection; a successor or unrelated refusal publishes continuation inactive and then its final typed refusal behind the same boundary, preserving transaction-complete public state and nonrevival.
 For that continuation path, `setLearningEnabled` returns only after registry settlement and final publication; no replacement settlement helper, poll, sleep, or state exists.
 Tests use the immutable returned/current projection and observable continuation-port state.
-The model exception independently requires `.collecting` or `.continuing` with `continuationIsActive`, and `OperatorWorkspace` emits the owner only in those phases.
+The model exception independently requires `.collecting` or `.continuing` with `continuationIsActive`, and `PlotterApplicationRuntime` emits the owner only in those phases.
 Retained `.accepted` Pen first-question/discovery and sparse batch/calibration attempts typed-refuse even with a matching supplied owner. Undo, clear, cancel, sparse four-point acceptance, and
 runtime shutdown also stay inside this one owner. Recording failure remains a
 visible nonblocking diagnostic and never promotes evidence or relaxes exact
@@ -602,7 +602,7 @@ rechecks realtime status immediately before any `$X` write. A physical limit or
 unknown current input state refuses without unlock transmission. `$X`
 acknowledgement is recorded separately from motion outcomes, and Motion
 authorization remains inactive. `RunInterpreter` serializes alarm clearing with
-every other logical operation. `OperatorWorkspace` projects limit-input evidence
+every other logical operation. `PlotterApplicationRuntime` projects limit-input evidence
 and alarm-unlock readiness separately, then follows an acknowledged clear with a
 fresh full passive probe before projecting a responsive session; Connect never
 clears an alarm implicitly.
@@ -649,7 +649,7 @@ Motion status through `PlotterControllerSessionRules`. Its nominal lower port
 is `PlotterMachineSession`, composed in production as
 `PersistentMachineSession`; that lower session retains
 `MachineController`/`RunInterpreter`, transport, serial-device, alarm-clear,
-and effect authority. `OperatorWorkspace` supplies copied external facts and
+and effect authority. `PlotterApplicationRuntime` supplies copied external facts and
 projects the runtime result, but it is not a parallel controller-session
 admission or task owner. SwiftUI reads
 `controllerSessionProjection` and submits a typed request only through
@@ -697,7 +697,7 @@ measurements; it never supplies motion or click authority.
 exclusive Vision leases. Reapplying identical cadence/features, analysis region,
 or cap color is a no-op; it does not restart the pipeline or its frame
 subscription. Semantic
-pipeline revisions are pushed to `OperatorWorkspace`. Video Settings counters
+pipeline revisions are pushed to `PlotterApplicationRuntime`. Video Settings counters
 and lifecycle statistics are pull-only diagnostics and do not invalidate the
 Learning presentation. One caller-supplied exact workflow batch owns one lease
 from preview hold through automatic-analysis restoration, including failure or
@@ -716,7 +716,7 @@ lower port is `PlotterObservationCameraSessionPort`, composed as
 newest-only analysis state and progress. The runtime owns distinct
 `frameSubscription` frame-event/recording observation and `analysisSubscription`
 semantic-analysis-update observation, while `CameraSourceSession` alone owns
-automatic frame ingestion. `OperatorWorkspace` owns the presentation-only
+automatic frame ingestion. `PlotterApplicationRuntime` owns the presentation-only
 `observationProjectionTask` that installs copied immutable snapshots. The one
 residual workspace source-change refusal is a pre-submission conflict
 projection, not a second source/configuration owner. SwiftUI reads
@@ -748,7 +748,7 @@ If the displayed frame still matches the completed scene result, the composer
 retains that geometry and its completed typed status while the next frame is
 analyzing, and swaps only after a new completed exact-frame result is installed.
 
-`OperatorWorkspace` maps the selected scene features to one newest-only
+`PlotterApplicationRuntime` maps the selected scene features to one newest-only
 automatic-analysis request and one selected `VisionAnalysisCadence`. Its exact
 ordered values are `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5` FPS, with stable
 display/action identifiers and nanosecond intervals rounded up so scheduling
@@ -766,7 +766,7 @@ rectangle. `ActionSurfaceViewportContext.fittedRegion` is only a target for an
 explicit Fit or zoom action. Compatible context reconciliation snapshots and
 retains the effective rectangle even when Exercise 1.3 replaces the fitted target.
 `VideoAnalysisRegionLock` is a separate policy copy owned by
-`OperatorWorkspace`; Exercise 1.3 does not rewrite it. Source or camera-
+`PlotterApplicationRuntime`; Exercise 1.3 does not rewrite it. Source or camera-
 configuration incompatibility remains the viewport reset seam.
 
 `PenCapAppearanceSelection` is the only persisted LIVE recognition input. The
@@ -812,7 +812,10 @@ data for the retained sparse-tip calibration fit and preserves the distinct
 original mark and reveal evidence. Neither is a
 second point-selection state machine. The app cancellation helper is async
 and awaits the runtime owner; the old Task-returning helper is absent.
-The deleted `submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` helpers cannot recreate semantic ingress or test-only transition authority; focused tests use generic submissions and bounded observable-state waits.
+The deleted `submitCurrentPenCapPoint` and historical/deleted
+`OperatorWorkspace.awaitPenCapAcceptedClickTransition` helpers cannot recreate
+semantic ingress or test-only transition authority; focused tests use generic
+submissions and bounded observable-state waits.
 The deleted `awaitContinuationSettlement` task-owner/polling helper has no replacement helper, poll, sleep, or state.
 
 For EA-06, `PlotterApplicationRuntime` holds one `PlotterManualMotionRuntime` reference
@@ -941,7 +944,7 @@ authority, and its tests require no sleeps or polling.
 `PlotterManualMotionComposition` supplies the LIVE adapter and creates one
 `PlotterManualMotionRuntimeComposition` containing the manual runtime, lower
 simulator runtime, and shared `PlotterCausalSimulatorEffectAdapter` for
-`.simulated`. `OperatorWorkspace` receives that composition and retained
+`.simulated`. `PlotterApplicationRuntime` receives that composition and retained
 workflows use the exact same adapter authority as the manual runtime. LIVE converts typed manual requests to the existing native
 `RelativeJogRequest`, `DrawingStrokeRequest`, Pen actuation, cancellation, and
 fresh `RunInterpreterSnapshot` boundaries, so `MachineController` and
@@ -993,8 +996,9 @@ effect authority.
 `beginDrawing` effect API. Its one package-scoped `admitCausalOperation` is
 called only by the adapter; runtime execution, fault injection, plant mutation,
 frame rendering, and raw operation settlement remain below the typed
-environment seam. `OperatorWorkspace.executeSimulatedBoundaryMotion` and the
-former App-local simulated adapter are absent. Retained Boundary, Drawing,
+environment seam. The historical/deleted
+`OperatorWorkspace.executeSimulatedBoundaryMotion` method and the former
+App-local simulated adapter are absent. Retained Boundary, Drawing,
 supervised-travel, sparse-tip, and Drawing Border owners invoke the production
 adapter instead of an App-owned closure path until their later semantic
 packages land.
@@ -1044,11 +1048,12 @@ the same failure validator: discard accepts truthful nonnegative partial byte
 progress but no read chunks, open/close require zero progress, writes remain
 bounded by the invocation payload, and reads retain exact chunk/count rules.
 
-The retained
-LIVE/SIMULATED session accessor uses read/modify accessors, and related session
-writes are batched into one semantic publication instead of copying and
-reassigning the complete `LearningSessionState` for each field. It cannot
-replace controller settlement or exact-frame provenance with UI state.
+`PlotterApplicationState.environmentStates` indexes one
+`PlotterApplicationEnvironmentState` value for LIVE and one for SIMULATED.
+`PlotterApplicationRuntime` batches related residual-fact updates into one
+semantic publication instead of replacing a named feature runtime's mutable
+snapshot. These residual values cannot replace controller settlement,
+exact-frame provenance, or feature-runtime authority with UI state.
 Restored-pose revalidation is admission policy for coordinate-dependent
 Learning and Drawing actions only. Operator-authored manual jog and manual Pen
 actions bypass Learning admission and use the Motion toggle plus the
@@ -1095,7 +1100,7 @@ canonical decisions to retained nominal action values. It does not choose
 current owner, status, availability, action/Stop membership, Pen adjustment,
 direction, or reset reachability. `PlotterLearningDetailedPresentationNormalizer`
 receives the canonical actionability projection and renders summaries, labels,
-and existing detailed presentation values cosmetically. `OperatorWorkspace`
+and existing detailed presentation values cosmetically. `PlotterApplicationRuntime`
 uses the canonical action decisions both when constructing the aggregate
 projection and when resolving the exact action before retained-owner dispatch.
 The deleted App-owned status/completion/action-strip/Stop/sparse compilers and
@@ -1111,14 +1116,15 @@ there is no pending Show or `Task.yield()` phase. The same cached action-strip
 projection supplies Exercise-pane protection, so a pane containing the active
 Stop remains visible without performing another Learning projection.
 
-LIVE and SIMULATED each retain one `LearningSessionState` value for later
-Learning/run authority under that shared contract. Within each value,
-compiler-enforced substates prevent invalid
-cross-field combinations: one exercise-attempt lifecycle owns attempt identity,
-item owner, and mode; the episode projection now owns staged point requests,
-selected points, undo, clear, and accepted batches, while retained Learning
-session state references the resulting calibration workflow; one Drawing Trial state owns
-the complete trial payload, history, rollback, and rewind transitions. A
+The LIVE and SIMULATED entries in
+`PlotterApplicationState.environmentStates` retain copied residual Learning
+facts such as the artifact graph, attempt chronology, paper identity, and error
+presentation. Distinct named feature runtimes own their mutable workflow
+snapshots, operation identity, effect/task execution, exact Stop, persistence,
+settlement, and terminal truth. The episode projection owns staged point
+requests, selected points, undo, clear, and accepted batches; retained Drawing
+Trial facts carry the complete trial payload, history, rollback, and rewind
+transitions without becoming another runtime owner. A
 `PlotterDrawingDraftRuntime` now owns Drawing Studio catalog selection,
 placement, immutable plan, preview, and paper assertion outside that aggregate.
 One `PlotterDrawingRunRuntime` owns the separate EA-08B run projection,
@@ -1140,7 +1146,7 @@ episode store with a 64-unique-frame, 512 MiB bound. Startup and per-stage
 recording failures are visible nonblocking diagnostics. That writer does not
 change camera lifecycle or evidence acceptance, and recording diagnostics
 cannot substitute for a committed episode observation or accepted evidence.
-For accepted LIVE manual jog/drawing effects, `OperatorWorkspace` records
+For accepted LIVE manual jog/drawing effects, `PlotterApplicationRuntime` records
 legacy-compatible accepted and terminal diagnostic telemetry under the typed
 `EpisodeEffectID`. Its settlement observer reads the runtime projection and
 does not admit, cancel, settle, or reinterpret the effect; typed runtime results
@@ -1190,7 +1196,7 @@ authority.
 
 ## Exercise 1.1 and manual controls
 
-`OperatorWorkspace` starts Exercise 1.1 with **Identify Pen Cap** by staging a
+`PlotterApplicationRuntime` starts Exercise 1.1 with **Identify Pen Cap** by staging a
 typed `PlotterPointSelectionRequest` in `PlotterPointSelectionRuntime`.
 `ActionSurface` compiles its inverse-transformed click into the aggregate
 projection and automatically submits the matching `PlotterUIRequest` through
@@ -1211,7 +1217,7 @@ current admission facts, and one typed `PlotterPenInteractionIntent`. The
 runtime refuses stale revisions, foreign operations/capabilities, changed
 environment, wrong phase, unavailable controller or Motion, lower ownership,
 sticky ambiguity, invalid values, and closed admission with typed reason and
-remedy before lower dispatch. `OperatorWorkspace` retains only copied immutable
+remedy before lower dispatch. `PlotterApplicationRuntime` retains only copied immutable
 runtime snapshots and App composition/adaptation; it owns no Pen draft, profile,
 history, pending command, setpoint task, sequence guard, or completion helper.
 A runtime-owned weak projection sink publishes immutable admitted, draining,
@@ -1383,7 +1389,7 @@ the exact commit; only an applied commit permits local cleanup, while persistenc
 refusal exact-aborts the reservation unchanged. Stale or foreign commit/abort
 capabilities refuse, and shutdown preserves an unresolved reservation for exact
 resolution.
-`OperatorWorkspace` retains copied snapshots and fact/composition adaptation
+`PlotterApplicationRuntime` retains copied snapshots and fact/composition adaptation
 only. `AcceptedMachineArtifactCheckpoint.boundarySideAggregates` remains the
 retained durable checkpoint representation, while camera calibration, sparse-tip
 calibration, Drawing Border, Saved Learning, replay, incident assembly, camera,
@@ -1393,7 +1399,7 @@ outside EA-10B.
 `PlotterUICompiler` derives current Learning progression from copied milestone
 facts and the first unmet dependency. Recovery selection is presentation state
 for the owning review row; it does not redirect progression. The persisted
-`PenCapAppearanceSelection` is loaded by `OperatorWorkspace`; its color is then
+`PenCapAppearanceSelection` is loaded by `PlotterApplicationRuntime`; its color is then
 applied by `CameraSourceSession`. Before it exists, LIVE Pen cap and Armature
 envelope statuses are Unavailable while their operator-owned overlay
 preferences remain unchanged. An accepted replacement clears stale scene
@@ -1409,7 +1415,7 @@ exact selection/attempt owner, awaits registry settlement, privately clears its
 continuation handle, and reevaluates a fresh activity fact against the unchanged
 continuing episode state. Accepted Off clears selection atomically; successor
 or unrelated work publishes inactive continuation plus final refusal behind the
-same boundary. `OperatorWorkspace` captures no pre-Task activity fact and
+same boundary. `PlotterApplicationRuntime` captures no pre-Task activity fact and
 rechecks the exact owner before post-runtime cancellation. Retained accepted Pen
 discovery and sparse calibration states expose no cancellable owner. Camera capture,
 `CameraSourceSession`, Vision configuration, persisted appearance artifacts,
@@ -1456,7 +1462,7 @@ accepted registration also publishes learned fitted presentation bounds, but
 that target change does not change the current exact viewport rectangle, camera
 evidence, or a compatible `VideoAnalysisRegionLock`.
 
-For each LIVE correspondence, `OperatorWorkspace.captureStableWorkflowCap`
+For each LIVE correspondence, `PlotterApplicationRuntime.captureStableWorkflowCap`
 acquires exactly three strictly newer exact `inspectWorkflowScene` results after
 a preliminary frame boundary. `FixedCameraOpticalSettlingPolicy` requires one
 source/configuration, exact measurement/frame identity, an accepted unambiguous
@@ -1484,7 +1490,7 @@ Exercise 1.4 is split across four owners:
   2 mm-radius outlines therefore retain 8 mm of adjacent-edge clearance. Its
   corner-center rectangle is the proposed tip-map
   applicability rectangle, and its final reveal pose is the rectangle center.
-- `OperatorWorkspace` is the runtime's lower effect/projection port for that
+- `PlotterApplicationRuntime` is the runtime's lower effect/projection port for that
   typed batch. It performs the retained lower Pen-Up/Pen-Down/camera operations
   requested by the runtime but owns no batch admission, phase, task, proposal,
   terminal, or accepted-tip checkpoint. The existing camera presentation renders
@@ -1510,7 +1516,7 @@ fallback. `ActionSurface` maps each view click back through the exact inverse
 presentation transform, waits only for the aggregate projection to bind that
 exact submission, and submits its matching request through `PlotterUIIntentSink`
 without an **Apply Learning Point** button; the episode projection supplies
-click count and all markers. Retained `OperatorWorkspace` action adapters invoke the same
+click count and all markers. Retained `PlotterApplicationRuntime` action adapters invoke the same
 runtime/store authority for undo, clear, and cancel; those actions do not
 originate in `ActionSurface` or its direct click-submission policy.
 `PlotterPointSelectionRuntime` owns same-frame undo, clear, atomic empty-request
@@ -1552,7 +1558,7 @@ acceptance and before a newer exact frame is captured. The reveal cites the
 refreshed controller-context baseline returned with that capture.
 
 The no-redraw key is `BlacklistedToolContactLocation`: calibration role, circle
-center/radius, and replaceable paper-instance revision. `OperatorWorkspace` retains
+center/radius, and replaceable paper-instance revision. `PlotterApplicationRuntime` retains
 that set across attempt cancel, restart, and Learning Path reset. The coordinator
 re-enters a terminal possible-ink state on the same sheet. Explicit sheet
 replacement rotates instance identity and clears that sheet-specific recovery;
@@ -1577,7 +1583,7 @@ ephemeral operational provenance; they are not substituted for mount/reframing
 identity.
 
 Loading produces one exhaustive saved-package candidate and mutates no
-`LearningDependencyGraph` or registration owner. `OperatorWorkspace` projects
+`LearningDependencyGraph` or registration owner. `PlotterApplicationRuntime` projects
 compatible saved geometry and uses the package's one bounded reference frame to
 produce an advisory integer-shift/background-MAD report. **Use Saved Learning**
 calls the checkpoint-owned exact graph reconstruction once, stages all fallible
@@ -1607,7 +1613,7 @@ revision controls remain a roadmap item.
 Stage 2 does not reuse a Stage 1 target, baseline, or reveal pose.
 `DrawingBorderPlan` creates one closed polyline through the four accepted
 10 mm-inset circle centers, with four orthogonal edges and right-angle turns.
-`OperatorWorkspace` supplies the accepted Drawing Boundary—not that inset
+`PlotterApplicationRuntime` supplies the accepted Drawing Boundary—not that inset
 Drawing Border—as the plan's `DrawableMachineRegion`. The region admits exact
 Boundary geometry and only its separately versioned 1e-9 mm numerical epsilon;
 it never imports or equals controller-position settlement tolerance.
@@ -1622,7 +1628,7 @@ six UI action owners. It stores:
 - a strictly newer post-frame exact frame;
 - bounded generic black/new-ink observation, residual, and assessment.
 
-Before motion, `OperatorWorkspace` projects the stored closed machine path through
+Before motion, `PlotterApplicationRuntime` projects the stored closed machine path through
 the exact current `TipCameraRegistration`. `ActionSurfacePresentation` binds the
 planned polyline to each currently displayed frame/configuration, so the cyan
 prediction remains visible over live video without freezing preview or treating
@@ -1668,7 +1674,7 @@ monotonic runtime revision, phase, evidence, proposal, accepted registration,
 task, exact failure/recovery, terminal truth, and shutdown. Every admitted
 camera action publishes `.preparing` plus a newer runtime/UI revision before its
 first lower suspension. Its composition port returns one immutable typed fact;
-`OperatorWorkspace` no longer pre-mutates proposal/evidence/failure/phase state
+`PlotterApplicationRuntime` no longer pre-mutates proposal/evidence/failure/phase state
 or infers completion from a void call. Acceptance persists the candidate graph
 checkpoint before the runtime installs its returned accepted fact.
 Learning Reset calls the runtime's current-operation cancellation and settlement
@@ -1684,12 +1690,16 @@ supersession to that same point-selection owner rather than creating another UI
 or app ingress.
 
 `ExerciseActionKind.borderValidation` routes
-`PlotterBorderValidationIntent` to `PlotterBorderValidationRuntime`. That
-runtime owns operation identity, phase, active step/task, terminal history,
-possible-ink disposition, explicit comparison review and accept/reject, and
-shutdown. `PlotterBorderValidationIntent.retryFrom` is represented and handled
-by the runtime but has no production caller; it remains a deferred non-red-line
-follow-up, not an automatic retry.
+`PlotterBorderValidationIntent` to `PlotterBorderValidationRuntime`, but current
+source still has two mutable Border Validation stores. The runtime owns its
+operation identity, phase, active step/task, terminal history, possible-ink
+disposition, explicit comparison review and accept/reject, and shutdown, while
+`PlotterApplicationEnvironmentState.borderValidation` retains a second complete
+snapshot that root getters/setters, `replaceSnapshot`, reset, effect, comparison,
+and projection paths copy in both directions. `PlotterBorderValidationIntent.retryFrom`
+is represented and handled but has no production caller. This duplicate
+authority and zero-caller intent are current gaps assigned to EA-12A; neither is
+an automatic retry contract.
 
 `ExerciseActionKind` Saved Learning/reset actions route to
 `PlotterArtifactResetRuntime`, which owns reset admission, task, terminal and
@@ -1699,11 +1709,21 @@ persists the immutable admitted paper plan before in-memory projection.
 reversible legacy cleanup and preserves legacy bytes if cleanup fails. The
 deleted legacy stores are not compatibility owners.
 
+Rendered actionability is not yet uniformly projection-bound. The camera
+ready-without-proposal path still offers **Discard Camera Samples** although
+no current sample-owning request exists; tip commit/revalidation projects a
+retry control while the runtime admits retry only from a stable review state;
+Drawing Placement can be shown from UI-local pending state and then silently
+return when no exact projection request exists. The default Learning action,
+completed-comparison, and Drawing Studio routes must be audited under the same
+rule. These are current EA-12B gaps, not supported affordances: an enabled
+effect-bearing control must carry an exact current typed request and remedy
+through the one sink.
+
 ## Current device-environment authority slices
 
-The pending `TRANCHE-DEVICE-ENVIRONMENT` candidate has two as-built typed
-authority slices, but has not yet passed its tranche boundary gates or landed.
-EA-11A routes controller-session operator requests through
+The landed `TRANCHE-DEVICE-ENVIRONMENT` has two typed authority slices. EA-11A
+routes controller-session operator requests through
 `PlotterControllerSessionRuntime` and the nominal `PlotterMachineSession` lower
 port. EA-11B routes observation-source/configuration requests through
 `PlotterObservationConfigurationRuntime` and the nominal
@@ -1719,10 +1739,9 @@ work, and close admission before shutdown settlement. App and SwiftUI hold only 
 projections plus typed request sinks; they do not recreate arbitrary closure
 facades or a second semantic effect authority.
 
-## EA-11C root composition candidate
+## Current root composition
 
-The final-composition package remains pending its unrun gates and landing, but
-the current source topology is explicit: `PlotterApplicationRuntime`
+The landed EA-11C root topology is explicit: `PlotterApplicationRuntime`
 is the MainActor root, `PlotterApplicationState` owns the single source-indexed
 map of residual `PlotterApplicationEnvironmentState` values, and the root is
 the only production `PlotterUIIntentSink` conformer. The sink validates exact
@@ -1752,10 +1771,10 @@ immutable projection or successful terminal is published. Deadline expiry,
 waiter cancellation, append failure, or a remaining owner produces an exact
 nonterminal owner/progress/recovery result; it cannot become a false
 `terminated` or `quiescent` state. The discoverable
-`PlotterEpisodeCompositionTests` suite currently contains five focused tests
-and has passed 5/5. That result does not satisfy the unrun `BUILD`,
-`AFFECTED-CONSUMERS`, `DIFF`, or `DELETE` gates and does not make EA-11C or its
-tranche complete.
+`PlotterEpisodeCompositionTests` suite currently contains six focused tests;
+EA-11C landed after its required gates passed, and FIX-09 later added the sixth
+passive-preview/root-presentation regression. That software coverage does not
+prove attended controller, camera, motion, Pen, paper, click, or ink behavior.
 
 ## Drawing Studio ownership
 
@@ -1903,22 +1922,24 @@ The focused workspace authority suite's 24/24 correction evidence includes the
 regression proving manual runtime and retained workflows occupy one shared
 production adapter authority.
 
-`OperatorWorkspace` owns two independent `LearningSessionState` values,
-one LIVE and one SIMULATED, under one structural contract. Session state owns
-the graph, artifact payloads and proposals, attempt histories, accepted-attempt
-sequence, quarantine status, paper identity, possible-ink blacklist, drawing
-trial state, and learning errors. The active frame source selects which value
-all learning projections and mutations address. Camera/controller owners,
-operation tasks, Stop capabilities, and other runtime lifetimes remain outside
-the session values. Pen Interaction draft/profile/history/pending-command and
-operation lifetime are likewise absent from those values and belong to the
-environment-indexed `PlotterPenInteractionRuntime` snapshot. One retained
-`ActiveStoppableOperation` binds the exact owner task for later Learning
-workflows,
-contextual Stop target, latched disposition, and cancellation-request phase;
-those facts are not independently mutable. Drawing execution likewise carries
-typed not-admitted, possible-ink, and naturally-completed state so no-redraw
-recovery is independent of presentation wording.
+The deleted generic `LearningSessionState` and `ActiveStoppableOperation` types
+own no current state. `PlotterApplicationState.environmentStates` currently
+indexes residual LIVE/SIMULATED Learning facts such as the artifact graph,
+attempt chronology, paper identity, and error presentation, while the named
+feature runtimes separately own operation state, task/effect execution, Stop,
+possible-ink/no-redraw, persistence, and terminal truth. The active frame source
+selects one environment value without restoring device ownership. Pen
+Interaction state belongs to its environment-indexed runtime snapshot.
+
+The remaining split is semantic rather than a return of those deleted owners:
+App projection currently constructs opaque retained/application action IDs,
+stores typed meaning in `currentApplicationActions` and
+`currentPlotterUIResetPlans`, and recovers that meaning during sink dispatch.
+Residual Learning operations also mint UUID/string-derived identities without
+one model-owned ordered Learning event record. EA-12B and EA-12C must delete
+those side registries and reflected identity paths while retaining the distinct
+feature runtime owners. Until then the application cannot name one truthful
+canonical Learning episode for FIX-10 incident export.
 
 Workflow failures retain typed kind and recovery separately from actionable
 presentation text. Boundary disposition, attempt disposition, sparse-mark

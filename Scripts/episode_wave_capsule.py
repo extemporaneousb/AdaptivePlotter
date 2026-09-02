@@ -23,6 +23,7 @@ TRANCHE_SLICES = {
     "TRANCHE-LEARNING": ["EA-10G", "EA-10C", "EA-10D", "EA-10E", "EA-10F"],
     "TRANCHE-DEVICE-ENVIRONMENT": ["EA-11A", "EA-11B"],
     "TRANCHE-FINAL-COMPOSITION": ["EA-11C"],
+    "TRANCHE-MODEL-UI-CONSOLIDATION": ["EA-12A", "EA-12B", "EA-12C"],
 }
 DEFAULT_CAPSULE = Path(".VE/run-multi-agent-wave/launch-capsule.json")
 MAX_CAPSULE_BYTES = 262_144
@@ -428,6 +429,33 @@ def slice_contract_bindings(
     plan: str,
     slice_id: str,
 ) -> dict[str, list[dict[str, object]]]:
+    if slice_id in {"EA-12A", "EA-12B", "EA-12C"}:
+        consolidation_header = [
+            "Slice",
+            "Current owner/result contract",
+            "Exact affected-consumer procedure",
+            "Exact deletion and zero-match obligations",
+        ]
+        return {
+            "current_owner_inventory": table_row_pointers(
+                contract,
+                plan_path,
+                plan,
+                consolidation_header,
+                0,
+                slice_id,
+                "authority slice current-owner inventory row",
+            ),
+            "same_slice_deletion_scans": table_row_pointers(
+                contract,
+                plan_path,
+                plan,
+                consolidation_header,
+                0,
+                slice_id,
+                "authority slice same-landing deletion scan row",
+            ),
+        }
     return {
         "current_owner_inventory": table_row_pointers(
             contract,

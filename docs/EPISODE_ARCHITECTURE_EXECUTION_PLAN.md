@@ -78,6 +78,16 @@ root gateway or reevaluate a request after the public sink has accepted its
 exact projection binding. Local pane, window, and viewport-only state remains
 in small UI reducers unless it changes evidence or domain authority.
 
+That one sink is not enough when the projection has already erased meaning.
+Every effect-bearing Learning control must carry its model-owned typed item,
+action, request, identity, and current availability from `PlotterEpisodeModel`
+through immutable `PlotterUI` projection to the owning feature runtime. The App
+may not recompile a display ID into semantic meaning, recover a typed action
+from an opaque ID-to-action dictionary, maintain an application-side semantic
+registry, or add an opaque intent case that only another App map can decode. An
+enabled control must contain its exact current request; submission cannot
+silently return because a request, registry entry, or availability is nil.
+
 `PlotterIntentGateway` is a thin feature-runtime evaluation façade. It owns no feature rules,
 reducer state, evidence acceptance, operation lanes, tasks, device ports, or
 persistence. Its only responsibilities are request identity, current-fact
@@ -281,6 +291,9 @@ observe and report, but may issue no effect or authoritative durable write.
   registry; `GATE-02` verifies the landed topology;
 - results require matching episode/intent/effect/environment revisions;
 - UI availability cannot be resubmitted as authority;
+- opaque ID-to-semantic side registries, semantic recompilation from display
+  identifiers, enabled controls without exact current requests, and silent nil
+  dispatch are forbidden;
 - episode layers add no `Any`, arbitrary effect closures, reflected/string action
   registries, or `@unchecked Sendable` escape hatches;
 - each cutover adds deleted-symbol, forbidden-import, and direct-port-call checks.
@@ -349,6 +362,18 @@ nonterminal feature owner cannot publish `terminated`, `quiescent`, or an
 equivalent success. The exact remaining owner/progress/publication cursor stays
 visible and joinable. `PlotterEpisodeCompositionTests` must exercise these
 contracts through the production root and nominal ports.
+
+The post-FIX-09 DOC-05 audit proved that the landed root topology still does not
+provide one model-owned Learning authority. `PlotterBorderValidationRuntime`
+and `PlotterApplicationEnvironmentState.borderValidation` are simultaneous
+mutable Border Validation stores; App-owned Learning action dictionaries and
+opaque UI intent cases erase and later reconstruct model meaning; retained
+Learning effects generate identity outside one ordered model journal. The
+incident-export boundary therefore cannot truthfully select one canonical
+Learning episode without fabricating or merging unrelated journals. DOC-05
+moves no authority; it inserts `TRANCHE-MODEL-UI-CONSOLIDATION` before FIX-10 so
+those three coupled authority gaps are replaced in order and their redundant
+state and UI paths are deleted before incident-source binding.
 
 ## EA-01 current-source inventory
 
@@ -699,6 +724,34 @@ deliberately absent from deletion scans.
 | `FIX-05` | deleted-symbol | `Sources/PlotterApp/*.swift` | `drawingRunCameraPort` |
 | `FIX-05` | direct-port | `Sources/PlotterApp/*.swift` | `drawingRunCameraPort` |
 
+### EA-12 consolidation inventory and deletion obligations
+
+DOC-05 adds this future-slice inventory beside, not inside, the immutable EA-01
+baseline. Every row is fail-closed: the named slice must prove the owner/result
+contract and the exact zero-consumer or zero-match obligation in the same
+landing. `AFFECTED-CONSUMERS` runs the listed consumer-only procedures before
+`DELETE`; `DELETE` repeats them and fails if a named superseded declaration,
+opaque ingress, semantic side registry, ID recompilation, silent nil dispatch,
+or dead UI symbol remains. A remaining use is acceptable only when the slice
+documents a current nonsemantic UI-local layout, viewport, selection, or
+unsubmitted-text consumer and the literal is not one of the mandatory deletions
+below.
+
+| Slice | Current owner/result contract | Exact affected-consumer procedure | Exact deletion and zero-match obligations |
+| --- | --- | --- | --- |
+| EA-12A | `PlotterBorderValidationRuntime` becomes the sole source-indexed mutable Border Validation owner and publishes immutable projection/result values; App is lower-effect composition only | `rg -n -e "currentEnvironmentState\\.borderValidation" -e "environmentStates\\[.*\\]\\?\\.borderValidation" -e "replaceSnapshot" Sources/PlotterApp Sources/PlotterEpisodeRuntime Tests` returns only the explicitly updated projection/effect adapters and focused tests; every mutation or whole-snapshot copy fails | zero production matches for `PlotterApplicationEnvironmentState.borderValidation` (`var borderValidation: PlotterBorderValidationSnapshot`), `currentEnvironmentState.borderValidation`, `replaceSnapshot`, and `case retryFrom(`; delete `ContextualStopActionPresentation`, `StableWorkflowCapCaptureRunner`, and `PlotterSystemSerialDeviceDiscoveryAdapter` after exact zero-consumer scans |
+| EA-12B | `PlotterEpisodeModel` owns typed Learning item/action/request identity and availability end-to-end through immutable `PlotterUI` projection, the one public `PlotterUIIntentSink`, and the exact feature runtime | `rg -n -e "PlotterApplicationBoundAction" -e "currentApplicationActions" -e "currentPlotterUIResetPlans" -e "applicationAction" -e "retainedLearningAction" -e "retainedLearningReset" -e "String\\(describing: action" -e "String\\(describing: kind" Sources/PlotterApp Sources/PlotterUI Sources/PlotterEpisodeModel Tests` must find no App semantic registry/recompiler and no opaque UI intent; rendered-action tests enumerate every enabled effect-bearing control and exact projected request | delete `PlotterApplicationBoundAction`, `currentApplicationActions`, `currentPlotterUIResetPlans`, `PlotterUIIntent.applicationAction`, `PlotterUIIntent.retainedLearningAction`, `PlotterUIIntent.retainedLearningReset`, `retainedLearningAction(for:)`, dead IDs `controllerProbe`, `observationStop`, and `observationRestart`, plus zero-consumer `ActionSurfaceOverlayStyleToken`/`styleToken(for:)`; zero production matches for `.discardCameraSamples` and **Discard Camera Samples** until a real current sample-owning typed intent exists and for the silent placement branch `guard let request = plotterUIProjection.request(matching: .drawingDraft(intent)) else { return }` |
+| EA-12C | one model-owned Learning episode identity plus ordered event/state-change record spans retained feature runtimes; each effect-bearing transition admits one typed model request and publishes one typed result/current projection without merging unrelated feature journals | `rg -n -e "intentIdentity: \\.learningAction" -e "residualLearningAdmissionID" -e "runResidualLearningAction" -e "performAdmittedExerciseAction" Sources/PlotterApp Sources/PlotterEpisodeModel Sources/PlotterEpisodeRuntime Tests` must show only the new typed model request/result/journal route and no direct semantic ingress | delete residual unjournaled `UUID()` Learning-operation identity generation, reflected `.learningAction("...String(describing:)...")` identity, and duplicate retained-action ingress; zero effect-bearing Learning transitions without typed request, accepted/refused event, typed result, and current immutable projection; preserve distinct feature runtime task/effect/Stop ownership and never fabricate or merge journals |
+
+The rendered-control proof for EA-12B/EA-12C must additionally cover default
+Learning actions, tip fitting/commit/revalidation, Drawing Placement, completed-
+comparison controls, Drawing Studio, and every other effect-bearing control.
+**Retry Calibration Commit** is absent while commit or revalidation is busy and
+is available only for the runtime's exact stable recoverable review state.
+**Apply Drawing Placement** is enabled only when its exact placement request is
+present in the current projection. An enabled control that can reach nil or
+unavailable request dispatch fails `UI-AUTHORITY`, `UI`, and `DELETE`.
+
 ## Work ledger
 
 Blackdog owns active task state. This table records only not-started work,
@@ -718,9 +771,10 @@ insufficient.
 
 ## Sprint tranche execution
 
-The remaining migration is deliberately batched into three selectable software
-tranches. This changes landing cadence, not product authority: every `EA-*`
-row below remains one typed authority slice with its own current owner,
+The migration has used three completed selectable software tranches and now has
+one pending corrective tranche, `TRANCHE-MODEL-UI-CONSOLIDATION`, before
+incident export. This changes landing cadence, not product authority: every
+`EA-*` row below remains one typed authority slice with its own current owner,
 same-slice deletion, build, focused suite, affected-consumer scan, `DIFF`, and
 `DELETE` proof. A tranche is complete only when all of its ordered slices are
 complete in the same Blackdog landing; no slice can be claimed or marked
@@ -742,6 +796,9 @@ package remains a launch blocker.
    and `EA-10F` in that exact order.
 2. `TRANCHE-DEVICE-ENVIRONMENT` executes `EA-11A`, then `EA-11B`.
 3. `TRANCHE-FINAL-COMPOSITION` executes `EA-11C`.
+4. `TRANCHE-MODEL-UI-CONSOLIDATION` executes `EA-12A`, then `EA-12B`, then
+   `EA-12C`; it is the sole pending ordinary frontier after DOC-05 and the
+   required predecessor of FIX-10.
 
 After the final-composition tranche, `FIX-05` is one ordinary software
 correction before `GATE-01`. It removes real remaining application-root
@@ -829,7 +886,12 @@ final `VAL-01` attended validation boundary.
 | FIX-07 | complete | FIX-06 | software | Correction: add the missing operator-admitted replacement-frame transition after Exercise 1.4 has completed its physical four-circle batch. `PlotterTipCalibrationRuntime` owns a typed **Capture New Click Frame** intent only while awaiting its exact point selection with zero retained clicks; `PlotterPointSelectionRuntime` atomically supersedes the old request and archives/stages one strictly newer frame. The lower adapter must reacquire current connected Idle, Pen Up, no operation, no sticky ambiguity, unchanged exercise/paper/source/semantic optical identity, and a newer exact frame before replacement. Preserve the original mark, controller, Pen, pre-mark, and cap-bearing reveal evidence while recording the separately exact click-frame identity in each accepted observation; legacy observations without that field decode against their original reveal frame. Camera refresh or raw capture never silently changes the staged request, and a partial click set must be explicitly cleared before replacement. Add no motion, Pen command, redraw, automatic refresh/retry, duplicate UI ingress, fabricated cap estimate, or physical-evidence claim. Completed by `TASK-EA60F469`, attempt `TASK-EA60F469-a83fe1fa0c15`; package FIX-07 complete, migration remains incomplete. All ten software/repository gates passed on the exact candidate; this correction does not satisfy `PHYSICAL-FINAL` or authorize `VAL-01`. | `BUILD`, `TIP-CAL`, `POINT`, `UI`, `ARTIFACT-RESET`, `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT` |
 | FIX-08 | complete | FIX-07 | software | Correction: implement the operator-authorized throughput policy through the existing UI, observation, drawing-run, and machine owners without moving authority. An exact-frame camera click now submits its Learning point through the existing projection-bound `PlotterUIIntentSink`; the green **Apply Learning Point** button and user-visible confirmation step are deleted, and only a transient clicked value remains while the same exact request is compiled. `VisionAnalysisCadence` and Video Settings now offer exactly `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5` frames per second. `PlotterMotionThroughput.applicationXYFeedMMPerMinute` is the single `500` mm/min model value for app-generated XY travel and drawing: already-fast manual, Boundary, baseline-positioning, and supervised-travel paths retain that behavior, while Drawing Studio drawing, Drawing Border drawing, and sparse four-circle calibration now request `500`; superseded production `100` feed literals and the `10 FPS` option are absent. Existing controller-reported feed-ceiling refusal and Stop owners remain; the correction issues no firmware write and adds no guard, interlock, retry, redraw, or ingress. Completed by `TASK-EB3E64FA`, attempt `TASK-EB3E64FA-67fdbd7ab2a2`; package FIX-08 complete, migration remains incomplete. All seven software/repository gates passed on the exact candidate, with the initial QUICK cadence-fixture nonpass corrected before the final full pass. No attended controller, camera, motion, Pen, paper, click, speed, or observed-ink result is claimed. | `BUILD`, `THROUGHPUT`, `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT` |
 | FIX-09 | complete | FIX-08 | software | Correction: remove initial-Learning transition latency and make every affected workbench action truthful without adding a second authority. `PlotterPenInteractionRuntime` publishes a monotonic `.confirming` revision before any predecessor drain/publication wait, stale repeated Confirm invokes no duplicate actuation, and an exact Stop or root shutdown that displaces held Confirm returns typed superseded truth without accepted evidence or a discovery successor; root shutdown closes the Pen owner before joining retained UI work. Pen speech admission no longer waits for playback terminal before the command or successor prompt. `PlotterCameraCalibrationRuntime` is the sole revisioned phase/proposal/evidence/failure/accepted/terminal owner, publishes busy before every lower suspension, returns immutable facts to the App, and exposes exact failure/refusal rather than discarded or generic workspace state; production projection-bound tests execute the green run/accept actions. Learning Reset cancels and settles only its current camera operation while keeping admission reusable, and a reset-to-camera projection-bound regression proves the successor green action; only application shutdown closes admission. Connect/Disconnect title, role, and lower dispatch derive from one semantic enum; every Disconnect is red, while unavailable Enable Motion remains correctly gray with its full blocker rendered as visible text. Interactive camera capture makes a best-effort 10 FPS device request, reports applied versus unapplied truth without failing otherwise-valid startup, and retains the independent 10 FPS materialization bound. Passive preview performs no SHA-256 work; automatic analysis and exact evidence explicitly promote one shared memoized frame digest, with actual computation metrics and production-overlay reuse coverage. Passive root presentation, Drawing Draft/currentness, point-selection, and saved-Learning optical/reference projection consume only an already-sealed digest and otherwise publish unavailable exact-frame facts without hashing or trapping. Camera preview processing remains separate from Vision. The no-source Incident Package action is disabled and its unavailable reason is readable multiline secondary status instead of an enabled guaranteed refusal or clipped yellow text. Completed by `TASK-9C229F54`, attempt `TASK-9C229F54-1984133960c1`; local software diagnostics/benchmarking do not claim attended controller, camera, motion, Pen, paper, click, ink, application CPU, or operator transition-speed evidence. | `BUILD`, `RESPONSIVENESS`, `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT` |
-| FIX-10 | pending | FIX-09 | software | Correction: satisfy the existing incident-export product requirement before attended validation. Bind one complete immutable canonical incident source spanning the active or most-recent retained Learning episode and its Pen, Boundary, camera-calibration, observation, controller, recording, evidence, runtime, and UI owners without fabricating or merging unrelated journals. A separate bounded export coordinator must atomically persist the sole assembler's exact bytes and return location, format, count, digest, integrity scope, and declared incompleteness; `PlotterIncidentPackageUIService` remains presentation-only. Enable the workbench action only for an exact source identity, preserve typed unavailable/refused remedies, and add production composition/export/UI tests. | `BUILD`, `INCIDENT-APP`, `UI`, `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT` |
+| DOC-05 | complete | FIX-09 | repository | Correct the disproved post-FIX-09 frontier after independent code and documentation audits found duplicate Border Validation state, App-owned opaque Learning action registries, unjournaled retained-Learning operation identity, and rendered controls whose enabled state was not bound to an exact current request. Insert one ordered model/UI consolidation tranche before incident export, fully specify its owners, preservation boundary, gates, and deletion obligations, reconcile current architecture and controls, and update the fail-closed checker/capsule contract without changing product source, Swift tests, hardware, or physical evidence. Completed by `TASK-5168D237`, attempt `TASK-5168D237-5c8c54d403c2`; package DOC-05 complete, migration remains incomplete, subject to this exact task's successful Blackdog landing. | `DOC`, `DIFF` |
+| TRANCHE-MODEL-UI-CONSOLIDATION | pending | DOC-05 | software | Tranche: one Blackdog task/worktree/landing executes `EA-12A`, `EA-12B`, and `EA-12C` in that exact order. It removes duplicate mutable Border Validation state, carries model-owned typed Learning requests and availability through the one public UI sink, and establishes one truthful Learning episode identity/event record before incident binding. The tranche must produce a net deletion, may not introduce replacement dictionaries, closure bags, type erasure, a second sink, a monolithic feature owner, automatic retry/redraw, or fabricated/merged journals, and preserves UI-local layout, viewport, selection, and unsubmitted text plus the named controller, camera, Vision, planning, persistence, evidence, feature-runtime, Stop, shutdown, possible-ink, and operator-authorization owners. | `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT`, `CRITIC` |
+| EA-12A | pending | DOC-05 | authority-slice | Cutover: make `PlotterBorderValidationRuntime` the sole source-indexed mutable Border Validation owner and publish immutable projections/results to App. Delete `PlotterApplicationEnvironmentState.borderValidation`, all root forwarding getters/setters and whole-snapshot copies, `replaceSnapshot`, zero-caller `PlotterBorderValidationIntent.retryFrom`, and the declaration-only dead symbols named in the EA-12 manifest. Preserve exact controller/camera/Vision/evidence owners, Drawing Draft and Drawing Run runtimes, Stop, possible-ink/no-redraw, explicit review/accept/reject, reset, persistence ordering, and shutdown behavior. | `BUILD`, `BORDER-VALIDATION`, `COMPOSITION`, `AFFECTED-CONSUMERS`, `DIFF`, `DELETE` |
+| EA-12B | pending | EA-12A | authority-slice | Cutover: carry model-owned typed Learning item, semantic action, exact request identity, and current availability end-to-end from `PlotterEpisodeModel` through immutable `PlotterUI` projection and the one public `PlotterUIIntentSink` to the authoritative feature runtime. Delete App semantic side registries, opaque retained/application UI intent cases, ID recompilation/recovery, duplicate translations that merely restate model meaning, dead action IDs, and declaration-only UI symbols. Remove **Discard Camera Samples** unless backed by a real current sample-owning typed intent; never offer tip commit retry during busy commit/revalidation; bind Drawing Placement, completed-comparison, Drawing Studio, default Learning actions, and every effect-bearing control to an exact current projected request/remedy so enabled dispatch cannot terminate silently. | `BUILD`, `UI-AUTHORITY`, `PLOTTER-MODEL`, `COMPOSITION`, `UI`, `AFFECTED-CONSUMERS`, `DIFF`, `DELETE` |
+| EA-12C | pending | EA-12B | authority-slice | Cutover: establish one truthful model-owned Learning episode identity and ordered event/state-change record spanning the retained feature runtimes without fabricating or merging unrelated journals. Every effect-bearing Learning transition admits a typed model request and publishes a typed result/current immutable projection. Delete residual unjournaled Learning-operation UUID/string identity generation and duplicate semantic ingress while preserving distinct feature-runtime state, effect, task, exact Stop, settlement, no-redraw, evidence, and shutdown ownership. This slice supplies the canonical identity boundary required by later FIX-10; it does not assemble or export an incident package. | `BUILD`, `UI-AUTHORITY`, `PLOTTER-MODEL`, `COMPOSITION`, `UI`, `AFFECTED-CONSUMERS`, `DIFF`, `DELETE` |
+| FIX-10 | pending | TRANCHE-MODEL-UI-CONSOLIDATION | software | Correction: satisfy the existing incident-export product requirement before attended validation. Bind one complete immutable canonical incident source spanning the active or most-recent retained Learning episode and its Pen, Boundary, camera-calibration, observation, controller, recording, evidence, runtime, and UI owners without fabricating or merging unrelated journals. A separate bounded export coordinator must atomically persist the sole assembler's exact bytes and return location, format, count, digest, integrity scope, and declared incompleteness; `PlotterIncidentPackageUIService` remains presentation-only. Enable the workbench action only for an exact source identity, preserve typed unavailable/refused remedies, and add production composition/export/UI tests. | `BUILD`, `INCIDENT-APP`, `UI`, `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT` |
 | VAL-01 | pending | FIX-10 | attended-physical | On the exact signed landed FIX-10 validation candidate, execute the complete attended runbook including Drawing Studio, exercise visible refusal/progress/Stop and incident export, and land controller/camera/operator/ink evidence and limitations without changing architecture. The failed 2026-08-31 section-1 prefix and the incomplete 2026-09-01 Exercise 1.4 frame-handoff attempt remain nonpass evidence and cannot satisfy `PHYSICAL-FINAL`. | `DOC`, `DIFF`, `STRICT`, `PHYSICAL-FINAL` |
 | GATE-02 | pending | VAL-01 | gate | Prove one globally exclusive projection-bound public `PlotterUIIntentSink`, complete operator journey, replay/simulation/incident evidence, same-landing deletion, final attended evidence, and packaging decision. It moves no authority and does not require a redundant root intent reevaluator. | `DOC`, `DIFF`, `FINAL-GATE` |
 
@@ -903,6 +965,7 @@ the gate. All commands run from the task workspace on the recorded target.
 | `DRAW-DRAFT` | `swift test --filter PlotterDrawingDraftEpisodeTests` | EA-08A |
 | `DRAW-RUN` | `swift test --filter PlotterDrawingRunEpisodeTests` | EA-08B |
 | `UI` | `swift test --filter PlotterEpisodeUIActionabilityTests` | EA-09 |
+| `UI-AUTHORITY` | `swift test --filter PlotterLearningUIAuthorityTests` selects a nonzero production-projection suite proving every rendered effect-bearing Learning, Drawing Placement, completed-comparison, and Drawing Studio control carries its model-owned typed item/action/request identity and exact current availability through the sole public sink; no enabled control can reach nil/unavailable or opaque ID-registry dispatch, **Discard Camera Samples** has no rendered path without a real sample-owning request, and tip commit retry is absent while commit/revalidation is busy | EA-12B |
 | `TASK-METRIC` | `PYTHONDONTWRITEBYTECODE=1 python3 Scripts/check_episode_task_metric.py` preserves the source-derived FIX-03 9-to-8 legacy `OperatorWorkspace` `Swift.Task` evidence while EA-11C is pending; after EA-11C completes it may record 9-to-0 only when a masked scan of all production Swift source proves the `OperatorWorkspace` declaration truly absent | FIX-03 |
 | `PILOT` | `sh Scripts/check_episode_pilot_gate.sh` proves the exact Pilot continuation gate predicates below against landed rows and Current Evidence | EA-09 |
 | `PILOT-METRICS` | `PYTHONDONTWRITEBYTECODE=1 python3 Scripts/check_episode_pilot_metrics.py` proves the six pinned EA-01-to-candidate source-identity manifests, exact inclusion/exclusion rules, identity presence, and required decrease/not-increase thresholds without trusting Current Evidence counts | FIX-05 |

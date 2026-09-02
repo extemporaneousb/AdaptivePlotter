@@ -138,8 +138,9 @@ status, completion, action-strip, Stop, sparse-action, availability,
 retained-candidate, or reachability compilers are forbidden compatibility
 shadows.
 
-The EA-11C candidate names the observable App composition/runtime
-`PlotterApplicationRuntime`; the rename itself is not completion. The root is
+The landed EA-11C composition names the observable App runtime
+`PlotterApplicationRuntime`; that topology does not by itself prove that every
+Learning action is model-owned. The root is
 not a second UI compiler or semantic policy owner. EA-04 point selection, EA-06 manual
 motion, EA-07 causal simulation, EA-08A draft, and EA-08B run effects remain
 owned by their typed runtimes and lower device/evidence authorities. Pane,
@@ -180,7 +181,13 @@ For every migrated effect-bearing or domain-authority-changing `PlotterIntent`:
 - the runtime owns exact effect identity, lane, cancellation, and terminal
   disposition, while existing device owners repeat fresh physical safety;
 - the superseded action, state, guard, task, effect, and fixture path is removed
-  in the same landing.
+  in the same landing;
+- model-owned typed item, action, request identity, and current availability
+  survive projection and submission without an App-owned semantic side
+  registry or recompilation from a display ID;
+- an enabled effect-bearing control contains its exact current projected
+  request and cannot silently return because a request, registry entry, or
+  availability is nil.
 
 Global application exclusivity is a topology rule, not permission to merge
 feature authorities. The production `PlotterApplicationRuntime` is the one
@@ -192,6 +199,17 @@ reevaluate the accepted request through a redundant gateway. Named feature
 runtimes retain their typed rules, tasks, handles, Stop capabilities, and
 terminal truth.
 
+The UI/App boundary may use stable display identity, but display identity is
+not semantic authority. Opaque `applicationAction`, `retainedLearningAction`,
+or `retainedLearningReset`-style cases whose meaning exists only in an App
+dictionary are forbidden. So are reflected/string action identity,
+ID-to-semantic recovery, duplicate App translations that merely restate model
+meaning, replacement closure bags, type erasure, and a second public sink.
+Every enabled default Learning, calibration, Drawing Placement, completed-
+comparison, Drawing Studio, and other effect-bearing control must submit its
+exact current model request or expose the owning refusal/remedy. Silent nil
+dispatch is a product defect, not a harmless stale-click outcome.
+
 The package `PlotterOperationRegistry` is the one application operation
 mechanism. EA-11C gives `PlotterApplicationRuntime` one shared
 `PlotterApplicationResidualOperationAdapter` for residual root-owned work; the
@@ -202,7 +220,10 @@ point-selection, Pen, Boundary, calibration, Drawing, controller-session,
 observation, speech, or artifact runtimes.
 
 Residual application state is one `PlotterApplicationState` whose
-`PlotterApplicationEnvironmentState` values are indexed by typed source. The
+`PlotterApplicationEnvironmentState` values are indexed by typed source. A
+named feature runtime's mutable workflow snapshot cannot also be stored and
+edited in that residual state; the runtime publishes immutable facts/results
+instead. The
 root uses nominal `PlotterApplicationResidualEffectPort` and
 `PlotterApplicationStatePersistencePort` boundaries; accepted residual state
 is durably persisted before the matching projection or successful terminal is
@@ -1258,11 +1279,13 @@ The reset does not admit new motion, change the pen merely to reset state, erase
 physical ink, disconnect the controller, revoke Motion authorization, or change
 the selected camera. LIVE and SIMULATED authority reset independently.
 
-LIVE and SIMULATED learning are independent `LearningSessionState` values
-governed by the same state contract and selected by the active source. A source
-switch never copies or parks one source inside the other. Entering SIMULATED
-creates a fresh nonphysical session; leaving it selects the unchanged LIVE
-session, and later re-entry starts another fresh SIMULATED session.
+LIVE and SIMULATED Learning facts are independently indexed by the active
+source in `PlotterApplicationState.environmentStates`; the deleted generic
+`LearningSessionState` owns nothing. Named feature runtimes retain their own
+source-indexed state/effect/Stop authority. A source switch never copies one
+environment's accepted Learning facts into the other. Entering SIMULATED
+creates fresh nonphysical Learning state; leaving it selects unchanged LIVE
+facts, and later re-entry starts another fresh SIMULATED state.
 
 SIMULATED uses the same public action seams and dependency graph with causal
 frames, persistent black ink, and a real nonzero cap-to-tip truth. It has no

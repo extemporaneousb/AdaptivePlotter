@@ -65,7 +65,7 @@ flowchart TD
     c0["Ready<br/>Run Five-Position Camera Calibration"]
     c1["Camera calibration working<br/>Camera calibration is working… — disabled<br/>Stop replaces it during stoppable motion"]
     c2["Calibration review<br/>Accept Camera Calibration<br/>Reject Camera Calibration · Cancel Attempt"]
-    cempty["Stopped or rejected; no proposal<br/>Run Five-Position Camera Calibration<br/>Discard Captured Samples · Cancel Attempt"]
+    cempty["Stopped or rejected; no proposal<br/>Run Five-Position Camera Calibration · Cancel Attempt"]
     cdone["1.3 complete<br/>Redo This Step"]
     ccancel["Attempt settled without acceptance<br/>Restart Attempt"]
     c0 -->|Run Five-Position Camera Calibration| c1
@@ -75,7 +75,6 @@ flowchart TD
     c2 -->|Reject Camera Calibration| cempty
     c2 -->|Cancel Attempt| ccancel
     cempty -->|Run Five-Position Camera Calibration| c1
-    cempty -->|Discard Captured Samples| cempty
     cempty -->|Cancel Attempt| ccancel
     ccancel -->|Restart Attempt| c0
     cdone -->|Redo This Step — replace accepted result| c0
@@ -88,6 +87,8 @@ flowchart TD
     s2capture["Capturing strictly newer exact frame<br/>Capture New Click Frame… — disabled<br/>Cancel Attempt"]
     s2partial["Frozen current click frame; one to three clicks<br/>Capture New Click Frame — disabled<br/>Undo Last Click · Clear Clicks on This Frame<br/>Cancel Attempt"]
     s3["Pen-tip calibration review<br/>Accept Pen-Tip Calibration · Undo Last Click<br/>Clear Clicks on This Frame · Reject Pen-Tip Calibration · Cancel Attempt"]
+    scommit["Commit / revalidation in progress<br/>busy status — disabled · no retry action"]
+    srecover["Stable commit / revalidation failure<br/>Retry Calibration Commit · Reject Pen-Tip Calibration"]
     sdone["1.4 complete<br/>Redo This Step"]
     scancel["Attempt settled without acceptance<br/>Restart Attempt"]
     spaper["Possible-ink location excluded<br/>Record Paper Replacement"]
@@ -105,7 +106,11 @@ flowchart TD
     s2partial -->|Undo Last Click — count returns to zero| s2
     s2partial -->|Clear Clicks on This Frame| s2
     s2partial -->|Cancel Attempt| scancel
-    s3 -->|Accept Pen-Tip Calibration| sdone
+    s3 -->|Accept Pen-Tip Calibration| scommit
+    scommit -->|save and revalidation succeed| sdone
+    scommit -->|typed stable failure| srecover
+    srecover -->|Retry Calibration Commit| scommit
+    srecover -->|Reject Pen-Tip Calibration| s2
     s3 -->|Reject Pen-Tip Calibration| s2
     s3 -->|Undo Last Click| s2partial
     s3 -->|Clear Clicks on This Frame| s2
@@ -159,6 +164,13 @@ Dependency behavior is intentionally asymmetric:
 - Every admitted camera-calibration action publishes a busy runtime/UI revision
   before its first lower wait, and an exact refusal/failure is rendered from the
   camera runtime rather than disappearing into generic workspace status.
+- **Discard Camera Samples** is not a valid transition without a real current
+  sample-owning typed request. The present rendered orphan is a documented
+  EA-12B deletion gap; it must not be treated as supported behavior.
+- **Retry Calibration Commit** is available only from the exact stable
+  recoverable commit/revalidation failure. It is absent while fitting, commit,
+  save, or revalidation is in progress. The present busy-state retry projection
+  is an EA-12B actionability gap, not operator authority.
 - Exact Stop or root shutdown that displaces a published Pen Confirm yields a
   superseded confirmation: no accepted Pen evidence is recorded and no
   discovery successor appears.

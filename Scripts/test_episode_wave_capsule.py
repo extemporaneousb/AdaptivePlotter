@@ -179,6 +179,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             self.root,
             validate_live_gates=False,
         )
+        self.assertEqual(contract.TRANCHE_SLICES, capsule.TRANCHE_SLICES)
         self.assertEqual("complete", rows["EA-05C"]["status"])
         self.assertEqual("complete", rows["EA-04"]["status"])
         self.assertEqual("complete", rows["FIX-02"]["status"])
@@ -196,6 +197,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["GATE-01"]["status"])
         self.assertEqual("complete", rows["FIX-08"]["status"])
         self.assertEqual("complete", rows["FIX-09"]["status"])
+        self.assertEqual("complete", rows["DOC-05"]["status"])
+        self.assertEqual("pending", rows["TRANCHE-MODEL-UI-CONSOLIDATION"]["status"])
         self.assertEqual("pending", rows["FIX-10"]["status"])
         self.assertEqual("pending", rows["VAL-01"]["status"])
         self.assertEqual({}, blockers)
@@ -207,6 +210,8 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             self.assertEqual("complete", rows[slice_id]["status"])
         self.assertEqual("complete", rows["TRANCHE-FINAL-COMPOSITION"]["status"])
         self.assertEqual("complete", rows["EA-11C"]["status"])
+        for slice_id in contract.TRANCHE_SLICES["TRANCHE-MODEL-UI-CONSOLIDATION"]:
+            self.assertEqual("pending", rows[slice_id]["status"])
         self.assertEqual("authority-slice", rows["EA-10G"]["class"])
         self.assertEqual("authority-slice", rows["EA-10C"]["class"])
         evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
@@ -280,6 +285,69 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertIn("Pre-GATE-01 Drawing Run task-owner correction", evidence)
         self.assertIn("exactly `drawingRunTask` removed", evidence)
         self.assertIn("TASK-0A7AB3EE-80f88f4a41d8", evidence)
+
+    def test_model_ui_consolidation_manifest_missing_deletion_obligation_is_rejected(self) -> None:
+        plan_path = self.root / "docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md"
+        plan = plan_path.read_text(encoding="utf-8")
+        self.assertIn("ActionSurfaceOverlayStyleToken", plan)
+        plan_path.write_text(
+            plan.replace(
+                "ActionSurfaceOverlayStyleToken",
+                "RemovedOverlayStyleToken",
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "EA-12B consolidation manifest is missing"):
+            capsule.validated_contract(self.root, validate_live_gates=False)
+
+    def test_stale_current_architecture_topology_is_rejected(self) -> None:
+        architecture_path = self.root / "docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
+        architecture = architecture_path.read_text(encoding="utf-8")
+        architecture_path.write_text(
+            architecture + "\nThe pending `TRANCHE-DEVICE-ENVIRONMENT` candidate\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "stale current topology"):
+            capsule.validated_contract(self.root, validate_live_gates=False)
+
+    def test_present_tense_deleted_owner_and_current_root_claims_are_rejected(self) -> None:
+        architecture_path = self.root / "docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
+        architecture = architecture_path.read_text(encoding="utf-8")
+        cases = (
+            (
+                "\nLIVE and SIMULATED each retain one `LearningSessionState` value.\n",
+                "stale current topology",
+            ),
+            (
+                "\n`OperatorWorkspace` owns the current application projection.\n",
+                "unlabeled current-root or deleted-owner claim",
+            ),
+        )
+        for addition, message in cases:
+            with self.subTest(addition=addition):
+                architecture_path.write_text(
+                    architecture + addition,
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(ValueError, message):
+                    capsule.validated_contract(self.root, validate_live_gates=False)
+
+    def test_model_ui_consolidation_frontier_requires_exact_current_evidence(self) -> None:
+        evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
+        evidence = evidence_path.read_text(encoding="utf-8")
+        phrase = (
+            "`TRANCHE-MODEL-UI-CONSOLIDATION`—not FIX-10 or a later successor—is authorized"
+        )
+        self.assertIn(phrase, evidence.replace("\n", " "))
+        evidence_path.write_text(
+            evidence.replace(
+                "`TRANCHE-MODEL-UI-CONSOLIDATION`—not FIX-10 or a later successor—is authorized",
+                "`FIX-10`—not the consolidation tranche or a later successor—is authorized",
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "model/UI consolidation frontier lacks current evidence"):
+            capsule.validated_contract(self.root, validate_live_gates=False)
 
     def test_completed_incident_evidence_missing_is_rejected(self) -> None:
         evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
@@ -466,7 +534,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual(created, consumed)
         self.assertEqual("selected", consumed["launch"]["state"])
         self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("FIX-10", consumed["contract"]["package"]["id"])
+        self.assertEqual("TRANCHE-MODEL-UI-CONSOLIDATION", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -490,27 +558,36 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in boundary_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["FIX-10", "pending", "FIX-09", "software"]
-                and row[4].startswith("Correction: satisfy the existing incident-export product requirement")
-                and "`INCIDENT-APP`" in row[5]
+                and row[:4] == ["TRANCHE-MODEL-UI-CONSOLIDATION", "pending", "DOC-05", "software"]
+                and row[4].startswith("Tranche: one Blackdog task/worktree/landing executes")
+                and "`CRITIC`" in row[5]
             ):
                 ledger_rows.append((boundary, row))
         self.assertEqual(1, len(ledger_rows))
         _boundary, boundary_row = ledger_rows[0]
-        self.assertEqual("FIX-10", boundary_row[0])
-        self.assertEqual([], consumed["contract"]["ordered_authority_slices"])
-        self.assertNotIn("authority slice current-owner inventory row", purposes)
-        self.assertNotIn("authority slice same-landing deletion scan row", purposes)
+        self.assertEqual("TRANCHE-MODEL-UI-CONSOLIDATION", boundary_row[0])
+        self.assertEqual(
+            ["EA-12A", "EA-12B", "EA-12C"],
+            [item["id"] for item in consumed["contract"]["ordered_authority_slices"]],
+        )
+        self.assertIn("authority slice current-owner inventory row", purposes)
+        self.assertIn("authority slice same-landing deletion scan row", purposes)
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
-    def test_completed_responsiveness_correction_selects_incident_export(self) -> None:
+    def test_completed_doc_correction_selects_model_ui_consolidation(self) -> None:
         created = self.build_and_write()
 
         self.assertEqual("selected", created["launch"]["state"])
         self.assertEqual("selected", created["contract"]["frontier"]["state"])
-        self.assertEqual("FIX-10", created["contract"]["frontier"]["package_id"])
-        self.assertEqual([], created["contract"]["ordered_authority_slices"])
+        self.assertEqual(
+            "TRANCHE-MODEL-UI-CONSOLIDATION",
+            created["contract"]["frontier"]["package_id"],
+        )
+        self.assertEqual(
+            ["EA-12A", "EA-12B", "EA-12C"],
+            [item["id"] for item in created["contract"]["ordered_authority_slices"]],
+        )
 
     def test_contract_import_does_not_emit_bytecode_into_clean_repository(self) -> None:
         cache_path = self.root / "Scripts/__pycache__"
@@ -578,7 +655,10 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write({"tasks": [removed, completed, ineligible]})
 
         self.assertEqual("selected", created["launch"]["state"])
-        self.assertEqual("FIX-10", created["contract"]["frontier"]["package_id"])
+        self.assertEqual(
+            "TRANCHE-MODEL-UI-CONSOLIDATION",
+            created["contract"]["frontier"]["package_id"],
+        )
         self.assertEqual([], created["blackdog"]["live_blockers"])
         self.assertEqual(
             [

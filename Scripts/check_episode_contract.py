@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "d14cce267371609f13210022e083d56598f47b513b6fc8d1e556a1805f5e4e78"
+EXPECTED_LEDGER_SHA256 = "f92c306bc068cbb60f8ca8e5e169fd79dbd754519acf905cf0af6ea7f1a36dd7"
 
 
 EXPECTED_GATES = {
@@ -82,6 +82,10 @@ EXPECTED_GATES = {
     "DRAW-DRAFT": ("`swift test --filter PlotterDrawingDraftEpisodeTests`", "EA-08A"),
     "DRAW-RUN": ("`swift test --filter PlotterDrawingRunEpisodeTests`", "EA-08B"),
     "UI": ("`swift test --filter PlotterEpisodeUIActionabilityTests`", "EA-09"),
+    "UI-AUTHORITY": (
+        "`swift test --filter PlotterLearningUIAuthorityTests` selects a nonzero production-projection suite proving every rendered effect-bearing Learning, Drawing Placement, completed-comparison, and Drawing Studio control carries its model-owned typed item/action/request identity and exact current availability through the sole public sink; no enabled control can reach nil/unavailable or opaque ID-registry dispatch, **Discard Camera Samples** has no rendered path without a real sample-owning request, and tip commit retry is absent while commit/revalidation is busy",
+        "EA-12B",
+    ),
     "TASK-METRIC": (
         "`PYTHONDONTWRITEBYTECODE=1 python3 Scripts/check_episode_task_metric.py` preserves the source-derived FIX-03 9-to-8 legacy `OperatorWorkspace` `Swift.Task` evidence while EA-11C is pending; after EA-11C completes it may record 9-to-0 only when a masked scan of all production Swift source proves the `OperatorWorkspace` declaration truly absent",
         "FIX-03",
@@ -178,7 +182,12 @@ EXPECTED_PACKAGE_SHAPES = {
     "FIX-07": (["FIX-06"], "software", ["BUILD", "TIP-CAL", "POINT", "UI", "ARTIFACT-RESET", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
     "FIX-08": (["FIX-07"], "software", ["BUILD", "THROUGHPUT", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
     "FIX-09": (["FIX-08"], "software", ["BUILD", "RESPONSIVENESS", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
-    "FIX-10": (["FIX-09"], "software", ["BUILD", "INCIDENT-APP", "UI", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
+    "DOC-05": (["FIX-09"], "repository", ["DOC", "DIFF"]),
+    "TRANCHE-MODEL-UI-CONSOLIDATION": (["DOC-05"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"]),
+    "EA-12A": (["DOC-05"], "authority-slice", ["BUILD", "BORDER-VALIDATION", "COMPOSITION", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "EA-12B": (["EA-12A"], "authority-slice", ["BUILD", "UI-AUTHORITY", "PLOTTER-MODEL", "COMPOSITION", "UI", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "EA-12C": (["EA-12B"], "authority-slice", ["BUILD", "UI-AUTHORITY", "PLOTTER-MODEL", "COMPOSITION", "UI", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "FIX-10": (["TRANCHE-MODEL-UI-CONSOLIDATION"], "software", ["BUILD", "INCIDENT-APP", "UI", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
     "VAL-01": (["FIX-10"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
     "GATE-02": (["VAL-01"], "gate", ["DOC", "DIFF", "FINAL-GATE"]),
 }
@@ -212,6 +221,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
     "TRANCHE-LEARNING": "Tranche",
     "TRANCHE-DEVICE-ENVIRONMENT": "Tranche",
     "TRANCHE-FINAL-COMPOSITION": "Tranche",
+    "TRANCHE-MODEL-UI-CONSOLIDATION": "Tranche",
 }
 
 
@@ -258,12 +268,49 @@ EXPECTED_COMPLETE_PACKAGES = {
     "FIX-07",
     "FIX-08",
     "FIX-09",
+    "DOC-05",
 }
 
 TRANCHE_SLICES = {
     "TRANCHE-LEARNING": ["EA-10G", "EA-10C", "EA-10D", "EA-10E", "EA-10F"],
     "TRANCHE-DEVICE-ENVIRONMENT": ["EA-11A", "EA-11B"],
     "TRANCHE-FINAL-COMPOSITION": ["EA-11C"],
+    "TRANCHE-MODEL-UI-CONSOLIDATION": ["EA-12A", "EA-12B", "EA-12C"],
+}
+
+EXPECTED_CONSOLIDATION_MANIFEST = {
+    "EA-12A": (
+        "`PlotterBorderValidationRuntime` becomes the sole source-indexed mutable Border Validation owner",
+        "currentEnvironmentState",
+        "`PlotterApplicationEnvironmentState.borderValidation`",
+        "`replaceSnapshot`",
+        "`case retryFrom(`",
+        "`ContextualStopActionPresentation`",
+        "`StableWorkflowCapCaptureRunner`",
+        "`PlotterSystemSerialDeviceDiscoveryAdapter`",
+    ),
+    "EA-12B": (
+        "`PlotterEpisodeModel` owns typed Learning item/action/request identity and availability end-to-end",
+        "PlotterApplicationBoundAction",
+        "`PlotterUIIntent.applicationAction`",
+        "`PlotterUIIntent.retainedLearningAction`",
+        "`PlotterUIIntent.retainedLearningReset`",
+        "`controllerProbe`",
+        "`observationStop`",
+        "`observationRestart`",
+        "`.discardCameraSamples`",
+        "**Discard Camera Samples**",
+        "`ActionSurfaceOverlayStyleToken`/`styleToken(for:)`",
+        "silent placement branch",
+    ),
+    "EA-12C": (
+        "one model-owned Learning episode identity plus ordered event/state-change record",
+        "intentIdentity",
+        "`UUID()` Learning-operation identity generation",
+        "reflected `.learningAction",
+        "without typed request, accepted/refused event, typed result, and current immutable projection",
+        "never fabricate or merge journals",
+    ),
 }
 
 # Canonical Current Evidence has final passed evidence for every complete row.
@@ -368,6 +415,37 @@ def parse_gate_tokens(cell: str, package_id: str) -> list[str]:
     return re.findall(r"`([A-Z][A-Z0-9-]*)`", cell)
 
 
+def validate_consolidation_manifest(text: str) -> None:
+    rows = markdown_table(
+        text,
+        [
+            "Slice",
+            "Current owner/result contract",
+            "Exact affected-consumer procedure",
+            "Exact deletion and zero-match obligations",
+        ],
+    )
+    by_slice = {row[0]: row[1:] for row in rows}
+    if set(by_slice) != set(EXPECTED_CONSOLIDATION_MANIFEST):
+        fail(
+            "EA-12 consolidation manifest slice set drifted; expected "
+            f"{sorted(EXPECTED_CONSOLIDATION_MANIFEST)}, found {sorted(by_slice)}"
+        )
+    for slice_id, phrases in EXPECTED_CONSOLIDATION_MANIFEST.items():
+        joined = " ".join(by_slice[slice_id])
+        for phrase in phrases:
+            if phrase not in joined:
+                fail(f"{slice_id} consolidation manifest is missing: {phrase}")
+    normalized = re.sub(r"\s+", " ", text)
+    for phrase in (
+        "**Retry Calibration Commit** is absent while commit or revalidation is busy",
+        "**Apply Drawing Placement** is enabled only when its exact placement request is present in the current projection",
+        "An enabled control that can reach nil or unavailable request dispatch fails `UI-AUTHORITY`, `UI`, and `DELETE`",
+    ):
+        if phrase not in normalized:
+            fail(f"EA-12 rendered-control obligation is missing: {phrase}")
+
+
 def validate_tranche_landing_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
     """Require one landed Blackdog task for every completed tranche and slice."""
     completion_rows = markdown_table(
@@ -399,6 +477,18 @@ def validate_product_contract(text: str) -> None:
     normalized = re.sub(r"\s+", " ", text)
     if "Production opens a unique directory beneath `AdaptivePlotter/EpisodeRecordings/<recording UUID>` with schema `adaptive-plotter-manual-motion-v1`" in normalized:
         fail("Product Contract retains the stale manual recording topology")
+    if "LIVE and SIMULATED learning are independent `LearningSessionState` values" in normalized:
+        fail("Product Contract assigns current authority to deleted LearningSessionState")
+    for consolidation_phrase in (
+        "model-owned typed item, action, request identity, and current availability survive projection and submission without an App-owned semantic side registry or recompilation from a display ID",
+        "an enabled effect-bearing control contains its exact current projected request and cannot silently return because a request, registry entry, or availability is nil",
+        "Opaque `applicationAction`, `retainedLearningAction`, or `retainedLearningReset`-style cases whose meaning exists only in an App dictionary are forbidden",
+        "Silent nil dispatch is a product defect, not a harmless stale-click outcome",
+        "A named feature runtime's mutable workflow snapshot cannot also be stored and edited in that residual state",
+        "the deleted generic `LearningSessionState` owns nothing",
+    ):
+        if consolidation_phrase not in normalized:
+            fail(f"Product Contract is missing model/UI consolidation rule: {consolidation_phrase}")
     for required_phrase in (
         "The sole active-work exception is EA-04 point selection",
         "Learning Off may itself typed-cancel only the exact point-selection/pen-cap continuation owner bound by both its selection ID and exercise-attempt token",
@@ -575,6 +665,39 @@ def validate_architecture(text: str) -> None:
     normalized = re.sub(r"\s+", " ", text)
     if "Production manual motion independently creates one UUID directory under the same root" in normalized:
         fail("Swift Architecture retains the stale manual recording topology")
+    for stale_phrase in (
+        "The pending `TRANCHE-DEVICE-ENVIRONMENT` candidate",
+        "## EA-11C root composition candidate",
+        "currently contains five focused tests",
+        "`OperatorWorkspace` owns two independent `LearningSessionState` values",
+        "The retained LIVE/SIMULATED session accessor",
+        "LIVE and SIMULATED each retain one `LearningSessionState` value",
+        "One retained `ActiveStoppableOperation` binds the exact owner task",
+    ):
+        if stale_phrase in normalized:
+            fail(f"Swift Architecture retains stale current topology: {stale_phrase}")
+    historical_markers = (
+        "historical",
+        "deleted",
+        "removed",
+        "former",
+        "absent",
+        "no current state",
+    )
+    for symbol in (
+        "`OperatorWorkspace",
+        "`LearningSessionState`",
+        "`ActiveStoppableOperation`",
+    ):
+        for paragraph in re.split(r"\n\s*\n", text):
+            if symbol not in paragraph:
+                continue
+            paragraph_normalized = re.sub(r"\s+", " ", paragraph).lower()
+            if not any(marker in paragraph_normalized for marker in historical_markers):
+                fail(
+                    "Swift Architecture retains an unlabeled current-root or "
+                    f"deleted-owner claim: {symbol}"
+                )
     for required_phrase in (
         "PlotterEpisodeRuntime -> EpisodeCore + EpisodeRuntime + PlotterEpisodeModel + PlotterRuntime",
         "The sole `MachineLink` transport contract now returns a `MachineLinkOpenReceipt`, `MachineLinkDiscardReceipt`, `MachineLinkWriteReceipt`, or `MachineLinkReadReceipt`",
@@ -672,10 +795,10 @@ def validate_architecture(text: str) -> None:
         "Unrelated calibration, exploration, motion, or exercise-attempt work receives the typed refusal from `PlotterLearningIntentRules.modeAvailability`",
         "`PlotterPointSelectionRuntime.setLearningEnabled` accepts a typed `PlotterLearningActivityFactProviding` and obtains a fresh fact inside the FIFO boundary for initial evaluation",
         "It reacquires a fresh fact after exact continuation cancellation before reevaluation",
-        "`OperatorWorkspace` passes the provider through the Task hop rather than capturing a fact before it",
+        "`PlotterApplicationRuntime` passes the provider through the Task hop rather than capturing a fact before it",
         "`PlotterPointSelectionActivityOwner(selectionID: PlotterPointSelectionID, exerciseAttemptID: UUID)` binds the exact selection and attempt identity across those initial and post-suspension evaluations",
         "The same item and selection with a successor attempt token typed-refuses",
-        "`OperatorWorkspace` rechecks the exact attempt identity before post-runtime attempt cancellation",
+        "`PlotterApplicationRuntime` rechecks the exact attempt identity before post-runtime attempt cancellation",
         "For a latched continuation, the FIFO remains held while `setLearningEnabled` latches that owner, awaits `registry.stop`, and privately clears the runtime continuation handle without publishing episode-state mutation",
         "reevaluates the bound exact owner against the still-private `.continuing` plus `continuationIsActive` state",
         "An admitted Off event clears selection; a successor or unrelated refusal publishes continuation inactive and then its final typed refusal behind the same boundary",
@@ -684,7 +807,7 @@ def validate_architecture(text: str) -> None:
         "no replacement settlement helper, poll, sleep, or state exists",
         "Tests use the immutable returned/current projection and observable continuation-port state",
         "The model exception independently requires `.collecting` or `.continuing` with `continuationIsActive`",
-        "`OperatorWorkspace` emits the owner only in those phases",
+        "`PlotterApplicationRuntime` emits the owner only in those phases",
         "Retained `.accepted` Pen first-question/discovery and sparse batch/calibration attempts typed-refuse even with a matching supplied owner",
         "Recording failure remains a visible nonblocking diagnostic and never promotes evidence",
         "`ActionSurfacePointSubmissionPolicy` retains that value only until `PlotterUIProjection` contains the matching available request",
@@ -698,11 +821,11 @@ def validate_architecture(text: str) -> None:
         "Application Support `AdaptivePlotter/EpisodeRecordings/<recording UUID>`",
         "64-unique-frame, 512 MiB bound",
         "eleven focused PlotterPointSelectionEpisodeTests",
-        "The deleted `submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` helpers",
+        "The deleted `submitCurrentPenCapPoint` and historical/deleted `OperatorWorkspace.awaitPenCapAcceptedClickTransition` helpers",
         "focused tests use generic submissions and bounded observable-state waits",
         "The deleted `awaitContinuationSettlement` task-owner/polling helper has no replacement helper, poll, sleep, or state",
         "`ActionSurface` compiles its inverse-transformed click into the aggregate projection and automatically submits the matching `PlotterUIRequest` through the existing `PlotterUIIntentSink`",
-        "Retained `OperatorWorkspace` action adapters invoke the same runtime/store authority for undo, clear, and cancel",
+        "Retained `PlotterApplicationRuntime` action adapters invoke the same runtime/store authority for undo, clear, and cancel",
         "those actions do not originate in `ActionSurface` or its direct click-submission policy",
         "`SparseTipCalibrationCoordinator` retains the machine-position association, fit, calibration acceptance, and artifact graph",
         "Its sealed `PlotterEpisodeReplayExecutableDescriptor` is instantiated only by the private `PlotterEpisodeReplayExecutableAdapter`",
@@ -763,7 +886,7 @@ def validate_architecture(text: str) -> None:
         "Mutable execution pacing is a lock-backed suspension policy snapshotted before execution, not effect authority",
         "`SimulatedLearningRuntime` has no public `beginManualJog`, `beginBoundary`, or `beginDrawing` effect API",
         "Its one package-scoped `admitCausalOperation` is called only by the adapter",
-        "`OperatorWorkspace.executeSimulatedBoundaryMotion` and the former App-local simulated adapter are absent",
+        "The historical/deleted `OperatorWorkspace.executeSimulatedBoundaryMotion` method and the former App-local simulated adapter are absent",
         "`PlotterCausalSimulatorTruthSnapshot` keeps controller-command attribution distinct from plant MPos/Pen, paper/ink, camera publication, Vision, and evidence truth",
         "declares `PlotterCausalSimulatorVisionTruth.notComputedBySimulator`",
         "reports `.simulatedCausal`, sets `physicalEvidenceClaimed` false, and emits `.notPhysicalEvidence`",
@@ -799,7 +922,7 @@ def validate_architecture(text: str) -> None:
         "SIMULATED start is a typed nonphysical refusal and invokes no LIVE interpreter, camera, Vision, or evidence port",
         "one `PlotterPenInteractionRuntime` owns the source-indexed exercise attempt, mutable Up/Down profile, exact operation and cancellation capability, lower actuation task, settlement, and immutable attempt history",
         "`PlotterPenInteractionSubmission` binds a fresh `PlotterPenInteractionRequestID`, the exact `PlotterPenInteractionProjectionReference`, environment, operation ID, current admission facts, and one typed `PlotterPenInteractionIntent`",
-        "`OperatorWorkspace` retains only copied immutable runtime snapshots and App composition/adaptation",
+        "`PlotterApplicationRuntime` retains only copied immutable runtime snapshots and App composition/adaptation",
         "A runtime-owned weak projection sink publishes immutable admitted, draining, settling, cancelling, and terminal snapshots without a workspace observer Task, latch, retry, or effect authority",
         "Workspace busy feedback represents only a genuinely foreign lower-operation owner and never the Pen runtime's own accepted work",
         "One runtime-owned latest-only drain coalesces an accepted pending command while an earlier value settles",
@@ -850,6 +973,17 @@ def validate_architecture(text: str) -> None:
         "cancels retained speech before `shutdown()` joins the operation task",
         "retained Pen admission route checks shutdown both at entry and after each suspension before it creates a `DiscoveryTransaction`",
         "prevents an async continuation from reviving an accepted click or publishing a zero-step transaction after shutdown",
+        "`PlotterApp` directly depends on `EpisodeRuntime`",
+        "The landed `TRANCHE-DEVICE-ENVIRONMENT` has two typed authority slices",
+        "## Current root composition",
+        "`PlotterEpisodeCompositionTests` suite currently contains six focused tests",
+        "current source still has two mutable Border Validation stores",
+        "Rendered actionability is not yet uniformly projection-bound",
+        "The deleted generic `LearningSessionState` and `ActiveStoppableOperation` types own no current state",
+        "`PlotterApplicationState.environmentStates` indexes one `PlotterApplicationEnvironmentState` value for LIVE and one for SIMULATED",
+        "Distinct named feature runtimes own their mutable workflow snapshots, operation identity, effect/task execution, exact Stop, persistence, settlement, and terminal truth",
+        "App projection currently constructs opaque retained/application action IDs",
+        "Until then the application cannot name one truthful canonical Learning episode for FIX-10 incident export",
     ):
         if required_phrase not in normalized:
             fail(f"current Swift architecture is missing: {required_phrase}")
@@ -857,6 +991,7 @@ def validate_architecture(text: str) -> None:
 
 def validate_plan(text: str) -> dict[str, dict[str, object]]:
     validate_architecture(ARCHITECTURE_PATH.read_text(encoding="utf-8"))
+    validate_consolidation_manifest(text)
     normalized = re.sub(r"\s+", " ", text)
     inventory_rows = markdown_table(
         text,
@@ -1154,7 +1289,7 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
     for package_id, status, dependency_cell, execution_class, outcome, gate_cell in ledger_rows:
         if package_id in rows:
             fail(f"duplicate ledger package ID: {package_id}")
-        if not re.fullmatch(r"(?:(?:DOC|FIX|BASE|EA|VAL|GATE)-[0-9]{2}[A-Z]?|TRANCHE-(?:LEARNING|DEVICE-ENVIRONMENT|FINAL-COMPOSITION))", package_id):
+        if not re.fullmatch(r"(?:(?:DOC|FIX|BASE|EA|VAL|GATE)-[0-9]{2}[A-Z]?|TRANCHE-(?:LEARNING|DEVICE-ENVIRONMENT|FINAL-COMPOSITION|MODEL-UI-CONSOLIDATION))", package_id):
             fail(f"invalid ledger package ID: {package_id}")
         if status not in allowed_status:
             fail(f"{package_id} has invalid status {status}")
@@ -1233,10 +1368,11 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             expected_slice_gates = {"BUILD", "AFFECTED-CONSUMERS", "DIFF", "DELETE"}
             if not expected_slice_gates.issubset(set(slice_row["gates"])):
                 fail(f"{slice_id} omits a required per-slice gate")
-            if not any(row[5].strip("`") == slice_id for row in inventory_rows):
-                fail(f"{slice_id} lacks a current-owner inventory binding")
-            if not any(row[0].strip("`") == slice_id for row in scan_rows):
-                fail(f"{slice_id} lacks a same-slice deletion scan binding")
+            if tranche_id != "TRANCHE-MODEL-UI-CONSOLIDATION":
+                if not any(row[5].strip("`") == slice_id for row in inventory_rows):
+                    fail(f"{slice_id} lacks a current-owner inventory binding")
+                if not any(row[0].strip("`") == slice_id for row in scan_rows):
+                    fail(f"{slice_id} lacks a same-slice deletion scan binding")
 
     outcome_requirements = {
         "EA-02A": (
@@ -1477,6 +1613,42 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "any unassigned inventory item or second root task/operation registry fails the slice",
             "`PlotterEpisodeCompositionTests` must be discoverable",
         ),
+        "DOC-05": (
+            "Correct the disproved post-FIX-09 frontier",
+            "duplicate Border Validation state",
+            "App-owned opaque Learning action registries",
+            "unjournaled retained-Learning operation identity",
+            "without changing product source, Swift tests, hardware, or physical evidence",
+            "Completed by `TASK-5168D237`, attempt `TASK-5168D237-5c8c54d403c2`",
+            "package DOC-05 complete, migration remains incomplete",
+        ),
+        "TRANCHE-MODEL-UI-CONSOLIDATION": (
+            "executes `EA-12A`, `EA-12B`, and `EA-12C` in that exact order",
+            "produce a net deletion",
+            "may not introduce replacement dictionaries, closure bags, type erasure, a second sink, a monolithic feature owner, automatic retry/redraw, or fabricated/merged journals",
+            "preserves UI-local layout, viewport, selection, and unsubmitted text",
+        ),
+        "EA-12A": (
+            "make `PlotterBorderValidationRuntime` the sole source-indexed mutable Border Validation owner",
+            "Delete `PlotterApplicationEnvironmentState.borderValidation`",
+            "`replaceSnapshot`",
+            "zero-caller `PlotterBorderValidationIntent.retryFrom`",
+            "Preserve exact controller/camera/Vision/evidence owners",
+        ),
+        "EA-12B": (
+            "carry model-owned typed Learning item, semantic action, exact request identity, and current availability end-to-end",
+            "Delete App semantic side registries",
+            "Remove **Discard Camera Samples** unless backed by a real current sample-owning typed intent",
+            "never offer tip commit retry during busy commit/revalidation",
+            "enabled dispatch cannot terminate silently",
+        ),
+        "EA-12C": (
+            "one truthful model-owned Learning episode identity and ordered event/state-change record",
+            "without fabricating or merging unrelated journals",
+            "Delete residual unjournaled Learning-operation UUID/string identity generation",
+            "preserving distinct feature-runtime state, effect, task, exact Stop, settlement, no-redraw, evidence, and shutdown ownership",
+            "does not assemble or export an incident package",
+        ),
     }
     for package_id, phrases in outcome_requirements.items():
         for phrase in phrases:
@@ -1564,6 +1736,10 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "Wave selection takes the first eligible selectable row in this table's literal order",
         "`attended-physical` and `remote-git` still require their own explicit package and execution-class authorization",
         "Contract and capsule admission reject a completed tranche or successor selection unless its tranche row and every slice completion row share one nonempty Blackdog task/landing",
+        "That one sink is not enough when the projection has already erased meaning",
+        "opaque ID-to-semantic side registries, semantic recompilation from display identifiers, enabled controls without exact current requests, and silent nil dispatch are forbidden",
+        "### EA-12 consolidation inventory and deletion obligations",
+        "`TRANCHE-MODEL-UI-CONSOLIDATION` executes `EA-12A`, then `EA-12B`, then `EA-12C`",
     ):
         if required_phrase not in normalized:
             fail(f"completion or gate contract is missing: {required_phrase}")
@@ -2781,8 +2957,19 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "Confirm publishes `.confirming` before any predecessor wait",
         "`make responsiveness-test`",
         "`FIX-09` is complete as software/repository evidence",
-        "`FIX-10` is the sole next ordinary software package",
-        "`VAL-01` is dependency-ineligible until FIX-10 is complete",
+        "DOC-05 model/UI consolidation audit and plan correction complete",
+        "`TASK-5168D237`, attempt `TASK-5168D237-5c8c54d403c2`",
+        "simultaneous mutable Border Validation snapshots",
+        "`PlotterApplicationBoundAction`, `currentApplicationActions`",
+        "Residual Learning operation identity also uses a fresh UUID and reflected action text",
+        "**Discard Camera Samples** without a sample-owning request",
+        "exact zero-consumer candidates include `ContextualStopActionPresentation`",
+        "pending software `TRANCHE-MODEL-UI-CONSOLIDATION`",
+        "`FIX-10` remains narrowly incident-source/export work and now depends on that tranche",
+        "sole first eligible ordinary package after DOC-05 is `TRANCHE-MODEL-UI-CONSOLIDATION`",
+        "claims no product-source deletion or runtime behavior change",
+        "Reviewed no change: [Attended Hardware Runbook]",
+        "Package DOC-05 complete; migration remains incomplete",
         "complete canonical incident source",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
@@ -3449,9 +3636,31 @@ def validate_wave_frontier(
             fail("FIX-08 frontier must not retain an ordinary-wave blocker")
         return
 
+    if selected == "TRANCHE-MODEL-UI-CONSOLIDATION":
+        if rows["DOC-05"]["status"] != "complete":
+            fail("model/UI consolidation tranche cannot be selected before DOC-05 completes")
+        for phrase in (
+            "DOC-05 model/UI consolidation audit and plan correction complete",
+            "`TASK-5168D237`, attempt `TASK-5168D237-5c8c54d403c2`",
+            "duplicate Border state",
+            "opaque App Learning registries",
+            "unjournaled Learning identity",
+            "enabled controls without exact current requests",
+            "`TRANCHE-MODEL-UI-CONSOLIDATION`",
+            "`EA-12A`, `EA-12B`, and `EA-12C` in that exact order",
+            "requires net deletion and a fresh bounded critic",
+            "`FIX-10` is dependency-ineligible until the tranche is complete",
+            "only `TRANCHE-MODEL-UI-CONSOLIDATION`—not FIX-10 or a later successor—is authorized",
+        ):
+            if phrase not in frontier_normalized:
+                fail(f"model/UI consolidation frontier lacks current evidence: {phrase}")
+        if blockers:
+            fail("model/UI consolidation frontier must not retain an ordinary-wave blocker")
+        return
+
     if selected == "FIX-10":
-        if rows["FIX-09"]["status"] != "complete":
-            fail("FIX-10 cannot be selected before FIX-09 completes")
+        if rows["TRANCHE-MODEL-UI-CONSOLIDATION"]["status"] != "complete":
+            fail("FIX-10 cannot be selected before model/UI consolidation completes")
         for phrase in (
             "FIX-09 initial Learning responsiveness and truthful controls complete",
             "`TASK-9C229F54`, attempt `TASK-9C229F54-1984133960c1`",
