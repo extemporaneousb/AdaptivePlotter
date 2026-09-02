@@ -133,6 +133,63 @@ struct PlotterEpisodeUIActionabilityTests {
     #expect(strip.mustRemainVisible)
   }
 
+  @Test("sparse calibration exposes one explicit replacement-frame action and blocks partial-click replacement")
+  func sparseClickFrameReplacementIsExplicit() throws {
+    let owner = "1.4-sparse-tip"
+    func strip(
+      state: PlotterUILearningSparseState,
+      clickCount: Int
+    ) throws -> PlotterUILearningActionStripDecision {
+      let projection = PlotterUILearningActionabilityCompiler().compile(
+        PlotterUILearningActionabilityFacts(
+          learning: PlotterUILearningFacts(
+            isEnabled: true,
+            activeOwnerID: owner,
+            orderedMilestones: [.init(ownerID: owner, isComplete: false)]
+          ),
+          selectedOwnerID: owner,
+          items: [.init(
+            ownerID: owner,
+            kind: .sparseTipCalibration,
+            stageID: "discovery",
+            isStage: false,
+            isExercise: true,
+            isComplete: false,
+            isRepeatable: true
+          )],
+          activeOwnerID: owner,
+          sparseState: state,
+          sparseCollectedClickCount: clickCount
+        )
+      )
+      return try #require(projection.strip(ownerID: owner))
+    }
+
+    let empty = try strip(state: .awaitingFrozenClicks, clickCount: 0)
+    #expect(empty.actions.map(\.action) == [
+      .captureNewSparseTipClickFrame(retainedPointCount: 0),
+      .cancel,
+    ])
+    #expect(empty.actions.first?.title == "Capture New Click Frame")
+    #expect(empty.actions.first?.unavailableReason == nil)
+
+    let partial = try strip(state: .awaitingFrozenClicks, clickCount: 1)
+    #expect(partial.actions.map(\.action) == [
+      .captureNewSparseTipClickFrame(retainedPointCount: 1),
+      .undoSparseTipClick,
+      .clearSparseTipClicks,
+      .cancel,
+    ])
+    #expect(partial.actions.first?.unavailableReason?.contains("Clear every retained click") == true)
+
+    let capturing = try strip(state: .capturingClickFrame, clickCount: 0)
+    #expect(capturing.actions.map(\.title) == [
+      "Capturing New Click Frame…",
+      "Cancel Attempt",
+    ])
+    #expect(capturing.actions.first?.unavailableReason != nil)
+  }
+
   @Test("Learning compiler bounds item visits and diagnostics")
   func plotterUILearningVisitsAreBounded() {
     let items = (0..<12).map { index in

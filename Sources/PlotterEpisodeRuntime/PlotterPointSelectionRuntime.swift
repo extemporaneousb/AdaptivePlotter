@@ -397,6 +397,74 @@ public actor PlotterPointSelectionRuntime {
       _ = try await submitIntent(.pointSelection(.cancel(current.id)))
       framesBySelectionID[current.id] = nil
     }
+    let recorded = try await recordExactPointSelectionFrame(frame)
+    let request = PlotterPointSelectionRequest(
+      frame: recorded.exactFrame,
+      sourceObservationID: recorded.observationID,
+      presentationTransformRevision: presentationTransformRevision,
+      prompt: prompt,
+      purpose: purpose,
+      requiredPointCount: requiredPointCount
+    )
+    let committed = try await submitIntent(.pointSelection(.stage(request)))
+    framesBySelectionID[request.id] = frame
+    return PlotterPointSelectionStage(
+      request: request,
+      projection: project(committed.state),
+      recordingDiagnostic: recorded.recordingDiagnostic
+    )
+  }
+
+  /// Replaces one current, empty collecting request with a strictly newer
+  /// exact frame. Recording and source-observation publication happen while
+  /// the old request remains current; the final reducer event performs the
+  /// supersession as one state transition.
+  public func replace(
+    currentRequest: PlotterPointSelectionRequest,
+    with frame: DisplayedFrame,
+    presentationTransformRevision: PlotterPresentationTransformRevision
+  ) async throws -> PlotterPointSelectionStage {
+    await acquireMutationPublicationBoundary()
+    defer { releaseMutationPublicationBoundary() }
+    let before = await store.currentState()
+    guard before.exactPointSelection.request == currentRequest,
+      before.exactPointSelection.phase == .collecting,
+      before.exactPointSelection.selectedPoints.isEmpty,
+      frame.frame.captureNanoseconds > currentRequest.frame.captureNanoseconds
+    else { throw PlotterPointSelectionRuntimeError.replacementNotCurrent }
+
+    let recorded = try await recordExactPointSelectionFrame(frame)
+    let replacement = PlotterPointSelectionRequest(
+      frame: recorded.exactFrame,
+      sourceObservationID: recorded.observationID,
+      presentationTransformRevision: presentationTransformRevision,
+      prompt: currentRequest.prompt,
+      purpose: currentRequest.purpose,
+      requiredPointCount: currentRequest.requiredPointCount
+    )
+    let committed = try await submitIntent(.pointSelection(.replace(
+      currentSelectionID: currentRequest.id,
+      replacement: replacement
+    )))
+    guard committed.state.exactPointSelection.request == replacement else {
+      throw PlotterPointSelectionRuntimeError.replacementNotCurrent
+    }
+    framesBySelectionID[currentRequest.id] = nil
+    framesBySelectionID[replacement.id] = frame
+    return PlotterPointSelectionStage(
+      request: replacement,
+      projection: project(committed.state),
+      recordingDiagnostic: recorded.recordingDiagnostic
+    )
+  }
+
+  private func recordExactPointSelectionFrame(
+    _ frame: DisplayedFrame
+  ) async throws -> (
+    exactFrame: PlotterExactFrameReference,
+    observationID: PlotterObservationID,
+    recordingDiagnostic: String?
+  ) {
     let recorded = await record(frame)
     let exactFrame = frame.pointSelectionReference(
       artifact: recorded.artifact,
@@ -425,21 +493,7 @@ public actor PlotterPointSelectionRuntime {
       origin: .environment,
       artifacts: exactFrame.archivedBytes.map { [$0] } ?? []
     )
-    let request = PlotterPointSelectionRequest(
-      frame: exactFrame,
-      sourceObservationID: observationID,
-      presentationTransformRevision: presentationTransformRevision,
-      prompt: prompt,
-      purpose: purpose,
-      requiredPointCount: requiredPointCount
-    )
-    let committed = try await submitIntent(.pointSelection(.stage(request)))
-    framesBySelectionID[request.id] = frame
-    return PlotterPointSelectionStage(
-      request: request,
-      projection: project(committed.state),
-      recordingDiagnostic: recorded.diagnostic
-    )
+    return (exactFrame, observationID, recorded.diagnostic)
   }
 
   public func submit(
@@ -1066,6 +1120,7 @@ private struct CommittedPointSelectionEvent: Sendable {
 
 public enum PlotterPointSelectionRuntimeError: Error, Equatable, Sendable {
   case operationAttributionRefused
+  case replacementNotCurrent
 }
 
 private extension IntentDecision {

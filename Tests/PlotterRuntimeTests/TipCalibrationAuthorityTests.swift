@@ -34,6 +34,40 @@ struct TipCalibrationAuthorityTests {
     #expect(ambiguous.disposition.blacklistsPhysicalLocation)
   }
 
+  @Test("click evidence may cite a newer exact frame while legacy evidence falls back to reveal")
+  func clickFrameIsSeparateAndLegacyCompatible() throws {
+    let fixture = try TipAuthorityFixture()
+    let clickFrame = try fixture.replacementClickFrame(time: 450)
+    let replaced = try fixture.observation(
+      position: .positiveX,
+      exactClickFrame: clickFrame
+    )
+
+    #expect(replaced.click.exactFrame == clickFrame)
+    #expect(replaced.click.exactFrame?.frameID != replaced.revealEvidence.frame.frameID)
+    #expect(
+      replaced.click.exactFrame?.captureSessionID
+        != replaced.revealEvidence.frame.captureSessionID
+    )
+    #expect(
+      replaced.click.exactFrame?.cameraConfigurationID
+        != replaced.revealEvidence.frame.cameraConfigurationID
+    )
+    #expect(
+      replaced.click.exactFrame?.opticalConfiguration
+        == replaced.revealEvidence.frame.opticalConfiguration
+    )
+
+    let legacy = try fixture.observation(position: .negativeX)
+    let encodedLegacy = try JSONEncoder().encode(legacy)
+    let decodedLegacy = try JSONDecoder().decode(
+      ToolContactObservation.self,
+      from: encodedLegacy
+    )
+    #expect(decodedLegacy.click.exactFrame == nil)
+    #expect(decodedLegacy == legacy)
+  }
+
   @Test("Tool contact evidence retains cap-map extrapolation residual without gating acceptance")
   func toolContactObservationCapResidualIsDiagnostic() throws {
     let observation = try TipAuthorityFixture().observation(
@@ -663,6 +697,7 @@ struct TipAuthorityFixture {
     revealPositionResidualMM: Double = 0.01,
     capPredictionOffsetAtMark: Double = 2,
     paper: PaperContactPlaneRevision? = nil,
+    exactClickFrame: ExactTipCalibrationFrame? = nil,
     timeOffset: UInt64 = 0
   ) throws -> ToolContactObservation {
     let machinePoint = try machinePointOverride ?? calibrationPoint(position)
@@ -739,7 +774,8 @@ struct TipAuthorityFixture {
         point: click,
         pointingUncertaintyPixels: Vector2(dx: 1.5, dy: 1.5),
         timestamp: timestamp(500 + timeOffset),
-        presentationTransformRevision: PresentationTransformRevision()
+        presentationTransformRevision: PresentationTransformRevision(),
+        exactFrame: exactClickFrame
       ),
       capMapPredictionAtMark: Point2(
         x: preCap.point.x + capPredictionOffsetAtMark,
@@ -865,18 +901,30 @@ struct TipAuthorityFixture {
     )
   }
 
+  func replacementClickFrame(time: UInt64) throws -> ExactTipCalibrationFrame {
+    try frame(
+      id: "replacement-click",
+      hashCharacter: "d",
+      time: time,
+      captureSessionID: CameraCaptureSessionID(),
+      cameraConfigurationID: CameraConfigurationID()
+    )
+  }
+
   private func frame(
     id: String,
     hashCharacter: Character,
-    time: UInt64
+    time: UInt64,
+    captureSessionID: CameraCaptureSessionID? = nil,
+    cameraConfigurationID: CameraConfigurationID? = nil
   ) throws -> ExactTipCalibrationFrame {
     try ExactTipCalibrationFrame(
       frameID: FrameID(rawValue: id),
       frameSHA256: String(repeating: hashCharacter, count: 64),
       source: source,
-      captureSessionID: captureSession,
+      captureSessionID: captureSessionID ?? captureSession,
       opticalConfiguration: optical,
-      cameraConfigurationID: cameraConfigurationID,
+      cameraConfigurationID: cameraConfigurationID ?? self.cameraConfigurationID,
       captureNanoseconds: time,
       width: optical.width,
       height: optical.height,

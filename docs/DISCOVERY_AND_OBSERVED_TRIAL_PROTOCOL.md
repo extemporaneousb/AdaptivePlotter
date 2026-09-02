@@ -264,8 +264,16 @@ and camera-holdout authority.
    center. Require Pen Up, Idle, and final-MPos settlement.
 7. Capture one strictly newer exact frame and revalidate current camera/cap
    applicability once using the fifth controller-context probe. Publish one
-   final machine snapshot. Freeze that one frame unchanged for all four clicks.
-   Do not change viewport zoom, pan, fitted region, preferred zoom, or focus.
+   final machine snapshot and freeze that cap-bearing reveal frame as the first
+   exact click request. Do not change viewport zoom, pan, fitted region,
+   preferred zoom, or focus.
+8. After the operator clears the armature, **Capture New Click Frame** may be
+   used only while the current request has zero retained clicks. Reacquire
+   current connected Idle, Pen Up, no active controller operation, no sticky
+   ambiguity, unchanged attempt and paper, unchanged source and semantic
+   optical identity, and one strictly newer exact frame. Atomically supersede
+   the old request; do not move, actuate the Pen, redraw, retry automatically,
+   or fabricate another cap estimate. Preserve the original reveal evidence.
 
 If a chord, motion outcome, or Pen state after possible contact is stopped or
 ambiguous, blacklist the affected circle location on the current paper and
@@ -276,9 +284,11 @@ physical contact or ink; attended observation owns those claims.
 
 ### Unordered clicks, model construction, and acceptance
 
-1. Show all collected click markers and the count on the shared frozen frame.
-   Convert every presentation click through the exact inverse transform to
-   camera pixels and retain exact frame/provenance identity.
+1. Show all collected click markers and the count on the current shared frozen
+   click frame. Convert every presentation click through the exact inverse
+   transform to camera pixels and retain exact frame/provenance identity. Each
+   accepted click cites that exact frame; older persisted observations without
+   a separate click frame use their original reveal frame.
 2. Clicks may arrive in any order. After click four, project the four known
    corner machine positions through current `MachineCameraRegistration`. Center both
    projected and clicked point sets to remove their unknown common cap-to-tip
@@ -290,7 +300,8 @@ physical contact or ink; attended observation owns those claims.
    position order. Apply no distance or ambiguity threshold.
 4. **Undo Last Click** or **Clear Clicks on This Frame** changes same-frame
    click evidence only. It performs no motion, ink, redraw, capture, zoom, or
-   pan.
+   pan. **Capture New Click Frame** is available only at zero clicks; a partial
+   click set must be explicitly cleared before replacement.
 5. After click four, atomically create the four accepted observations. Fit one
    direct affine pen-tip calibration from all four first. Construct constant
    camera-pixel correction only if affine construction throws.

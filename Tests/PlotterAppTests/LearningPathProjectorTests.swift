@@ -310,9 +310,16 @@ struct PlotterLearningPresentationCompilerTests {
       (.marking(PlotterTipCalibrationOperationID()), 0,
         ["Drawing Four Calibration Circles…", "Cancel Attempt"]),
       (.awaitingCompletedPointSelection(try expectedTipSelection(frameID: "frame-1")), 0,
-        ["Cancel Attempt"]),
+        ["Capture New Click Frame", "Cancel Attempt"]),
+      (.capturingNewClickFrame(
+        PlotterTipCalibrationOperationID(),
+        try expectedTipSelection(frameID: "frame-1")
+      ), 0, ["Capturing New Click Frame…", "Cancel Attempt"]),
       (.awaitingCompletedPointSelection(try expectedTipSelection(frameID: "frame-1")), 2,
-        ["Undo Last Click", "Clear Clicks on This Frame", "Cancel Attempt"]),
+        [
+          "Capture New Click Frame", "Undo Last Click", "Clear Clicks on This Frame",
+          "Cancel Attempt",
+        ]),
       (.fitting(PlotterTipCalibrationOperationID(), PlotterPointSelectionID()), 4,
         ["Fitting Tip Calibration…", "Cancel Attempt"]),
       (.reviewingProposal, 4,

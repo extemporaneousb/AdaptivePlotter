@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "9b2ea5f4dcf5fb9e853dea91c12c2ebc94238821080352baf798fafd5a988747"
+EXPECTED_LEDGER_SHA256 = "71187530594ee1d2e5e250f864bcab99041b098264abc7f10d232056929fbea1"
 
 
 EXPECTED_GATES = {
@@ -237,6 +237,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "FIX-05",
     "GATE-01",
     "FIX-06",
+    "FIX-07",
 }
 
 TRANCHE_SLICES = {
@@ -2739,7 +2740,9 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "VAL-01 Exercise 1.4 click-frame handoff stopped — FIX-07 required",
         "`TASK-6FE05AAC`, attempt `TASK-6FE05AAC-1f89830e3bb5`",
         "Unified AVFoundation logs show the HD Pro Webcam C920 session stopped and restarted",
-        "`FIX-07` is the sole next ordinary correction package",
+        "`FIX-07` was the sole next ordinary correction package after this stopped attempt",
+        "FIX-07 explicit exact click-frame replacement",
+        "`TASK-EA60F469`, attempt `TASK-EA60F469-a83fe1fa0c15`",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3383,6 +3386,10 @@ def validate_wave_frontier(
             "GATE-01 Pilot continuation decision",
             "`TASK-5E431BE7`, attempt `TASK-5E431BE7-59658505ced4`",
             "episode Pilot gate passed: 9 predicates, 6 reduction metrics, 18 cutover scan sets",
+            "FIX-07 explicit exact click-frame replacement",
+            "`TASK-EA60F469`, attempt `TASK-EA60F469-a83fe1fa0c15`",
+            "`FIX-07` is complete as software/repository evidence",
+            "No attended camera click, controller, motion, Stop, paper, or observed-ink validation was performed by this task",
             "No ordinary software or gate package is eligible before `VAL-01`",
             "attended-physical authorization boundary, not a launchable wave",
             "`VAL-01` remains pending and requires separate attended-physical authorization",

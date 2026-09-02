@@ -216,6 +216,7 @@ public enum PlotterUILearningSparseState: Hashable, Sendable {
   case idle
   case drawingBatch
   case revealingBatch
+  case capturingClickFrame
   case awaitingFrozenClicks
   case fittingModel
   case reviewingModel
@@ -413,6 +414,7 @@ public enum PlotterUILearningSemanticAction: Hashable, Sendable {
   case discardCameraSamples
   case rejectCameraCalibration
   case drawSparseTipCircles(PlotterUILearningSparseState)
+  case captureNewSparseTipClickFrame(retainedPointCount: Int)
   case undoSparseTipClick
   case clearSparseTipClicks
   case revalidateTipCalibration
@@ -563,6 +565,7 @@ private extension PlotterUILearningSemanticAction {
       case .revealingBatch: "Capturing Calibration Reveal…"
       default: "Draw Four Calibration Circles"
       }
+    case .captureNewSparseTipClickFrame: "Capture New Click Frame"
     case .undoSparseTipClick: "Undo Last Click"
     case .clearSparseTipClicks: "Clear Clicks on This Frame"
     case .revalidateTipCalibration: "Revalidate Saved Pen-Tip Calibration"
@@ -579,6 +582,7 @@ private extension PlotterUILearningSemanticAction {
     switch self {
     case .applySavedLearning, .start, .restart,
       .runCameraCalibration, .acceptCameraCalibration, .drawSparseTipCircles,
+      .captureNewSparseTipClickFrame,
       .revalidateTipCalibration, .acceptTipCalibration, .retryTipCalibrationCommit,
       .paperReplaced, .acceptBorderValidation:
       .positive
@@ -1131,9 +1135,25 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       default: nil
       }
       return [.init(action: .drawSparseTipCircles(facts.sparseState), unavailableReason: reason)]
+    case .capturingClickFrame:
+      return [.init(
+        action: .captureNewSparseTipClickFrame(retainedPointCount: 0),
+        title: "Capturing New Click Frame…",
+        unavailableReason: "The strictly newer exact click frame is being captured and staged."
+      )]
     case .awaitingFrozenClicks:
-      return facts.sparseCollectedClickCount == 0 ? [] : [
-        .init(action: .undoSparseTipClick), .init(action: .clearSparseTipClicks),
+      let replacement = PlotterUILearningActionDecision(
+        action: .captureNewSparseTipClickFrame(
+          retainedPointCount: facts.sparseCollectedClickCount
+        ),
+        unavailableReason: facts.sparseCollectedClickCount == 0
+          ? nil
+          : "Clear every retained click before capturing a new click frame."
+      )
+      return facts.sparseCollectedClickCount == 0 ? [replacement] : [
+        replacement,
+        .init(action: .undoSparseTipClick),
+        .init(action: .clearSparseTipClicks),
       ]
     case .fittingModel:
       return [.init(

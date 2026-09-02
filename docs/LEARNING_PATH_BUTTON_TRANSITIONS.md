@@ -78,8 +78,9 @@ flowchart TD
   subgraph tip["1.4 Calibrate Pen Tip from Corner Marks"]
     s0["Ready<br/>Draw Four Calibration Circles"]
     s1["Automatic four-circle drawing and reveal<br/>busy action — disabled<br/>Stop replaces it during stoppable motion"]
-    s2["Frozen reveal frame; zero clicks<br/>Cancel Attempt"]
-    s2partial["Frozen reveal frame; one to three clicks<br/>Undo Last Click · Clear Clicks on This Frame<br/>Cancel Attempt"]
+    s2["Frozen current click frame; zero clicks<br/>Capture New Click Frame · Cancel Attempt"]
+    s2capture["Capturing strictly newer exact frame<br/>Capture New Click Frame… — disabled<br/>Cancel Attempt"]
+    s2partial["Frozen current click frame; one to three clicks<br/>Capture New Click Frame — disabled<br/>Undo Last Click · Clear Clicks on This Frame<br/>Cancel Attempt"]
     s3["Pen-tip calibration review<br/>Accept Pen-Tip Calibration · Undo Last Click<br/>Clear Clicks on This Frame · Reject Pen-Tip Calibration · Cancel Attempt"]
     sdone["1.4 complete<br/>Redo This Step"]
     scancel["Attempt settled without acceptance<br/>Restart Attempt"]
@@ -88,6 +89,8 @@ flowchart TD
     s1 -->|one final reveal frame| s2
     s1 -->|Stop before possible contact| scancel
     s1 -->|Stop or ambiguity after possible contact| spaper
+    s2 -->|Capture New Click Frame| s2capture
+    s2capture -->|atomic exact-request replacement| s2
     s2 -->|first valid point selection| s2partial
     s2partial -->|second or third valid point selection| s2partial
     s2partial -->|fourth valid point selection| s3

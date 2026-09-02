@@ -95,6 +95,47 @@ struct PlotterTipCalibrationEpisodeTests {
     #expect(await port.calls.count == 1)
   }
 
+  @Test("click-frame replacement requires zero retained points and preserves the prior request on failure")
+  func replacesClickFrameOnlyFromEmptySelection() async throws {
+    let initial = try makeExpectedSelection()
+    let replacement = PlotterTipCalibrationExpectedPointSelection(
+      selectionID: PlotterPointSelectionID(),
+      exactFrame: try makeFrame(frameID: "frame-2", captureNanoseconds: 43),
+      presentationTransformRevision: PlotterPresentationTransformRevision()
+    )
+    let port = TipPortFixture(responses: [
+      .completed(.markBatch(.init(
+        expectedSelection: initial,
+        controllerEvidenceIDs: [],
+        captureEvidenceIDs: []
+      ))),
+      .failed("replacement capture unavailable"),
+      .completed(.clickFrameReplaced(replacement)),
+    ])
+    let runtime = await PlotterTipCalibrationRuntime(effectPort: port)
+
+    #expect(await runtime.submit(.beginFourMarkBatch) == .completed)
+    #expect(
+      await runtime.submit(.captureNewClickFrame(retainedPointCount: 1))
+        == .refused("Clear every retained click before capturing a new click frame.")
+    )
+    #expect(
+      await runtime.submit(.captureNewClickFrame(retainedPointCount: 0))
+        == .failed("replacement capture unavailable")
+    )
+    var snapshot = await runtime.snapshot()
+    #expect(snapshot.expectedSelection == initial)
+    #expect(snapshot.phase == .awaitingCompletedPointSelection(initial))
+
+    #expect(
+      await runtime.submit(.captureNewClickFrame(retainedPointCount: 0)) == .completed
+    )
+    snapshot = await runtime.snapshot()
+    #expect(snapshot.expectedSelection == replacement)
+    #expect(snapshot.phase == .awaitingCompletedPointSelection(replacement))
+    #expect(await port.calls.map(callKind) == [.mark, .replace, .replace])
+  }
+
   @Test("stop closes admission and ignores a late cancelled effect")
   func stopClosesAdmissionBeforeCancellation() async throws {
     let expected = try makeExpectedSelection()
@@ -239,6 +280,7 @@ private actor CompletionProbe {
 private func callKind(_ request: PlotterTipCalibrationEffectRequest) -> TipCallKind {
   switch request {
   case .runFourMarkBatch: .mark
+  case .captureNewClickFrame: .replace
   case .fitProposal: .fit
   case .revalidateCheckpoint: .revalidate
   case .commitProposal(_, let isRetry): isRetry ? .retryCommit : .commit
@@ -246,7 +288,9 @@ private func callKind(_ request: PlotterTipCalibrationEffectRequest) -> TipCallK
   }
 }
 
-private enum TipCallKind: Equatable { case mark, fit, revalidate, commit, retryCommit, reject }
+private enum TipCallKind: Equatable {
+  case mark, replace, fit, revalidate, commit, retryCommit, reject
+}
 
 private extension PlotterTipCalibrationSubmissionOutcome {
   var isRefused: Bool {
@@ -263,13 +307,16 @@ private func makeExpectedSelection() throws -> PlotterTipCalibrationExpectedPoin
   )
 }
 
-private func makeFrame(frameID: String) throws -> PlotterExactFrameReference {
+private func makeFrame(
+  frameID: String,
+  captureNanoseconds: UInt64 = 42
+) throws -> PlotterExactFrameReference {
   .init(
     frameID: frameID,
     frameSHA256: String(repeating: "a", count: 64),
     source: .simulated,
     cameraConfigurationID: CameraConfigurationID(),
-    captureNanoseconds: 42,
+    captureNanoseconds: captureNanoseconds,
     sequence: 7,
     width: 640,
     height: 480,

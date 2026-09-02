@@ -56,6 +56,17 @@ public struct PlotterEpisodeReducer: EpisodeReducing {
           selectedPoints: [],
           phase: .collecting
         )
+      case let .pointSelection(.replace(currentSelectionID, replacement)):
+        if exactPointSelection.request?.id == currentSelectionID,
+          exactPointSelection.phase == .collecting,
+          exactPointSelection.selectedPoints.isEmpty
+        {
+          exactPointSelection = PlotterExactPointSelectionState(
+            request: replacement,
+            selectedPoints: [],
+            phase: .collecting
+          )
+        }
       case let .pointSelection(.select(submission)):
         if exactPointSelection.request?.id == submission.selectionID {
           let points = exactPointSelection.selectedPoints + [submission.point]

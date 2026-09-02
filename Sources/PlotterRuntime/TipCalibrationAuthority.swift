@@ -393,13 +393,17 @@ public struct ToolContactClickEvidence: Codable, Hashable, Sendable {
   public let pointingUncertaintyPixels: Vector2<CameraPixelSpace>
   public let timestamp: RuntimeTimestamp
   public let presentationTransformRevision: PresentationTransformRevision
+  /// Exact frame on which this click was admitted. Older persisted evidence
+  /// omitted this field and therefore uses the cap-bearing reveal frame.
+  public let exactFrame: ExactTipCalibrationFrame?
 
   public init(
     point: Point2<CameraPixelSpace>,
     role: ToolContactPointRole = .assertedCenter,
     pointingUncertaintyPixels: Vector2<CameraPixelSpace>,
     timestamp: RuntimeTimestamp,
-    presentationTransformRevision: PresentationTransformRevision
+    presentationTransformRevision: PresentationTransformRevision,
+    exactFrame: ExactTipCalibrationFrame? = nil
   ) throws {
     guard pointingUncertaintyPixels.dx > 0, pointingUncertaintyPixels.dy > 0 else {
       throw TipCalibrationAuthorityError.invalidPointingUncertainty
@@ -409,6 +413,7 @@ public struct ToolContactClickEvidence: Codable, Hashable, Sendable {
     self.pointingUncertaintyPixels = pointingUncertaintyPixels
     self.timestamp = timestamp
     self.presentationTransformRevision = presentationTransformRevision
+    self.exactFrame = exactFrame
   }
 }
 
@@ -624,6 +629,7 @@ public struct ToolContactObservation: Codable, Hashable, Sendable {
       from: intendedMarkPosition
     )
     let capResidual = capMapPredictionAtMark.distance(to: preMarkCapEstimate.point)
+    let clickFrame = click.exactFrame ?? revealEvidence.frame
     guard MachinePositionAcceptancePolicy.accepts(residualMM: markPositionResidual),
       MachinePositionAcceptancePolicy.accepts(
         markGeometry.center,
@@ -633,17 +639,20 @@ public struct ToolContactObservation: Codable, Hashable, Sendable {
       preMarkFrame.captureSessionID == revealEvidence.frame.captureSessionID,
       preMarkFrame.opticalConfiguration == revealEvidence.frame.opticalConfiguration,
       preMarkFrame.cameraConfigurationID == revealEvidence.frame.cameraConfigurationID,
+      clickFrame.source == revealEvidence.frame.source,
+      clickFrame.opticalConfiguration == revealEvidence.frame.opticalConfiguration,
       preMarkCapEstimate.source == preMarkFrame.source,
       preMarkCapEstimate.frameID == preMarkFrame.frameID,
       preMarkCapEstimate.cameraConfigurationID == preMarkFrame.cameraConfigurationID
     else { throw TipCalibrationAuthorityError.frameEvidenceMismatch }
-    guard click.point.x >= 0, click.point.x < Double(revealEvidence.frame.width),
-      click.point.y >= 0, click.point.y < Double(revealEvidence.frame.height)
+    guard click.point.x >= 0, click.point.x < Double(clickFrame.width),
+      click.point.y >= 0, click.point.y < Double(clickFrame.height)
     else { throw TipCalibrationAuthorityError.clickOutsideFrame }
     guard preMarkFrame.captureNanoseconds <= penDown.timestamp.monotonicNanoseconds,
       penDown.timestamp.monotonicNanoseconds <= penUp.timestamp.monotonicNanoseconds,
       penUp.timestamp.monotonicNanoseconds <= revealEvidence.settledAt.monotonicNanoseconds,
-      revealEvidence.frame.captureNanoseconds <= click.timestamp.monotonicNanoseconds
+      revealEvidence.frame.captureNanoseconds <= clickFrame.captureNanoseconds,
+      clickFrame.captureNanoseconds <= click.timestamp.monotonicNanoseconds
     else { throw TipCalibrationAuthorityError.invalidTemporalOrder }
     if disposition == .accepted {
       guard case .commandedAndSettled(command: .lower, commandedState: .down) = penDown.outcome,

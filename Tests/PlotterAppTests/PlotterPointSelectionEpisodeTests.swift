@@ -112,12 +112,14 @@ struct PlotterPointSelectionEpisodeTests {
         == first.request.presentationTransformRevision
     )
 
-    let replacement = try await runtime.stage(
-      frame: frame,
-      presentationTransformRevision: PlotterPresentationTransformRevision(),
-      prompt: "Select the replacement point",
-      purpose: .toolContact,
-      requiredPointCount: 1
+    let replacementFrame = try pointSelectionFrame(
+      id: "action-surface-replacement",
+      captureNanoseconds: frame.frame.captureNanoseconds + 1
+    )
+    let replacement = try await runtime.replace(
+      currentRequest: first.request,
+      with: replacementFrame,
+      presentationTransformRevision: PlotterPresentationTransformRevision()
     )
     let stale = try await runtime.submit(oldSubmission)
     guard case let .refused(staleProjection, staleReason) = stale else {
@@ -130,7 +132,7 @@ struct PlotterPointSelectionEpisodeTests {
     let currentSubmission = try #require(
       ExactFramePointSubmissionBuilder.submission(
         presentation: ActionSurfacePresentation(
-          displayedFrame: frame,
+          displayedFrame: replacementFrame,
           overlays: [],
           pointSelectionRequest: replacement.request
         ),
@@ -147,6 +149,54 @@ struct PlotterPointSelectionEpisodeTests {
       Issue.record("The current production-ingress submission must be admitted")
       return
     }
+  }
+
+  @Test("exact-frame replacement is atomic and requires an empty current request")
+  func replacementRequiresEmptyCurrentRequest() async throws {
+    let runtime = PlotterPointSelectionRuntime()
+    let initialFrame = try pointSelectionFrame(id: "replacement-initial")
+    let initial = try await runtime.stage(
+      frame: initialFrame,
+      presentationTransformRevision: PlotterPresentationTransformRevision(),
+      prompt: "Select two exact-frame points",
+      purpose: .toolContact,
+      requiredPointCount: 2
+    )
+    _ = try await runtime.submit(submission(for: initial.request, x: 2, y: 2))
+    let replacementFrame = try pointSelectionFrame(
+      id: "replacement-current",
+      captureNanoseconds: initialFrame.frame.captureNanoseconds + 1
+    )
+
+    await #expect(throws: PlotterPointSelectionRuntimeError.replacementNotCurrent) {
+      try await runtime.replace(
+        currentRequest: initial.request,
+        with: replacementFrame,
+        presentationTransformRevision: PlotterPresentationTransformRevision()
+      )
+    }
+    let retained = await runtime.currentProjection().exactPointSelection
+    #expect(retained.request == initial.request)
+    #expect(retained.selectedPoints.count == 1)
+
+    _ = try await runtime.clear(selectionID: initial.request.id)
+    let replacement = try await runtime.replace(
+      currentRequest: initial.request,
+      with: replacementFrame,
+      presentationTransformRevision: PlotterPresentationTransformRevision()
+    )
+    #expect(replacement.request.id != initial.request.id)
+    #expect(replacement.request.frame.captureNanoseconds > initial.request.frame.captureNanoseconds)
+    #expect(replacement.projection.exactPointSelection.selectedPoints.isEmpty)
+
+    let stale = try await runtime.submit(submission(for: initial.request, x: 3, y: 3))
+    guard case let .refused(projection, reason) = stale else {
+      Issue.record("The superseded request must refuse a stale click")
+      return
+    }
+    #expect(reason == "Use the currently presented point-selection request.")
+    #expect(projection.exactPointSelection.request == replacement.request)
+    #expect(projection.exactPointSelection.selectedPoints.isEmpty)
   }
 
   @Test("accepted point commits intent, observation, evidence, and projection")
@@ -766,6 +816,7 @@ private func pointSelectionFrame(
   id: String,
   source: FrameSourceIdentity = .simulated,
   configuration: CameraConfigurationID = CameraConfigurationID(),
+  captureNanoseconds: UInt64 = 10,
   red: UInt8 = 20,
   green: UInt8 = 80,
   blue: UInt8 = 220
@@ -778,7 +829,7 @@ private func pointSelectionFrame(
     frame: try StampedFrame(
       id: FrameID(rawValue: id),
       sequence: 1,
-      captureNanoseconds: 10,
+      captureNanoseconds: captureNanoseconds,
       cameraConfigurationID: configuration,
       width: width,
       height: height,

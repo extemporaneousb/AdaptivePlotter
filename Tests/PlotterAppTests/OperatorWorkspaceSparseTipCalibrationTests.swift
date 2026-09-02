@@ -133,9 +133,35 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
       sparseBatchEvents.last?.sparseTipProgress?.terminalDisposition == .completed
     )
     let surface = workspace.testActionSurfacePresentation
-    let request = try #require(surface.pointSelectionRequest)
+    let revealRequest = try #require(surface.pointSelectionRequest)
     #expect(surface.viewportContext?.preferredInitialZoom == 0)
     #expect((await harness.simulator.snapshot()).persistentInkSegmentCount == 64)
+    let beforeReplacement = await harness.simulator.snapshot()
+    try requireEnabledPublicAction(
+      .tipCalibration(.captureNewClickFrame(retainedPointCount: 0)),
+      owner: tipOwner,
+      workspace: workspace
+    )
+    await workspace.performTestExerciseAction(
+      .tipCalibration(.captureNewClickFrame(retainedPointCount: 0)),
+      for: tipOwner
+    )
+    let request = try #require(
+      workspace.testActionSurfacePresentation.pointSelectionRequest,
+      "replacement error: \(workspace.explorationError ?? "none")"
+    )
+    let afterReplacement = await harness.simulator.snapshot()
+    #expect(request.id != revealRequest.id)
+    #expect(request.frame.frameID != revealRequest.frame.frameID)
+    #expect(request.frame.captureNanoseconds > revealRequest.frame.captureNanoseconds)
+    #expect(workspace.selectedToolContactPoints.isEmpty)
+    #expect(afterReplacement.mpos == beforeReplacement.mpos)
+    #expect(afterReplacement.penPose == .up)
+    #expect(afterReplacement.currentOperation == nil)
+    #expect(
+      afterReplacement.persistentInkSegmentCount
+        == beforeReplacement.persistentInkSegmentCount
+    )
     let registration = try #require(workspace.machineCameraRegistration)
     let truthOffset = await harness.simulator.capToTipPixelOffsetTruth()
     let batch = try SparseTipBatchMarkPlan(
@@ -157,6 +183,12 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
     )
     let revealFrameIDs = Set(observations.map { $0.revealEvidence.frame.frameID })
     #expect(revealFrameIDs.count == 1)
+    #expect(revealFrameIDs == [FrameID(rawValue: revealRequest.frame.frameID)])
+    #expect(
+      Set(observations.compactMap { $0.click.exactFrame?.frameID })
+        == [FrameID(rawValue: request.frame.frameID)]
+    )
+    #expect(observations.allSatisfy { $0.click.exactFrame?.frameID != $0.revealEvidence.frame.frameID })
     #expect(Set(observations.map(\.revealEvidence)).count == 1)
     #expect(Set(observations.map(\.attemptID)).count == 1)
     #expect(Set(observations.map(\.operationID)).count == 4)

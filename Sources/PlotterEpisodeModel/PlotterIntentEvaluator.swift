@@ -370,6 +370,55 @@ public enum PlotterPointSelectionIntentRules {
           remedy: "Freeze a valid exact frame before starting point selection."
         ),
       ]
+    case let .replace(currentSelectionID, replacement):
+      let current = state.exactPointSelection.request
+      let frameIsValid = !replacement.frame.frameID.isEmpty
+        && replacement.frame.frameSHA256.count == 64
+        && replacement.frame.frameSHA256.allSatisfy(\.isHexDigit)
+        && replacement.frame.width > 0
+        && replacement.frame.height > 0
+        && replacement.frame.rowBytes > 0
+        && replacement.requiredPointCount > 0
+        && replacement.id != currentSelectionID
+        && replacement.frame.captureNanoseconds > (current?.frame.captureNanoseconds ?? .max)
+        && replacement.prompt == current?.prompt
+        && replacement.purpose == current?.purpose
+        && replacement.requiredPointCount == current?.requiredPointCount
+      return [
+        episodeOpen(state),
+        stateRequirement(
+          .learningEnabled,
+          isSatisfied: state.learningIsEnabled,
+          remedy: "Turn Learning on before replacing a point-selection frame."
+        ),
+        PlotterIntentRequirementEvaluation(
+          requirement: .exactSelectionCurrent,
+          owner: PlotterRequirementOwner.pointSelection,
+          comparedCapabilityFacts: [],
+          isSatisfied: current?.id == currentSelectionID,
+          remedy: "Replace only the currently presented point-selection request."
+        ),
+        PlotterIntentRequirementEvaluation(
+          requirement: .exactSelectionHasCapacity,
+          owner: PlotterRequirementOwner.pointSelection,
+          comparedCapabilityFacts: [],
+          isSatisfied: state.exactPointSelection.phase == .collecting
+            && state.exactPointSelection.selectedPoints.isEmpty,
+          remedy: "Clear every retained point before replacing the exact frame."
+        ),
+        stateRequirement(
+          .sourceObservationRecorded,
+          isSatisfied: state.observationIDs.contains(replacement.sourceObservationID),
+          remedy: "Capture and commit the replacement source observation before presenting it."
+        ),
+        PlotterIntentRequirementEvaluation(
+          requirement: .exactSelectionRequestValid,
+          owner: PlotterRequirementOwner.pointSelection,
+          comparedCapabilityFacts: [],
+          isSatisfied: frameIsValid,
+          remedy: "Present one strictly newer exact frame for the same point-selection purpose."
+        ),
+      ]
     case let .select(submission):
       let request = state.exactPointSelection.request
       return [

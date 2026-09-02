@@ -39,15 +39,16 @@ the staged point-selection request. The frozen-frame behavior is intentional
 for exact click provenance; the missing operator-admitted replacement transition
 is the defect.
 
-`FIX-07` is the sole next ordinary correction package. It must preserve the
+`FIX-07` was the sole next ordinary correction package after this stopped
+attempt. It had to preserve the
 original physical mark/reveal evidence and exact-frame refusal rules while
 adding **Capture New Click Frame**: current Idle/Pen Up and unchanged optical
 identity are reacquired, zero retained clicks is required, and one strictly
 newer exact frame atomically replaces the request. The accepted click evidence
 must cite that independently exact frame. The action performs no motion, Pen
-command, redraw, or automatic refresh. `VAL-01` is dependency-ineligible until
-FIX-07 is complete and a corrected signed build exists; migration remains
-incomplete.
+command, redraw, or automatic refresh. At this evidence boundary `VAL-01` was
+dependency-ineligible until FIX-07 completed and a corrected signed build
+existed; migration remained incomplete.
 
 This repository correction is Blackdog task `TASK-6FE05AAC`, attempt
 `TASK-6FE05AAC-1f89830e3bb5`; it performs no controller, camera, Pen, motion, or
@@ -57,6 +58,54 @@ remote-Git effect and changes no product Source or Swift Test.
 | --- | --- | --- |
 | `DOC` | passed — `make docs-check` | failed/incomplete frame-handoff evidence, FIX-07 ledger/dependency insertion, checker hash, and capsule frontier fixtures |
 | `DIFF` | passed — `git diff --check`; no output | repository-only correction |
+
+## FIX-07 explicit exact click-frame replacement
+
+Blackdog task `TASK-EA60F469`, attempt `TASK-EA60F469-a83fe1fa0c15`, implements
+the missing semantic transition without changing physical operation authority:
+
+- `PlotterTipCalibrationRuntime` owns `captureNewClickFrame(retainedPointCount:)`
+  and admits it only from the current awaiting-selection phase at count zero;
+- `PlotterPointSelectionRuntime.replace` records the candidate while the old
+  request remains current, then one reducer event atomically supersedes the
+  request only if the exact identity and empty collecting state still match;
+- the App lower adapter reacquires connected Idle, Pen Up, no controller
+  operation, no sticky ambiguity, unchanged attempt/paper/source/semantic
+  optical identity, and a strictly newer exact frame before replacement;
+- `ToolContactClickEvidence.exactFrame` records the click frame independently
+  of the immutable cap-bearing reveal; missing legacy fields decode as `nil`
+  and the authority validates those clicks against the original reveal frame;
+- the sole projected **Capture New Click Frame** action is enabled at zero
+  clicks, visibly disabled for partial click sets, and produces no motion, Pen
+  command, redraw, automatic retry, or fabricated cap evidence.
+
+The causal-simulator application suite proved that replacement changes request,
+frame, and presentation identities while preserving MPos, Pen Up, idle
+controller state, the 64 existing circle segments, original reveal evidence,
+and zero retained clicks. This is software/simulator evidence only; it does not
+prove a live camera refresh, attended click, controller, Stop, paper, contact,
+or observed-ink outcome. `VAL-01` remains pending.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build` | package and application composition |
+| `TIP-CAL` | passed — 8 tests | replacement admission, failure rollback, terminal ownership |
+| `POINT` | passed — 12 tests | atomic supersession, partial-click refusal, stale predecessor refusal |
+| `UI` | passed — 19 tests | sole projected action, busy state, partial-click remedy |
+| `ARTIFACT-RESET` | passed — 12 tests | reset invalidation and retained-artifact boundary |
+| `DOC` | passed — `make docs-check` | contract, architecture, checker, and capsule frontier |
+| `DIFF` | passed — `git diff --check`; no output | exact final task candidate |
+| `QUICK` | passed — 827 tests | aggregate software regression suite |
+| `JOURNEY` | passed — 10 tests | serialized causal journeys and reset ownership |
+| `STRICT` | passed — 837 Swift tests plus strict-concurrency, signing, launcher, negative-bundle, and documentation checks | exact final candidate; no physical claim |
+| focused tip authority | passed — 17 tests | separate click frame, capture-session/configuration change, legacy decode fallback |
+| focused sparse App | passed — 8 tests | causal no-motion/no-Pen/no-new-ink replacement and preserved reveal evidence |
+
+`FIX-07` is complete as software/repository evidence. No attended camera click,
+controller, motion, Stop, paper, or observed-ink validation was performed by
+this task. No ordinary software or gate package is eligible before `VAL-01`.
+That row is an attended-physical authorization boundary, not a launchable wave;
+`VAL-01` remains pending and requires separate attended-physical authorization.
 
 ## VAL-01 attended run stopped in section 1 — PHYSICAL-FINAL failed
 
@@ -2816,7 +2865,7 @@ execution-plan ledger. Gate names match each package's required gates exactly,
 and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
 stale task-local candidates. FIX-03, DOC-03, the later tranches, EA-11C,
-FIX-05, GATE-01, and FIX-06 have final completion evidence; `VAL-01` remains
+FIX-05, GATE-01, FIX-06, and FIX-07 have final completion evidence; `VAL-01` remains
 pending at the attended-physical authorization boundary.
 Detailed scope and limitations remain in the named evidence sections.
 
@@ -2861,6 +2910,7 @@ Detailed scope and limitations remain in the named evidence sections.
 | FIX-05 | `TASK-2BF894FC` | `BUILD=passed`, `COMPOSITION=passed`, `PILOT-METRICS=passed`, `AFFECTED-CONSUMERS=passed`, `DELETE=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `STRICT=passed` | FIX-05 root authority and Pilot-metric correction |
 | GATE-01 | `TASK-5E431BE7` | `DOC=passed`, `DIFF=passed`, `PILOT=passed` | GATE-01 Pilot continuation decision |
 | FIX-06 | `TASK-4194B778` | `BUILD=passed`, `BOUNDARY=passed`, `POINT=passed`, `UI=passed`, `ARTIFACT-RESET=passed`, `DRAW-RUN=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-06 external-fact currentness correction |
+| FIX-07 | `TASK-EA60F469` | `BUILD=passed`, `TIP-CAL=passed`, `POINT=passed`, `UI=passed`, `ARTIFACT-RESET=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-07 explicit exact click-frame replacement |
 
 ## Wave admission blockers
 
@@ -2878,11 +2928,13 @@ correction. `TRANCHE-LEARNING` landed, and
 `TRANCHE-FINAL-COMPOSITION` subsequently completed through `TASK-FFD5D897`, and
 FIX-05 completed through `TASK-2BF894FC`, attempt
 `TASK-2BF894FC-06f14a3e1a5b`, GATE-01 completed through `TASK-5E431BE7`,
-attempt `TASK-5E431BE7-59658505ced4`, and FIX-06 completed through
-`TASK-4194B778`, attempt `TASK-4194B778-238b4ef7adb1`. The incomplete Exercise
-1.4 frame-handoff observation makes pending software package `FIX-07` the sole
-ordinary frontier before `VAL-01`. Current Evidence adds no separate blocker to
-that package. No later successor dispatch is authorized here.
+attempt `TASK-5E431BE7-59658505ced4`, FIX-06 completed through
+`TASK-4194B778`, attempt `TASK-4194B778-238b4ef7adb1`, and FIX-07 completed
+through `TASK-EA60F469`, attempt `TASK-EA60F469-a83fe1fa0c15`. No ordinary
+software or gate package is eligible before `VAL-01`. The current frontier is
+an attended-physical authorization boundary, not a launchable wave. Current
+Evidence adds no separate blocker. No later successor dispatch is authorized
+here.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

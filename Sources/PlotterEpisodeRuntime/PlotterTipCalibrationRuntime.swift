@@ -123,6 +123,7 @@ public struct PlotterTipCalibrationPossibleInkFact: Hashable, Sendable {
 
 public enum PlotterTipCalibrationIntent: Hashable, Sendable {
   case beginFourMarkBatch
+  case captureNewClickFrame(retainedPointCount: Int)
   case consumeCompletedPointSelection(PlotterTipCalibrationCompletedPointSelection)
   case revalidateCheckpoint
   case acceptProposal
@@ -134,6 +135,10 @@ public enum PlotterTipCalibrationPhase: Hashable, Sendable {
   case idle
   case marking(PlotterTipCalibrationOperationID)
   case awaitingCompletedPointSelection(PlotterTipCalibrationExpectedPointSelection)
+  case capturingNewClickFrame(
+    PlotterTipCalibrationOperationID,
+    PlotterTipCalibrationExpectedPointSelection
+  )
   case fitting(PlotterTipCalibrationOperationID, PlotterPointSelectionID)
   case reviewingProposal
   case revalidating(PlotterTipCalibrationOperationID)
@@ -154,6 +159,10 @@ public enum PlotterTipCalibrationSubmissionOutcome: Hashable, Sendable {
 /// the runtime owns admission and all semantic transitions.
 public enum PlotterTipCalibrationEffectRequest: Hashable, Sendable {
   case runFourMarkBatch(operationID: PlotterTipCalibrationOperationID)
+  case captureNewClickFrame(
+    operationID: PlotterTipCalibrationOperationID,
+    expectedSelection: PlotterTipCalibrationExpectedPointSelection
+  )
   case fitProposal(operationID: PlotterTipCalibrationOperationID, batch: PlotterTipCalibrationCompletedPointSelection)
   case revalidateCheckpoint(operationID: PlotterTipCalibrationOperationID)
   case commitProposal(operationID: PlotterTipCalibrationOperationID, isRetry: Bool)
@@ -162,6 +171,7 @@ public enum PlotterTipCalibrationEffectRequest: Hashable, Sendable {
 
 public enum PlotterTipCalibrationEffectFact: Hashable, Sendable {
   case markBatch(PlotterTipCalibrationMarkBatchFact)
+  case clickFrameReplaced(PlotterTipCalibrationExpectedPointSelection)
   case proposal(PlotterTipCalibrationRetainedDomainEvidence)
   case revalidated(TipCameraRegistration)
   case committed(TipCameraRegistration)
@@ -349,6 +359,9 @@ public final class PlotterTipCalibrationRuntime {
   private func validatesAdmission(_ intent: PlotterTipCalibrationIntent) -> Bool {
     switch intent {
     case .beginFourMarkBatch: phase == .idle
+    case .captureNewClickFrame(let retainedPointCount):
+      retainedPointCount == 0
+        && expectedSelection.map { phase == .awaitingCompletedPointSelection($0) } == true
     case .consumeCompletedPointSelection(let batch): validates(batch)
     case .revalidateCheckpoint:
       recoverableCheckpoint != nil && activeOperationID == nil
@@ -364,6 +377,11 @@ public final class PlotterTipCalibrationRuntime {
   ) -> PlotterTipCalibrationEffectRequest {
     switch intent {
     case .beginFourMarkBatch: .runFourMarkBatch(operationID: operationID)
+    case .captureNewClickFrame:
+      .captureNewClickFrame(
+        operationID: operationID,
+        expectedSelection: expectedSelection!
+      )
     case .consumeCompletedPointSelection(let batch): .fitProposal(operationID: operationID, batch: batch)
     case .revalidateCheckpoint: .revalidateCheckpoint(operationID: operationID)
     case .acceptProposal: .commitProposal(operationID: operationID, isRetry: false)
@@ -378,6 +396,8 @@ public final class PlotterTipCalibrationRuntime {
   ) -> PlotterTipCalibrationPhase {
     switch intent {
     case .beginFourMarkBatch: .marking(operationID)
+    case .captureNewClickFrame:
+      .capturingNewClickFrame(operationID, expectedSelection!)
     case .consumeCompletedPointSelection(let batch): .fitting(operationID, batch.selectionID)
     case .revalidateCheckpoint: .revalidating(operationID)
     case .acceptProposal: .committing(operationID, isRetry: false)
@@ -413,6 +433,16 @@ public final class PlotterTipCalibrationRuntime {
       completedSelection = nil
       retainedDomainEvidence = nil
       phase = .awaitingCompletedPointSelection(markBatch.expectedSelection)
+      return .completed
+    case (.captureNewClickFrame, .clickFrameReplaced(let replacement)):
+      guard let prior = expectedSelection,
+        replacement.selectionID != prior.selectionID,
+        replacement.exactFrame.captureNanoseconds > prior.exactFrame.captureNanoseconds
+      else { return factMismatch(intent) }
+      expectedSelection = replacement
+      completedSelection = nil
+      retainedDomainEvidence = nil
+      phase = .awaitingCompletedPointSelection(replacement)
       return .completed
     case (.consumeCompletedPointSelection(let batch), .proposal(let evidence)):
       guard validates(batch) else { return factMismatch(intent) }
@@ -452,6 +482,8 @@ public final class PlotterTipCalibrationRuntime {
   private func stablePhase(after intent: PlotterTipCalibrationIntent) -> PlotterTipCalibrationPhase {
     switch intent {
     case .beginFourMarkBatch: .idle
+    case .captureNewClickFrame:
+      expectedSelection.map { .awaitingCompletedPointSelection($0) } ?? .idle
     case .consumeCompletedPointSelection: expectedSelection.map { .awaitingCompletedPointSelection($0) } ?? .idle
     case .revalidateCheckpoint: acceptedRegistration == nil ? .idle : .accepted
     case .acceptProposal, .retryCommit, .rejectProposal:
@@ -469,6 +501,10 @@ public final class PlotterTipCalibrationRuntime {
 
   private func refusalReason(for intent: PlotterTipCalibrationIntent) -> String {
     switch intent {
+    case .captureNewClickFrame(let retainedPointCount):
+      retainedPointCount == 0
+        ? "A new click frame requires the current exact point-selection request."
+        : "Clear every retained click before capturing a new click frame."
     case .consumeCompletedPointSelection:
       "The completed point-selection batch must match the current exact frame, selection identity, transform, and four-point requirement."
     case .revalidateCheckpoint:

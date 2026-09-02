@@ -414,6 +414,7 @@ private struct SparseTipPenUpAuthorization: Hashable, Sendable {
 
 private struct PendingToolContactEvidence: Sendable {
   let attemptID: ExerciseAttemptID
+  let paperInstance: PaperInstanceRevision
   let operationID: ToolContactOperationID
   let position: ToolContactCalibrationPosition
   let intendedMarkPosition: MachinePosition
@@ -1481,6 +1482,7 @@ final class PlotterApplicationRuntime:
   private(set) var frozenPointSelectionFrame: DisplayedFrame? {
     didSet { invalidateActionSurfacePresentation() }
   }
+  private var pendingToolContactClickFrame: ExactTipCalibrationFrame?
   private var pendingToolContactEvidence: [PendingToolContactEvidence] = []
   var pointSelectionRequest: PlotterPointSelectionRequest? {
     guard pointSelectionEpisodeProjection.exactPointSelection.phase == .collecting else {
@@ -5776,6 +5778,7 @@ final class PlotterApplicationRuntime:
       )
       installPointSelectionProjection(staged.projection)
       pendingToolContactEvidence = []
+      pendingToolContactClickFrame = nil
       frozenPointSelectionFrame = frame
       pointSelectionRecordingDiagnostic =
         staged.recordingDiagnostic ?? pointSelectionRecordingDiagnostic
@@ -6651,6 +6654,7 @@ final class PlotterApplicationRuntime:
         }
         frozenPointSelectionFrame = nil
         pendingToolContactEvidence = []
+        pendingToolContactClickFrame = nil
         discoveryError = nil
         try await pointSelectionRuntime.beginPenCapContinuation(
           selectionID: submission.selectionID,
@@ -6738,6 +6742,7 @@ final class PlotterApplicationRuntime:
     guard let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id else {
       frozenPointSelectionFrame = nil
       pendingToolContactEvidence = []
+      pendingToolContactClickFrame = nil
       return
     }
     installPointSelectionProjection(
@@ -6745,6 +6750,7 @@ final class PlotterApplicationRuntime:
     )
     frozenPointSelectionFrame = nil
     pendingToolContactEvidence = []
+    pendingToolContactClickFrame = nil
   }
 
   private func drawSparseTipCircles() async throws -> PlotterTipCalibrationMarkBatchFact {
@@ -7083,6 +7089,9 @@ final class PlotterApplicationRuntime:
       let pendingEvidence = drawnEvidence.map { drawn in
         PendingToolContactEvidence(
           attemptID: drawn.attemptID,
+          paperInstance: PaperInstanceRevision(
+            rawValue: explorationPaperInstanceRevision
+          ),
           operationID: drawn.operationID,
           position: drawn.position,
           intendedMarkPosition: drawn.intendedMarkPosition,
@@ -7111,6 +7120,7 @@ final class PlotterApplicationRuntime:
       )
       installPointSelectionProjection(staged.projection)
       pendingToolContactEvidence = pendingEvidence
+      pendingToolContactClickFrame = exactRevealFrame
       frozenPointSelectionFrame = revealCapture.displayedFrame
       pointSelectionRecordingDiagnostic =
         staged.recordingDiagnostic ?? pointSelectionRecordingDiagnostic
@@ -7512,6 +7522,147 @@ final class PlotterApplicationRuntime:
     proposedTipCameraRegistration = nil
   }
 
+  private func captureNewSparseTipClickFrame(
+    expectedSelection: PlotterTipCalibrationExpectedPointSelection
+  ) async throws -> PlotterTipCalibrationExpectedPointSelection {
+    let ownerID = LearningPathItemID.humanGuidedDiscovery(
+      .calibratePenContactFromSparseMarks
+    )
+    guard activeExerciseAttemptOwnerID == ownerID,
+      let attemptID = activeExerciseAttemptID,
+      let currentRequest = pointSelectionEpisodeProjection.exactPointSelection.request,
+      pointSelectionEpisodeProjection.exactPointSelection.phase == .collecting,
+      pointSelectionEpisodeProjection.exactPointSelection.selectedPoints.isEmpty,
+      currentRequest.id == expectedSelection.selectionID,
+      currentRequest.frame == expectedSelection.exactFrame,
+      currentRequest.presentationTransformRevision
+        == expectedSelection.presentationTransformRevision,
+      currentRequest.purpose == .toolContact,
+      pendingToolContactEvidence.count == PlotterTipCalibrationRuntime.requiredPointCount,
+      pendingToolContactEvidence.allSatisfy({ evidence in
+        evidence.attemptID == attemptID
+          && evidence.paperInstance.rawValue == explorationPaperInstanceRevision
+      }),
+      let priorClickFrame = pendingToolContactClickFrame,
+      let priorDisplayedFrame = frozenPointSelectionFrame,
+      exactTipClickFrame(priorClickFrame, matches: currentRequest.frame),
+      priorDisplayedFrame.frame.id == priorClickFrame.frameID
+    else {
+      throw LearningPathOperationError.requiredState(
+        "Capture New Click Frame requires the current empty four-mark point-selection request, unchanged Learning attempt, and unchanged paper."
+      )
+    }
+
+    try await requireCurrentSettledPenUpForClickFrameReplacement()
+    let replacementDisplayedFrame = try await captureProtocolFrame(
+      newerThan: max(
+        priorClickFrame.captureNanoseconds,
+        priorDisplayedFrame.frame.captureNanoseconds
+      )
+    )
+    let replacementClickFrame = try exactTipCalibrationFrame(replacementDisplayedFrame)
+    guard replacementClickFrame.captureNanoseconds > priorClickFrame.captureNanoseconds,
+      replacementClickFrame.frameID != priorClickFrame.frameID,
+      replacementClickFrame.source == priorClickFrame.source,
+      replacementClickFrame.opticalConfiguration == priorClickFrame.opticalConfiguration
+    else {
+      throw LearningPathOperationError.requiredState(
+        "The camera owner did not publish a strictly newer frame with the same source and semantic optical identity."
+      )
+    }
+
+    // Every await above is a reentrancy boundary. Reacquire both controller
+    // truth and the point-selection/paper identities immediately before the
+    // atomic supersession.
+    try await requireCurrentSettledPenUpForClickFrameReplacement()
+    guard activeExerciseAttemptOwnerID == ownerID,
+      activeExerciseAttemptID == attemptID,
+      pointSelectionEpisodeProjection.exactPointSelection.request == currentRequest,
+      pointSelectionEpisodeProjection.exactPointSelection.phase == .collecting,
+      pointSelectionEpisodeProjection.exactPointSelection.selectedPoints.isEmpty,
+      pendingToolContactEvidence.allSatisfy({ evidence in
+        evidence.attemptID == attemptID
+          && evidence.paperInstance.rawValue == explorationPaperInstanceRevision
+      })
+    else {
+      throw LearningPathOperationError.requiredState(
+        "The click-frame request, Learning attempt, or paper changed before replacement could be committed."
+      )
+    }
+
+    let staged = try await pointSelectionRuntime.replace(
+      currentRequest: currentRequest,
+      with: replacementDisplayedFrame,
+      presentationTransformRevision: PlotterPresentationTransformRevision()
+    )
+    let replacement = PlotterTipCalibrationExpectedPointSelection(
+      selectionID: staged.request.id,
+      exactFrame: staged.request.frame,
+      presentationTransformRevision: staged.request.presentationTransformRevision
+    )
+    guard exactTipClickFrame(replacementClickFrame, matches: staged.request.frame) else {
+      throw LearningPathOperationError.requiredState(
+        "The staged point-selection request did not retain the captured replacement-frame identity."
+      )
+    }
+    installPointSelectionProjection(staged.projection)
+    pendingToolContactClickFrame = replacementClickFrame
+    frozenPointSelectionFrame = replacementDisplayedFrame
+    pointSelectionRecordingDiagnostic =
+      staged.recordingDiagnostic ?? pointSelectionRecordingDiagnostic
+    explorationError = nil
+    return replacement
+  }
+
+  private func requireCurrentSettledPenUpForClickFrameReplacement() async throws {
+    if frameMode == .simulated {
+      let snapshot = await simulatedLearningRuntime.snapshot()
+      guard snapshot.session == .connected,
+        snapshot.currentOperation == nil,
+        snapshot.stickyAmbiguity == nil,
+        snapshot.penPose == .up
+      else {
+        throw LearningPathOperationError.requiredState(
+          "The simulated controller did not publish current connected, idle, unambiguous Pen-Up state."
+        )
+      }
+      simulatedLearningSnapshot = snapshot
+      return
+    }
+    guard let snapshot = await refreshControllerSessionSnapshot(),
+      snapshot.currentOperation == .idle,
+      snapshot.machine.connection == .connected,
+      snapshot.machine.controllerState == .idle,
+      !snapshot.machine.operationInFlight,
+      snapshot.machine.stickyAmbiguity == nil,
+      snapshot.machine.penState == .up
+    else {
+      throw LearningPathOperationError.requiredState(
+        "The controller-session owner did not publish current connected, idle, unambiguous Pen-Up state."
+      )
+    }
+  }
+
+  private func exactTipClickFrame(
+    _ clickFrame: ExactTipCalibrationFrame,
+    matches selectionFrame: PlotterExactFrameReference
+  ) -> Bool {
+    let sourceMatches: Bool = switch (clickFrame.source, selectionFrame.source) {
+    case (.simulated, .simulated): true
+    case (.live(let deviceID), .live(let selectionDeviceID)):
+      deviceID.rawValue == selectionDeviceID
+    default: false
+    }
+    return sourceMatches
+      && clickFrame.frameID.rawValue == selectionFrame.frameID
+      && clickFrame.frameSHA256 == selectionFrame.frameSHA256
+      && clickFrame.cameraConfigurationID == selectionFrame.cameraConfigurationID
+      && clickFrame.captureNanoseconds == selectionFrame.captureNanoseconds
+      && clickFrame.width == selectionFrame.width
+      && clickFrame.height == selectionFrame.height
+      && clickFrame.pixelFormat.rawValue == selectionFrame.pixelFormat.rawValue
+  }
+
   private func acceptSparseTipBatchClicks(
     batch: PlotterTipCalibrationCompletedPointSelection
   ) throws -> PlotterTipCalibrationRetainedDomainEvidence {
@@ -7527,7 +7678,13 @@ final class PlotterApplicationRuntime:
         for: .machineCameraRegistration
       )?.id,
       let attemptID = activeExerciseAttemptID,
-      let optical = pendingToolContactEvidence.first?.revealEvidence.frame.opticalConfiguration
+      let optical = pendingToolContactEvidence.first?.revealEvidence.frame.opticalConfiguration,
+      let exactClickFrame = pendingToolContactClickFrame,
+      exactTipClickFrame(exactClickFrame, matches: batch.exactFrame),
+      pendingToolContactEvidence.allSatisfy({ evidence in
+        evidence.attemptID == attemptID
+          && evidence.paperInstance.rawValue == explorationPaperInstanceRevision
+      })
     else {
       throw LearningPathOperationError.requiredState(
         "Pen-tip calibration fitting requires four pending marks, four clicks, and accepted machine-camera registration."
@@ -7550,7 +7707,7 @@ final class PlotterApplicationRuntime:
     let clickTimestamp = RuntimeTimestamp(
       monotonicNanoseconds: max(
         nowNanoseconds(),
-        (pendingToolContactEvidence.first?.revealEvidence.frame.captureNanoseconds ?? 0) + 1
+        exactClickFrame.captureNanoseconds + 1
       )
     )
     var graph = learningArtifactGraph
@@ -7565,7 +7722,8 @@ final class PlotterApplicationRuntime:
         point: association.clickedCameraPoint,
         pointingUncertaintyPixels: Vector2(dx: 1.5, dy: 1.5),
         timestamp: clickTimestamp,
-        presentationTransformRevision: presentationRevision
+        presentationTransformRevision: presentationRevision,
+        exactFrame: exactClickFrame
       )
       let observation = try ToolContactObservation(
         attemptID: pending.attemptID,
@@ -7699,6 +7857,7 @@ final class PlotterApplicationRuntime:
       restoreInteractiveLearningCompletionFromEvidence()
       frozenPointSelectionFrame = nil
       pendingToolContactEvidence = []
+      pendingToolContactClickFrame = nil
       Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
       persistAcceptedLearningPathCheckpoint(tipCalibration: checkpoint, clearStageFour: true)
       finishActiveExerciseAttempt(disposition: .succeeded)
@@ -8247,6 +8406,7 @@ final class PlotterApplicationRuntime:
       if !target, !projection.learningIsEnabled {
         frozenPointSelectionFrame = nil
         pendingToolContactEvidence = []
+        pendingToolContactClickFrame = nil
         if let pointSelectionOwner,
           retainedExactOwner,
           let pointSelectionOwnerID = activeExerciseAttemptOwnerID
@@ -10519,6 +10679,7 @@ final class PlotterApplicationRuntime:
     if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction) {
       frozenPointSelectionFrame = nil
       pendingToolContactEvidence = []
+      pendingToolContactClickFrame = nil
       Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
     }
     if activeExerciseAttemptOwnerID
@@ -10526,6 +10687,7 @@ final class PlotterApplicationRuntime:
     {
       frozenPointSelectionFrame = nil
       pendingToolContactEvidence = []
+      pendingToolContactClickFrame = nil
       Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
     }
     currentEnvironmentState.exerciseAttempt.finish()
@@ -11271,6 +11433,7 @@ final class PlotterApplicationRuntime:
     resetTipCalibrationRuntimeForCurrentPaper()
     frozenPointSelectionFrame = nil
     pendingToolContactEvidence = []
+    pendingToolContactClickFrame = nil
     Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
     recoverableTipCalibrationCheckpoint = nil
     persistAcceptedLearningPathCheckpoint(clearTip: true, clearStageFour: true)
@@ -11285,6 +11448,7 @@ final class PlotterApplicationRuntime:
   private func clearPenLearningForRewind() async {
     frozenPointSelectionFrame = nil
     pendingToolContactEvidence = []
+    pendingToolContactClickFrame = nil
     Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
     discoveryTransactions.removeValue(forKey: .penInteraction)
     _ = await submitPenInteraction(.reset)
@@ -11312,6 +11476,7 @@ final class PlotterApplicationRuntime:
       resetTipCalibrationRuntimeForCurrentPaper()
       frozenPointSelectionFrame = nil
       pendingToolContactEvidence = []
+      pendingToolContactClickFrame = nil
       Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
     }
     overlayResultChannels.clearWorkflow(source: frameMode, owner: .cameraCalibration)
@@ -12886,6 +13051,12 @@ extension PlotterApplicationRuntime: PlotterTipCalibrationEffectPort {
       switch request {
       case .runFourMarkBatch:
         return .completed(.markBatch(try await drawSparseTipCircles()))
+      case .captureNewClickFrame(_, let expectedSelection):
+        return .completed(.clickFrameReplaced(
+          try await captureNewSparseTipClickFrame(
+            expectedSelection: expectedSelection
+          )
+        ))
       case .fitProposal(_, let batch):
         return .completed(.proposal(try acceptSparseTipBatchClicks(batch: batch)))
       case .revalidateCheckpoint:

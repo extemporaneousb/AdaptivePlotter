@@ -286,7 +286,11 @@ projection reads; a concurrent mutation re-evaluates the state serialized by
 the one ahead of it. `PointSelectionJournalPersistence` uses a macOS-14-compatible `OSAllocatedUnfairLock` compare-and-swap commit, and the episode model/runtime contain no `@unchecked Sendable` escape hatch.
 Staging cancels the superseded request, archives the exact frame
 when recording is available, commits its observation, and stages the typed
-request. Production point ingress uses `ExactFramePointSubmissionBuilder.submission`:
+request. `replace(currentRequest:with:presentationTransformRevision:)` is the
+narrower empty-selection operation: it records the candidate observation while
+the old request remains current, then one `.replace` reducer event atomically
+supersedes the exact request only if its identity, collecting phase, zero-point
+count, purpose, and strictly newer frame remain current. Production point ingress uses `ExactFramePointSubmissionBuilder.submission`:
 it computes point geometry from the current viewport but carries authority
 identity from the staged request's exact `request.presentationTransformRevision`,
 and owns no admission authority.
@@ -762,8 +766,11 @@ current aggregate projection and production `PlotterUIIntentSink`; there is no
 remaining direct `UI.learningModePresentation` mutation route.
 The deleted `PointSelectionPresentationContext` cannot copy a request or
 re-decide admission. `frozenPointSelectionFrame` holds pixels for UI
-presentation only, and `pendingToolContactEvidence` remains adapter data for
-the retained sparse-tip calibration fit. The app cancellation helper is async
+presentation only. `pendingToolContactClickFrame` binds the exact current
+sparse-tip click request, while `pendingToolContactEvidence` remains adapter
+data for the retained sparse-tip calibration fit and preserves the distinct
+original mark and reveal evidence. Neither is a
+second point-selection state machine. The app cancellation helper is async
 and awaits the runtime owner; the old Task-returning helper is absent.
 The deleted `submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` helpers cannot recreate semantic ingress or test-only transition authority; focused tests use generic submissions and bounded observable-state waits.
 The deleted `awaitContinuationSettlement` task-owner/polling helper has no replacement helper, poll, sleep, or state.
@@ -1415,7 +1422,8 @@ Exercise 1.4 is split across four owners:
 
 - `PlotterTipCalibrationRuntime` owns the compact batch workflow, one
   attempt/operation identity, four canonical corner evidence slots, one shared
-  final frozen frame, proposal review, accepted-tip checkpoint retention,
+  final cap-bearing reveal, the explicit zero-click replacement-frame phase,
+  proposal review, accepted-tip checkpoint retention,
   possible-ink terminal state, and atomic commit/revalidation installation.
 - `SparseTipBatchMarkPlan` derives the four mark centers from the accepted
   Drawing Boundary envelope with one canonical 10 mm inset, drawing no center
@@ -1435,14 +1443,23 @@ Exercise 1.4 is split across four owners:
   uncertainty, applicability decisions, rebase derivations, and checkpoints.
 
 The sparse-tip flow stages one four-point `PlotterPointSelectionRequest` with
-the shared frozen `ExactTipCalibrationFrame` and presentation-transform
-revision. `ActionSurface` maps each view click back through the exact inverse
+the shared frozen reveal `ExactTipCalibrationFrame` and presentation-transform
+revision. At zero clicks, the sole projected **Capture New Click Frame** action
+routes a typed tip-calibration intent. Its lower adapter reacquires current
+connected Idle/Pen-Up/unambiguous controller truth plus unchanged attempt,
+paper, source, and semantic optical identity before asking
+`PlotterPointSelectionRuntime` to atomically replace the old request with one
+strictly newer exact frame. It performs no motion, Pen command, redraw, or
+automatic refresh; retained clicks must be explicitly cleared first. The
+original reveal/cap evidence remains immutable, and accepted click evidence
+cites the separate current exact click frame with a legacy reveal-frame
+fallback. `ActionSurface` maps each view click back through the exact inverse
 presentation transform and submits it through
 `PlotterPointSelectionIntentSink`; the episode projection supplies click count
 and all markers. Retained `OperatorWorkspace` action adapters invoke the same runtime/store authority for undo, clear, and cancel; those actions do not originate in `ActionSurface` or the click-only sink protocol.
-`PlotterPointSelectionRuntime` owns same-frame undo, clear,
-capacity enforcement, and accepted four-point batch evidence without motion,
-ink, capture, zoom, or pan. Before EA-10D, `SparseTipCalibrationCoordinator` retains the
+`PlotterPointSelectionRuntime` owns same-frame undo, clear, atomic empty-request
+replacement, capacity enforcement, and accepted four-point batch evidence
+without motion, ink, zoom, or pan. Before EA-10D, `SparseTipCalibrationCoordinator` retains the
 machine-position association, fit, calibration acceptance, and artifact graph.
 Tip-map acceptance installs the outer-center applicability rectangle without
 changing viewport state.
@@ -1597,7 +1614,10 @@ shutdown. Its composition port forwards one typed lower effect request to
 to App-local semantic owners. `ExerciseActionKind.tipCalibration` routes to
 `PlotterTipCalibrationRuntime`, while
 `ExerciseActionKind.pointSelectionCorrection` reaches the distinct sole
-click add/undo/clear/four-point owner `PlotterPointSelectionRuntime`.
+click add/undo/clear/four-point owner `PlotterPointSelectionRuntime`. The typed
+tip-calibration replacement intent delegates its final zero-click atomic
+supersession to that same point-selection owner rather than creating another UI
+or app ingress.
 
 `ExerciseActionKind.borderValidation` routes
 `PlotterBorderValidationIntent` to `PlotterBorderValidationRuntime`. That

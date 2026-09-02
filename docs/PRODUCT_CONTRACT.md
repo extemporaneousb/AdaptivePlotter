@@ -385,9 +385,13 @@ Exercise 1.4 never changes zoom, pan, fitted region, preferred zoom, or viewport
 focus automatically.
 
 Before accepted tip authority exists, the UI states **Pen tip not calibrated**.
-Exercise 1.4 displays all clicks on its one frozen exact frame and reports their
-count. Diagnostic residual and uncertainty presentation has no authority over
-model construction, proposal creation, or acceptance.
+Exercise 1.4 displays all clicks on one current frozen exact click frame and
+reports their count. The first such frame is the cap-bearing final reveal. With
+zero retained clicks, **Capture New Click Frame** may atomically supersede that
+request with one strictly newer exact frame after the operator clears the
+armature; camera preview refresh alone never changes the request. Diagnostic
+residual and uncertainty presentation has no authority over model construction,
+proposal creation, or acceptance.
 
 Pen-cap appearance is learned only through the first **Identify Pen Cap** action
 of Exercise 1.1; there is no editable color picker or parallel color-setting
@@ -865,6 +869,16 @@ After the fourth circle only, the operation returns Pen Up to the corner
 rectangle's geometric center, requires existing Pen-Up, Idle, and settlement
 evidence, captures one newer exact frame, and revalidates current camera/cap
 applicability once. All four observations share that final frozen reveal frame.
+That reveal remains immutable physical/cap evidence. While its point-selection
+request is current and contains zero clicks, the operator may use **Capture New
+Click Frame** after clearing the armature. The tip-calibration runtime admits
+the typed transition; the point-selection runtime atomically replaces the old
+request only after the lower adapter reacquires current connected Idle, Pen Up,
+no active controller operation, no sticky ambiguity, unchanged exercise and
+paper identities, unchanged camera source and semantic optical identity, and a
+strictly newer exact frame. It issues no motion, Pen command, redraw, or
+automatic retry. One or more retained clicks disable replacement until the
+operator explicitly clears them.
 Acceptance installs the rectangle through the four circle centers as the
 `TipCameraRegistration` applicability rectangle. The accepted Drawing Boundary,
 not that inset rectangle, is the Drawing Studio drawable region. Preview and paper-
@@ -898,7 +912,9 @@ commanded circular mark and asserted circle center. It retains:
 - the shared exact final-reveal frame, settled reveal pose, and cap-map
   revalidation;
 - clicked camera point with role `assertedCenter`, pointing uncertainty,
-  timestamp, and presentation-transform revision;
+  timestamp, presentation-transform revision, and its separately exact click
+  frame when the operator replaced the reveal request; legacy observations
+  without that field use their original reveal frame;
 - disposition and all consumed artifact/algorithm revisions;
 - content-addressed locators only when exact bytes were actually archived.
 
@@ -920,7 +936,9 @@ block that association. The earlier cap-map residual at each corner is retained
 as diagnostic evidence, not used as an admission gate outside the Exercise 1.3
 bootstrap rectangle. **Undo Last Click** or **Clear Clicks on This Frame**
 changes only clicks on the same frame and performs no motion, ink, redraw,
-capture, zoom, or pan. The fourth click atomically creates the four accepted
+capture, zoom, or pan. **Capture New Click Frame** is available only at count
+zero and replaces the exact request without changing the preserved reveal
+evidence. The fourth click atomically creates the four accepted
 observations and constructs a reviewable pen-tip-calibration proposal. The exact frozen
 frame, click markers, proposed map, model form, residuals, RMS, covariance, and
 uncertainty remain visible. **Accept Pen-Tip Calibration** commits the registration.

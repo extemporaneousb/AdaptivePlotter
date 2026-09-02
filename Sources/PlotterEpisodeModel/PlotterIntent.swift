@@ -147,6 +147,10 @@ public struct PlotterPointSelectionSubmission: Codable, Hashable, Sendable {
 
 public enum PlotterPointSelectionIntent: Codable, Hashable, Sendable {
   case stage(PlotterPointSelectionRequest)
+  case replace(
+    currentSelectionID: PlotterPointSelectionID,
+    replacement: PlotterPointSelectionRequest
+  )
   case select(PlotterPointSelectionSubmission)
   case undo(PlotterPointSelectionID)
   case clear(PlotterPointSelectionID)

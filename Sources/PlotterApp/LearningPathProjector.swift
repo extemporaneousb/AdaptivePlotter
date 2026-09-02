@@ -414,6 +414,8 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
     case .discardCameraSamples, .rejectCameraCalibration:
       return .cameraCalibration(.rejectProposal)
     case .drawSparseTipCircles: return .tipCalibration(.beginFourMarkBatch)
+    case .captureNewSparseTipClickFrame(let retainedPointCount):
+      return .tipCalibration(.captureNewClickFrame(retainedPointCount: retainedPointCount))
     case .undoSparseTipClick: return .pointSelectionCorrection(.undoLastPoint)
     case .clearSparseTipClicks: return .pointSelectionCorrection(.clearPoints)
     case .revalidateTipCalibration: return .tipCalibration(.revalidateCheckpoint)
@@ -667,6 +669,7 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
     switch phase {
     case .idle: .idle
     case .marking: .drawingBatch
+    case .capturingNewClickFrame: .capturingClickFrame
     case .awaitingCompletedPointSelection: .awaitingFrozenClicks
     case .fitting: .fittingModel
     case .reviewingProposal: .reviewingModel
