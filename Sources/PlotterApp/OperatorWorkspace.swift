@@ -1044,7 +1044,8 @@ final class PlotterApplicationRuntime:
     /// Finite GRBL wire segment used only for renewal under one logical owner.
     /// Reaching this distance is never a Boundary Discovery result.
     static let boundaryWireSegmentMM = 50.0
-    static let boundaryFeedMMPerMinute = 500.0
+    static let boundaryFeedMMPerMinute =
+      PlotterMotionThroughput.applicationXYFeedMMPerMinute
   }
 
   private(set) var livePenCapAppearanceSelection: PenCapAppearanceSelection? {
@@ -4402,8 +4403,8 @@ final class PlotterApplicationRuntime:
     )
     for cadence in VisionAnalysisCadence.allCases {
       bindApplicationAction(
-        id: PlotterAppUIActionID.observationCadence(cadence.rawValue),
-        title: "Set analysis cadence to \(cadence.rawValue)",
+        id: PlotterAppUIActionID.observationCadence(cadence),
+        title: "Set analysis cadence to \(cadence.displayValue)",
         action: .observation(observation.request(.setCadence(cadence))),
         unavailableReason: observation.frameMode == .live ? nil : "SIMULATED owns its cadence.",
         owner: "PlotterObservationConfigurationRuntime"
@@ -11724,7 +11725,9 @@ final class PlotterApplicationRuntime:
   }
 
   private func positiveFallbackTravelFeed() -> Double {
-    guard let feed = inputNumber(MotionPriors.feedMMPerMinute), feed > 0 else { return 100 }
+    guard let feed = inputNumber(MotionPriors.feedMMPerMinute), feed > 0 else {
+      return PlotterMotionThroughput.applicationXYFeedMMPerMinute
+    }
     return feed
   }
 
@@ -12261,8 +12264,8 @@ final class PlotterApplicationRuntime:
     let request = try DrawingPlanRequest(
       operationID: operationID,
       plan: plan,
-      travelFeedMMPerMinute: 500,
-      drawingFeedMMPerMinute: 100,
+      travelFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
+      drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
       penActuationProfile: currentPenActuationProfile
     )
     guard let machineSession else {

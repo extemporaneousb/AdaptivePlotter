@@ -38,7 +38,7 @@ struct CameraCompositionVisionLifecycleTests {
         && diagnostics.previewMaterializedFrameCount == 1
     }
 
-    _ = await session.setAutomaticInspection(.tenFPS, requestedFeatures: [.penCap])
+    _ = await session.setAutomaticInspection(.fiveFPS, requestedFeatures: [.penCap])
     try await waitUntil {
       let diagnostics = await pipeline.diagnostics()
       return diagnostics.analyzedFrameCount == 1
@@ -55,7 +55,7 @@ struct CameraCompositionVisionLifecycleTests {
     #expect(running.automaticPipelineStartCallCount == 1)
     #expect(running.automaticFrameSubscriptionStartCount == 1)
 
-    _ = await session.setAutomaticInspection(.tenFPS, requestedFeatures: [.penCap])
+    _ = await session.setAutomaticInspection(.fiveFPS, requestedFeatures: [.penCap])
     await session.setSceneAnalysisRegion(nil)
     await session.setPenCapColor(.green)
     let reconciled = await session.visionDiagnostics()
@@ -166,7 +166,7 @@ struct CameraCompositionVisionLifecycleTests {
     _ = await session.start()
     await driver.emit(value: 1, captureNanoseconds: 100)
     try await waitUntil { await capture.diagnostics().receivedFrameCount == 1 }
-    _ = await session.setAutomaticInspection(.tenFPS, requestedFeatures: [.penCap])
+    _ = await session.setAutomaticInspection(.fiveFPS, requestedFeatures: [.penCap])
     try await waitUntil { await pipeline.diagnostics().submittedFrameCount == 1 }
     let before = await session.visionDiagnostics()
 

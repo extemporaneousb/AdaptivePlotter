@@ -293,7 +293,11 @@ supersedes the exact request only if its identity, collecting phase, zero-point
 count, purpose, and strictly newer frame remain current. Production point ingress uses `ExactFramePointSubmissionBuilder.submission`:
 it computes point geometry from the current viewport but carries authority
 identity from the staged request's exact `request.presentationTransformRevision`,
-and owns no admission authority.
+and owns no admission authority. `ActionSurfacePointSubmissionPolicy` retains
+that value only until `PlotterUIProjection` contains the matching available
+request. The Action Surface then submits it once through the existing
+`PlotterUIIntentSink`; there is no intermediate Learning-point button, second
+intent ingress, or automatic retry.
 The current request admits and a replaced request receives a typed runtime refusal.
 Submission refuses stale identity, source, camera configuration,
 frame hash/layout, presentation revision/bounds, or capacity before committing
@@ -712,7 +716,10 @@ retains that geometry and its completed typed status while the next frame is
 analyzing, and swaps only after a new completed exact-frame result is installed.
 
 `OperatorWorkspace` maps the selected scene features to one newest-only
-automatic-analysis request and one selected cadence. Video Settings may lock the
+automatic-analysis request and one selected `VisionAnalysisCadence`. Its exact
+ordered values are `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5` FPS, with stable
+display/action identifiers and nanosecond intervals rounded up so scheduling
+does not exceed the selected rate. Video Settings may lock the
 current zoomed/panned camera-pixel rectangle as the generic scene-analysis
 region. `CameraSourceSession` passes that region into
 `PlotterSceneAnalysisPipeline`; `VisionWorker` scans only requested pen-cap
@@ -1143,12 +1150,18 @@ subordinate Pen-Up travel, pen actuation, finite drawing segments, Stop, and one
 checkpoint per logical stroke. `PlannedDrawingObservation` operates only after
 execution and returns exact-frame observed/residual evidence or a typed
 rejection; it has no motion, resend, or promotion capability.
+`PlotterMotionThroughput.applicationXYFeedMMPerMinute` is the single model value
+for app-generated XY travel and Pen-Down drawing and is `500`; the existing
+controller-reported applicable axis ceiling remains the lower refusal/selection
+authority.
 
 ## Exercise 1.1 and manual controls
 
 `OperatorWorkspace` starts Exercise 1.1 with **Identify Pen Cap** by staging a
 typed `PlotterPointSelectionRequest` in `PlotterPointSelectionRuntime`.
-`ActionSurface` sends only its inverse-transformed click submission through the click-only `PlotterPointSelectionIntentSink`; exact frame, source/configuration, pixel
+`ActionSurface` compiles its inverse-transformed click into the aggregate
+projection and automatically submits the matching `PlotterUIRequest` through
+the existing `PlotterUIIntentSink`; exact frame, source/configuration, pixel
 layout, presentation revision, bounds, and capacity are rechecked by the
 runtime gateway. Until the exact-frame cap-body click is accepted and its
 observation plus operator-assertion evidence are committed, no pen-position
@@ -1427,7 +1440,8 @@ Exercise 1.4 is split across four owners:
   possible-ink terminal state, and atomic commit/revalidation installation.
 - `SparseTipBatchMarkPlan` derives the four mark centers from the accepted
   Drawing Boundary envelope with one canonical 10 mm inset, drawing no center
-  mark. Its
+  mark. Its 16-chord circles request the canonical `500` mm/min app-owned XY
+  feed, reduced only by the existing controller-reported applicable ceiling. Its
   2 mm-radius outlines therefore retain 8 mm of adjacent-edge clearance. Its
   corner-center rectangle is the proposed tip-map
   applicability rectangle, and its final reveal pose is the rectangle center.
@@ -1454,9 +1468,12 @@ automatic refresh; retained clicks must be explicitly cleared first. The
 original reveal/cap evidence remains immutable, and accepted click evidence
 cites the separate current exact click frame with a legacy reveal-frame
 fallback. `ActionSurface` maps each view click back through the exact inverse
-presentation transform and submits it through
-`PlotterPointSelectionIntentSink`; the episode projection supplies click count
-and all markers. Retained `OperatorWorkspace` action adapters invoke the same runtime/store authority for undo, clear, and cancel; those actions do not originate in `ActionSurface` or the click-only sink protocol.
+presentation transform, waits only for the aggregate projection to bind that
+exact submission, and submits its matching request through `PlotterUIIntentSink`
+without an **Apply Learning Point** button; the episode projection supplies
+click count and all markers. Retained `OperatorWorkspace` action adapters invoke the same
+runtime/store authority for undo, clear, and cancel; those actions do not
+originate in `ActionSurface` or its direct click-submission policy.
 `PlotterPointSelectionRuntime` owns same-frame undo, clear, atomic empty-request
 replacement, capacity enforcement, and accepted four-point batch evidence
 without motion, ink, zoom, or pan. Before EA-10D, `SparseTipCalibrationCoordinator` retains the
@@ -1774,7 +1791,9 @@ travel when needed, captures the exact local baseline, delegates the immutable
 plan to `RunInterpreter`, verifies exact final MPos, captures a strictly newer
 same-source post frame, and requests Vision only when the intended projection is
 inside tip applicability. Outside applicability is executable but published as
-`.nonAttributable` with no Vision-derived ink claim.
+`.nonAttributable` with no Vision-derived ink claim. Baseline positioning,
+plan travel, and Pen-Down plan segments request the shared 500 mm/min app-owned
+XY feed; controller-reported feed ceilings remain authoritative.
 
 `PlotterDrawingRunFactSource`, `PlotterDrawingRunInterpreterPort`,
 `PlotterDrawingRunCameraPort`, `PlotterDrawingRunVisionPort`, and

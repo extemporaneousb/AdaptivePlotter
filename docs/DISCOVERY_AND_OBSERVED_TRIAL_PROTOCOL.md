@@ -11,14 +11,16 @@ Every interactive step exposes:
 
 - one current participant: App, Operator, Controller, Camera, Vision, or Pen;
 - one typed current action and expected observation;
-- one explicit button-owned transition;
+- one explicit operator-action transition; exact camera point selections submit
+  directly on the click and do not add a confirmation button;
 - one operation owner when controller or simulator state may change;
 - one contextual Stop while that owner is stoppable;
 - one typed attempt and disposition;
 - exact artifact dependencies for every accepted result.
 
 Announcements are advisory output. Buttons own answers, Start, Cancel, Stop,
-Restart, Redo, re-click, and acceptance.
+Restart, Redo, and acceptance. The exact camera click owns its point assertion
+and submits it directly; there is no **Apply Learning Point** step.
 
 **Connect** and **Enable Motion** are workbench-toolbar controls, not Learning
 Path rows or exercise transitions. Motion Enabled implies a current connected
@@ -77,7 +79,8 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
    its own exact requested scene-overlay analysis; geometry from an earlier
    frame is never carried onto it. A first, unlearned appearance still requires
    the click before LIVE overlay recognition can run.
-2. Map the presentation click back to the frozen camera frame and inspect the
+2. Map the presentation click back to the frozen camera frame, submit it through
+   the existing projection-bound UI request without another button, and inspect the
    clipped 9 x 9 neighborhood. Reject a stale frame, unsupported pixel format,
    too few chromatic pixels, or a gray, white, or dark median with a concrete
    reason. An accepted sample persists its median RGB color, click point, exact
@@ -252,7 +255,7 @@ and camera-holdout authority.
 3. Verify the full circle lies inside the accepted Boundary envelope. Move Pen Up
    to its +X start point and settle.
 4. Lower and settle with the current Exercise 1.1 Pen Down profile. Draw one
-   closed 16-chord, 2 mm-radius circle at no more than 100 mm/min or the lower
+   closed 16-chord, 2 mm-radius circle at 500 mm/min or the lower
    controller-reported axis ceiling, requiring settled chord endpoints.
 5. Raise and settle Pen Up. Only then travel to the next circle. Repeat steps
    2–5 without a reveal or click between circles. The batch contains exactly 64

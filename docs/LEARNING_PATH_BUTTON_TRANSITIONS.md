@@ -138,6 +138,8 @@ Dependency behavior is intentionally asymmetric:
 
 - Motion Enabled implies a connected controller session.
 - **Identify Pen Cap** requires only a current exact frame.
+- Every valid cap or calibration point click submits directly through its
+  projection-bound request; there is no **Apply Learning Point** button.
 - After the cap click, **Confirm Pen Up** and the Pen Up slider remain visible
   but disabled until connection and Motion authorization exist.
 - Exercises 1.2, 1.3, 1.4, and 2.1 keep their normal action visible and name the

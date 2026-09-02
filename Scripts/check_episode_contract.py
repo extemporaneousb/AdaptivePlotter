@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "4f19340b756f37e8088434122acb7b8da4718dae489c250bf435bc9be57eb09b"
+EXPECTED_LEDGER_SHA256 = "e1ebbdc438309acbd4c4dfa3482a0066645f55a74ea2a0a9bce1ed11da6ad917"
 
 
 EXPECTED_GATES = {
@@ -244,6 +244,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "GATE-01",
     "FIX-06",
     "FIX-07",
+    "FIX-08",
 }
 
 TRANCHE_SLICES = {
@@ -673,7 +674,8 @@ def validate_architecture(text: str) -> None:
         "`OperatorWorkspace` emits the owner only in those phases",
         "Retained `.accepted` Pen first-question/discovery and sparse batch/calibration attempts typed-refuse even with a matching supplied owner",
         "Recording failure remains a visible nonblocking diagnostic and never promotes evidence",
-        "`PlotterPointSelectionIntentSink`",
+        "`ActionSurfacePointSubmissionPolicy` retains that value only until `PlotterUIProjection` contains the matching available request",
+        "The Action Surface then submits it once through the existing `PlotterUIIntentSink`",
         "`PlotterLearningModeIntentSink`",
         "SwiftUI semantic actions submit only through the current aggregate projection and production `PlotterUIIntentSink`",
         "The deleted `PointSelectionPresentationContext` cannot copy a request or re-decide admission",
@@ -686,9 +688,9 @@ def validate_architecture(text: str) -> None:
         "The deleted `submitCurrentPenCapPoint` and `OperatorWorkspace.awaitPenCapAcceptedClickTransition` helpers",
         "focused tests use generic submissions and bounded observable-state waits",
         "The deleted `awaitContinuationSettlement` task-owner/polling helper has no replacement helper, poll, sleep, or state",
-        "`ActionSurface` sends only its inverse-transformed click submission through the click-only `PlotterPointSelectionIntentSink`",
+        "`ActionSurface` compiles its inverse-transformed click into the aggregate projection and automatically submits the matching `PlotterUIRequest` through the existing `PlotterUIIntentSink`",
         "Retained `OperatorWorkspace` action adapters invoke the same runtime/store authority for undo, clear, and cancel",
-        "those actions do not originate in `ActionSurface` or the click-only sink protocol",
+        "those actions do not originate in `ActionSurface` or its direct click-submission policy",
         "`SparseTipCalibrationCoordinator` retains the machine-position association, fit, calibration acceptance, and artifact graph",
         "Its sealed `PlotterEpisodeReplayExecutableDescriptor` is instantiated only by the private `PlotterEpisodeReplayExecutableAdapter`",
         "`PlotterEpisodeCanonicalDigestV1.revision` before any prefix reduction",
@@ -2755,6 +2757,12 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "exact cadence choices `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5` frames per second",
         "Drawing Studio drawing, Drawing Border drawing, and sparse four-circle calibration still use `100` mm/min",
         "`FIX-08` is the sole next ordinary software package",
+        "FIX-08 operator-throughput correction complete",
+        "`TASK-EB3E64FA`, attempt `TASK-EB3E64FA-67fdbd7ab2a2`",
+        "`ActionSurface` no longer renders **Apply Learning Point**",
+        "`PlotterMotionThroughput.applicationXYFeedMMPerMinute` is the single `500` mm/min model value",
+        "Production source contains neither the green button, a `10 FPS` cadence case, nor a `100` mm/min feed literal",
+        "`FIX-08` is complete as software/repository evidence",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3422,6 +3430,10 @@ def validate_wave_frontier(
             "FIX-07 explicit exact click-frame replacement",
             "`TASK-EA60F469`, attempt `TASK-EA60F469-a83fe1fa0c15`",
             "`FIX-07` is complete as software/repository evidence",
+            "FIX-08 operator-throughput correction complete",
+            "`TASK-EB3E64FA`, attempt `TASK-EB3E64FA-67fdbd7ab2a2`",
+            "`FIX-08` is complete as software/repository evidence",
+            "No attended camera click, controller, motion, Stop, paper, speed, or observed-ink validation was performed by this task",
             "No attended camera click, controller, motion, Stop, paper, or observed-ink validation was performed by this task",
             "No ordinary software or gate package is eligible before `VAL-01`",
             "attended-physical authorization boundary, not a launchable wave",

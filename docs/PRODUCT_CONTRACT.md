@@ -393,6 +393,13 @@ armature; camera preview refresh alone never changes the request. Diagnostic
 residual and uncertainty presentation has no authority over model construction,
 proposal creation, or acceptance.
 
+Every valid exact-frame camera click is itself the operator submission. The
+Action Surface may retain the clicked value only long enough for the aggregate
+projection to bind the matching `PlotterUIRequest`, then submits that request
+through the existing `PlotterUIIntentSink`. There is no **Apply Learning Point**
+button or second user confirmation. A stale or refused click remains governed
+by the existing point-selection owner and never becomes an automatic retry.
+
 Pen-cap appearance is learned only through the first **Identify Pen Cap** action
 of Exercise 1.1; there is no editable color picker or parallel color-setting
 surface. Before any pen-position question or pen request, the operator clicks
@@ -411,6 +418,11 @@ only cap-anchor evidence carrying the same appearance-specific estimator
 revision. The click is an operator assertion and recognition input; it does not
 by itself prove cap segmentation, calibration accuracy, physical pen state, or
 ink.
+
+Video Settings offers exactly `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5`
+frames per second for generic automatic scene analysis. The selected cadence
+changes analysis scheduling only; it does not alter exact workflow capture,
+point-selection frame identity, motion, or evidence authority.
 
 ### 1.1 Identify and Calibrate the Pen
 
@@ -849,7 +861,9 @@ that batch-scoped Pen-Up authorization for approach, circle-start, inter-circle,
 and reveal travel. At every mark it retains the circle's pre-mark exact frame,
 cap, controller, and settled-position evidence; lowers and settles using the
 current Exercise 1.1 profile; draws one closed 2 mm-radius circle as 16 finite
-typed chords capped at 100 mm/min; then raises and settles before any next travel.
+typed chords at the canonical 500 mm/min app-owned XY feed, reduced only by the
+existing controller-reported applicable axis ceiling; then raises and settles
+before any next travel.
 The four circles therefore contain exactly 64 typed chord outcomes, four Pen Down
 settlements, five Pen Up settlements including the initial normalization, and no
 connecting Pen-Down stroke during calibration. This batching removes duplicate
@@ -905,7 +919,7 @@ commanded circular mark and asserted circle center. It retains:
 - intended mark position and settled MPos;
 - machine geometry, controller session, coordinate-frame revision, and
   controller-context evidence;
-- the 2 mm-radius/16-chord/100 mm/min-capped commanded geometry, actual current
+- the 2 mm-radius/16-chord/500 mm/min requested commanded geometry, actual current
   Down/Up actuation values, and Pen Down/Up outcomes/timestamps;
 - tool assembly, contact profile, and paper-plane revisions;
 - exact pre-mark frame and cap estimate;
@@ -1144,7 +1158,9 @@ physical boundary. It issues idempotent Pen Up normalization, supervised travel
 to the observation pose when required, and an exact baseline capture before
 delegating the whole immutable plan to `RunInterpreter`. The lower interpreter
 remains the execution owner for Pen actuation, finite segments, Stop, and
-checkpoints. Controller completion is not ink verification. After clean
+checkpoints. App-generated travel and Pen-Down drawing both request the canonical
+500 mm/min XY feed; the existing controller-reported feed ceiling remains the
+lower admission authority. Controller completion is not ink verification. After clean
 completion, the runtime requires exact final MPos and a strictly newer
 same-source post frame before applicability-aware observation.
 

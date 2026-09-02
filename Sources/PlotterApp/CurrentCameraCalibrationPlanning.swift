@@ -56,7 +56,8 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
 struct SparseTipCircularMarkPlan: Hashable, Sendable {
   static let radiusMM = 2.0
   static let chordCount = 16
-  static let maximumFeedMMPerMinute = 100.0
+  static let maximumFeedMMPerMinute =
+    PlotterMotionThroughput.applicationXYFeedMMPerMinute
   static let registrationEstimatorRevision =
     "affine-first-boundary-10mm-inset-four-circle-2mm-radius-16-chord-v7"
   static let boundaryExtremeFourCircleRegistrationEstimatorRevision =

@@ -173,7 +173,10 @@ private actor PlotterApplicationRuntimeBoundaryEffectPort: PlotterBoundaryEffect
     }
     let request = BoundaryMotionRequest(
       direction: BoundaryDirection(direction),
-      segment: RelativeJogRequest(delta: delta, feedMMPerMinute: 500),
+      segment: RelativeJogRequest(
+        delta: delta,
+        feedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute
+      ),
       renewalBounds: .fixed(50)
     )
     switch await actions.beginBoundaryMotion(request, renewalPlanner: nil) {
@@ -254,7 +257,10 @@ private actor PlotterApplicationRuntimeBoundaryEffectPort: PlotterBoundaryEffect
         return .refused(String(describing: refusal.refusal))
       }
     }
-    let request = RelativeJogRequest(delta: delta, feedMMPerMinute: 500)
+    let request = RelativeJogRequest(
+      delta: delta,
+      feedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute
+    )
     switch await PlotterManualMotionComposition.beginNativeRelativeMotion(
       using: actions,
       request: request

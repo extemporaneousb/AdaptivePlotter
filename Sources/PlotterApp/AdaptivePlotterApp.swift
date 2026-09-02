@@ -823,12 +823,12 @@ private struct VideoSettingsContents: View {
         selection: Binding(
           get: { projection.cadence },
           set: { cadence in
-            submit(PlotterAppUIActionID.observationCadence(cadence.rawValue))
+            submit(PlotterAppUIActionID.observationCadence(cadence))
           }
         )
       ) {
         ForEach(VisionAnalysisCadence.allCases, id: \.self) { cadence in
-          Text("\(cadence.rawValue)").tag(cadence)
+          Text(cadence.displayValue).tag(cadence)
         }
       }
       .disabled(projection.frameMode != .live)

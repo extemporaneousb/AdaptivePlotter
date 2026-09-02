@@ -197,7 +197,7 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
     for observation in observations {
       #expect(observation.markGeometry.radiusMM == 2)
       #expect(observation.markGeometry.chordCount == 16)
-      #expect(observation.markGeometry.maximumFeedMMPerMinute == 100)
+      #expect(observation.markGeometry.maximumFeedMMPerMinute == 500)
       #expect(
         observation.penDown.outcome
           == .commandedAndSettled(

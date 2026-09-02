@@ -8,6 +8,46 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## FIX-08 operator-throughput correction complete
+
+Blackdog task `TASK-EB3E64FA`, attempt `TASK-EB3E64FA-67fdbd7ab2a2`, implements
+the operator-authorized throughput change through the existing owners:
+
+- `ActionSurface` no longer renders **Apply Learning Point**. Its camera tap
+  retains one exact submission only until `PlotterUIProjection` binds the same
+  available request, then submits it once through `PlotterUIIntentSink`;
+- `VisionAnalysisCadence` and Video Settings expose exactly `0.05`, `1`, `2`,
+  `2.58`, `3`, `4`, and `5` FPS with stable identifiers and cadence intervals;
+- `PlotterMotionThroughput.applicationXYFeedMMPerMinute` is the single `500`
+  mm/min model value used by app-generated Boundary, baseline, Drawing Studio,
+  Drawing Border, and sparse-circle XY requests. The manual default remains
+  `500`, supervised travel continues to use current controller limits, and the
+  existing lower controller-reported ceiling remains authoritative.
+
+Production source contains neither the green button, a `10 FPS` cadence case,
+nor a `100` mm/min feed literal. The change adds no guard, interlock, retry,
+redraw, firmware write, or second UI ingress. The initial aggregate QUICK run
+exposed one stale test assumption because replacing `10 FPS` with `5 FPS` made
+a later `5 FPS` transition a no-op; the fixture now starts at `4 FPS`, its
+focused regression passes, and the final complete QUICK run is green.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; build completed in 0.54 seconds | package and application compilation |
+| `THROUGHPUT` | passed — 3/3 tests in 0.370 seconds | exact cadence set, direct projection-bound click submission, and 500 mm/min drawing/calibration requests |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts plus 13/13, 9/9, and 35/35 checker/capsule tests | current product, architecture, operating, UI-transition, ledger, and frontier synchronization |
+| `DIFF` | passed — `git diff --check`; no output | exact final task candidate |
+| `QUICK` | passed — 830/830 tests in 15.542 seconds | parallel aggregate software suite after the cadence-transition fixture correction |
+| `JOURNEY` | passed — 10/10 tests in 5.205 seconds | serialized causal journeys and reset ownership |
+| `STRICT` | passed — 840 Swift tests plus strict-concurrency, signing, launcher, negative-bundle, and documentation checks | exact final candidate; no physical claim |
+
+`FIX-08` is complete as software/repository evidence. No attended camera click,
+controller, motion, Stop, paper, speed, or observed-ink validation was performed
+by this task. No ordinary software or gate package is eligible before `VAL-01`,
+which is the attended-physical authorization boundary, not a launchable wave.
+`VAL-01` remains pending and requires separate attended-physical authorization;
+migration remains incomplete.
+
 ## FIX-08 operator-throughput correction requested
 
 On 2026-09-01 the operator explicitly requested removal of the green
@@ -16,7 +56,7 @@ the exact cadence choices `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5` frames per
 second, and `500` mm/min app-owned XY travel and drawing requests. The operator
 also explicitly directed that this change add no new guard or interlock.
 
-Current-source inspection found one existing owner for each behavior. The
+The pre-implementation current-source inspection found one existing owner for each behavior. The
 Action Surface already derives an exact-frame point submission from the camera
 tap but stages it behind the green **Apply Learning Point** confirmation.
 `VisionAnalysisCadence` and the existing Video Settings picker expose only `2`,
@@ -25,7 +65,7 @@ positioning already request `500` mm/min, while Drawing Studio drawing, Drawing
 Border drawing, and sparse four-circle calibration still use `100` mm/min. The
 known controller top feed is `500` mm/min.
 
-Pending software package `FIX-08` removes only the redundant point confirmation,
+The selected software package `FIX-08` was defined to remove only the redundant point confirmation,
 routes the tap through the same projection-bound sink, replaces the cadence
 choices, and normalizes every app-owned XY request to `500` mm/min. It preserves
 the existing point-selection, observation, drawing-run, controller, and Stop
@@ -33,10 +73,10 @@ owners. No new guard, interlock, retry, redraw, or UI ingress is authorized; no
 firmware setting changes, controller action, camera action, motion, Pen command,
 or physical speed/click result occurs or is claimed by this repository task.
 
-This contract correction is Blackdog task `TASK-275293EA`, attempt
+That contract correction is Blackdog task `TASK-275293EA`, attempt
 `TASK-275293EA-2397cbccc458`. `FIX-08` is the sole next ordinary software
-package. `VAL-01` is dependency-ineligible until FIX-08 is complete and a new
-signed build exists; migration remains incomplete.
+package at that pre-implementation boundary. `VAL-01` is dependency-ineligible
+until FIX-08 is complete and a new signed build exists; migration remains incomplete.
 
 | Validation | Result | Scope |
 | --- | --- | --- |
@@ -2900,8 +2940,8 @@ execution-plan ledger. Gate names match each package's required gates exactly,
 and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
 stale task-local candidates. FIX-03, DOC-03, the later tranches, EA-11C,
-FIX-05, GATE-01, FIX-06, and FIX-07 have final completion evidence. `FIX-08`
-is pending before `VAL-01`.
+FIX-05, GATE-01, FIX-06, FIX-07, and FIX-08 have final completion evidence.
+`VAL-01` is the remaining attended-physical boundary.
 Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
@@ -2946,6 +2986,7 @@ Detailed scope and limitations remain in the named evidence sections.
 | GATE-01 | `TASK-5E431BE7` | `DOC=passed`, `DIFF=passed`, `PILOT=passed` | GATE-01 Pilot continuation decision |
 | FIX-06 | `TASK-4194B778` | `BUILD=passed`, `BOUNDARY=passed`, `POINT=passed`, `UI=passed`, `ARTIFACT-RESET=passed`, `DRAW-RUN=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-06 external-fact currentness correction |
 | FIX-07 | `TASK-EA60F469` | `BUILD=passed`, `TIP-CAL=passed`, `POINT=passed`, `UI=passed`, `ARTIFACT-RESET=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-07 explicit exact click-frame replacement |
+| FIX-08 | `TASK-EB3E64FA` | `BUILD=passed`, `THROUGHPUT=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-08 operator-throughput correction complete |
 
 ## Wave admission blockers
 
@@ -2966,9 +3007,10 @@ FIX-05 completed through `TASK-2BF894FC`, attempt
 attempt `TASK-5E431BE7-59658505ced4`, FIX-06 completed through
 `TASK-4194B778`, attempt `TASK-4194B778-238b4ef7adb1`, and FIX-07 completed
 through `TASK-EA60F469`, attempt `TASK-EA60F469-a83fe1fa0c15`. The later
-operator-authorized throughput request makes pending software package `FIX-08`
-the sole ordinary frontier before `VAL-01`. Current Evidence adds no separate
-blocker. No later successor dispatch is authorized here.
+operator-authorized throughput correction completed through `TASK-EB3E64FA`,
+attempt `TASK-EB3E64FA-67fdbd7ab2a2`. No ordinary software frontier remains
+before pending attended-physical package `VAL-01`. Current Evidence adds no
+separate blocker. No later successor dispatch is authorized here.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

@@ -70,8 +70,8 @@ enum PlotterAppUIActionID {
     PlotterUIActionID(rawValue: "application.observation.camera.\(identifier)")
   }
 
-  static func observationCadence(_ value: Int) -> PlotterUIActionID {
-    PlotterUIActionID(rawValue: "application.observation.cadence.\(value)")
+  static func observationCadence(_ cadence: VisionAnalysisCadence) -> PlotterUIActionID {
+    PlotterUIActionID(rawValue: "application.observation.cadence.\(cadence.displayValue)")
   }
 
   static func observationOverlay(_ value: String, enabled: Bool) -> PlotterUIActionID {

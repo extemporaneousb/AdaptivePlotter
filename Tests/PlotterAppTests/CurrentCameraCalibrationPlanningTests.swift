@@ -93,7 +93,7 @@ struct CurrentCameraCalibrationPlanningTests {
     #expect(mark.geometry.radiusMM == 2)
     #expect(mark.geometry.chordCount == 16)
     #expect(mark.geometry.maximumChordDeviationMM < 0.05)
-    #expect(mark.geometry.maximumFeedMMPerMinute == 100)
+    #expect(mark.geometry.maximumFeedMMPerMinute == 500)
     #expect(mark.pathDeltas.count == 16)
     for position in mark.pathPositions {
       #expect(abs(position.point.distance(to: center.point) - 2) < 1e-9)
@@ -140,7 +140,7 @@ struct CurrentCameraCalibrationPlanningTests {
     for mark in batch.marks {
       #expect(mark.circle.geometry.radiusMM == 2)
       #expect(mark.circle.geometry.chordCount == 16)
-      #expect(mark.circle.geometry.maximumFeedMMPerMinute == 100)
+      #expect(mark.circle.geometry.maximumFeedMMPerMinute == 500)
       #expect(mark.circle.pathPositions.first == mark.circle.pathPositions.last)
       #expect(mark.circle.pathPositions.allSatisfy {
         $0.point.x >= batch.boundaryEnvelope.minX + 8
@@ -235,7 +235,7 @@ struct CurrentCameraCalibrationPlanningTests {
     ])
     #expect(geometry.allSatisfy { $0.radiusMM == 2 })
     #expect(geometry.allSatisfy { $0.chordCount == 16 })
-    #expect(geometry.allSatisfy { $0.maximumFeedMMPerMinute == 100 })
+    #expect(geometry.allSatisfy { $0.maximumFeedMMPerMinute == 500 })
   }
 
   @Test("accepted v6 extreme-corner checkpoint geometry remains decodable at its recorded domain")

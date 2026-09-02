@@ -80,7 +80,7 @@ struct PlotterSceneAnalysisPipelineTests {
     defer { updateTask.cancel() }
     try await waitUntil { await recorder.count == 1 }
 
-    await pipeline.start(cadence: .tenFPS, requestedFeatures: [.penCap])
+    await pipeline.start(cadence: .fourFPS, requestedFeatures: [.penCap])
     #expect(await pipeline.diagnostics().semanticPublicationCount == 1)
     try await waitUntil { await recorder.count == 2 }
     let region = PixelRect(x: 0, y: 0, width: 1, height: 1)
@@ -124,7 +124,7 @@ struct PlotterSceneAnalysisPipelineTests {
   @Test("pipeline propagates requested features and clears results when selection changes")
   func featureSelectionPropagates() async throws {
     let pipeline = PlotterSceneAnalysisPipeline(clock: DeterministicRuntimeClock())
-    await pipeline.start(cadence: .tenFPS, requestedFeatures: [.armatureEnvelope])
+    await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.armatureEnvelope])
     await pipeline.submit(try displayedFrame(sequence: 1))
     try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 1 }
 
@@ -139,7 +139,7 @@ struct PlotterSceneAnalysisPipelineTests {
         == [.penCap: 1, .armatureEnvelope: 1]
     )
 
-    await pipeline.start(cadence: .tenFPS, requestedFeatures: [.penCap])
+    await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
     #expect(await pipeline.snapshot().latestResult == nil)
     await pipeline.submit(try displayedFrame(sequence: 2))
     try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 2 }
@@ -158,7 +158,7 @@ struct PlotterSceneAnalysisPipelineTests {
       await gate.block(frame.sequence)
       return sceneMeasurement(for: frame)
     }
-    await pipeline.start(cadence: .tenFPS, requestedFeatures: [.penCap])
+    await pipeline.start(cadence: .fiveFPS, requestedFeatures: [.penCap])
 
     await pipeline.submit(try displayedFrame(sequence: 1))
     try await waitUntil { await gate.startedSequences == [1] }

@@ -727,7 +727,7 @@ public actor PlotterDrawingRunRuntime {
       do {
         let request = RelativeJogRequest(
           delta: try currentPosition.point.vector(to: targetPoint),
-          feedMMPerMinute: 500
+          feedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute
         )
         guard await revalidate(owner, requiringControllerReady: true) else {
           await finishBeforePlan(
@@ -851,8 +851,8 @@ public actor PlotterDrawingRunRuntime {
       request = try DrawingPlanRequest(
         operationID: DrawingPlanOperationID(rawValue: owner.requestID),
         plan: owner.plan.plan,
-        travelFeedMMPerMinute: 500,
-        drawingFeedMMPerMinute: 100,
+        travelFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
+        drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
         penActuationProfile: owner.capturedEffectFacts.penActuationProfile
       )
     } catch {

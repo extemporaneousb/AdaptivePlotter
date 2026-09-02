@@ -1,13 +1,29 @@
 import Foundation
 import PlotterModel
 
-public enum VisionAnalysisCadence: Int, Codable, CaseIterable, Hashable, Sendable {
+public enum VisionAnalysisCadence: Double, Codable, CaseIterable, Hashable, Sendable {
+  case zeroPointZeroFiveFPS = 0.05
+  case oneFPS = 1
   case twoFPS = 2
+  case twoPointFiveEightFPS = 2.58
+  case threeFPS = 3
+  case fourFPS = 4
   case fiveFPS = 5
-  case tenFPS = 10
+
+  public var displayValue: String {
+    switch self {
+    case .zeroPointZeroFiveFPS: "0.05"
+    case .oneFPS: "1"
+    case .twoFPS: "2"
+    case .twoPointFiveEightFPS: "2.58"
+    case .threeFPS: "3"
+    case .fourFPS: "4"
+    case .fiveFPS: "5"
+    }
+  }
 
   public var minimumIntervalNanoseconds: UInt64 {
-    1_000_000_000 / UInt64(rawValue)
+    UInt64((1_000_000_000 / rawValue).rounded(.up))
   }
 }
 public typealias PlotterSceneAnalysisActivityHandler = @Sendable (Bool) async -> Void

@@ -194,6 +194,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["EA-10B"]["status"])
         self.assertEqual("complete", rows["FIX-05"]["status"])
         self.assertEqual("complete", rows["GATE-01"]["status"])
+        self.assertEqual("complete", rows["FIX-08"]["status"])
         self.assertEqual("pending", rows["VAL-01"]["status"])
         self.assertEqual({}, blockers)
         self.assertEqual("complete", rows["TRANCHE-LEARNING"]["status"])
@@ -461,9 +462,9 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write()
         consumed = self.consume()
         self.assertEqual(created, consumed)
-        self.assertEqual("selected", consumed["launch"]["state"])
-        self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("FIX-08", consumed["contract"]["package"]["id"])
+        self.assertEqual("authorization_boundary", consumed["launch"]["state"])
+        self.assertEqual("authorization_boundary", consumed["contract"]["frontier"]["state"])
+        self.assertEqual("VAL-01", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -487,29 +488,27 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             row = [cell.strip() for cell in boundary_text.strip().strip("|").split("|")]
             if (
                 len(row) == 6
-                and row[:4] == ["FIX-08", "pending", "FIX-07", "software"]
-                and row[4].startswith("Correction: implement the operator-authorized throughput policy")
-                and "`THROUGHPUT`" in row[5]
+                and row[:4] == ["VAL-01", "pending", "FIX-08", "attended-physical"]
+                and row[4].startswith("On the exact migrated signed build")
+                and "`PHYSICAL-FINAL`" in row[5]
             ):
                 ledger_rows.append((boundary, row))
         self.assertEqual(1, len(ledger_rows))
         _boundary, boundary_row = ledger_rows[0]
-        self.assertEqual("FIX-08", boundary_row[0])
-        self.assertNotEqual("VAL-01", boundary_row[0])
+        self.assertEqual("VAL-01", boundary_row[0])
         self.assertEqual([], consumed["contract"]["ordered_authority_slices"])
         self.assertNotIn("authority slice current-owner inventory row", purposes)
         self.assertNotIn("authority slice same-landing deletion scan row", purposes)
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
-    def test_operator_throughput_request_selects_fix08_before_val01(self) -> None:
+    def test_completed_operator_throughput_correction_stops_at_val01(self) -> None:
         created = self.build_and_write()
 
-        self.assertEqual("selected", created["launch"]["state"])
-        self.assertEqual("selected", created["contract"]["frontier"]["state"])
-        self.assertEqual("FIX-08", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("authorization_boundary", created["launch"]["state"])
+        self.assertEqual("authorization_boundary", created["contract"]["frontier"]["state"])
+        self.assertEqual("VAL-01", created["contract"]["frontier"]["package_id"])
         self.assertEqual([], created["contract"]["ordered_authority_slices"])
-        self.assertNotEqual("VAL-01", created["contract"]["frontier"]["package_id"])
 
     def test_contract_import_does_not_emit_bytecode_into_clean_repository(self) -> None:
         cache_path = self.root / "Scripts/__pycache__"
@@ -573,16 +572,16 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
     def test_removed_and_dependency_ineligible_terminal_history_is_visible_but_nonblocking(self) -> None:
         removed = self.terminal_task("TASK-REMOVED", "FIX-99")
         completed = self.terminal_task("TASK-COMPLETED", "FIX-05")
-        ineligible = self.terminal_task("TASK-INELIGIBLE", "VAL-01")
+        ineligible = self.terminal_task("TASK-INELIGIBLE", "GATE-02")
         created = self.build_and_write({"tasks": [removed, completed, ineligible]})
 
-        self.assertEqual("selected", created["launch"]["state"])
-        self.assertEqual("FIX-08", created["contract"]["frontier"]["package_id"])
+        self.assertEqual("authorization_boundary", created["launch"]["state"])
+        self.assertEqual("VAL-01", created["contract"]["frontier"]["package_id"])
         self.assertEqual([], created["blackdog"]["live_blockers"])
         self.assertEqual(
             [
                 {"task_id": "TASK-COMPLETED", "package_id": "FIX-05", "disposition": "dependency-ineligible-package"},
-                {"task_id": "TASK-INELIGIBLE", "package_id": "VAL-01", "disposition": "dependency-ineligible-package"},
+                {"task_id": "TASK-INELIGIBLE", "package_id": "GATE-02", "disposition": "dependency-ineligible-package"},
                 {"task_id": "TASK-REMOVED", "package_id": "FIX-99", "disposition": "removed-package"},
             ],
             created["blackdog"]["terminal_history"],

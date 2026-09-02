@@ -516,6 +516,20 @@ struct ActionSurfacePointSelectionPendingIdentity: Hashable, Sendable {
   let viewportRevision: PresentationTransformRevision
 }
 
+enum ActionSurfacePointSubmissionPolicy {
+  static func automaticSubmission(
+    pending: PlotterPointSelectionSubmission?,
+    presentation: ActionSurfacePresentation,
+    projection: PlotterUIProjection
+  ) -> PlotterPointSelectionSubmission? {
+    guard let pending,
+      presentation.acceptsPendingPointSelection(pending),
+      projection.request(matching: .pointSelection(pending)) != nil
+    else { return nil }
+    return pending
+  }
+}
+
 enum ExactFramePointSubmissionBuilder {
   static func submission(
     presentation: ActionSurfacePresentation,
@@ -581,6 +595,11 @@ struct ActionSurface: View {
     let pointSelectionPendingIdentity = ActionSurfacePointSelectionPendingIdentity(
       request: presentation.pointSelectionRequest,
       viewportRevision: viewport.presentationTransformRevision
+    )
+    let automaticPointSubmission = ActionSurfacePointSubmissionPolicy.automaticSubmission(
+      pending: pendingPointSelection,
+      presentation: presentation,
+      projection: plotterUIProjection
     )
     GeometryReader { proxy in
       Canvas { context, size in
@@ -666,14 +685,6 @@ struct ActionSurface: View {
       }
       .overlay(alignment: .bottom) {
         HStack(spacing: 8) {
-          if let pendingPointSelection,
-            presentation.acceptsPendingPointSelection(pendingPointSelection)
-          {
-            Button("Apply Learning Point") {
-              submitPendingPointSelection()
-            }
-            .operatorButton(.affirmative)
-          }
           if pendingDrawingPlacement != nil {
             Button("Apply Drawing Placement") {
               submitPendingDrawingPlacement()
@@ -737,6 +748,10 @@ struct ActionSurface: View {
           self.pendingPointSelection = nil
         }
       }
+      .task(id: automaticPointSubmission) {
+        guard let automaticPointSubmission else { return }
+        await submitPendingPointSelection(automaticPointSubmission)
+      }
       .accessibilityValue(
         [
           presentation.analyzedOverlayFrame.map {
@@ -762,21 +777,23 @@ struct ActionSurface: View {
     pendingPointSelection = submission
   }
 
-  private func submitPendingPointSelection() {
-    guard let submission = pendingPointSelection,
+  private func submitPendingPointSelection(
+    _ submission: PlotterPointSelectionSubmission
+  ) async {
+    guard pendingPointSelection == submission,
       presentation.acceptsPendingPointSelection(submission)
     else {
-      pendingPointSelection = nil
+      if pendingPointSelection == submission {
+        pendingPointSelection = nil
+      }
       return
     }
     let intent = PlotterUIIntent.pointSelection(submission)
     guard let request = plotterUIProjection.request(matching: intent) else { return }
-    Task {
-      let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
-      guard case .accepted = disposition else { return }
-      if pendingPointSelection == submission {
-        pendingPointSelection = nil
-      }
+    let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
+    guard case .accepted = disposition else { return }
+    if pendingPointSelection == submission {
+      pendingPointSelection = nil
     }
   }
 
