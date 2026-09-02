@@ -69,6 +69,25 @@ struct WorkbenchMotionAuthorizationActionPresentation: Equatable, Sendable {
   }
 }
 
+struct WorkbenchMotionUnavailablePresentation: Equatable, Sendable {
+  let text: String
+
+  init?(_ reason: String?) {
+    guard let reason, !reason.isEmpty else { return nil }
+    text = reason
+  }
+}
+
+struct WorkbenchConnectionActionPresentation: Equatable, Sendable {
+  let title: String
+  let role: OperatorButtonRole
+
+  init(action: PlotterControllerConnectionAction) {
+    title = action.title
+    role = action == .disconnect ? .negative : .affirmative
+  }
+}
+
 /// Native macOS window-toolbar controls for the camera-first workbench.
 ///
 /// Only controller/session controls and compact truthful status live here.
@@ -101,6 +120,9 @@ struct WorkbenchToolbar: ToolbarContent {
     ToolbarItem(placement: .principal) {
       let session = controllerSession
       let controllerSlot = WorkbenchControllerSlotPresentation(mode: session.environment)
+      let connectionAction = WorkbenchConnectionActionPresentation(
+        action: session.connectionAction
+      )
       let motionAction = WorkbenchMotionAuthorizationActionPresentation(
         isAuthorized: session.motionAuthorized
       )
@@ -133,16 +155,16 @@ struct WorkbenchToolbar: ToolbarContent {
           .help(session.selectionUnavailableReason ?? "Select one available controller")
         }
 
-        Button(session.connectionActionTitle) {
+        Button(connectionAction.title) {
           submit(PlotterAppUIActionID.controllerConnection)
         }
         .operatorButton(
-          session.sessionEstablished ? .negative : .affirmative,
+          connectionAction.role,
           isEnabled: session.connectionUnavailableReason == nil
         )
         .help(
           session.connectionUnavailableReason
-            ?? "\(session.connectionActionTitle) the selected controller"
+            ?? "\(connectionAction.title) the selected controller"
         )
 
         Button(motionAction.title) {
@@ -156,6 +178,23 @@ struct WorkbenchToolbar: ToolbarContent {
           session.motionAuthorizationUnavailableReason
             ?? "\(motionAction.title) for this controller session"
         )
+        if let unavailable = WorkbenchMotionUnavailablePresentation(
+          session.motionAuthorizationUnavailableReason
+        ) {
+          HStack(spacing: 4) {
+            Image(systemName: "exclamationmark.circle.fill")
+            Text(unavailable.text)
+              .lineLimit(2)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          .font(.caption)
+          .foregroundStyle(.orange)
+          .frame(maxWidth: 280, alignment: .leading)
+          .accessibilityElement(children: .combine)
+          .accessibilityLabel("Motion unavailable")
+          .accessibilityValue(unavailable.text)
+          .help(unavailable.text)
+        }
       }
     }
 

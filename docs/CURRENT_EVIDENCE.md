@@ -8,6 +8,80 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## FIX-09 initial Learning responsiveness and truthful controls complete
+
+Blackdog task `TASK-9C229F54`, attempt `TASK-9C229F54-1984133960c1`,
+implements the initial-Learning responsiveness and workbench truth correction
+through the existing episode, controller-session, camera-capture, and UI owners:
+
+- Confirm publishes `.confirming` before any predecessor wait. An exact held-
+  publication regression proves a repeated stale Confirm is refused without a
+  second Pen command. Separate held-Confirm regressions prove exact Stop and
+  root shutdown return superseded confirmation truth, add no accepted Pen
+  evidence, and expose no discovery successor. Root shutdown closes the Pen
+  owner before joining the retained UI request;
+- held speech playback does not delay the Pen command or next prompt. Pen cue
+  playback is advisory after admitted dispatch, while Boundary's existing
+  completion-sensitive announcement remains completion-sensitive;
+- each camera action publishes a busy runtime/UI revision before its first
+  lower suspension. `PlotterCameraCalibrationRuntime` is the sole mutable owner
+  of calibration phase, proposal, correspondence evidence, accepted fact,
+  failure, and terminal outcome; production projection-bound tests cover both
+  Run and Accept;
+- Learning Reset cancels and settles only the camera runtime's current
+  operation and leaves admission reusable. A projection-bound reset-to-camera
+  regression proves the next green five-position action reaches the runtime;
+  only application shutdown closes its admission;
+- one semantic Connect/Disconnect action determines title, visual role, and
+  lower dispatch. Connect is green, Disconnect is red, and unavailable Enable
+  Motion remains disabled gray with its blocker exposed beside it;
+- interactive capture makes a best-effort 10 FPS device-delivery request and
+  records applied versus unapplied reason without failing an otherwise valid
+  startup. The independent 10 FPS materialization bound remains in force, and
+  passive preview performs zero full-frame hashes. Automatic Vision or an exact
+  workflow explicitly promotes the immutable frame once at its named boundary;
+  the result, overlays, and later exact requests reuse that cached digest, and
+  diagnostics observe the actual sole hash path. Camera preview-processing
+  status is no longer presented as Vision processing. A production root
+  composition regression delivers passive LIVE preview with analysis stopped
+  and proves zero hashes, nil exact Drawing Draft facts, no point-selection
+  request, and clean shutdown;
+- the Incident Package action is disabled when production has no complete
+  canonical incident source. Its exact unavailable remedy is readable multiline
+  secondary status instead of clipped yellow text or an enabled action that can
+  only refuse.
+
+The package validation entrypoint is `make responsiveness-test`. Focused tests
+on the exact source candidate passed for Pen admission and speech dispatch,
+camera calibration and projection-bound UI submission, controller semantics,
+capture cadence diagnostics, Learning projection, and Incident Package
+actionability.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build`; build completed in 0.54 seconds, 1.30 seconds process wall time | package and application compilation |
+| `RESPONSIVENESS` | passed — `make responsiveness-test`; 153/153 tests in 4.901 seconds | pre-wait Pen/camera publication, held-Confirm Stop/root-shutdown supersession, root-composition cancellation/join ordering, non-gating advisory playback, projection-bound camera actions including Reset All reuse, controller control grammar and visible Motion blocker, best-effort camera delivery plus explicit cached analysis/exact hashing, passive overlay, and passive root-presentation behavior, Incident actionability, and Learning projection |
+| `DOC` | passed — `make docs-check`; documentation and architecture contracts plus 13/13, 9/9, and 35/35 checker/capsule tests | current product, architecture, operating, UI-transition, evidence, and execution-plan synchronization |
+| `DIFF` | passed — `git diff --check`; no output | exact task candidate |
+| `QUICK` | passed — `make quick-test`; 851/851 tests in 15.446 seconds | aggregate software suite excluding retained serialized journeys |
+| `JOURNEY` | passed — `make journey-test`; 10/10 tests in 5.117 seconds | serialized causal journeys and reset ownership |
+| `STRICT` | passed — `make strict-check`; strict build 37.92 seconds, full test build 47.75 seconds, 861/861 tests in 16.603 seconds, stable-local signing, launcher and negative-bundle validation, both documentation contracts, and 13/13, 9/9, and 35/35 checker/capsule tests | exact final software candidate; no physical claim |
+
+`FIX-09` is complete as software/repository evidence. No attended controller,
+camera, motion, Pen, paper, click, ink, application-process CPU, or operator
+transition-speed result is claimed. A local
+same-resolution 1920x1080 responsiveness run recorded preview
+copy/materialization at 2,251,315 ns and exact digest promotion at 21,806,408 ns.
+Its five-sample direct-construction medians were 6,240 ns for an unsealed
+passive frame versus 16,643,532 ns with eager SHA-256. This is before/after
+local software evidence that passive construction removes the hash from that
+path; it is not attended app CPU or transition evidence.
+`FIX-10` is the sole next ordinary software package;
+it must add one real canonical incident source and bounded export coordinator,
+not merge unrelated journals or make the UI service a recorder. `VAL-01` is
+dependency-ineligible until FIX-10 is complete, so attended validation cannot
+truthfully pass while Incident Package remains unavailable.
+
 ## FIX-08 operator-throughput correction complete
 
 Blackdog task `TASK-EB3E64FA`, attempt `TASK-EB3E64FA-67fdbd7ab2a2`, implements
@@ -2940,8 +3014,9 @@ execution-plan ledger. Gate names match each package's required gates exactly,
 and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
 stale task-local candidates. FIX-03, DOC-03, the later tranches, EA-11C,
-FIX-05, GATE-01, FIX-06, FIX-07, and FIX-08 have final completion evidence.
-`VAL-01` is the remaining attended-physical boundary.
+FIX-05, GATE-01, FIX-06, FIX-07, FIX-08, and FIX-09 have final completion
+evidence. FIX-10 is the next ordinary software package; `VAL-01` remains
+dependency-ineligible until its incident-source/export dependency is complete.
 Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
@@ -2987,6 +3062,7 @@ Detailed scope and limitations remain in the named evidence sections.
 | FIX-06 | `TASK-4194B778` | `BUILD=passed`, `BOUNDARY=passed`, `POINT=passed`, `UI=passed`, `ARTIFACT-RESET=passed`, `DRAW-RUN=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-06 external-fact currentness correction |
 | FIX-07 | `TASK-EA60F469` | `BUILD=passed`, `TIP-CAL=passed`, `POINT=passed`, `UI=passed`, `ARTIFACT-RESET=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-07 explicit exact click-frame replacement |
 | FIX-08 | `TASK-EB3E64FA` | `BUILD=passed`, `THROUGHPUT=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-08 operator-throughput correction complete |
+| FIX-09 | `TASK-9C229F54` | `BUILD=passed`, `RESPONSIVENESS=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-09 initial Learning responsiveness and truthful controls complete |
 
 ## Wave admission blockers
 
@@ -2995,22 +3071,25 @@ an otherwise dependency-ready pending selectable work item from launching. A row
 must name the exact package, the observed blocker, and the required user input
 or canonical correction. The selector stops at that first eligible row; it
 never skips ahead to later work. An empty table means Current Evidence adds no
-admission blocker beyond the canonical ledger and live Blackdog claims. The
-former EA-10C standalone blocker was removed by the canonical tranche-policy
-correction. `TRANCHE-LEARNING` landed, and
-`TRANCHE-DEVICE-ENVIRONMENT` landed through `TASK-4C16F56F`, attempt
-`TASK-4C16F56F-8af99cc51c68`, at
-`3308e1bf2c19159be7b207226280f54b5ebf0662`, and
-`TRANCHE-FINAL-COMPOSITION` subsequently completed through `TASK-FFD5D897`, and
-FIX-05 completed through `TASK-2BF894FC`, attempt
-`TASK-2BF894FC-06f14a3e1a5b`, GATE-01 completed through `TASK-5E431BE7`,
-attempt `TASK-5E431BE7-59658505ced4`, FIX-06 completed through
-`TASK-4194B778`, attempt `TASK-4194B778-238b4ef7adb1`, and FIX-07 completed
-through `TASK-EA60F469`, attempt `TASK-EA60F469-a83fe1fa0c15`. The later
-operator-authorized throughput correction completed through `TASK-EB3E64FA`,
-attempt `TASK-EB3E64FA-67fdbd7ab2a2`. No ordinary software frontier remains
-before pending attended-physical package `VAL-01`. Current Evidence adds no
-separate blocker. No later successor dispatch is authorized here.
+admission blocker beyond the canonical ledger and live Blackdog claims.
+
+The dependency-ready ordinary frontier is pending software package `FIX-10`.
+The immediately preceding `FIX-09 initial Learning responsiveness and truthful
+controls complete` result belongs to `TASK-9C229F54`, attempt
+`TASK-9C229F54-1984133960c1`. Its current proof includes: Confirm publishes
+`.confirming` before any predecessor wait; held speech playback does not delay
+the Pen command or next prompt; each camera action publishes a busy runtime/UI
+revision before its first lower suspension; one semantic Connect/Disconnect
+action controls title, role, and dispatch; the best-effort 10 FPS
+device-delivery cap reports applied or unapplied truth while passive preview
+performs zero hashing, analysis/exact boundaries share one instrumented
+memoized digest, and passive root presentation publishes no exact-frame facts;
+and the Incident Package action is disabled
+when its complete source does not exist. `FIX-09` is complete as
+software/repository evidence. `FIX-10` is the sole next ordinary software
+package. `VAL-01` is dependency-ineligible until FIX-10 is complete. Current
+Evidence adds no separate blocker, and only FIX-10—not a later successor—is
+authorized by this frontier.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

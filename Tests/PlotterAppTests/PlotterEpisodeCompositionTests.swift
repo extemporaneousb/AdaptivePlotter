@@ -1,5 +1,6 @@
 import Foundation
 import PlotterEpisodeModel
+import PlotterModel
 import PlotterRuntime
 import PlotterUI
 import Testing
@@ -195,6 +196,58 @@ struct PlotterEpisodeCompositionTests {
       includesLearningPath: true
     ).semantic
     #expect(closed.actions.allSatisfy { !$0.isAvailable })
+  }
+
+  @Test("passive live preview publishes without hashing or exact-frame draft facts")
+  func passivePreviewRemainsPresentationOnly() async throws {
+    let camera = try TestObservationCameraSession()
+    let metrics = FrameContentHashMetrics()
+    let passive = DisplayedFrame(
+      source: .live(camera.device.id),
+      frame: try StampedFrame(
+        id: FrameID(rawValue: "passive-production-preview"),
+        sequence: 41,
+        captureNanoseconds: 410,
+        cameraConfigurationID: CameraConfigurationID(),
+        width: 16,
+        height: 12,
+        rowBytes: 64,
+        pixelFormat: .bgra8,
+        bytes: OwnedFrameBytes(Array(repeating: 255, count: 16 * 12 * 4)),
+        eagerlyMaterializeContentHash: false,
+        contentHashMetrics: metrics
+      )
+    )
+    let passiveSnapshot = CameraCaptureSnapshot(
+      devices: [camera.device],
+      selectedDeviceID: camera.device.id,
+      state: .running,
+      latestFrame: passive,
+      error: nil
+    )
+    let fixture = try PlotterApplicationFixture(
+      observationSessionOverride: resolvedObservationSession(
+        camera,
+        snapshotProvider: { passiveSnapshot }
+      ),
+      loadPenCapAppearanceSelection: { nil }
+    )
+    let application = fixture.application
+
+    await application.performApplicationStartup(
+      AdaptivePlotterLaunchPolicy(arguments: ["AdaptivePlotter"])
+    )
+
+    let presented = try #require(application.testActionSurfacePresentation.displayedFrame)
+    #expect(presented.frame.id == passive.frame.id)
+    #expect(presented.frame.materializedContentSHA256 == nil)
+    #expect(metrics.snapshot.totalComputationCount == 0)
+    #expect(application.drawingDraftSnapshot.projection.externalFacts.displayedFrame == nil)
+    #expect(application.drawingDraftSnapshot.preview == nil)
+    #expect(application.testActionSurfacePresentation.pointSelectionRequest == nil)
+
+    await application.shutdown()
+    #expect(metrics.snapshot.totalComputationCount == 0)
   }
 
   @Test("controller observation and paper controls are immutable application requests")

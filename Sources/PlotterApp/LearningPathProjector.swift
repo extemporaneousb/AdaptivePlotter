@@ -31,6 +31,7 @@ struct PlotterLearningPresentationFacts: Sendable {
     let sessionEstablished: Bool
     let motionAuthorized: Bool
     let cameraStateText: String
+    let cameraDeliveryLimitOutcome: CameraDeliveryLimitOutcome
     let machineError: String?
     let controllerTravelUnavailableReason: String?
 
@@ -38,12 +39,14 @@ struct PlotterLearningPresentationFacts: Sendable {
       sessionEstablished: Bool = false,
       motionAuthorized: Bool = false,
       cameraStateText: String = "not started",
+      cameraDeliveryLimitOutcome: CameraDeliveryLimitOutcome = .notRequested,
       machineError: String? = nil,
       controllerTravelUnavailableReason: String? = nil
     ) {
       self.sessionEstablished = sessionEstablished
       self.motionAuthorized = sessionEstablished && motionAuthorized
       self.cameraStateText = cameraStateText
+      self.cameraDeliveryLimitOutcome = cameraDeliveryLimitOutcome
       self.machineError = machineError
       self.controllerTravelUnavailableReason = controllerTravelUnavailableReason
     }
@@ -112,7 +115,8 @@ struct PlotterLearningPresentationFacts: Sendable {
     let acceptedIsCurrent: Bool
     let hasProposal: Bool
     let phase: CurrentCameraCalibrationPhase?
-    let failureRecovery: WorkflowTelemetryRecovery?
+    let failure: PlotterCameraCalibrationFailure?
+    let lastOutcome: PlotterCameraCalibrationSubmissionOutcome?
 
     init(
       accepted: MachineCameraRegistration? = nil,
@@ -120,14 +124,16 @@ struct PlotterLearningPresentationFacts: Sendable {
       acceptedIsCurrent: Bool? = nil,
       hasProposal: Bool? = nil,
       phase: CurrentCameraCalibrationPhase? = nil,
-      failureRecovery: WorkflowTelemetryRecovery? = nil
+      failure: PlotterCameraCalibrationFailure? = nil,
+      lastOutcome: PlotterCameraCalibrationSubmissionOutcome? = nil
     ) {
       self.accepted = accepted
       self.proposed = proposed
       self.acceptedIsCurrent = acceptedIsCurrent ?? (accepted != nil)
       self.hasProposal = hasProposal ?? (proposed != nil)
       self.phase = phase
-      self.failureRecovery = failureRecovery
+      self.failure = failure
+      self.lastOutcome = lastOutcome
     }
   }
 
@@ -997,6 +1003,30 @@ extension PlotterLearningDetailedPresentationNormalizer {
           : [.text("Stop remains available for the active Pen-Up move.")]
       )
     }
+    if itemID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
+      let failure = snapshot.cameraCalibration.failure
+    {
+      return OperationActivityPresentation(
+        actor: "PlotterCameraCalibrationRuntime",
+        action: "Build Camera Calibration",
+        outcomeLabel: "Failed",
+        outcome: .needsAttention,
+        detail: [.text(failure.detail)],
+        recovery: [.text(recoveryText(failure.recovery))]
+      )
+    }
+    if itemID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
+      case .refused(let detail)? = snapshot.cameraCalibration.lastOutcome
+    {
+      return OperationActivityPresentation(
+        actor: "PlotterCameraCalibrationRuntime",
+        action: "Build Camera Calibration",
+        outcomeLabel: "Refused",
+        outcome: .needsAttention,
+        detail: [.text(detail)],
+        recovery: [.text("Resolve the named prerequisite, then submit the current action once.")]
+      )
+    }
     if itemID == .borderValidation(.chooseDrawingBorderPlan),
       operations.activeAttemptOwner == itemID
     {
@@ -1022,7 +1052,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
         action: current.title,
         outcome: .needsAttention,
         detail: [.text(failure.detail)],
-        recovery: [.text(snapshot.cameraCalibration.failureRecovery.map(recoveryText)
+        recovery: [.text(snapshot.cameraCalibration.failure.map { recoveryText($0.recovery) }
           ?? "Resolve the named controller, camera, or exact-frame fact, then retry.")]
       )
     }
@@ -1164,6 +1194,15 @@ extension PlotterLearningDetailedPresentationNormalizer {
         acceptedResult: evidence,
         recovery: [.text("Inspect the pen before confirming. Stop does not imply a physical pose.")]
       )
+    case .confirming(let command):
+      return OperationActivityPresentation(
+        actor: "Application",
+        action: "Confirm Pen \(command == .raise ? "Up" : "Down")",
+        phase: "Operator confirmation admitted; advancing",
+        outcome: .inProgress,
+        acceptedResult: evidence,
+        recovery: [.text("The previous confirmation is no longer actionable; Stop remains exact-owner bound.")]
+      )
     case .drainingSetpoint(let command):
       return OperationActivityPresentation(
         actor: actor,
@@ -1282,6 +1321,26 @@ extension PlotterLearningDetailedPresentationNormalizer {
     let motionDetail = operations.stopOwner.map { _ in
       "One active operation controls motion and exposes its matching Stop action."
     } ?? "No Learning Path operation is using controller motion."
+    let cameraState: String = if controller.cameraStateText == "running" {
+      switch controller.cameraDeliveryLimitOutcome {
+      case .applied(let limit):
+        "Preview processing · device capped at \(String(format: "%.0f", limit)) FPS"
+      case .unapplied(let requested, _):
+        "Preview processing · device cap \(String(format: "%.0f", requested)) FPS unapplied"
+      case .notRequested:
+        "Preview processing · materialization up to 10 FPS"
+      }
+    } else {
+      controller.cameraStateText
+    }
+    let cameraDetail: String = switch controller.cameraDeliveryLimitOutcome {
+    case .applied(let limit):
+      "The camera device is capped at \(String(format: "%.0f", limit)) FPS; ordinary preview is capped at 10 FPS and does not hash full-frame evidence unless an exact workflow requests it. Exact evidence requests remain explicit. Camera state does not accept or reject a machine boundary.\(suffix)"
+    case .unapplied(let requested, let reason):
+      "The best-effort \(String(format: "%.0f", requested)) FPS device cap was not applied: \(reason) Ordinary preview is still capped at 10 FPS and does not hash full-frame evidence unless an exact workflow requests it. Exact evidence requests remain explicit.\(suffix)"
+    case .notRequested:
+      "The camera owner bounds full-frame preview materialization at 10 FPS; ordinary preview does not hash full-frame evidence unless an exact workflow requests it. Exact evidence requests remain explicit.\(suffix)"
+    }
     return [
       SubsystemStatusPresentation(
         id: "controller",
@@ -1302,14 +1361,14 @@ extension PlotterLearningDetailedPresentationNormalizer {
       SubsystemStatusPresentation(
         id: "camera",
         subsystem: "Camera",
-        state: controller.cameraStateText,
+        state: cameraState,
         role: .advisoryEvidence,
         blocksNewMotion: false,
-        detail: [.text("Camera state does not accept or reject a machine boundary.\(suffix)")]
+        detail: [.text(cameraDetail)]
       ),
       SubsystemStatusPresentation(
         id: "vision",
-        subsystem: "Vision / processing",
+        subsystem: "Vision",
         state: vision.0,
         role: vision.2,
         blocksNewMotion: vision.1,
@@ -1415,6 +1474,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
     switch expectation {
     case .questionPresented: "The contextual question is visible."
     case .operatorChoice: "One contextual YES or NO choice is recorded."
+    case .announcementDispatched: "Advisory speech is dispatched without gating the next step."
     case .announcementCompleted: "Speech output completes or reaches its advisory bound."
     case .boundaryJogStarted:
       "The controller is moving toward the selected Drawing Boundary and Stop is available."

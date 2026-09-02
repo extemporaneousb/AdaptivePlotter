@@ -1203,7 +1203,53 @@ extension PlotterApplicationRuntimeTests {
     #expect(
       events.firstIndex(of: "announce:Raising the pen.")! < events.firstIndex(
         of: "machine:pen-raise")!)
-    #expect(workspace.lastAnnouncementResultText == "Announcement completed.")
+    #expect(workspace.lastAnnouncementResultText.contains("Announcement dispatched"))
+    await workspace.shutdown()
+  }
+
+  @Test("held speech playback does not delay the Pen command or next prompt")
+  func heldSpeechDoesNotGatePenTransition() async throws {
+    let log = EventLog()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
+    let speech = HeldSpeechAnnouncer()
+    let workspace = plotterApplicationRuntime(
+      machine: machine,
+      camera: camera,
+      speechAnnouncer: speech,
+      log: log
+    )
+    await workspace.establishMachineSession(machine.descriptor)
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    await workspace.performTestExerciseAction(.start, for: owner)
+    let request = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    let frame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    submitPointSelection(workspace, request: request, point: try Point2(
+      x: Double(frame.frame.width - 1) / 2,
+      y: Double(frame.frame.height - 1) / 2
+    ))
+    try await waitUntil { workspace.activeDiscoverySequenceID == .penInteraction }
+
+    let confirmed = Task {
+      await workspace.performTestExerciseAction(.choice(.yes), for: owner)
+    }
+    await speech.waitUntilStarted()
+    try await waitUntilAsync {
+      await log.values.contains("machine:pen-lower")
+    }
+    _ = await confirmed.value
+
+    #expect(
+      workspace.discoveryTransactions[.penInteraction]?.currentStep?.action
+        == .awaitPhysicalPenConfirmation(
+          .down,
+          question: DiscoverySequenceCatalog.definition(for: .penInteraction).questions[1]
+        )
+    )
+    #expect(await speech.currentStartCount == 1)
+    await speech.releaseAll()
     await workspace.shutdown()
   }
 

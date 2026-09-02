@@ -20,13 +20,19 @@ flowchart TD
     p2["Set and verify Up<br/>Pen Up slider · Confirm Pen Up · Cancel Attempt"]
     p3["Set and verify Down<br/>Pen Down slider · Confirm Pen Down · Cancel Attempt"]
     p4["Verify return to Up<br/>Pen Up slider · Confirm Pen Up · Cancel Attempt"]
+    p2a["Up confirmation admitted<br/>predecessor Confirm removed · exact Stop only"]
+    p3a["Down confirmation admitted<br/>predecessor Confirm removed · exact Stop only"]
+    p4a["Final Up confirmation admitted<br/>predecessor Confirm removed · exact Stop only"]
     pdone["1.1 complete<br/>Redo This Step · Record Another Attempt"]
     pcancel["Attempt settled without acceptance<br/>Restart Attempt"]
     p0 -->|Identify Pen Cap| p1
     p1 -->|valid cap-body point selection — not a button| p2
-    p2 -->|Confirm Pen Up| p3
-    p3 -->|Confirm Pen Down| p4
-    p4 -->|Confirm Pen Up| pdone
+    p2 -->|Confirm Pen Up — publishes busy revision before waiting| p2a
+    p2a -->|settled Up; advisory Down cue admitted without playback wait| p3
+    p3 -->|Confirm Pen Down — publishes busy revision before waiting| p3a
+    p3a -->|settled Down; advisory Up cue admitted without playback wait| p4
+    p4 -->|Confirm Pen Up — publishes busy revision before waiting| p4a
+    p4a -->|settled final Up| pdone
     p1 -->|Cancel Attempt| pcancel
     p2 -->|Cancel Attempt| pcancel
     p3 -->|Cancel Attempt| pcancel
@@ -57,7 +63,7 @@ flowchart TD
 
   subgraph camera["1.3 Calibrate Camera from Pen Cap Positions"]
     c0["Ready<br/>Run Five-Position Camera Calibration"]
-    c1["Automatic five-position measurement<br/>Run Five-Position Camera Calibration… — disabled<br/>Stop replaces it during stoppable motion"]
+    c1["Camera calibration working<br/>Camera calibration is working… — disabled<br/>Stop replaces it during stoppable motion"]
     c2["Calibration review<br/>Accept Camera Calibration<br/>Reject Camera Calibration · Cancel Attempt"]
     cempty["Stopped or rejected; no proposal<br/>Run Five-Position Camera Calibration<br/>Discard Captured Samples · Cancel Attempt"]
     cdone["1.3 complete<br/>Redo This Step"]
@@ -137,6 +143,9 @@ flowchart TD
 Dependency behavior is intentionally asymmetric:
 
 - Motion Enabled implies a connected controller session.
+- Every semantic **Connect** action is green and every semantic **Disconnect**
+  action is red, including open connecting/probing states. An unavailable
+  **Enable Motion** stays gray and shows its blocker beside the control.
 - **Identify Pen Cap** requires only a current exact frame.
 - Every valid cap or calibration point click submits directly through its
   projection-bound request; there is no **Apply Learning Point** button.
@@ -147,6 +156,15 @@ Dependency behavior is intentionally asymmetric:
 - Satisfying a prerequisite enables the existing action. It never inserts a
   Learning Path **Connect**, **Enable Motion**, generic **Start**, **Next**,
   **Go**, or redundant acceptance step.
+- Every admitted camera-calibration action publishes a busy runtime/UI revision
+  before its first lower wait, and an exact refusal/failure is rendered from the
+  camera runtime rather than disappearing into generic workspace status.
+- Exact Stop or root shutdown that displaces a published Pen Confirm yields a
+  superseded confirmation: no accepted Pen evidence is recorded and no
+  discovery successor appears.
+- **Incident Package** is a workbench diagnostic, not a Learning transition.
+  When no complete canonical incident source exists, it is disabled with a
+  wrapped readable reason; it does not admit a guaranteed refusal.
 
 The two normal-flow acceptance buttons commit reviewable calibration evidence;
 they are not forward gates. **Accept Camera Calibration** commits the

@@ -6,6 +6,183 @@ import Testing
 
 @Suite("Camera capture policy and frame delivery")
 struct CameraCaptureTests {
+  @Test("interactive preview caps upstream delivery at its 10 FPS materialization budget")
+  func interactivePreviewCapsDriverWorkload() async throws {
+    let device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")
+    let driver = TestCameraDriver(devices: [device])
+    let capture = CameraCapture(driver: driver, materializationPolicy: .interactivePreview)
+
+    await capture.discoverDevices()
+    await capture.start()
+
+    let requested = try #require(await driver.requestedMaximumFramesPerSecond.first ?? nil)
+    #expect(requested == 10)
+    #expect(await capture.diagnostics().maximumDeliveredFramesPerSecond == requested)
+    #expect(await capture.diagnostics().deliveryLimitOutcome == .applied(framesPerSecond: 10))
+    #expect(
+      LiveFrameMaterializationPolicy.interactivePreview.minimumPreviewIntervalNanoseconds
+        * UInt64(requested) == 1_000_000_000
+    )
+  }
+
+  @Test("an unapplied best-effort device cap remains running and reports why")
+  func unappliedDeviceCapIsNonfatalAndTruthful() async throws {
+    let device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")
+    let reason = "fixture camera does not support 10 FPS"
+    let driver = TestCameraDriver(
+      devices: [device],
+      deliveryLimitOutcome: .unapplied(
+        requestedFramesPerSecond: 10,
+        reason: reason
+      )
+    )
+    let capture = CameraCapture(driver: driver, materializationPolicy: .interactivePreview)
+
+    await capture.discoverDevices()
+    await capture.start()
+
+    #expect(await capture.snapshot().state == .running)
+    #expect(await capture.snapshot().error == nil)
+    #expect(await capture.diagnostics().maximumDeliveredFramesPerSecond == nil)
+    #expect(
+      await capture.diagnostics().deliveryLimitOutcome
+        == .unapplied(requestedFramesPerSecond: 10, reason: reason)
+    )
+  }
+
+  @Test("same-resolution passive preview performs no hash and exact promotion computes once")
+  func previewDefersFullFrameEvidenceHash() async throws {
+    let device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")
+    let driver = TestCameraDriver(devices: [device])
+    let capture = CameraCapture(driver: driver, materializationPolicy: .interactivePreview)
+    let width = 1_920
+    let height = 1_080
+    let rowBytes = width * 4
+    let bytes = Data(repeating: 127, count: rowBytes * height)
+
+    await capture.discoverDevices()
+    await capture.start()
+    let start = DispatchTime.now().uptimeNanoseconds
+    await driver.emit(.frame(CapturedBGRAFrame(
+      width: width,
+      height: height,
+      rowBytes: rowBytes,
+      bytes: bytes,
+      captureNanoseconds: 100
+    )))
+    try await waitUntil { await capture.diagnostics().previewMaterializedFrameCount == 1 }
+    let previewElapsed = DispatchTime.now().uptimeNanoseconds - start
+    let preview = try #require(await capture.snapshot().latestFrame)
+
+    #expect(!preview.frame.contentHashIsMaterialized)
+    #expect(preview.frame.materializedContentSHA256 == nil)
+    #expect(await capture.diagnostics().analysisContentHashComputationCount == 0)
+    #expect(await capture.diagnostics().exactContentHashComputationCount == 0)
+    #expect(await capture.diagnostics().serializationContentHashComputationCount == 0)
+
+    let exactStart = DispatchTime.now().uptimeNanoseconds
+    let exact = try #require(
+      try await capture.materializeLatestFrame(policy: .returnOnly)
+    )
+    let exactElapsed = DispatchTime.now().uptimeNanoseconds - exactStart
+    print(
+      "same-resolution 1920x1080 materialization: preview=\(previewElapsed)ns exact-digest=\(exactElapsed)ns"
+    )
+
+    #expect(exact.frame.id == preview.frame.id)
+    #expect(exact.frame.contentHashIsMaterialized)
+    #expect(exact.frame.contentHashMaterializationPurpose == .exactEvidence)
+    #expect(await capture.diagnostics().analysisContentHashComputationCount == 0)
+    #expect(await capture.diagnostics().exactContentHashComputationCount == 1)
+    #expect(await capture.diagnostics().serializationContentHashComputationCount == 0)
+
+    let repeated = try #require(
+      try await capture.materializeLatestFrame(policy: .returnOnly)
+    )
+    #expect(repeated.frame.contentSHA256 == exact.frame.contentSHA256)
+    #expect(await capture.diagnostics().exactContentHashComputationCount == 1)
+
+    let ownedBytes = OwnedFrameBytes(copying: bytes)
+    func constructionDuration(eager: Bool, sequence: UInt64) throws -> UInt64 {
+      let began = DispatchTime.now().uptimeNanoseconds
+      let frame = try StampedFrame(
+        sequence: sequence,
+        captureNanoseconds: sequence,
+        cameraConfigurationID: CameraConfigurationID(),
+        width: width,
+        height: height,
+        rowBytes: rowBytes,
+        pixelFormat: .bgra8,
+        bytes: ownedBytes,
+        eagerlyMaterializeContentHash: eager
+      )
+      #expect(frame.contentHashIsMaterialized == eager)
+      return DispatchTime.now().uptimeNanoseconds - began
+    }
+    var passiveConstruction: [UInt64] = []
+    var eagerConstruction: [UInt64] = []
+    for index in 0..<5 {
+      passiveConstruction.append(
+        try constructionDuration(eager: false, sequence: UInt64(1_000 + index)))
+      eagerConstruction.append(
+        try constructionDuration(eager: true, sequence: UInt64(2_000 + index)))
+    }
+    let passiveMedian = passiveConstruction.sorted()[2]
+    let eagerMedian = eagerConstruction.sorted()[2]
+    print(
+      "same-resolution 1920x1080 construction median: passive=\(passiveMedian)ns eager-sha=\(eagerMedian)ns"
+    )
+    #expect(passiveMedian < eagerMedian)
+  }
+
+  @Test("automatic analysis promotes one preview hash and exact request reuses it")
+  func automaticAnalysisOwnsOneHashPromotion() async throws {
+    let device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Camera")
+    let driver = TestCameraDriver(devices: [device])
+    let capture = CameraCapture(driver: driver, materializationPolicy: .interactivePreview)
+    let pipeline = PlotterSceneAnalysisPipeline()
+
+    await capture.discoverDevices()
+    await capture.start()
+    await pipeline.start(cadence: .fiveFPS, requestedFeatures: [])
+    await driver.emit(.frame(CapturedBGRAFrame(
+      width: 16,
+      height: 12,
+      rowBytes: 64,
+      bytes: Data(repeating: 255, count: 16 * 12 * 4),
+      captureNanoseconds: 100
+    )))
+    try await waitUntil { await capture.diagnostics().previewMaterializedFrameCount == 1 }
+    let passive = try #require(await capture.snapshot().latestFrame)
+    #expect(passive.frame.materializedContentSHA256 == nil)
+    #expect(await capture.diagnostics().analysisContentHashComputationCount == 0)
+
+    await pipeline.submit(passive)
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 1 }
+    let analyzed = try #require(await pipeline.snapshot().latestResult)
+    #expect(analyzed.displayedFrame.frame.contentHashMaterializationPurpose == .analysis)
+    #expect(
+      analyzed.measurement.frameSHA256
+        == analyzed.displayedFrame.frame.contentSHA256
+    )
+    #expect(await capture.diagnostics().analysisContentHashComputationCount == 1)
+    #expect(await capture.diagnostics().exactContentHashComputationCount == 0)
+
+    _ = analyzed.displayedFrame.frame.contentSHA256
+    _ = analyzed.displayedFrame.frame.contentSHA256
+    _ = try JSONEncoder().encode(analyzed.displayedFrame.frame)
+    #expect(await capture.diagnostics().analysisContentHashComputationCount == 1)
+    #expect(await capture.diagnostics().serializationContentHashComputationCount == 0)
+
+    let exact = try #require(
+      try await capture.materializeLatestFrame(policy: .returnOnly)
+    )
+    #expect(exact.frame.contentSHA256 == analyzed.displayedFrame.frame.contentSHA256)
+    #expect(await capture.diagnostics().analysisContentHashComputationCount == 1)
+    #expect(await capture.diagnostics().exactContentHashComputationCount == 0)
+    await pipeline.stop()
+  }
+
   @Test("zero, one, and multiple devices have explicit selection behavior")
   func deviceSelection() async throws {
     let none = TestCameraDriver(devices: [])
@@ -543,8 +720,10 @@ private actor TestCameraDriver: CameraCaptureDriver {
   private var startContinuations: [Int: CheckedContinuation<Void, Never>] = [:]
   private var eventHandler: TestCameraEventHandler?
   private var startHandlers: [TestCameraEventHandler] = []
+  private let deliveryLimitOutcome: CameraDeliveryLimitOutcome?
   private(set) var discoveryCount = 0
   private(set) var startCount = 0
+  private(set) var requestedMaximumFramesPerSecond: [Double?] = []
   private(set) var stopCount = 0
   private(set) var isActive = false
 
@@ -553,13 +732,15 @@ private actor TestCameraDriver: CameraCaptureDriver {
     devices: [CameraDevice],
     requestAccessResult: Bool = true,
     delayedDiscoveryCalls: Set<Int> = [],
-    delayedStartCalls: Set<Int> = []
+    delayedStartCalls: Set<Int> = [],
+    deliveryLimitOutcome: CameraDeliveryLimitOutcome? = nil
   ) {
     self.authorization = authorization
     self.devices = devices
     self.requestAccessResult = requestAccessResult
     self.delayedDiscoveryCalls = delayedDiscoveryCalls
     self.delayedStartCalls = delayedStartCalls
+    self.deliveryLimitOutcome = deliveryLimitOutcome
   }
 
   func authorizationState() async -> CameraAuthorizationState { authorization }
@@ -577,12 +758,14 @@ private actor TestCameraDriver: CameraCaptureDriver {
 
   func start(
     deviceID: CameraDeviceID,
+    maximumFramesPerSecond: Double?,
     eventHandler: @escaping @Sendable (CameraDriverEvent) -> Void
-  ) async throws {
+  ) async throws -> CameraCaptureDriverStartResult {
     guard devices.contains(where: { $0.id == deviceID }) else {
       throw CameraCaptureError.unknownDevice(deviceID)
     }
     startCount += 1
+    requestedMaximumFramesPerSecond.append(maximumFramesPerSecond)
     let call = startCount
     startHandlers.append(eventHandler)
     if delayedStartCalls.contains(call) {
@@ -592,6 +775,11 @@ private actor TestCameraDriver: CameraCaptureDriver {
     }
     self.eventHandler = eventHandler
     isActive = true
+    return CameraCaptureDriverStartResult(
+      deliveryLimitOutcome: deliveryLimitOutcome
+        ?? maximumFramesPerSecond.map { .applied(framesPerSecond: $0) }
+        ?? .notRequested
+    )
   }
 
   func stop() async {

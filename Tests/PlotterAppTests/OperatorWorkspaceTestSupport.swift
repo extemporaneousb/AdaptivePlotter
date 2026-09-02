@@ -1004,8 +1004,12 @@ func completeSimulatedPenInteractionPrerequisite(
   _ workspace: PlotterApplicationRuntime
 ) async throws {
   await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
-  await submitControllerSession(workspace, .toggleConnection)
-  await submitControllerSession(workspace, .toggleMotionAuthorization)
+  if !workspace.controllerSessionProjection.sessionEstablished {
+    await submitControllerSession(workspace, .toggleConnection)
+  }
+  if !workspace.controllerSessionProjection.motionAuthorized {
+    await submitControllerSession(workspace, .toggleMotionAuthorization)
+  }
   let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
   try requireEnabledPublicAction(.start, owner: owner, workspace: workspace)
   await workspace.performTestExerciseAction(.start, for: owner)
@@ -1775,6 +1779,35 @@ actor ImmediateSpeechAnnouncer: SpeechAnnouncing {
   func announce(_: String) async -> SpeechAnnouncementOutcome { .completed }
 
   func cancelForShutdown() async {}
+}
+
+actor HeldSpeechAnnouncer: SpeechAnnouncing {
+  private var startCount = 0
+  private var startWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+  private var continuations: [CheckedContinuation<SpeechAnnouncementOutcome, Never>] = []
+
+  func announce(_: String) async -> SpeechAnnouncementOutcome {
+    startCount += 1
+    let ready = startWaiters.filter { $0.0 <= startCount }
+    startWaiters.removeAll { $0.0 <= startCount }
+    ready.forEach { $0.1.resume() }
+    return await withCheckedContinuation { continuations.append($0) }
+  }
+
+  func waitUntilStarted(_ expectedCount: Int = 1) async {
+    guard startCount < expectedCount else { return }
+    await withCheckedContinuation { startWaiters.append((expectedCount, $0)) }
+  }
+
+  var currentStartCount: Int { startCount }
+
+  func releaseAll(_ outcome: SpeechAnnouncementOutcome = .completed) {
+    let pending = continuations
+    continuations = []
+    pending.forEach { $0.resume(returning: outcome) }
+  }
+
+  func cancelForShutdown() async { releaseAll(.cancelled) }
 }
 
 actor ScriptedSpeechAnnouncer: SpeechAnnouncing {

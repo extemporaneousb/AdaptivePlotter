@@ -12,14 +12,15 @@ public struct ExactFrameProvenance: Codable, Hashable, Sendable {
   public let pixelFormat: FramePixelFormat
 
   public init(frame: StampedFrame) {
-    frameID = frame.id
-    frameSHA256 = frame.contentSHA256
-    captureNanoseconds = frame.captureNanoseconds
-    cameraConfigurationID = frame.cameraConfigurationID
-    width = frame.width
-    height = frame.height
-    rowBytes = frame.rowBytes
-    pixelFormat = frame.pixelFormat
+    let evidenceFrame = frame.materializingContentHash(for: .analysis)
+    frameID = evidenceFrame.id
+    frameSHA256 = evidenceFrame.contentSHA256
+    captureNanoseconds = evidenceFrame.captureNanoseconds
+    cameraConfigurationID = evidenceFrame.cameraConfigurationID
+    width = evidenceFrame.width
+    height = evidenceFrame.height
+    rowBytes = evidenceFrame.rowBytes
+    pixelFormat = evidenceFrame.pixelFormat
   }
 }
 

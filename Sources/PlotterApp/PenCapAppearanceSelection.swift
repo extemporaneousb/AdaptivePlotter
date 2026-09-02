@@ -18,8 +18,11 @@ struct PenCapAppearanceSelection: Codable, Hashable, Sendable {
   let algorithmRevision: String
 
   func matches(_ frame: DisplayedFrame) -> Bool {
-    frameID == frame.frame.id
-      && frameSHA256 == frame.frame.contentSHA256
+    guard let displayedSHA256 = frame.frame.materializedContentSHA256 else {
+      return false
+    }
+    return frameID == frame.frame.id
+      && frameSHA256 == displayedSHA256
       && source == frame.source
       && cameraConfigurationID == frame.frame.cameraConfigurationID
       && width == frame.frame.width

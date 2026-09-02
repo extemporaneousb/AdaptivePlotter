@@ -834,6 +834,12 @@ private actor PlotterApplicationResidualOperationAdapter {
 
   private let registry: Registry
   private var eventRevision: UInt64 = 0
+  private typealias ShutdownReport = PlotterOperationShutdownReport<
+    PlotterApplicationResidualLane,
+    PlotterApplicationResidualContext,
+    PlotterApplicationResidualResult
+  >
+  private var shutdownTask: Task<ShutdownReport, Never>?
 
   init() {
     let lanes = try! PlotterOperationLaneConfiguration(
@@ -905,8 +911,29 @@ private actor PlotterApplicationResidualOperationAdapter {
     _ = await registry.stop(using: capability)
   }
 
-  func shutdown() async {
-    _ = await registry.shutdown()
+  /// Phase one closes registry admission and waits only until every current
+  /// handle has observed its cancellation request. This lets the application
+  /// close the semantic feature owner that a retained UI task may currently be
+  /// awaiting before phase two joins that task's settlement.
+  func beginShutdown() async {
+    if shutdownTask == nil {
+      let registry = registry
+      shutdownTask = Task { await registry.shutdown() }
+    }
+    while true {
+      let snapshot = await registry.snapshot()
+      let cancellationIssued = snapshot.active.allSatisfy {
+        $0.cancellationPhase != .notRequested
+          && $0.cancellationPhase != .requested
+      }
+      if snapshot.admission == .closed && cancellationIssued { return }
+      await Task.yield()
+    }
+  }
+
+  func finishShutdown() async {
+    await beginShutdown()
+    _ = await shutdownTask?.value
   }
 }
 
@@ -1464,9 +1491,8 @@ final class PlotterApplicationRuntime:
     get { cameraCalibrationRuntime.referenceCapAnchor }
     set { }
   }
-  private(set) var proposedMachineCameraRegistration: MachineCameraRegistration? {
+  var proposedMachineCameraRegistration: MachineCameraRegistration? {
     get { cameraCalibrationRuntime.proposedRegistration }
-    set { cameraCalibrationRuntime.replaceProposal(newValue) }
   }
   private(set) var machineCameraRegistration: MachineCameraRegistration? {
     get { cameraCalibrationRuntime.acceptedRegistration }
@@ -1504,17 +1530,14 @@ final class PlotterApplicationRuntime:
     get { tipCalibrationRuntime.blacklistedLocations }
     set { tipCalibrationRuntime.replaceBlacklistedLocations(newValue) }
   }
-  private(set) var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] {
+  var explicitRegistrationCapAnchorEvidence: [MachineCameraCorrespondenceProvenance] {
     get { cameraCalibrationRuntime.correspondenceEvidence }
-    set { cameraCalibrationRuntime.replaceCorrespondenceEvidence(newValue) }
   }
-  private(set) var cameraCalibrationRuntimePhase: CurrentCameraCalibrationPhase? {
+  var cameraCalibrationRuntimePhase: CurrentCameraCalibrationPhase? {
     get { cameraCalibrationRuntime.phase }
-    set { cameraCalibrationRuntime.reportPhase(newValue) }
   }
   private var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure? {
     get { cameraCalibrationRuntime.failure }
-    set { cameraCalibrationRuntime.replaceFailure(newValue) }
   }
   private(set) var localPreFrameBaseline: DisplayedFrame? {
     get { currentEnvironmentState.borderValidation.localPreFrameBaseline }
@@ -1734,7 +1757,8 @@ final class PlotterApplicationRuntime:
   @ObservationIgnored private let speechEffectRuntime: PlotterSpeechEffectRuntime
   @ObservationIgnored private var artifactResetRuntime: PlotterArtifactResetRuntime!
   @ObservationIgnored private lazy var cameraCalibrationRuntime = PlotterCameraCalibrationRuntime(
-    effectPort: PlotterApplicationRuntimeCameraCalibrationEffectPort(application: self)
+    effectPort: PlotterApplicationRuntimeCameraCalibrationEffectPort(application: self),
+    onStateChange: { [weak self] in self?.markSemanticPresentationChanged() }
   )
   /// These ports are capabilities of the LIVE learning session only. The
   /// active accessors deliberately return nil for SIMULATED before any
@@ -3382,8 +3406,15 @@ final class PlotterApplicationRuntime:
     let held = diagnostics.previewPublicationPaused
       ? " · preview publication paused by calibration image analysis"
       : ""
+    let deliveryLimit: String = switch diagnostics.deliveryLimitOutcome {
+    case .notRequested: ""
+    case .applied(let rate):
+      " · device delivery capped at \(String(format: "%.0f", rate)) FPS"
+    case .unapplied(let requested, let reason):
+      " · device cap \(String(format: "%.0f", requested)) FPS unapplied (\(reason))"
+    }
     return
-      "received \(diagnostics.receivedFrameCount) · preview \(diagnostics.previewMaterializedFrameCount) · exact \(diagnostics.exactMaterializedFrameCount)\(held)"
+      "received \(diagnostics.receivedFrameCount) · preview \(diagnostics.previewMaterializedFrameCount) · exact \(diagnostics.exactMaterializedFrameCount) · analysis hashes \(diagnostics.analysisContentHashComputationCount) · exact hashes \(diagnostics.exactContentHashComputationCount) · serialization hashes \(diagnostics.serializationContentHashComputationCount)\(deliveryLimit)\(held)"
   }
 
   var visionThroughputText: String {
@@ -3724,7 +3755,7 @@ final class PlotterApplicationRuntime:
       await residualOperationAdapter.stopLearningAction(actionID)
     }
 
-    await cameraCalibrationRuntime.shutdown()
+    await cameraCalibrationRuntime.cancelActiveOperation()
 
     if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
       await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
@@ -4354,7 +4385,7 @@ final class PlotterApplicationRuntime:
     }
     bindApplicationAction(
       id: PlotterAppUIActionID.controllerConnection,
-      title: controller.connectionActionTitle,
+      title: controller.connectionAction.title,
       action: .controller(controller.request(.toggleConnection)),
       unavailableReason: controller.connectionUnavailableReason,
       owner: "PlotterControllerSessionRuntime"
@@ -4803,6 +4834,10 @@ final class PlotterApplicationRuntime:
         token: String(boundary.projection.reference.revision.rawValue)
       ))
     }
+    revisions.append(PlotterUIRuntimeRevision(
+      owner: "PlotterCameraCalibrationRuntime",
+      token: String(cameraCalibrationRuntime.snapshot().revision)
+    ))
     if let drawingRunSnapshot {
       revisions.append(PlotterUIRuntimeRevision(
         owner: "PlotterDrawingRunRuntime",
@@ -4821,10 +4856,16 @@ final class PlotterApplicationRuntime:
   }
 
   private var incidentPackageUIActionUnavailableReason: String? {
-    if case .loading = incidentPackageUIState {
+    switch incidentPackageUIState {
+    case .loading:
       return "Wait for the active incident-package availability request to finish."
+    case .unavailable(let reason):
+      return reason
+    case .refused(let reason, let remedy):
+      return "\(reason) \(remedy)"
+    case .available, .completed:
+      return nil
     }
-    return nil
   }
 
   func submitPlotterUIRequest(
@@ -5424,6 +5465,8 @@ final class PlotterApplicationRuntime:
         sessionEstablished: sessionEstablished,
         motionAuthorized: sessionMotionAuthorized,
         cameraStateText: cameraStateText,
+        cameraDeliveryLimitOutcome: cameraSnapshot?.diagnostics.deliveryLimitOutcome
+          ?? .notRequested,
         machineError: controllerAttentionText,
         controllerTravelUnavailableReason: learningCarriageMotionUnavailableReason
       ),
@@ -5449,7 +5492,8 @@ final class PlotterApplicationRuntime:
           && learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil,
         hasProposal: proposedMachineCameraRegistration != nil,
         phase: cameraCalibrationRuntimePhase,
-        failureRecovery: currentCameraCalibrationFailure?.recovery
+        failure: currentCameraCalibrationFailure,
+        lastOutcome: cameraCalibrationRuntime.snapshot().terminalHistory.last?.outcome
       ),
       sparseCalibration: .init(
         accepted: tipCameraRegistration,
@@ -5537,6 +5581,7 @@ final class PlotterApplicationRuntime:
       return
     case .cameraCalibration(let intent):
       _ = await cameraCalibrationRuntime.submit(intent)
+      markSemanticPresentationChanged()
       return
     case .tipCalibration(let intent):
       _ = await tipCalibrationRuntime.submit(intent)
@@ -5696,7 +5741,6 @@ final class PlotterApplicationRuntime:
       tipCameraRegistration = checkpoint.tipCalibration?.registration
       proposedTipCameraRegistration = nil
       machineCameraRegistration = checkpoint.machineCamera?.registration
-      proposedMachineCameraRegistration = nil
       if let appearance = checkpoint.penCapAppearance {
         let selection = PenCapAppearanceSelection(checkpoint: appearance)
         livePenCapAppearanceSelection = selection
@@ -5931,20 +5975,25 @@ final class PlotterApplicationRuntime:
     guard applicationAdmissionIsOpen else { return .cancelled }
     switch request {
     case .captureReference:
-      await captureCameraCalibrationReferenceEffect()
-      guard let frame = cameraCalibrationAnchorFrame,
-        let position = cameraCalibrationReferencePosition,
-        let capAnchor = cameraCalibrationReferenceCapAnchor
-      else { return .failed(cameraCalibrationEffectFailure(explorationError)) }
-      return .completed(.reference(frame: frame, position: position, capAnchor: capAnchor))
+      do {
+        let reference = try await captureCameraCalibrationReferenceEffect()
+        return .completed(.reference(
+          frame: reference.frame,
+          position: reference.position,
+          capAnchor: reference.capAnchor
+        ))
+      } catch {
+        return .failed(cameraCalibrationEffectFailure(actionableDescription(error)))
+      }
     case .buildFivePositionProposal:
       return .failed(cameraCalibrationEffectFailure("The runtime must request the individual five-position facts."))
     case .acceptProposal(_, let registration):
-      acceptCameraCalibrationProposalEffect()
-      guard machineCameraRegistration == registration, proposedMachineCameraRegistration == nil else {
-        return .failed(cameraCalibrationEffectFailure(explorationError))
+      do {
+        try acceptCameraCalibrationProposalEffect(registration)
+        return .completed(.accepted(registration))
+      } catch {
+        return .failed(cameraCalibrationEffectFailure(actionableDescription(error)))
       }
-      return .completed(.accepted(registration))
     case .rejectProposal:
       rejectCameraCalibrationProposalEffect()
       return .completed(.rejected)
@@ -6020,33 +6069,40 @@ final class PlotterApplicationRuntime:
     )
   }
 
-  func captureCameraCalibrationReferenceEffect() async {
+  func captureCameraCalibrationReferenceEffect() async throws -> (
+    frame: DisplayedFrame,
+    position: MachinePosition,
+    capAnchor: ToolCapAnchorEstimate
+  ) {
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .calibrateCameraAndVisibleCap
     )
     if activeExerciseAttemptID == nil {
       beginExerciseAttempt(ownerID: ownerID, mode: activeExerciseAttemptMode ?? .normal)
     }
-    guard let acceptedCenter = currentBoundarySnapshot?.centerArrivalPosition else { return }
-    do {
-      let freshObservation = try await freshCalibrationMachineObservation()
-      guard MachinePositionAcceptancePolicy.accepts(
-        freshObservation.position,
-        target: acceptedCenter
-      ) else {
-        throw LearningPathOperationError.requiredState(
-          "Fresh controller MPos did not match the accepted Boundary center arrival. Return Pen Up to the accepted center before starting camera calibration."
-        )
-      }
-      let targetMachinePosition = freshObservation.position
-      let frame = try await captureProtocolFrame(
-        newerThan: cameraCalibrationAnchorFrame?.frame.captureNanoseconds ?? 0
+    guard let acceptedCenter = currentBoundarySnapshot?.centerArrivalPosition else {
+      throw LearningPathOperationError.requiredState(
+        "An accepted Boundary center arrival is required before camera calibration."
       )
-      let centroid: Point2<CameraPixelSpace>
-      let bounds: AxisAlignedBounds<CameraPixelSpace>
-      let confidence: Double
-      var registrationFrame = frame
-      if frameMode == .simulated {
+    }
+    let freshObservation = try await freshCalibrationMachineObservation()
+    guard MachinePositionAcceptancePolicy.accepts(
+      freshObservation.position,
+      target: acceptedCenter
+    ) else {
+      throw LearningPathOperationError.requiredState(
+        "Fresh controller MPos did not match the accepted Boundary center arrival. Return Pen Up to the accepted center before starting camera calibration."
+      )
+    }
+    let targetMachinePosition = freshObservation.position
+    let frame = try await captureProtocolFrame(
+      newerThan: cameraCalibrationAnchorFrame?.frame.captureNanoseconds ?? 0
+    )
+    let centroid: Point2<CameraPixelSpace>
+    let bounds: AxisAlignedBounds<CameraPixelSpace>
+    let confidence: Double
+    var registrationFrame = frame
+    if frameMode == .simulated {
         guard
           let point = overlayResultChannels.simulation?.overlays.compactMap({
             overlay -> Point2<CameraPixelSpace>? in
@@ -6080,43 +6136,34 @@ final class PlotterApplicationRuntime:
           )
         }
         confidence = 1
-      } else {
-        let stable = try await captureStableWorkflowCap(
-          newerThan: frame.frame.captureNanoseconds - 1
-        )
-        let inspection = stable.inspection
-        let cap = stable.cap
-        centroid = cap.centroid
-        bounds = try AxisAlignedBounds(
-          minX: Double(cap.boundingBox.x),
-          minY: Double(cap.boundingBox.y),
-          maxX: Double(cap.boundingBox.x + cap.boundingBox.width),
-          maxY: Double(cap.boundingBox.y + cap.boundingBox.height)
-        )
-        confidence = cap.confidence
-        displayedFrame = inspection.displayedFrame
-        registrationFrame = inspection.displayedFrame
-        publishWorkflowInspection(inspection, owner: .cameraCalibration)
-      }
-      let capAnchor = try ToolCapAnchorEstimate(
-        componentCentroid: centroid,
-        componentBounds: bounds,
-        confidence: confidence,
-        estimatorRevision: penCapAnchorEstimatorRevision,
-        source: registrationFrame.source,
-        frameID: registrationFrame.frame.id,
-        cameraConfigurationID: registrationFrame.frame.cameraConfigurationID
+    } else {
+      let stable = try await captureStableWorkflowCap(
+        newerThan: frame.frame.captureNanoseconds - 1
       )
-      cameraCalibrationRuntime.installReference(
-        frame: registrationFrame,
-        position: targetMachinePosition,
-        capAnchor: capAnchor
+      let inspection = stable.inspection
+      let cap = stable.cap
+      centroid = cap.centroid
+      bounds = try AxisAlignedBounds(
+        minX: Double(cap.boundingBox.x),
+        minY: Double(cap.boundingBox.y),
+        maxX: Double(cap.boundingBox.x + cap.boundingBox.width),
+        maxY: Double(cap.boundingBox.y + cap.boundingBox.height)
       )
-      explorationError = nil
-    } catch {
-      explorationError =
-        "Camera-calibration reference capture failed: \(actionableDescription(error))"
+      confidence = cap.confidence
+      displayedFrame = inspection.displayedFrame
+      registrationFrame = inspection.displayedFrame
+      publishWorkflowInspection(inspection, owner: .cameraCalibration)
     }
+    let capAnchor = try ToolCapAnchorEstimate(
+      componentCentroid: centroid,
+      componentBounds: bounds,
+      confidence: confidence,
+      estimatorRevision: penCapAnchorEstimatorRevision,
+      source: registrationFrame.source,
+      frameID: registrationFrame.frame.id,
+      cameraConfigurationID: registrationFrame.frame.cameraConfigurationID
+    )
+    return (registrationFrame, targetMachinePosition, capAnchor)
   }
 
   private var penCapAnchorEstimatorRevision: String {
@@ -6136,17 +6183,22 @@ final class PlotterApplicationRuntime:
   }
 
   /// Makes the reviewed five-sample cap-map proposal authoritative atomically.
-  func acceptCameraCalibrationProposalEffect() {
+  func acceptCameraCalibrationProposalEffect(
+    _ registration: MachineCameraRegistration
+  ) throws {
     guard let attemptID = activeExerciseAttemptID,
       activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
       let centerArrival = learningArtifactGraph.currentRevision(for: .centerArrival)?.id,
-      let registration = proposedMachineCameraRegistration
-    else { return }
+      registration == proposedMachineCameraRegistration
+    else {
+      throw LearningPathOperationError.requiredState(
+        "Camera-calibration acceptance no longer matches the reviewed proposal and active attempt."
+      )
+    }
+    var graph = learningArtifactGraph
+    let previousGraph = learningArtifactGraph
+    let previousCheckpoint = activeMachineCameraCheckpoint
     do {
-      var graph = learningArtifactGraph
-      let previousGraph = learningArtifactGraph
-      let previousRegistration = machineCameraRegistration
-      let previousCheckpoint = activeMachineCameraCheckpoint
       let machineRegistrationCandidate = LearningArtifactRevision(
         kind: .machineCameraRegistration,
         attemptID: attemptID,
@@ -6158,22 +6210,36 @@ final class PlotterApplicationRuntime:
       )
       let machineRegistration = try graph.commitReplacement(machineRegistrationCandidate)
       learningArtifactGraph = graph
-      machineCameraRegistration = registration
-      proposedMachineCameraRegistration = nil
-      activeMachineCameraCheckpoint = currentAcceptedMachineCameraCheckpoint()
-      guard persistAcceptedLearningPathCheckpoint(clearTip: true, clearStageFour: true) else {
-        learningArtifactGraph = previousGraph
-        machineCameraRegistration = previousRegistration
-        proposedMachineCameraRegistration = registration
-        activeMachineCameraCheckpoint = previousCheckpoint
-        return
+      guard let revision = graph.currentRevision(for: .machineCameraRegistration) else {
+        throw LearningPathOperationError.requiredState(
+          "The accepted machine-camera graph revision was not published."
+        )
       }
-      applyArtifactInvalidations(machineRegistration.invalidatedRevisionIDs)
+      let acceptedCheckpoint = try AcceptedMachineCameraCheckpoint(
+        revision: revision,
+        registration: registration
+      )
+      activeMachineCameraCheckpoint = acceptedCheckpoint
+      guard persistAcceptedLearningPathCheckpoint(
+        machineCamera: acceptedCheckpoint,
+        clearTip: true,
+        clearStageFour: true
+      ) else {
+        learningArtifactGraph = previousGraph
+        activeMachineCameraCheckpoint = previousCheckpoint
+        throw LearningPathOperationError.requiredState(
+          learningAuthorityError ?? "The accepted camera calibration could not be persisted."
+        )
+      }
+      applyArtifactInvalidations(
+        machineRegistration.invalidatedRevisionIDs,
+        preservingCameraCalibrationRuntime: true
+      )
       finishActiveExerciseAttempt(disposition: .succeeded)
-      explorationError = nil
     } catch {
-      explorationError =
-        "Camera-calibration acceptance failed atomically: \(actionableDescription(error))"
+      learningArtifactGraph = previousGraph
+      activeMachineCameraCheckpoint = previousCheckpoint
+      throw error
     }
   }
 
@@ -6603,9 +6669,8 @@ final class PlotterApplicationRuntime:
   }
 
   func rejectCameraCalibrationProposalEffect() {
-    cameraCalibrationRuntime.clearForReset()
-    explorationError =
-      "Operator rejected the staged five-sample cap map. No machine-camera revision became authoritative."
+    // The calibration runtime owns the typed `.completed(.rejected)` terminal.
+    // Rejection does not create a second generic workflow failure.
   }
 
   func submitPointSelection(_ submission: PlotterPointSelectionSubmission) {
@@ -8076,6 +8141,11 @@ final class PlotterApplicationRuntime:
   private func exactTipCalibrationFrame(_ displayed: DisplayedFrame) throws
     -> ExactTipCalibrationFrame
   {
+    guard let contentSHA256 = displayed.frame.materializedContentSHA256 else {
+      throw LearningPathOperationError.requiredState(
+        "The current camera frame is preview-only. Wait for automatic analysis or capture an exact frame before using exact-frame Learning evidence."
+      )
+    }
     let configurationRevision = displayed.frame.cameraConfigurationID.rawValue
     let optical = try CameraOpticalConfigurationIdentity(
       source: displayed.source,
@@ -8093,7 +8163,7 @@ final class PlotterApplicationRuntime:
     )
     return try ExactTipCalibrationFrame(
       frameID: displayed.frame.id,
-      frameSHA256: displayed.frame.contentSHA256,
+      frameSHA256: contentSHA256,
       source: displayed.source,
       captureSessionID: CameraCaptureSessionID(rawValue: configurationRevision),
       opticalConfiguration: optical,
@@ -9394,11 +9464,17 @@ final class PlotterApplicationRuntime:
         return
 
       case .announce(let message):
-        _ = await performSpeechEffect(message)
+        if step.expectedEvent == .announcementDispatched {
+          _ = await dispatchSpeechEffect(message)
+        } else {
+          _ = await performSpeechEffect(message)
+        }
         guard activeDiscoverySequenceID == sequenceID,
           discoveryTransactions[sequenceID]?.currentStep?.id == step.id
         else { return }
-        guard recordDiscovery(.announcementCompleted, for: sequenceID) else { return }
+        let event: DiscoveryEvent = step.expectedEvent == .announcementDispatched
+          ? .announcementDispatched : .announcementCompleted
+        guard recordDiscovery(event, for: sequenceID) else { return }
 
       case .startBoundaryJog:
         // Retained checkpoint decoding may still contain this legacy step,
@@ -10439,11 +10515,17 @@ final class PlotterApplicationRuntime:
     drawingSubscription?.cancel()
     observationProjectionTask = nil
     drawingRunProjectionTask = nil
+    await residualOperationAdapter.beginShutdown()
     await artifactResetRuntime.shutdown()
     await liveTipCalibrationRuntime.shutdown()
     await simulatedTipCalibrationRuntime.shutdown()
+    // Close the Pen semantic owner before joining retained UI work. A Confirm
+    // request can be suspended inside that retained work; the runtime must
+    // first publish cancellation so the request cannot later commit evidence
+    // or advance its discovery transaction during shutdown.
+    await penInteractionRuntime.shutdown()
 
-    await residualOperationAdapter.shutdown()
+    await residualOperationAdapter.finishShutdown()
     applicationState.residualLearningAdmissionID = nil
     await observationSubscription?.value
     await drawingSubscription?.value
@@ -10456,7 +10538,6 @@ final class PlotterApplicationRuntime:
     }
     await cameraCalibrationRuntime.shutdown()
     await pointSelectionRuntime.shutdown()
-    await penInteractionRuntime.shutdown()
     await boundaryRuntime.beginShutdown()
     await speechEffectRuntime.shutdown()
     await boundaryRuntime.shutdown()
@@ -10542,7 +10623,17 @@ final class PlotterApplicationRuntime:
     case .awaitPhysicalPenConfirmation(let state, _):
       let command: PenCommand = state == .down ? .lower : .raise
       let episodeCommand: PlotterPenInteractionCommand = command == .raise ? .raise : .lower
-      guard case .applied = await submitPenInteraction(.confirm(command: episodeCommand)) else {
+      let claimedOperationID = currentPenInteractionSnapshot?.projection.reference.operationID
+      guard case .applied(let confirmedProjection) = await submitPenInteraction(
+        .confirm(command: episodeCommand)
+      ),
+        currentPenInteractionSnapshot?.projection == confirmedProjection,
+        penConfirmationReachedExactSuccessor(
+          command: episodeCommand,
+          claimedOperationID: claimedOperationID,
+          projection: confirmedProjection
+        )
+      else {
         return
       }
       let profile = effectivePenActuationProfile
@@ -10568,6 +10659,24 @@ final class PlotterApplicationRuntime:
       return
     }
     await advanceDiscoverySequence(sequenceID)
+  }
+
+  private func penConfirmationReachedExactSuccessor(
+    command: PlotterPenInteractionCommand,
+    claimedOperationID: PlotterPenInteractionOperationID?,
+    projection: PlotterPenInteractionProjection
+  ) -> Bool {
+    switch (command, projection.phase) {
+    case (.raise, .awaitingControllerCommand(.lower)),
+      (.lower, .awaitingControllerCommand(.raise)):
+      return claimedOperationID != nil
+        && projection.reference.operationID == claimedOperationID
+    case (.raise, .succeeded):
+      return claimedOperationID != nil
+        && projection.reference.operationID == nil
+    default:
+      return false
+    }
   }
 
   private func startExercise(
@@ -10992,7 +11101,10 @@ final class PlotterApplicationRuntime:
     applyArtifactInvalidations(commit.invalidatedRevisionIDs)
   }
 
-  private func applyArtifactInvalidations(_ revisionIDs: Set<LearningArtifactRevisionID>) {
+  private func applyArtifactInvalidations(
+    _ revisionIDs: Set<LearningArtifactRevisionID>,
+    preservingCameraCalibrationRuntime: Bool = false
+  ) {
     for revisionID in revisionIDs {
       guard let revision = learningArtifactGraph.revision(id: revisionID) else { continue }
       switch revision.kind {
@@ -11001,7 +11113,7 @@ final class PlotterApplicationRuntime:
         // runtime transaction, never by mutating a workspace projection.
         break
       case .machineCameraRegistration:
-        machineCameraRegistration = nil
+        if !preservingCameraCalibrationRuntime { machineCameraRegistration = nil }
       case .toolContactObservation:
         break
       case .tipCameraRegistration:
@@ -11200,7 +11312,6 @@ final class PlotterApplicationRuntime:
     retainedPenRequestInProgress = false
     motionAuthorizationActionInProgress = false
     lastMotionGuardActivationText = "not activated"
-    currentCameraCalibrationFailure = nil
     if let activeMachineArtifactCheckpoint {
       acceptedArtifactCheckpointStatus = .quarantined(
         sideCount: activeMachineArtifactCheckpoint.acceptedBoundaryAggregates.count
@@ -11269,6 +11380,7 @@ final class PlotterApplicationRuntime:
 
   @discardableResult
   private func persistAcceptedLearningPathCheckpoint(
+    machineCamera: AcceptedMachineCameraCheckpoint? = nil,
     tipCalibration: AcceptedTipCalibrationCheckpoint? = nil,
     stageFour: AcceptedStageFourCheckpoint? = nil,
     clearTip: Bool = false,
@@ -11294,7 +11406,8 @@ final class PlotterApplicationRuntime:
         semanticIdentity: currentLearningPathSemanticIdentity,
         penInteraction: currentAcceptedPenInteractionCheckpoint(),
         machineArtifacts: activeMachineArtifactCheckpoint,
-        machineCamera: currentAcceptedMachineCameraCheckpoint() ?? activeMachineCameraCheckpoint,
+        machineCamera: machineCamera ?? currentAcceptedMachineCameraCheckpoint()
+          ?? activeMachineCameraCheckpoint,
         tipCalibration: retainedTip,
         stageFour: retainedStage,
         penCapAppearance: try livePenCapAppearanceSelection?.acceptedCheckpoint()
@@ -11648,7 +11761,6 @@ final class PlotterApplicationRuntime:
     tipCameraRegistration = nil
     proposedTipCameraRegistration = nil
     resetTipCalibrationRuntimeForCurrentPaper()
-    explicitRegistrationCapAnchorEvidence = []
     lastProtocolPoseSettlement = nil
     currentEnvironmentState.borderValidation = PlotterBorderValidationSnapshot(
       sourceIsSimulated: frameMode == .simulated
@@ -11722,6 +11834,20 @@ final class PlotterApplicationRuntime:
       case .cancelled: "Announcement cancelled during shutdown."
       }
     return outcome
+  }
+
+  private func dispatchSpeechEffect(_ message: String) async -> PlotterSpeechEffectAdmission {
+    let admission = await speechEffectRuntime.start(.init(message: message))
+    lastAnnouncementResultText =
+      switch admission {
+      case .admitted:
+        "Announcement dispatched; playback is advisory and does not delay the next step."
+      case .refused(let reason):
+        "Announcement dispatch was refused: \(reason). Continuing."
+      case .cancelled:
+        "Announcement dispatch was cancelled during shutdown."
+      }
+    return admission
   }
 
   private func positiveFallbackTravelFeed() -> Double {

@@ -59,9 +59,13 @@ operator name or identifier.
    do not work around refusal with a color picker.
 5. Complete the Up → Down → Up sequence. Use the Up and Down sliders to choose
    functional values at the current position; **Confirm Pen Up** or **Confirm
-   Pen Down** accepts the displayed
-   value even if the request was refused or ambiguous. Record the values and
-   whatever controller outcome, timestamp, and MPos are available. A fresh
+   Pen Down** must immediately replace the clicked confirmation with a busy/Stop
+   surface before any predecessor wait. Confirm that slow advisory audio does
+   not delay the corresponding Pen command or successor prompt. The runtime
+   accepts the displayed value only after a commanded-and-settled controller
+   outcome. A refusal or ambiguity becomes Needs Attention/possible physical
+   change and cannot be confirmed through. Record the values and whatever
+   controller outcome, timestamp, and MPos are available. A fresh
    session is seeded at `S40` and `S760`; repeated attempts start with the
    current values and may legitimately differ by position.
 6. For X−, X+, Y−, and Y+, choose the direction explicitly, start Boundary
@@ -116,8 +120,9 @@ remains on its separate center plus four ±24 mm camera-calibration positions.
    the circle start.
 3. Confirm the app commands and settles the current Exercise 1.1 Pen Down value.
    Directly observe physical contact; the command outcome alone is not proof.
-4. Watch one closed 4 mm-diameter circle complete as 16 short chords at no more
-   than 100 mm/min. Confirm Pen Up settles before any travel toward the next
+4. Watch one closed 4 mm-diameter circle complete as 16 short chords at the
+   app-owned 500 mm/min request, subject to the controller-reported feed ceiling.
+   Confirm Pen Up settles before any travel toward the next
    circle. Across the batch, confirm exactly four separated circles, no center
    circle, and no connecting ink stroke during calibration.
 5. Confirm there is no reveal, frame selection, or click request between
@@ -255,6 +260,20 @@ This section validates direct placed drawing, not adaptive fitting. Training and
 holdout roles are data declarations only until the future active-selection,
 candidate-comparison, and readiness protocols are implemented and physically
 validated.
+
+## Incident export gate
+
+Before claiming the complete run, press **Incident Package** and record the
+export location, exact byte count, SHA-256, format, integrity scope, and any
+declared missing recording/frame/artifact facts. The export is diagnostic and
+must say `physicalEvidenceClaimed == false`; direct operator observations remain
+separate.
+
+The current application has no complete canonical incident-source provider, so
+the control is correctly disabled with a wrapped unavailable reason. That state
+may be inspected as a visible typed refusal/remedy case, but it cannot satisfy
+the required export. Do not begin or pass `PHYSICAL-FINAL` until the ledger's
+incident-source/export correction has landed in the exact signed build.
 
 ## Evidence record
 

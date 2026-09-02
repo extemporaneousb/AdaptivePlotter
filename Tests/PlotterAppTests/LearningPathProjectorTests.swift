@@ -186,6 +186,79 @@ struct PlotterLearningPresentationCompilerTests {
     #expect(projection.selectedAction.activity?.outcome == .needsAttention)
   }
 
+  @Test("camera failure is projected from the camera runtime without generic workspace state")
+  func cameraRuntimeFailureRendering() {
+    let detail = "The exact camera frame no longer matches the active configuration."
+    let snapshot = postBoundarySnapshot(camera: .init(
+      acceptedIsCurrent: false,
+      failure: .init(
+        code: .requiredStateMissing,
+        detail: detail,
+        recovery: .resolveNamedFailure
+      )
+    ))
+    let projection = project(
+      snapshot,
+      selectedItemID: .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    )
+
+    #expect(projection.selectedAction.activity?.actor == "PlotterCameraCalibrationRuntime")
+    #expect(projection.selectedAction.activity?.outcome == .needsAttention)
+    #expect(projection.selectedAction.activity?.detail.accessibilityText == detail)
+    #expect(projection.selectedAction.activity?.recovery.accessibilityText.contains(
+      "Resolve the named controller, camera, or exact-frame failure"
+    ) == true)
+  }
+
+  @Test("running camera reports preview processing instead of an idle processing label")
+  func runningCameraStatusIsTruthful() throws {
+    let snapshot = PlotterLearningPresentationFacts(controller: .init(
+      sessionEstablished: true,
+      motionAuthorized: true,
+      cameraStateText: "running",
+      cameraDeliveryLimitOutcome: .applied(framesPerSecond: 10)
+    ))
+    let projection = project(
+      snapshot,
+      selectedItemID: .humanGuidedDiscovery(.penInteraction)
+    )
+    let camera = try #require(
+      projection.selectedAction.subsystemStatuses.first { $0.id == "camera" }
+    )
+    let vision = try #require(
+      projection.selectedAction.subsystemStatuses.first { $0.id == "vision" }
+    )
+
+    #expect(camera.state == "Preview processing · device capped at 10 FPS")
+    #expect(camera.detail.accessibilityText.contains("does not hash full-frame evidence"))
+    #expect(vision.subsystem == "Vision")
+    #expect(!vision.subsystem.contains("processing"))
+  }
+
+  @Test("running camera distinguishes an unapplied device cap from preview policy")
+  func unappliedCameraDeliveryLimitIsTruthful() throws {
+    let snapshot = PlotterLearningPresentationFacts(controller: .init(
+      sessionEstablished: true,
+      motionAuthorized: true,
+      cameraStateText: "running",
+      cameraDeliveryLimitOutcome: .unapplied(
+        requestedFramesPerSecond: 10,
+        reason: "unsupported active format"
+      )
+    ))
+    let projection = project(
+      snapshot,
+      selectedItemID: .humanGuidedDiscovery(.penInteraction)
+    )
+    let camera = try #require(
+      projection.selectedAction.subsystemStatuses.first { $0.id == "camera" }
+    )
+
+    #expect(camera.state == "Preview processing · device cap 10 FPS unapplied")
+    #expect(camera.detail.accessibilityText.contains("unsupported active format"))
+    #expect(camera.detail.accessibilityText.contains("still capped at 10 FPS"))
+  }
+
   @Test("settled recovery does not replace the next unmet exercise")
   func restartableAttemptDoesNotTrapProgression() {
     let pen = LearningPathItemID.humanGuidedDiscovery(.penInteraction)

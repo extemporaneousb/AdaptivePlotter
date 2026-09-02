@@ -1115,6 +1115,7 @@ public enum DiscoveryAction: Hashable, Sendable {
 public enum DiscoveryEventExpectation: Hashable, Sendable {
   case questionPresented
   case operatorChoice(Set<OperatorChoice>)
+  case announcementDispatched
   case announcementCompleted
   case boundaryJogStarted(BoundaryDirection)
   case operatorStopRequested(BoundaryDirection)
@@ -1129,6 +1130,8 @@ public enum DiscoveryEventExpectation: Hashable, Sendable {
       true
     case (.operatorChoice(let expected), .operatorChoiceAccepted(let actual)):
       expected.contains(actual)
+    case (.announcementDispatched, .announcementDispatched):
+      true
     case (.announcementCompleted, .announcementCompleted):
       true
     case (.boundaryJogStarted(let expected), .boundaryJogStarted(let actual, _)):
@@ -1305,7 +1308,7 @@ public enum DiscoverySequenceCatalog {
           id: "announce-down",
           participant: .application,
           action: .announce("Lowering the pen."),
-          expectedEvent: .announcementCompleted
+          expectedEvent: .announcementDispatched
         ),
         DiscoveryStep(
           id: "command-down",
@@ -1329,7 +1332,7 @@ public enum DiscoverySequenceCatalog {
           id: "announce-up",
           participant: .application,
           action: .announce("Raising the pen."),
-          expectedEvent: .announcementCompleted
+          expectedEvent: .announcementDispatched
         ),
         DiscoveryStep(
           id: "command-up",
@@ -1387,6 +1390,7 @@ public struct DiscoveryEvidenceSummary: Hashable, Sendable {
 public enum DiscoveryEvent: Hashable, Sendable {
   case questionPresented
   case operatorChoiceAccepted(OperatorChoice)
+  case announcementDispatched
   case announcementCompleted
   case boundaryJogStarted(BoundaryDirection, controllerSummary: String)
   case operatorStopRequested(BoundaryDirection)
@@ -1408,7 +1412,7 @@ public enum DiscoveryEvent: Hashable, Sendable {
 
   fileprivate var evidenceSummary: DiscoveryEvidenceSummary? {
     switch self {
-    case .questionPresented, .announcementCompleted:
+    case .questionPresented, .announcementDispatched, .announcementCompleted:
       nil
     case .operatorChoiceAccepted(let response):
       DiscoveryEvidenceSummary(

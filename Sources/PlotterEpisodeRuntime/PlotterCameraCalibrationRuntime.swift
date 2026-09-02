@@ -85,6 +85,7 @@ public struct PlotterCameraCalibrationTerminalRecord: Hashable, Sendable {
   public let outcome: PlotterCameraCalibrationSubmissionOutcome
 }
 public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
+  public let revision: UInt64
   public let admissionClosed: Bool
   public let activeOperationID: PlotterCameraCalibrationOperationID?
   public let activeIntent: PlotterCameraCalibrationIntent?
@@ -105,9 +106,11 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
 @MainActor public final class PlotterCameraCalibrationRuntime {
   public static let terminalHistoryLimit = 16
   private let effectPort: any PlotterCameraCalibrationEffectPort
+  private let onStateChange: @MainActor @Sendable () -> Void
   private var admissionClosed = false
   private var activeTask: Task<PlotterCameraCalibrationSubmissionOutcome, Never>?
   private var terminalHistory: [PlotterCameraCalibrationTerminalRecord] = []
+  public private(set) var revision: UInt64 = 0
   public private(set) var activeOperationID: PlotterCameraCalibrationOperationID?
   public private(set) var activeIntent: PlotterCameraCalibrationIntent?
   public private(set) var anchorFrame: DisplayedFrame?
@@ -118,7 +121,13 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
   public private(set) var acceptedRegistration: MachineCameraRegistration?
   public private(set) var phase: PlotterCameraCalibrationPhase?
   public private(set) var failure: PlotterCameraCalibrationFailure?
-  public init(effectPort: any PlotterCameraCalibrationEffectPort) { self.effectPort = effectPort }
+  public init(
+    effectPort: any PlotterCameraCalibrationEffectPort,
+    onStateChange: @escaping @MainActor @Sendable () -> Void = {}
+  ) {
+    self.effectPort = effectPort
+    self.onStateChange = onStateChange
+  }
 
   @discardableResult public func submit(_ intent: PlotterCameraCalibrationIntent) async -> PlotterCameraCalibrationSubmissionOutcome {
     guard !admissionClosed else { return .cancelled }
@@ -126,6 +135,11 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
     guard admits(intent) else { return refuse(intent, refusalReason(for: intent)) }
     let operationID = PlotterCameraCalibrationOperationID()
     activeOperationID = operationID; activeIntent = intent
+    // Admission must immediately replace the action that produced this
+    // request. Otherwise the same green control remains clickable while the
+    // lower camera/controller effect is suspended.
+    phase = .preparing
+    publishStateChange()
     let task: Task<PlotterCameraCalibrationSubmissionOutcome, Never> = Task { @MainActor [weak self, effectPort] in
       guard let self, self.canExecute(operationID: operationID) else { return .cancelled }
       if intent == .buildFivePositionProposal {
@@ -138,7 +152,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
     activeTask = task
     let outcome = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
     guard activeOperationID == operationID, activeIntent == intent, !admissionClosed else { return .cancelled }
-    activeTask = nil; activeOperationID = nil; activeIntent = nil
+    activeTask = nil; activeOperationID = nil; activeIntent = nil; phase = nil
     record(operationID: operationID, intent: intent, outcome: outcome)
     return outcome
   }
@@ -147,36 +161,46 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
   public func shutdown() async {
     guard !admissionClosed else { return }
     admissionClosed = true
+    publishStateChange()
+    await cancelActiveOperation()
+  }
+
+  /// Cancels and settles only the current calibration operation while keeping
+  /// the runtime reusable. Learning Reset uses this lifecycle; application
+  /// shutdown is the only path that closes admission permanently.
+  public func cancelActiveOperation() async {
     let operationID = activeOperationID; let intent = activeIntent
     let task = activeTask
+    guard task != nil else {
+      phase = nil
+      return
+    }
     task?.cancel()
     _ = await task?.value
-    activeTask = nil; activeOperationID = nil; activeIntent = nil
+    guard activeOperationID == operationID, activeIntent == intent else { return }
+    activeTask = nil; activeOperationID = nil; activeIntent = nil; phase = nil
     if let intent { record(operationID: operationID, intent: intent, outcome: .cancelled) }
   }
   public func snapshot() -> PlotterCameraCalibrationRuntimeSnapshot {
-    .init(admissionClosed: admissionClosed, activeOperationID: activeOperationID, activeIntent: activeIntent,
+    .init(revision: revision, admissionClosed: admissionClosed, activeOperationID: activeOperationID, activeIntent: activeIntent,
       anchorFrame: anchorFrame, referencePosition: referencePosition, referenceCapAnchor: referenceCapAnchor,
       correspondenceEvidence: correspondenceEvidence, proposedRegistration: proposedRegistration,
       acceptedRegistration: acceptedRegistration, phase: phase, failure: failure, terminalHistory: terminalHistory)
   }
   /// Persistence recovery can restore only an already accepted registration.
-  public func restoreAcceptedRegistration(_ registration: MachineCameraRegistration?) { acceptedRegistration = registration }
-  /// Transitional App-side fact installation used by the bounded controller/Vision
-  /// effect before its matching result is returned to this runtime.
-  public func installReference(frame: DisplayedFrame, position: MachinePosition, capAnchor: ToolCapAnchorEstimate) {
-    anchorFrame = frame; referencePosition = position; referenceCapAnchor = capAnchor
-    correspondenceEvidence = []; proposedRegistration = nil; failure = nil
+  public func restoreAcceptedRegistration(_ registration: MachineCameraRegistration?) {
+    acceptedRegistration = registration
+    proposedRegistration = nil
+    correspondenceEvidence = []
+    failure = nil
+    phase = nil
+    publishStateChange()
   }
-  public func replaceProposal(_ registration: MachineCameraRegistration?) { proposedRegistration = registration }
-  public func replaceCorrespondenceEvidence(_ evidence: [MachineCameraCorrespondenceProvenance]) { correspondenceEvidence = evidence }
-  public func replaceFailure(_ failure: PlotterCameraCalibrationFailure?) { self.failure = failure }
   public func clearForReset() {
     anchorFrame = nil; referencePosition = nil; referenceCapAnchor = nil; correspondenceEvidence = []
     proposedRegistration = nil; acceptedRegistration = nil; phase = nil; failure = nil
+    publishStateChange()
   }
-  /// Progress is reported by the bounded App effect; terminal state remains here.
-  public func reportPhase(_ phase: PlotterCameraCalibrationPhase?) { self.phase = phase }
 
   private func admits(_ intent: PlotterCameraCalibrationIntent) -> Bool {
     switch intent {
@@ -200,7 +224,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
     switch result {
     case .refused(let detail): return .refused(detail)
     case .cancelled: return .cancelled
-    case .failed(let failure): self.failure = failure; phase = nil; return .failed(failure.detail)
+    case .failed(let failure): self.failure = failure; phase = nil; publishStateChange(); return .failed(failure.detail)
     case .completed(let fact): return apply(fact, intent: intent)
     }
   }
@@ -213,7 +237,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
     }
     func failed(_ result: PlotterCameraCalibrationEffectResult) -> PlotterCameraCalibrationSubmissionOutcome? {
       switch result {
-      case .failed(let failure): self.failure = failure; self.phase = nil; return .failed(failure.detail)
+      case .failed(let failure): self.failure = failure; self.phase = nil; publishStateChange(); return .failed(failure.detail)
       case .refused(let detail): return .refused(detail)
       case .cancelled: return .cancelled
       case .completed: return nil
@@ -228,7 +252,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
       anchorFrame = frame; referencePosition = position; referenceCapAnchor = capAnchor
     }
     guard let reference = referencePosition else { return mismatch("No reference pose is available for five-position calibration.") }
-    phase = .preparing
+    updatePhase(.preparing)
     let planning = await execute(.fivePositionPlan(operationID, reference: reference))
     if let outcome = failed(planning) { return outcome }
     guard case let .completed(.fivePositionPlan(plan)) = planning,
@@ -238,24 +262,24 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
     var samples: [MachineCameraCorrespondenceProvenance] = []
     for index in plan.samplePositions.indices {
       if index == 0 {
-        phase = .capturing(sample: 1, total: 5, role: "C (fit)")
+        updatePhase(.capturing(sample: 1, total: 5, role: "C (fit)"))
         let capture = await execute(.captureSample(operationID, sample: index, expected: plan.samplePositions[index]))
         if let outcome = failed(capture) { return outcome }
         guard case let .completed(.sample(sample)) = capture else { return mismatch("Camera capture did not return a correspondence fact.") }
         samples.append(sample)
       } else {
-        phase = .moving(sample: index + 1, total: 5)
+        updatePhase(.moving(sample: index + 1, total: 5))
         let capture = await execute(.moveAndCapture(operationID, sample: index, expected: plan.samplePositions[index], delta: plan.motionDeltas[index - 1]))
         if let outcome = failed(capture) { return outcome }
         guard case let .completed(.sample(sample)) = capture else { return mismatch("Camera move/capture did not return a correspondence fact.") }
         samples.append(sample)
       }
     }
-    phase = .returningToReference
+    updatePhase(.returningToReference)
     let returned = await execute(.returnToReference(operationID, reference: reference, delta: plan.motionDeltas[4]))
     if let outcome = failed(returned) { return outcome }
     guard case .completed(.returnedToReference) = returned else { return mismatch("Camera calibration did not prove the Pen-Up return to reference.") }
-    phase = .fittingAndTestingHoldouts
+    updatePhase(.fittingAndTestingHoldouts)
     do {
       let fitSamples = Array(samples.prefix(3)); let holdouts = Array(samples.suffix(2))
       let candidate = try MachineCameraRegistrationFit.fit(correspondences: fitSamples.map { .init(machine: $0.machinePoint, camera: $0.capAnchorPoint) }, weights: fitSamples.map { max(0.01, $0.capAnchorConfidence * $0.capAnchorConfidence) })
@@ -290,7 +314,12 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
   }
   private func mismatch(_ detail: String) -> PlotterCameraCalibrationSubmissionOutcome {
     failure = .init(code: .unexpectedFailure, detail: detail, recovery: .resolveNamedFailure); phase = nil
+    publishStateChange()
     return .failed(detail)
+  }
+  private func updatePhase(_ newPhase: PlotterCameraCalibrationPhase) {
+    phase = newPhase
+    publishStateChange()
   }
   private func refusalReason(for intent: PlotterCameraCalibrationIntent) -> String {
     switch intent {
@@ -306,5 +335,10 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
   private func record(operationID: PlotterCameraCalibrationOperationID?, intent: PlotterCameraCalibrationIntent, outcome: PlotterCameraCalibrationSubmissionOutcome) {
     terminalHistory.append(.init(operationID: operationID, intent: intent, outcome: outcome))
     if terminalHistory.count > Self.terminalHistoryLimit { terminalHistory.removeFirst(terminalHistory.count - Self.terminalHistoryLimit) }
+    publishStateChange()
+  }
+  private func publishStateChange() {
+    revision &+= 1
+    onStateChange()
   }
 }

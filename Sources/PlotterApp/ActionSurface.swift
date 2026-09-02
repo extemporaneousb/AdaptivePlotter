@@ -549,13 +549,14 @@ enum ExactFramePointSubmissionBuilder {
           frameHeight: displayedFrame.frame.height
         )
       ),
-      let point = transform.cameraPoint(location)
+      let point = transform.cameraPoint(location),
+      let exactFrame = displayedFrame.pointSelectionSubmissionReferenceIfMaterialized(
+        archiveBinding: request.frame
+      )
     else { return nil }
     return PlotterPointSelectionSubmission(
       selectionID: request.id,
-      frame: displayedFrame.pointSelectionSubmissionReference(
-        archiveBinding: request.frame
-      ),
+      frame: exactFrame,
       point: point,
       presentationTransformRevision: request.presentationTransformRevision
     )
@@ -811,10 +812,11 @@ struct ActionSurface: View {
           frameHeight: displayedFrame.frame.height
         )
       ),
-      let point = transform.cameraPoint(location)
+      let point = transform.cameraPoint(location),
+      let exactFrame = displayedFrame.plotterExactFrameReferenceIfMaterialized
     else { return }
     pendingDrawingPlacement = PlotterDrawingDraftCameraPlacement(
-      frame: displayedFrame.plotterExactFrameReference,
+      frame: exactFrame,
       point: point
     )
   }
@@ -1160,12 +1162,13 @@ struct ActionSurface: View {
 }
 
 private extension DisplayedFrame {
-  func pointSelectionSubmissionReference(
+  func pointSelectionSubmissionReferenceIfMaterialized(
     archiveBinding: PlotterExactFrameReference
-  ) -> PlotterExactFrameReference {
-    PlotterExactFrameReference(
+  ) -> PlotterExactFrameReference? {
+    guard let contentSHA256 = frame.materializedContentSHA256 else { return nil }
+    return PlotterExactFrameReference(
       frameID: frame.id.rawValue,
-      frameSHA256: frame.contentSHA256,
+      frameSHA256: contentSHA256,
       source: source.pointSelectionExactSource,
       cameraConfigurationID: frame.cameraConfigurationID,
       captureNanoseconds: frame.captureNanoseconds,
@@ -1182,7 +1185,12 @@ private extension DisplayedFrame {
 
 extension PlotterPointSelectionRequest {
   func matchesExactDisplayedFrame(_ displayedFrame: DisplayedFrame) -> Bool {
-    frame == displayedFrame.pointSelectionSubmissionReference(archiveBinding: frame)
+    guard
+      let displayedReference = displayedFrame.pointSelectionSubmissionReferenceIfMaterialized(
+        archiveBinding: frame
+      )
+    else { return false }
+    return frame == displayedReference
   }
 }
 

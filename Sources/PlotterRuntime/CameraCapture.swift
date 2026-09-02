@@ -55,6 +55,20 @@ public enum CameraCaptureState: Codable, Hashable, Sendable {
   case failed(CameraCaptureError)
 }
 
+/// Truthful result of the best-effort request to bound physical camera
+/// delivery. Failure to apply the optimization does not make capture unusable;
+/// it remains visible so a requested rate is never reported as an applied one.
+public enum CameraDeliveryLimitOutcome: Codable, Hashable, Sendable {
+  case notRequested
+  case applied(framesPerSecond: Double)
+  case unapplied(requestedFramesPerSecond: Double, reason: String)
+
+  public var appliedFramesPerSecond: Double? {
+    guard case .applied(let framesPerSecond) = self else { return nil }
+    return framesPerSecond
+  }
+}
+
 public struct CameraCaptureDiagnostics: Codable, Hashable, Sendable {
   public static let zero = CameraCaptureDiagnostics(
     receivedFrameCount: 0,
@@ -67,7 +81,11 @@ public struct CameraCaptureDiagnostics: Codable, Hashable, Sendable {
     previewPauseReleaseCount: 0,
     lastReturnOnlyExactFrameID: nil,
     lastExplicitlyPublishedExactFrameID: nil,
-    previewPublicationPaused: false
+    previewPublicationPaused: false,
+    deliveryLimitOutcome: .notRequested,
+    analysisContentHashComputationCount: 0,
+    exactContentHashComputationCount: 0,
+    serializationContentHashComputationCount: 0
   )
 
   public let receivedFrameCount: UInt64
@@ -81,6 +99,14 @@ public struct CameraCaptureDiagnostics: Codable, Hashable, Sendable {
   public let lastReturnOnlyExactFrameID: FrameID?
   public let lastExplicitlyPublishedExactFrameID: FrameID?
   public let previewPublicationPaused: Bool
+  public let deliveryLimitOutcome: CameraDeliveryLimitOutcome
+  public let analysisContentHashComputationCount: UInt64
+  public let exactContentHashComputationCount: UInt64
+  public let serializationContentHashComputationCount: UInt64
+
+  public var maximumDeliveredFramesPerSecond: Double? {
+    deliveryLimitOutcome.appliedFramesPerSecond
+  }
 
   public init(
     receivedFrameCount: UInt64,
@@ -93,7 +119,11 @@ public struct CameraCaptureDiagnostics: Codable, Hashable, Sendable {
     previewPauseReleaseCount: UInt64 = 0,
     lastReturnOnlyExactFrameID: FrameID? = nil,
     lastExplicitlyPublishedExactFrameID: FrameID? = nil,
-    previewPublicationPaused: Bool = false
+    previewPublicationPaused: Bool = false,
+    deliveryLimitOutcome: CameraDeliveryLimitOutcome = .notRequested,
+    analysisContentHashComputationCount: UInt64 = 0,
+    exactContentHashComputationCount: UInt64 = 0,
+    serializationContentHashComputationCount: UInt64 = 0
   ) {
     self.receivedFrameCount = receivedFrameCount
     self.previewMaterializedFrameCount = previewMaterializedFrameCount
@@ -106,6 +136,10 @@ public struct CameraCaptureDiagnostics: Codable, Hashable, Sendable {
     self.lastReturnOnlyExactFrameID = lastReturnOnlyExactFrameID
     self.lastExplicitlyPublishedExactFrameID = lastExplicitlyPublishedExactFrameID
     self.previewPublicationPaused = previewPublicationPaused
+    self.deliveryLimitOutcome = deliveryLimitOutcome
+    self.analysisContentHashComputationCount = analysisContentHashComputationCount
+    self.exactContentHashComputationCount = exactContentHashComputationCount
+    self.serializationContentHashComputationCount = serializationContentHashComputationCount
   }
 
   public var totalMaterializedFrameCount: UInt64 {
@@ -346,15 +380,30 @@ public protocol CameraCaptureDriver: Sendable {
   func discoverDevices() async -> [CameraDevice]
   func start(
     deviceID: CameraDeviceID,
+    maximumFramesPerSecond: Double?,
     eventHandler: @escaping @Sendable (CameraDriverEvent) -> Void
-  ) async throws
+  ) async throws -> CameraCaptureDriverStartResult
   func stop() async
+}
+
+public struct CameraCaptureDriverStartResult: Hashable, Sendable {
+  public let deliveryLimitOutcome: CameraDeliveryLimitOutcome
+
+  public init(appliedMaximumFramesPerSecond: Double?) {
+    deliveryLimitOutcome = appliedMaximumFramesPerSecond.map {
+      .applied(framesPerSecond: $0)
+    } ?? .notRequested
+  }
+
+  public init(deliveryLimitOutcome: CameraDeliveryLimitOutcome) {
+    self.deliveryLimitOutcome = deliveryLimitOutcome
+  }
 }
 
 public actor CameraCapture {
   private struct PendingDriverStart {
     let generation: UUID
-    let task: Task<Void, Error>
+    let task: Task<CameraCaptureDriverStartResult, Error>
   }
 
   private struct BufferedCapture {
@@ -377,6 +426,7 @@ public actor CameraCapture {
   private var isStoppingDriver = false
   private var cameraConfigurationID: CameraConfigurationID?
   private var pendingDriverStart: PendingDriverStart?
+  private var deliveryLimitOutcome: CameraDeliveryLimitOutcome = .notRequested
   private var eventMailbox: CameraDriverEventMailbox?
   private var eventConsumer: Task<Void, Never>?
   private var nextSequence: UInt64 = 1
@@ -389,6 +439,9 @@ public actor CameraCapture {
   private var receivedFrameCount: UInt64 = 0
   private var previewMaterializedFrameCount: UInt64 = 0
   private var exactMaterializedFrameCount: UInt64 = 0
+  /// Downstream analysis and exact requests share this one memoized hash path.
+  /// The metrics therefore count actual SHA-256 computations, not requests.
+  private let contentHashMetrics = FrameContentHashMetrics()
   private var returnOnlyExactRequestCount: UInt64 = 0
   private var ordinaryPreviewPublicationCount: UInt64 = 0
   private var explicitExactPublicationCount: UInt64 = 0
@@ -480,6 +533,7 @@ public actor CameraCapture {
     cameraConfigurationID = configurationID
     state = .starting
     error = nil
+    deliveryLimitOutcome = .notRequested
 
     let authorizationState = await driver.authorizationState()
     guard generation == lifecycleGeneration, !isStoppingDriver, state == .starting else { return }
@@ -528,19 +582,23 @@ public actor CameraCapture {
     eventMailbox = mailbox
     let driver = self.driver
     let startTask = Task {
-      try await driver.start(deviceID: selectedDeviceID) { event in
+      try await driver.start(
+        deviceID: selectedDeviceID,
+        maximumFramesPerSecond: materializationPolicy.maximumPreviewFramesPerSecond
+      ) { event in
         mailbox.yield(event)
       }
     }
     pendingDriverStart = PendingDriverStart(generation: generation, task: startTask)
     do {
-      try await startTask.value
+      let startResult = try await startTask.value
       clearPendingDriverStart(generation: generation)
       guard generation == lifecycleGeneration, !isStoppingDriver, state == .starting else {
         mailbox.finish()
         return
       }
       state = .running
+      deliveryLimitOutcome = startResult.deliveryLimitOutcome
       eventConsumer = Task { [weak self] in
         while let event = await mailbox.next() {
           guard !Task.isCancelled, let self else { return }
@@ -600,8 +658,9 @@ public actor CameraCapture {
       if let latestExactFrame, latestExactFrame.frame.id == latestCapture.id {
         displayed = latestExactFrame
       } else if let latestFrame, latestFrame.frame.id == latestCapture.id {
-        displayed = latestFrame
-        latestExactFrame = latestFrame
+        let exactFrame = latestFrame.frame.materializingEvidenceContentHash()
+        displayed = DisplayedFrame(source: latestFrame.source, frame: exactFrame)
+        latestExactFrame = displayed
       } else {
         displayed = try materialize(latestCapture, reason: .exactRequest)
         latestExactFrame = displayed
@@ -665,7 +724,8 @@ public actor CameraCapture {
   }
 
   public func diagnostics() -> CameraCaptureDiagnostics {
-    CameraCaptureDiagnostics(
+    let contentHashes = contentHashMetrics.snapshot
+    return CameraCaptureDiagnostics(
       receivedFrameCount: receivedFrameCount,
       previewMaterializedFrameCount: previewMaterializedFrameCount,
       exactMaterializedFrameCount: exactMaterializedFrameCount,
@@ -676,7 +736,11 @@ public actor CameraCapture {
       previewPauseReleaseCount: previewPauseReleaseCount,
       lastReturnOnlyExactFrameID: lastReturnOnlyExactFrameID,
       lastExplicitlyPublishedExactFrameID: lastExplicitlyPublishedExactFrameID,
-      previewPublicationPaused: !previewPauseIDs.isEmpty
+      previewPublicationPaused: !previewPauseIDs.isEmpty,
+      deliveryLimitOutcome: deliveryLimitOutcome,
+      analysisContentHashComputationCount: contentHashes.analysisComputationCount,
+      exactContentHashComputationCount: contentHashes.exactEvidenceComputationCount,
+      serializationContentHashComputationCount: contentHashes.serializationComputationCount
     )
   }
 
@@ -793,6 +857,7 @@ public actor CameraCapture {
     lastMaterializedCaptureNanoseconds = nil
     lastReturnOnlyExactFrameID = nil
     lastExplicitlyPublishedExactFrameID = nil
+    deliveryLimitOutcome = .notRequested
     previewPauseIDs = []
     finishEventChannel()
     return generation
@@ -805,7 +870,7 @@ public actor CameraCapture {
       >= materializationPolicy.minimumPreviewIntervalNanoseconds
   }
 
-  private enum MaterializationReason {
+  private enum MaterializationReason: Equatable {
     case preview
     case exactRequest
   }
@@ -835,7 +900,10 @@ public actor CameraCapture {
       height: buffered.captured.height,
       rowBytes: buffered.captured.rowBytes,
       pixelFormat: .bgra8,
-      bytes: buffered.captured.materializedBytes()
+      bytes: buffered.captured.materializedBytes(),
+      eagerlyMaterializeContentHash: reason == .exactRequest,
+      contentHashMetrics: contentHashMetrics,
+      contentHashPurpose: .exactEvidence
     )
     switch reason {
     case .preview:
@@ -973,8 +1041,9 @@ private actor AVFoundationCameraDriver: CameraCaptureDriver {
 
   func start(
     deviceID: CameraDeviceID,
+    maximumFramesPerSecond: Double?,
     eventHandler: @escaping @Sendable (CameraDriverEvent) -> Void
-  ) async throws {
+  ) async throws -> CameraCaptureDriverStartResult {
     stopSession()
     guard let device = AVCaptureDevice(uniqueID: deviceID.rawValue) else {
       throw CameraCaptureError.unknownDevice(deviceID)
@@ -1002,6 +1071,38 @@ private actor AVFoundationCameraDriver: CameraCaptureDriver {
     }
     session.addInput(input)
     session.addOutput(output)
+    var deliveryLimitOutcome: CameraDeliveryLimitOutcome = .notRequested
+    if let maximumFramesPerSecond,
+      maximumFramesPerSecond.isFinite,
+      maximumFramesPerSecond > 0
+    {
+      if device.activeFormat.videoSupportedFrameRateRanges.contains(where: {
+        $0.minFrameRate <= maximumFramesPerSecond
+          && maximumFramesPerSecond <= $0.maxFrameRate
+      }) {
+        do {
+          try device.lockForConfiguration()
+          defer { device.unlockForConfiguration() }
+          let duration = CMTime(
+            seconds: 1 / maximumFramesPerSecond,
+            preferredTimescale: 60_000
+          )
+          device.activeVideoMinFrameDuration = duration
+          device.activeVideoMaxFrameDuration = duration
+          deliveryLimitOutcome = .applied(framesPerSecond: maximumFramesPerSecond)
+        } catch {
+          deliveryLimitOutcome = .unapplied(
+            requestedFramesPerSecond: maximumFramesPerSecond,
+            reason: "The camera configuration lock failed: \(error)"
+          )
+        }
+      } else {
+        deliveryLimitOutcome = .unapplied(
+          requestedFramesPerSecond: maximumFramesPerSecond,
+          reason: "The active camera format does not support the requested rate."
+        )
+      }
+    }
     session.commitConfiguration()
     self.output = output
     self.delegate = delegate
@@ -1010,6 +1111,7 @@ private actor AVFoundationCameraDriver: CameraCaptureDriver {
     guard session.isRunning else {
       throw CameraCaptureError.configurationFailed("The capture session did not start.")
     }
+    return CameraCaptureDriverStartResult(deliveryLimitOutcome: deliveryLimitOutcome)
   }
 
   func stop() async {

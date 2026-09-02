@@ -39,6 +39,12 @@ public struct PlotterSpeechEffectTerminal: Hashable, Sendable {
   }
 }
 
+public enum PlotterSpeechEffectAdmission: Hashable, Sendable {
+  case admitted(PlotterSpeechEffectRequest)
+  case refused(String)
+  case cancelled
+}
+
 public struct PlotterSpeechEffectRegistrySnapshot: Sendable {
   public let admissionClosed: Bool
   public let activeRequests: [PlotterSpeechEffectRequest]
@@ -69,6 +75,7 @@ public actor PlotterSpeechEffectRuntime {
   private var activeByID: [UUID: PlotterSpeechEffectRequest] = [:]
   private var terminalByID: [UUID: PlotterSpeechEffectTerminal] = [:]
   private var terminalOrder: [UUID] = []
+  private var taskByID: [UUID: Task<SpeechAnnouncementOutcome, Never>] = [:]
 
   public init(announcer: any SpeechAnnouncing = NativeSpeechAnnouncer()) {
     self.announcer = announcer
@@ -78,22 +85,23 @@ public actor PlotterSpeechEffectRuntime {
   /// through the retained native FIFO queue; this lane never adds a second
   /// queue or task owner.
   public func perform(_ request: PlotterSpeechEffectRequest) async -> SpeechAnnouncementOutcome {
-    let message = request.message.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !message.isEmpty else { return .completed }
-    guard !isShutdown else { return .cancelled }
-    guard activeByID[request.id] == nil, terminalByID[request.id] == nil else {
-      return .failed("The advisory speech request identity has already been used.")
+    switch admit(request) {
+    case .admitted(let admitted):
+      return await taskByID[admitted.id]?.value ?? terminalOutcome(for: admitted.id)
+        ?? .cancelled
+    case .refused(let detail):
+      return .failed(detail)
+    case .cancelled:
+      return .cancelled
     }
-    guard activeByID.count < Self.maximumActiveRequests else {
-      return .failed("The advisory speech effect lane is at its bounded capacity.")
-    }
+  }
 
-    let admitted = PlotterSpeechEffectRequest(id: request.id, message: message)
-    activeByID[admitted.id] = admitted
-    let outcome = await announcer.announce(admitted.message)
-    activeByID[admitted.id] = nil
-    recordTerminal(request: admitted, outcome: outcome)
-    return outcome
+  /// Admits one advisory request and returns before synthesis completes. The
+  /// retained task is the execution owner; `NativeSpeechAnnouncer` remains the
+  /// sole FIFO/audio queue. This is used where speech must be dispatched before
+  /// a semantic transition but its terminal playback cannot gate that transition.
+  public func start(_ request: PlotterSpeechEffectRequest) -> PlotterSpeechEffectAdmission {
+    admit(request)
   }
 
   /// Closes admission before the first suspension, then asks the retained
@@ -102,7 +110,9 @@ public actor PlotterSpeechEffectRuntime {
   public func shutdown() async {
     guard !isShutdown else { return }
     isShutdown = true
+    let tasks = Array(taskByID.values)
     await announcer.cancelForShutdown()
+    for task in tasks { _ = await task.value }
   }
 
   public func snapshot() -> PlotterSpeechEffectRegistrySnapshot {
@@ -124,6 +134,49 @@ public actor PlotterSpeechEffectRuntime {
     terminalOrder.append(request.id)
     while terminalOrder.count > Self.terminalHistoryLimit {
       terminalByID[terminalOrder.removeFirst()] = nil
+    }
+  }
+
+  private func admit(_ request: PlotterSpeechEffectRequest) -> PlotterSpeechEffectAdmission {
+    let message = request.message.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !isShutdown else { return .cancelled }
+    guard activeByID[request.id] == nil, terminalByID[request.id] == nil else {
+      return .refused("The advisory speech request identity has already been used.")
+    }
+    guard activeByID.count < Self.maximumActiveRequests else {
+      return .refused("The advisory speech effect lane is at its bounded capacity.")
+    }
+    let admitted = PlotterSpeechEffectRequest(id: request.id, message: message)
+    if message.isEmpty {
+      recordTerminal(request: admitted, outcome: .completed)
+      return .admitted(admitted)
+    }
+    activeByID[admitted.id] = admitted
+    let task = Task { [weak self, announcer] in
+      let outcome = await announcer.announce(admitted.message)
+      await self?.finish(admitted, outcome: outcome)
+      return outcome
+    }
+    taskByID[admitted.id] = task
+    return .admitted(admitted)
+  }
+
+  private func finish(
+    _ request: PlotterSpeechEffectRequest,
+    outcome: SpeechAnnouncementOutcome
+  ) {
+    guard activeByID.removeValue(forKey: request.id) != nil else { return }
+    taskByID[request.id] = nil
+    recordTerminal(request: request, outcome: outcome)
+  }
+
+  private func terminalOutcome(for id: UUID) -> SpeechAnnouncementOutcome? {
+    guard let disposition = terminalByID[id]?.disposition else { return nil }
+    switch disposition {
+    case .completed: return .completed
+    case .failed(let detail): return .failed(detail)
+    case .timedOut: return .timedOut
+    case .cancelled: return .cancelled
     }
   }
 }

@@ -85,7 +85,8 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
     runInProgress: Bool,
     terminalRequiresNewPlan: Bool
   ) {
-    self.displayedFrame = displayedFrame
+    let exactFrameReference = displayedFrame?.plotterExactFrameReferenceIfMaterialized
+    self.displayedFrame = exactFrameReference == nil ? nil : displayedFrame
     self.registration = registration
     revisions = PlotterDrawingDraftExternalFactRevisions(
       environment: environment,
@@ -95,7 +96,7 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
       drawableRegion: drawableRegion,
       toolAssemblyRevision: toolAssemblyRevision,
       paper: paper,
-      displayedFrame: displayedFrame?.plotterExactFrameReference,
+      displayedFrame: exactFrameReference,
       runInProgress: runInProgress,
       terminalRequiresNewPlan: terminalRequiresNewPlan
     )
@@ -1021,10 +1022,11 @@ public actor PlotterDrawingDraftRuntime {
 }
 
 public extension DisplayedFrame {
-  var plotterExactFrameReference: PlotterExactFrameReference {
-    PlotterExactFrameReference(
+  var plotterExactFrameReferenceIfMaterialized: PlotterExactFrameReference? {
+    guard let contentSHA256 = frame.materializedContentSHA256 else { return nil }
+    return PlotterExactFrameReference(
       frameID: frame.id.rawValue,
-      frameSHA256: frame.contentSHA256,
+      frameSHA256: contentSHA256,
       source: source.plotterExactFrameSource,
       cameraConfigurationID: frame.cameraConfigurationID,
       captureNanoseconds: frame.captureNanoseconds,
@@ -1034,6 +1036,15 @@ public extension DisplayedFrame {
       rowBytes: frame.rowBytes,
       pixelFormat: PlotterExactFramePixelFormat(rawValue: frame.pixelFormat.rawValue)!
     )
+  }
+
+  var plotterExactFrameReference: PlotterExactFrameReference {
+    guard let reference = plotterExactFrameReferenceIfMaterialized else {
+      preconditionFailure(
+        "An exact frame reference requires a frame sealed by analysis or an exact evidence workflow."
+      )
+    }
+    return reference
   }
 }
 

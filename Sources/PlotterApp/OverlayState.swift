@@ -82,9 +82,14 @@ struct ExactFrameOverlayProvenance: Hashable, Sendable {
   let pixelFormat: FramePixelFormat
 
   init(_ displayedFrame: DisplayedFrame) {
+    guard let contentSHA256 = displayedFrame.frame.materializedContentSHA256 else {
+      preconditionFailure(
+        "Overlay provenance requires a frame sealed by analysis or an exact evidence workflow."
+      )
+    }
     frameID = displayedFrame.frame.id
     frameSequence = displayedFrame.frame.sequence
-    frameSHA256 = displayedFrame.frame.contentSHA256
+    frameSHA256 = contentSHA256
     source = displayedFrame.source
     cameraConfigurationID = displayedFrame.frame.cameraConfigurationID
     captureNanoseconds = displayedFrame.frame.captureNanoseconds
@@ -94,8 +99,11 @@ struct ExactFrameOverlayProvenance: Hashable, Sendable {
   }
 
   func matches(_ displayedFrame: DisplayedFrame) -> Bool {
-    frameID == displayedFrame.frame.id
-      && frameSHA256 == displayedFrame.frame.contentSHA256
+    guard let displayedSHA256 = displayedFrame.frame.materializedContentSHA256 else {
+      return false
+    }
+    return frameID == displayedFrame.frame.id
+      && frameSHA256 == displayedSHA256
       && source == displayedFrame.source
       && cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
       && width == displayedFrame.frame.width

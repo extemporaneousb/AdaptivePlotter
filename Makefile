@@ -1,9 +1,10 @@
-.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher docs-check wave-capsule-test quick-test journey-test test check strict-check
+.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher docs-check wave-capsule-test responsiveness-test quick-test journey-test test check strict-check
 
 .DEFAULT_GOAL := help
 
 SWIFT_FLAGS ?=
 JOURNEY_TEST_FILTER := PlotterApplicationRuntimeSparseTipCalibrationTests/(fullFourCornerMarkAcceptance|checkpointRevalidationRestoresWithoutAnotherMark|stageFourConsumesExactTipRevision)|PlotterBoundaryEpisodeTests/(boundaryRepeatActionsAggregateAndReplaceAcceptedSet|boundaryAtomicFailurePreservesAcceptedAuthority)|PlotterApplicationRuntimeTests/(resetBoundaryForwardRetainsEarlierLearning|resetObservedTrialAtomically)|PlotterCausalEpisodeEnvironmentTests/(drawingCompletion|cooperativeBoundaryStopRaces|cooperativeBoundaryAtTruth)
+RESPONSIVENESS_TEST_FILTER := Plotter(PenInteraction|CameraCalibration|SpeechEffect|ControllerSession)EpisodeTests|PlotterEpisodeCompositionTests|PlotterApplicationRuntimeTests/resetAllKeepsCameraCalibrationReusable|OperatorWorkspaceAuthorityTests|OperatorWorkspaceSparseTipCalibrationTests|CameraCaptureTests|OverlayStateTests|WorkbenchTopBarLayoutTests|PlotterEpisodeUIActionabilityTests|PlotterLearningPresentationCompilerTests
 
 help:
 	@printf '%s\n' \
@@ -20,6 +21,7 @@ help:
 		'  validate-launcher  Test launcher identity and instance handling.' \
 		'  docs-check         Validate canonical documents, vocabulary, and execution protocol.' \
 		'  wave-capsule-test  Validate hash-bound wave capsule creation and consumption.' \
+		'  responsiveness-test Validate Learning transitions and truthful workbench controls.' \
 		'  quick-test         Run unit and component tests, excluding retained journeys.' \
 		'  journey-test       Run retained causal journeys sequentially.' \
 		'  test               Run the complete Swift test suite in parallel.' \
@@ -52,6 +54,9 @@ docs-check:
 
 wave-capsule-test:
 	@PYTHONDONTWRITEBYTECODE=1 ./.VE/bin/python Scripts/test_episode_wave_capsule.py
+
+responsiveness-test:
+	swift test --filter '$(RESPONSIVENESS_TEST_FILTER)' $(SWIFT_FLAGS)
 
 run-app: app launcher
 	@.build/AdaptivePlotterLauncher "$(CURDIR)/.build/AdaptivePlotter.app"

@@ -532,6 +532,59 @@ struct OverlayStateTests {
     #expect(mismatched.overlays.isEmpty)
     #expect(mismatched.analyzedOverlayFrame == nil)
   }
+
+  @Test("overlay matching never hashes passive preview and reuses one analysis promotion")
+  func overlayMatchingUsesExplicitCachedHash() throws {
+    let source = FrameSourceIdentity.live(CameraDeviceID(rawValue: "camera"))
+    let configuration = CameraConfigurationID()
+    let bytes = OwnedFrameBytes(Array(repeating: 17, count: 16))
+    let analyzed = DisplayedFrame(
+      source: source,
+      frame: try StampedFrame(
+        id: FrameID(rawValue: "shared-frame"),
+        sequence: 7,
+        captureNanoseconds: 70,
+        cameraConfigurationID: configuration,
+        width: 4,
+        height: 4,
+        rowBytes: 4,
+        pixelFormat: .gray8,
+        bytes: bytes,
+        eagerlyMaterializeContentHash: false
+      ).materializingContentHash(for: .analysis)
+    )
+    let passiveMetrics = FrameContentHashMetrics()
+    let passive = DisplayedFrame(
+      source: source,
+      frame: try StampedFrame(
+        id: analyzed.frame.id,
+        sequence: analyzed.frame.sequence,
+        captureNanoseconds: analyzed.frame.captureNanoseconds,
+        cameraConfigurationID: configuration,
+        width: 4,
+        height: 4,
+        rowBytes: 4,
+        pixelFormat: .gray8,
+        bytes: bytes,
+        eagerlyMaterializeContentHash: false,
+        contentHashMetrics: passiveMetrics
+      )
+    )
+    let provenance = ExactFrameOverlayProvenance(analyzed)
+
+    #expect(!provenance.matches(passive))
+    #expect(passive.frame.materializedContentSHA256 == nil)
+    #expect(passiveMetrics.snapshot.totalComputationCount == 0)
+
+    let promoted = DisplayedFrame(
+      source: passive.source,
+      frame: passive.frame.materializingContentHash(for: .analysis)
+    )
+    #expect(provenance.matches(promoted))
+    #expect(provenance.matches(promoted))
+    #expect(passiveMetrics.snapshot.analysisComputationCount == 1)
+    #expect(passiveMetrics.snapshot.totalComputationCount == 1)
+  }
 }
 
 private final class OverlayPreferenceRecorder: @unchecked Sendable {

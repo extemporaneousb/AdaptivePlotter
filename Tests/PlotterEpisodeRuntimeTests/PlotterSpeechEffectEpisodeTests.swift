@@ -5,6 +5,25 @@ import Testing
 
 @Suite("EA-10G advisory speech effect lane")
 struct PlotterSpeechEffectEpisodeTests {
+  @Test("admission returns while advisory playback remains active")
+  func startDoesNotAwaitTerminalPlayback() async {
+    let announcer = BlockingSpeechAnnouncer()
+    let runtime = PlotterSpeechEffectRuntime(announcer: announcer)
+    let request = PlotterSpeechEffectRequest(message: "Nonblocking advisory")
+
+    #expect(await runtime.start(request) == .admitted(request))
+    await announcer.waitUntilStarted()
+
+    let active = await runtime.snapshot()
+    #expect(active.activeRequests == [request])
+    #expect(active.terminalRequests.isEmpty)
+
+    await runtime.shutdown()
+    let settled = await runtime.snapshot()
+    #expect(settled.activeRequests.isEmpty)
+    #expect(settled.terminalRequests == [.init(request: request, disposition: .cancelled)])
+  }
+
   @Test("identity-bound terminal results retain completion and failure without physical authority")
   func terminalResultsAreBoundedAndTyped() async {
     let announcer = ScriptedSpeechAnnouncer(outcomes: [.completed, .failed("output unavailable")])

@@ -598,7 +598,8 @@ private struct WorkbenchPaneControls: View {
       Label(incidentStatusText, systemImage: incidentStatusImage)
         .font(.caption2)
         .foregroundStyle(incidentStatusColor)
-        .lineLimit(1)
+        .lineLimit(3)
+        .fixedSize(horizontal: false, vertical: true)
         .help(incidentStatusText)
       if learningIsEnabled {
         paneButton(
@@ -678,7 +679,8 @@ private struct WorkbenchPaneControls: View {
     case .completed: .green
     case .available: .gray
     case .loading: .blue
-    case .unavailable, .refused: .orange
+    case .unavailable: .secondary
+    case .refused: .orange
     }
   }
 

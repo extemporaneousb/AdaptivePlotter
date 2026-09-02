@@ -398,6 +398,8 @@ public actor VisionWorker {
     analysisRegion: PixelRect? = nil,
     penCapColor: PenCapColor = .green
   ) throws -> PlotterSceneMeasurement {
+    let frame = frame.materializingContentHash(for: .analysis)
+    let frameSHA256 = frame.contentSHA256
     let expandedFeatures = requestedFeatures.expandingDependencies
     let priors =
       try suppliedPriors
@@ -486,11 +488,11 @@ public actor VisionWorker {
       inspectedPixelCounts: inspectedPixelCounts
     )
     let diagnostic =
-      "\(frame.contentSHA256)|\(priors.algorithmRevision)|\(requestedFeatures.rawValue)|"
+      "\(frameSHA256)|\(priors.algorithmRevision)|\(requestedFeatures.rawValue)|"
       + "\(penCap)|\(armatureEnvelope)|\(computation)"
     return PlotterSceneMeasurement(
       frameID: frame.id,
-      frameSHA256: frame.contentSHA256,
+      frameSHA256: frameSHA256,
       cameraConfigurationID: frame.cameraConfigurationID,
       penCap: penCap,
       armatureEnvelope: armatureEnvelope,
@@ -504,6 +506,8 @@ public actor VisionWorker {
   public func measure(_ request: MeasurementRequest, in frame: StampedFrame) throws
     -> MeasurementResult
   {
+    let frame = frame.materializingContentHash(for: .analysis)
+    let frameSHA256 = frame.contentSHA256
     let region = request.region
     guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
       region.x + region.width <= frame.width,
@@ -572,10 +576,10 @@ public actor VisionWorker {
         ))
     }
     let diagnostic =
-      "\(frame.contentSHA256)|\(request.algorithmRevision)|\(matching)|\(sampled)|\(lumaSum)"
+      "\(frameSHA256)|\(request.algorithmRevision)|\(matching)|\(sampled)|\(lumaSum)"
     return MeasurementResult(
       frameID: frame.id,
-      frameSHA256: frame.contentSHA256,
+      frameSHA256: frameSHA256,
       cameraConfigurationID: frame.cameraConfigurationID,
       request: request,
       matchingPixelCount: matching,

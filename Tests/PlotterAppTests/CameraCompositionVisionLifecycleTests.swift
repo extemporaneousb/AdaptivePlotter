@@ -670,10 +670,12 @@ private actor VisionLifecycleCameraDriver: CameraCaptureDriver {
 
   func start(
     deviceID: CameraDeviceID,
+    maximumFramesPerSecond _: Double?,
     eventHandler: @escaping @Sendable (CameraDriverEvent) -> Void
-  ) async throws {
+  ) async throws -> CameraCaptureDriverStartResult {
     precondition(deviceID == device.id)
     self.eventHandler = eventHandler
+    return CameraCaptureDriverStartResult(appliedMaximumFramesPerSecond: nil)
   }
 
   func stop() async {

@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "e1ebbdc438309acbd4c4dfa3482a0066645f55a74ea2a0a9bce1ed11da6ad917"
+EXPECTED_LEDGER_SHA256 = "d14cce267371609f13210022e083d56598f47b513b6fc8d1e556a1805f5e4e78"
 
 
 EXPECTED_GATES = {
@@ -50,6 +50,10 @@ EXPECTED_GATES = {
         "`swift test --filter PlotterOperatorThroughputPolicyTests`",
         "FIX-08",
     ),
+    "RESPONSIVENESS": (
+        "`make responsiveness-test` proves pre-wait Pen/camera state publication, Stop/shutdown supersession without Pen evidence or successor, non-gating advisory playback, projection-bound camera run/accept/reset reuse, semantic controller color/dispatch and visible Motion blocker, best-effort camera delivery plus zero passive-preview hashing and one instrumented cached analysis/exact promotion, passive-overlay reuse, passive root presentation without exact-frame facts, readable disabled incident action, and exact failure/status projection",
+        "FIX-09",
+    ),
     "INVENTORY": (
         "`sh Scripts/check_episode_inventory.sh` proves every semantic intent, guard, owner, direct device/evidence port, environment branch, task/cancel owner, persistence path, UI consumer, and high-level fixture has one stable inventory ID, one current owner, one disposition, and one cutover package; once EA-11C target source appears it also proves the exact positive target-topology manifest, direct `PlotterApp -> EpisodeRuntime` dependency, one public sink conformer, one package-registry-backed residual adapter, nominal ports, and discoverable composition suite",
         "EA-01",
@@ -68,6 +72,10 @@ EXPECTED_GATES = {
     "RECORDING": ("`swift test --filter PlotterRecordingStoreTests`", "EA-05A"),
     "REPLAY": ("`swift test --filter PlotterRecordingReplayTests`", "EA-05B"),
     "INCIDENT": ("`swift test --filter PlotterIncidentPackageTests`", "EA-05C"),
+    "INCIDENT-APP": (
+        "`swift test --filter PlotterIncidentPackageApplicationTests` proves exact production source selection, canonical identity, bounded atomic export, unavailable/refused remedies, and readable action state without a second recorder, journal, assembler, or UI ingress",
+        "FIX-10",
+    ),
     "POINT": ("`swift test --filter PlotterPointSelectionEpisodeTests`", "EA-04"),
     "MOTION": ("`swift test --filter PlotterManualMotionEpisodeTests`", "EA-06"),
     "SIM": ("`swift test --filter PlotterCausalEpisodeEnvironmentTests`", "EA-07"),
@@ -111,11 +119,11 @@ EXPECTED_GATES = {
         "EA-01",
     ),
     "PHYSICAL-FINAL": (
-        "On the exact signed landed EA-11C commit, one continuously attending operator executes Attended Hardware Runbook sections 1 through 6 and completes its Evidence record; the record must additionally capture one visible typed refusal/remedy, active owner/progress/Stop, runtime/UI revisions, one bounded incident export, controller transcript completeness, camera artifact presence or declared absence, and observed-ink/ambiguity outcomes",
+        "On the exact signed landed FIX-10 validation candidate, one continuously attending operator executes Attended Hardware Runbook sections 1 through 6 and completes its Evidence record; the record must additionally capture one visible typed refusal/remedy, active owner/progress/Stop, runtime/UI revisions, one bounded incident export, controller transcript completeness, camera artifact presence or declared absence, and observed-ink/ambiguity outcomes",
         "VAL-01",
     ),
     "FINAL-GATE": (
-        "`sh Scripts/check_episode_final_gate.sh` proves every ledger row through VAL-01 complete, all final-matrix software/replay/simulation/UI evidence linked from Current Evidence, one globally exclusive public gateway and one package `PlotterOperationRegistry` mechanism by structural scan while retaining named feature-runtime lanes, zero superseded paths, and a passed PHYSICAL-FINAL record for the exact EA-11C commit",
+        "`sh Scripts/check_episode_final_gate.sh` proves every ledger row through VAL-01 complete, all final-matrix software/replay/simulation/UI evidence linked from Current Evidence, one globally exclusive public gateway and one package `PlotterOperationRegistry` mechanism by structural scan while retaining named feature-runtime lanes, zero superseded paths, and a passed PHYSICAL-FINAL record for the exact signed landed FIX-10 validation candidate",
         "EA-11C",
     ),
 }
@@ -169,7 +177,9 @@ EXPECTED_PACKAGE_SHAPES = {
     "FIX-06": (["GATE-01"], "software", ["BUILD", "BOUNDARY", "POINT", "UI", "ARTIFACT-RESET", "DRAW-RUN", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
     "FIX-07": (["FIX-06"], "software", ["BUILD", "TIP-CAL", "POINT", "UI", "ARTIFACT-RESET", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
     "FIX-08": (["FIX-07"], "software", ["BUILD", "THROUGHPUT", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
-    "VAL-01": (["FIX-08"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
+    "FIX-09": (["FIX-08"], "software", ["BUILD", "RESPONSIVENESS", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
+    "FIX-10": (["FIX-09"], "software", ["BUILD", "INCIDENT-APP", "UI", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
+    "VAL-01": (["FIX-10"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
     "GATE-02": (["VAL-01"], "gate", ["DOC", "DIFF", "FINAL-GATE"]),
 }
 
@@ -195,6 +205,8 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
     "FIX-06": "Correction",
     "FIX-07": "Correction",
     "FIX-08": "Correction",
+    "FIX-09": "Correction",
+    "FIX-10": "Correction",
     "EA-10A": "Cutover",
     "EA-10B": "Cutover",
     "TRANCHE-LEARNING": "Tranche",
@@ -245,6 +257,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "FIX-06",
     "FIX-07",
     "FIX-08",
+    "FIX-09",
 }
 
 TRANCHE_SLICES = {
@@ -545,12 +558,12 @@ def validate_product_contract(text: str) -> None:
         "The first move to an accepted four-side center is not a retry",
         "The runtime refuses a submitted retry bit that differs from that published derived truth",
         "refuses every further center admission after accepted arrival",
-        "composition-only `UI.announceBoundaryAdvisory` adapter and existing `AnnouncementActions` owner",
-        "That adapter owns no announcement, effect, Stop, settlement, or evidence authority",
-        "Announcement failure remains advisory",
+        "composition submits the retained Discovery announcement through `PlotterSpeechEffectRuntime`",
+        "The Pen Up/Down cues have a different dependency",
+        "`PlotterSpeechEffectRuntime`, whose terminal result remains advisory",
         "SIMULATED motion remains nonphysical and unchanged",
         "rechecks exact cancellation/shutdown and reacquires the complete external effect identity immediately before lower motion admission",
-        "Shutdown records its first-winning Boundary cancellation without joining, cancels retained speech, and only then joins Boundary settlement",
+        "Shutdown closes speech admission, cancels retained synthesis, and joins it independently",
         "Shutdown is also revalidated on both sides of any suspended retained Pen admission",
         "cannot create even an empty Discovery transaction, revive an accepted click, or continue toward a lower effect",
     ):
@@ -824,9 +837,9 @@ def validate_architecture(text: str) -> None:
         "persistence refusal exact-aborts the reservation unchanged",
         "`AcceptedMachineArtifactCheckpoint.boundarySideAggregates` remains the retained durable checkpoint representation",
         "derives the retained advisory from `DiscoverySequenceCatalog`",
-        "composition-only `UI.announceBoundaryAdvisory` adapter",
-        "The UI adapter owns no announcement, effect, Stop, settlement, or evidence authority",
-        "only then invokes `MachineActions.beginBoundaryMotion`",
+        "submits it through the typed `PlotterSpeechEffectRuntime` before `PlotterMachineSession.beginBoundaryMotion`",
+        "`NativeSpeechAnnouncer` remains the lower synthesis/identity-queue/timeout owner",
+        "proceeds when its advisory-only result settles",
         "preserves a selected direction only while it remains allowed",
         "a first center move therefore publishes `retry: false`",
         "`PlotterBoundaryRuntime` refuses `.centerRetryMismatch(expected:submitted:)`",
@@ -2763,6 +2776,14 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "`PlotterMotionThroughput.applicationXYFeedMMPerMinute` is the single `500` mm/min model value",
         "Production source contains neither the green button, a `10 FPS` cadence case, nor a `100` mm/min feed literal",
         "`FIX-08` is complete as software/repository evidence",
+        "FIX-09 initial Learning responsiveness and truthful controls complete",
+        "`TASK-9C229F54`, attempt `TASK-9C229F54-1984133960c1`",
+        "Confirm publishes `.confirming` before any predecessor wait",
+        "`make responsiveness-test`",
+        "`FIX-09` is complete as software/repository evidence",
+        "`FIX-10` is the sole next ordinary software package",
+        "`VAL-01` is dependency-ineligible until FIX-10 is complete",
+        "complete canonical incident source",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3220,12 +3241,23 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         fail("DOC-00 ARCHIVED evidence section must identify d33d4ff")
 
 
+def wave_admission_section(evidence: str) -> str:
+    match = re.search(
+        r"^## Wave admission blockers$(.*?)(?=^## |\Z)",
+        evidence,
+        re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        fail("Current Evidence lacks its named Wave admission blockers section")
+    return match.group(1)
+
+
 def parse_wave_admission_blockers(
     evidence: str,
     rows: dict[str, dict[str, object]],
 ) -> dict[str, dict[str, str]]:
     blocker_rows = markdown_table(
-        evidence,
+        wave_admission_section(evidence),
         ["Package", "Blocker", "Required input or canonical correction"],
     )
     blockers: dict[str, dict[str, str]] = {}
@@ -3274,8 +3306,14 @@ def validate_wave_frontier(
     rows: dict[str, dict[str, object]], evidence: str
 ) -> None:
     normalized = re.sub(r"\s+", " ", evidence)
+    frontier_normalized = re.sub(r"\s+", " ", wave_admission_section(evidence))
     blockers = parse_wave_admission_blockers(evidence, rows)
     selected = ordinary_wave_frontier(rows, set(blockers))
+    if selected is not None and "No ordinary software frontier remains" in frontier_normalized:
+        fail(
+            "named current frontier contradicts the dependency-ready ordinary package: "
+            f"{selected}"
+        )
     if selected == "TRANCHE-LEARNING":
         for phrase in (
             "Sprint tranche-policy correction",
@@ -3411,6 +3449,30 @@ def validate_wave_frontier(
             fail("FIX-08 frontier must not retain an ordinary-wave blocker")
         return
 
+    if selected == "FIX-10":
+        if rows["FIX-09"]["status"] != "complete":
+            fail("FIX-10 cannot be selected before FIX-09 completes")
+        for phrase in (
+            "FIX-09 initial Learning responsiveness and truthful controls complete",
+            "`TASK-9C229F54`, attempt `TASK-9C229F54-1984133960c1`",
+            "Confirm publishes `.confirming` before any predecessor wait",
+            "held speech playback does not delay the Pen command or next prompt",
+            "camera action publishes a busy runtime/UI revision before its first lower suspension",
+            "semantic Connect/Disconnect action",
+            "10 FPS device-delivery cap",
+            "Incident Package action is disabled",
+            "`FIX-09` is complete as software/repository evidence",
+            "`FIX-10` is the sole next ordinary software package",
+            "`VAL-01` is dependency-ineligible until FIX-10 is complete",
+        ):
+            if phrase not in normalized:
+                fail(f"FIX-10 frontier lacks responsiveness/incident evidence: {phrase}")
+            if phrase not in frontier_normalized:
+                fail(f"named FIX-10 frontier lacks current evidence: {phrase}")
+        if blockers:
+            fail("FIX-10 frontier must not retain an ordinary-wave blocker")
+        return
+
     if selected is not None:
         fail(f"unexpected current ordinary wave frontier: {selected}")
 
@@ -3419,9 +3481,11 @@ def validate_wave_frontier(
         and rows["FIX-06"]["status"] == "complete"
         and rows["FIX-07"]["status"] == "complete"
         and rows["FIX-08"]["status"] == "complete"
+        and rows["FIX-09"]["status"] == "complete"
+        and rows["FIX-10"]["status"] == "complete"
         and rows["VAL-01"]["status"] == "pending"
         and rows["VAL-01"]["class"] == "attended-physical"
-        and rows["VAL-01"]["dependencies"] == ["FIX-08"]
+        and rows["VAL-01"]["dependencies"] == ["FIX-10"]
     ):
         for phrase in (
             "GATE-01 Pilot continuation decision",
@@ -3433,7 +3497,10 @@ def validate_wave_frontier(
             "FIX-08 operator-throughput correction complete",
             "`TASK-EB3E64FA`, attempt `TASK-EB3E64FA-67fdbd7ab2a2`",
             "`FIX-08` is complete as software/repository evidence",
-            "No attended camera click, controller, motion, Stop, paper, speed, or observed-ink validation was performed by this task",
+            "FIX-09 initial Learning responsiveness and truthful controls complete",
+            "`FIX-09` is complete as software/repository evidence",
+            "FIX-10 incident source and bounded export complete",
+            "`FIX-10` is complete as software/repository evidence",
             "No attended camera click, controller, motion, Stop, paper, or observed-ink validation was performed by this task",
             "No ordinary software or gate package is eligible before `VAL-01`",
             "attended-physical authorization boundary, not a launchable wave",

@@ -15,6 +15,18 @@ enum PlotterControllerSessionIntent: Hashable, Sendable {
   case toggleMotionAuthorization
 }
 
+enum PlotterControllerConnectionAction: Hashable, Sendable {
+  case connect
+  case disconnect
+
+  var title: String {
+    switch self {
+    case .connect: "Connect"
+    case .disconnect: "Disconnect"
+    }
+  }
+}
+
 struct PlotterControllerSessionRequest: Hashable, Sendable {
   let reference: PlotterControllerSessionReference
   let intent: PlotterControllerSessionIntent
@@ -45,7 +57,7 @@ struct PlotterControllerSessionProjection: Sendable {
   let environment: OperatorFrameMode
   let serialDevices: [MachineLinkDescriptor]
   let selectedSerialDevice: MachineLinkDescriptor?
-  let connectionActionTitle: String
+  let connectionAction: PlotterControllerConnectionAction
   let selectionUnavailableReason: String?
   let connectionUnavailableReason: String?
   let sessionEstablished: Bool
@@ -101,7 +113,7 @@ enum PlotterControllerSessionRules {
       environment: facts.environment,
       serialDevices: facts.serialDevices,
       selectedSerialDevice: facts.selectedSerialDevice,
-      connectionActionTitle: connectionActionTitle(facts),
+      connectionAction: connectionAction(facts),
       selectionUnavailableReason: selectionUnavailableReason(facts),
       connectionUnavailableReason: connectionUnavailableReason(facts),
       sessionEstablished: sessionEstablished,
@@ -289,11 +301,13 @@ enum PlotterControllerSessionRules {
     }
   }
 
-  private static func connectionActionTitle(_ facts: PlotterControllerSessionFacts) -> String {
+  private static func connectionAction(
+    _ facts: PlotterControllerSessionFacts
+  ) -> PlotterControllerConnectionAction {
     if facts.environment == .simulated {
-      return facts.simulatedSnapshot?.session == .connected ? "Disconnect" : "Connect"
+      return facts.simulatedSnapshot?.session == .connected ? .disconnect : .connect
     }
-    return linkIsOpen(facts.machineSnapshot) ? "Disconnect" : "Connect"
+    return linkIsOpen(facts.machineSnapshot) ? .disconnect : .connect
   }
 
   private static func controllerConnectionText(
@@ -615,7 +629,7 @@ actor PlotterControllerSessionRuntime {
         }
       }
       guard let lowerSession else { return nil }
-      if PlotterControllerSessionRules.project(facts).connectionActionTitle == "Disconnect" {
+      if PlotterControllerSessionRules.project(facts).connectionAction == .disconnect {
         guard !Task.isCancelled else { return nil }
         await lowerSession.disconnect()
         return Task.isCancelled ? nil : .liveDisconnected

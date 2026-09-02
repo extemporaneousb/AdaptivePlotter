@@ -145,6 +145,35 @@ package actor PlotterPenInteractionSetpointAdmissionGate {
   }
 }
 
+/// Deterministic seam that can hold a Confirm request only after the runtime
+/// has published its new non-confirmable revision. It owns no production state.
+package actor PlotterPenInteractionConfirmationAdmissionGate {
+  private var held = false
+  private var heldWaiters: [CheckedContinuation<Void, Never>] = []
+  private var releaseWaiter: CheckedContinuation<Void, Never>?
+
+  package init() {}
+
+  package func waitUntilHeld() async {
+    if held { return }
+    await withCheckedContinuation { heldWaiters.append($0) }
+  }
+
+  package func release() {
+    held = false
+    releaseWaiter?.resume()
+    releaseWaiter = nil
+  }
+
+  fileprivate func pauseAfterPublication() async {
+    held = true
+    let waiters = heldWaiters
+    heldWaiters = []
+    waiters.forEach { $0.resume() }
+    await withCheckedContinuation { releaseWaiter = $0 }
+  }
+}
+
 public struct PlotterPenInteractionExecutionEvidence: Hashable, Sendable {
   public let command: PenCommand
   public let profile: PenActuationProfile
@@ -262,6 +291,7 @@ public actor PlotterPenInteractionRuntime {
   private let port: any PlotterPenInteractionActuationPort
   private let terminalPublicationGate: PlotterPenInteractionTerminalPublicationGate?
   private let setpointAdmissionGate: PlotterPenInteractionSetpointAdmissionGate?
+  private let confirmationAdmissionGate: PlotterPenInteractionConfirmationAdmissionGate?
   private var states: [PlotterEnvironment: State]
   private var activeEnvironment: PlotterEnvironment?
   private var actuationTask: Task<PlotterPenInteractionActuationSettlement, Never>?
@@ -279,6 +309,7 @@ public actor PlotterPenInteractionRuntime {
     self.port = port
     terminalPublicationGate = nil
     setpointAdmissionGate = nil
+    confirmationAdmissionGate = nil
     states = [.live: State(environment: .live), .simulated: State(environment: .simulated)]
   }
 
@@ -289,6 +320,7 @@ public actor PlotterPenInteractionRuntime {
     self.port = port
     self.terminalPublicationGate = terminalPublicationGate
     setpointAdmissionGate = nil
+    confirmationAdmissionGate = nil
     states = [.live: State(environment: .live), .simulated: State(environment: .simulated)]
   }
 
@@ -299,6 +331,7 @@ public actor PlotterPenInteractionRuntime {
     self.port = port
     terminalPublicationGate = nil
     self.setpointAdmissionGate = setpointAdmissionGate
+    confirmationAdmissionGate = nil
     states = [.live: State(environment: .live), .simulated: State(environment: .simulated)]
   }
 
@@ -310,6 +343,18 @@ public actor PlotterPenInteractionRuntime {
     self.port = port
     self.terminalPublicationGate = terminalPublicationGate
     self.setpointAdmissionGate = setpointAdmissionGate
+    confirmationAdmissionGate = nil
+    states = [.live: State(environment: .live), .simulated: State(environment: .simulated)]
+  }
+
+  package init(
+    port: any PlotterPenInteractionActuationPort,
+    confirmationAdmissionGate: PlotterPenInteractionConfirmationAdmissionGate
+  ) {
+    self.port = port
+    terminalPublicationGate = nil
+    setpointAdmissionGate = nil
+    self.confirmationAdmissionGate = confirmationAdmissionGate
     states = [.live: State(environment: .live), .simulated: State(environment: .simulated)]
   }
 
@@ -442,11 +487,26 @@ public actor PlotterPenInteractionRuntime {
       await settle(command, environment: environment)
 
     case .confirm(let command):
+      guard isExpectedConfirmation(command, environment: environment) else {
+        return refuse(submission, .commandNotExpected, .useCurrentPrompt, environment)
+      }
+      // Confirmation is an operator fact, not a reason to leave the old green
+      // action live while unrelated drains or publications settle. Publish a
+      // new non-confirmable revision before the first suspension.
+      mutate(environment) {
+        $0.lastRefusal = nil
+        $0.phase = .confirming(command)
+        advance(&$0)
+      }
+      await publishProjection(environment: environment)
+      await confirmationAdmissionGate?.pauseAfterPublication()
       await waitForSetpointDrain()
       if let task = actuationTask { _ = await task.value }
       await awaitTerminalPublication()
-      guard isExpectedConfirmation(command, environment: environment) else {
-        return refuse(submission, .commandNotExpected, .useCurrentPrompt, environment)
+      guard activeEnvironment == environment,
+        states[environment]?.phase == .confirming(command)
+      else {
+        return .superseded(makeSnapshot(environment: environment).projection)
       }
       recordConfirmation(command, environment: environment)
       await publishProjection(environment: environment)
@@ -891,7 +951,7 @@ public actor PlotterPenInteractionRuntime {
         profile: profile.episodeProfile,
         cancellationCapabilityID: state.cancellationID,
         lastRefusal: state.lastRefusal,
-        evidenceCount: state.history.records.count,
+        evidenceCount: state.history.includedSuccessfulAttempts.count,
         physicalEvidenceClaimed: false
       ),
       profile: profile,

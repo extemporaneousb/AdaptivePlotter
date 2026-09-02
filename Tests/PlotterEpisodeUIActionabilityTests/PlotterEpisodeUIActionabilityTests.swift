@@ -637,24 +637,22 @@ struct PlotterEpisodeUIActionabilityTests {
   }
 
   @MainActor
-  @Test("App incident action publishes bounded availability then typed no-source refusal")
+  @Test("App disables the incident action when the exact source provider is absent")
   func appIncidentNoSourceLifecycle() async throws {
     let fixture = makeProductionWorkspace()
     let initial = fixture.projection()
-    let request = try #require(
-      initial.semantic.request(for: PlotterAppUIActionID.incidentPackage)
+    let action = try #require(
+      initial.semantic.action(id: PlotterAppUIActionID.incidentPackage)
     )
-
-    let disposition = await fixture.workspace.submitPlotterUIRequest(request)
-    #expect(disposition == .accepted(requestID: request.id))
-    let terminal = fixture.projection()
-    guard case .refused(let reason, let remedy) = terminal.incidentPackage else {
-      Issue.record("Expected the App projection to publish a typed no-source refusal")
-      await fixture.workspace.shutdown()
-      return
-    }
-    #expect(reason == "No complete incident-package source provider is configured.")
-    #expect(remedy == "Provide one complete, identity-bound incident source before retrying.")
+    #expect(!action.isAvailable)
+    #expect(initial.semantic.request(for: PlotterAppUIActionID.incidentPackage) == nil)
+    #expect(action.unavailableReason
+      == "PlotterIncidentPackageUIService: No complete incident-package source provider is configured.")
+    #expect(
+      initial.incidentPackage == .unavailable(
+        reason: "No complete incident-package source provider is configured."
+      )
+    )
 
     let directAdmission = await fixture.incidentService.startUnavailable(
       PlotterIncidentPackageUINoSourceRequest()

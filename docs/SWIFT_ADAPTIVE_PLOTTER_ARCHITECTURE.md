@@ -554,7 +554,11 @@ whose bounded request stream terminates with typed
 manifest/build/digest identity, invokes assembly, fabricates source
 completeness, or claims physical evidence. The App reference is presentation
 composition only; the lower assembler remains unbound and the service owns no
-backend, device, recording, evidence, or domain authority.
+backend, device, recording, evidence, or domain authority. The compiled action
+is disabled in this state, and the workbench renders the wrapped unavailable
+reason as readable secondary status. A complete provider/export coordinator is
+still required before the operator-export product contract or `PHYSICAL-FINAL`
+can pass.
 
 `PlotterEpisodeModel` depends only on `EpisodeCore` and `PlotterModel` and is
 not a package product. Its production bindings include the point-selection and
@@ -651,17 +655,42 @@ admission or task owner. SwiftUI reads
 `controllerSessionProjection` and submits a typed request only through
 `submitControllerSessionRequest`; explicit connection, passive-probe,
 alarm-clear, and Motion-authorisation actions therefore cannot become arbitrary
-workspace closure calls. Shutdown closes the runtime before the lower session is
-retired, so no request can start after cancellation.
+workspace closure calls. `PlotterControllerConnectionAction` is the single
+semantic Connect/Disconnect value consumed by toolbar title/color and by lower
+effect dispatch; no presentation string or stricter session-established Boolean
+selects the lower effect. Thus an open connecting/probing link is truthfully a
+red Disconnect action even before passive-probe acceptance. Shutdown closes the
+runtime before the lower session is retired, so no request can start after
+cancellation.
 
 `CameraCapture` owns device discovery, authorization, selection, capture
 sessions, exact stamped frames, and scoped preview publication holds. A hold
 does not stop raw capture. Exact workflow capture materializes the newest raw
 frame with `.returnOnly`; that private value does not enter preview or automatic
 analysis until its owning workflow explicitly publishes the validated selection.
-Publication is active-generation checked and idempotent. `VisionWorker` owns
-bounded inference and returns measurements; it never supplies motion or click
-authority.
+Publication is active-generation checked and idempotent. The production
+interactive policy requests a 10 FPS `AVCaptureDevice` delivery limit when the
+active format supports it and independently retains the existing 100 ms
+ordinary-preview materialization interval. `CameraCaptureDriverStartResult`
+reports `.applied` or typed `.unapplied(requestedFramesPerSecond:reason:)` into
+diagnostics. Unsupported formats and configuration-lock failures leave an
+otherwise valid capture session running and never masquerade as an applied
+cap. Ordinary preview materialization copies display pixels without computing
+their full-frame evidence digest. `StampedFrame` exposes an already-materialized
+digest only: `PlotterSceneAnalysisPipeline` explicitly promotes it at the
+automatic-analysis boundary, and exact requests promote it at their evidence
+boundary when analysis has not already done so. The frame's thread-safe
+memoized digest and injected `FrameContentHashMetrics` make Vision, overlays,
+serialization, and later exact requests reuse one computation while capture
+diagnostics report the actual analysis, exact, and serialization SHA-256 paths. Exact requests remain
+able to materialize the newest delivered frame immediately.
+`PlotterDrawingDraftExternalFacts`, `ActionSurface`, point-selection matching,
+and saved-Learning optical/reference projection consume only an already-sealed
+digest. When ordinary preview is unsealed they publish nil/unavailable exact-
+frame facts without hashing or trapping; only the analysis and exact-evidence
+owners above may promote it.
+`VisionWorker` owns bounded inference and returns
+measurements; it never supplies motion or click authority.
 
 `CameraSourceSession` owns automatic-analysis configuration, the sole
 `automaticInspectionFrameTask` that ingests automatic-pipeline frames, and
@@ -699,10 +728,14 @@ redraws automatically.
 `NativeSpeechAnnouncer` owns lower AVFoundation speech synthesis,
 identity-bound queueing, bounded timeout/completion, and shutdown cancellation.
 `PlotterSpeechEffectRuntime` owns application-level advisory speech admission,
-identity-bound terminal tracking, ordering, and shutdown; its lower port reaches
-the native announcer from the App/Boundary composition rather than from a
-workspace announcement route. Advisory failure remains non-authorizing and
-does not change button or controller authority.
+retained task ownership, identity-bound terminal tracking, ordering, and
+shutdown; its lower port reaches the native announcer from the App/Boundary
+composition rather than from a workspace announcement route. `start` returns a
+typed admission before terminal synthesis, while `perform` retains the bounded
+terminal-wait path needed by Boundary ordering. Pen discovery uses `start`, so
+cue admission precedes the Pen command but speech completion cannot delay the
+command or successor prompt. Advisory failure remains non-authorizing and does
+not change button or controller authority.
 
 `OverlayPreferenceState` contains only the persistent operator selections
 `penCap` and `armatureEnvelope`. `SceneFeatureSet` expands the armature dependency
@@ -1198,11 +1231,14 @@ earlier value settles: a newer exact-revision submission replaces the pending
 value and the superseded intermediate value is never dispatched. The first
 accepted value synchronously claims `setpointDrainInProgress` and enters
 `.drainingSetpoint` before the projection sink, package gate, or lower port can
-suspend. Confirmation waits for that drain and the exact terminal publication
-before accepting the displayed value. `DiscoveryTransaction` remains a retained
-lower value for the surrounding Learning sequence; it no longer owns Pen command
-admission, settlement, evidence publication, or progression across an
-unpublished result.
+suspend. Confirmation synchronously validates the current prompt, advances the
+runtime revision, and publishes `.confirming(command)` before waiting for that
+drain or exact terminal publication. Canonical actionability therefore removes
+the predecessor confirmation immediately; a repeated predecessor request is
+stale and performs no duplicate actuation. `DiscoveryTransaction` remains a
+retained lower value for the surrounding Learning sequence; it no longer owns
+Pen command admission, settlement, evidence publication, or progression across
+an unpublished result.
 
 Canonical phase-aware actionability exposes setpoint replacement plus exact
 capability-bound Stop, but no confirmation, during `.drainingSetpoint`. Lower
@@ -1225,7 +1261,10 @@ possible physical change. Exact Stop, cancel, abort-and-raise, natural finish,
 and shutdown converge on the same operation-bound settlement. Shutdown closes
 both environments, clears only an undispatched pending value, drains the exact
 accepted work, awaits the lower task and terminal publication, and then retires
-the operation. No cancellation or ambiguity automatically resends a command.
+the operation. A Confirm displaced after its `.confirming` publication returns
+typed `.superseded`, records no accepted evidence, and cannot advance the App's
+discovery transaction. No cancellation or ambiguity automatically resends a
+command.
 
 `PlotterPenInteractionComposition` is the nominal retained-owner boundary. LIVE
 delegates each exact profile to the existing manual-motion composition's native
@@ -1625,10 +1664,18 @@ owns advisory speech admission, identity-bound terminal tracking, ordering, and
 shutdown; `NativeSpeechAnnouncer` remains the lower synthesis owner.
 `ExerciseActionKind.cameraCalibration` routes to
 `PlotterCameraCalibrationRuntime`, which owns camera-calibration admission,
-phase, evidence, proposal, accepted registration, task, terminal truth, and
-shutdown. Its composition port forwards one typed lower effect request to
-`OperatorWorkspace`, rather than assigning the individual camera transitions
-to App-local semantic owners. `ExerciseActionKind.tipCalibration` routes to
+monotonic runtime revision, phase, evidence, proposal, accepted registration,
+task, exact failure/recovery, terminal truth, and shutdown. Every admitted
+camera action publishes `.preparing` plus a newer runtime/UI revision before its
+first lower suspension. Its composition port returns one immutable typed fact;
+`OperatorWorkspace` no longer pre-mutates proposal/evidence/failure/phase state
+or infers completion from a void call. Acceptance persists the candidate graph
+checkpoint before the runtime installs its returned accepted fact.
+Learning Reset calls the runtime's current-operation cancellation and settlement
+lifecycle without closing admission; only application shutdown invokes its
+permanent shutdown latch. The projection-bound reset-to-camera regression
+proves the next green five-position action still reaches the same runtime.
+`ExerciseActionKind.tipCalibration` routes to
 `PlotterTipCalibrationRuntime`, while
 `ExerciseActionKind.pointSelectionCorrection` reaches the distinct sole
 click add/undo/clear/four-point owner `PlotterPointSelectionRuntime`. The typed
@@ -1695,8 +1742,12 @@ lanes. Root lower work uses nominal `PlotterApplicationResidualEffectPort` and
 effect or persistence closures.
 
 The root's synchronous `admissionState` latch is set before shutdown performs
-its first suspension. Shutdown then closes/cancels/joins the residual registry
-and every named feature owner. Accepted root state persists before its matching
+its first suspension. The residual adapter's first shutdown phase closes its
+registry and makes every retained handle observe cancellation without yet
+joining settlement. Shutdown then closes the Pen semantic runtime before the
+adapter's second phase joins retained UI work, so a suspended Confirm observes
+cancellation instead of committing evidence or a successor. It then
+closes/cancels/joins every remaining named feature owner. Accepted root state persists before its matching
 immutable projection or successful terminal is published. Deadline expiry,
 waiter cancellation, append failure, or a remaining owner produces an exact
 nonterminal owner/progress/recovery result; it cannot become a false

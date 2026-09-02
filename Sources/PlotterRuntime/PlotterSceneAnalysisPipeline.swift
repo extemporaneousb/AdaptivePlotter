@@ -372,14 +372,26 @@ public actor PlotterSceneAnalysisPipeline {
         case .running = state, let frame = pendingFrame
       else { break }
       pendingFrame = nil
-      activeFrameSequence = frame.frame.sequence
+      // Analysis is the deliberate evidence-identity boundary. The digest is
+      // memoized in the shared immutable frame value, so Vision, its result,
+      // and overlay matching reuse one SHA-256 computation.
+      let analysisFrame = DisplayedFrame(
+        source: frame.source,
+        frame: frame.frame.materializingContentHash(for: .analysis)
+      )
+      activeFrameSequence = analysisFrame.frame.sequence
       let started = clock.nowNanoseconds()
       await activityHandler(true)
       guard !Task.isCancelled, taskGeneration == generation else { break }
       let result: Result<PlotterSceneMeasurement, Error>
       do {
         result = .success(
-          try await analyzer(frame.frame, requestedFeatures, analysisRegion, penCapColor)
+          try await analyzer(
+            analysisFrame.frame,
+            requestedFeatures,
+            analysisRegion,
+            penCapColor
+          )
         )
       } catch {
         result = .failure(error)
@@ -396,7 +408,7 @@ public actor PlotterSceneAnalysisPipeline {
         activeFrameSequence = nil
         lastError = nil
         latestResult = PlotterSceneAnalysisResult(
-          displayedFrame: frame,
+          displayedFrame: analysisFrame,
           measurement: measurement,
           analysisDurationNanoseconds: completed >= started ? completed - started : 0,
           completedNanoseconds: completed

@@ -19,8 +19,11 @@ Every interactive step exposes:
 - exact artifact dependencies for every accepted result.
 
 Announcements are advisory output. Buttons own answers, Start, Cancel, Stop,
-Restart, Redo, and acceptance. The exact camera click owns its point assertion
-and submits it directly; there is no **Apply Learning Point** step.
+Restart, Redo, and acceptance. Pen Up/Down cue admission precedes the matching
+Pen command, but playback completion does not gate that command or the next
+physical-confirmation prompt. Boundary retains its separately bounded
+output-before-motion terminal wait. The exact camera click owns its point
+assertion and submits it directly; there is no **Apply Learning Point** step.
 
 **Connect** and **Enable Motion** are workbench-toolbar controls, not Learning
 Path rows or exercise transitions. Motion Enabled implies a current connected
@@ -99,15 +102,24 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
 4. The Up step presents the current Up slider. It is seeded at `S40` in a fresh
    session and otherwise starts from the already-current value. Moving it
    commands the displayed value. Once operational dependencies admit the
-   request, **Confirm Pen Up** accepts that value together with the available controller
-   outcome, timestamp, and current MPos. Refusal, ambiguity, unavailable
+   request, **Confirm Pen Up** immediately replaces itself with a non-clickable
+   confirming revision before waiting for any setpoint/terminal drain. A stale
+   second click cannot duplicate confirmation or actuation. The first request
+   accepts that value together with the available controller outcome, timestamp,
+   and current MPos. Refusal, ambiguity, unavailable
    evidence, and admission blockers remain explicit without introducing a
-   separate forward gate.
+   separate forward gate. If exact Stop or application shutdown displaces the
+   published confirming revision, the request is superseded: it records no
+   accepted Pen evidence and the discovery transaction does not advance.
 5. The Down step presents the current Down slider, seeded at `S760` in a fresh
    session and otherwise starting from the already-current value, with the same
    move-and-accept behavior.
 6. The final Up step commands the accepted current Up value and completes the
    existing Up → Down → Up attempt.
+
+The Down and final-Up confirmations use the same confirm-before-wait rule. The
+following spoken cue is admitted before the next Pen command; held or slow audio
+playback cannot hold that command or its next prompt.
 
 If no LIVE appearance has been accepted, the persisted Pen cap and Armature
 envelope overlay choices do not change, but both layers report Unavailable and

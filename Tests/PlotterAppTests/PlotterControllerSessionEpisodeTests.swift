@@ -65,6 +65,37 @@ struct PlotterControllerSessionEpisodeTests {
     #expect(await lower.fixture.passiveProbeCallCount == 1)
   }
 
+  @Test("an open probing link projects a semantic red Disconnect before session establishment")
+  func probingLinkUsesDisconnectAction() async throws {
+    let lower = try lowerSession()
+    let projection = reference(revision: 4)
+    let machine = MachineSnapshot(
+      connection: .probing,
+      link: lower.descriptor,
+      lastProbe: nil,
+      blockers: []
+    )
+    let snapshot = RunInterpreterSnapshot(
+      currentOperation: .passiveProbe,
+      machine: machine,
+      lastMotionOutcome: nil,
+      lastProbe: nil
+    )
+    let projected = PlotterControllerSessionRules.project(facts(
+      reference: projection,
+      selected: lower.descriptor,
+      devices: [lower.descriptor],
+      machineSnapshot: snapshot
+    ))
+
+    #expect(!projected.sessionEstablished)
+    #expect(projected.connectionAction == .disconnect)
+    #expect(
+      WorkbenchConnectionActionPresentation(action: projected.connectionAction)
+        .role.chrome(isEnabled: true) == .negative
+    )
+  }
+
   @Test("shutdown closes admission before any later controller request")
   func shutdownClosesAdmission() async throws {
     let lower = try lowerSession()
@@ -158,14 +189,15 @@ struct PlotterControllerSessionEpisodeTests {
     environment: OperatorFrameMode = .live,
     selected: MachineLinkDescriptor?,
     devices: [MachineLinkDescriptor],
-    admissionClosed: Bool = false
+    admissionClosed: Bool = false,
+    machineSnapshot: RunInterpreterSnapshot? = nil
   ) -> PlotterControllerSessionFacts {
     PlotterControllerSessionFacts(
       reference: reference,
       environment: environment,
       selectedSerialDevice: selected,
       serialDevices: devices,
-      machineSnapshot: nil,
+      machineSnapshot: machineSnapshot,
       passiveProbe: nil,
       simulatedSnapshot: nil,
       machineError: nil,

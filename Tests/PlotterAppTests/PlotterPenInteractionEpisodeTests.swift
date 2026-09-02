@@ -100,6 +100,128 @@ struct PlotterPenInteractionEpisodeTests {
     #expect(await port.requests.isEmpty)
   }
 
+  @MainActor
+  @Test("Confirm publishes a non-clickable revision before any publication wait")
+  func confirmationClaimsProjectionBeforeAwaiting() async throws {
+    let port = PenInteractionPortFixture()
+    let gate = PlotterPenInteractionConfirmationAdmissionGate()
+    let runtime = PlotterPenInteractionRuntime(
+      port: port,
+      confirmationAdmissionGate: gate
+    )
+    try await startReady(runtime)
+    _ = await submit(runtime, .setpoint(command: .raise, value: 58))
+    let before = await runtime.snapshot(environment: .live).projection
+    #expect(before.phase == .awaitingConfirmation(.raise))
+
+    let first = Task {
+      await runtime.submit(submission(
+        projection: before.reference,
+        intent: .confirm(command: .raise)
+      ))
+    }
+    await gate.waitUntilHeld()
+
+    let admitted = await runtime.snapshot(environment: .live).projection
+    #expect(admitted.phase == .confirming(.raise))
+    #expect(admitted.reference.revision > before.reference.revision)
+
+    let duplicate = Task {
+      await runtime.submit(submission(
+        projection: before.reference,
+        intent: .confirm(command: .raise)
+      ))
+    }
+    await gate.release()
+    guard case .applied = await first.value else {
+      Issue.record("Expected the first exact Confirm request to apply.")
+      return
+    }
+    guard case .refused(let refusal) = await duplicate.value else {
+      Issue.record("Expected the obsolete second click to be refused.")
+      return
+    }
+    #expect(refusal.reason == .staleProjection)
+    #expect((await runtime.snapshot(environment: .live)).projection.phase
+      == .awaitingControllerCommand(.lower))
+    #expect(await port.requests.count == 1)
+  }
+
+  @MainActor
+  @Test("Stop supersedes a held Confirm without recording operator evidence")
+  func stopSupersedesHeldConfirmation() async throws {
+    let port = PenInteractionPortFixture()
+    let gate = PlotterPenInteractionConfirmationAdmissionGate()
+    let runtime = PlotterPenInteractionRuntime(
+      port: port,
+      confirmationAdmissionGate: gate
+    )
+    try await startReady(runtime)
+    _ = await submit(runtime, .setpoint(command: .raise, value: 58))
+    let before = await runtime.snapshot(environment: .live).projection.reference
+    let confirmation = Task {
+      await runtime.submit(submission(
+        projection: before,
+        intent: .confirm(command: .raise)
+      ))
+    }
+    await gate.waitUntilHeld()
+    let capability = try #require(
+      (await runtime.snapshot(environment: .live)).projection.cancellationCapabilityID
+    )
+
+    guard case .applied = await submit(runtime, .stop(capability)) else {
+      Issue.record("Expected exact Stop to settle the held Confirm owner.")
+      return
+    }
+    await gate.release()
+    guard case .superseded(let projection) = await confirmation.value else {
+      Issue.record("A Confirm displaced by Stop must not report applied.")
+      return
+    }
+
+    #expect(projection.reference.operationID == nil)
+    #expect(projection.evidenceCount == 0)
+    let terminal = await runtime.snapshot(environment: .live)
+    #expect(terminal.acceptedHistory.records.count == 1)
+    #expect(terminal.acceptedHistory.attempts.first?.disposition == .cancelled)
+    #expect(!terminal.projection.physicalEvidenceClaimed)
+  }
+
+  @MainActor
+  @Test("shutdown supersedes a held Confirm and closes admission")
+  func shutdownSupersedesHeldConfirmation() async throws {
+    let port = PenInteractionPortFixture()
+    let gate = PlotterPenInteractionConfirmationAdmissionGate()
+    let runtime = PlotterPenInteractionRuntime(
+      port: port,
+      confirmationAdmissionGate: gate
+    )
+    try await startReady(runtime)
+    _ = await submit(runtime, .setpoint(command: .raise, value: 58))
+    let before = await runtime.snapshot(environment: .live).projection.reference
+    let confirmation = Task {
+      await runtime.submit(submission(
+        projection: before,
+        intent: .confirm(command: .raise)
+      ))
+    }
+    await gate.waitUntilHeld()
+
+    await runtime.shutdown()
+    await gate.release()
+    guard case .superseded(let projection) = await confirmation.value else {
+      Issue.record("A Confirm displaced by shutdown must not report applied.")
+      return
+    }
+
+    #expect(projection.reference.operationID == nil)
+    #expect(projection.evidenceCount == 0)
+    #expect((await runtime.snapshot(environment: .live)).acceptedHistory.attempts.first?.disposition
+      == .cancelled)
+    #expect(!(await runtime.snapshot(environment: .live)).projection.physicalEvidenceClaimed)
+  }
+
   @Test("effect state publishes before the held lower actuation returns")
   func outputPrecedesActuationSettlement() async throws {
     let port = PenInteractionPortFixture()
@@ -416,6 +538,87 @@ struct PlotterPenInteractionEpisodeTests {
   }
 
   @MainActor
+  @Test("production Stop during held Confirm records no physical confirmation or successor")
+  func productionStopSupersedesHeldConfirmation() async throws {
+    let gate = PlotterPenInteractionConfirmationAdmissionGate()
+    let fixture = try makeProductionPenWorkspace(confirmationAdmissionGate: gate)
+    try await preparePenQuestion(fixture.workspace, machine: fixture.machine)
+    let sink: any PlotterUIIntentSink = fixture.workspace
+    let setpoint = try currentPenSetpointRequest(fixture.workspace, value: 58)
+    let setpointTask = Task { await sink.submitPlotterUIRequest(setpoint) }
+    await fixture.lowerGate.waitUntilHeld()
+    await fixture.lowerGate.releaseFirstRequest()
+    #expect(await setpointTask.value == .accepted(requestID: setpoint.id))
+    try requireStep(fixture.workspace, "answer-initially-up")
+    let evidenceCount = fixture.workspace.discoveryTransactions[.penInteraction]?
+      .evidenceSummaries.count
+
+    let yes = try currentPenChoiceRequest(fixture.workspace, choice: .yes)
+    let confirmation = Task { await sink.submitPlotterUIRequest(yes) }
+    await gate.waitUntilHeld()
+    #expect((await fixture.runtime.snapshot(environment: .live)).projection.phase
+      == .confirming(.raise))
+
+    let stop = try currentPenStopRequest(fixture.workspace)
+    #expect(await sink.submitPlotterUIRequest(stop) == .accepted(requestID: stop.id))
+    await gate.release()
+    #expect(await confirmation.value == .accepted(requestID: yes.id))
+
+    #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
+      != "answer-currently-down")
+    #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.evidenceSummaries.count
+      == evidenceCount)
+    let terminal = await fixture.runtime.snapshot(environment: .live)
+    #expect(terminal.projection.evidenceCount == 0)
+    #expect(terminal.acceptedHistory.attempts.first?.disposition == .cancelled)
+    #expect(!terminal.projection.physicalEvidenceClaimed)
+    await fixture.workspace.shutdown()
+  }
+
+  @MainActor
+  @Test("root shutdown during held Confirm records no physical confirmation or successor")
+  func productionShutdownSupersedesHeldConfirmation() async throws {
+    let gate = PlotterPenInteractionConfirmationAdmissionGate()
+    let fixture = try makeProductionPenWorkspace(confirmationAdmissionGate: gate)
+    try await preparePenQuestion(fixture.workspace, machine: fixture.machine)
+    let sink: any PlotterUIIntentSink = fixture.workspace
+    let setpoint = try currentPenSetpointRequest(fixture.workspace, value: 58)
+    let setpointTask = Task { await sink.submitPlotterUIRequest(setpoint) }
+    await fixture.lowerGate.waitUntilHeld()
+    await fixture.lowerGate.releaseFirstRequest()
+    #expect(await setpointTask.value == .accepted(requestID: setpoint.id))
+    let evidenceCount = fixture.workspace.discoveryTransactions[.penInteraction]?
+      .evidenceSummaries.count
+    let yes = try currentPenChoiceRequest(fixture.workspace, choice: .yes)
+    let confirmation = Task { await sink.submitPlotterUIRequest(yes) }
+    await gate.waitUntilHeld()
+
+    let shutdown = Task { await fixture.workspace.shutdown() }
+    var shutdownClaimedOwner = false
+    for _ in 0..<200 {
+      let projection = await fixture.runtime.snapshot(environment: .live).projection
+      if projection.phase == .cancelling || projection.reference.operationID == nil {
+        shutdownClaimedOwner = true
+        break
+      }
+      try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    #expect(shutdownClaimedOwner)
+    await gate.release()
+    #expect(await confirmation.value == .accepted(requestID: yes.id))
+    await shutdown.value
+
+    #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
+      != "answer-currently-down")
+    #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.evidenceSummaries.count
+      == evidenceCount)
+    let terminal = await fixture.runtime.snapshot(environment: .live)
+    #expect(terminal.projection.evidenceCount == 0)
+    #expect(terminal.acceptedHistory.attempts.first?.disposition == .cancelled)
+    #expect(!terminal.projection.physicalEvidenceClaimed)
+  }
+
+  @MainActor
   @Test("canonical Pen Stop and lower uncertainty remain exact UI truth")
   func productionUIStopRefusalAndAmbiguityTruth() async throws {
     let stopFixture = try makeProductionPenWorkspace()
@@ -590,7 +793,8 @@ private struct ProductionPenWorkspaceFixture {
 
 @MainActor
 private func makeProductionPenWorkspace(
-  setpointAdmissionGate: PlotterPenInteractionSetpointAdmissionGate? = nil
+  setpointAdmissionGate: PlotterPenInteractionSetpointAdmissionGate? = nil,
+  confirmationAdmissionGate: PlotterPenInteractionConfirmationAdmissionGate? = nil
 ) throws -> ProductionPenWorkspaceFixture {
   let log = EventLog()
   let lowerGate = PenRequestGate()
@@ -606,9 +810,20 @@ private func makeProductionPenWorkspace(
         simulatedAdapter: manualMotionComposition.causalSimulatorEffectAdapter,
         clock: DeterministicRuntimeClock(startNanoseconds: 1)
       )
-      let runtime = setpointAdmissionGate.map {
-        PlotterPenInteractionRuntime(port: port, setpointAdmissionGate: $0)
-      } ?? PlotterPenInteractionRuntime(port: port)
+      let runtime: PlotterPenInteractionRuntime
+      if let confirmationAdmissionGate {
+        runtime = PlotterPenInteractionRuntime(
+          port: port,
+          confirmationAdmissionGate: confirmationAdmissionGate
+        )
+      } else if let setpointAdmissionGate {
+        runtime = PlotterPenInteractionRuntime(
+          port: port,
+          setpointAdmissionGate: setpointAdmissionGate
+        )
+      } else {
+        runtime = PlotterPenInteractionRuntime(port: port)
+      }
       capturedRuntime = runtime
       return runtime
     },

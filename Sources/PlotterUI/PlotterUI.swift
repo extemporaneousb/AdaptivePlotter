@@ -843,7 +843,8 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         )], mustRemainVisible: true)
       }
       switch activePenInteraction.phase {
-      case .settling, .cancelling, .awaitingCapSelection, .awaitingControllerCommand:
+      case .settling, .cancelling, .awaitingCapSelection, .awaitingControllerCommand,
+        .confirming:
         return strip(
           item.ownerID,
           [.init(action: .stopPenInteraction(capability), title: "Stop Pen Interaction")],
@@ -994,7 +995,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         case .active:
           actions = [.init(
             action: .runCameraCalibration,
-            title: "Running Five-Position Camera Calibration…",
+            title: "Camera calibration is working…",
             unavailableReason: "Camera calibration is in progress."
           )]
         case .readyWithoutProposal:

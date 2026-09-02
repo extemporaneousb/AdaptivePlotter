@@ -54,7 +54,26 @@ mechanical execution to `MachineController`.
 capture lifetime, exact-frame materialization, and capability-scoped preview
 publication holds. A hold does not stop raw capture or change semantic optical
 identity. It retains only the newest raw buffer and publishes at most one newest
-preview when the final matching hold settles.
+preview when the final matching hold settles. Interactive LIVE capture requests
+an upstream 10 FPS device-delivery limit and independently bounds ordinary
+full-frame preview materialization to the same rate. The diagnostics state
+whether the device accepted that limit. An unsupported device limit is visible
+as unapplied; a device-format or configuration-lock refusal does not fail an
+otherwise valid capture session and is never reported as a cap. Ordinary
+preview owns the immutable pixels needed for display and performs no implicit
+full-frame evidence hashing. Automatic analysis deliberately seals a frame once
+at its analysis boundary; Vision results and overlay matching reuse that cached
+digest. An explicit exact-frame request likewise seals once when analysis has
+not already done so, or reuses the same digest when it has. Diagnostics count
+the actual sole SHA-256 computation path rather than inferring work from frame
+or request counts.
+
+An unsealed passive frame may drive video presentation, but it is not an exact
+frame fact. Drawing Draft currentness/preview, point selection, placement,
+saved-Learning reference construction, and saved-Learning comparison must
+project unavailable or nonmatching until analysis or an explicit exact capture
+seals the digest. Merely rebuilding presentation or currentness state must not
+promote or hash the passive frame.
 
 The operator may lock the current presentation viewport as a generic scene-
 analysis region. The lock constrains which camera pixels requested pen-cap
@@ -224,6 +243,13 @@ byte count and SHA-256, typed refusal/remedy, explicit
 `canonicalEnvelopeOnly` integrity scope, and
 `physicalEvidenceClaimed == false`; package bytes are neither exposed, stored,
 nor exported by this presentation service.
+
+While that provider is absent, the operator control is disabled rather than
+admitting a request guaranteed to refuse. Its unavailable reason is wrapped,
+readable passive status, not clipped warning-colored button text. This is an
+honest unavailable surface, not completion of the product export requirement;
+attended validation that requires an export remains dependency-blocked until a
+complete canonical source and a separate bounded export owner exist.
 
 ### Controller alarm recovery
 
@@ -459,10 +485,21 @@ submits that exact displayed value against the current runtime revision. The
 runtime owns one latest-only drain: while an earlier accepted setpoint settles,
 newer admitted values replace the pending value, so an intermediate superseded
 value is never sent after it has been replaced. **Confirm Pen Up** or
-**Confirm Pen Down** first waits for that exact drain and terminal publication,
-then accepts only the current displayed value for the corresponding setting.
-No view, workspace task, or test fixture may bypass admission or advance the
-drain.
+**Confirm Pen Down** first validates the exact current prompt, then immediately
+publishes a new `.confirming` revision that removes the predecessor green
+confirmation action before any suspension. It waits for the exact drain and
+terminal publication only after that admission is visible, then accepts only
+the current displayed value for the corresponding setting. A second click
+against the predecessor revision is refused and invokes no duplicate
+confirmation or actuation. No view, workspace task, or test fixture may bypass
+admission or advance the drain.
+
+If exact Stop or application shutdown displaces a published `.confirming`
+request, that request returns typed superseded truth. It records no accepted
+Pen evidence and the surrounding discovery transaction cannot advance to a
+successor. Root shutdown closes the Pen runtime before joining retained UI
+work, so a suspended Confirm cannot commit after shutdown has claimed the
+owner.
 
 Pen work already admitted by this runtime is not reflected back as a workspace
 busy prerequisite; only genuinely foreign lower-operation ownership may block
@@ -773,16 +810,16 @@ center-arrival attempt while center authority remains and arrival is absent.
 The runtime refuses a submitted retry bit that differs from that published
 derived truth, and refuses every further center admission after accepted
 arrival; neither mismatch fabricates a default or invokes a lower effect.
-Before LIVE side motion begins, the composition awaits the retained Discovery
-announcement through the composition-only `UI.announceBoundaryAdvisory` adapter
-and existing `AnnouncementActions` owner. That adapter owns no announcement,
-effect, Stop, settlement, or evidence authority. Announcement failure remains
-advisory. The runtime then rechecks exact cancellation/shutdown and reacquires
-the complete external effect identity immediately before lower motion
-admission. Shutdown records its first-winning Boundary cancellation without
-joining, cancels retained speech, and only then joins Boundary settlement, so
-suspended speech cannot admit later motion. SIMULATED motion remains nonphysical
-and unchanged.
+Before LIVE side motion begins, the composition submits the retained Discovery
+announcement through `PlotterSpeechEffectRuntime`, whose terminal result remains
+advisory. Boundary preserves output-before-motion ordering and awaits that
+bounded result, then rechecks exact cancellation/shutdown and reacquires the
+complete external effect identity immediately before lower motion admission.
+The Pen Up/Down cues have a different dependency: their speech request is
+admitted before the corresponding Pen command, but synthesis completion does
+not gate that command or the next physical-confirmation prompt. Shutdown closes
+speech admission, cancels retained synthesis, and joins it independently.
+SIMULATED motion remains nonphysical and unchanged.
 
 When a retained center-arrival terminal is recoverable and no operation is
 active, the exact typed retry is presented before generic needs-attention; this
@@ -1213,6 +1250,10 @@ cancels and settles any current Learning-owned operation through that operation'
 typed owner, then atomically clears the current source's complete Learning Path
 and saved accepted checkpoint and returns progression to 1.1 Identify and
 Calibrate the Pen.
+Settling camera calibration for reset cancels only its current operation and
+keeps runtime admission reusable; only application shutdown closes camera-
+calibration admission permanently. A reset must therefore never leave a green
+camera action whose runtime can only return cancellation.
 The reset does not admit new motion, change the pen merely to reset state, erase
 physical ink, disconnect the controller, revoke Motion authorization, or change
 the selected camera. LIVE and SIMULATED authority reset independently.
@@ -1297,7 +1338,12 @@ Enabled affirmative transitions are green, enabled negative/Cancel/Stop
 transitions are red, enabled neutral actions are medium gray, and disabled
 actions are dark gray and noninteractive. Disabled appearance and hit testing
 consume the same Boolean fact. Passive status and required values are content,
-not disabled-button stand-ins.
+not disabled-button stand-ins. Connect/Disconnect title, color, help, and lower
+dispatch derive from one semantic connection action: every Connect is green and
+every Disconnect is red, including open connecting/probing states that have not
+yet established a valid session. Enable Motion is green only when it is actually
+admissible; an unavailable Enable Motion remains gray and exposes its blocker as
+visible status as well as help text.
 
 Physical work uses the signed bundle and single-instance launcher. The launcher
 may activate the exact existing bundle or launch it through LaunchServices. It

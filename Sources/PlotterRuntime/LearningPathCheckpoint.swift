@@ -150,7 +150,7 @@ public struct AcceptedPenCapAppearance: Codable, Hashable, Sendable {
 
   public func matches(_ frame: DisplayedFrame) -> Bool {
     frameID == frame.frame.id
-      && frameSHA256 == frame.frame.contentSHA256
+      && frame.frame.materializedContentSHA256 == frameSHA256
       && source == frame.source
       && cameraConfigurationID == frame.frame.cameraConfigurationID
       && width == frame.frame.width

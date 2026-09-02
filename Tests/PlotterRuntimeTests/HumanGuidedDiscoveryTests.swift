@@ -120,7 +120,7 @@ struct HumanGuidedDiscoveryTests {
         operatorSummary: "Operator observed Pen Up."
       )
     )
-    try transaction.record(.announcementCompleted)
+    try transaction.record(.announcementDispatched)
 
     try transaction.recordPenCommandSettledAndPresentFollowingQuestion(
       .lower,
@@ -156,7 +156,7 @@ struct HumanGuidedDiscoveryTests {
         operatorSummary: "Operator observed Pen Up."
       )
     )
-    try wrongCommand.record(.announcementCompleted)
+    try wrongCommand.record(.announcementDispatched)
     let atLowerCommand = wrongCommand
     #expect(throws: DiscoveryTransactionError.unexpectedEvent(stepID: "command-down")) {
       try wrongCommand.recordPenCommandSettledAndPresentFollowingQuestion(

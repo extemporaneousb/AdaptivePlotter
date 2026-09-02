@@ -31,6 +31,31 @@ struct PlotterCameraCalibrationEpisodeTests {
     #expect(await port.calls.isEmpty)
   }
 
+  @Test("every admitted camera action becomes busy before the lower effect returns")
+  func admittedActionPublishesBusyState() async {
+    let port = CameraCalibrationPortFixture(blocking: true)
+    let runtime = await PlotterCameraCalibrationRuntime(effectPort: port)
+    let submission = Task { await runtime.submit(.captureReference) }
+
+    while !(await port.started) { await Task.yield() }
+    let active = await runtime.snapshot()
+    #expect(active.revision > 0)
+    #expect(active.phase == .preparing)
+    #expect(active.activeIntent == .captureReference)
+
+    let duplicate = await runtime.submit(.captureReference)
+    guard case .refused = duplicate else {
+      Issue.record("expected the still-visible predecessor action to be refused")
+      await runtime.shutdown()
+      _ = await submission.value
+      return
+    }
+    #expect(await port.calls == [.capture])
+
+    await runtime.shutdown()
+    #expect(await submission.value == .cancelled)
+  }
+
   @Test("shutdown cancels and settles an active build effect before clearing ownership")
   func shutdownSettlesActiveBuildEffect() async {
     let port = CameraCalibrationPortFixture(blocking: true)
@@ -46,6 +71,7 @@ struct PlotterCameraCalibrationEpisodeTests {
     #expect(snapshot.admissionClosed)
     #expect(snapshot.activeOperationID == nil)
     #expect(snapshot.activeIntent == nil)
+    #expect(snapshot.phase == nil)
     #expect(await port.calls.count == 1)
   }
 }

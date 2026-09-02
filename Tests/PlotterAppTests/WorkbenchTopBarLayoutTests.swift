@@ -85,4 +85,27 @@ struct WorkbenchTopBarLayoutTests {
     #expect(disable.title == "Disable Motion")
     #expect(disable.role.chrome(isEnabled: true) == .negative)
   }
+
+  @Test("disabled Motion exposes its full reason as visible toolbar text")
+  func motionUnavailableReasonIsVisibleText() throws {
+    let reason =
+      "Connect the selected controller before enabling motion. Resolve Alarm if it remains blocked."
+    let presentation = try #require(WorkbenchMotionUnavailablePresentation(reason))
+
+    #expect(presentation.text == reason)
+    #expect(WorkbenchMotionUnavailablePresentation(nil) == nil)
+    #expect(WorkbenchMotionUnavailablePresentation("") == nil)
+  }
+
+  @Test("Connect is green and every semantic Disconnect action is red")
+  func controllerConnectionActionOwnsItsColor() {
+    let connect = WorkbenchConnectionActionPresentation(action: .connect)
+    let disconnect = WorkbenchConnectionActionPresentation(action: .disconnect)
+
+    #expect(connect.title == "Connect")
+    #expect(connect.role.chrome(isEnabled: true) == .affirmative)
+    #expect(disconnect.title == "Disconnect")
+    #expect(disconnect.role.chrome(isEnabled: true) == .negative)
+    #expect(disconnect.role.chrome(isEnabled: false) == .disabled)
+  }
 }

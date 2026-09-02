@@ -138,8 +138,9 @@ public enum PlotterPenCapPointSampler {
     _ expected: PlotterExactFrameReference,
     matches frame: DisplayedFrame
   ) -> Bool {
-    expected.frameID == frame.frame.id.rawValue
-      && expected.frameSHA256 == frame.frame.contentSHA256
+    guard let contentSHA256 = frame.frame.materializedContentSHA256 else { return false }
+    return expected.frameID == frame.frame.id.rawValue
+      && expected.frameSHA256 == contentSHA256
       && expected.cameraConfigurationID == frame.frame.cameraConfigurationID
       && expected.width == frame.frame.width
       && expected.height == frame.frame.height

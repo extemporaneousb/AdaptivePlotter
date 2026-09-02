@@ -2,6 +2,7 @@ import Foundation
 import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
+import PlotterUI
 import Testing
 
 @testable import PlotterApp
@@ -346,7 +347,17 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
       owner: owner,
       workspace: workspace
     )
-    await workspace.performTestExerciseAction(.cameraCalibration(.buildFivePositionProposal), for: owner)
+    let runActionID = PlotterAppUIActionID.retainedLearning(
+      .cameraCalibration(.buildFivePositionProposal),
+      owner: owner
+    )
+    let runProjection = workspace.testPlotterUIProjection(
+      selectedItemID: owner,
+      includesLearningPath: true
+    ).semantic
+    let runRequest = try #require(runProjection.request(for: runActionID))
+    let sink: any PlotterUIIntentSink = workspace
+    #expect(await sink.submitPlotterUIRequest(runRequest) == .accepted(requestID: runRequest.id))
     let proposal = try #require(workspace.proposedMachineCameraRegistration)
     #expect(proposal.fitCorrespondenceProvenance.count == 3)
     #expect(proposal.holdoutCorrespondenceProvenance.count == 2)
@@ -363,7 +374,16 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
       owner: owner,
       workspace: workspace
     )
-    await workspace.performTestExerciseAction(.cameraCalibration(.acceptProposal), for: owner)
+    let acceptActionID = PlotterAppUIActionID.retainedLearning(
+      .cameraCalibration(.acceptProposal),
+      owner: owner
+    )
+    let acceptProjection = workspace.testPlotterUIProjection(
+      selectedItemID: owner,
+      includesLearningPath: true
+    ).semantic
+    let acceptRequest = try #require(acceptProjection.request(for: acceptActionID))
+    #expect(await sink.submitPlotterUIRequest(acceptRequest) == .accepted(requestID: acceptRequest.id))
     #expect(
       workspace.testCurrentLearningPathItemID
         == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)

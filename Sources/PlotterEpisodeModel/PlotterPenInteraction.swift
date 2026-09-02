@@ -213,6 +213,7 @@ public enum PlotterPenInteractionPhase: Hashable, Sendable {
   case awaitingCapSelection
   case awaitingControllerCommand(PlotterPenInteractionCommand)
   case awaitingConfirmation(PlotterPenInteractionCommand)
+  case confirming(PlotterPenInteractionCommand)
   case drainingSetpoint(PlotterPenInteractionCommand)
   case settling(PlotterPenInteractionCommand)
   case cancelling
@@ -251,5 +252,8 @@ public struct PlotterPenInteractionProjection: Hashable, Sendable {
 
 public enum PlotterPenInteractionDisposition: Hashable, Sendable {
   case applied(PlotterPenInteractionProjection)
+  /// The request passed initial admission, but an exact Stop, reset, or
+  /// shutdown owner superseded it before the requested fact could commit.
+  case superseded(PlotterPenInteractionProjection)
   case refused(PlotterPenInteractionRefusal)
 }

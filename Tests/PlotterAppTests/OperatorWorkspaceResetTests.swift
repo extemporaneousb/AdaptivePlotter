@@ -1,5 +1,6 @@
 import Foundation
 import PlotterModel
+import PlotterUI
 import Testing
 
 @testable import PlotterApp
@@ -106,6 +107,48 @@ extension PlotterApplicationRuntimeTests {
     #expect(
       workspace.testCurrentLearningPathItemID == .humanGuidedDiscovery(.penInteraction)
     )
+    await workspace.shutdown()
+  }
+
+  @Test("Reset All settles camera work without permanently closing its green action")
+  func resetAllKeepsCameraCalibrationReusable() async throws {
+    let harness = makeCausalSimulatorAppFixture()
+    let workspace = harness.workspace
+    try await completeSimulatedPenInteractionPrerequisite(workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: workspace,
+      environment: .simulated
+    )
+
+    let plan = try #require(workspace.resetAllLearningPlan)
+    #expect(await workspace.submitResetAllLearning(plan))
+
+    try await completeSimulatedPenInteractionPrerequisite(workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: workspace,
+      environment: .simulated
+    )
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    try requireEnabledPublicAction(
+      .cameraCalibration(.buildFivePositionProposal),
+      owner: owner,
+      workspace: workspace
+    )
+    let actionID = PlotterAppUIActionID.retainedLearning(
+      .cameraCalibration(.buildFivePositionProposal),
+      owner: owner
+    )
+    let projection = workspace.testPlotterUIProjection(
+      selectedItemID: owner,
+      includesLearningPath: true
+    ).semantic
+    let request = try #require(projection.request(for: actionID))
+    let sink: any PlotterUIIntentSink = workspace
+
+    #expect(await sink.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+    #expect(workspace.proposedMachineCameraRegistration != nil)
     await workspace.shutdown()
   }
 
