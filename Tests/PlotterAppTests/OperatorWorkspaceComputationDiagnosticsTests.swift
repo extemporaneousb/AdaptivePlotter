@@ -217,7 +217,9 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     )
     #expect(diagnostics.stoppableOperationMutationCount > 64)
     #expect(diagnostics.stoppableOperationSemanticInvalidationCount == 2)
-    #expect(diagnostics.learningProjectionBuildCount == 1)
+    // One build admits the exact UI request; the second records the required
+    // immutable post-transition Learning projection after owner settlement.
+    #expect(diagnostics.learningProjectionBuildCount == 2)
     #expect(diagnostics.semanticPresentationRevision - semanticRevisionBefore < 64)
     #expect(workspace.blacklistedToolContactLocations.isEmpty)
     #expect(workspace.contextualStopPresentation == nil)

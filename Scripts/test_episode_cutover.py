@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Pure deterministic fixtures for EA-09 Learning authority cutover checks."""
+"""Pure deterministic fixtures for episode cutover checks."""
 
 from __future__ import annotations
 
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
 from check_episode_cutover import ContractError, validate_ea09_learning_authority
+
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 CANONICAL_UI = """
@@ -109,11 +115,11 @@ func alternateAvailability(startUnavailableReasons: [String: String]) -> String?
 func alternateCandidate(activeOwnerID: String?) -> PlotterUIActionCandidate {
   PlotterUIActionCandidate(
     id: .init(rawValue: activeOwnerID ?? "none"),
-    intent: .retainedLearningAction(.init(rawValue: "start"))
+    intent: .learningAction(.init(item: activeOwnerID ?? "none", action: .start))
   )
 }
 """,
-            "retained-candidate",
+            "model-candidate",
         )
 
     def test_renamed_reachability_mapper_fails(self) -> None:
@@ -149,6 +155,190 @@ func alternateSplitStatus(_ input: AlternateLearningInputs) -> LearningPathStage
                 "public struct PlotterUILearningActionabilityCompiler",
                 "public struct MissingLearningCompiler",
             ))
+
+
+class EpisodeCutoverEA12AManifestTests(unittest.TestCase):
+    def test_border_sole_owner_manifest_is_exact_and_fail_closed(self) -> None:
+        checker = (ROOT / "Scripts/check_episode_cutover.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ "$1" = "EA-12A" ]; then', checker)
+        for literal in (
+            "currentEnvironmentState.borderValidation",
+            "applicationState.environmentStates[source]?.borderValidation",
+            "borderValidationRuntime.replaceSnapshot",
+            "activeBorderValidationOperation",
+            "workspace.borderValidationStep",
+            "workspace.borderValidationAssessment",
+            "workspace.drawingBorderPlan",
+            "var borderValidation: PlotterBorderValidationSnapshot",
+            "func replaceSnapshot(",
+            "public func advanceAfterSuccess(",
+            "public func markExecutionState(",
+            "public func submitStep(",
+            "public func submitAcceptComparison(",
+            "public func submitReject(",
+            "case retryFrom(",
+            "ContextualStopActionPresentation",
+            "StableWorkflowCapCaptureRunner",
+            "PlotterSystemSerialDeviceDiscoveryAdapter",
+            "borderValidationPayloadSnapshot",
+            "restoreBorderValidationPayload",
+        ):
+            self.assertIn(literal, checker)
+        self.assertIn('if [ "$failures" -ne 0 ]; then', checker)
+        self.assertIn("scan error", checker)
+
+    def test_border_sole_owner_checker_rejects_duplicate_ingress(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            scripts = root / "Scripts"
+            app_sources = root / "Sources/PlotterApp"
+            runtime_sources = root / "Sources/PlotterEpisodeRuntime"
+            tests = root / "Tests"
+            scripts.mkdir()
+            app_sources.mkdir(parents=True)
+            runtime_sources.mkdir(parents=True)
+            tests.mkdir()
+            checker = scripts / "check_episode_cutover.sh"
+            checker.write_text(
+                (ROOT / "Scripts/check_episode_cutover.sh").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            (app_sources / "Fixture.swift").write_text(
+                "currentEnvironmentState.borderValidation = snapshot\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["sh", str(checker), "EA-12A", "--consumer-only"],
+                cwd=root,
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("duplicate-ingress remains", result.stderr)
+
+
+class EpisodeCutoverEA12BManifestTests(unittest.TestCase):
+    def test_typed_learning_route_manifest_is_exact_and_fail_closed(self) -> None:
+        checker = (ROOT / "Scripts/check_episode_cutover.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ "$1" = "EA-12B" ]; then', checker)
+        for literal in (
+            "PlotterApplicationBoundAction",
+            "currentApplicationActions",
+            "currentPlotterUIResetPlans",
+            "applicationAction",
+            "retainedLearningAction",
+            "retainedLearningReset",
+            "ExerciseActionKind",
+            "PlotterUILearningSemanticAction",
+            "static let controllerProbe",
+            "static let observationStop",
+            "static let observationRestart",
+            "ActionSurfaceOverlayStyleToken",
+            "styleToken(for:",
+            ".discardCameraSamples",
+            "Discard Camera Samples",
+            "String(describing: action",
+            "String(describing: kind",
+            "PlotterLearningActionRequest",
+            "PlotterLearningUIAuthorityTests",
+            "public protocol PlotterUIIntentSink",
+        ):
+            self.assertIn(literal, checker)
+        self.assertIn('if [ "$failures" -ne 0 ]; then', checker)
+        self.assertIn("scan error", checker)
+
+    def test_typed_learning_route_rejects_side_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            scripts = root / "Scripts"
+            app_sources = root / "Sources/PlotterApp"
+            tests = root / "Tests"
+            scripts.mkdir()
+            app_sources.mkdir(parents=True)
+            tests.mkdir()
+            checker = scripts / "check_episode_cutover.sh"
+            checker.write_text(
+                (ROOT / "Scripts/check_episode_cutover.sh").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            (app_sources / "Fixture.swift").write_text(
+                "let currentApplicationActions: [String: String] = [:]\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["sh", str(checker), "EA-12B", "--consumer-only"],
+                cwd=root,
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("deleted-symbol remains", result.stderr)
+
+
+class EpisodeCutoverEA12CManifestTests(unittest.TestCase):
+    def test_learning_episode_manifest_is_exact_and_fail_closed(self) -> None:
+        checker = (ROOT / "Scripts/check_episode_cutover.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ "$1" = "EA-12C" ]; then', checker)
+        for literal in (
+            "residualLearningAdmissionID",
+            "PlotterApplicationResidualIntent",
+            "PlotterApplicationResidualOperationAdapter",
+            "runResidualLearningAction",
+            "PlotterUIController",
+            "PlotterUIObservation",
+            "plotterUIControllerRequest",
+            "plotterUIObservationRequest",
+            "observationSubmission",
+            "identityComponent",
+            "ownerID.id):",
+            "application-residual-",
+            "public struct PlotterLearningEpisodeID",
+            "public struct PlotterLearningTransitionID",
+            "PlotterLearningEpisodeRecord",
+            "learningEpisodeRecord.reserve(",
+            "learningEpisodeRecord.publish(",
+            "public protocol PlotterUIIntentSink",
+            "expected reviewed Sources +1631/-1600 safety exception",
+        ):
+            self.assertIn(literal, checker)
+        self.assertIn('if [ "$failures" -ne 0 ]; then', checker)
+        self.assertIn("scan error", checker)
+
+    def test_learning_episode_checker_rejects_residual_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            scripts = root / "Scripts"
+            app_sources = root / "Sources/PlotterApp"
+            tests = root / "Tests"
+            scripts.mkdir()
+            app_sources.mkdir(parents=True)
+            tests.mkdir()
+            checker = scripts / "check_episode_cutover.sh"
+            checker.write_text(
+                (ROOT / "Scripts/check_episode_cutover.sh").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            (app_sources / "Fixture.swift").write_text(
+                "let residualLearningAdmissionID = UUID()\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["sh", str(checker), "EA-12C", "--consumer-only"],
+                cwd=root,
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("deleted-symbol remains", result.stderr)
 
 
 if __name__ == "__main__":

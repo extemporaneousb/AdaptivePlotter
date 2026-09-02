@@ -185,7 +185,7 @@ struct PenCapAppearanceSelectionTests {
     #expect(workspace.controllerSessionProjection.selectionUnavailableReason == nil)
     #expect(workspace.controllerSessionProjection.connectionUnavailableReason == "Select one serial device first.")
 
-    let blockedSetpointID = PlotterAppUIActionID.penInteractionSetpoint(
+    let blockedSetpointID = learningSetpointActionID(
       disconnectedAdjustment.command,
       value: disconnectedAdjustment.value + 1,
       owner: owner
@@ -199,7 +199,10 @@ struct PenCapAppearanceSelectionTests {
     #expect(blockedProjection.request(for: blockedSetpointID) == nil)
     #expect(await machine.requestedPenCommands.isEmpty)
 
-    await submitControllerSession(workspace, .selectSerialDevice(machine.descriptor))
+    await submitControllerSession(
+      workspace,
+      .selectSerialDevice(controllerDevice(machine.descriptor))
+    )
     #expect(workspace.controllerSessionProjection.connectionUnavailableReason == nil)
     await submitControllerSession(workspace, .toggleConnection)
 
@@ -614,20 +617,22 @@ struct PenCapAppearanceSelectionTests {
       workspace.selectedOperatorActionPresentation(for: owner).actionStrip
     )
     let stop = try #require(strip.actions.first { action in
-      guard case .stop = action.kind else { return false }
+      guard case .stopPenInteraction = action.kind else { return false }
       return action.isEnabled
     })
-    guard case .stop(let presentedCapability) = stop.kind else {
+    guard case .stopPenInteraction(let presentedCapability) = stop.kind else {
       Issue.record("Expected the rendered Pen Stop capability.")
       return
     }
-    let actionID = PlotterAppUIActionID.retainedLearning(stop.kind, owner: owner)
+    let actionID = learningActionID(stop.kind, owner: owner)
     let projection = workspace.testPlotterUIProjection(
       selectedItemID: owner,
       includesLearningPath: true
     ).semantic
     let request = try #require(projection.request(for: actionID))
-    guard case .penInteraction(.stop(let runtimeCapability)) = request.intent else {
+    guard case .learningAction(let learningRequest) = request.intent,
+      case .stopPenInteraction(let runtimeCapability) = learningRequest.action
+    else {
       Issue.record("Expected the rendered Stop to bind the typed Pen runtime intent.")
       return
     }

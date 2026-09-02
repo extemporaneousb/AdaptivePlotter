@@ -1,4 +1,4 @@
-import PlotterEpisodeRuntime
+@testable import PlotterEpisodeRuntime
 import Testing
 
 @Suite("Border-validation episode runtime")
@@ -6,14 +6,14 @@ struct PlotterBorderValidationEpisodeTests {
   @Test("one admitted validation step owns one operation identity")
   func serializesActiveStep() async {
     let port = BorderValidationPortFixture(
-      responses: [.completed(.comparisonAccepted(.predictionObserved))],
+      responses: [.completed(.comparisonAccepted(.predictionObserved, histories: [:]))],
       suspendsFirstRequest: true
     )
     let runtime = await PlotterBorderValidationRuntime(
       sourceIsSimulated: true,
       effectPort: port
     )
-    await installComparisonReview(on: runtime, sourceIsSimulated: true)
+    await installComparisonReview(on: runtime)
 
     let first = Task {
       await runtime.submitAcceptComparison(.predictionObserved)
@@ -54,13 +54,13 @@ struct PlotterBorderValidationEpisodeTests {
   @Test("operator acceptance is explicit and terminal")
   func explicitAccept() async {
     let port = BorderValidationPortFixture(responses: [
-      .completed(.comparisonAccepted(.predictionObserved))
+      .completed(.comparisonAccepted(.predictionObserved, histories: [:]))
     ])
     let runtime = await PlotterBorderValidationRuntime(
       sourceIsSimulated: true,
       effectPort: port
     )
-    await installComparisonReview(on: runtime, sourceIsSimulated: true)
+    await installComparisonReview(on: runtime)
 
     #expect(await runtime.submitAcceptComparison(.predictionObserved))
     let snapshot = await runtime.snapshot()
@@ -74,13 +74,13 @@ struct PlotterBorderValidationEpisodeTests {
   @Test("operator rejection is explicit, terminal, and sends no redraw step")
   func explicitRejectHasNoRedraw() async {
     let port = BorderValidationPortFixture(responses: [
-      .completed(.comparisonRejected("operator rejected observed border"))
+      .completed(.comparisonRejected("operator rejected observed border", histories: [:]))
     ])
     let runtime = await PlotterBorderValidationRuntime(
       sourceIsSimulated: true,
       effectPort: port
     )
-    await installComparisonReview(on: runtime, sourceIsSimulated: true)
+    await installComparisonReview(on: runtime)
 
     #expect(await runtime.submitReject("operator rejected observed border"))
     let snapshot = await runtime.snapshot()
@@ -105,6 +105,61 @@ struct PlotterBorderValidationEpisodeTests {
     #expect(await port.calls.isEmpty)
   }
 
+  @Test("shutdown joins suspended acceptance and rejects its late completion")
+  func shutdownRejectsLateAcceptance() async {
+    let port = BorderValidationPortFixture(
+      responses: [.completed(.comparisonAccepted(.predictionObserved, histories: [:]))],
+      suspendsFirstRequest: true
+    )
+    let runtime = await PlotterBorderValidationRuntime(
+      sourceIsSimulated: false,
+      effectPort: port
+    )
+    await installComparisonReview(on: runtime)
+    let accepted = Task { await runtime.submitAcceptComparison(.predictionObserved) }
+    await port.waitForCallCount(1)
+    let close = Task { await runtime.closeAdmissionAndCancel() }
+    while !(await runtime.snapshot()).admissionClosed {
+      await Task.yield()
+    }
+    await port.releaseSuspendedRequest()
+    await close.value
+
+    #expect(!(await accepted.value))
+    let snapshot = await runtime.snapshot()
+    #expect(snapshot.admissionClosed)
+    #expect(snapshot.assessment == nil)
+    #expect(snapshot.activeOperationID == nil)
+    #expect(snapshot.phase == .cancelled("Admission closed by shutdown/cancel."))
+  }
+
+  @Test("shutdown joins suspended rejection and rejects its late completion")
+  func shutdownRejectsLateRejection() async {
+    let port = BorderValidationPortFixture(
+      responses: [.completed(.comparisonRejected("late rejection", histories: [:]))],
+      suspendsFirstRequest: true
+    )
+    let runtime = await PlotterBorderValidationRuntime(
+      sourceIsSimulated: true,
+      effectPort: port
+    )
+    await installComparisonReview(on: runtime)
+    let rejected = Task { await runtime.submitReject("operator rejection") }
+    await port.waitForCallCount(1)
+    let close = Task { await runtime.closeAdmissionAndCancel() }
+    while !(await runtime.snapshot()).admissionClosed {
+      await Task.yield()
+    }
+    await port.releaseSuspendedRequest()
+    await close.value
+
+    #expect(!(await rejected.value))
+    let snapshot = await runtime.snapshot()
+    #expect(snapshot.admissionClosed)
+    #expect(snapshot.comparisonAttemptHistories.isEmpty)
+    #expect(snapshot.phase == .cancelled("Admission closed by shutdown/cancel."))
+  }
+
   @Test("terminal history is bounded")
   func terminalHistoryIsBounded() async {
     let limit = 16
@@ -124,18 +179,56 @@ struct PlotterBorderValidationEpisodeTests {
 
     #expect((await runtime.snapshot()).terminalHistory.count == limit)
   }
+
+  @Test("typed state intents own review refusal, rewind, and source-indexed reset")
+  func typedStateIntentsOwnLocalMutation() async {
+    let runtime = await PlotterBorderValidationRuntime(
+      sourceIsSimulated: true,
+      effectPort: BorderValidationPortFixture(responses: [])
+    )
+    let initialGroup = await runtime.snapshot().group
+
+    let unavailableReview = await runtime.apply(.setComparisonReviewPinned(true))
+    #expect(unavailableReview.disposition == .refused(
+      reason: "No completed Border comparison is available for review.",
+      remedy: "Complete and accept the current Border comparison first."
+    ))
+
+    _ = await runtime.apply(.restoreAcceptedAssessment(.predictionObserved))
+    let rewound = await runtime.apply(.rewind(.captureLocalPreFrameBaseline))
+    #expect(rewound.disposition == .applied)
+    #expect(rewound.snapshot.assessment == nil)
+    #expect(rewound.snapshot.step == .captureLocalPreFrameBaseline)
+
+    await runtime.advanceAfterSuccess(.captureLocalPreFrameBaseline)
+    await runtime.advanceAfterSuccess(.moveToDrawingBorderStart)
+    await runtime.advanceAfterSuccess(.drawDrawingBorder)
+    await runtime.advanceAfterSuccess(.revealAndObserveNewInk)
+    let comparisonRewind = await runtime.apply(
+      .rewind(.compareIntendedAndObservedGeometry)
+    )
+    guard case .reviewingComparison = comparisonRewind.snapshot.phase else {
+      Issue.record("Comparison rewind must restore explicit operator review admission.")
+      return
+    }
+
+    let reset = await runtime.apply(.reset)
+    #expect(reset.disposition == .applied)
+    #expect(reset.snapshot.step == .chooseDrawingBorderPlan)
+    #expect(reset.snapshot.group != initialGroup)
+    #expect(reset.snapshot.group.rawValue.hasPrefix("simulated-"))
+  }
 }
 
 @MainActor
 private func installComparisonReview(
-  on runtime: PlotterBorderValidationRuntime,
-  sourceIsSimulated: Bool
+  on runtime: PlotterBorderValidationRuntime
 ) {
-  runtime.replaceSnapshot(PlotterBorderValidationSnapshot(
-    sourceIsSimulated: sourceIsSimulated,
-    phase: .reviewingComparison(PlotterBorderValidationOperationID()),
-    step: .compareIntendedAndObservedGeometry
-  ))
+  runtime.advanceAfterSuccess(.chooseDrawingBorderPlan)
+  runtime.advanceAfterSuccess(.captureLocalPreFrameBaseline)
+  runtime.advanceAfterSuccess(.moveToDrawingBorderStart)
+  runtime.advanceAfterSuccess(.drawDrawingBorder)
+  runtime.advanceAfterSuccess(.revealAndObserveNewInk)
 }
 
 private actor BorderValidationPortFixture: PlotterBorderValidationEffectPort {

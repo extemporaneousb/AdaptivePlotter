@@ -8,6 +8,90 @@ import PlotterUI
 import Testing
 
 @testable import PlotterApp
+
+func learningActionID(
+  _ action: PlotterLearningAction,
+  owner: LearningPathItemID
+) -> PlotterUIActionID {
+  PlotterUIActionID(learningRequest: PlotterLearningActionRequest(
+    item: PlotterLearningItemIdentity(rawValue: "\(owner.number)-\(owner.title)"),
+    action: action
+  ))
+}
+
+func learningSetpointActionID(
+  _ command: PenCommand,
+  value: Int,
+  owner: LearningPathItemID
+) -> PlotterUIActionID {
+  learningActionID(
+    .setPenSetpoint(command == .raise ? .raise : .lower, value),
+    owner: owner
+  )
+}
+
+func learningSetpointActionID(
+  _ command: PlotterLearningPenCommand,
+  value: Int,
+  owner: LearningPathItemID
+) -> PlotterUIActionID {
+  learningActionID(.setPenSetpoint(command, value), owner: owner)
+}
+
+typealias ExerciseActionDescriptor = PlotterUILearningActionDecision
+
+extension PlotterUILearningActionDecision {
+  init(
+    kind: PlotterLearningAction,
+    owner: LearningPathItemID = .humanGuidedDiscovery(.penInteraction),
+    title: String,
+    role: PlotterUILearningActionRole = .standard,
+    unavailableReason: String? = nil
+  ) {
+    self.init(
+      request: PlotterLearningActionRequest(
+        item: PlotterLearningItemIdentity(rawValue: "\(owner.number)-\(owner.title)"),
+        action: kind
+      ),
+      title: title,
+      role: role,
+      unavailableReason: unavailableReason
+    )
+  }
+}
+
+typealias ExerciseActionStripPresentation = PlotterUILearningActionStripDecision
+
+extension ExerciseActionStripPresentation {
+  var penSetpointAdjustment: PlotterUILearningPenAdjustmentDecision? { penAdjustment }
+
+  init(
+    ownerID: LearningPathItemID,
+    actions: [PlotterUILearningActionDecision],
+    directionSelection: PlotterUILearningDirectionDecision? = nil,
+    penSetpointAdjustment: PlotterUILearningPenAdjustmentDecision? = nil,
+    mustRemainVisible: Bool = false
+  ) {
+    self.init(
+      ownerID: "\(ownerID.number)-\(ownerID.title)",
+      actions: actions,
+      directionSelection: directionSelection,
+      penAdjustment: penSetpointAdjustment,
+      mustRemainVisible: mustRemainVisible
+    )
+  }
+}
+
+extension PlotterUILearningPenAdjustmentDecision {
+  var unavailableReason: String? {
+    candidates.first { $0.value == value }?.decision.unavailableReason
+  }
+  var isEnabled: Bool { unavailableReason == nil }
+}
+
+extension PlotterUILearningDirectionDecision {
+  var allowsSelection: Bool { options.count > 1 }
+}
 @testable import PlotterRuntime
 
 private let defaultTestLearningPathItemID =
@@ -111,13 +195,23 @@ extension PlotterApplicationRuntime {
   }
 
   func performTestExerciseAction(
-    _ kind: ExerciseActionKind,
+    _ kind: PlotterLearningAction,
     for owner: LearningPathItemID
   ) async {
-    await submitTestPlotterUIAction(
-      PlotterAppUIActionID.retainedLearning(kind, owner: owner),
-      selectedItemID: owner
+    let projection = plotterUIProjection(
+      selectedItemID: owner,
+      manualDraft: ManualMotionDraft(),
+      includesLearningPath: true
+    ).semantic
+    let modelRequest = PlotterLearningActionRequest(
+      item: PlotterLearningItemIdentity(rawValue: "\(owner.number)-\(owner.title)"),
+      action: kind
     )
+    guard let request = projection.request(matching: .learningAction(modelRequest)) else {
+      Issue.record("Unavailable test Learning request for \(modelRequest.item.rawValue)")
+      return
+    }
+    _ = await submitPlotterUIRequest(request)
   }
 
   func submitTestManualJog(
@@ -579,7 +673,7 @@ func makeCausalSimulatorAppFixture(
 
 @MainActor
 func requireEnabledPublicAction(
-  _ kind: ExerciseActionKind,
+  _ kind: PlotterLearningAction,
   owner: LearningPathItemID,
   workspace: PlotterApplicationRuntime
 ) throws {
@@ -618,7 +712,6 @@ func manualEpisodeJog(
 @MainActor
 func selectPublicDirection(
   _ direction: BoundaryDirection,
-  purpose: ExerciseDirectionSelectionPurpose,
   owner: LearningPathItemID,
   workspace: PlotterApplicationRuntime
 ) async throws {
@@ -626,8 +719,7 @@ func selectPublicDirection(
     workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.directionSelection,
     "Missing direction selection; discovery error: \(workspace.discoveryError ?? "nil"); exploration error: \(workspace.explorationError ?? "nil"); terminals: \(workspace.testBoundaryTerminals)"
   )
-  #expect(selection.purpose == purpose)
-  #expect(selection.options.contains(direction))
+  #expect(selection.options.contains { $0.rawValue == direction.rawValue })
   await workspace.performTestExerciseAction(
     .boundary(.selectDirection(boundaryEpisodeDirection(direction))),
     for: owner
@@ -643,11 +735,10 @@ func submitRenderedBoundaryAcquisition(
 ) async throws {
   try await selectPublicDirection(
     direction,
-    purpose: .boundary,
     owner: owner,
     workspace: workspace
   )
-  let kind = ExerciseActionKind.boundary(
+  let kind = PlotterLearningAction.boundary(
     .acquire(direction: boundaryEpisodeDirection(direction), mode: mode)
   )
   try requireEnabledPublicAction(kind, owner: owner, workspace: workspace)
@@ -658,7 +749,7 @@ func submitRenderedBoundaryAcquisition(
 func renderedBoundaryStopKind(
   owner: LearningPathItemID,
   workspace: PlotterApplicationRuntime
-) throws -> ExerciseActionKind {
+) throws -> PlotterLearningAction {
   let kind = try #require(
     workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions.first {
       if case .boundary(.stop(_)) = $0.kind { return true }
@@ -1261,13 +1352,55 @@ func submitControllerSession(
   )
 }
 
+func controllerDevice(_ descriptor: MachineLinkDescriptor) -> PlotterControllerSerialDevice {
+  .init(
+    identifier: descriptor.identifier,
+    displayName: descriptor.displayName,
+    bsdPath: descriptor.bsdPath,
+    transport: descriptor.transport.rawValue
+  )
+}
+
+enum TestObservationOperatorIntent {
+  case refresh
+  case selectSource(OperatorFrameMode, CameraDeviceID?)
+  case stopLiveSource
+  case restartLiveSource
+  case setCadence(VisionAnalysisCadence)
+  case setRegion(PixelRect?, displayedFrame: DisplayedFrame)
+  case setOverlay(UserSceneOverlay, enabled: Bool)
+  case requestDiagnostics
+}
+
 @MainActor
 func submitObservationConfigurationForTest(
   _ workspace: PlotterApplicationRuntime,
-  _ intent: PlotterObservationOperatorIntent
+  _ intent: TestObservationOperatorIntent
 ) async {
   let projection = workspace.observationConfigurationProjection
-  await workspace.submitObservationConfiguration(projection.request(intent))
+  let request: PlotterObservationOperatorIntent = switch intent {
+  case .refresh: .refresh
+  case .selectSource(.simulated, _): .selectSource(.simulated, cameraID: nil)
+  case .selectSource(.live, let cameraID):
+    .selectSource(.live, cameraID: cameraID?.rawValue)
+  case .stopLiveSource: .stopLiveSource
+  case .restartLiveSource: .restartLiveSource
+  case .setCadence(let cadence): .setCadence(framesPerSecond: cadence.rawValue)
+  case .setRegion(let region, let frame):
+    .setRegion(
+      region.map { .init(x: $0.x, y: $0.y, width: $0.width, height: $0.height) },
+      displayedFrame: .init(
+        frameID: frame.frame.id.rawValue,
+        sequence: frame.frame.sequence,
+        captureNanoseconds: frame.frame.captureNanoseconds,
+        cameraConfigurationID: frame.frame.cameraConfigurationID.rawValue.uuidString
+      )
+    )
+  case .setOverlay(let overlay, let enabled):
+    .setOverlay(identifier: overlay.rawValue, enabled: enabled)
+  case .requestDiagnostics: .requestDiagnostics
+  }
+  await workspace.submitObservationConfiguration(projection.request(request))
 }
 
 @MainActor

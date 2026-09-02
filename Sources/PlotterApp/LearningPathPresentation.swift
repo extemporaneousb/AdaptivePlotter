@@ -51,12 +51,9 @@ enum PlotterAppUIActionID {
   static let controllerRefresh = PlotterUIActionID(rawValue: "application.controller.refresh")
   static let controllerConnection = PlotterUIActionID(rawValue: "application.controller.connection")
   static let controllerMotion = PlotterUIActionID(rawValue: "application.controller.motion")
-  static let controllerProbe = PlotterUIActionID(rawValue: "application.controller.probe")
   static let controllerClearAlarm = PlotterUIActionID(rawValue: "application.controller.clear-alarm")
   static let observationRefresh = PlotterUIActionID(rawValue: "application.observation.refresh")
   static let observationSimulated = PlotterUIActionID(rawValue: "application.observation.simulated")
-  static let observationStop = PlotterUIActionID(rawValue: "application.observation.stop")
-  static let observationRestart = PlotterUIActionID(rawValue: "application.observation.restart")
   static let observationDiagnostics = PlotterUIActionID(rawValue: "application.observation.diagnostics")
   static let observationRegion = PlotterUIActionID(rawValue: "application.observation.region")
   static let paperNewSheet = PlotterUIActionID(rawValue: "application.paper.new-sheet")
@@ -98,31 +95,6 @@ enum PlotterAppUIActionID {
     PlotterUIActionID(rawValue: "drawing-border.review.\(intent.rawValue)")
   }
 
-  static func retainedLearning(_ kind: ExerciseActionKind, owner: LearningPathItemID)
-    -> PlotterUIActionID
-  {
-    PlotterUIActionID(rawValue: "learning.retained.\(owner.id).\(String(describing: kind))")
-  }
-
-  static func penInteractionSetpoint(
-    _ command: PenCommand,
-    value: Int,
-    owner: LearningPathItemID
-  ) -> PlotterUIActionID {
-    PlotterUIActionID(
-      rawValue: "learning.pen-interaction.\(owner.id).\(command.rawValue).s\(value)"
-    )
-  }
-
-  static func learningReset(_ plan: LearningVacatePlan) -> PlotterUIActionID {
-    let revisions = plan.expectedCurrentRevisionIDs
-      .map { String(describing: $0) }
-      .sorted()
-      .joined(separator: ",")
-    return PlotterUIActionID(
-      rawValue: "learning.reset.\(plan.id).\(plan.expectedAcceptedAttemptSequence).\(revisions)"
-    )
-  }
 }
 
 enum LearningPathStage: Int, CaseIterable, Hashable, Identifiable, Sendable {
@@ -300,6 +272,28 @@ struct LearningVacatePlan: Hashable, Identifiable, Sendable {
     case .all: "Reset All Learning"
     }
   }
+
+  var modelRequest: PlotterLearningResetRequest {
+    let identity: (LearningPathItemID) -> PlotterLearningItemIdentity = {
+      PlotterLearningItemIdentity(rawValue: "\($0.number)-\($0.title)")
+    }
+    let modelScope: PlotterLearningResetScope
+    switch scope {
+    case .from(let item): modelScope = .from(identity(item))
+    case .all: modelScope = .all
+    }
+    return PlotterLearningResetRequest(
+      scope: modelScope,
+      source: source == .live ? .live : .simulated,
+      anchor: identity(anchor),
+      affectedItems: affectedItems.map(identity),
+      expectedCurrentRevisionIDs: Set(expectedCurrentRevisionIDs.map(\.rawValue.uuidString)),
+      expectedAcceptedAttemptSequence: expectedAcceptedAttemptSequence,
+      removesDurableMachineCheckpoint: removesDurableMachineCheckpoint,
+      removesDurableTipCheckpoint: removesDurableTipCheckpoint,
+      physicalInkMayRemain: physicalInkMayRemain
+    )
+  }
 }
 
 struct LearningPathItemPresentation: Identifiable, Hashable, Sendable {
@@ -440,23 +434,6 @@ struct ExerciseEvidencePresentation: Identifiable, Hashable, Sendable {
   }
 }
 
-/// Unforgeable presentation authority for one currently stoppable logical owner.
-/// Views must return this exact value with Stop so a stale control cannot stop a
-/// successor operation that happens to occupy the same visual location.
-struct ContextualStopCapabilityID: RawRepresentable, Hashable, Sendable {
-  let rawValue: UUID
-
-  init(rawValue: UUID = UUID()) {
-    self.rawValue = rawValue
-  }
-}
-
-struct ContextualStopActionPresentation: Hashable, Sendable {
-  let capabilityID: ContextualStopCapabilityID
-  let title: String
-  let detail: String
-}
-
 struct ManualMotionStopActionPresentation: Hashable, Sendable {
   let capabilityID: PlotterManualMotionStopCapabilityID
   let title: String
@@ -525,29 +502,6 @@ enum MotionRequestStatusPresentation: Hashable, Sendable {
   }
 }
 
-enum ExerciseActionKind: Hashable, Sendable {
-  case applySavedLearning
-  case startNewLearning
-  case start
-  case choice(OperatorChoice)
-  case cancel
-  case stop(ContextualStopCapabilityID)
-  case restart
-  case redoThisStep
-  case recordAnotherAttempt
-  case boundary(PlotterBoundaryIntent)
-  case cameraCalibration(PlotterCameraCalibrationIntent)
-  case tipCalibration(PlotterTipCalibrationIntent)
-  case borderValidation(PlotterBorderValidationIntent)
-  case pointSelectionCorrection(PlotterPointSelectionCorrectionIntent)
-  case paperReplaced
-}
-
-enum PlotterPointSelectionCorrectionIntent: Hashable, Sendable {
-  case undoLastPoint
-  case clearPoints
-}
-
 enum SubsystemAuthorityRole: String, Hashable, Sendable {
   case motionGate = "Motion prerequisite"
   case operationOwner = "Active operation"
@@ -564,19 +518,8 @@ struct SubsystemStatusPresentation: Identifiable, Hashable, Sendable {
   let detail: [PresentationFragment]
 }
 
-enum ExerciseActionRole: Hashable, Sendable {
-  case positive
-  case destructive
-  case standard
-}
-
-struct ExerciseActionDescriptor: Identifiable, Hashable, Sendable {
-  let kind: ExerciseActionKind
-  let title: String
-  let role: ExerciseActionRole
-  let unavailableReason: String?
-
-  var id: ExerciseActionKind { kind }
+extension PlotterUILearningActionDecision {
+  var kind: PlotterLearningAction { action }
   var isEnabled: Bool { unavailableReason == nil }
   var buttonRole: OperatorButtonRole {
     if case .choice(let choice) = kind {
@@ -587,98 +530,6 @@ struct ExerciseActionDescriptor: Identifiable, Hashable, Sendable {
     case .destructive: return .negative
     case .standard: return .neutral
     }
-  }
-
-  init(
-    kind: ExerciseActionKind,
-    title: String,
-    role: ExerciseActionRole = .standard,
-    unavailableReason: String? = nil
-  ) {
-    self.kind = kind
-    self.title = title
-    self.role = role
-    self.unavailableReason = unavailableReason
-  }
-}
-
-enum ExerciseDirectionSelectionPurpose: String, Hashable, Sendable {
-  case boundary = "Boundary direction"
-
-  var label: String { rawValue }
-}
-
-struct ExerciseDirectionSelectionPresentation: Hashable, Sendable {
-  static let canonicalChoiceOrder: [BoundaryDirection] = [
-    .positiveX, .negativeX, .positiveY, .negativeY,
-  ]
-
-  let purpose: ExerciseDirectionSelectionPurpose
-  let options: [BoundaryDirection]
-  let selected: BoundaryDirection
-
-  var allowsSelection: Bool { options.count > 1 }
-
-  init(
-    purpose: ExerciseDirectionSelectionPurpose,
-    options: [BoundaryDirection] = Self.canonicalChoiceOrder,
-    selected: BoundaryDirection
-  ) {
-    precondition(!options.isEmpty)
-    precondition(Set(options).count == options.count)
-    precondition(options.contains(selected))
-    self.purpose = purpose
-    self.options = Self.canonicalChoiceOrder.filter(options.contains)
-    self.selected = selected
-  }
-}
-
-struct PenSetpointAdjustmentPresentation: Hashable, Sendable {
-  let command: PenCommand
-  let value: Int
-  let minimumValue: Int
-  let maximumValue: Int
-  let unavailableReason: String?
-
-  var title: String { command == .raise ? "Pen Up servo" : "Pen Down servo" }
-  var isEnabled: Bool { unavailableReason == nil }
-
-  init(
-    command: PenCommand,
-    value: Int,
-    minimumValue: Int = 0,
-    maximumValue: Int = 1000,
-    unavailableReason: String? = nil
-  ) {
-    precondition(minimumValue <= value && value <= maximumValue)
-    self.command = command
-    self.value = value
-    self.minimumValue = minimumValue
-    self.maximumValue = maximumValue
-    self.unavailableReason = unavailableReason
-  }
-}
-
-struct ExerciseActionStripPresentation: Hashable, Sendable {
-  let ownerID: LearningPathItemID
-  let actions: [ExerciseActionDescriptor]
-  let directionSelection: ExerciseDirectionSelectionPresentation?
-  let penSetpointAdjustment: PenSetpointAdjustmentPresentation?
-  let mustRemainVisible: Bool
-
-  init(
-    ownerID: LearningPathItemID,
-    actions: [ExerciseActionDescriptor],
-    directionSelection: ExerciseDirectionSelectionPresentation? = nil,
-    penSetpointAdjustment: PenSetpointAdjustmentPresentation? = nil,
-    mustRemainVisible: Bool = false
-  ) {
-    precondition(Set(actions.map(\.id)).count == actions.count)
-    self.ownerID = ownerID
-    self.actions = actions
-    self.directionSelection = directionSelection
-    self.penSetpointAdjustment = penSetpointAdjustment
-    self.mustRemainVisible = mustRemainVisible
   }
 }
 
@@ -744,7 +595,7 @@ struct OperatorActionPresentation: Hashable, Sendable {
   let evidence: [ExerciseEvidencePresentation]
   let activity: OperationActivityPresentation?
   let subsystemStatuses: [SubsystemStatusPresentation]
-  let actionStrip: ExerciseActionStripPresentation?
+  let actionStrip: PlotterUILearningActionStripDecision?
   let requestedFeedMMPerMinute: Double?
   let feedSource: FeedSelectionSource?
 
@@ -761,7 +612,7 @@ struct OperatorActionPresentation: Hashable, Sendable {
     evidence: [ExerciseEvidencePresentation] = [],
     activity: OperationActivityPresentation? = nil,
     subsystemStatuses: [SubsystemStatusPresentation] = [],
-    actionStrip: ExerciseActionStripPresentation? = nil,
+    actionStrip: PlotterUILearningActionStripDecision? = nil,
     requestedFeedMMPerMinute: Double? = nil,
     feedSource: FeedSelectionSource? = nil
   ) {

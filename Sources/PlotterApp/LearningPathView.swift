@@ -348,7 +348,7 @@ struct LearningPathView: View {
   }
 
   private func timelineCard(_ timeline: ExerciseTimelinePresentation) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
+    return VStack(alignment: .leading, spacing: 6) {
       HStack {
         Text("CURRENT TIMELINE POSITION")
           .font(.caption2.monospaced().bold())
@@ -578,8 +578,9 @@ private struct LearningResetSheet: View {
         Button(plan.title) {
           isPerforming = true
           Task { @MainActor in
-            let actionID = PlotterAppUIActionID.learningReset(plan)
-            guard let request = plotterUIProjection.request(for: actionID) else {
+            guard let request = plotterUIProjection.request(
+              matching: .learningReset(plan.modelRequest)
+            ) else {
               requestRefusal = "Refresh the current Learning reset preview before retrying."
               isPerforming = false
               return
@@ -611,10 +612,15 @@ private struct LearningResetSheet: View {
 }
 
 private struct ExerciseActionStripView: View {
-  let presentation: ExerciseActionStripPresentation
+  let presentation: PlotterUILearningActionStripDecision
   let reviewedItemID: LearningPathItemID
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
+  @State private var requestRefusal: String?
+
+  private var ownerID: LearningPathItemID {
+    PlotterLearningActionabilityFactAdapter().itemID(presentation.ownerID) ?? reviewedItemID
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 9) {
@@ -623,12 +629,12 @@ private struct ExerciseActionStripView: View {
           .font(.caption2.monospaced().bold())
           .foregroundStyle(.secondary)
         Spacer()
-        Text("\(presentation.ownerID.number) \(presentation.ownerID.title)")
+        Text("\(ownerID.number) \(ownerID.title)")
           .font(.caption.weight(.semibold))
           .foregroundStyle(.secondary)
       }
 
-      if reviewedItemID != presentation.ownerID {
+      if reviewedItemID != ownerID {
         Label(
           "Reviewing \(reviewedItemID.number); controls remain with the current exercise.",
           systemImage: "eye"
@@ -637,7 +643,14 @@ private struct ExerciseActionStripView: View {
         .foregroundStyle(.secondary)
       }
 
-      if let adjustment = presentation.penSetpointAdjustment {
+      if let requestRefusal {
+        Label(requestRefusal, systemImage: "exclamationmark.triangle.fill")
+          .font(.caption)
+          .foregroundStyle(.orange)
+          .textSelection(.enabled)
+      }
+
+      if let adjustment = presentation.penAdjustment {
         penSetpointAdjustment(adjustment)
       }
 
@@ -655,12 +668,12 @@ private struct ExerciseActionStripView: View {
         alignment: .leading,
         spacing: 7
       ) {
-        ForEach(presentation.actions) { action in
+        ForEach(presentation.actions, id: \.request) { action in
           actionButton(action)
         }
       }
 
-      ForEach(presentation.actions.filter { $0.unavailableReason != nil }) { action in
+      ForEach(presentation.actions.filter { $0.unavailableReason != nil }, id: \.request) { action in
         if let reason = action.unavailableReason {
           Label("\(action.title): \(reason)", systemImage: "exclamationmark.triangle.fill")
             .font(.caption)
@@ -674,11 +687,20 @@ private struct ExerciseActionStripView: View {
   }
 
   private func penSetpointAdjustment(
-    _ adjustment: PenSetpointAdjustmentPresentation
+    _ adjustment: PlotterUILearningPenAdjustmentDecision
   ) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
+    let title = adjustment.command == .raise ? "Pen Up servo" : "Pen Down servo"
+    let minimum = adjustment.candidates.map(\.value).min() ?? adjustment.value
+    let maximum = adjustment.candidates.map(\.value).max() ?? adjustment.value
+    let currentCandidate = adjustment.candidates.first { $0.value == adjustment.value }
+    let unavailableReason: String? = if let currentCandidate {
+      currentCandidate.decision.unavailableReason
+    } else {
+      "The exact current Pen setpoint request is unavailable."
+    }
+    return VStack(alignment: .leading, spacing: 6) {
       HStack {
-        Text(adjustment.title)
+        Text(title)
           .font(.caption.weight(.semibold))
         Spacer()
         Text("S\(adjustment.value)")
@@ -688,21 +710,27 @@ private struct ExerciseActionStripView: View {
         value: Binding(
           get: { Double(adjustment.value) },
           set: { value in
-            submitPenInteractionSetpoint(
-              adjustment.command,
-              value: Int(value.rounded())
-            )
+            let exactValue = Int(value.rounded())
+            guard let candidate = adjustment.candidates.first(where: { $0.value == exactValue }) else {
+              requestRefusal = "Refresh the exact current Pen setpoint choices before retrying."
+              return
+            }
+            guard let unavailableReason = candidate.decision.unavailableReason else {
+              submitLearningRequest(candidate.decision.request)
+              return
+            }
+            requestRefusal = unavailableReason
           }
         ),
-        in: Double(adjustment.minimumValue)...Double(adjustment.maximumValue),
+        in: Double(minimum)...Double(maximum),
         step: 1
       )
-      .disabled(!adjustment.isEnabled)
-      .help(adjustment.unavailableReason ?? adjustment.title)
-      .accessibilityLabel(adjustment.title)
+      .disabled(unavailableReason != nil)
+      .help(unavailableReason ?? title)
+      .accessibilityLabel(title)
       .accessibilityValue("S\(adjustment.value)")
       .accessibilityHint(
-        "Adjusts and sends the current Pen \(adjustment.command.commandedState.rawValue) servo value."
+        "Adjusts and sends the current Pen \(adjustment.command == .raise ? "Up" : "Down") servo value."
       )
       Text("Move the slider until the physical pen position is correct, then confirm that position.")
         .font(.caption2)
@@ -712,37 +740,47 @@ private struct ExerciseActionStripView: View {
 
   @ViewBuilder
   private func directionSelectionControl(
-    _ selection: ExerciseDirectionSelectionPresentation
+    _ selection: PlotterUILearningDirectionDecision
   ) -> some View {
-    Text(selection.allowsSelection ? "Available direction choices" : "Required next direction")
+    Text(selection.options.count > 1 ? "Available direction choices" : "Required next direction")
       .font(.caption2.monospaced().bold())
       .foregroundStyle(.secondary)
 
-    if selection.allowsSelection {
+    if selection.options.count > 1 {
       Picker(
-        selection.purpose.label,
+        "Boundary direction",
         selection: Binding(
           get: { selection.selected },
           set: { direction in
-            submitRetainedAction(.boundary(.selectDirection(
-              PlotterBoundaryDirection(rawValue: direction.rawValue)!
-            )))
+            guard let candidate = selection.candidates.first(where: { $0.direction == direction }) else {
+              requestRefusal = "Refresh the exact current Boundary direction choices before retrying."
+              return
+            }
+            guard let unavailableReason = candidate.decision.unavailableReason else {
+              submitLearningRequest(candidate.decision.request)
+              return
+            }
+            requestRefusal = unavailableReason
           }
         )
       ) {
         ForEach(selection.options, id: \.self) { direction in
-          Text(direction.displayName).tag(direction)
+          Text(directionName(direction)).tag(direction)
         }
       }
       .pickerStyle(.segmented)
-      .accessibilityValue(PresentationCue.direction(selection.selected).accessibilityValue)
+      .disabled(selection.candidates.allSatisfy { $0.decision.unavailableReason != nil })
+      .help(selection.candidates.compactMap(\.decision.unavailableReason).first ?? "Select Boundary direction")
+      .accessibilityValue(PresentationCue.direction(
+        PlotterLearningActionabilityFactAdapter().boundaryDirection(selection.selected)
+      ).accessibilityValue)
       .accessibilityHint("Selects a direction without starting motion.")
     } else {
       HStack(spacing: 12) {
-        Text(selection.purpose.label)
+        Text("Boundary direction")
           .foregroundStyle(.primary)
         Spacer(minLength: 12)
-        Text(selection.selected.displayName)
+        Text(directionName(selection.selected))
           .font(.body.monospaced().bold())
           .foregroundStyle(.primary)
           .padding(.horizontal, 12)
@@ -750,32 +788,46 @@ private struct ExerciseActionStripView: View {
           .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
       }
       .accessibilityElement(children: .ignore)
-      .accessibilityLabel(selection.purpose.label)
-      .accessibilityValue(PresentationCue.direction(selection.selected).accessibilityValue)
+      .accessibilityLabel("Boundary direction")
+      .accessibilityValue(PresentationCue.direction(
+        PlotterLearningActionabilityFactAdapter().boundaryDirection(selection.selected)
+      ).accessibilityValue)
       .accessibilityHint("This opposite boundary is required next.")
     }
   }
 
-  private func submitRetainedAction(_ kind: ExerciseActionKind) {
-    let actionID = PlotterAppUIActionID.retainedLearning(kind, owner: presentation.ownerID)
-    guard let request = plotterUIProjection.request(for: actionID) else { return }
-    Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
+  private func directionName(_ direction: PlotterUILearningBoundaryDirection) -> String {
+    switch direction {
+    case .positiveX: "X+"
+    case .negativeX: "X−"
+    case .positiveY: "Y+"
+    case .negativeY: "Y−"
+    }
   }
 
-  private func submitPenInteractionSetpoint(_ command: PenCommand, value: Int) {
-    let actionID = PlotterAppUIActionID.penInteractionSetpoint(
-      command,
-      value: value,
-      owner: presentation.ownerID
-    )
-    guard let request = plotterUIProjection.request(for: actionID) else { return }
-    Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
+
+  private func submitLearningRequest(_ modelRequest: PlotterLearningActionRequest) {
+    guard let request = plotterUIProjection.request(matching: .learningAction(modelRequest)) else {
+      requestRefusal = "Refresh the current Learning action before retrying."
+      return
+    }
+    Task { @MainActor in
+      let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
+      if case .refused(let refusal) = disposition {
+        requestRefusal = refusal.remedy
+      } else {
+        requestRefusal = nil
+      }
+    }
   }
 
   @ViewBuilder
-  private func actionButton(_ action: ExerciseActionDescriptor) -> some View {
+  private func actionButton(_ action: PlotterUILearningActionDecision) -> some View {
+    let exactRequest = plotterUIProjection.request(matching: .learningAction(action.request))
+    let unavailableReason = action.unavailableReason
+      ?? (exactRequest == nil ? "Refresh the current Learning action before retrying." : nil)
     let button = Button {
-      submitRetainedAction(action.kind)
+      submitLearningRequest(action.request)
     } label: {
       Text(action.title)
         .multilineTextAlignment(.center)
@@ -787,11 +839,11 @@ private struct ExerciseActionStripView: View {
           minHeight: ExerciseActionLayoutPolicy.minimumButtonHeight
         )
     }
-    .help(action.unavailableReason ?? action.title)
+    .help(unavailableReason ?? action.title)
 
     let styledButton = button.operatorButton(
       action.buttonRole,
-      isEnabled: action.isEnabled
+      isEnabled: unavailableReason == nil
     )
     if action.kind.isImmediateStopOrVisionCancel {
       styledButton.keyboardShortcut(.cancelAction)
@@ -801,7 +853,7 @@ private struct ExerciseActionStripView: View {
   }
 }
 
-extension ExerciseActionKind {
+extension PlotterLearningAction {
   fileprivate var isImmediateStopOrVisionCancel: Bool {
     switch self {
     case .stop:

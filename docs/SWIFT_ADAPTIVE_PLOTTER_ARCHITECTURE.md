@@ -90,7 +90,7 @@ PlotterRuntime
 PlotterApp -> EpisodeRuntime + PlotterEpisodeRuntime + PlotterUI + retained application/runtime dependencies
   PlotterApplicationRuntime root composition, projection/adaptation, and retained artifact commits
   one source-indexed PlotterApplicationState with PlotterApplicationEnvironmentState values
-  one PlotterApplicationResidualOperationAdapter backed by package PlotterOperationRegistry
+  one model-owned PlotterLearningEpisodeRecord plus transition-keyed retained Learning task join
   one production PlotterUIIntentSink with exact current membership, bound-intent,
   availability, UI-revision, and runtime-revision validation
   typed point-selection, Learning-mode, manual-motion, Pen Interaction, Drawing, Comparison,
@@ -1664,11 +1664,21 @@ calibration or establishes a generally trained adaptive model.
 
 ## Current Learning authority slices
 
-The accepted Learning tranche keeps typed App action values as adapters and
-keeps semantic authority in the named runtime. `PlotterSpeechEffectRuntime`
-owns advisory speech admission, identity-bound terminal tracking, ordering, and
-shutdown; `NativeSpeechAnnouncer` remains the lower synthesis owner.
-`ExerciseActionKind.cameraCalibration` routes to
+`PlotterEpisodeModel` owns `PlotterLearningActionRequest` and the typed semantic
+action it contains. `PlotterLearningActionabilityFactAdapter` creates exact
+values-only action decisions at the projection boundary, including one exact
+candidate for each supported slider value and Boundary direction. SwiftUI
+submits the selected decision's request unchanged as
+`PlotterUIIntent.learningAction` through the sole public `PlotterUIIntentSink`.
+`PlotterApplicationRuntime` validates exact projection membership and revisions,
+reserves one ordered Learning transition, then delegates to the named feature
+runtime. There is no App semantic dictionary, opaque retained/application
+intent, ID-to-action recovery, `ExerciseActionKind` retranslation, or view-side
+request recompilation.
+
+`PlotterSpeechEffectRuntime` owns advisory speech admission, identity-bound
+terminal tracking, ordering, and shutdown; `NativeSpeechAnnouncer` remains the
+lower synthesis owner. Exact camera-calibration requests route to
 `PlotterCameraCalibrationRuntime`, which owns camera-calibration admission,
 monotonic runtime revision, phase, evidence, proposal, accepted registration,
 task, exact failure/recovery, terminal truth, and shutdown. Every admitted
@@ -1681,44 +1691,41 @@ Learning Reset calls the runtime's current-operation cancellation and settlement
 lifecycle without closing admission; only application shutdown invokes its
 permanent shutdown latch. The projection-bound reset-to-camera regression
 proves the next green five-position action still reaches the same runtime.
-`ExerciseActionKind.tipCalibration` routes to
-`PlotterTipCalibrationRuntime`, while
-`ExerciseActionKind.pointSelectionCorrection` reaches the distinct sole
-click add/undo/clear/four-point owner `PlotterPointSelectionRuntime`. The typed
+Exact tip-calibration requests route to `PlotterTipCalibrationRuntime`, while
+point-selection correction reaches the distinct sole click add/undo/clear/
+four-point owner `PlotterPointSelectionRuntime`. The typed
 tip-calibration replacement intent delegates its final zero-click atomic
 supersession to that same point-selection owner rather than creating another UI
 or app ingress.
 
-`ExerciseActionKind.borderValidation` routes
-`PlotterBorderValidationIntent` to `PlotterBorderValidationRuntime`, but current
-source still has two mutable Border Validation stores. The runtime owns its
-operation identity, phase, active step/task, terminal history, possible-ink
-disposition, explicit comparison review and accept/reject, and shutdown, while
-`PlotterApplicationEnvironmentState.borderValidation` retains a second complete
-snapshot that root getters/setters, `replaceSnapshot`, reset, effect, comparison,
-and projection paths copy in both directions. `PlotterBorderValidationIntent.retryFrom`
-is represented and handled but has no production caller. This duplicate
-authority and zero-caller intent are current gaps assigned to EA-12A; neither is
-an automatic retry contract.
+`PlotterBorderValidationRuntime` is the sole source-indexed mutable Border owner
+and receives exact `PlotterBorderValidationIntent` requests. It owns
+state, operation identity, phase, active step/task, terminal history,
+possible-ink disposition, explicit review/accept/reject, reset result, and
+shutdown owner. `PlotterApplicationRuntime` supplies lower effects and copies
+immutable projections only. Historical EA-12A deletion evidence names the former
+duplicate environment snapshot, root forwarding/copy paths, `replaceSnapshot`,
+and zero-caller retry intent; none is current authority. The runtime retains
+every step, accept, and reject effect, admits late completion only while the
+exact operation identity still owns the expected state, and asynchronously
+cancels and joins the exact active task on close. Root shutdown closes and joins
+both LIVE and SIMULATED Border runtimes before persistence/settlement.
 
-`ExerciseActionKind` Saved Learning/reset actions route to
-`PlotterArtifactResetRuntime`, which owns reset admission, task, terminal and
+Exact Saved Learning/reset requests route to `PlotterArtifactResetRuntime`,
+which owns reset admission, task, terminal and
 shutdown state, and durable-before-projection application. Its lower relay
 persists the immutable admitted paper plan before in-memory projection.
 `AcceptedLearningPathLegacyMigrationAdapter` saves canonical state before
 reversible legacy cleanup and preserves legacy bytes if cleanup fails. The
 deleted legacy stores are not compatibility owners.
 
-Rendered actionability is not yet uniformly projection-bound. The camera
-ready-without-proposal path still offers **Discard Camera Samples** although
-no current sample-owning request exists; tip commit/revalidation projects a
-retry control while the runtime admits retry only from a stable review state;
-Drawing Placement can be shown from UI-local pending state and then silently
-return when no exact projection request exists. The default Learning action,
-completed-comparison, and Drawing Studio routes must be audited under the same
-rule. These are current EA-12B gaps, not supported affordances: an enabled
-effect-bearing control must carry an exact current typed request and remedy
-through the one sink.
+Rendered actionability is projection-bound. The orphan camera-sample discard
+control is deleted. Tip commit retry is absent while fitting, commit, save, or
+revalidation is busy and exists only in the runtime's stable recoverable state.
+Default Learning, Drawing Placement, completed-comparison, and Drawing Studio
+controls render enabled only with their exact current projected request; stale,
+missing, or unavailable submission returns typed refusal/remedy through the
+sole sink rather than silently terminating.
 
 ## Current device-environment authority slices
 
@@ -1741,7 +1748,7 @@ facades or a second semantic effect authority.
 
 ## Current root composition
 
-The landed EA-11C root topology is explicit: `PlotterApplicationRuntime`
+The current root topology is explicit: `PlotterApplicationRuntime`
 is the MainActor root, `PlotterApplicationState` owns the single source-indexed
 map of residual `PlotterApplicationEnvironmentState` values, and the root is
 the only production `PlotterUIIntentSink` conformer. The sink validates exact
@@ -1750,30 +1757,35 @@ request to the owning typed feature runtime. The root does not compose a
 redundant `PlotterIntentGateway`; internal gateway evaluation remains within
 the point-selection and manual-motion runtimes.
 
-`PlotterApp` directly depends on `EpisodeRuntime`. The root's one
-`PlotterApplicationResidualOperationAdapter` is backed by package
-`PlotterOperationRegistry` and owns only residual application operations. It is
-not a second task registry and it does not subsume the point-selection,
-manual-motion, Pen Interaction, Boundary, calibration, Drawing,
-controller-session, observation, speech, or artifact runtime tasks and Stop
-lanes. Root lower work uses nominal `PlotterApplicationResidualEffectPort` and
-`PlotterApplicationStatePersistencePort` boundaries rather than arbitrary
-effect or persistence closures.
+`PlotterApp` directly depends on `EpisodeRuntime`. The model-owned
+`PlotterLearningEpisodeRecord` is not an effect owner: it reserves and publishes
+bounded action/reset transition facts around delegation to retained feature
+runtimes. Publication includes the typed owner outcome and one bounded immutable
+post-transition projection captured after owner settlement. The
+root retains a `PlotterApplicationLearningTask` only while an admitted residual
+Learning action has asynchronous work to cancel and join; the task is keyed by
+exact `PlotterLearningTransitionID`, so one transition cannot clear or cancel a
+successor. It is neither a registry nor a second journal and does not subsume
+the point-selection, manual-motion, Pen Interaction, Boundary, calibration,
+Drawing, controller-session, observation, speech, or artifact runtime tasks and
+Stop lanes. Root lower work uses nominal typed effect and persistence ports
+rather than arbitrary closure bags.
 
 The root's synchronous `admissionState` latch is set before shutdown performs
-its first suspension. The residual adapter's first shutdown phase closes its
-registry and makes every retained handle observe cancellation without yet
-joining settlement. Shutdown then closes the Pen semantic runtime before the
-adapter's second phase joins retained UI work, so a suspended Confirm observes
-cancellation instead of committing evidence or a successor. It then
-closes/cancels/joins every remaining named feature owner. Accepted root state persists before its matching
+its first suspension. Shutdown cancels the exact transition-keyed retained
+Learning task, then closes the Pen semantic runtime before joining that task,
+so a suspended Confirm observes cancellation instead of committing evidence or
+a successor. It then closes/cancels/joins every remaining named feature owner,
+including both source-indexed Border runtimes before persistence/settlement.
+Accepted root state persists before its matching
 immutable projection or successful terminal is published. Deadline expiry,
 waiter cancellation, append failure, or a remaining owner produces an exact
 nonterminal owner/progress/recovery result; it cannot become a false
 `terminated` or `quiescent` state. The discoverable
-`PlotterEpisodeCompositionTests` suite currently contains six focused tests;
-EA-11C landed after its required gates passed, and FIX-09 later added the sixth
-passive-preview/root-presentation regression. That software coverage does not
+`PlotterEpisodeCompositionTests` suite contains eight focused tests after
+EA-12C added stable episode/transition, action/reset post-transition projection,
+and typed result coverage to the earlier
+root lifecycle/projection suite. That software coverage does not
 prove attended controller, camera, motion, Pen, paper, click, or ink behavior.
 
 ## Drawing Studio ownership
@@ -1931,15 +1943,17 @@ possible-ink/no-redraw, persistence, and terminal truth. The active frame source
 selects one environment value without restoring device ownership. Pen
 Interaction state belongs to its environment-indexed runtime snapshot.
 
-The remaining split is semantic rather than a return of those deleted owners:
-App projection currently constructs opaque retained/application action IDs,
-stores typed meaning in `currentApplicationActions` and
-`currentPlotterUIResetPlans`, and recovers that meaning during sink dispatch.
-Residual Learning operations also mint UUID/string-derived identities without
-one model-owned ordered Learning event record. EA-12B and EA-12C must delete
-those side registries and reflected identity paths while retaining the distinct
-feature runtime owners. Until then the application cannot name one truthful
-canonical Learning episode for FIX-10 incident export.
+The remaining split is deliberate feature ownership, not duplicate Learning
+identity. One `PlotterLearningEpisodeRecord` mints a stable model-owned
+`PlotterLearningEpisodeID` for its lifetime. Each reservation receives the next
+bounded `PlotterLearningTransitionID` and stores its exact typed
+`PlotterLearningRecordRequest` action/reset union, environment, and pre-state
+revision; publication appends the typed accepted/refused result and remedy plus
+one bounded immutable post-transition projection after owner settlement. Every
+entry shares the record's episode ID. This record
+provides FIX-10 a canonical Learning identity boundary without merging or
+replacing the distinct feature journals, state machines, effect tasks, Stop,
+persistence, possible-ink/no-redraw, evidence, or terminal owners.
 
 Workflow failures retain typed kind and recovery separately from actionable
 presentation text. Boundary disposition, attempt disposition, sparse-mark

@@ -8,8 +8,18 @@ import Testing
 
 @testable import PlotterApp
 
-@Suite("Plotter episode UI actionability")
-struct PlotterEpisodeUIActionabilityTests {
+@Suite("PlotterLearningUIAuthorityTests")
+struct PlotterLearningUIAuthorityTests {
+  @Test("typed Learning requests have stable distinct rendered action identities")
+  func learningRequestActionIDsAreStableAndDistinct() {
+    let item = PlotterLearningItemIdentity(rawValue: "1.1-pen-interaction")
+    let start = PlotterLearningActionRequest(item: item, action: .start)
+    let restart = PlotterLearningActionRequest(item: item, action: .restart)
+
+    #expect(PlotterUIActionID(learningRequest: start) == PlotterUIActionID(learningRequest: start))
+    #expect(PlotterUIActionID(learningRequest: start) != PlotterUIActionID(learningRequest: restart))
+  }
+
   @Test("PlotterUI alone chooses Learning current owner status and reachable actions")
   func plotterUILearningCompilerOwnsActionability() throws {
     let pen = "1.1-pen"
@@ -66,6 +76,64 @@ struct PlotterEpisodeUIActionabilityTests {
     #expect(projection.strip(ownerID: boundary) == nil)
   }
 
+  @Test("dynamic Learning controls carry exact typed requests and unavailable remedies")
+  func dynamicControlsCarryExactRequests() throws {
+    let boundary = "1.2-boundary"
+    let boundaryProjection = PlotterUILearningActionabilityCompiler().compile(
+      PlotterUILearningActionabilityFacts(
+        learning: .init(
+          isEnabled: true,
+          activeOwnerID: nil,
+          orderedMilestones: [.init(ownerID: boundary, isComplete: false)]
+        ),
+        selectedOwnerID: boundary,
+        items: [.init(
+          ownerID: boundary, kind: .boundary, stageID: "discovery",
+          isStage: false, isExercise: true, isComplete: false, isRepeatable: true
+        )],
+        allowedBoundaryDirections: [.positiveX, .negativeX],
+        selectedBoundaryDirection: .positiveX
+      )
+    )
+    let direction = try #require(
+      boundaryProjection.strip(ownerID: boundary)?.directionSelection
+    )
+    #expect(direction.candidates.map(\.decision.request) == [
+      .init(item: .init(rawValue: boundary), action: .boundary(.selectDirection(.positiveX))),
+      .init(item: .init(rawValue: boundary), action: .boundary(.selectDirection(.negativeX))),
+    ])
+
+    let pen = "1.1-pen"
+    let penProjection = PlotterUILearningActionabilityCompiler().compile(
+      PlotterUILearningActionabilityFacts(
+        learning: .init(
+          isEnabled: true,
+          activeOwnerID: pen,
+          orderedMilestones: [.init(ownerID: pen, isComplete: false)]
+        ),
+        selectedOwnerID: pen,
+        items: [.init(
+          ownerID: pen, kind: .penInteraction, stageID: "discovery",
+          isStage: false, isExercise: true, isComplete: false, isRepeatable: true
+        )],
+        activeOwnerID: pen,
+        activePrompt: .penConfirmation(
+          command: .raise,
+          value: 50,
+          minimumValue: 49,
+          maximumValue: 51
+        ),
+        startUnavailableReasons: [pen: "Motion is unavailable."]
+      )
+    )
+    let adjustment = try #require(penProjection.strip(ownerID: pen)?.penAdjustment)
+    #expect(adjustment.candidates.map { $0.value } == [49, 50, 51])
+    #expect(adjustment.candidates.allSatisfy {
+      $0.decision.request.item == PlotterLearningItemIdentity(rawValue: pen)
+        && $0.decision.unavailableReason == "Motion is unavailable."
+    })
+  }
+
   @Test("PlotterUI exact Stop capability suppresses competing Learning actions")
   func plotterUILearningStopIsExactAndExclusive() throws {
     let owner = "1.2-boundary"
@@ -93,7 +161,9 @@ struct PlotterEpisodeUIActionabilityTests {
     )
 
     let strip = try #require(projection.strip(ownerID: owner))
-    #expect(strip.actions.map(\.action) == [.stop(stopID)])
+    #expect(strip.actions.map(\.action) == [
+      .stop(ContextualStopCapabilityID(rawValue: stopID))
+    ])
     #expect(strip.actions.map(\.title) == ["Stop Boundary Search"])
     #expect(strip.mustRemainVisible)
     #expect(projection.contextualStop?.capabilityID == stopID)
@@ -126,8 +196,10 @@ struct PlotterEpisodeUIActionabilityTests {
 
     let strip = try #require(projection.strip(ownerID: owner))
     #expect(strip.actions.map(\.action) == [
-      .acceptBorderValidation,
-      .rejectBorderValidation,
+      .borderValidation(.acceptObservedPrediction),
+      .borderValidation(.reject(
+        "Operator rejected the observed Drawing Border comparison."
+      )),
     ])
     #expect(strip.actions.allSatisfy { $0.unavailableReason == nil })
     #expect(strip.mustRemainVisible)
@@ -167,7 +239,7 @@ struct PlotterEpisodeUIActionabilityTests {
 
     let empty = try strip(state: .awaitingFrozenClicks, clickCount: 0)
     #expect(empty.actions.map(\.action) == [
-      .captureNewSparseTipClickFrame(retainedPointCount: 0),
+      .tipCalibration(.captureNewClickFrame(retainedPointCount: 0)),
       .cancel,
     ])
     #expect(empty.actions.first?.title == "Capture New Click Frame")
@@ -175,9 +247,9 @@ struct PlotterEpisodeUIActionabilityTests {
 
     let partial = try strip(state: .awaitingFrozenClicks, clickCount: 1)
     #expect(partial.actions.map(\.action) == [
-      .captureNewSparseTipClickFrame(retainedPointCount: 1),
-      .undoSparseTipClick,
-      .clearSparseTipClicks,
+      .tipCalibration(.captureNewClickFrame(retainedPointCount: 1)),
+      .pointSelectionCorrection(.undoLastPoint),
+      .pointSelectionCorrection(.clearPoints),
       .cancel,
     ])
     #expect(partial.actions.first?.unavailableReason?.contains("Clear every retained click") == true)
@@ -557,9 +629,11 @@ struct PlotterEpisodeUIActionabilityTests {
     }
     if let strip = projected.learningPath?.selectedAction.actionStrip {
       for action in strip.actions {
-        let id = PlotterAppUIActionID.retainedLearning(action.kind, owner: strip.ownerID)
+        let id = PlotterUIActionID(learningRequest: action.request)
         let semanticAction = try #require(semantic.action(id: id))
-        #expect((semantic.request(for: id) != nil) == semanticAction.isAvailable)
+        let projectedRequest = semantic.request(for: id)
+        #expect(semanticAction.intent == .learningAction(action.request))
+        #expect((projectedRequest != nil) == semanticAction.isAvailable)
       }
     } else {
       Issue.record("Expected a rendered Learning action strip")
@@ -570,7 +644,7 @@ struct PlotterEpisodeUIActionabilityTests {
     ].compactMap { $0 }
     #expect(!resetPlans.isEmpty)
     for plan in resetPlans {
-      let id = PlotterAppUIActionID.learningReset(plan)
+      let id = PlotterUIActionID(rawValue: plan.modelRequest.identity)
       let action = try #require(semantic.action(id: id))
       #expect((semantic.request(for: id) != nil) == action.isAvailable)
     }
@@ -588,11 +662,11 @@ struct PlotterEpisodeUIActionabilityTests {
 
     #expect(projected.semantic.learning?.currentOwnerID == ownerID)
     let strip = try #require(projected.learningPath?.selectedAction.actionStrip)
-    #expect(strip.ownerID == current)
+    #expect(strip.ownerID == ownerID)
     for action in strip.actions {
       #expect(
         projected.semantic.action(
-          id: PlotterAppUIActionID.retainedLearning(action.kind, owner: current)
+          id: PlotterUIActionID(learningRequest: action.request)
         ) != nil
       )
     }
@@ -604,7 +678,7 @@ struct PlotterEpisodeUIActionabilityTests {
       for action in otherStrip?.actions ?? [] {
         #expect(
           projected.semantic.action(
-            id: PlotterAppUIActionID.retainedLearning(action.kind, owner: owner)
+            id: PlotterUIActionID(learningRequest: action.request)
           ) == nil
         )
       }
@@ -742,6 +816,29 @@ struct PlotterEpisodeUIActionabilityTests {
       feedMMPerMinute: 100,
       routing: .relativeTravel
     )
+  }
+}
+
+@Suite("PlotterEpisodeUIActionabilityTests")
+struct PlotterEpisodeUIActionabilityTests {
+  @Test("legacy UI gate selects an exact projection-bound request")
+  func exactRequestSelection() throws {
+    let actionID = PlotterUIActionID(rawValue: "learning.toggle")
+    let projection = PlotterUICompiler().compile(PlotterUICompilerInput(
+      revision: PlotterUIRevision(rawValue: 1),
+      runtimeRevisions: [PlotterUIRuntimeRevision(owner: "Learning", token: "1")],
+      candidates: [PlotterUIActionCandidate(
+        id: actionID,
+        title: "Enable Learning",
+        intent: .learning(.setEnabled(true))
+      )]
+    ))
+
+    let request = try #require(projection.request(for: actionID))
+    #expect(request.actionID == actionID)
+    #expect(request.intent == .learning(.setEnabled(true)))
+    #expect(request.uiRevision == projection.revision)
+    #expect(request.runtimeRevisions == projection.runtimeRevisions)
   }
 }
 

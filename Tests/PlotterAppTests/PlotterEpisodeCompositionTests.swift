@@ -22,7 +22,7 @@ struct PlotterEpisodeCompositionTests {
       uiRevision: projection.revision,
       runtimeRevisions: projection.runtimeRevisions,
       actionID: reached.id,
-      intent: .applicationAction(reached.id)
+      intent: .requestIncidentPackage
     )
 
     guard case .refused(let refusal) = await sink.submitPlotterUIRequest(forged) else {
@@ -30,6 +30,76 @@ struct PlotterEpisodeCompositionTests {
       return
     }
     #expect(refusal.reason == .mismatchedIntent)
+    await application.shutdown()
+  }
+
+  @Test("unavailable Learning submissions publish a typed source-attributed episode refusal")
+  func unavailableLearningEpisodeRefusal() async throws {
+    let application = try PlotterApplicationFixture().application
+    let projection = application.testPlotterUIProjection(includesLearningPath: true).semantic
+    let action = try #require(projection.actions.first {
+      if case .learningAction = $0.intent { return $0.unavailableReason != nil }
+      return false
+    })
+    guard case .learningAction(let learningRequest) = action.intent else { return }
+    let request = PlotterUIRequest(
+      id: PlotterUIRequestID(rawValue: UUID()),
+      uiRevision: projection.revision,
+      runtimeRevisions: projection.runtimeRevisions,
+      actionID: action.id,
+      intent: action.intent
+    )
+
+    guard case .refused(let refusal) = await application.submitPlotterUIRequest(request) else {
+      Issue.record("An unavailable Learning action must be refused and recorded.")
+      return
+    }
+    #expect(refusal.reason == .unavailableAction)
+    let episode = try #require(application.learningEpisodeRecord.entries.last)
+    #expect(episode.request == .action(learningRequest))
+    #expect(episode.environment == .live)
+    #expect(episode.preStateRevision == episode.postStateRevision)
+    #expect(!episode.stateChangePublished)
+    guard case .refused(let reason, let owner, let remedy) = episode.result else {
+      Issue.record("The Learning episode lost its refusal result.")
+      return
+    }
+    #expect(reason == .unavailableAction)
+    #expect(owner.rawValue == "PlotterUIIntentSink")
+    #expect(remedy == refusal.remedy)
+    await application.shutdown()
+  }
+
+  @Test("Learning reset records exact request, owner settlement, and post-transition projection")
+  func learningResetEpisodeProjection() async throws {
+    let application = try PlotterApplicationFixture().application
+    let projection = application.testPlotterUIProjection(includesLearningPath: true).semantic
+    let action = try #require(projection.actions.first {
+      if case .learningReset = $0.intent { return $0.isAvailable }
+      return false
+    })
+    guard case .learningReset(let resetRequest) = action.intent else { return }
+    let disposition = await application.submitPlotterUIRequest(.init(
+      id: .init(rawValue: UUID()),
+      uiRevision: projection.revision,
+      runtimeRevisions: projection.runtimeRevisions,
+      actionID: action.id,
+      intent: action.intent
+    ))
+    guard case .accepted = disposition else {
+      Issue.record("The exact available Learning reset must settle through its owner.")
+      return
+    }
+    let episode = try #require(application.learningEpisodeRecord.entries.last)
+    #expect(episode.request == .reset(resetRequest))
+    #expect(episode.postTransitionProjection.stateRevision == episode.postStateRevision)
+    #expect(episode.postTransitionProjection.activeOwner == nil)
+    #expect(episode.stateChangePublished)
+    guard case .accepted(let owner) = episode.result else {
+      Issue.record("The settled reset must publish its typed owner outcome.")
+      return
+    }
+    #expect(owner.rawValue == "PlotterArtifactResetRuntime")
     await application.shutdown()
   }
 
@@ -99,8 +169,8 @@ struct PlotterEpisodeCompositionTests {
     #expect(await completion.isComplete)
   }
 
-  @Test("shutdown stops and joins a package-registry residual operation")
-  func residualRegistryStopAndJoin() async throws {
+  @Test("shutdown cancels and joins the active model-episode Learning task")
+  func learningEpisodeTaskStopAndJoin() async throws {
     let camera = try TestObservationCameraSession()
     let inspectionGate = TestInspectionSuspension()
     let fixture = try PlotterApplicationFixture(
@@ -120,7 +190,7 @@ struct PlotterEpisodeCompositionTests {
       await application.performTestExerciseAction(.start, for: owner)
     }
     try await waitForExecutorTurnsAsync(
-      conditionDescription: "registry-backed retained Learning operation"
+      conditionDescription: "episode-keyed retained Learning operation"
     ) {
       await inspectionGate.isWaiting
     }
@@ -149,6 +219,20 @@ struct PlotterEpisodeCompositionTests {
     _ = await shutdown.value
     #expect(await completion.isComplete)
     #expect(await inspectionGate.cancellationWasObserved)
+    let episode = try #require(application.learningEpisodeRecord.entries.last)
+    #expect(episode.request == .action(.init(
+      item: .init(rawValue: "\(owner.number)-\(owner.title)"),
+      action: .start
+    )))
+    #expect(episode.transitionID.episodeID == application.learningEpisodeRecord.episodeID)
+    #expect(episode.environment == .live)
+    guard case .refused(let reason, let episodeOwner, let remedy) = episode.result else {
+      Issue.record("Shutdown cancellation must publish a typed Learning refusal.")
+      return
+    }
+    #expect(reason == .ownerRefused)
+    #expect(episodeOwner.rawValue == "PlotterApplicationRuntime")
+    #expect(remedy.contains("cancelled"))
 
     let closedProjection = application.testPlotterUIProjection(
       selectedItemID: owner,
@@ -264,7 +348,15 @@ struct PlotterEpisodeCompositionTests {
 
     for actionID in actionIDs {
       let action = try #require(initial.semantic.action(id: actionID))
-      #expect(action.intent == .applicationAction(actionID))
+      switch (actionID, action.intent) {
+      case (PlotterAppUIActionID.controllerRefresh, .controller(_)),
+        (PlotterAppUIActionID.observationRefresh, .observation(_)),
+        (PlotterAppUIActionID.paperNewSheet, .paper(.newSheetOnCurrentPlane)),
+        (PlotterAppUIActionID.paperContactPlane, .paper(.contactPlaneChanged)):
+        break
+      default:
+        Issue.record("Application control \(actionID.rawValue) lost its typed request.")
+      }
     }
     #expect(initial.controllerSession.environment == .live)
     #expect(initial.observationConfiguration.frameMode == .live)

@@ -1,19 +1,6 @@
 import Foundation
+import PlotterEpisodeModel
 import PlotterRuntime
-
-struct PlotterControllerSessionReference: Hashable, Sendable {
-  let revision: UInt64
-  let capabilityID: UUID
-}
-
-enum PlotterControllerSessionIntent: Hashable, Sendable {
-  case refreshSerialDevices
-  case selectSerialDevice(MachineLinkDescriptor)
-  case toggleConnection
-  case requestPassiveProbe
-  case clearAlarm
-  case toggleMotionAuthorization
-}
 
 enum PlotterControllerConnectionAction: Hashable, Sendable {
   case connect
@@ -25,11 +12,6 @@ enum PlotterControllerConnectionAction: Hashable, Sendable {
     case .disconnect: "Disconnect"
     }
   }
-}
-
-struct PlotterControllerSessionRequest: Hashable, Sendable {
-  let reference: PlotterControllerSessionReference
-  let intent: PlotterControllerSessionIntent
 }
 
 struct PlotterControllerSessionFacts: Sendable {
@@ -149,9 +131,9 @@ enum PlotterControllerSessionRules {
     case .refreshSerialDevices:
       if let reason = facts.controllerBusyReason { return reason }
       return facts.foreignOperationInFlight ? "Wait for the current controller operation." : nil
-    case .selectSerialDevice(let descriptor):
+    case .selectSerialDevice(let device):
       if let reason = projection.selectionUnavailableReason { return reason }
-      guard facts.serialDevices.contains(where: { $0.identifier == descriptor.identifier }) else {
+      guard facts.serialDevices.contains(where: { $0.identifier == device.identifier }) else {
         return "The selected serial controller is no longer available."
       }
       return nil
@@ -481,12 +463,6 @@ protocol PlotterControllerSerialDeviceDiscoveryPort: Sendable {
   func discoverSerialDevices() -> [MachineLinkDescriptor]
 }
 
-struct PlotterSystemSerialDeviceDiscoveryAdapter: PlotterControllerSerialDeviceDiscoveryPort {
-  func discoverSerialDevices() -> [MachineLinkDescriptor] {
-    SerialPortDiscovery.discover()
-  }
-}
-
 struct PlotterFixedSerialDeviceDiscoveryAdapter: PlotterControllerSerialDeviceDiscoveryPort {
   let devices: [MachineLinkDescriptor]
 
@@ -594,7 +570,8 @@ actor PlotterControllerSessionRuntime {
         guard !Task.isCancelled else { return nil }
       }
       return .discovered(devices, retiredLowerSession: retires)
-    case .selectSerialDevice(let descriptor):
+    case .selectSerialDevice(let device):
+      guard let descriptor = machineLinkDescriptor(device) else { return nil }
       let retires = facts.selectedSerialDevice?.identifier != descriptor.identifier
         && facts.machineSnapshot != nil
       if retires {
@@ -747,5 +724,19 @@ actor PlotterControllerSessionRuntime {
         )
       }
     }
+  }
+
+  private static func machineLinkDescriptor(
+    _ device: PlotterControllerSerialDevice
+  ) -> MachineLinkDescriptor? {
+    guard let transport = MachineLinkDescriptor.Transport(rawValue: device.transport) else {
+      return nil
+    }
+    return MachineLinkDescriptor(
+      identifier: device.identifier,
+      displayName: device.displayName,
+      bsdPath: device.bsdPath,
+      transport: transport
+    )
   }
 }

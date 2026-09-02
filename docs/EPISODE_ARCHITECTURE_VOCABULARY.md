@@ -142,15 +142,15 @@ and software tests cannot promote a camera observation or physical-ink claim.
 Current `RunLedger` is retained as low-level device diagnostic history below
 `EpisodeJournal`; `EA-05A` records its references and completeness,
 `EA-05B` consumes them for replay, and `EA-05C` links them into incident
-artifacts without promoting it to semantic authority. Current
-`ActiveStoppableOperation` remains the sole owner for unmigrated operations,
-then its declaration and final consumers are deleted in `EA-11C` after the
-registry owns every effect. Current `LearningSessionState` is decomposed by the
-feature cutovers in `EA-04`, `EA-06`, `EA-08A`, `EA-08B`, and `EA-10A` through
-`EA-10G`, followed by controller-session and observation-configuration
-cutovers in `EA-11A` and `EA-11B`; `EA-11C` deletes its declaration and any
-residue. `EA-01` assigns each field exactly one of those cutovers. None of these current types is an
-`EpisodeJournal`, `EpisodeTrace`, or target operation registry.
+artifacts without promoting it to semantic authority. Historical migration
+owners `ActiveStoppableOperation` and `LearningSessionState` were decomposed by
+the feature cutovers and deleted by EA-11C; neither owns current state.
+`PlotterApplicationState.environmentStates` retains only source-indexed residual
+Learning facts, while named feature runtimes retain their own state/effect/task/
+Stop/journal authority. EA-12C adds one bounded
+`PlotterLearningEpisodeRecord` with a stable `PlotterLearningEpisodeID` and
+ordered `PlotterLearningTransitionID` values; it records exact requests and
+typed results but is not an effect owner and does not merge feature journals.
 
 Current `SpeechAnnouncing`, `NativeSpeechAnnouncer`, and its identity-bound
 queue retain advisory synthesis and shutdown-cancellation ownership until
@@ -197,9 +197,10 @@ separate and is directly available only inside causal simulation.
 - `PlotterOperationRegistry` is the sole target application-level operation
   mechanism for effect identity, lanes, original task/handle,
   `StopCapability`, cancellation, and terminal disposition. Typed feature
-  runtimes retain their distinct registry-backed coordination; EA-11C adds one
-  shared residual root adapter backed by the same package actor. “Sole” does not
-  mean one monolithic registry instance owns all feature runtimes.
+  runtimes retain their distinct registry-backed coordination. The historical
+  EA-11C residual root adapter was deleted by EA-12C after its duplicate
+  identity/dispatch role was removed. “Sole” does not mean one monolithic
+  registry instance owns all feature runtimes.
 - `PlotterApplicationRuntime` is the MainActor application
   composition/runtime. It owns root admission, the immutable aggregate
   projection, residual application state, and lifecycle joining; it does not
@@ -209,10 +210,11 @@ separate and is directly available only inside causal simulation.
   `environmentStates` map indexes `PlotterApplicationEnvironmentState` by the
   typed LIVE/SIMULATED source; parallel live/simulated/active state owners are
   forbidden.
-- `PlotterApplicationResidualOperationAdapter` is the root's sole residual
-  application-operation adapter around package `PlotterOperationRegistry`. It
-  is not a second task registry and has no authority over internal feature
-  runtime coordination.
+- `PlotterLearningEpisodeRecord` is the model-owned bounded ordered record for
+  Learning action admission/result truth. Its stable episode identity spans
+  transitions; a transition-keyed retained root task exists only to cancel and
+  join genuinely asynchronous residual Learning work and has no independent
+  semantic or journal authority.
 - `PlotterApplicationResidualEffectPort` and
   `PlotterApplicationStatePersistencePort` are nominal lower ports. The former
   executes only admitted residual effects; the latter persists the accepted

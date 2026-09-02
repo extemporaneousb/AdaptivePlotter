@@ -40,7 +40,7 @@ extension PlotterApplicationRuntimeTests {
       serialDevices: [descriptor],
     )
 
-    await submitControllerSession(workspace, .selectSerialDevice(descriptor))
+    await submitControllerSession(workspace, .selectSerialDevice(controllerDevice(descriptor)))
     await submitControllerSession(workspace, .toggleConnection)
 
     #expect(!workspace.controllerSessionProjection.sessionEstablished)
@@ -121,7 +121,7 @@ extension PlotterApplicationRuntimeTests {
       serialDevices: [descriptor],
     )
 
-    await submitControllerSession(workspace, .selectSerialDevice(descriptor))
+    await submitControllerSession(workspace, .selectSerialDevice(controllerDevice(descriptor)))
     await submitControllerSession(workspace, .toggleConnection)
 
     #expect(workspace.controllerSessionProjection.controllerLimitInputsText == "asserted — Pn:X")
@@ -273,7 +273,7 @@ extension PlotterApplicationRuntimeTests {
     #expect(workspace.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
     #expect(workspace.learningArtifactGraph.revisions == revisions)
     let disabledOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    let disabledActionID = PlotterAppUIActionID.retainedLearning(.start, owner: disabledOwner)
+    let disabledActionID = learningActionID(.start, owner: disabledOwner)
     let disabledProjection = workspace.testPlotterUIProjection(
       selectedItemID: disabledOwner,
       includesLearningPath: true
@@ -623,7 +623,6 @@ extension PlotterApplicationRuntimeTests {
     #expect(workspace.testCurrentLearningPathItemID == owner)
     try await selectPublicDirection(
       .positiveX,
-      purpose: .boundary,
       owner: owner,
       workspace: workspace
     )
@@ -651,7 +650,7 @@ extension PlotterApplicationRuntimeTests {
         if case .boundary(.stop(_)) = $0.kind { true } else { false }
       })?.kind)
     try await waitUntilAsync { await machine.boundaryMotionIsAwaitingSettlement }
-    let stopActionID = PlotterAppUIActionID.retainedLearning(stopKind, owner: owner)
+    let stopActionID = learningActionID(stopKind, owner: owner)
     let stopProjection = workspace.testPlotterUIProjection(
       selectedItemID: owner,
       includesLearningPath: true
@@ -962,7 +961,6 @@ extension PlotterApplicationRuntimeTests {
     let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
     try await selectPublicDirection(
       .positiveX,
-      purpose: .boundary,
       owner: owner,
       workspace: stopWorkspace
     )
@@ -983,7 +981,7 @@ extension PlotterApplicationRuntimeTests {
         if case .boundary(.stop(_)) = $0.kind { true } else { false }
       })?.kind
     )
-    let unavailableCancelID = PlotterAppUIActionID.retainedLearning(.cancel, owner: owner)
+    let unavailableCancelID = learningActionID(.cancel, owner: owner)
     let activeProjection = stopWorkspace.testPlotterUIProjection(
       selectedItemID: owner,
       includesLearningPath: true

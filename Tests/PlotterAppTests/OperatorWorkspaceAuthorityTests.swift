@@ -1089,7 +1089,10 @@ extension PlotterApplicationRuntimeTests {
         == connectionBlocker
     )
 
-    await submitControllerSession(workspace, .selectSerialDevice(machine.descriptor))
+    await submitControllerSession(
+      workspace,
+      .selectSerialDevice(controllerDevice(machine.descriptor))
+    )
     await submitControllerSession(workspace, .toggleConnection)
 
     #expect(
@@ -1321,7 +1324,7 @@ extension PlotterApplicationRuntimeTests {
         $0.kind == .cancel
       }) == false
     )
-    let cancelID = PlotterAppUIActionID.retainedLearning(.cancel, owner: owner)
+    let cancelID = learningActionID(.cancel, owner: owner)
     let activeProjection = workspace.testPlotterUIProjection(
       selectedItemID: owner,
       includesLearningPath: true

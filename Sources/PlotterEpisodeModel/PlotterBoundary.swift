@@ -98,7 +98,7 @@ public struct PlotterBoundaryProjectionReference: Hashable, Sendable {
   }
 }
 
-public enum PlotterBoundaryIntent: Hashable, Sendable {
+public enum PlotterBoundaryIntent: Codable, Hashable, Sendable {
   case selectDirection(PlotterBoundaryDirection)
   case acquire(direction: PlotterBoundaryDirection, mode: PlotterBoundaryAttemptMode)
   case moveToEstimatedCenter(retry: Bool)

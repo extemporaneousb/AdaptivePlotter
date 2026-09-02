@@ -19,11 +19,15 @@ public struct PlotterUIRuntimeRevision: Codable, Hashable, Sendable {
   }
 }
 
-public struct PlotterUIActionID: RawRepresentable, Codable, Hashable, Sendable {
+public struct PlotterUIActionID: RawRepresentable, Hashable, Sendable {
   public let rawValue: String
 
-  public init(rawValue: String) {
-    self.rawValue = rawValue
+  public init(rawValue: String) { self.rawValue = rawValue }
+
+  public init(learningRequest: PlotterLearningActionRequest) {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    rawValue = "learning.action.\((try! encoder.encode(learningRequest)).base64EncodedString())"
   }
 }
 
@@ -45,6 +49,11 @@ public enum PlotterUIRetainedComparisonIntent: String, Codable, Hashable, Sendab
   case resumeLivePreview
 }
 
+public enum PlotterUIPaperRequest: Hashable, Sendable {
+  case newSheetOnCurrentPlane
+  case contactPlaneChanged
+}
+
 /// A bounded semantic request. These cases identify episode-owned intents or
 /// opaque retained-workflow capabilities; they never carry effect closures or
 /// lower controller, camera, Vision, or persistence ports.
@@ -64,13 +73,12 @@ public enum PlotterUIIntent: Hashable, Sendable {
   case drawingRun(PlotterDrawingRunIntent)
   case penInteraction(PlotterPenInteractionIntent)
   case boundary(PlotterBoundaryIntent)
-  case retainedLearningAction(PlotterUIActionID)
-  case retainedLearningReset(PlotterUIActionID)
+  case learningAction(PlotterLearningActionRequest)
+  case learningReset(PlotterLearningResetRequest)
   case retainedComparisonReview(PlotterUIRetainedComparisonIntent)
-  /// Application-composition action bound to this exact immutable projection.
-  /// The identifier is resolved only by the root application runtime; no
-  /// controller, camera, persistence, or feature port crosses the UI boundary.
-  case applicationAction(PlotterUIActionID)
+  case controller(PlotterControllerSessionRequest)
+  case observation(PlotterObservationOperatorSubmission)
+  case paper(PlotterUIPaperRequest)
   case requestIncidentPackage
   /// A rendered control whose window-local draft cannot currently form a
   /// typed episode intent. The compiler publishes it only with an unsatisfied
@@ -196,16 +204,6 @@ public enum PlotterUILearningBoundaryDirection: String, CaseIterable, Hashable, 
   case positiveY
 }
 
-public enum PlotterUILearningChoice: String, CaseIterable, Hashable, Sendable {
-  case yes
-  case no
-}
-
-public enum PlotterUILearningPenCommand: String, Hashable, Sendable {
-  case raise
-  case lower
-}
-
 public enum PlotterUILearningCameraState: Hashable, Sendable {
   case readyWithoutProposal
   case readyWithProposal
@@ -236,9 +234,9 @@ public enum PlotterUILearningDrawingState: Hashable, Sendable {
 }
 
 public enum PlotterUILearningActivePrompt: Hashable, Sendable {
-  case choices([PlotterUILearningChoice])
+  case choices([PlotterLearningChoice])
   case penConfirmation(
-    command: PlotterUILearningPenCommand,
+    command: PlotterLearningPenCommand,
     value: Int,
     minimumValue: Int,
     maximumValue: Int
@@ -396,36 +394,6 @@ public struct PlotterUILearningActionabilityFacts: Sendable {
   }
 }
 
-public enum PlotterUILearningSemanticAction: Hashable, Sendable {
-  case applySavedLearning
-  case startNewLearning
-  case start
-  case choice(PlotterUILearningChoice)
-  case setPenSetpoint(PlotterUILearningPenCommand, Int)
-  case stopPenInteraction(PlotterPenInteractionCancellationCapabilityID)
-  case boundary(PlotterBoundaryIntent)
-  case cancel
-  case stop(UUID)
-  case restart
-  case redoThisStep
-  case recordAnotherAttempt
-  case runCameraCalibration
-  case acceptCameraCalibration
-  case discardCameraSamples
-  case rejectCameraCalibration
-  case drawSparseTipCircles(PlotterUILearningSparseState)
-  case captureNewSparseTipClickFrame(retainedPointCount: Int)
-  case undoSparseTipClick
-  case clearSparseTipClicks
-  case revalidateTipCalibration
-  case acceptTipCalibration
-  case rejectTipCalibration
-  case retryTipCalibrationCommit
-  case paperReplaced
-  case acceptBorderValidation
-  case rejectBorderValidation
-}
-
 public enum PlotterUILearningActionRole: Hashable, Sendable {
   case positive
   case destructive
@@ -433,49 +401,43 @@ public enum PlotterUILearningActionRole: Hashable, Sendable {
 }
 
 public struct PlotterUILearningActionDecision: Hashable, Sendable {
-  public let action: PlotterUILearningSemanticAction
+  public let request: PlotterLearningActionRequest
   public let title: String
   public let role: PlotterUILearningActionRole
   public let unavailableReason: String?
+  public var action: PlotterLearningAction { request.action }
 
   public init(
-    action: PlotterUILearningSemanticAction,
+    itemID: String,
+    action: PlotterLearningAction,
     title: String? = nil,
     role: PlotterUILearningActionRole? = nil,
     unavailableReason: String? = nil
   ) {
-    self.action = action
+    request = PlotterLearningActionRequest(
+      item: PlotterLearningItemIdentity(rawValue: itemID), action: action
+    )
     self.title = title ?? action.defaultTitle
     self.role = role ?? action.defaultRole
     self.unavailableReason = unavailableReason
   }
 
-  public func actionID(ownerID: String) -> PlotterUIActionID {
-    PlotterUIActionID(rawValue: "learning.retained.\(ownerID).\(String(describing: action))")
+  public init(
+    request: PlotterLearningActionRequest,
+    title: String,
+    role: PlotterUILearningActionRole,
+    unavailableReason: String? = nil
+  ) {
+    self.request = request; self.title = title; self.role = role
+    self.unavailableReason = unavailableReason
   }
 
-  public func candidate(
-    ownerID: String,
-    id: PlotterUIActionID? = nil
-  ) -> PlotterUIActionCandidate {
-    let id = id ?? actionID(ownerID: ownerID)
-    let intent: PlotterUIIntent = switch action {
-    case .setPenSetpoint(let command, let value):
-      .penInteraction(.setpoint(
-        command: command == .raise ? .raise : .lower,
-        value: value
-      ))
-    case .stopPenInteraction(let capability):
-      .penInteraction(.stop(capability))
-    case .boundary(let intent):
-      .boundary(intent)
-    default:
-      .retainedLearningAction(id)
-    }
+  public func candidate() -> PlotterUIActionCandidate {
+    let id = PlotterUIActionID(learningRequest: request)
     return PlotterUIActionCandidate(
       id: id,
       title: title,
-      intent: intent,
+      intent: .learningAction(request),
       reachability: .global,
       requirements: unavailableReason.map {
         [PlotterUIRequirement(
@@ -490,15 +452,16 @@ public struct PlotterUILearningActionDecision: Hashable, Sendable {
 }
 
 public extension PlotterUIActionCandidate {
-  static func retainedLearningReset(
-    id: PlotterUIActionID,
+  static func learningReset(
+    request: PlotterLearningResetRequest,
     title: String,
     unavailableReason: String?
   ) -> PlotterUIActionCandidate {
-    PlotterUIActionCandidate(
+    let id = PlotterUIActionID(rawValue: request.identity)
+    return PlotterUIActionCandidate(
       id: id,
       title: title,
-      intent: .retainedLearningReset(id),
+      intent: .learningReset(request),
       requirements: unavailableReason.map {
         [PlotterUIRequirement(
           id: "\(id.rawValue).availability",
@@ -522,7 +485,7 @@ private extension PlotterUILearningBoundaryDirection {
   }
 }
 
-private extension PlotterUILearningSemanticAction {
+private extension PlotterLearningAction {
   var defaultTitle: String {
     switch self {
     case .applySavedLearning: "Use Saved Learning"
@@ -555,61 +518,79 @@ private extension PlotterUILearningSemanticAction {
     case .restart: "Restart Attempt"
     case .redoThisStep: "Redo This Step"
     case .recordAnotherAttempt: "Record Another Attempt"
-    case .runCameraCalibration: "Run Five-Position Camera Calibration"
-    case .acceptCameraCalibration: "Accept Camera Calibration"
-    case .discardCameraSamples: "Discard Camera Samples"
-    case .rejectCameraCalibration: "Reject Camera Calibration"
-    case .drawSparseTipCircles(let state):
-      switch state {
-      case .drawingBatch: "Drawing Four Calibration Circles…"
-      case .revealingBatch: "Capturing Calibration Reveal…"
-      default: "Draw Four Calibration Circles"
-      }
-    case .captureNewSparseTipClickFrame: "Capture New Click Frame"
-    case .undoSparseTipClick: "Undo Last Click"
-    case .clearSparseTipClicks: "Clear Clicks on This Frame"
-    case .revalidateTipCalibration: "Revalidate Saved Pen-Tip Calibration"
-    case .acceptTipCalibration: "Accept Pen-Tip Calibration"
-    case .rejectTipCalibration: "Reject Pen-Tip Calibration"
-    case .retryTipCalibrationCommit: "Retry Pen-Tip Calibration Save"
+    case .cameraCalibration(.buildFivePositionProposal):
+      "Run Five-Position Camera Calibration"
+    case .cameraCalibration(.acceptProposal): "Accept Camera Calibration"
+    case .cameraCalibration(.rejectProposal): "Reject Camera Calibration"
+    case .tipCalibration(.beginFourMarkBatch): "Draw Four Calibration Circles"
+    case .tipCalibration(.captureNewClickFrame): "Capture New Click Frame"
+    case .pointSelectionCorrection(.undoLastPoint): "Undo Last Click"
+    case .pointSelectionCorrection(.clearPoints): "Clear Clicks on This Frame"
+    case .tipCalibration(.revalidateCheckpoint): "Revalidate Saved Pen-Tip Calibration"
+    case .tipCalibration(.acceptProposal): "Accept Pen-Tip Calibration"
+    case .tipCalibration(.rejectProposal): "Reject Pen-Tip Calibration"
+    case .tipCalibration(.retryCommit): "Retry Pen-Tip Calibration Save"
     case .paperReplaced: "Record Paper Replacement"
-    case .acceptBorderValidation: "Accept Observed Drawing Border"
-    case .rejectBorderValidation: "Reject Observed Drawing Border"
+    case .borderValidation(.acceptObservedPrediction): "Accept Observed Drawing Border"
+    case .borderValidation(.reject): "Reject Observed Drawing Border"
     }
   }
 
   var defaultRole: PlotterUILearningActionRole {
     switch self {
     case .applySavedLearning, .start, .restart,
-      .runCameraCalibration, .acceptCameraCalibration, .drawSparseTipCircles,
-      .captureNewSparseTipClickFrame,
-      .revalidateTipCalibration, .acceptTipCalibration, .retryTipCalibrationCommit,
-      .paperReplaced, .acceptBorderValidation:
+      .cameraCalibration(.buildFivePositionProposal), .cameraCalibration(.acceptProposal),
+      .tipCalibration(.beginFourMarkBatch), .tipCalibration(.captureNewClickFrame),
+      .tipCalibration(.revalidateCheckpoint), .tipCalibration(.acceptProposal),
+      .tipCalibration(.retryCommit), .paperReplaced,
+      .borderValidation(.acceptObservedPrediction):
       .positive
-    case .cancel, .stop, .stopPenInteraction, .discardCameraSamples, .rejectCameraCalibration,
-      .rejectTipCalibration, .rejectBorderValidation:
+    case .cancel, .stop, .stopPenInteraction, .cameraCalibration(.rejectProposal),
+      .tipCalibration(.rejectProposal), .borderValidation(.reject):
       .destructive
     case .choice(.yes): .positive
     case .startNewLearning, .choice(.no), .setPenSetpoint, .boundary,
       .redoThisStep, .recordAnotherAttempt,
-      .undoSparseTipClick,
-      .clearSparseTipClicks:
+      .pointSelectionCorrection:
       .standard
     }
   }
 }
 
 public struct PlotterUILearningPenAdjustmentDecision: Hashable, Sendable {
-  public let command: PlotterUILearningPenCommand
+  public struct Candidate: Hashable, Sendable {
+    public let value: Int
+    public let decision: PlotterUILearningActionDecision
+  }
+  public let command: PlotterLearningPenCommand
   public let value: Int
-  public let minimumValue: Int
-  public let maximumValue: Int
-  public let unavailableReason: String?
+  public let candidates: [Candidate]
+
+  public init(
+    command: PlotterLearningPenCommand,
+    value: Int,
+    candidates: [Candidate] = []
+  ) {
+    self.command = command; self.value = value
+    self.candidates = candidates
+  }
 }
 
 public struct PlotterUILearningDirectionDecision: Hashable, Sendable {
-  public let options: [PlotterUILearningBoundaryDirection]
+  public struct Candidate: Hashable, Sendable {
+    public let direction: PlotterUILearningBoundaryDirection
+    public let decision: PlotterUILearningActionDecision
+  }
   public let selected: PlotterUILearningBoundaryDirection
+  public let candidates: [Candidate]
+  public var options: [PlotterUILearningBoundaryDirection] { candidates.map(\.direction) }
+
+  public init(
+    selected: PlotterUILearningBoundaryDirection,
+    candidates: [Candidate] = []
+  ) {
+    self.selected = selected; self.candidates = candidates
+  }
 }
 
 public struct PlotterUILearningActionStripDecision: Hashable, Sendable {
@@ -619,43 +600,26 @@ public struct PlotterUILearningActionStripDecision: Hashable, Sendable {
   public let penAdjustment: PlotterUILearningPenAdjustmentDecision?
   public let mustRemainVisible: Bool
 
+  public init(
+    ownerID: String,
+    actions: [PlotterUILearningActionDecision],
+    directionSelection: PlotterUILearningDirectionDecision?,
+    penAdjustment: PlotterUILearningPenAdjustmentDecision?,
+    mustRemainVisible: Bool
+  ) {
+    self.ownerID = ownerID; self.actions = actions
+    self.directionSelection = directionSelection; self.penAdjustment = penAdjustment
+    self.mustRemainVisible = mustRemainVisible
+  }
+
   /// Every semantic request rendered by this strip, including slider and
   /// direction-selector values that are not represented as buttons.
-  public func actionDecisions() -> [PlotterUILearningActionDecision] {
-    var result = actions
-    if let penAdjustment {
-      let range = penAdjustment.minimumValue...penAdjustment.maximumValue
-      result.append(contentsOf: range.map { value in
-        PlotterUILearningActionDecision(
-          action: .setPenSetpoint(penAdjustment.command, value),
-          unavailableReason: penAdjustment.unavailableReason
-        )
-      })
-    }
-    if let directionSelection {
-      result.append(contentsOf: directionSelection.options.map { direction in
-        PlotterUILearningActionDecision(
-          action: .boundary(.selectDirection(PlotterBoundaryDirection(direction)))
-        )
-      })
-    }
-    return result
+  public func requestDecisions() -> [PlotterUILearningActionDecision] {
+    actions
+      + (penAdjustment?.candidates.map(\.decision) ?? [])
+      + (directionSelection?.candidates.map(\.decision) ?? [])
   }
 
-  public func candidates() -> [PlotterUIActionCandidate] {
-    actionDecisions().map { $0.candidate(ownerID: ownerID) }
-  }
-
-  public func semanticAction(
-    for actionID: PlotterUIActionID
-  ) -> PlotterUILearningSemanticAction? {
-    if let action = actionDecisions().first(where: {
-      $0.actionID(ownerID: ownerID) == actionID
-    }) {
-      return action.action
-    }
-    return nil
-  }
 }
 
 public struct PlotterUILearningItemDecision: Hashable, Sendable {
@@ -760,12 +724,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         strips.append(PlotterUILearningActionStripDecision(
           ownerID: strip.ownerID,
           actions: Array(strip.actions.prefix(limits.maximumActionCountPerStrip)),
-          directionSelection: strip.directionSelection.map {
-            PlotterUILearningDirectionDecision(
-              options: Array($0.options.prefix(limits.maximumDirectionVisitCount)),
-              selected: $0.selected
-            )
-          },
+          directionSelection: strip.directionSelection,
           penAdjustment: strip.penAdjustment,
           mustRemainVisible: strip.mustRemainVisible
         ))
@@ -836,6 +795,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         "PlotterPenInteractionRuntime owns an active operation without a valid cancellable phase. Restart the application; no generic Stop was substituted."
       guard let capability = activePenInteraction.cancellationCapabilityID else {
         return strip(item.ownerID, [.init(
+          itemID: item.ownerID,
           action: .start,
           title: "Pen Interaction Stop unavailable",
           unavailableReason:
@@ -847,7 +807,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         .confirming:
         return strip(
           item.ownerID,
-          [.init(action: .stopPenInteraction(capability), title: "Stop Pen Interaction")],
+          [.init(itemID: item.ownerID, action: .stopPenInteraction(capability), title: "Stop Pen Interaction")],
           mustRemainVisible: true
         )
       case .drainingSetpoint:
@@ -856,6 +816,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         break
       case .idle, .succeeded:
         return strip(item.ownerID, [.init(
+          itemID: item.ownerID,
           action: .start,
           title: "Pen Interaction state unavailable",
           unavailableReason: invariantReason
@@ -866,6 +827,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       boundary.resetCapabilityID != nil
     {
       return strip(item.ownerID, [.init(
+        itemID: item.ownerID,
         action: .start,
         title: "Boundary reset in progress",
         unavailableReason: "The exact Boundary reset transaction is waiting for durable Learning-prefix settlement. No Boundary effect is available."
@@ -876,6 +838,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     {
       return strip(item.ownerID, [
         .init(
+          itemID: item.ownerID,
           action: .boundary(.recoverPublication(recoveryCapability)),
           title: "Retry Boundary Publication"
         )
@@ -885,6 +848,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       case .publicationIncomplete = boundary.phase
     {
       return strip(item.ownerID, [.init(
+        itemID: item.ownerID,
         action: .start,
         title: "Boundary publication recovery unavailable",
         unavailableReason: "PlotterBoundaryRuntime retained unpublished authority without its exact recovery capability. Restart the application; no motion will be resent."
@@ -895,13 +859,14 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     {
       guard let capability = boundary.cancellationCapabilityID else {
         return strip(item.ownerID, [.init(
+          itemID: item.ownerID,
           action: .start,
           title: "Boundary owner needs attention",
           unavailableReason: "PlotterBoundaryRuntime owns an operation without its exact cancellation capability."
         )], mustRemainVisible: true)
       }
       return strip(item.ownerID, [
-        .init(action: .boundary(.stop(capability)), title: "Stop Boundary Search")
+        .init(itemID: item.ownerID, action: .boundary(.stop(capability)), title: "Stop Boundary Search")
       ], mustRemainVisible: true)
     }
     if item.kind == .boundary, let boundary = facts.boundary,
@@ -914,6 +879,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     {
       return strip(item.ownerID, [
         .init(
+          itemID: item.ownerID,
           action: .boundary(.moveToEstimatedCenter(retry: true)),
           title: "Retry Center Arrival",
           unavailableReason: facts.startUnavailableReasons[item.ownerID]
@@ -924,6 +890,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       case .needsAttention(let detail) = boundary.phase
     {
       return strip(item.ownerID, [.init(
+        itemID: item.ownerID,
         action: .start,
         title: "Boundary needs attention",
         unavailableReason: "\(detail) Resolve the exact Boundary terminal truth; no acquisition or center motion will be resent automatically."
@@ -932,8 +899,8 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     if facts.savedTrainingCandidateIsPresent {
       guard item.ownerID == current else { return nil }
       return strip(item.ownerID, [
-        .init(action: .applySavedLearning),
-        .init(action: .startNewLearning),
+        .init(itemID: item.ownerID, action: .applySavedLearning),
+        .init(itemID: item.ownerID, action: .startNewLearning),
       ], mustRemainVisible: true)
     }
     if item.kind == .drawingValidation,
@@ -943,8 +910,10 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       return strip(
         item.ownerID,
         [
-          .init(action: .acceptBorderValidation),
-          .init(action: .rejectBorderValidation),
+          .init(itemID: item.ownerID, action: .borderValidation(.acceptObservedPrediction)),
+          .init(itemID: item.ownerID, action: .borderValidation(.reject(
+            "Operator rejected the observed Drawing Border comparison."
+          ))),
         ],
         mustRemainVisible: true
       )
@@ -958,7 +927,11 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         let title: String = if case .boundary = stop.kind { "Stop Boundary Search" } else { "Stop" }
         return strip(
           item.ownerID,
-          [.init(action: .stop(stop.capabilityID), title: title)],
+          [.init(
+            itemID: item.ownerID,
+            action: .stop(ContextualStopCapabilityID(rawValue: stop.capabilityID)),
+            title: title
+          )],
           mustRemainVisible: true
         )
       }
@@ -966,6 +939,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         return strip(
           item.ownerID,
           [.init(
+            itemID: item.ownerID,
             action: .start,
             title: "Draw and Validate Drawing Border…",
             unavailableReason: "Drawing Border validation is in progress."
@@ -980,12 +954,14 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         penInteractionNeedsAttention(penInteraction)
       {
         actions = [.init(
+          itemID: item.ownerID,
           action: .start,
           title: "Pen Interaction needs attention",
           unavailableReason: penInteractionAttentionReason(penInteraction)
         )]
       } else if item.stageID == "discovery", let ambiguity = facts.stickyAmbiguityReason {
         actions = [.init(
+          itemID: item.ownerID,
           action: .start,
           title: "Machine action unavailable",
           unavailableReason: ambiguity
@@ -994,26 +970,31 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
         switch facts.cameraState {
         case .active:
           actions = [.init(
-            action: .runCameraCalibration,
+            itemID: item.ownerID,
+            action: .cameraCalibration(.buildFivePositionProposal),
             title: "Camera calibration is working…",
             unavailableReason: "Camera calibration is in progress."
           )]
         case .readyWithoutProposal:
-          actions = [.init(action: .runCameraCalibration), .init(action: .discardCameraSamples)]
+          actions = [.init(itemID: item.ownerID, action: .cameraCalibration(.buildFivePositionProposal))]
         case .readyWithProposal:
-          actions = [.init(action: .acceptCameraCalibration), .init(action: .rejectCameraCalibration)]
+          actions = [
+            .init(itemID: item.ownerID, action: .cameraCalibration(.acceptProposal)),
+            .init(itemID: item.ownerID, action: .cameraCalibration(.rejectProposal)),
+          ]
         }
       } else if item.kind == .sparseTipCalibration {
-        actions = sparseActions(facts)
+        actions = sparseActions(facts, itemID: item.ownerID)
       } else if let prompt = facts.activePrompt {
         switch prompt {
         case .choices(let choices):
           actions = Array(choices.prefix(limits.maximumChoiceVisitCount)).map {
-            .init(action: .choice($0))
+            .init(itemID: item.ownerID, action: .choice($0))
           }
         case .penConfirmation(let command, let value, let minimum, let maximum):
           let reason = facts.startUnavailableReasons[item.ownerID]
           actions = penSetpointDrainIsInProgress ? [] : [.init(
+              itemID: item.ownerID,
               action: .choice(.yes),
               title: command == .raise ? "Confirm Pen Up" : "Confirm Pen Down",
               unavailableReason: reason
@@ -1021,19 +1002,25 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
           adjustment = PlotterUILearningPenAdjustmentDecision(
             command: command,
             value: value,
-            minimumValue: minimum,
-            maximumValue: maximum,
-            unavailableReason: reason
+            candidates: (minimum...maximum).map { candidate in .init(
+              value: candidate,
+              decision: .init(
+                itemID: item.ownerID,
+                action: .setPenSetpoint(command, candidate),
+                unavailableReason: reason
+              )
+            ) }
           )
         }
       }
       if let capability = activePenInteraction?.cancellationCapabilityID {
         actions.append(.init(
+          itemID: item.ownerID,
           action: .stopPenInteraction(capability),
           title: "Stop Pen Interaction"
         ))
       } else if !facts.stopDispositionIsLatched, facts.cameraState != .active {
-        actions.append(.init(action: .cancel))
+        actions.append(.init(itemID: item.ownerID, action: .cancel))
       }
       return PlotterUILearningActionStripDecision(
         ownerID: item.ownerID,
@@ -1046,6 +1033,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     if facts.restartableOwnerID == item.ownerID {
       guard facts.stickyAmbiguityReason == nil else { return nil }
       return strip(item.ownerID, [.init(
+        itemID: item.ownerID,
         action: .restart,
         title: item.kind == .drawingValidation
           ? "Retry Drawing Border Validation" : "Restart Attempt"
@@ -1055,10 +1043,10 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       guard item.ownerID == facts.selectedOwnerID else { return nil }
       if item.kind == .drawingValidation { return nil }
       if item.kind == .boundary {
-        return strip(item.ownerID, boundaryRepeatActions(facts.acceptedBoundaryDirections))
+        return strip(item.ownerID, boundaryRepeatActions(facts.acceptedBoundaryDirections, itemID: item.ownerID))
       }
-      var actions = [PlotterUILearningActionDecision(action: .redoThisStep)]
-      if item.isRepeatable { actions.append(.init(action: .recordAnotherAttempt)) }
+      var actions = [PlotterUILearningActionDecision(itemID: item.ownerID, action: .redoThisStep)]
+      if item.isRepeatable { actions.append(.init(itemID: item.ownerID, action: .recordAnotherAttempt)) }
       return strip(item.ownerID, actions)
     }
     guard item.ownerID == current else { return nil }
@@ -1069,9 +1057,10 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       return strip(
         item.ownerID,
         [.init(
+          itemID: item.ownerID,
           action: .boundary(.moveToEstimatedCenter(retry: false)),
           unavailableReason: centerReason
-        )] + boundaryRepeatActions(facts.acceptedBoundaryDirections)
+        )] + boundaryRepeatActions(facts.acceptedBoundaryDirections, itemID: item.ownerID)
       )
     }
     if item.kind == .drawingValidation {
@@ -1083,33 +1072,56 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       case .captureBaseline, .moveToStart, .draw: "Resume Drawing Border Validation"
       }
       return strip(item.ownerID, [.init(
+        itemID: item.ownerID,
         action: .start,
         title: title,
         unavailableReason: reason
       )])
     }
     if item.kind == .cameraCalibration {
-      return strip(item.ownerID, [.init(action: .runCameraCalibration, unavailableReason: reason)])
+      return strip(item.ownerID, [.init(
+        itemID: item.ownerID,
+        action: .cameraCalibration(.buildFivePositionProposal),
+        unavailableReason: reason
+      )])
     }
     if item.kind == .sparseTipCalibration, facts.sparseSavedCheckpointMatchesPaper {
-      return strip(item.ownerID, [.init(action: .revalidateTipCalibration, unavailableReason: reason)])
+      return strip(item.ownerID, [.init(
+        itemID: item.ownerID,
+        action: .tipCalibration(.revalidateCheckpoint),
+        unavailableReason: reason
+      )])
     }
     if item.kind == .sparseTipCalibration {
       if facts.sparseState == .possibleInkBlacklisted {
-        return strip(item.ownerID, [.init(action: .paperReplaced)])
+        return strip(item.ownerID, [.init(itemID: item.ownerID, action: .paperReplaced)])
       }
       return strip(item.ownerID, [
-        .init(action: .drawSparseTipCircles(facts.sparseState), unavailableReason: reason)
+        .init(
+          itemID: item.ownerID,
+          action: .tipCalibration(.beginFourMarkBatch),
+          title: sparseBatchTitle(facts.sparseState),
+          unavailableReason: reason
+        )
       ])
     }
     let direction = item.kind == .boundary
       ? PlotterUILearningDirectionDecision(
-        options: Array(facts.allowedBoundaryDirections.prefix(limits.maximumDirectionVisitCount)),
-        selected: facts.selectedBoundaryDirection
+        selected: facts.selectedBoundaryDirection,
+        candidates: Array(facts.allowedBoundaryDirections.prefix(limits.maximumDirectionVisitCount)).map {
+          .init(
+            direction: $0,
+            decision: .init(
+              itemID: item.ownerID,
+              action: .boundary(.selectDirection(PlotterBoundaryDirection($0)))
+            )
+          )
+        }
       ) : nil
     return PlotterUILearningActionStripDecision(
       ownerID: item.ownerID,
       actions: [.init(
+        itemID: item.ownerID,
         action: item.kind == .boundary
           ? .boundary(.acquire(
             direction: PlotterBoundaryDirection(facts.selectedBoundaryDirection),
@@ -1126,7 +1138,8 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
   }
 
   private func sparseActions(
-    _ facts: PlotterUILearningActionabilityFacts
+    _ facts: PlotterUILearningActionabilityFacts,
+    itemID: String
   ) -> [PlotterUILearningActionDecision] {
     switch facts.sparseState {
     case .idle, .drawingBatch, .revealingBatch:
@@ -1135,46 +1148,67 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       case .revealingBatch: "The final Pen-Up calibration reveal is in progress."
       default: nil
       }
-      return [.init(action: .drawSparseTipCircles(facts.sparseState), unavailableReason: reason)]
+      return [.init(
+        itemID: itemID,
+        action: .tipCalibration(.beginFourMarkBatch),
+        title: sparseBatchTitle(facts.sparseState),
+        unavailableReason: reason
+      )]
     case .capturingClickFrame:
       return [.init(
-        action: .captureNewSparseTipClickFrame(retainedPointCount: 0),
+        itemID: itemID,
+        action: .tipCalibration(.captureNewClickFrame(retainedPointCount: 0)),
         title: "Capturing New Click Frame…",
         unavailableReason: "The strictly newer exact click frame is being captured and staged."
       )]
     case .awaitingFrozenClicks:
       let replacement = PlotterUILearningActionDecision(
-        action: .captureNewSparseTipClickFrame(
+        itemID: itemID,
+        action: .tipCalibration(.captureNewClickFrame(
           retainedPointCount: facts.sparseCollectedClickCount
-        ),
+        )),
         unavailableReason: facts.sparseCollectedClickCount == 0
           ? nil
           : "Clear every retained click before capturing a new click frame."
       )
       return facts.sparseCollectedClickCount == 0 ? [replacement] : [
         replacement,
-        .init(action: .undoSparseTipClick),
-        .init(action: .clearSparseTipClicks),
+        .init(itemID: itemID, action: .pointSelectionCorrection(.undoLastPoint)),
+        .init(itemID: itemID, action: .pointSelectionCorrection(.clearPoints)),
       ]
     case .fittingModel:
       return [.init(
-        action: .retryTipCalibrationCommit,
+        itemID: itemID,
+        action: .tipCalibration(.acceptProposal),
         title: "Fitting Tip Calibration…",
         unavailableReason: "The four observations are being created and fitted."
       )]
     case .reviewingModel:
       return [
-        .init(action: .acceptTipCalibration),
-        .init(action: .undoSparseTipClick),
-        .init(action: .clearSparseTipClicks),
-        .init(action: .rejectTipCalibration),
+        .init(itemID: itemID, action: .tipCalibration(.acceptProposal)),
+        .init(itemID: itemID, action: .pointSelectionCorrection(.undoLastPoint)),
+        .init(itemID: itemID, action: .pointSelectionCorrection(.clearPoints)),
+        .init(itemID: itemID, action: .tipCalibration(.rejectProposal)),
       ]
     case .committingModel:
-      return [.init(action: .retryTipCalibrationCommit)]
+      return [.init(
+        itemID: itemID,
+        action: .tipCalibration(.acceptProposal),
+        title: "Saving or Revalidating Tip Calibration…",
+        unavailableReason: "The calibration commit or revalidation is still in progress."
+      )]
     case .possibleInkBlacklisted:
-      return [.init(action: .paperReplaced)]
+      return [.init(itemID: itemID, action: .paperReplaced)]
     case .accepted:
       return []
+    }
+  }
+
+  private func sparseBatchTitle(_ state: PlotterUILearningSparseState) -> String {
+    switch state {
+    case .drawingBatch: "Drawing Four Calibration Circles…"
+    case .revealingBatch: "Capturing Calibration Reveal…"
+    default: "Draw Four Calibration Circles"
     }
   }
 
@@ -1215,15 +1249,16 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
   }
 
   private func boundaryRepeatActions(
-    _ directions: [PlotterUILearningBoundaryDirection]
+    _ directions: [PlotterUILearningBoundaryDirection],
+    itemID: String
   ) -> [PlotterUILearningActionDecision] {
     Array(directions.prefix(limits.maximumDirectionVisitCount)).flatMap { direction in
       [
-        .init(action: .boundary(.acquire(
+        .init(itemID: itemID, action: .boundary(.acquire(
           direction: PlotterBoundaryDirection(direction),
           mode: .replacement
         ))),
-        .init(action: .boundary(.acquire(
+        .init(itemID: itemID, action: .boundary(.acquire(
           direction: PlotterBoundaryDirection(direction),
           mode: .additional
         ))),

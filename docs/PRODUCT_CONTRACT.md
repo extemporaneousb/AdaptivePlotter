@@ -131,17 +131,16 @@ Pen-adjustment, direction-selection, and reset-reachability decisions over
 copied Learning facts. The App may translate Runtime facts through
 `PlotterLearningActionabilityFactAdapter` and cosmetically render the canonical
 projection through `PlotterLearningDetailedPresentationNormalizer`; neither may
-re-decide those semantics. `OperatorWorkspace` must consume canonical
-actionability when building the aggregate projection and resolve the exact
-canonical action before retained-owner dispatch. App-owned or renamed/split
+re-decide those semantics. `PlotterApplicationRuntime` consumes canonical
+actionability when building the aggregate projection and carries each exact
+canonical request unchanged to retained-owner dispatch. App-owned or renamed/split
 status, completion, action-strip, Stop, sparse-action, availability,
 retained-candidate, or reachability compilers are forbidden compatibility
 shadows.
 
-The landed EA-11C composition names the observable App runtime
-`PlotterApplicationRuntime`; that topology does not by itself prove that every
-Learning action is model-owned. The root is
-not a second UI compiler or semantic policy owner. EA-04 point selection, EA-06 manual
+The completed EA-12 model/UI consolidation makes every rendered Learning action
+model-owned end to end. The root is not a second UI compiler or semantic policy
+owner. EA-04 point selection, EA-06 manual
 motion, EA-07 causal simulation, EA-08A draft, and EA-08B run effects remain
 owned by their typed runtimes and lower device/evidence authorities. Pane,
 window, viewport, selection, and unsubmitted manual text are UI-local reducers;
@@ -209,27 +208,40 @@ Every enabled default Learning, calibration, Drawing Placement, completed-
 comparison, Drawing Studio, and other effect-bearing control must submit its
 exact current model request or expose the owning refusal/remedy. Silent nil
 dispatch is a product defect, not a harmless stale-click outcome.
+Slider values and Boundary directions are not reconstructed from owner, number,
+title, or display identity: immutable actionability contains one exact typed
+request for each supported value or option, and an absent or unavailable
+candidate is disabled or refused without a lower effect.
 
-The package `PlotterOperationRegistry` is the one application operation
-mechanism. EA-11C gives `PlotterApplicationRuntime` one shared
-`PlotterApplicationResidualOperationAdapter` for residual root-owned work; the
-adapter is backed directly by `PlotterOperationRegistry` through PlotterApp's
-declared `EpisodeRuntime` dependency. It is not an ad-hoc task registry, and it
-does not replace the distinct registry-backed coordination inside the manual,
-point-selection, Pen, Boundary, calibration, Drawing, controller-session,
-observation, speech, or artifact runtimes.
+`PlotterLearningEpisodeRecord` is the one model-owned bounded Learning episode
+record. It mints one stable `PlotterLearningEpisodeID` for its lifetime and an
+ordered `PlotterLearningTransitionID` for each reservation. Every transition
+records its exact typed `PlotterLearningRecordRequest` action/reset union and
+source, pre-state revision, typed accepted/refused result/remedy, and one bounded
+immutable post-transition projection after owner settlement. The root may retain an
+asynchronous Learning task only when lower work requires cancel/join; that task
+is keyed by the exact transition and owns no semantic latch, admission rule, or
+second journal. `PlotterOperationRegistry` and the distinct runtime-specific
+coordination remain authoritative inside manual motion, point selection, Pen,
+Boundary, calibration, Drawing, controller-session, observation, speech, and
+artifact owners.
 
 Residual application state is one `PlotterApplicationState` whose
 `PlotterApplicationEnvironmentState` values are indexed by typed source. A
 named feature runtime's mutable workflow snapshot cannot also be stored and
 edited in that residual state; the runtime publishes immutable facts/results
-instead. The
-root uses nominal `PlotterApplicationResidualEffectPort` and
+instead. `PlotterBorderValidationRuntime` is therefore the sole source-indexed
+mutable Border Validation state, operation, task, result, review, reset, and
+shutdown owner; App supplies lower effects and immutable projection only. The
+root uses nominal typed effect and
 `PlotterApplicationStatePersistencePort` boundaries; accepted residual state
 is durably persisted before the matching projection or successful terminal is
 published. Shutdown synchronously closes the root MainActor admission latch
-before its first await, then closes/cancels/joins the residual registry and
-every named feature owner. A deadline, waiter cancellation, persistence error,
+before its first await, cancels the exact transition-keyed retained Learning
+task, then closes/cancels/joins every named feature owner. Every Border step,
+accept, and reject effect is retained by `PlotterBorderValidationRuntime`; its
+late result is admitted only for the exact current operation, and root shutdown
+joins both LIVE and SIMULATED Border runtimes before persistence/settlement. A deadline, waiter cancellation, persistence error,
 or remaining nonterminal owner must expose its exact owner/progress/recovery
 state and cannot be reported as application termination or quiescence.
 

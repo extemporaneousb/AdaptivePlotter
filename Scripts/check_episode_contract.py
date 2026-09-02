@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "f92c306bc068cbb60f8ca8e5e169fd79dbd754519acf905cf0af6ea7f1a36dd7"
+EXPECTED_LEDGER_SHA256 = "df0fcc70796992a3e0a7d7f9d9739de355caa6972821234501f8888a5e8b0952"
 
 
 EXPECTED_GATES = {
@@ -55,7 +55,7 @@ EXPECTED_GATES = {
         "FIX-09",
     ),
     "INVENTORY": (
-        "`sh Scripts/check_episode_inventory.sh` proves every semantic intent, guard, owner, direct device/evidence port, environment branch, task/cancel owner, persistence path, UI consumer, and high-level fixture has one stable inventory ID, one current owner, one disposition, and one cutover package; once EA-11C target source appears it also proves the exact positive target-topology manifest, direct `PlotterApp -> EpisodeRuntime` dependency, one public sink conformer, one package-registry-backed residual adapter, nominal ports, and discoverable composition suite",
+        "`sh Scripts/check_episode_inventory.sh` proves every semantic intent, guard, owner, direct device/evidence port, environment branch, task/cancel owner, persistence path, UI consumer, and high-level fixture has one stable inventory ID, one current owner, one disposition, and one cutover package; the current target-topology manifest additionally proves the direct `PlotterApp -> EpisodeRuntime` dependency, one public sink conformer, one stable model Learning episode record, one transition-keyed retained-task join, nominal ports, and the discoverable composition suite",
         "EA-01",
     ),
     "FIX-CONTAINMENT": ("`swift test --filter CoordinateAcceptancePolicyTests`", "FIX-00"),
@@ -111,7 +111,7 @@ EXPECTED_GATES = {
         "EA-11B",
     ),
     "COMPOSITION": (
-        "`swift test --filter PlotterEpisodeCompositionTests` selects a nonzero discoverable suite proving production-root projection-bound submission, package-registry-backed residual operations, synchronous close-before-await, residual/feature joins, ordered persistence, exact nonterminal-owner reporting, and no false termination/quiescence",
+        "`swift test --filter PlotterEpisodeCompositionTests` selects a nonzero discoverable suite proving production-root projection-bound submission, ordered model Learning episode transitions, transition-keyed retained-task cancel/join, synchronous close-before-await, feature joins, ordered persistence, exact nonterminal-owner reporting, and no false termination/quiescence",
         "EA-11C",
     ),
     "AFFECTED-CONSUMERS": (
@@ -186,7 +186,7 @@ EXPECTED_PACKAGE_SHAPES = {
     "TRANCHE-MODEL-UI-CONSOLIDATION": (["DOC-05"], "software", ["DOC", "DIFF", "QUICK", "JOURNEY", "STRICT", "CRITIC"]),
     "EA-12A": (["DOC-05"], "authority-slice", ["BUILD", "BORDER-VALIDATION", "COMPOSITION", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
     "EA-12B": (["EA-12A"], "authority-slice", ["BUILD", "UI-AUTHORITY", "PLOTTER-MODEL", "COMPOSITION", "UI", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
-    "EA-12C": (["EA-12B"], "authority-slice", ["BUILD", "UI-AUTHORITY", "PLOTTER-MODEL", "COMPOSITION", "UI", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
+    "EA-12C": (["EA-12B"], "authority-slice", ["BUILD", "UI-AUTHORITY", "BORDER-VALIDATION", "PLOTTER-MODEL", "COMPOSITION", "UI", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
     "FIX-10": (["TRANCHE-MODEL-UI-CONSOLIDATION"], "software", ["BUILD", "INCIDENT-APP", "UI", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
     "VAL-01": (["FIX-10"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
     "GATE-02": (["VAL-01"], "gate", ["DOC", "DIFF", "FINAL-GATE"]),
@@ -269,6 +269,10 @@ EXPECTED_COMPLETE_PACKAGES = {
     "FIX-08",
     "FIX-09",
     "DOC-05",
+    "TRANCHE-MODEL-UI-CONSOLIDATION",
+    "EA-12A",
+    "EA-12B",
+    "EA-12C",
 }
 
 TRANCHE_SLICES = {
@@ -280,7 +284,7 @@ TRANCHE_SLICES = {
 
 EXPECTED_CONSOLIDATION_MANIFEST = {
     "EA-12A": (
-        "`PlotterBorderValidationRuntime` becomes the sole source-indexed mutable Border Validation owner",
+        "`PlotterBorderValidationRuntime` is the sole source-indexed mutable Border Validation owner",
         "currentEnvironmentState",
         "`PlotterApplicationEnvironmentState.borderValidation`",
         "`replaceSnapshot`",
@@ -304,12 +308,12 @@ EXPECTED_CONSOLIDATION_MANIFEST = {
         "silent placement branch",
     ),
     "EA-12C": (
-        "one model-owned Learning episode identity plus ordered event/state-change record",
+        "one stable model-owned `PlotterLearningEpisodeID` plus bounded ordered `PlotterLearningTransitionID` record spans retained feature runtimes",
         "intentIdentity",
-        "`UUID()` Learning-operation identity generation",
+        "`UUID()` Learning-operation identity",
         "reflected `.learningAction",
-        "without typed request, accepted/refused event, typed result, and current immutable projection",
-        "never fabricate or merge journals",
+        "every effect-bearing Learning action/reset has a typed request, accepted/refused event, typed result, and bounded immutable post-transition projection",
+        "journals are never fabricated or merged",
     ),
 }
 
@@ -391,16 +395,16 @@ def validate_vocabulary(text: str) -> None:
         "EpisodeManifest<DomainManifest>",
         "Foundation only; no Plotter, device, persistence, or UI imports",
         "Current `RunLedger` is retained as low-level device diagnostic history",
-        "Current `ActiveStoppableOperation` remains the sole owner for unmigrated operations",
-        "then its declaration and final consumers are deleted in `EA-11C`",
-        "Current `LearningSessionState` is decomposed by the feature cutovers",
-        "`EA-11C` deletes its declaration and any residue",
+        "Historical migration owners `ActiveStoppableOperation` and `LearningSessionState` were decomposed",
+        "neither owns current state",
+        "`PlotterLearningEpisodeRecord` with a stable `PlotterLearningEpisodeID`",
+        "does not merge feature journals",
         "Current `SpeechAnnouncing`, `NativeSpeechAnnouncer`, and its identity-bound queue",
         "speech failure never becomes physical permission",
         "Exactly one public application ingress exists for each rendered semantic action",
         "`PlotterApplicationRuntime` is the MainActor application composition/runtime",
         "`PlotterApplicationState` is the canonical residual application schema",
-        "`PlotterApplicationResidualOperationAdapter` is the root's sole residual application-operation adapter",
+        "`PlotterLearningEpisodeRecord` is the model-owned bounded ordered record",
         "`PlotterApplicationResidualEffectPort` and `PlotterApplicationStatePersistencePort` are nominal lower ports",
         "one monolithic registry instance owns all feature runtimes",
         "synchronously closes MainActor admission before its first await",
@@ -607,7 +611,7 @@ def validate_product_contract(text: str) -> None:
         "`PlotterUILearningActionabilityCompiler` is the sole owner of bounded current-owner, item-status, action/Stop-strip, availability, Pen-adjustment, direction-selection, and reset-reachability decisions",
         "`PlotterLearningActionabilityFactAdapter`",
         "`PlotterLearningDetailedPresentationNormalizer`",
-        "resolve the exact canonical action before retained-owner dispatch",
+        "carries each exact canonical request unchanged to retained-owner dispatch",
         "renamed/split status, completion, action-strip, Stop, sparse-action, availability, retained-candidate, or reachability compilers are forbidden compatibility shadows",
         "one `PlotterPenInteractionRuntime` owns its mutable attempt history and the Up → Down → Up sequence after cap selection",
         "binds the exact request, projection revision, environment, and active operation",
@@ -673,6 +677,11 @@ def validate_architecture(text: str) -> None:
         "The retained LIVE/SIMULATED session accessor",
         "LIVE and SIMULATED each retain one `LearningSessionState` value",
         "One retained `ActiveStoppableOperation` binds the exact owner task",
+        "current source still has two mutable Border Validation stores",
+        "Rendered actionability is not yet uniformly projection-bound",
+        "App projection currently constructs opaque retained/application action IDs",
+        "stores typed meaning in `currentApplicationActions`",
+        "The root's one `PlotterApplicationResidualOperationAdapter`",
     ):
         if stale_phrase in normalized:
             fail(f"Swift Architecture retains stale current topology: {stale_phrase}")
@@ -976,14 +985,14 @@ def validate_architecture(text: str) -> None:
         "`PlotterApp` directly depends on `EpisodeRuntime`",
         "The landed `TRANCHE-DEVICE-ENVIRONMENT` has two typed authority slices",
         "## Current root composition",
-        "`PlotterEpisodeCompositionTests` suite currently contains six focused tests",
-        "current source still has two mutable Border Validation stores",
-        "Rendered actionability is not yet uniformly projection-bound",
+        "`PlotterEpisodeCompositionTests` suite contains eight focused tests",
+        "`PlotterBorderValidationRuntime` is the sole source-indexed mutable",
+        "Rendered actionability is projection-bound",
         "The deleted generic `LearningSessionState` and `ActiveStoppableOperation` types own no current state",
         "`PlotterApplicationState.environmentStates` indexes one `PlotterApplicationEnvironmentState` value for LIVE and one for SIMULATED",
         "Distinct named feature runtimes own their mutable workflow snapshots, operation identity, effect/task execution, exact Stop, persistence, settlement, and terminal truth",
-        "App projection currently constructs opaque retained/application action IDs",
-        "Until then the application cannot name one truthful canonical Learning episode for FIX-10 incident export",
+        "One `PlotterLearningEpisodeRecord` mints a stable model-owned",
+        "provides FIX-10 a canonical Learning identity boundary",
     ):
         if required_phrase not in normalized:
             fail(f"current Swift architecture is missing: {required_phrase}")
@@ -1623,30 +1632,41 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
             "package DOC-05 complete, migration remains incomplete",
         ),
         "TRANCHE-MODEL-UI-CONSOLIDATION": (
-            "executes `EA-12A`, `EA-12B`, and `EA-12C` in that exact order",
-            "produce a net deletion",
-            "may not introduce replacement dictionaries, closure bags, type erasure, a second sink, a monolithic feature owner, automatic retry/redraw, or fabricated/merged journals",
-            "preserves UI-local layout, viewport, selection, and unsubmitted text",
+            "completed `EA-12A`, `EA-12B`, and `EA-12C` in that exact order",
+            "`TASK-34928BFE`, attempt `TASK-34928BFE-a221afbd5d52`",
+            "introduced no replacement dictionary, closure bag, type erasure, second sink, monolithic feature owner, automatic retry/redraw, or fabricated/merged journal",
+            "correctness repairs changed cumulative production `Sources` to `+1631/-1600`, net `+31`",
+            "original net-deletion target did not pass",
+            "named obsolete parallel systems remained deleted and no replacement side registry appeared",
+            "Package TRANCHE-MODEL-UI-CONSOLIDATION complete; migration remains incomplete",
         ),
         "EA-12A": (
-            "make `PlotterBorderValidationRuntime` the sole source-indexed mutable Border Validation owner",
-            "Delete `PlotterApplicationEnvironmentState.borderValidation`",
+            "`PlotterBorderValidationRuntime` is the sole source-indexed mutable Border Validation owner",
+            "duplicate environment snapshot",
             "`replaceSnapshot`",
-            "zero-caller `PlotterBorderValidationIntent.retryFrom`",
-            "Preserve exact controller/camera/Vision/evidence owners",
+            "Slice-boundary `BUILD`, Border 7/7, and composition 6/6 passed",
+            "repaired candidate passed 7 consumer and 23 full cutover scans",
         ),
         "EA-12B": (
-            "carry model-owned typed Learning item, semantic action, exact request identity, and current availability end-to-end",
-            "Delete App semantic side registries",
-            "Remove **Discard Camera Samples** unless backed by a real current sample-owning typed intent",
-            "never offer tip commit retry during busy commit/revalidation",
-            "enabled dispatch cannot terminate silently",
+            "model-owned typed Learning item/action/request identity and availability now travel unchanged",
+            "App semantic side registries",
+            "**Discard Camera Samples** are deleted",
+            "Tip retry is absent during busy commit/revalidation",
+            "UI-authority 19/19, model 20/20, composition 6/6, and UI 20/20 passed",
+            "repaired candidate passed 22 consumer and 29 full cutover scans",
         ),
         "EA-12C": (
-            "one truthful model-owned Learning episode identity and ordered event/state-change record",
-            "without fabricating or merging unrelated journals",
-            "Delete residual unjournaled Learning-operation UUID/string identity generation",
-            "preserving distinct feature-runtime state, effect, task, exact Stop, settlement, no-redraw, evidence, and shutdown ownership",
+            "one stable model-owned `PlotterLearningEpisodeID`",
+            "bounded ordered `PlotterLearningTransitionID` record",
+            "retained root task is keyed by transition only for asynchronous cancel/join",
+            "Every effect-bearing Learning action/reset records its exact union request/source",
+            "bounded immutable post-transition projection",
+            "Slider/direction controls carry exact per-value requests",
+            "both LIVE/SIMULATED Border runtimes retain, cancel, and join step/accept/reject effects before root persistence",
+            "Residual UUID/string identity, duplicate ingress, duplicate controller/observation bridge types, and request reconstruction helpers are deleted",
+            "UI-authority 21/21, Border 9/9, model 22/22, composition 8/8, and UI 22/22",
+            "12 consumer and 26 full cutover scans passed",
+            "original net-deletion target did not pass",
             "does not assemble or export an incident package",
         ),
     }
@@ -1714,12 +1734,12 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "`EA-01` may not add, remove, combine, split, or reorder packages.",
         "Exactly one public application ingress exists for each rendered semantic action",
         "`GATE-02` verifies the landed topology",
-        "### EA-11C target-topology manifest",
-        "following separate manifest is the exact positive topology EA-11C must retain",
+        "### Current target-topology manifest",
+        "following manifest is the exact positive topology after EA-12C",
         "`PlotterApplicationRuntime`<br>`import EpisodeRuntime`",
         "`PlotterApplicationState.environmentStates`",
         "`PlotterUIIntentSink.submitPlotterUIRequest`",
-        "`PlotterApplicationResidualOperationAdapter`<br>`PlotterApplicationResidualOperationEffect`<br>`PlotterApplicationResidualHandle`<br>`PlotterApplicationResidualContext`<br>`PlotterOperationRegistry`",
+        "`PlotterLearningEpisodeRecord`<br>`PlotterLearningEpisodeID`<br>`PlotterLearningTransitionID`<br>`PlotterApplicationLearningTask`",
         "`PlotterApplicationResidualEffectPort.discoverSerialDevices`",
         "`PlotterApplicationStatePersistencePort.persistPaperRevisionContext`",
         "`PlotterApplicationRuntime.admissionState`<br>`PlotterApplicationRuntime.shutdown`",
@@ -1739,7 +1759,7 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
         "That one sink is not enough when the projection has already erased meaning",
         "opaque ID-to-semantic side registries, semantic recompilation from display identifiers, enabled controls without exact current requests, and silent nil dispatch are forbidden",
         "### EA-12 consolidation inventory and deletion obligations",
-        "`TRANCHE-MODEL-UI-CONSOLIDATION` executes `EA-12A`, then `EA-12B`, then `EA-12C`",
+        "`TRANCHE-MODEL-UI-CONSOLIDATION` executed `EA-12A`, then `EA-12B`, then `EA-12C`",
     ):
         if required_phrase not in normalized:
             fail(f"completion or gate contract is missing: {required_phrase}")
@@ -2957,7 +2977,7 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "Confirm publishes `.confirming` before any predecessor wait",
         "`make responsiveness-test`",
         "`FIX-09` is complete as software/repository evidence",
-        "DOC-05 model/UI consolidation audit and plan correction complete",
+        "Historical DOC-05 model/UI consolidation audit and plan correction",
         "`TASK-5168D237`, attempt `TASK-5168D237-5c8c54d403c2`",
         "simultaneous mutable Border Validation snapshots",
         "`PlotterApplicationBoundAction`, `currentApplicationActions`",
@@ -2970,6 +2990,20 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "claims no product-source deletion or runtime behavior change",
         "Reviewed no change: [Attended Hardware Runbook]",
         "Package DOC-05 complete; migration remains incomplete",
+        "Model/UI consolidation tranche complete",
+        "`TASK-34928BFE`, attempt `TASK-34928BFE-a221afbd5d52`",
+        "`PlotterBorderValidationRuntime` is now the sole source-indexed mutable Border",
+        "each rendered Learning semantic control carries its exact",
+        "one stable model-owned `PlotterLearningEpisodeID` spans the bounded",
+        "root's retained asynchronous Learning task is keyed by transition identity",
+        "UI-authority 19/19, model 20/20, composition 6/6, UI 20/20",
+        "UI-authority 21/21, Border 9/9, model 22/22, composition 8/8, and UI",
+        "Cumulative production `Sources` changed `+1631/-1600`, net `+31`",
+        "original net-deletion target did not pass",
+        "no replacement side registry was introduced",
+        "`FIX-10` is the sole next ordinary software package",
+        "no attended hardware, camera, motion, Pen, paper, click, ink, or measured operator-speed claim",
+        "Package TRANCHE-MODEL-UI-CONSOLIDATION complete; migration remains incomplete",
         "complete canonical incident source",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",

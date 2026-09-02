@@ -570,6 +570,7 @@ struct ActionSurface: View {
   @Binding private var pendingPointSelection: PlotterPointSelectionSubmission?
   @StateObject private var imageCache = FramePresentationImageCache()
   @State private var priorDragTranslation: CGSize = .zero
+  @State private var drawingPlacementRefusal: String?
   private let plotterUIProjection: PlotterUIProjection
   private let plotterUIIntentSink: any PlotterUIIntentSink
 
@@ -602,6 +603,9 @@ struct ActionSurface: View {
       presentation: presentation,
       projection: plotterUIProjection
     )
+    let drawingPlacementRequest = pendingDrawingPlacement.flatMap { placement in
+      plotterUIProjection.request(matching: .drawingDraft(.placeAtCameraPoint(placement)))
+    }
     GeometryReader { proxy in
       Canvas { context, size in
         guard let displayedFrame = presentation.displayedFrame,
@@ -685,12 +689,24 @@ struct ActionSurface: View {
         }
       }
       .overlay(alignment: .bottom) {
-        HStack(spacing: 8) {
+        VStack(spacing: 6) {
+          if let drawingPlacementRefusal {
+            Label(drawingPlacementRefusal, systemImage: "exclamationmark.triangle.fill")
+              .font(.caption)
+              .foregroundStyle(.orange)
+              .padding(6)
+              .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 6))
+          }
           if pendingDrawingPlacement != nil {
             Button("Apply Drawing Placement") {
               submitPendingDrawingPlacement()
             }
-            .operatorButton(.affirmative)
+            .operatorButton(.affirmative, isEnabled: drawingPlacementRequest != nil)
+            .help(
+              drawingPlacementRequest == nil
+                ? "Refresh the exact Drawing Studio placement before applying it."
+                : "Apply the exact staged camera-frame placement."
+            )
           }
         }
         .padding(8)
@@ -822,16 +838,22 @@ struct ActionSurface: View {
   }
 
   private func submitPendingDrawingPlacement() {
-    guard let placement = pendingDrawingPlacement else { return }
-    let intent = PlotterDrawingDraftIntent.placeAtCameraPoint(placement)
-    guard let request = plotterUIProjection.request(matching: .drawingDraft(intent)) else {
+    guard let placement = pendingDrawingPlacement else {
+      drawingPlacementRefusal = "Stage a Drawing Studio placement before applying it."
       return
     }
-    Task {
+    let intent = PlotterDrawingDraftIntent.placeAtCameraPoint(placement)
+    guard let request = plotterUIProjection.request(matching: .drawingDraft(intent)) else {
+      drawingPlacementRefusal = "Refresh the exact Drawing Studio placement before applying it."
+      return
+    }
+    Task { @MainActor in
       let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
-      guard case .accepted = disposition else { return }
-      if pendingDrawingPlacement == placement {
+      if case .accepted = disposition, pendingDrawingPlacement == placement {
+        drawingPlacementRefusal = nil
         pendingDrawingPlacement = nil
+      } else if case .refused(let refusal) = disposition {
+        drawingPlacementRefusal = refusal.remedy
       }
     }
   }

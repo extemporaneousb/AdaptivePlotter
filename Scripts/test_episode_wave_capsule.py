@@ -198,7 +198,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["FIX-08"]["status"])
         self.assertEqual("complete", rows["FIX-09"]["status"])
         self.assertEqual("complete", rows["DOC-05"]["status"])
-        self.assertEqual("pending", rows["TRANCHE-MODEL-UI-CONSOLIDATION"]["status"])
+        self.assertEqual("complete", rows["TRANCHE-MODEL-UI-CONSOLIDATION"]["status"])
         self.assertEqual("pending", rows["FIX-10"]["status"])
         self.assertEqual("pending", rows["VAL-01"]["status"])
         self.assertEqual({}, blockers)
@@ -211,7 +211,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["TRANCHE-FINAL-COMPOSITION"]["status"])
         self.assertEqual("complete", rows["EA-11C"]["status"])
         for slice_id in contract.TRANCHE_SLICES["TRANCHE-MODEL-UI-CONSOLIDATION"]:
-            self.assertEqual("pending", rows[slice_id]["status"])
+            self.assertEqual("complete", rows[slice_id]["status"])
         self.assertEqual("authority-slice", rows["EA-10G"]["class"])
         self.assertEqual("authority-slice", rows["EA-10C"]["class"])
         evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
@@ -322,6 +322,14 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
                 "\n`OperatorWorkspace` owns the current application projection.\n",
                 "unlabeled current-root or deleted-owner claim",
             ),
+            (
+                "\nApp projection currently constructs opaque retained/application action IDs and stores typed meaning in `currentApplicationActions`.\n",
+                "stale current topology",
+            ),
+            (
+                "\nThe root's one `PlotterApplicationResidualOperationAdapter` owns current Learning work.\n",
+                "stale current topology",
+            ),
         )
         for addition, message in cases:
             with self.subTest(addition=addition):
@@ -332,21 +340,19 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     capsule.validated_contract(self.root, validate_live_gates=False)
 
-    def test_model_ui_consolidation_frontier_requires_exact_current_evidence(self) -> None:
+    def test_fix10_frontier_requires_exact_current_evidence(self) -> None:
         evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
         evidence = evidence_path.read_text(encoding="utf-8")
-        phrase = (
-            "`TRANCHE-MODEL-UI-CONSOLIDATION`—not FIX-10 or a later successor—is authorized"
-        )
+        phrase = "`FIX-10` is the sole next ordinary software package"
         self.assertIn(phrase, evidence.replace("\n", " "))
         evidence_path.write_text(
             evidence.replace(
-                "`TRANCHE-MODEL-UI-CONSOLIDATION`—not FIX-10 or a later successor—is authorized",
-                "`FIX-10`—not the consolidation tranche or a later successor—is authorized",
+                phrase,
+                "`VAL-01` is the sole next ordinary package",
             ),
             encoding="utf-8",
         )
-        with self.assertRaisesRegex(ValueError, "model/UI consolidation frontier lacks current evidence"):
+        with self.assertRaisesRegex(ValueError, "named FIX-10 frontier lacks current evidence"):
             capsule.validated_contract(self.root, validate_live_gates=False)
 
     def test_completed_incident_evidence_missing_is_rejected(self) -> None:
@@ -534,7 +540,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual(created, consumed)
         self.assertEqual("selected", consumed["launch"]["state"])
         self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("TRANCHE-MODEL-UI-CONSOLIDATION", consumed["contract"]["package"]["id"])
+        self.assertEqual("FIX-10", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -556,38 +562,27 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
                 .splitlines()[boundary["start_line"] - 1]
             )
             row = [cell.strip() for cell in boundary_text.strip().strip("|").split("|")]
-            if (
-                len(row) == 6
-                and row[:4] == ["TRANCHE-MODEL-UI-CONSOLIDATION", "pending", "DOC-05", "software"]
-                and row[4].startswith("Tranche: one Blackdog task/worktree/landing executes")
-                and "`CRITIC`" in row[5]
-            ):
+            if len(row) == 6 and row[:4] == [
+                "FIX-10", "pending", "TRANCHE-MODEL-UI-CONSOLIDATION", "software"
+            ] and row[4].startswith("Correction:") and "`INCIDENT-APP`" in row[5]:
                 ledger_rows.append((boundary, row))
         self.assertEqual(1, len(ledger_rows))
         _boundary, boundary_row = ledger_rows[0]
-        self.assertEqual("TRANCHE-MODEL-UI-CONSOLIDATION", boundary_row[0])
-        self.assertEqual(
-            ["EA-12A", "EA-12B", "EA-12C"],
-            [item["id"] for item in consumed["contract"]["ordered_authority_slices"]],
-        )
-        self.assertIn("authority slice current-owner inventory row", purposes)
-        self.assertIn("authority slice same-landing deletion scan row", purposes)
+        self.assertEqual("FIX-10", boundary_row[0])
+        self.assertEqual([], consumed["contract"]["ordered_authority_slices"])
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
-    def test_completed_doc_correction_selects_model_ui_consolidation(self) -> None:
+    def test_completed_model_ui_consolidation_selects_fix10(self) -> None:
         created = self.build_and_write()
 
         self.assertEqual("selected", created["launch"]["state"])
         self.assertEqual("selected", created["contract"]["frontier"]["state"])
         self.assertEqual(
-            "TRANCHE-MODEL-UI-CONSOLIDATION",
+            "FIX-10",
             created["contract"]["frontier"]["package_id"],
         )
-        self.assertEqual(
-            ["EA-12A", "EA-12B", "EA-12C"],
-            [item["id"] for item in created["contract"]["ordered_authority_slices"]],
-        )
+        self.assertEqual([], created["contract"]["ordered_authority_slices"])
 
     def test_contract_import_does_not_emit_bytecode_into_clean_repository(self) -> None:
         cache_path = self.root / "Scripts/__pycache__"
@@ -656,7 +651,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
 
         self.assertEqual("selected", created["launch"]["state"])
         self.assertEqual(
-            "TRANCHE-MODEL-UI-CONSOLIDATION",
+            "FIX-10",
             created["contract"]["frontier"]["package_id"],
         )
         self.assertEqual([], created["blackdog"]["live_blockers"])

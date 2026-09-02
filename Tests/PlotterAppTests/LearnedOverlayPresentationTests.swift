@@ -27,20 +27,4 @@ struct LearnedOverlayPresentationTests {
         == "CURRENT PAPER COVERAGE"
     )
   }
-
-  @Test("drawable paper and predicted-contact overlays remain visually distinct")
-  func distinctStyles() {
-    let tokens = Set([
-      ActionSurfaceOverlayPresentationGrammar.styleToken(for: .drawingBorder),
-      ActionSurfaceOverlayPresentationGrammar.styleToken(for: .acceptedBoundary),
-      ActionSurfaceOverlayPresentationGrammar.styleToken(for: .paperCoverage),
-      ActionSurfaceOverlayPresentationGrammar.styleToken(for: .predictedContactPoint),
-    ])
-
-    #expect(tokens.count == 4)
-    #expect(
-      ActionSurfaceOverlayPresentationGrammar.styleToken(for: .predictedContactPoint)
-        != ActionSurfaceOverlayPresentationGrammar.styleToken(for: .observedInk)
-    )
-  }
 }

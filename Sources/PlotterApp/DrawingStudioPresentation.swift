@@ -310,6 +310,7 @@ struct DrawingStudioView: View {
   let presentation: DrawingStudioPresentation
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
+  @State private var requestRefusal: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -321,6 +322,13 @@ struct DrawingStudioView: View {
         )
         .font(.caption)
         .foregroundStyle(.secondary)
+      }
+
+      if let requestRefusal {
+        Label(requestRefusal, systemImage: "exclamationmark.triangle.fill")
+          .font(.caption)
+          .foregroundStyle(.orange)
+          .textSelection(.enabled)
       }
 
       catalog
@@ -358,7 +366,10 @@ struct DrawingStudioView: View {
             }
             .buttonStyle(.bordered)
             .tint(item.id == presentation.selectedCatalogItemID ? .accentColor : .secondary)
-            .disabled(!presentation.editingIsEnabled)
+            .disabled(
+              !presentation.editingIsEnabled
+                || draftRequest(.selectCatalogItem(item.id)) == nil
+            )
             .accessibilityHint(item.detail)
           }
         }
@@ -378,7 +389,10 @@ struct DrawingStudioView: View {
         Text(Self.evidenceRoleLabel(role)).tag(role)
       }
     }
-    .disabled(!presentation.editingIsEnabled)
+    .disabled(
+      !presentation.editingIsEnabled
+        || draftRequest(.setEvidenceRole(presentation.evidenceRole)) == nil
+    )
     .help("Choose before execution; a holdout cannot become training evidence after inspection.")
   }
 
@@ -401,7 +415,10 @@ struct DrawingStudioView: View {
           .monospacedDigit()
           .frame(width: 52, alignment: .trailing)
       }
-      .disabled(!presentation.editingIsEnabled)
+      .disabled(
+        !presentation.editingIsEnabled
+          || draftRequest(.setUniformScale(presentation.canvas.placement.uniformScale)) == nil
+      )
       HStack {
         Text("Rotation")
         Slider(
@@ -416,14 +433,21 @@ struct DrawingStudioView: View {
           .monospacedDigit()
           .frame(width: 58, alignment: .trailing)
       }
-      .disabled(!presentation.editingIsEnabled)
+      .disabled(
+        !presentation.editingIsEnabled
+          || draftRequest(
+            .setRotationDegrees(presentation.canvas.placement.rotationDegrees)
+          ) == nil
+      )
       Button {
         submitDraft(.centerInDrawableRegion)
       } label: {
         Label("Center Target", systemImage: "scope")
       }
       .operatorButton(.neutral)
-      .disabled(!presentation.editingIsEnabled)
+      .disabled(
+        !presentation.editingIsEnabled || draftRequest(.centerInDrawableRegion) == nil
+      )
     }
   }
 
@@ -447,30 +471,41 @@ struct DrawingStudioView: View {
   private var controls: some View {
     HStack(spacing: 8) {
       ForEach(presentation.controls) { control in
+        let intent = PlotterUIIntent.drawingRun(control.intent)
+        let request = plotterUIProjection.request(matching: intent)
         Button {
-          submit(
-            actionID: PlotterAppUIActionID.drawingRun(control.intent),
-            intent: .drawingRun(control.intent)
-          )
+          submit(intent)
         } label: {
           Label(control.title, systemImage: control.systemImage)
         }
         .operatorButton(control.role)
-        .disabled(!control.isEnabled)
+        .disabled(!control.isEnabled || request == nil)
+        .help(request == nil ? "Refresh the current Drawing Studio control." : control.title)
       }
     }
   }
 
   private func submitDraft(_ intent: PlotterDrawingDraftIntent) {
-    submit(
-      actionID: PlotterAppUIActionID.drawingDraft(intent),
-      intent: .drawingDraft(intent)
-    )
+    submit(.drawingDraft(intent))
   }
 
-  private func submit(actionID _: PlotterUIActionID, intent: PlotterUIIntent) {
-    guard let request = plotterUIProjection.request(matching: intent) else { return }
-    Task { _ = await plotterUIIntentSink.submitPlotterUIRequest(request) }
+  private func draftRequest(_ intent: PlotterDrawingDraftIntent) -> PlotterUIRequest? {
+    plotterUIProjection.request(matching: .drawingDraft(intent))
+  }
+
+  private func submit(_ intent: PlotterUIIntent) {
+    guard let request = plotterUIProjection.request(matching: intent) else {
+      requestRefusal = "Refresh the current Drawing Studio control before retrying."
+      return
+    }
+    Task { @MainActor in
+      let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
+      if case .refused(let refusal) = disposition {
+        requestRefusal = refusal.remedy
+      } else {
+        requestRefusal = nil
+      }
+    }
   }
 
   private static func evidenceRoleLabel(_ role: BorderValidationEvidenceRole) -> String {

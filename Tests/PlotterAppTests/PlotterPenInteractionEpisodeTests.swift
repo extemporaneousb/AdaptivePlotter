@@ -453,14 +453,16 @@ struct PlotterPenInteractionEpisodeTests {
     #expect(await fixture.machine.requestedPenCommands.isEmpty)
 
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    let nextActionID = PlotterAppUIActionID.retainedLearning(.choice(.yes), owner: owner)
+    let nextActionID = learningActionID(.choice(.yes), owner: owner)
     let preDrainSemantic = fixture.workspace.testPlotterUIProjection(
       selectedItemID: owner,
       includesLearningPath: true
     ).semantic
     #expect(preDrainSemantic.request(for: nextActionID) == nil)
     let preDrainStopRequest = try currentPenStopRequest(fixture.workspace)
-    guard case .penInteraction(.stop(let preDrainCapability)) = preDrainStopRequest.intent else {
+    guard case .learningAction(let preDrainRequest) = preDrainStopRequest.intent,
+      case .stopPenInteraction(let preDrainCapability) = preDrainRequest.action
+    else {
       Issue.record("Expected exact Pen Stop while the accepted setpoint awaits its drain.")
       return
     }
@@ -494,7 +496,9 @@ struct PlotterPenInteractionEpisodeTests {
     ).semantic
     #expect(heldSemantic.request(for: nextActionID) == nil)
     let heldStopRequest = try currentPenStopRequest(fixture.workspace)
-    guard case .penInteraction(.stop(let heldCapability)) = heldStopRequest.intent else {
+    guard case .learningAction(let heldRequest) = heldStopRequest.intent,
+      case .stopPenInteraction(let heldCapability) = heldRequest.action
+    else {
       Issue.record("Expected exact Pen Stop while the coalesced setpoint is settling.")
       return
     }
@@ -605,7 +609,28 @@ struct PlotterPenInteractionEpisodeTests {
     }
     #expect(shutdownClaimedOwner)
     await gate.release()
-    #expect(await confirmation.value == .accepted(requestID: yes.id))
+    guard case .refused(let refusal) = await confirmation.value else {
+      Issue.record("Shutdown must publish the exact outer Learning cancellation refusal.")
+      return
+    }
+    #expect(refusal.reason == .retainedOwnerRefused)
+    #expect(refusal.remedy.contains("cancelled"))
+    guard case .learningAction(let learningRequest) = yes.intent else {
+      Issue.record("The rendered confirmation lost its exact Learning request.")
+      return
+    }
+    let episode = try #require(fixture.workspace.learningEpisodeRecord.entries.last)
+    #expect(episode.request == .action(learningRequest))
+    #expect(episode.postTransitionProjection.stateRevision == episode.postStateRevision)
+    #expect(episode.postTransitionProjection.activeOwner == learningRequest.item)
+    #expect(episode.stateChangePublished)
+    guard case .refused(let reason, let owner, let remedy) = episode.result else {
+      Issue.record("Shutdown cancellation must publish a typed Learning episode refusal.")
+      return
+    }
+    #expect(reason == .ownerRefused)
+    #expect(owner.rawValue == "PlotterApplicationRuntime")
+    #expect(remedy == refusal.remedy)
     await shutdown.value
 
     #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
@@ -656,7 +681,9 @@ struct PlotterPenInteractionEpisodeTests {
     #expect(await stopFixture.machine.requestedPenCommands.isEmpty)
 
     let exactStop = try currentPenStopRequest(stopFixture.workspace)
-    guard case .penInteraction(.stop(let exactCapability)) = exactStop.intent else {
+    guard case .learningAction(let exactRequest) = exactStop.intent,
+      case .stopPenInteraction(let exactCapability) = exactRequest.action
+    else {
       Issue.record("Expected the canonical action to carry the typed Pen Stop capability.")
       return
     }
@@ -848,7 +875,7 @@ private func preparePenQuestion(
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
   }
   let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-  let startID = PlotterAppUIActionID.retainedLearning(.start, owner: owner)
+  let startID = learningActionID(.start, owner: owner)
   let startProjection = workspace.testPlotterUIProjection(
     selectedItemID: owner,
     includesLearningPath: true
@@ -903,7 +930,7 @@ private func currentPenSetpointRequest(
   let command = try #require(
     workspace.currentExerciseActionStripPresentation?.penSetpointAdjustment?.command
   )
-  let actionID = PlotterAppUIActionID.penInteractionSetpoint(
+  let actionID = learningSetpointActionID(
     command,
     value: value,
     owner: owner
@@ -924,7 +951,7 @@ private func currentPenSetpointRequestIfAvailable(
   guard let command = workspace.currentExerciseActionStripPresentation?
     .penSetpointAdjustment?.command
   else { return nil }
-  let actionID = PlotterAppUIActionID.penInteractionSetpoint(
+  let actionID = learningSetpointActionID(
     command,
     value: value,
     owner: owner
@@ -941,7 +968,9 @@ private func currentPenChoiceRequest(
   choice: OperatorChoice
 ) throws -> PlotterUIRequest {
   let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-  let actionID = PlotterAppUIActionID.retainedLearning(.choice(choice), owner: owner)
+  let actionID = learningActionID(.choice(
+    choice == .yes ? .yes : .no
+  ), owner: owner)
   let projection = workspace.testPlotterUIProjection(
     selectedItemID: owner,
     includesLearningPath: true
@@ -959,7 +988,9 @@ private func currentPenStopRequest(
     includesLearningPath: true
   ).semantic
   let action = try #require(projection.actions.first { action in
-    guard case .penInteraction(.stop) = action.intent else { return false }
+    guard case .learningAction(let request) = action.intent,
+      case .stopPenInteraction = request.action
+    else { return false }
     return true
   })
   #expect(action.isAvailable)

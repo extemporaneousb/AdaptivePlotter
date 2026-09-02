@@ -52,7 +52,7 @@ struct PlotterOperatorThroughputPolicyTests {
       includesLearningPath: true
     ).semantic
     let start = try #require(startProjection.request(
-      for: PlotterAppUIActionID.retainedLearning(.start, owner: owner)
+      for: learningActionID(.start, owner: owner)
     ))
     let sink: any PlotterUIIntentSink = workspace
     #expect(await sink.submitPlotterUIRequest(start) == .accepted(requestID: start.id))

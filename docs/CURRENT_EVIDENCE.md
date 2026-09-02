@@ -8,7 +8,132 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
-## DOC-05 model/UI consolidation audit and plan correction complete
+## Model/UI consolidation tranche complete
+
+Blackdog task `TASK-34928BFE`, attempt `TASK-34928BFE-a221afbd5d52`, completed
+`EA-12A`, `EA-12B`, and `EA-12C` in order as one staged
+`TRANCHE-MODEL-UI-CONSOLIDATION` candidate:
+
+- `PlotterBorderValidationRuntime` is now the sole source-indexed mutable Border
+  Validation state, operation, task, review, possible-ink, reset, result, and
+  shutdown owner. The duplicate `PlotterApplicationEnvironmentState` snapshot,
+  root forwarding/copy paths, `replaceSnapshot`, and zero-caller retry intent
+  are deleted; `PlotterApplicationRuntime` supplies lower effects and immutable
+  projection only. The runtime retains every step/accept/reject effect, rejects
+  late results unless the exact operation still owns admitted state, and its
+  asynchronous close cancels and joins that exact task. Root shutdown joins
+  both LIVE and SIMULATED Border runtimes before persistence/settlement;
+- each rendered Learning semantic control carries its exact
+  `PlotterLearningActionRequest` from model actionability through immutable
+  `PlotterUIProjection`, the sole public `PlotterUIIntentSink`, and the owning
+  feature runtime. App semantic registries, opaque retained/application intent
+  cases, request-ID recovery/recompilation, and redundant `ExerciseActionKind`
+  translation are deleted. Slider values and Boundary directions are projected
+  as exact per-value/per-direction candidates; the view never reconstructs
+  their semantic request from owner, number, title, or display identity;
+- one stable model-owned `PlotterLearningEpisodeID` spans the bounded
+  `PlotterLearningEpisodeRecord`. Every ordered `PlotterLearningTransitionID`
+  records one exact `PlotterLearningRecordRequest` action/reset union value and
+  LIVE/SIMULATED source, pre-state revision, typed accepted/refused result and
+  remedy, and one bounded immutable post-transition projection after the owner
+  settles. Reset cancellation, durable reset, and resulting state change are
+  therefore present in the same ordered record. The
+  root's retained asynchronous Learning task is keyed by transition identity
+  solely for exact cancel/join; it is not another semantic latch or journal.
+  Pen, Boundary, calibration, Border, artifact-reset, Drawing, Manual Motion,
+  and Point Selection retain their distinct state/effect/journal authorities;
+- **Discard Camera Samples** and the dead action/UI declarations are removed.
+  Tip commit retry is absent while commit/revalidation is busy and is rendered
+  only for a stable recoverable state. Learning, Drawing Placement,
+  completed-comparison, and Drawing Studio controls are enabled only with their
+  exact current request; stale or unavailable submission returns typed visible
+  refusal instead of a silent nil termination.
+
+The exact slice-boundary validation was: EA-12A `BUILD`, Border 7/7,
+composition 6/6, 7 consumer scans, 20 deletion scans, and `DIFF`; EA-12B
+`BUILD`, UI-authority 19/19, model 20/20, composition 6/6, UI 20/20,
+18 consumer scans, 25 deletion scans, and `DIFF`. After fresh criticism required
+exact dynamic candidates, complete action/reset post-transition records, and
+Border late-result/cancel/join safety, the focused current candidate passed
+`BUILD`, UI-authority 21/21, Border 9/9, model 22/22, composition 8/8, and UI
+22/22. Final broad-test repair then published the exact immutable Boundary
+runtime snapshot after accepted dispatch so its capability-bound Stop renders
+through the canonical Learning request, and invalidated the established Learning
+semantic cache after the test bridge installs a runtime-owned recoverable tip
+checkpoint. Cumulative production `Sources` changed `+1631/-1600`, net `+31`.
+The original net-deletion target did not pass; the coordinator accepted this
+narrow correctness exception because the named obsolete parallel authorities
+remain deleted and no replacement side registry was introduced.
+The repaired candidate's cutover checks passed EA-12A 7 consumer/23 full,
+EA-12B 22 consumer/29 full, and EA-12C 12 consumer/26 full scans.
+
+This is software/repository evidence only. It makes no attended hardware,
+camera, motion, Pen, paper, click, ink, or measured operator-speed claim and
+does not provide the canonical incident source/export. `FIX-10` is the sole
+next ordinary software package; `VAL-01` is dependency-ineligible until FIX-10
+is complete. Package TRANCHE-MODEL-UI-CONSOLIDATION complete; migration remains
+incomplete, subject to this exact task's successful Blackdog landing.
+
+Canonical integration updated the execution plan, Swift architecture, Product
+Contract, Button Transitions, Vocabulary, Document Routing, evidence, and
+fail-closed checker/capsule fixtures. Reviewed no change:
+[Discovery and Observed-Trial Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md)
+still describes typed review/rejection and stable post-failure retry without
+naming the removed orphan control or assigning App semantic authority.
+
+The tranche-level receipts below predate the fresh-critic repairs. They remain
+historical receipts, not a claim that DOC, QUICK, JOURNEY, STRICT, or CRITIC was
+rerun on the repaired tree; current repaired-tree evidence is the focused build,
+tests, cutovers, contract checker, and diff check recorded above.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — canonical tranche documentation and structural contracts agree on the completed slices and FIX-10 frontier | repository documentation |
+| `DIFF` | passed — exact repository diff check | repository revision |
+| `QUICK` | passed — complete quick software gate | software revision |
+| `JOURNEY` | passed — retained operator-journey software gate | software revision |
+| `STRICT` | passed — complete strict software/repository gate | software revision |
+| `CRITIC` | passed — `UNANIMOUS PASS — no material disagreement` on the bounded stable revision | read-only tranche assessment |
+
+## EA-12A Border runtime sole-owner completion
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build` | production build |
+| `BORDER-VALIDATION` | passed — `PlotterBorderValidationEpisodeTests` 7/7 | typed Border runtime |
+| `COMPOSITION` | passed — `PlotterEpisodeCompositionTests` 6/6 | production root composition |
+| `AFFECTED-CONSUMERS` | passed — EA-12A consumer-only cutover check, 7 exact scans | updated consumers |
+| `DIFF` | passed — `git diff --check` | candidate diff |
+| `DELETE` | passed — EA-12A full cutover check, 23 scans | superseded Border/root symbols plus shutdown joins |
+
+## EA-12B exact Learning UI request route completion
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build` | production build |
+| `UI-AUTHORITY` | passed — `PlotterLearningUIAuthorityTests` 19/19 at the slice boundary | rendered semantic controls and exact requests |
+| `PLOTTER-MODEL` | passed — `PlotterEpisodeModelContractTests` 20/20 at the slice boundary | typed model requests |
+| `COMPOSITION` | passed — `PlotterEpisodeCompositionTests` 6/6 at the slice boundary | sole sink to feature owner |
+| `UI` | passed — `PlotterEpisodeUIActionabilityTests` 20/20 at the slice boundary | rendered actionability/remedies |
+| `AFFECTED-CONSUMERS` | passed — EA-12B consumer-only cutover check, 22 exact scans | exact-request route |
+| `DIFF` | passed — `git diff --check` | candidate diff |
+| `DELETE` | passed — EA-12B full cutover check, 29 scans | side registries, opaque intents, dead UI, and reconstruction helpers |
+
+## EA-12C Learning episode record completion
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — `swift build` | production build |
+| `UI-AUTHORITY` | passed — `PlotterLearningUIAuthorityTests` 21/21 | exact action/reset and dynamic request/refusal route |
+| `BORDER-VALIDATION` | passed — `PlotterBorderValidationEpisodeTests` 9/9 | exact task cancellation/join and late-result rejection |
+| `PLOTTER-MODEL` | passed — `PlotterEpisodeModelContractTests` 22/22 | stable episode, action/reset union, and post-transition projection |
+| `COMPOSITION` | passed — `PlotterEpisodeCompositionTests` 8/8 | record publication and task cancel/join |
+| `UI` | passed — `PlotterEpisodeUIActionabilityTests` 22/22 | rendered semantic controls |
+| `AFFECTED-CONSUMERS` | passed — EA-12C consumer-only cutover check, 12 exact scans | model bridge and residual route |
+| `DIFF` | passed — `git diff --check` | candidate diff |
+| `DELETE` | passed — EA-12C full cutover check, 26 scans | duplicate bridge/identity symbols plus typed record/safety evidence |
+
+## Historical DOC-05 model/UI consolidation audit and plan correction
 
 Blackdog task `TASK-5168D237`, attempt `TASK-5168D237-5c8c54d403c2`, records
 the repository-only correction after two independent read-only audits disproved
@@ -3081,10 +3206,10 @@ and every recorded result is `passed`. EA-06, EA-08A, EA-08B, and EA-09 are
 reconciled to their canonical-main landing commits rather than retained as
 stale task-local candidates. FIX-03, DOC-03, the later tranches, EA-11C,
 FIX-05, GATE-01, FIX-06, FIX-07, FIX-08, and FIX-09 have final completion
-evidence. DOC-05 has final repository-only completion evidence. The pending
-model/UI consolidation tranche is the next ordinary software package; FIX-10
-depends on it, and `VAL-01` remains dependency-ineligible until its later
-incident-source/export dependency is complete.
+evidence. DOC-05 has final repository-only completion evidence. The completed
+model/UI consolidation tranche supplies FIX-10's model identity prerequisite;
+FIX-10 is now the next ordinary software package, and `VAL-01` remains
+dependency-ineligible until incident-source/export work is complete.
 Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
@@ -3131,7 +3256,11 @@ Detailed scope and limitations remain in the named evidence sections.
 | FIX-07 | `TASK-EA60F469` | `BUILD=passed`, `TIP-CAL=passed`, `POINT=passed`, `UI=passed`, `ARTIFACT-RESET=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-07 explicit exact click-frame replacement |
 | FIX-08 | `TASK-EB3E64FA` | `BUILD=passed`, `THROUGHPUT=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-08 operator-throughput correction complete |
 | FIX-09 | `TASK-9C229F54` | `BUILD=passed`, `RESPONSIVENESS=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-09 initial Learning responsiveness and truthful controls complete |
-| DOC-05 | `TASK-5168D237` | `DOC=passed`, `DIFF=passed` | DOC-05 model/UI consolidation audit and plan correction complete |
+| DOC-05 | `TASK-5168D237` | `DOC=passed`, `DIFF=passed` | Historical DOC-05 model/UI consolidation audit and plan correction |
+| TRANCHE-MODEL-UI-CONSOLIDATION | `TASK-34928BFE` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `CRITIC=passed` | Model/UI consolidation tranche complete |
+| EA-12A | `TASK-34928BFE` | `BUILD=passed`, `BORDER-VALIDATION=passed`, `COMPOSITION=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-12A Border runtime sole-owner completion |
+| EA-12B | `TASK-34928BFE` | `BUILD=passed`, `UI-AUTHORITY=passed`, `PLOTTER-MODEL=passed`, `COMPOSITION=passed`, `UI=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-12B exact Learning UI request route completion |
+| EA-12C | `TASK-34928BFE` | `BUILD=passed`, `UI-AUTHORITY=passed`, `BORDER-VALIDATION=passed`, `PLOTTER-MODEL=passed`, `COMPOSITION=passed`, `UI=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-12C Learning episode record completion |
 
 ## Wave admission blockers
 
@@ -3142,21 +3271,22 @@ or canonical correction. The selector stops at that first eligible row; it
 never skips ahead to later work. An empty table means Current Evidence adds no
 admission blocker beyond the canonical ledger and live Blackdog claims.
 
-The dependency-ready ordinary frontier is pending software package
-`TRANCHE-MODEL-UI-CONSOLIDATION`. The immediately preceding repository
-correction is `DOC-05 model/UI consolidation audit and plan correction
-complete`, recorded by `TASK-5168D237`, attempt
-`TASK-5168D237-5c8c54d403c2`. Its two source/doc audits disproved immediate
-FIX-10 selection because duplicate Border state, opaque App Learning registries,
-unjournaled Learning identity, and enabled controls without exact current
-requests prevent one truthful canonical incident source. The tranche executes
-`EA-12A`, `EA-12B`, and `EA-12C` in that exact order in one task/worktree/
-landing, requires net deletion and a fresh bounded critic, and authorizes no
-attended or remote-Git work. `FIX-10` is dependency-ineligible until the tranche
-is complete; `VAL-01` is dependency-ineligible until FIX-10 is complete.
-Current Evidence adds no separate blocker, and only
-`TRANCHE-MODEL-UI-CONSOLIDATION`—not FIX-10 or a later successor—is authorized
-by this frontier.
+The dependency-ready ordinary frontier is pending software package `FIX-10`.
+`TRANCHE-MODEL-UI-CONSOLIDATION` and its ordered `EA-12A`, `EA-12B`, and
+`EA-12C` slices are complete through `TASK-34928BFE`, attempt
+`TASK-34928BFE-a221afbd5d52`; their stable model-owned episode and exact-request
+route satisfy FIX-10's prerequisite without supplying an incident source or
+export. FIX-09 initial Learning responsiveness and truthful controls complete
+was delivered by `TASK-9C229F54`, attempt `TASK-9C229F54-1984133960c1`.
+`FIX-09` is complete as software/repository evidence: Confirm
+publishes `.confirming` before any predecessor wait, held speech playback does
+not delay the Pen command or next prompt, each camera action publishes a busy
+runtime/UI revision before its first lower suspension, controller presentation
+uses one semantic Connect/Disconnect action, interactive capture retains its
+10 FPS device-delivery cap, and the no-source Incident Package action is
+disabled. `FIX-10` is the sole next ordinary software package; `VAL-01` is
+dependency-ineligible until FIX-10 is complete. Current Evidence adds no
+separate ordinary-wave blocker.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

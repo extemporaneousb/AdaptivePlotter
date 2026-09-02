@@ -28,8 +28,8 @@ LEARNING_SEMANTIC_OUTPUTS = {
         r"PlotterUIActionCandidate|PlotterUILearningActionDecision"
     ),
     "status": re.compile(r"LearningPathStageStatus"),
-    "retained-candidate": re.compile(
-        r"intent\s*:\s*\.retainedLearning(?:Action|Reset)"
+    "model-candidate": re.compile(
+        r"intent\s*:\s*\.learning(?:Action|Reset)"
     ),
     "reachability": re.compile(r"\.learningOwner\s*\(|PlotterUIActionReachability"),
 }
@@ -40,7 +40,7 @@ CANONICAL_LEARNING_INPUTS = (
     "PlotterUILearningActionDecision",
     "PlotterUILearningItemDecision",
     "PlotterUILearningItemStatus",
-    "PlotterUILearningSemanticAction",
+    "PlotterLearningAction",
 )
 
 

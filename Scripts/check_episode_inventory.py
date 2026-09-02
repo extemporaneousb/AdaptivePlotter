@@ -107,7 +107,7 @@ SCAN_CLASSES = {
 }
 
 ACTION_ENUMS = {
-    "ExerciseActionKind": ROOT / "Sources/PlotterApp/LearningPathPresentation.swift",
+    "PlotterLearningAction": ROOT / "Sources/PlotterEpisodeModel/PlotterIntent.swift",
     "PlotterArtifactResetIntent": ROOT / "Sources/PlotterEpisodeRuntime/PlotterArtifactResetRuntime.swift",
     "PlotterBorderValidationIntent": ROOT / "Sources/PlotterEpisodeRuntime/PlotterBorderValidationRuntime.swift",
     "PlotterDrawingDraftIntent":

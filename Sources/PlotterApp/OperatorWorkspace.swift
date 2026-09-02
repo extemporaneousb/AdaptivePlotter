@@ -464,20 +464,6 @@ protocol StableWorkflowCapCapturePort: Sendable {
   ) async throws -> StableWorkflowCapInspection
 }
 
-struct StableWorkflowCapCaptureRunner: Sendable {
-  private let port: any StableWorkflowCapCapturePort
-
-  init(port: any StableWorkflowCapCapturePort) {
-    self.port = port
-  }
-
-  func run(
-    _ request: StableWorkflowCapCaptureRequest
-  ) async throws -> StableWorkflowCapInspection {
-    try await port.captureStableWorkflowCap(request)
-  }
-}
-
 struct ProtocolPoseSettlement: Hashable, Sendable {
   let action: LearningMotionAction
   let target: MachinePosition
@@ -528,7 +514,7 @@ enum PlotterApplicationRuntimeComputationEvent: Hashable, Sendable {
   )
   case learningActionStripChanged(
     ownerID: LearningPathItemID?,
-    actions: [ExerciseActionKind]
+    actions: [PlotterLearningAction]
   )
   case actionSurfaceChanged(
     frameID: FrameID?,
@@ -658,34 +644,13 @@ private extension PlotterLearningPresentationFacts {
 
 private struct LearningActionStripDiagnosticSignature: Equatable {
   let ownerID: LearningPathItemID?
-  let actions: [ExerciseActionKind]
+  let actions: [PlotterLearningAction]
 }
 
 private struct ActionSurfaceDiagnosticSignature: Equatable {
   let frameID: FrameID?
   let overlayCount: Int
   let pointSelectionPurpose: PlotterExactPointSelectionPurpose?
-}
-
-enum PlotterApplicationResidualLane: Hashable, Sendable {
-  case machine
-  case exactWorkflow
-  case projection
-  case persistence
-}
-
-enum PlotterApplicationResidualIntent: Hashable, Sendable {
-  case learningAction(String)
-
-  var isLearningAction: Bool {
-    if case .learningAction = self { return true }
-    return false
-  }
-}
-
-enum PlotterApplicationResidualResult: Hashable, Sendable {
-  case completed
-  case cancelled
 }
 
 /// Root-owned effects that do not belong to one of the typed feature
@@ -728,213 +693,9 @@ private struct PlotterApplicationEffectLease: Hashable, Sendable {
   let id: UUID
 }
 
-private enum PlotterApplicationPaperAction: Hashable, Sendable {
-  case newSheetOnCurrentPlane
-  case contactPlaneChanged
-}
-
-private enum PlotterApplicationBoundAction: Hashable, Sendable {
-  case controller(PlotterControllerSessionRequest)
-  case observation(PlotterObservationOperatorSubmission)
-  case paper(PlotterApplicationPaperAction)
-}
-
-struct PlotterApplicationResidualContext: PlotterOperationContext {
-  typealias IntentIdentity = PlotterApplicationResidualIntent
-  typealias Environment = PlotterEnvironment
-  typealias AwaitedResult = String
-
-  let owningSubsystem: EpisodeAuthorityID
-  let resultCurrentlyAwaited: String
-}
-
-@MainActor
-private protocol PlotterApplicationResidualOperationEffect: AnyObject, Sendable {
-  func run() async
-}
-
-private actor PlotterApplicationResidualHandle: PlotterOperationHandle {
-  typealias OperationContext = PlotterApplicationResidualContext
-  typealias TerminalDisposition = PlotterApplicationResidualResult
-
-  private let identity: PlotterOperationIdentity<PlotterApplicationResidualContext>
-  private let operation: any PlotterApplicationResidualOperationEffect
-  private var task: Task<PlotterApplicationResidualResult, Never>?
-  private var cancellationRequested = false
-
-  init(
-    identity: PlotterOperationIdentity<PlotterApplicationResidualContext>,
-    operation: any PlotterApplicationResidualOperationEffect
-  ) {
-    self.identity = identity
-    self.operation = operation
-  }
-
-  func start() {
-    guard task == nil else { return }
-    let operation = operation
-    let task = Task<PlotterApplicationResidualResult, Never> {
-      await operation.run()
-      return Task.isCancelled ? .cancelled : .completed
-    }
-    self.task = task
-    if cancellationRequested { task.cancel() }
-  }
-
-  func requestCancellation() {
-    cancellationRequested = true
-    task?.cancel()
-  }
-
-  func waitForSettlement()
-    async -> PlotterOperationResult<OperationContext, TerminalDisposition>
-  {
-    let disposition = await task?.value ?? (cancellationRequested ? .cancelled : .completed)
-    return PlotterOperationResult(
-      identity: identity,
-      disposition: disposition,
-      settledAt: Date()
-    )
-  }
-}
-
-@MainActor
-private final class PlotterApplicationLearningOperation:
-  PlotterApplicationResidualOperationEffect
-{
-  unowned let application: PlotterApplicationRuntime
-  let kind: ExerciseActionKind
-  let ownerID: LearningPathItemID
-
-  init(
-    application: PlotterApplicationRuntime,
-    kind: ExerciseActionKind,
-    ownerID: LearningPathItemID
-  ) {
-    self.application = application
-    self.kind = kind
-    self.ownerID = ownerID
-  }
-
-  func run() async {
-    await application.performAdmittedExerciseAction(kind, for: ownerID)
-  }
-}
-
-/// The sole owner of residual operation admission, the retained typed handle,
-/// registry-minted Stop authority, and terminal settlement. The application
-/// runtime keeps only a synchronous reservation ID so two root submissions
-/// cannot cross the first suspension together.
-private actor PlotterApplicationResidualOperationAdapter {
-  private typealias Registry = PlotterOperationRegistry<
-    PlotterApplicationResidualLane,
-    PlotterApplicationResidualContext,
-    PlotterApplicationResidualHandle
-  >
-
-  private let registry: Registry
-  private var eventRevision: UInt64 = 0
-  private typealias ShutdownReport = PlotterOperationShutdownReport<
-    PlotterApplicationResidualLane,
-    PlotterApplicationResidualContext,
-    PlotterApplicationResidualResult
-  >
-  private var shutdownTask: Task<ShutdownReport, Never>?
-
-  init() {
-    let lanes = try! PlotterOperationLaneConfiguration(
-      machine: PlotterApplicationResidualLane.machine,
-      exactWorkflowCaptureVision: .exactWorkflow,
-      backgroundAnalysis: .projection,
-      durableAppend: .persistence,
-      backgroundAnalysisLimit: 4
-    )
-    registry = Registry(lanes: lanes)
-  }
-
-  func run(
-    identity: PlotterOperationIdentity<PlotterApplicationResidualContext>,
-    context: PlotterApplicationResidualContext,
-    effect: any PlotterApplicationResidualOperationEffect
-  ) async {
-    let handle = PlotterApplicationResidualHandle(identity: identity, operation: effect)
-    let registration: PlotterOperationRegistration<PlotterApplicationResidualContext>
-    do {
-      registration = try await registry.register(
-        identity: identity,
-        lane: .exactWorkflow,
-        context: context,
-        handle: handle,
-        cancellationAvailable: true
-      )
-    } catch {
-      return
-    }
-    let completion = registration.completionCapability
-    let permit = registration.takePermit()
-    let revision = eventRevision
-    eventRevision &+= 1
-    let attribution = PlotterOperationEventAttribution(
-      identity: identity,
-      eventID: EpisodeEventID(rawValue: UUID()),
-      sequence: EpisodeEventSequence(rawValue: revision),
-      preStateRevision: EpisodeStateRevision(rawValue: revision),
-      postStateRevision: EpisodeStateRevision(rawValue: revision &+ 1),
-      recordedAt: Date()
-    )
-    switch await registry.start(permit, for: identity, attributedTo: attribution) {
-    case .accepted:
-      await handle.start()
-      let result = await handle.waitForSettlement()
-      _ = await registry.settle(result, using: completion)
-    case .admissionClosed:
-      return
-    case .retired:
-      return
-    case .cancellationInProgress:
-      return
-    case .identityMismatch:
-      preconditionFailure("Residual application operation attribution diverged.")
-    case .attributionRefused:
-      preconditionFailure("Residual application operation attribution diverged.")
-    }
-  }
-
-  func stopLearningAction(_ actionID: UUID) async {
-    let snapshot = await registry.snapshot()
-    guard let active = snapshot.active.first(where: {
-      $0.lane == .exactWorkflow
-        && $0.identity.effectID.rawValue == actionID
-        && $0.identity.intentIdentity.isLearningAction
-    }), let capability = active.stopCapability
-    else { return }
-    _ = await registry.stop(using: capability)
-  }
-
-  /// Phase one closes registry admission and waits only until every current
-  /// handle has observed its cancellation request. This lets the application
-  /// close the semantic feature owner that a retained UI task may currently be
-  /// awaiting before phase two joins that task's settlement.
-  func beginShutdown() async {
-    if shutdownTask == nil {
-      let registry = registry
-      shutdownTask = Task { await registry.shutdown() }
-    }
-    while true {
-      let snapshot = await registry.snapshot()
-      let cancellationIssued = snapshot.active.allSatisfy {
-        $0.cancellationPhase != .notRequested
-          && $0.cancellationPhase != .requested
-      }
-      if snapshot.admission == .closed && cancellationIssued { return }
-      await Task.yield()
-    }
-  }
-
-  func finishShutdown() async {
-    await beginShutdown()
-    _ = await shutdownTask?.value
-  }
+private struct PlotterApplicationLearningTask {
+  let transitionID: PlotterLearningTransitionID
+  let task: Task<String?, Never>
 }
 
 @MainActor
@@ -1006,9 +767,9 @@ final class PlotterApplicationRuntime:
     case possibleInk
   }
 
-  private struct ActiveBorderValidationOperation: Hashable, Sendable {
-    let step: BorderValidationStep
-    var strokeState: DrawingStrokeExecutionState
+  private final class BorderDrawingEffectProgress {
+    var strokeState: DrawingStrokeExecutionState = .notAdmitted
+    var outcome: DrawingPlanOutcome?
   }
 
   /// One complete learning authority value. LIVE and SIMULATED use the same
@@ -1020,7 +781,6 @@ final class PlotterApplicationRuntime:
     var lastContextualStopAuditRecord: ContextualStopAuditRecord?
     var lastProtocolPoseSettlement: ProtocolPoseSettlement?
     var explorationError: String?
-    var borderValidation: PlotterBorderValidationSnapshot
     var learningArtifactGraph = LearningDependencyGraph()
     var exerciseAttempt: ExerciseAttemptLifecycle = .idle
     var restartableExerciseItemID: LearningPathItemID?
@@ -1042,7 +802,6 @@ final class PlotterApplicationRuntime:
       paperInstanceRevision: UUID,
       paperContactPlaneRevision: UUID
     ) {
-      borderValidation = PlotterBorderValidationSnapshot(sourceIsSimulated: source == .simulated)
       explorationPaperInstanceRevision = paperInstanceRevision
       explorationPaperContactPlaneRevision = paperContactPlaneRevision
     }
@@ -1050,18 +809,16 @@ final class PlotterApplicationRuntime:
   }
 
   /// Canonical mutable application state. Feature runtimes retain their own
-  /// typed operational state; this value owns only the source-indexed residual
-  /// application facts and the synchronous root residual-effect reservation.
+  /// typed operational state; this value owns only source-indexed residual
+  /// application facts.
   private struct PlotterApplicationState {
     var environmentStates: [OperatorFrameMode: PlotterApplicationEnvironmentState]
-    var residualLearningAdmissionID: UUID?
 
     init(
       live: PlotterApplicationEnvironmentState,
       simulated: PlotterApplicationEnvironmentState
     ) {
       environmentStates = [.live: live, .simulated: simulated]
-      residualLearningAdmissionID = nil
     }
   }
 
@@ -1178,14 +935,10 @@ final class PlotterApplicationRuntime:
     ActionSurfaceDiagnosticSignature?
   @ObservationIgnored private var currentPlotterUIProjection: PlotterUIProjection?
   @ObservationIgnored private var currentPlotterUIBindingSemanticRevision: UInt64?
-  @ObservationIgnored private var currentPlotterUIResetPlans:
-    [PlotterUIActionID: LearningVacatePlan] = [:]
-  @ObservationIgnored private var currentApplicationActions:
-    [PlotterUIActionID: PlotterApplicationBoundAction] = [:]
   @ObservationIgnored private var admissionState: AdmissionState = .open
   @ObservationIgnored private var startupState: StartupState = .notStarted
-  @ObservationIgnored private let residualOperationAdapter =
-    PlotterApplicationResidualOperationAdapter()
+  @ObservationIgnored private(set) var learningEpisodeRecord = PlotterLearningEpisodeRecord()
+  @ObservationIgnored private var activeLearningActionTask: PlotterApplicationLearningTask?
   @ObservationIgnored private var semanticPresentationUpdateDepth = 0
   @ObservationIgnored private var semanticPresentationChangeIsPending = false
   @ObservationIgnored private var actionSurfaceInvalidationIsPending = false
@@ -1325,17 +1078,11 @@ final class PlotterApplicationRuntime:
     self?.installBorderValidationRuntimeProjection(snapshot, source: .simulated)
   }
   @ObservationIgnored
-  private(set) var borderValidationRuntime: PlotterBorderValidationRuntime {
-    get {
-      frameMode == .live ? liveBorderValidationRuntime : simulatedBorderValidationRuntime
-    }
-    set {
-      if frameMode == .live {
-        liveBorderValidationRuntime = newValue
-      } else {
-        simulatedBorderValidationRuntime = newValue
-      }
-    }
+  var borderValidationRuntime: PlotterBorderValidationRuntime {
+    frameMode == .live ? liveBorderValidationRuntime : simulatedBorderValidationRuntime
+  }
+  var borderValidationSnapshot: PlotterBorderValidationSnapshot {
+    borderValidationRuntime.snapshot()
   }
   @ObservationIgnored
   private var currentEnvironmentState: PlotterApplicationEnvironmentState {
@@ -1539,22 +1286,6 @@ final class PlotterApplicationRuntime:
   private var currentCameraCalibrationFailure: CurrentCameraCalibrationFailure? {
     get { cameraCalibrationRuntime.failure }
   }
-  private(set) var localPreFrameBaseline: DisplayedFrame? {
-    get { currentEnvironmentState.borderValidation.localPreFrameBaseline }
-    set { currentEnvironmentState.borderValidation.localPreFrameBaseline = newValue }
-  }
-  private(set) var borderValidationRevealPosition: MachinePosition? {
-    get { currentEnvironmentState.borderValidation.revealPosition }
-    set { currentEnvironmentState.borderValidation.revealPosition = newValue }
-  }
-  private(set) var borderValidationTipRegistrationRevisionID: LearningArtifactRevisionID? {
-    get { currentEnvironmentState.borderValidation.tipRegistrationRevisionID }
-    set { currentEnvironmentState.borderValidation.tipRegistrationRevisionID = newValue }
-  }
-  private(set) var borderValidationObservationRegion: PixelRect? {
-    get { currentEnvironmentState.borderValidation.observationRegion }
-    set { currentEnvironmentState.borderValidation.observationRegion = newValue }
-  }
   private(set) var lastProtocolPoseSettlement: ProtocolPoseSettlement? {
     get { currentEnvironmentState.lastProtocolPoseSettlement }
     set { currentEnvironmentState.lastProtocolPoseSettlement = newValue }
@@ -1563,45 +1294,7 @@ final class PlotterApplicationRuntime:
     get { currentEnvironmentState.explorationError }
     set { currentEnvironmentState.explorationError = newValue }
   }
-  private(set) var explorationPostFrame: DisplayedFrame? {
-    get { currentEnvironmentState.borderValidation.postFrame }
-    set { currentEnvironmentState.borderValidation.postFrame = newValue }
-  }
-  private(set) var borderValidationProgram: DrawingProgram? {
-    get { currentEnvironmentState.borderValidation.program }
-    set { currentEnvironmentState.borderValidation.program = newValue }
-  }
-  private(set) var drawingBorderPlan: ExecutionPlanRevision? {
-    get { currentEnvironmentState.borderValidation.drawingBorderPlan }
-    set { currentEnvironmentState.borderValidation.drawingBorderPlan = newValue }
-  }
-  private(set) var borderValidationDrawingOutcome: DrawingPlanOutcome? {
-    get { currentEnvironmentState.borderValidation.drawingOutcome }
-    set { currentEnvironmentState.borderValidation.drawingOutcome = newValue }
-  }
-  private(set) var lastFrameObservation: PlannedDrawingObservation? {
-    get { currentEnvironmentState.borderValidation.inkObservation }
-    set { currentEnvironmentState.borderValidation.inkObservation = newValue }
-  }
-  private(set) var explorationInkStatus: String {
-    get { currentEnvironmentState.borderValidation.inkStatus }
-    set { currentEnvironmentState.borderValidation.inkStatus = newValue }
-  }
-  private var activeBorderValidationOperation: ActiveBorderValidationOperation? {
-    didSet {
-      guard oldValue != activeBorderValidationOperation else { return }
-      markSemanticPresentationChanged()
-    }
-  }
   private(set) var lastAnnouncementResultText = "No announcement has run."
-  private(set) var lastTravelFeedSelection: TravelFeedSelection? {
-    get { currentEnvironmentState.borderValidation.lastTravelFeedSelection }
-    set { currentEnvironmentState.borderValidation.lastTravelFeedSelection = newValue }
-  }
-  private(set) var borderValidationAssessment: BorderValidationAssessment? {
-    get { currentEnvironmentState.borderValidation.assessment }
-    set { currentEnvironmentState.borderValidation.assessment = newValue }
-  }
   private(set) var learningArtifactGraph: LearningDependencyGraph {
     get { currentEnvironmentState.learningArtifactGraph }
     set { currentEnvironmentState.learningArtifactGraph = newValue }
@@ -1692,12 +1385,6 @@ final class PlotterApplicationRuntime:
     _ refusal: PlotterPenInteractionRefusal
   ) -> String {
     "Pen Interaction refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
-  }
-  private(set) var comparisonAttemptHistories:
-    [AttemptCompatibility: ExerciseAttemptHistory<BorderValidationAssessment>]
-  {
-    get { currentEnvironmentState.borderValidation.comparisonAttemptHistories }
-    set { currentEnvironmentState.borderValidation.comparisonAttemptHistories = newValue }
   }
   var activeExerciseAttemptID: ExerciseAttemptID? {
     currentEnvironmentState.exerciseAttempt.id
@@ -1975,10 +1662,6 @@ final class PlotterApplicationRuntime:
     set { currentEnvironmentState.acceptedAttemptSequence = newValue }
   }
   @ObservationIgnored private var lastSimulatedProtocolCaptureNanoseconds: UInt64 = 0
-  private var currentBorderValidationGroup: AttemptGroupIdentity {
-    get { currentEnvironmentState.borderValidation.group }
-    set { currentEnvironmentState.borderValidation.group = newValue }
-  }
   private var activeMachineArtifactCheckpoint: AcceptedMachineArtifactCheckpoint? {
     get { currentEnvironmentState.activeMachineArtifactCheckpoint }
     set { currentEnvironmentState.activeMachineArtifactCheckpoint = newValue }
@@ -2244,6 +1927,7 @@ final class PlotterApplicationRuntime:
     guard frameMode == .simulated else { return }
     recoverableTipCalibrationCheckpoint = checkpoint
     restoreTipCalibrationForSimulatedTest(against: displayedFrame)
+    markSemanticPresentationChanged()
   }
 
   func simulateUnchangedApplicationTipReloadForTesting(
@@ -2384,8 +2068,8 @@ final class PlotterApplicationRuntime:
     computationDiagnostics.actionSurfaceBuildCount += 1
     let surfaceFrame =
       frozenPointSelectionFrame
-      ?? (currentEnvironmentState.borderValidation.comparisonReviewIsPinned
-        ? explorationPostFrame
+      ?? (borderValidationSnapshot.comparisonReviewIsPinned
+        ? borderValidationSnapshot.postFrame
         : nil)
       ?? ({
         guard let run = drawingRunSnapshot else { return nil }
@@ -2527,7 +2211,10 @@ final class PlotterApplicationRuntime:
     case .applied:
       drawingEvidenceError = nil
       if submission.intent == .open {
-        currentEnvironmentState.borderValidation.comparisonReviewIsPinned = false
+        let reviewResult = borderValidationRuntime.apply(.setComparisonReviewPinned(false))
+        if case .refused(let reason, let remedy) = reviewResult.disposition {
+          drawingEvidenceError = "\(reason) Remedy: \(remedy)"
+        }
       }
       await synchronizeDrawingRunProjection()
     case .refused(let refusal):
@@ -2559,7 +2246,7 @@ final class PlotterApplicationRuntime:
   }
 
   var interactiveLearningIsComplete: Bool {
-    if borderValidationAssessment == .predictionObserved { return true }
+    if borderValidationSnapshot.assessment == .predictionObserved { return true }
     guard let registration = tipCameraRegistration else { return false }
     return drawingEvidenceArchive.records.contains { record in
       record.role == .evaluationHoldout
@@ -3139,7 +2826,7 @@ final class PlotterApplicationRuntime:
   var completedComparisonReviewPresentation: CompletedComparisonReviewPresentation {
     guard !drawingRunIsActive,
       completedDrawingComparisonReviewIsAvailable,
-      let frame = explorationPostFrame
+      let frame = borderValidationSnapshot.postFrame
     else {
       return .unavailable
     }
@@ -3148,17 +2835,19 @@ final class PlotterApplicationRuntime:
       state: completedDrawingComparisonReviewIsPinned
         ? .reviewingExactFrame(provenance)
         : .available(provenance),
-      drawingDraftProjection: borderValidationAssessment == .predictionObserved
+      drawingDraftProjection: borderValidationSnapshot.assessment == .predictionObserved
         ? drawingDraftSnapshot.projection : nil
     )
   }
 
   var completedDrawingComparisonReviewIsAvailable: Bool {
-    borderValidationAssessment != nil && explorationPostFrame != nil && lastFrameObservation != nil
+    borderValidationSnapshot.assessment != nil
+      && borderValidationSnapshot.postFrame != nil
+      && borderValidationSnapshot.inkObservation != nil
   }
 
   var completedDrawingComparisonReviewIsPinned: Bool {
-    currentEnvironmentState.borderValidation.comparisonReviewIsPinned
+    borderValidationSnapshot.comparisonReviewIsPinned
   }
 
   func submitCompletedComparisonReview(_ intent: CompletedComparisonReviewIntent) {
@@ -3187,17 +2876,23 @@ final class PlotterApplicationRuntime:
       )
       guard !drawingStudioIsPresented else { return }
     }
-    currentEnvironmentState.borderValidation.comparisonReviewIsPinned = true
+    let result = borderValidationRuntime.apply(.setComparisonReviewPinned(true))
+    if case .refused(let reason, let remedy) = result.disposition {
+      drawingEvidenceError = "\(reason) Remedy: \(remedy)"
+    }
   }
 
   func resumeLivePreviewAfterDrawingComparison() {
-    currentEnvironmentState.borderValidation.comparisonReviewIsPinned = false
+    let result = borderValidationRuntime.apply(.setComparisonReviewPinned(false))
+    if case .refused(let reason, let remedy) = result.disposition {
+      drawingEvidenceError = "\(reason) Remedy: \(remedy)"
+    }
   }
 
   private func borderValidationPredictionOverlays(
     on displayedFrame: DisplayedFrame
   ) -> [CameraOverlayMeasurement] {
-    guard lastFrameObservation == nil,
+    guard borderValidationSnapshot.inkObservation == nil,
       let registration = tipCameraRegistration,
       displayedFrame.source == registration.applicability.opticalConfiguration.source,
       displayedFrame.frame.width == registration.applicability.opticalConfiguration.width,
@@ -3206,8 +2901,8 @@ final class PlotterApplicationRuntime:
         == registration.applicability.opticalConfiguration.pixelFormat,
       let currentRevision = learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id,
       currentRevision == registration.acceptedRevisionID,
-      borderValidationTipRegistrationRevisionID == currentRevision,
-      let plan = drawingBorderPlan,
+      borderValidationSnapshot.tipRegistrationRevisionID == currentRevision,
+      let plan = borderValidationSnapshot.drawingBorderPlan,
       let path = plan.strokes.first?.path,
       let predictedBorder = try? Polyline(
         points: path.points.map { try registration.tipPixel(at: $0) }
@@ -3354,7 +3049,7 @@ final class PlotterApplicationRuntime:
       discoveryBusyReason: discoveryBusyReason,
       foreignOperationInFlight: passiveProbeInProgress || jogRequestInProgress
         || retainedPenRequestInProgress || jogCancelRequestInProgress
-        || activeBorderValidationOperation != nil
+        || borderValidationSnapshot.activeOperationID != nil
         || machineSnapshot?.machine.operationInFlight == true,
       frameModeSwitchInProgress: frameModeSwitchInProgress,
       connectionActionInProgress: controllerConnectionActionInProgress,
@@ -3612,7 +3307,7 @@ final class PlotterApplicationRuntime:
     if activeDiscoverySequenceID != nil {
       return "Finish the active Plotter Calibration attempt first."
     }
-    if activeBorderValidationOperation != nil {
+    if borderValidationSnapshot.activeOperationID != nil {
       return "Wait for the current learning action before changing frame source."
     }
     if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
@@ -3623,10 +3318,6 @@ final class PlotterApplicationRuntime:
     return nil
   }
 
-  private(set) var borderValidationStep: BorderValidationStep {
-    get { currentEnvironmentState.borderValidation.step }
-    set { currentEnvironmentState.borderValidation.step = newValue }
-  }
   var activeDiscoverySequenceID: DiscoverySequenceID? {
     discoveryTransactions.first { _, transaction in
       switch transaction.state {
@@ -3698,8 +3389,9 @@ final class PlotterApplicationRuntime:
     PlotterArtifactResetAdmissionFacts(
       environment: manualMotionEnvironment,
       possibleInkBlocked: retainedStopRegistration?.possibleInkLocation != nil
-        || activeBorderValidationOperation?.strokeState == .possibleInk,
-      activeStopBlocked: activeStopTarget != nil || activeBorderValidationOperation != nil,
+        || borderValidationSnapshot.executionState == .possibleInk,
+      activeStopBlocked: activeStopTarget != nil
+        || borderValidationSnapshot.activeOperationID != nil,
       motionSettlementBlocked: passiveProbeInProgress || jogRequestInProgress
         || retainedPenRequestInProgress || jogCancelRequestInProgress
         || machineSnapshot?.machine.operationInFlight == true || admittedApplicationEffects.count > 0,
@@ -3750,10 +3442,8 @@ final class PlotterApplicationRuntime:
   }
 
   private func cancelAndSettleLearningForReset() async -> Bool {
-    let actionID = applicationState.residualLearningAdmissionID
-    if let actionID {
-      await residualOperationAdapter.stopLearningAction(actionID)
-    }
+    let learningTask = activeLearningActionTask
+    learningTask?.task.cancel()
 
     await cameraCalibrationRuntime.cancelActiveOperation()
 
@@ -3765,15 +3455,16 @@ final class PlotterApplicationRuntime:
     } else if let operation = retainedStopRegistration {
       await cancelAndSettleStoppableOperation(operation, intent: .cancelAttempt)
     }
-    guard await cancelAndSettleBoundaryForReset() else { return false }
-
-    if applicationState.residualLearningAdmissionID == actionID {
-      applicationState.residualLearningAdmissionID = nil
+    let boundarySettled = await cancelAndSettleBoundaryForReset()
+    _ = await learningTask?.task.value
+    if activeLearningActionTask?.transitionID == learningTask?.transitionID {
+      activeLearningActionTask = nil
     }
+    guard boundarySettled else { return false }
     let learningStopStillActive = activeStopTarget != nil
     guard activeExerciseAttemptID == nil,
       activeDiscoverySequenceID == nil,
-      activeBorderValidationOperation == nil,
+      borderValidationSnapshot.activeOperationID == nil,
       cameraCalibrationRuntimePhase == nil,
       !learningStopStillActive
     else {
@@ -3950,9 +3641,12 @@ final class PlotterApplicationRuntime:
     )
     recordPayload(
       .borderValidation(.chooseDrawingBorderPlan),
-      when: drawingBorderPlan != nil || localPreFrameBaseline != nil
-        || borderValidationDrawingOutcome != nil || explorationPostFrame != nil
-        || borderValidationAssessment != nil || !comparisonAttemptHistories.isEmpty
+      when: borderValidationSnapshot.drawingBorderPlan != nil
+        || borderValidationSnapshot.localPreFrameBaseline != nil
+        || borderValidationSnapshot.drawingOutcome != nil
+        || borderValidationSnapshot.postFrame != nil
+        || borderValidationSnapshot.assessment != nil
+        || !borderValidationSnapshot.comparisonAttemptHistories.isEmpty
     )
 
     let source: LearningVacateSource = frameMode == .live ? .live : .simulated
@@ -3968,8 +3662,8 @@ final class PlotterApplicationRuntime:
       || tipCameraRegistration != nil
       || savedLearningState.checkpoint?.tipCalibration != nil
     let physicalInkMayRemain =
-      (borderValidationDrawingOutcome?.progress.commandedStrokeCount ?? 0) > 0
-      || lastFrameObservation != nil
+      (borderValidationSnapshot.drawingOutcome?.progress.commandedStrokeCount ?? 0) > 0
+      || borderValidationSnapshot.inkObservation != nil
 
     func makePlan(
       scope: LearningVacateScope,
@@ -4181,38 +3875,59 @@ final class PlotterApplicationRuntime:
     )
   }
 
+  @discardableResult
   func submitObservationConfiguration(
     _ submission: PlotterObservationOperatorSubmission
-  ) async {
-    guard applicationAdmissionIsOpen else { return }
+  ) async -> String? {
+    guard applicationAdmissionIsOpen else { return "Observation configuration is shut down." }
     guard submission.reference.revision == semanticPresentationRevision,
       submission.reference.capabilityID == controllerSessionID
-    else { return }
+    else { return "The observation projection changed; use the current action." }
     switch submission.intent {
     case .refresh:
       await refreshObservationSources()
     case .selectSource(.simulated, _):
       await transitionObservationSource(.simulated)
-    case .selectSource(.live, let id):
-      guard let id else {
+    case .selectSource(.live, let cameraID):
+      guard let cameraID else {
         await transitionObservationSource(.live)
-        return
+        return nil
       }
+      guard !cameraID.isEmpty else { return "Select a current camera before retrying." }
+      let id = CameraDeviceID(rawValue: cameraID)
       await selectCamera(id)
-      guard selectedCameraID == id, cameraError == nil else { return }
+      guard selectedCameraID == id, cameraError == nil else {
+        return cameraError ?? "The selected camera is no longer available."
+      }
       await startCamera()
     case .stopLiveSource:
       await stopCamera()
     case .restartLiveSource:
       await restartCamera()
-    case .setCadence(let cadence):
-      guard visionAnalysisCadence != cadence else { return }
+    case .setCadence(let framesPerSecond):
+      guard let cadence = VisionAnalysisCadence(rawValue: framesPerSecond) else {
+        return "Select a supported camera-analysis cadence."
+      }
+      guard visionAnalysisCadence != cadence else { return nil }
       visionAnalysisCadence = cadence
       markSemanticPresentationChanged()
       await reconcileAutomaticVisionAnalysis()
-    case .setRegion(let region, let displayedFrame):
-      await applyVideoAnalysisRegion(region, for: displayedFrame)
-    case .setOverlay(let overlay, let enabled):
+    case .setRegion(let region, let identity):
+      guard let displayedFrame,
+        displayedFrame.frame.id.rawValue == identity.frameID,
+        displayedFrame.frame.sequence == identity.sequence,
+        displayedFrame.frame.captureNanoseconds == identity.captureNanoseconds,
+        displayedFrame.frame.cameraConfigurationID.rawValue.uuidString
+          == identity.cameraConfigurationID
+      else { return "Refresh the exact displayed frame before changing its analysis region." }
+      await applyVideoAnalysisRegion(
+        region.map { PixelRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) },
+        for: displayedFrame
+      )
+    case .setOverlay(let identifier, let enabled):
+      guard let overlay = UserSceneOverlay(rawValue: identifier) else {
+        return "Refresh the current overlay controls before retrying."
+      }
       let prior = overlayPreferenceState
       overlayPreferenceState.applyOperatorSelection(overlay, enabled: enabled)
       do {
@@ -4220,13 +3935,14 @@ final class PlotterApplicationRuntime:
       } catch {
         overlayPreferenceState = prior
         visionError = "Overlay preference was not saved: \(actionableDescription(error))"
-        return
+        return visionError
       }
       markSemanticPresentationChanged()
       await reconcileAutomaticVisionAnalysis()
     case .requestDiagnostics:
       await requestVideoDiagnostics()
     }
+    return nil
   }
 
   private func refreshObservationSources() async {
@@ -4282,7 +3998,7 @@ final class PlotterApplicationRuntime:
     await reconcileAutomaticVisionAnalysis()
   }
 
-  var currentExerciseActionStripPresentation: ExerciseActionStripPresentation? {
+  var currentExerciseActionStripPresentation: PlotterUILearningActionStripDecision? {
     learningPresentationBase().currentProjection.currentActionStrip
   }
 
@@ -4351,102 +4067,113 @@ final class PlotterApplicationRuntime:
       actionSurface.acceptsPendingPointSelection($0) ? $0 : nil
     }
     var candidates: [PlotterUIActionCandidate] = []
-    var applicationActions: [PlotterUIActionID: PlotterApplicationBoundAction] = [:]
-    func bindApplicationAction(
+    func appendApplicationCandidate(
       id: PlotterUIActionID,
       title: String,
-      action: PlotterApplicationBoundAction,
+      intent: PlotterUIIntent,
       unavailableReason: String? = nil,
       owner: String
     ) {
-      applicationActions[id] = action
       candidates.append(uiCandidate(
         id: id,
         title: title,
-        intent: .applicationAction(id),
+        intent: intent,
         unavailableReason: unavailableReason,
         owner: owner
       ))
     }
-    bindApplicationAction(
+    appendApplicationCandidate(
       id: PlotterAppUIActionID.controllerRefresh,
       title: "Refresh controllers",
-      action: .controller(controller.request(.refreshSerialDevices)),
+      intent: .controller(controller.request(.refreshSerialDevices)),
       owner: "PlotterControllerSessionRuntime"
     )
     for device in controller.serialDevices {
-      bindApplicationAction(
+      appendApplicationCandidate(
         id: PlotterAppUIActionID.controllerDevice(device.identifier),
         title: "Select \(device.displayName)",
-        action: .controller(controller.request(.selectSerialDevice(device))),
+        intent: .controller(controller.request(.selectSerialDevice(.init(
+          identifier: device.identifier,
+          displayName: device.displayName,
+          bsdPath: device.bsdPath,
+          transport: device.transport.rawValue
+        )))),
         unavailableReason: controller.selectionUnavailableReason,
         owner: "PlotterControllerSessionRuntime"
       )
     }
-    bindApplicationAction(
+    appendApplicationCandidate(
       id: PlotterAppUIActionID.controllerConnection,
       title: controller.connectionAction.title,
-      action: .controller(controller.request(.toggleConnection)),
+      intent: .controller(controller.request(.toggleConnection)),
       unavailableReason: controller.connectionUnavailableReason,
       owner: "PlotterControllerSessionRuntime"
     )
-    bindApplicationAction(
+    appendApplicationCandidate(
       id: PlotterAppUIActionID.controllerMotion,
       title: controller.motionAuthorized ? "Disable Motion" : "Enable Motion",
-      action: .controller(controller.request(.toggleMotionAuthorization)),
+      intent: .controller(controller.request(.toggleMotionAuthorization)),
       unavailableReason: controller.motionAuthorizationUnavailableReason,
       owner: "PlotterControllerSessionRuntime"
     )
-    bindApplicationAction(
+    appendApplicationCandidate(
       id: PlotterAppUIActionID.controllerClearAlarm,
       title: "Clear Alarm",
-      action: .controller(controller.request(.clearAlarm)),
+      intent: .controller(controller.request(.clearAlarm)),
       unavailableReason: controller.alarmClearUnavailableReason,
       owner: "PlotterControllerSessionRuntime"
     )
-    bindApplicationAction(
+    appendApplicationCandidate(
       id: PlotterAppUIActionID.observationRefresh,
       title: "Refresh cameras",
-      action: .observation(observation.request(.refresh)),
+      intent: .observation(observation.request(.refresh)),
       owner: "PlotterObservationConfigurationRuntime"
     )
-    bindApplicationAction(
+    appendApplicationCandidate(
       id: PlotterAppUIActionID.observationSimulated,
       title: "Use simulated source",
-      action: .observation(observation.request(.selectSource(.simulated, nil))),
+      intent: .observation(observation.request(.selectSource(.simulated, cameraID: nil))),
       unavailableReason: observation.sourceChangeUnavailableReason,
       owner: "PlotterObservationConfigurationRuntime"
     )
     for camera in observation.cameraDevices {
-      bindApplicationAction(
+      appendApplicationCandidate(
         id: PlotterAppUIActionID.observationCamera(camera.id.rawValue),
         title: "Use \(camera.name)",
-        action: .observation(observation.request(.selectSource(.live, camera.id))),
+        intent: .observation(observation.request(.selectSource(
+          .live,
+          cameraID: camera.id.rawValue
+        ))),
         unavailableReason: observation.sourceChangeUnavailableReason,
         owner: "PlotterObservationConfigurationRuntime"
       )
     }
-    bindApplicationAction(
+    appendApplicationCandidate(
       id: PlotterAppUIActionID.observationDiagnostics,
       title: "Refresh observation diagnostics",
-      action: .observation(observation.request(.requestDiagnostics)),
+      intent: .observation(observation.request(.requestDiagnostics)),
       owner: "PlotterObservationConfigurationRuntime"
     )
     for cadence in VisionAnalysisCadence.allCases {
-      bindApplicationAction(
+      appendApplicationCandidate(
         id: PlotterAppUIActionID.observationCadence(cadence),
         title: "Set analysis cadence to \(cadence.displayValue)",
-        action: .observation(observation.request(.setCadence(cadence))),
+        intent: .observation(observation.request(.setCadence(
+          framesPerSecond: cadence.rawValue
+        ))),
         unavailableReason: observation.frameMode == .live ? nil : "SIMULATED owns its cadence.",
         owner: "PlotterObservationConfigurationRuntime"
       )
     }
     for overlay in UserSceneOverlay.allCases {
       let enabled = !observation.enabledOverlays.contains(overlay)
-      bindApplicationAction(
+      appendApplicationCandidate(
         id: PlotterAppUIActionID.observationOverlay(overlay.rawValue, enabled: enabled),
         title: "\(enabled ? "Enable" : "Disable") \(overlay.rawValue) overlay",
-        action: .observation(observation.request(.setOverlay(overlay, enabled: enabled))),
+        intent: .observation(observation.request(.setOverlay(
+          identifier: overlay.rawValue,
+          enabled: enabled
+        ))),
         owner: "PlotterObservationConfigurationRuntime"
       )
     }
@@ -4457,27 +4184,35 @@ final class PlotterApplicationRuntime:
       )
     {
       let nextRegion = observation.regionLock?.matches(displayedFrame) == true ? nil : region
-      bindApplicationAction(
+      appendApplicationCandidate(
         id: PlotterAppUIActionID.observationRegion,
         title: nextRegion == nil ? "Unlock analysis region" : "Lock analysis region",
-        action: .observation(observation.request(
-          .setRegion(nextRegion, displayedFrame: displayedFrame)
-        )),
+        intent: .observation(observation.request(.setRegion(
+          nextRegion.map {
+            PlotterObservationRegion(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+          },
+          displayedFrame: .init(
+            frameID: displayedFrame.frame.id.rawValue,
+            sequence: displayedFrame.frame.sequence,
+            captureNanoseconds: displayedFrame.frame.captureNanoseconds,
+            cameraConfigurationID: displayedFrame.frame.cameraConfigurationID.rawValue.uuidString
+          )
+        ))),
         unavailableReason: observation.calibrationBusyReason,
         owner: "PlotterObservationConfigurationRuntime"
       )
     }
-    bindApplicationAction(
+    appendApplicationCandidate(
       id: PlotterAppUIActionID.paperNewSheet,
       title: "New sheet on current contact plane",
-      action: .paper(.newSheetOnCurrentPlane),
+      intent: .paper(.newSheetOnCurrentPlane),
       unavailableReason: paperManagementUnavailableReason,
       owner: "PlotterApplicationRuntime"
     )
-    bindApplicationAction(
+    appendApplicationCandidate(
       id: PlotterAppUIActionID.paperContactPlane,
       title: "Paper contact plane changed",
-      action: .paper(.contactPlaneChanged),
+      intent: .paper(.contactPlaneChanged),
       unavailableReason: paperManagementUnavailableReason,
       owner: "PlotterApplicationRuntime"
     )
@@ -4611,23 +4346,20 @@ final class PlotterApplicationRuntime:
         currentLearning.snapshot,
         selectedItemID: selectedItemID
       )
-      candidates.append(contentsOf: actionability.strips.flatMap(adapter.candidates))
+      candidates.append(contentsOf: actionability.strips.flatMap { strip in
+        strip.requestDecisions().map { $0.candidate() }
+      })
     }
-    var resetPlans: [PlotterUIActionID: LearningVacatePlan] = [:]
     if let plan = learningPath?.resetSurface.selectedPlan {
-      let id = PlotterAppUIActionID.learningReset(plan)
-      resetPlans[id] = plan
-      candidates.append(.retainedLearningReset(
-        id: id,
+      candidates.append(.learningReset(
+        request: plan.modelRequest,
         title: plan.title,
         unavailableReason: learningPath?.resetSurface.unavailableReason
       ))
     }
     if let plan = learningPath?.menu.resetAllPlan {
-      let id = PlotterAppUIActionID.learningReset(plan)
-      resetPlans[id] = plan
-      candidates.append(.retainedLearningReset(
-        id: id,
+      candidates.append(.learningReset(
+        request: plan.modelRequest,
         title: plan.title,
         unavailableReason: nil
       ))
@@ -4674,8 +4406,6 @@ final class PlotterApplicationRuntime:
     ))
     currentPlotterUIProjection = semantic
     currentPlotterUIBindingSemanticRevision = semanticPresentationRevision
-    currentPlotterUIResetPlans = resetPlans
-    currentApplicationActions = applicationActions
     return PlotterAppUIProjection(
       semantic: semantic,
       actionSurface: actionSurface,
@@ -4871,6 +4601,36 @@ final class PlotterApplicationRuntime:
   func submitPlotterUIRequest(
     _ request: PlotterUIRequest
   ) async -> PlotterUIRequestDisposition {
+    let learningRecordRequest: PlotterLearningRecordRequest
+    switch request.intent {
+    case .learningAction(let learningRequest):
+      learningRecordRequest = .action(learningRequest)
+    case .learningReset(let resetRequest):
+      learningRecordRequest = .reset(resetRequest)
+    default:
+      return await submitUnrecordedPlotterUIRequest(request, learningTransitionID: nil)
+    }
+    let reservation = learningEpisodeRecord.reserve(
+      learningRecordRequest,
+      environment: frameMode == .live ? .live : .simulated,
+      preStateRevision: .init(rawValue: semanticPresentationRevision)
+    )
+    let disposition = await submitUnrecordedPlotterUIRequest(
+      request,
+      learningTransitionID: reservation.transitionID
+    )
+    learningEpisodeRecord.publish(
+      reservation,
+      result: learningEpisodeResult(disposition, request: learningRecordRequest),
+      postTransitionProjection: learningPostTransitionProjection()
+    )
+    return disposition
+  }
+
+  private func submitUnrecordedPlotterUIRequest(
+    _ request: PlotterUIRequest,
+    learningTransitionID: PlotterLearningTransitionID?
+  ) async -> PlotterUIRequestDisposition {
     guard let currentProjection = currentPlotterUIProjection else {
       return plotterUIRefusal(
         request,
@@ -5039,36 +4799,59 @@ final class PlotterApplicationRuntime:
           remedy: "Boundary refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
         )
       }
-    case .retainedLearningAction:
-      guard let resolved = retainedLearningAction(for: request.actionID) else {
-        return plotterUIRefusal(
-          request,
-          reason: .unknownAction,
-          currentUIRevision: currentUIRevision,
-          currentRuntimeRevisions: currentRuntimeRevisions,
-          remedy: "Refresh the Learning projection and use its current action."
-        )
-      }
-      guard let kind = PlotterLearningActionabilityFactAdapter()
-        .exerciseAction(resolved.action)
-      else {
+      installBoundarySnapshot(await boundaryRuntime.snapshot(for: reference.environment))
+    case .learningAction(let learningRequest)
+      where request.actionID == PlotterUIActionID(learningRequest: learningRequest):
+      guard let learningTransitionID else {
         return plotterUIRefusal(
           request,
           reason: .mismatchedIntent,
           currentUIRevision: currentUIRevision,
           currentRuntimeRevisions: currentRuntimeRevisions,
-          remedy: "Use the exact typed Pen Interaction request bound by the current projection."
+          remedy: "Submit Learning actions through the model-owned episode boundary."
         )
       }
-      await submitProjectionBoundLearningAction(kind, for: resolved.owner)
-    case .retainedLearningReset(let actionID) where request.actionID == actionID:
-      guard let plan = currentPlotterUIResetPlans[actionID] else {
+      let adapter = PlotterLearningActionabilityFactAdapter()
+      guard let owner = adapter.itemID(learningRequest.item.rawValue) else {
         return plotterUIRefusal(
           request,
           reason: .unknownAction,
           currentUIRevision: currentUIRevision,
           currentRuntimeRevisions: currentRuntimeRevisions,
-          remedy: "Refresh the current Learning reset preview before retrying."
+          remedy: "Refresh the Learning projection and use its exact current item identity."
+        )
+      }
+      if let remedy = await submitProjectionBoundLearningAction(
+        learningRequest.action,
+        for: owner,
+        transitionID: learningTransitionID
+      ) {
+        return plotterUIRefusal(
+          request,
+          reason: .retainedOwnerRefused,
+          currentUIRevision: currentPlotterUIProjection?.revision ?? currentUIRevision,
+          currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(),
+          remedy: remedy
+        )
+      }
+    case .learningReset(let resetRequest)
+      where request.actionID == PlotterUIActionID(rawValue: resetRequest.identity):
+      guard learningTransitionID != nil else {
+        return plotterUIRefusal(
+          request,
+          reason: .mismatchedIntent,
+          currentUIRevision: currentUIRevision,
+          currentRuntimeRevisions: currentRuntimeRevisions,
+          remedy: "Submit Learning resets through the model-owned episode boundary."
+        )
+      }
+      guard let plan = learningVacatePlan(resetRequest) else {
+        return plotterUIRefusal(
+          request,
+          reason: .mismatchedIntent,
+          currentUIRevision: currentUIRevision,
+          currentRuntimeRevisions: currentRuntimeRevisions,
+          remedy: "Refresh the exact typed Learning reset request before retrying."
         )
       }
       let succeeded: Bool
@@ -5092,26 +4875,30 @@ final class PlotterApplicationRuntime:
       submitCompletedComparisonReview(
         intent == .reviewExactFrame ? .reviewComparison : .resumeLivePreview
       )
-    case .applicationAction(let actionID) where actionID == request.actionID:
-      guard let action = currentApplicationActions[actionID] else {
+    case .controller(let controllerRequest):
+      if case .refused(let reason) = await submitControllerSessionRequest(controllerRequest) {
         return plotterUIRefusal(
           request,
-          reason: .unknownAction,
-          currentUIRevision: currentUIRevision,
-          currentRuntimeRevisions: currentRuntimeRevisions,
-          remedy: "Refresh the application projection and use its exact bound action."
+          reason: .retainedOwnerRefused,
+          currentUIRevision: currentPlotterUIProjection?.revision ?? currentUIRevision,
+          currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(),
+          remedy: reason
         )
       }
-      switch action {
-      case .controller(let submission):
-        _ = await submitControllerSessionRequest(submission)
-      case .observation(let submission):
-        await submitObservationConfiguration(submission)
-      case .paper(.newSheetOnCurrentPlane):
-        await recordNewPaperSheetOnCurrentPlane()
-      case .paper(.contactPlaneChanged):
-        await recordPaperContactPlaneChanged()
+    case .observation(let observationRequest):
+      if let reason = await submitObservationConfiguration(observationRequest) {
+        return plotterUIRefusal(
+          request,
+          reason: .retainedOwnerRefused,
+          currentUIRevision: currentPlotterUIProjection?.revision ?? currentUIRevision,
+          currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(),
+          remedy: reason
+        )
       }
+    case .paper(.newSheetOnCurrentPlane):
+      await recordNewPaperSheetOnCurrentPlane()
+    case .paper(.contactPlaneChanged):
+      await recordPaperContactPlaneChanged()
     case .requestIncidentPackage where request.actionID == PlotterAppUIActionID.incidentPackage:
       await requestIncidentPackageFromPlotterUI()
     default:
@@ -5124,6 +4911,72 @@ final class PlotterApplicationRuntime:
       )
     }
     return .accepted(requestID: request.id)
+  }
+
+  private func learningEpisodeResult(
+    _ disposition: PlotterUIRequestDisposition,
+    request: PlotterLearningRecordRequest
+  ) -> PlotterLearningEpisodeResult {
+    let owner = learningRecordOwner(request)
+    switch disposition {
+    case .accepted:
+      return .accepted(owner: owner)
+    case .refused(let refusal):
+      let reason: PlotterLearningEpisodeRefusalReason = switch refusal.reason {
+      case .staleUIRevision: .staleUIRevision
+      case .staleRuntimeRevision: .staleRuntimeRevision
+      case .unknownAction: .unknownAction
+      case .mismatchedIntent: .mismatchedIntent
+      case .unavailableAction: .unavailableAction
+      case .unavailableIncidentSource, .retainedOwnerRefused: .ownerRefused
+      }
+      return .refused(
+        reason: reason,
+        owner: refusal.reason == .retainedOwnerRefused
+          ? owner : EpisodeAuthorityID(rawValue: refusal.owner),
+        remedy: refusal.remedy
+      )
+    }
+  }
+
+  private func learningRecordOwner(
+    _ request: PlotterLearningRecordRequest
+  ) -> EpisodeAuthorityID {
+    switch request {
+    case .action(let actionRequest):
+      return learningActionOwner(actionRequest.action)
+    case .reset:
+      return EpisodeAuthorityID(rawValue: "PlotterArtifactResetRuntime")
+    }
+  }
+
+  private func learningPostTransitionProjection() -> PlotterLearningPostTransitionProjection {
+    let currentLearning = learningPresentationBase()
+    let snapshot = currentLearning.snapshot
+    return PlotterLearningPostTransitionProjection(
+      stateRevision: .init(rawValue: semanticPresentationRevision),
+      currentItem: .init(rawValue: plotterUILearningOwnerID(currentLearning.currentItemID)),
+      activeOwner: snapshot.operations.activeAttemptOwner.map { owner in
+        PlotterLearningItemIdentity(rawValue: plotterUILearningOwnerID(owner))
+      },
+      learningIsEnabled: snapshot.learningEnabled
+    )
+  }
+
+  private func learningActionOwner(_ action: PlotterLearningAction) -> EpisodeAuthorityID {
+    let rawValue: String = switch action {
+    case .setPenSetpoint, .stopPenInteraction: "PlotterPenInteractionRuntime"
+    case .boundary: "PlotterBoundaryRuntime"
+    case .cameraCalibration: "PlotterCameraCalibrationRuntime"
+    case .tipCalibration: "PlotterTipCalibrationRuntime"
+    case .borderValidation: "PlotterBorderValidationRuntime"
+    case .pointSelectionCorrection: "PlotterPointSelectionRuntime"
+    case .applySavedLearning, .startNewLearning, .redoThisStep, .recordAnotherAttempt:
+      "PlotterArtifactResetRuntime"
+    case .start, .choice, .cancel, .stop, .restart, .paperReplaced:
+      "PlotterApplicationRuntime"
+    }
+    return EpisodeAuthorityID(rawValue: rawValue)
   }
 
   private func requestIncidentPackageFromPlotterUI() async {
@@ -5202,22 +5055,34 @@ final class PlotterApplicationRuntime:
     ))
   }
 
-  private func retainedLearningAction(
-    for actionID: PlotterUIActionID
-  ) -> (action: PlotterUILearningSemanticAction, owner: LearningPathItemID)? {
-    let base = learningPresentationBase()
+  private func learningVacatePlan(
+    _ request: PlotterLearningResetRequest
+  ) -> LearningVacatePlan? {
     let adapter = PlotterLearningActionabilityFactAdapter()
-    for owner in LearningPathItemID.navigationOrder {
-      let actionability = adapter.compile(base.snapshot, selectedItemID: owner)
-      for strip in actionability.strips {
-        if let action = adapter.semanticAction(for: actionID, in: strip),
-          let retainedOwner = adapter.itemID(strip.ownerID)
-        {
-          return (action, retainedOwner)
-        }
-      }
+    guard let anchor = adapter.itemID(request.anchor.rawValue) else { return nil }
+    let affectedItems = request.affectedItems.compactMap { adapter.itemID($0.rawValue) }
+    guard affectedItems.count == request.affectedItems.count else { return nil }
+    let revisions = request.expectedCurrentRevisionIDs.compactMap { UUID(uuidString: $0) }
+    guard revisions.count == request.expectedCurrentRevisionIDs.count else { return nil }
+    let scope: LearningVacateScope
+    switch request.scope {
+    case .all:
+      scope = .all
+    case .from(let item):
+      guard let start = adapter.itemID(item.rawValue), start == anchor else { return nil }
+      scope = .from(start)
     }
-    return nil
+    return LearningVacatePlan(
+      scope: scope,
+      source: request.source == .live ? .live : .simulated,
+      anchor: anchor,
+      affectedItems: affectedItems,
+      expectedCurrentRevisionIDs: Set(revisions.map { LearningArtifactRevisionID(rawValue: $0) }),
+      expectedAcceptedAttemptSequence: request.expectedAcceptedAttemptSequence,
+      removesDurableMachineCheckpoint: request.removesDurableMachineCheckpoint,
+      removesDurableTipCheckpoint: request.removesDurableTipCheckpoint,
+      physicalInkMayRemain: request.physicalInkMayRemain
+    )
   }
 
   private func manualUIActions(
@@ -5366,7 +5231,9 @@ final class PlotterApplicationRuntime:
 
   private func recordLearningActionStripDiagnostic(_ projection: LearningPathProjection) {
     let signature = LearningActionStripDiagnosticSignature(
-      ownerID: projection.currentActionStrip?.ownerID,
+      ownerID: PlotterLearningActionabilityFactAdapter().itemID(
+        projection.currentActionStrip?.ownerID
+      ),
       actions: projection.currentActionStrip?.actions.map(\.kind) ?? []
     )
     if signature != lastLearningActionStripDiagnosticSignature {
@@ -5381,6 +5248,7 @@ final class PlotterApplicationRuntime:
   }
 
   private func learningPathProjectionSnapshot() -> PlotterLearningPresentationFacts {
+    let borderValidation = borderValidationSnapshot
     let boundarySnapshot = currentBoundarySnapshot
     let acceptedBoundaryAggregates = boundarySnapshot?.acceptedAggregates ?? [:]
     let acceptedBoundaryEvidence = Dictionary(uniqueKeysWithValues:
@@ -5434,7 +5302,7 @@ final class PlotterApplicationRuntime:
           reason = learningExerciseMotionUnavailableReason(requiresCamera: true)
         case .borderValidation(let step):
           reason = borderValidationActionUnavailableReason(
-            for: step == .chooseDrawingBorderPlan ? borderValidationStep : step
+            for: step == .chooseDrawingBorderPlan ? borderValidation.step : step
           )
         case .stage:
           reason = nil
@@ -5510,22 +5378,21 @@ final class PlotterApplicationRuntime:
         savedCheckpointMatchesPaper: savedCheckpointMatchesPaper
       ),
       drawing: .init(
-        currentStep: borderValidationStep,
-        phase: currentEnvironmentState.borderValidation.phase,
+        currentStep: borderValidation.step,
+        phase: borderValidation.phase,
         decisionIsInFlight:
-          currentEnvironmentState.borderValidation.activeStep
-            == .compareIntendedAndObservedGeometry,
-        drawingBorderPath: drawingBorderPlan?.strokes.first?.path.points.map(
+          borderValidation.activeStep == .compareIntendedAndObservedGeometry,
+        drawingBorderPath: borderValidation.drawingBorderPlan?.strokes.first?.path.points.map(
           MachinePosition.init(point:)
         ) ?? [],
-        localBaselineFrameID: localPreFrameBaseline?.frame.id.rawValue,
-        drawingBorderSettled: borderValidationDrawingOutcome.map {
+        localBaselineFrameID: borderValidation.localPreFrameBaseline?.frame.id.rawValue,
+        drawingBorderSettled: borderValidation.drawingOutcome.map {
           if case .completed = $0 { return true }
           return false
         } ?? false,
-        inkStatus: explorationInkStatus,
-        assessment: borderValidationAssessment,
-        lastTravelFeed: lastTravelFeedSelection
+        inkStatus: borderValidation.inkStatus,
+        assessment: borderValidation.assessment,
+        lastTravelFeed: borderValidation.lastTravelFeedSelection
       ),
       operations: .init(
         activeAttemptOwner: activeExerciseAttemptOwnerID,
@@ -5564,132 +5431,173 @@ final class PlotterApplicationRuntime:
   }
 
   private func submitProjectionBoundLearningAction(
-    _ kind: ExerciseActionKind,
-    for ownerID: LearningPathItemID
-  ) async {
-    guard learningIsEnabled, !learningResetInProgress else { return }
-    guard applicationAdmissionIsOpen,
-      let strip = selectedOperatorActionPresentation(for: ownerID).actionStrip,
-      strip.ownerID == ownerID,
-      let action = strip.actions.first(where: { $0.kind == kind }),
-      action.isEnabled
-    else { return }
+    _ kind: PlotterLearningAction,
+    for ownerID: LearningPathItemID,
+    transitionID: PlotterLearningTransitionID
+  ) async -> String? {
+    guard learningIsEnabled else { return "Enable Learning before retrying." }
+    guard !learningResetInProgress else { return "Wait for the Learning reset to settle." }
+    guard applicationAdmissionIsOpen else {
+      return "The application is shutting down; no successor Learning effect can start."
+    }
 
     switch kind {
+    case .setPenSetpoint(let command, let value):
+      let disposition = await submitPenInteraction(.setpoint(
+        command: command == .raise ? .raise : .lower,
+        value: value
+      ))
+      if case .refused(let refusal) = disposition { return penInteractionRefusalText(refusal) }
+      return nil
+    case .stopPenInteraction(let capability):
+      if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
+        await pointSelectionRuntime.cancelContinuation(selectionID: selectionID)
+      }
+      let disposition = await submitPenInteraction(.stop(capability))
+      if case .refused(let refusal) = disposition { return penInteractionRefusalText(refusal) }
+      if case .applied(let projection) = disposition, projection.reference.operationID == nil {
+        await cancelExerciseAttempt(.humanGuidedDiscovery(.penInteraction))
+      }
+      return nil
     case .boundary(let intent):
-      _ = await submitBoundaryIntent(intent)
-      return
-    case .cameraCalibration(let intent):
-      _ = await cameraCalibrationRuntime.submit(intent)
+      guard let reference = currentBoundarySnapshot?.projection.reference else {
+        return "Wait for PlotterBoundaryRuntime projection synchronization."
+      }
+      let disposition = await boundaryRuntime.submit(
+        PlotterBoundarySubmission(projection: reference, intent: intent)
+      )
+      if case .refused(let refusal) = disposition {
+        return "Boundary refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
+      }
+      installBoundarySnapshot(await boundaryRuntime.snapshot(for: reference.environment))
+      return nil
+    case .cameraCalibration(let action):
+      let intent: PlotterCameraCalibrationIntent = switch action {
+      case .buildFivePositionProposal: .buildFivePositionProposal
+      case .acceptProposal: .acceptProposal
+      case .rejectProposal: .rejectProposal
+      }
+      let outcome = await cameraCalibrationRuntime.submit(intent)
       markSemanticPresentationChanged()
-      return
-    case .tipCalibration(let intent):
-      _ = await tipCalibrationRuntime.submit(intent)
+      switch outcome {
+      case .completed: return nil
+      case .refused(let reason), .failed(let reason): return reason
+      case .cancelled: return "Camera calibration was cancelled. Refresh before retrying."
+      }
+    case .tipCalibration(let action):
+      let intent: PlotterTipCalibrationIntent = switch action {
+      case .beginFourMarkBatch: .beginFourMarkBatch
+      case .captureNewClickFrame(let count):
+        .captureNewClickFrame(retainedPointCount: count)
+      case .revalidateCheckpoint: .revalidateCheckpoint
+      case .acceptProposal: .acceptProposal
+      case .rejectProposal: .rejectProposal
+      case .retryCommit: .retryCommit
+      }
+      let outcome = await tipCalibrationRuntime.submit(intent)
       markSemanticPresentationChanged()
-      return
-    case .borderValidation(let intent):
+      switch outcome {
+      case .completed: return nil
+      case .refused(let reason), .failed(let reason): return reason
+      case .cancelled: return "Pen-tip calibration was cancelled. Refresh before retrying."
+      }
+    case .borderValidation(let action):
+      let intent: PlotterBorderValidationIntent = switch action {
+      case .acceptObservedPrediction: .acceptObservedPrediction
+      case .reject(let reason): .reject(reason)
+      }
       await submitBorderValidationDecision(intent)
-      return
+      return nil
     case .pointSelectionCorrection(let intent):
       await performPointSelectionCorrection(intent)
       markSemanticPresentationChanged()
-      return
+      return nil
     case .cancel:
       await cancelExerciseAttempt(ownerID)
-      return
+      return nil
     case .stop(let capabilityID):
-      guard ownerID == activeExerciseAttemptOwnerID else { return }
+      guard ownerID == activeExerciseAttemptOwnerID else {
+        return "Refresh the current Learning owner before stopping."
+      }
       await stopCurrentOperation(capabilityID: capabilityID)
-      return
+      return nil
     default:
       break
     }
 
-    guard applicationState.residualLearningAdmissionID == nil else { return }
-    let actionID = UUID()
-    // This reservation is only a synchronous root-admission latch. The
-    // adapter's registry owns the retained task, Stop capability, and
-    // settlement once execution crosses the first suspension.
-    applicationState.residualLearningAdmissionID = actionID
-    await runResidualLearningAction(kind, ownerID: ownerID, actionID: actionID)
-    if applicationState.residualLearningAdmissionID == actionID {
-      applicationState.residualLearningAdmissionID = nil
+    guard activeLearningActionTask == nil else {
+      return "Wait for the active Learning action to settle before retrying."
     }
+    let task: Task<String?, Never> = Task { @MainActor [weak self] in
+      guard let self else { return "The Learning owner was released before admission." }
+      return await self.performAdmittedExerciseAction(kind, for: ownerID)
+    }
+    activeLearningActionTask = PlotterApplicationLearningTask(
+      transitionID: transitionID,
+      task: task
+    )
+    let remedy = await task.value
+    if activeLearningActionTask?.transitionID == transitionID {
+      activeLearningActionTask = nil
+    }
+    return remedy
   }
 
-  private func runResidualLearningAction(
-    _ kind: ExerciseActionKind,
-    ownerID: LearningPathItemID,
-    actionID: UUID
-  ) async {
-    guard applicationAdmissionIsOpen else { return }
-    let requestID = IntentRequestID(rawValue: actionID)
-    let identity = PlotterOperationIdentity<PlotterApplicationResidualContext>(
-      episodeID: EpisodeID(rawValue: actionID),
-      requestID: requestID,
-      intentIdentity: .learningAction("\(ownerID.id):\(String(describing: kind))"),
-      effectID: EpisodeEffectID(rawValue: actionID),
-      effectRevision: EpisodeRevisionIdentifier(
-        rawValue: "application-residual-\(semanticPresentationRevision)"
-      ),
-      environment: frameMode == .live ? .live : .simulated
-    )
-    let operation = PlotterApplicationLearningOperation(
-      application: self,
-      kind: kind,
-      ownerID: ownerID
-    )
-    await residualOperationAdapter.run(
-      identity: identity,
-      context: PlotterApplicationResidualContext(
-        owningSubsystem: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime"),
-        resultCurrentlyAwaited: "retained Learning action settlement"
-      ),
-      effect: operation
-    )
-  }
-
-  fileprivate func performAdmittedExerciseAction(
-    _ kind: ExerciseActionKind,
+  private func performAdmittedExerciseAction(
+    _ kind: PlotterLearningAction,
     for ownerID: LearningPathItemID
-  ) async {
-    guard applicationAdmissionIsOpen, !Task.isCancelled else { return }
+  ) async -> String? {
+    guard applicationAdmissionIsOpen, !Task.isCancelled else {
+      return "The Learning action was cancelled before its owner settled."
+    }
     switch kind {
     case .boundary:
-      return
+      return "Refresh the exact Boundary request before retrying."
     case .applySavedLearning:
-      _ = await artifactResetRuntime.submit(.applySavedLearning, facts: artifactResetAdmissionFacts)
+      guard await artifactResetRuntime.submit(
+        .applySavedLearning,
+        facts: artifactResetAdmissionFacts
+      ) else { return artifactResetRuntime.snapshot().phase.detail }
     case .startNewLearning:
-      _ = await artifactResetRuntime.submit(.retainSavedLearning, facts: artifactResetAdmissionFacts)
+      guard await artifactResetRuntime.submit(
+        .retainSavedLearning,
+        facts: artifactResetAdmissionFacts
+      ) else { return artifactResetRuntime.snapshot().phase.detail }
     case .start:
       await startExercise(ownerID, mode: .normal)
     case .choice(let choice):
-      guard ownerID == activeExerciseAttemptOwnerID else { return }
-      await answerCurrentQuestion(choice)
+      guard ownerID == activeExerciseAttemptOwnerID else {
+        return "Refresh the current Learning owner before answering."
+      }
+      await answerCurrentQuestion(PlotterLearningActionabilityFactAdapter().operatorChoice(choice))
     case .cancel, .stop:
-      return
+      return "Refresh the exact Learning cancellation request before retrying."
     case .restart:
-      guard restartableExerciseItemID == ownerID else { return }
+      guard restartableExerciseItemID == ownerID else {
+        return "The Learning item is no longer restartable; refresh before retrying."
+      }
       restartableExerciseItemID = nil
       await startExercise(ownerID, mode: .normal)
     case .redoThisStep:
-      _ = await artifactResetRuntime.submit(
+      guard await artifactResetRuntime.submit(
         .redoStep(PlotterArtifactResetStepID(rawValue: ownerID.number)),
         facts: artifactResetAdmissionFacts
-      )
+      ) else { return artifactResetRuntime.snapshot().phase.detail }
     case .recordAnotherAttempt:
-      _ = await artifactResetRuntime.submit(
+      guard await artifactResetRuntime.submit(
         .recordAnotherAttempt(PlotterArtifactResetStepID(rawValue: ownerID.number)),
         facts: artifactResetAdmissionFacts
-      )
-    case .cameraCalibration:
-      return
+      ) else { return artifactResetRuntime.snapshot().phase.detail }
+    case .cameraCalibration, .setPenSetpoint, .stopPenInteraction:
+      return "Refresh the exact feature-runtime Learning request before retrying."
     case .tipCalibration, .borderValidation, .pointSelectionCorrection:
-      return
+      return "Refresh the exact feature-runtime Learning request before retrying."
     case .paperReplaced:
       await recordPaperReplacement(contactPlaneChanged: false)
     }
+    guard !Task.isCancelled else { return "The Learning action was cancelled before settlement." }
     markSemanticPresentationChanged()
+    return nil
   }
 
   private func applySavedLearningEffect() async throws -> (
@@ -6168,18 +6076,6 @@ final class PlotterApplicationRuntime:
 
   private var penCapAnchorEstimatorRevision: String {
     "selected-cap-\(penCapAppearanceSelection?.color.hexRGB ?? "UNLEARNED")-bottom-center-anchor-v3"
-  }
-
-  private func compatibleRegistrationCapAnchorEvidence(
-    for frame: DisplayedFrame
-  ) -> [MachineCameraCorrespondenceProvenance] {
-    explicitRegistrationCapAnchorEvidence.filter {
-      $0.source == frame.source
-        && $0.cameraConfigurationID == frame.frame.cameraConfigurationID
-        && $0.controllerSessionID == controllerSessionID
-        && $0.coordinateRevision == explorationCoordinateRevision
-        && $0.capAnchorEstimatorRevision == penCapAnchorEstimatorRevision
-    }
   }
 
   /// Makes the reviewed five-sample cap-map proposal authoritative atomically.
@@ -7542,7 +7438,7 @@ final class PlotterApplicationRuntime:
   }
 
   private func performPointSelectionCorrection(
-    _ intent: PlotterPointSelectionCorrectionIntent
+    _ intent: PlotterLearningPointSelectionCorrectionAction
   ) async {
     switch intent {
     case .undoLastPoint:
@@ -8253,7 +8149,9 @@ final class PlotterApplicationRuntime:
   }
 
   func runBorderValidation() async {
-    guard tipCameraRegistration != nil, activeBorderValidationOperation == nil else { return }
+    guard tipCameraRegistration != nil,
+      borderValidationSnapshot.activeOperationID == nil
+    else { return }
     if activeExerciseAttemptOwnerID == nil {
       beginExerciseAttempt(
         ownerID: .borderValidation(.chooseDrawingBorderPlan),
@@ -8262,9 +8160,7 @@ final class PlotterApplicationRuntime:
     }
     explorationError = nil
     restartableExerciseItemID = nil
-    borderValidationRuntime.replaceSnapshot(currentEnvironmentState.borderValidation)
     let snapshot = await borderValidationRuntime.submit(.begin)
-    currentEnvironmentState.borderValidation = snapshot
     switch snapshot.phase {
     case .accepted:
       finishActiveExerciseAttempt(disposition: .succeeded)
@@ -8286,7 +8182,6 @@ final class PlotterApplicationRuntime:
       .revealingAndObserving, .reviewingComparison:
       break
     }
-    activeBorderValidationOperation = nil
   }
 
   private func submitBorderValidationDecision(
@@ -8298,16 +8193,14 @@ final class PlotterApplicationRuntime:
     switch intent {
     case .acceptObservedPrediction, .reject:
       break
-    case .begin, .retryFrom:
+    case .begin:
       return
     }
-    borderValidationRuntime.replaceSnapshot(currentEnvironmentState.borderValidation)
     guard borderValidationRuntime.snapshot().activeOperationID == nil,
       case .reviewingComparison = borderValidationRuntime.snapshot().phase
     else { return }
 
     let snapshot = await borderValidationRuntime.submit(intent)
-    currentEnvironmentState.borderValidation = snapshot
     switch snapshot.phase {
     case .accepted:
       explorationError = nil
@@ -8406,7 +8299,6 @@ final class PlotterApplicationRuntime:
     _ snapshot: PlotterBorderValidationSnapshot,
     source: OperatorFrameMode
   ) {
-    applicationState.environmentStates[source]?.borderValidation = snapshot
     guard frameMode == source else { return }
     switch snapshot.phase {
     case .possibleInk(let detail):
@@ -8507,7 +8399,7 @@ final class PlotterApplicationRuntime:
       activeCameraCalibration: cameraCalibrationRuntimePhase != nil,
       activeAttempt: activeExerciseAttemptOwnerID != nil,
       activeDiscovery: activeDiscoverySequenceID != nil,
-      activeExploration: activeBorderValidationOperation != nil,
+      activeExploration: borderValidationSnapshot.activeOperationID != nil,
       activeLearningMotion: activeStopTarget != nil,
       pointSelectionOwner: activePointSelectionActivityOwner
     )
@@ -9072,7 +8964,7 @@ final class PlotterApplicationRuntime:
       await startPreferredCameraAtStartup()
     case .simulated:
       await submitObservationConfiguration(
-        observationConfigurationProjection.request(.selectSource(.simulated, nil))
+        observationConfigurationProjection.request(.selectSource(.simulated, cameraID: nil))
       )
     }
     guard applicationAdmissionIsOpen, !Task.isCancelled else {
@@ -9109,17 +9001,22 @@ final class PlotterApplicationRuntime:
 
   private func restoreInteractiveLearningCompletionFromEvidence() {
     guard frameMode == .live, interactiveLearningIsComplete else { return }
-    borderValidationAssessment = .predictionObserved
+    let result = borderValidationRuntime.apply(
+      .restoreAcceptedAssessment(.predictionObserved)
+    )
+    if case .refused(let reason, let remedy) = result.disposition {
+      drawingEvidenceError = "\(reason) Remedy: \(remedy)"
+    }
   }
 
   private func persistCompletedPictureFrameEvidence() async {
     guard frameMode == .live,
       let attemptID = activeExerciseAttemptID,
       let registration = tipCameraRegistration,
-      let program = borderValidationProgram,
-      let plan = drawingBorderPlan,
-      let observation = lastFrameObservation,
-      case .completed(let progress, _) = borderValidationDrawingOutcome
+      let program = borderValidationSnapshot.program,
+      let plan = borderValidationSnapshot.drawingBorderPlan,
+      let observation = borderValidationSnapshot.inkObservation,
+      case .completed(let progress, _) = borderValidationSnapshot.drawingOutcome
     else { return }
     do {
       let provenance = try PlotterDrawingPlanningAdapter.planningProvenance(
@@ -9248,7 +9145,12 @@ final class PlotterApplicationRuntime:
   /// it cannot directly invoke the lower machine session.
   func establishMachineSession(_ descriptor: MachineLinkDescriptor) async {
     _ = await submitControllerSessionRequest(
-      controllerSessionProjection.request(.selectSerialDevice(descriptor))
+      controllerSessionProjection.request(.selectSerialDevice(.init(
+        identifier: descriptor.identifier,
+        displayName: descriptor.displayName,
+        bsdPath: descriptor.bsdPath,
+        transport: descriptor.transport.rawValue
+      )))
     )
     _ = await submitControllerSessionRequest(
       controllerSessionProjection.request(.toggleConnection)
@@ -9600,9 +9502,6 @@ final class PlotterApplicationRuntime:
       await operation.owner.settle()
       finishActiveExerciseAttempt(disposition: .cancelled)
       if inkMayExist {
-        if borderValidationStep == .drawDrawingBorder {
-          advanceBorderValidationAfterSuccess(.drawDrawingBorder)
-        }
         explorationError =
           "Drawing stopped after stroke admission; physical ink may exist. Draw is unavailable. Continue with return/observation."
         restartableExerciseItemID = nil
@@ -10190,7 +10089,7 @@ final class PlotterApplicationRuntime:
     guard let generation = beginApplicationEffect() else { return }
     defer { settleApplicationEffect(generation) }
     guard observationRuntime != nil, activeDiscoverySequenceID == nil,
-      activeBorderValidationOperation == nil
+      borderValidationSnapshot.activeOperationID == nil
     else {
       cameraError =
         "Finish the current discovery or learning action before changing camera configuration."
@@ -10271,7 +10170,9 @@ final class PlotterApplicationRuntime:
     guard currentCameraCalibrationBusyReason == nil else { return }
     guard let generation = beginApplicationEffect() else { return }
     defer { settleApplicationEffect(generation) }
-    guard activeDiscoverySequenceID == nil, activeBorderValidationOperation == nil else {
+    guard activeDiscoverySequenceID == nil,
+      borderValidationSnapshot.activeOperationID == nil
+    else {
       cameraError = "Finish the current discovery or learning action before restarting the camera."
       return
     }
@@ -10412,6 +10313,13 @@ final class PlotterApplicationRuntime:
       }
       cameraSnapshot = snapshot
       latestLiveCameraFrame = nil
+      let simulatedBorderReset = simulatedBorderValidationRuntime.apply(.reset)
+      guard case .applied = simulatedBorderReset.disposition else {
+        if case .refused(let reason, let remedy) = simulatedBorderReset.disposition {
+          cameraError = "\(reason) Remedy: \(remedy)"
+        }
+        return
+      }
       let retainedContactPlane = applicationState.environmentStates[.simulated]?
         .explorationPaperContactPlaneRevision ?? UUID()
       applicationState.environmentStates[.simulated] = PlotterApplicationEnvironmentState(
@@ -10452,22 +10360,6 @@ final class PlotterApplicationRuntime:
     }
   }
 
-  private func applySimulatedSnapshotResponse(
-    _ response: SimulatedLearningResponse<SimulatedLearningSnapshot>,
-    action: String
-  ) {
-    switch response.result {
-    case .success(let snapshot):
-      simulatedLearningSnapshot = snapshot
-      simulatorPenState = simulatorPenState(from: snapshot.penPose)
-      simulatorLearningSummary =
-        "\(action) completed. \(response.evidenceNotice.label)"
-    case .failure(let refusal):
-      simulatorLearningSummary =
-        "\(action) refused: \(refusal). \(response.evidenceNotice.label)"
-    }
-  }
-
   private func applySimulatedCausalImmediateOutcome(
     _ outcome: PlotterCausalSimulatorImmediateOutcome,
     action: String
@@ -10503,19 +10395,22 @@ final class PlotterApplicationRuntime:
     case .open:
       break
     }
-    // Close every public/root admission path synchronously before the first
-    // suspension. The shared registry then cancels and joins the exact
-    // residual owners it admitted; it never substitutes a timeout for truth.
+    // Close every public/root admission path and cancel the exact retained
+    // model episode before the first suspension. Feature owners close before
+    // the task is joined, so a suspended request cannot outlive its owner.
     admissionState = .closing
     startupState = .cancelled
     markSemanticPresentationChanged()
+    let learningTask = activeLearningActionTask
+    learningTask?.task.cancel()
     let observationSubscription = observationProjectionTask
     let drawingSubscription = drawingRunProjectionTask
     observationSubscription?.cancel()
     drawingSubscription?.cancel()
     observationProjectionTask = nil
     drawingRunProjectionTask = nil
-    await residualOperationAdapter.beginShutdown()
+    await liveBorderValidationRuntime.closeAdmissionAndCancel()
+    await simulatedBorderValidationRuntime.closeAdmissionAndCancel()
     await artifactResetRuntime.shutdown()
     await liveTipCalibrationRuntime.shutdown()
     await simulatedTipCalibrationRuntime.shutdown()
@@ -10525,8 +10420,10 @@ final class PlotterApplicationRuntime:
     // or advance its discovery transaction during shutdown.
     await penInteractionRuntime.shutdown()
 
-    await residualOperationAdapter.finishShutdown()
-    applicationState.residualLearningAdmissionID = nil
+    _ = await learningTask?.task.value
+    if activeLearningActionTask?.transitionID == learningTask?.transitionID {
+      activeLearningActionTask = nil
+    }
     await observationSubscription?.value
     await drawingSubscription?.value
     await controllerSessionRuntime.shutdown()
@@ -10579,17 +10476,6 @@ final class PlotterApplicationRuntime:
 
     guard case .stopped = visionAnalysisSnapshot.phase.state else { return }
     displayedFrame = frame
-  }
-
-  private func defaultInkRegion(for frame: StampedFrame) -> PixelRect {
-    let width = max(1, min(180, frame.width / 3))
-    let height = max(1, min(120, frame.height / 3))
-    return PixelRect(
-      x: max(0, (frame.width - width) / 2),
-      y: max(0, (frame.height - height) / 2),
-      width: width,
-      height: height
-    )
   }
 
   private func answerDiscoverySequence(
@@ -10769,9 +10655,20 @@ final class PlotterApplicationRuntime:
       }
     }
     if ownerID == .borderValidation(.chooseDrawingBorderPlan),
-      borderValidationStep == .compareIntendedAndObservedGeometry
+      borderValidationSnapshot.step == .compareIntendedAndObservedGeometry
     {
-      recordComparisonAttempt(assessment: nil, disposition: .cancelled)
+      do {
+        let histories = try recordComparisonAttempt(
+          assessment: nil,
+          disposition: .cancelled
+        )
+        let result = borderValidationRuntime.apply(.installComparisonHistories(histories))
+        if case .refused(let reason, let remedy) = result.disposition {
+          explorationError = "\(reason) Remedy: \(remedy)"
+        }
+      } catch {
+        explorationError = "Comparison cancellation provenance could not be recorded: \(error)"
+      }
     }
     finishActiveExerciseAttempt(disposition: .cancelled)
     restartableExerciseItemID = ownerID
@@ -10920,44 +10817,42 @@ final class PlotterApplicationRuntime:
   private func recordComparisonAttempt(
     assessment: BorderValidationAssessment?,
     disposition: ExerciseAttemptDisposition
-  ) {
-    guard let attemptID = activeExerciseAttemptID else { return }
+  ) throws -> PlotterBorderValidationComparisonHistories {
+    guard let attemptID = activeExerciseAttemptID else {
+      throw LearningPathOperationError.requiredState("No active Learning Path attempt.")
+    }
     let compatibility = AttemptCompatibility(
-      cameraConfigurationID: explorationPostFrame?.frame.cameraConfigurationID,
+      cameraConfigurationID: borderValidationSnapshot.postFrame?.frame.cameraConfigurationID,
       coordinateSpace: .categorical,
       units: .categorical,
-      group: currentBorderValidationGroup,
+      group: borderValidationSnapshot.group,
       algorithmRevision: "typed-trial-comparison-v1"
     )
-    do {
-      var histories = comparisonAttemptHistories
-      let sequence = acceptedAttemptSequence &+ 1
-      let replacingAttemptID = learningArtifactGraph.currentRevision(
-        for: .comparison(currentBorderValidationGroup)
-      )?.attemptID
-      try recordAttempt(
-        ExerciseAttempt(
-          id: attemptID,
-          disposition: disposition,
-          compatibility: compatibility,
-          acceptedSequence: sequence,
-          value: assessment
-        ),
-        in: &histories,
-        replacingAttemptID: replacingAttemptID
-      )
-      comparisonAttemptHistories = histories
-      acceptedAttemptSequence = sequence
-    } catch {
-      explorationError = "Comparison attempt provenance could not be recorded: \(error)"
-    }
+    var histories = borderValidationSnapshot.comparisonAttemptHistories
+    let sequence = acceptedAttemptSequence &+ 1
+    let replacingAttemptID = learningArtifactGraph.currentRevision(
+      for: .comparison(borderValidationSnapshot.group)
+    )?.attemptID
+    try recordAttempt(
+      ExerciseAttempt(
+        id: attemptID,
+        disposition: disposition,
+        compatibility: compatibility,
+        acceptedSequence: sequence,
+        value: assessment
+      ),
+      in: &histories,
+      replacingAttemptID: replacingAttemptID
+    )
+    acceptedAttemptSequence = sequence
+    return histories
   }
 
   private func commitDrawingArtifact(for step: BorderValidationStep) throws {
     guard let attemptID = activeExerciseAttemptID else {
       throw LearningPathOperationError.requiredState("No active Learning Path attempt.")
     }
-    let group = currentBorderValidationGroup
+    let group = borderValidationSnapshot.group
     var graph = learningArtifactGraph
     func required(_ kind: LearningArtifactKind) throws -> LearningArtifactRevisionID {
       guard let id = graph.currentRevision(for: kind)?.id else {
@@ -11030,43 +10925,22 @@ final class PlotterApplicationRuntime:
     applyArtifactInvalidations(invalidated)
   }
 
-  private func borderValidationPayloadSnapshot() -> PlotterBorderValidationSnapshot {
-    currentEnvironmentState.borderValidation
-  }
-
-  private func restoreBorderValidationPayload(_ snapshot: PlotterBorderValidationSnapshot) {
-    currentEnvironmentState.borderValidation = snapshot
-  }
-
-  private func advanceBorderValidationAfterSuccess(_ step: BorderValidationStep) {
-    switch step {
-    case .chooseDrawingBorderPlan: advanceBorderValidation(to: .captureLocalPreFrameBaseline)
-    case .captureLocalPreFrameBaseline: advanceBorderValidation(to: .moveToDrawingBorderStart)
-    case .moveToDrawingBorderStart: advanceBorderValidation(to: .drawDrawingBorder)
-    case .drawDrawingBorder: advanceBorderValidation(to: .revealAndObserveNewInk)
-    case .revealAndObserveNewInk:
-      advanceBorderValidation(to: .compareIntendedAndObservedGeometry)
-    case .compareIntendedAndObservedGeometry:
-      break
-    }
-  }
-
   private func commitComparisonAttemptAndArtifact(
     _ assessment: BorderValidationAssessment
-  ) throws {
+  ) throws -> PlotterBorderValidationComparisonHistories {
     guard let attemptID = activeExerciseAttemptID else {
       throw LearningPathOperationError.requiredState("No active Learning Path attempt.")
     }
     let compatibility = AttemptCompatibility(
-      cameraConfigurationID: explorationPostFrame?.frame.cameraConfigurationID,
+      cameraConfigurationID: borderValidationSnapshot.postFrame?.frame.cameraConfigurationID,
       coordinateSpace: .categorical,
       units: .categorical,
-      group: currentBorderValidationGroup,
+      group: borderValidationSnapshot.group,
       algorithmRevision: "typed-trial-comparison-v1"
     )
-    var histories = comparisonAttemptHistories
+    var histories = borderValidationSnapshot.comparisonAttemptHistories
     let sequence = acceptedAttemptSequence &+ 1
-    let comparisonKind = LearningArtifactKind.comparison(currentBorderValidationGroup)
+    let comparisonKind = LearningArtifactKind.comparison(borderValidationSnapshot.group)
     let replacingAttemptID = learningArtifactGraph.currentRevision(for: comparisonKind)?.attemptID
     try recordAttempt(
       ExerciseAttempt(
@@ -11081,8 +10955,8 @@ final class PlotterApplicationRuntime:
     )
 
     var graph = learningArtifactGraph
-    guard let ink = graph.currentRevision(for: .inkObservation(currentBorderValidationGroup))?.id,
-      let residual = graph.currentRevision(for: .residual(currentBorderValidationGroup))?.id
+    guard let ink = graph.currentRevision(for: .inkObservation(borderValidationSnapshot.group))?.id,
+      let residual = graph.currentRevision(for: .residual(borderValidationSnapshot.group))?.id
     else {
       throw LearningPathOperationError.requiredState(
         "Observed ink and residual artifacts are required.")
@@ -11095,16 +10969,24 @@ final class PlotterApplicationRuntime:
         consumedRevisionIDs: [ink, residual]
       )
     )
-    comparisonAttemptHistories = histories
     acceptedAttemptSequence = sequence
     learningArtifactGraph = graph
     applyArtifactInvalidations(commit.invalidatedRevisionIDs)
+    return histories
   }
 
   private func applyArtifactInvalidations(
     _ revisionIDs: Set<LearningArtifactRevisionID>,
     preservingCameraCalibrationRuntime: Bool = false
   ) {
+    var borderRewindStep: BorderValidationStep?
+    func requireBorderRewind(_ step: BorderValidationStep) {
+      guard let current = borderRewindStep else {
+        borderRewindStep = step
+        return
+      }
+      if step.rawValue < current.rawValue { borderRewindStep = step }
+    }
     for revisionID in revisionIDs {
       guard let revision = learningArtifactGraph.revision(id: revisionID) else { continue }
       switch revision.kind {
@@ -11119,35 +11001,34 @@ final class PlotterApplicationRuntime:
       case .tipCameraRegistration:
         tipCameraRegistration = nil
         proposedTipCameraRegistration = nil
-        borderValidationTipRegistrationRevisionID = nil
-        setBorderValidationStepEarlier(ifNeeded: .chooseDrawingBorderPlan)
+        requireBorderRewind(.chooseDrawingBorderPlan)
       case .localPreLineBaseline:
-        localPreFrameBaseline = nil
-        setBorderValidationStepEarlier(ifNeeded: .captureLocalPreFrameBaseline)
+        requireBorderRewind(.captureLocalPreFrameBaseline)
       case .linePlan:
-        borderValidationProgram = nil
-        drawingBorderPlan = nil
-        setBorderValidationStepEarlier(ifNeeded: .chooseDrawingBorderPlan)
+        requireBorderRewind(.chooseDrawingBorderPlan)
       case .lineExecution:
-        borderValidationDrawingOutcome = nil
-        setBorderValidationStepEarlier(ifNeeded: .drawDrawingBorder)
+        requireBorderRewind(.drawDrawingBorder)
       case .postLineFrame:
-        explorationPostFrame = nil
-        setBorderValidationStepEarlier(ifNeeded: .revealAndObserveNewInk)
+        requireBorderRewind(.revealAndObserveNewInk)
       case .inkObservation, .residual:
-        lastFrameObservation = nil
-        borderValidationAssessment = nil
-        setBorderValidationStepEarlier(ifNeeded: .revealAndObserveNewInk)
+        requireBorderRewind(.revealAndObserveNewInk)
       case .comparison:
-        borderValidationAssessment = nil
-        setBorderValidationStepEarlier(ifNeeded: .compareIntendedAndObservedGeometry)
+        requireBorderRewind(.compareIntendedAndObservedGeometry)
       }
     }
-  }
-
-  private func setBorderValidationStepEarlier(ifNeeded step: BorderValidationStep) {
-    if borderValidationStep.rawValue > step.rawValue {
-      borderValidationStep = step
+    if let required = borderRewindStep {
+      let snapshot = borderValidationSnapshot
+      // An admitted Border effect publishes its replacement through the exact
+      // typed result. Redo admission already rewound the model before the
+      // effect began, so a second state intent here would be refused as a
+      // competing mutation while the operation is active.
+      guard snapshot.activeOperationID == nil else { return }
+      let result = borderValidationRuntime.apply(
+        .rewind(required.rawValue < snapshot.step.rawValue ? required : snapshot.step)
+      )
+      if case .refused(let reason, let remedy) = result.disposition {
+        learningAuthorityError = "\(reason) Remedy: \(remedy)"
+      }
     }
   }
 
@@ -11523,16 +11404,6 @@ final class PlotterApplicationRuntime:
     }
   }
 
-  private var controllerLinkIsOpen: Bool {
-    guard let connection = machineSnapshot?.machine.connection else { return false }
-    switch connection {
-    case .connecting, .connected, .probing, .moving, .actuatingPen:
-      return true
-    case .disconnected, .blocked:
-      return false
-    }
-  }
-
   private func invalidateCameraDependentLearningAuthority() {
     var graph = learningArtifactGraph
     let invalidation = graph.invalidateForCameraChange(
@@ -11610,10 +11481,10 @@ final class PlotterApplicationRuntime:
     if step.rawValue <= BorderValidationStep.revealAndObserveNewInk.rawValue {
       overlayResultChannels.clearWorkflow(source: frameMode, owner: .borderValidation)
     }
-    currentEnvironmentState.borderValidation.rewind(
-      from: step,
-      sourceIsSimulated: frameMode == .simulated
-    )
+    let result = borderValidationRuntime.apply(.rewind(step))
+    if case .refused(let reason, let remedy) = result.disposition {
+      learningAuthorityError = "\(reason) Remedy: \(remedy)"
+    }
   }
 
   private func cancelAndSettleBoundaryForReset() async -> Bool {
@@ -11762,9 +11633,11 @@ final class PlotterApplicationRuntime:
     proposedTipCameraRegistration = nil
     resetTipCalibrationRuntimeForCurrentPaper()
     lastProtocolPoseSettlement = nil
-    currentEnvironmentState.borderValidation = PlotterBorderValidationSnapshot(
-      sourceIsSimulated: frameMode == .simulated
-    )
+    let borderReset = borderValidationRuntime.apply(.reset)
+    if case .refused(let reason, let remedy) = borderReset.disposition {
+      learningAuthorityError = "\(reason) Remedy: \(remedy)"
+      return false
+    }
     learningArtifactGraph = LearningDependencyGraph()
     _ = await submitPenInteraction(.reset)
     currentEnvironmentState.exerciseAttempt.finish()
@@ -11903,7 +11776,7 @@ final class PlotterApplicationRuntime:
   private func borderValidationActionUnavailableReason(
     for step: BorderValidationStep
   ) -> String? {
-    if activeBorderValidationOperation != nil {
+    if borderValidationSnapshot.activeOperationID != nil {
       return "The current learning action is still in progress."
     }
     if let reason = learningConnectionAndMotionUnavailableReason { return reason }
@@ -11935,11 +11808,11 @@ final class PlotterApplicationRuntime:
     return nil
   }
 
-  private func advanceBorderValidation(to step: BorderValidationStep) {
-    borderValidationStep = step
-  }
-
-  private func recordDrawingBorderPlan() throws {
+  private func recordDrawingBorderPlan() throws -> (
+    program: DrawingProgram,
+    plan: ExecutionPlanRevision,
+    revision: LearningArtifactRevisionID
+  ) {
     guard let registration = tipCameraRegistration,
       learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
         == registration.acceptedRevisionID
@@ -11995,16 +11868,17 @@ final class PlotterApplicationRuntime:
         for: registration
       )
     )
-    borderValidationProgram = program
-    drawingBorderPlan = plan
-    borderValidationTipRegistrationRevisionID = registration.acceptedRevisionID
+    return (program, plan, registration.acceptedRevisionID)
   }
 
-  private func captureLocalPreFrameBaseline() async throws {
+  private func captureLocalPreFrameBaseline() async throws -> (
+    frame: DisplayedFrame,
+    revealPosition: MachinePosition
+  ) {
     guard let registration = tipCameraRegistration,
       let currentRevision = learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id,
       currentRevision == registration.acceptedRevisionID,
-      borderValidationTipRegistrationRevisionID == currentRevision,
+      borderValidationSnapshot.tipRegistrationRevisionID == currentRevision,
       controllerIsPenUpAndIdle
     else {
       throw LearningPathOperationError.requiredState(
@@ -12015,18 +11889,23 @@ final class PlotterApplicationRuntime:
     let frame = try await captureProtocolFrame(
       newerThan: displayedFrame?.frame.captureNanoseconds ?? 0
     )
-    localPreFrameBaseline = frame
-    borderValidationRevealPosition = revealPosition
+    return (frame, revealPosition)
   }
 
-  private func moveToRecordedDrawingBorderStart() async throws {
-    guard let destination = drawingBorderPlan?.strokes.first?.path.points.first.map(
+  private func moveToRecordedDrawingBorderStart() async throws -> (
+    position: MachinePosition,
+    feed: TravelFeedSelection?
+  ) {
+    guard let destination = borderValidationSnapshot.drawingBorderPlan?
+      .strokes.first?.path.points.first.map(
       MachinePosition.init(point:)
     ) else {
       throw LearningPathOperationError.requiredState("The Drawing Border plan is unavailable.")
     }
     let current = try await currentSettledMachinePositionForEffect()
+    var feed: TravelFeedSelection?
     if let delta = try Self.supervisedTravelDelta(from: current, to: destination) {
+      feed = travelFeedSelection(for: delta)
       let final = try await performSupervisedPenUpTravel(
         delta: delta,
         ownerID: .borderValidation(.moveToDrawingBorderStart),
@@ -12044,6 +11923,7 @@ final class PlotterApplicationRuntime:
         )
       }
     }
+    return (try await currentSettledMachinePositionForEffect(), feed)
   }
 
   private func currentMachinePosition() throws -> MachinePosition {
@@ -12182,7 +12062,6 @@ final class PlotterApplicationRuntime:
       )
     }
     let selection = travelFeedSelection(for: delta)
-    lastTravelFeedSelection = selection
     if frameMode == .simulated {
       let admission = await causalSimulatorEffectAdapter.admitRetainedWorkflowTravel(
         delta: try SimulatedLearningMotionVector(dxMM: delta.dx, dyMM: delta.dy),
@@ -12300,8 +12179,10 @@ final class PlotterApplicationRuntime:
     }
   }
 
-  private func drawDrawingBorderTrial() async throws {
-    guard let plan = drawingBorderPlan,
+  private func drawDrawingBorderTrial(
+    progress: BorderDrawingEffectProgress
+  ) async throws {
+    guard let plan = borderValidationSnapshot.drawingBorderPlan,
       let startPoint = plan.strokes.first?.path.points.first
     else {
       throw LearningPathOperationError.requiredState("The Drawing Border plan is unavailable.")
@@ -12329,7 +12210,7 @@ final class PlotterApplicationRuntime:
         action: "Lower simulated pen for Drawing Border"
       )
       if let refusal = lowered.refusal { throw refusal }
-      activeBorderValidationOperation?.strokeState = .possibleInk
+      progress.strokeState = .possibleInk
       do {
         let points = plan.strokes[0].path.points
         for pair in zip(points, points.dropFirst()) {
@@ -12375,7 +12256,7 @@ final class PlotterApplicationRuntime:
         )
         throw error
       }
-      activeBorderValidationOperation?.strokeState = .completedNaturally
+      progress.strokeState = .completedNaturally
       let raised = await causalSimulatorEffectAdapter.executeRetainedWorkflowPen(
         .up,
         owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime.drawingBorderTrial")
@@ -12405,7 +12286,7 @@ final class PlotterApplicationRuntime:
     case .admitted(let admitted):
       operation = admitted
     case .rejected(let outcome):
-      borderValidationDrawingOutcome = outcome
+      progress.outcome = outcome
       throw LearningPathOperationError.controllerRefused(
         "Drawing Border plan was refused before execution: \(outcome)"
       )
@@ -12415,17 +12296,17 @@ final class PlotterApplicationRuntime:
       operationOwner: .liveOperation(operation.id.rawValue)
     )
     let owner = Task { await operation.outcome() }
-    activeBorderValidationOperation?.strokeState = .possibleInk
+    progress.strokeState = .possibleInk
     installStoppableOperation(target: target, owner: .drawingPlan(owner))
     defer { clearStoppableOperation(matching: target) }
     let outcome = await owner.value
-    borderValidationDrawingOutcome = outcome
+    progress.outcome = outcome
     machineSnapshot = await machineSession.snapshot()
     switch outcome {
     case .completed:
-      activeBorderValidationOperation?.strokeState = .completedNaturally
+      progress.strokeState = .completedNaturally
     case .refused(_, let reason):
-      activeBorderValidationOperation?.strokeState = .notAdmitted
+      progress.strokeState = .notAdmitted
       throw LearningPathOperationError.controllerRefused(String(describing: reason))
     case .cancelled(_, _, _, _, let penRaiseOutcome):
       throw LearningPathOperationError.possibleInk(
@@ -12440,12 +12321,17 @@ final class PlotterApplicationRuntime:
     }
   }
 
-  private func revealAndObserveTrialInk() async throws {
-    guard let baseline = localPreFrameBaseline,
-      let revealPosition = borderValidationRevealPosition,
-      let plan = drawingBorderPlan,
+  private func revealAndObserveTrialInk() async throws -> (
+    postFrame: DisplayedFrame,
+    region: PixelRect,
+    observation: PlannedDrawingObservation,
+    inkStatus: String
+  ) {
+    guard let baseline = borderValidationSnapshot.localPreFrameBaseline,
+      let revealPosition = borderValidationSnapshot.revealPosition,
+      let plan = borderValidationSnapshot.drawingBorderPlan,
       let registration = tipCameraRegistration,
-      let registrationRevisionID = borderValidationTipRegistrationRevisionID,
+      let registrationRevisionID = borderValidationSnapshot.tipRegistrationRevisionID,
       registration.acceptedRevisionID == registrationRevisionID,
       learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id
         == registrationRevisionID
@@ -12478,7 +12364,6 @@ final class PlotterApplicationRuntime:
       }
     }
     let post = try await captureProtocolFrame(newerThan: baseline.frame.captureNanoseconds)
-    explorationPostFrame = post
     displayedFrame = post
     let intended = try plan.strokes.map { stroke in
       try Polyline(points: stroke.path.points.map { try registration.tipPixel(at: $0) })
@@ -12488,7 +12373,6 @@ final class PlotterApplicationRuntime:
       frameWidth: post.frame.width,
       frameHeight: post.frame.height
     )
-    borderValidationObservationRegion = trialRegion
     let frames = try DrawingObservationFramePair(
       source: post.source,
       baseline: ExactFrameProvenance(frame: baseline.frame),
@@ -12534,16 +12418,18 @@ final class PlotterApplicationRuntime:
     )
     switch outcome {
     case .observed(let observation):
-      lastFrameObservation = observation
       overlayResultChannels.publishWorkflow(
         OverlayChannelResult(displayedFrame: post, overlays: observation.overlays),
         source: frameMode,
         owner: .borderValidation
       )
-      explorationInkStatus = "new Drawing Border ink observed with planned-path residual"
+      return (
+        post,
+        trialRegion,
+        observation,
+        "new Drawing Border ink observed with planned-path residual"
+      )
     case .rejected(let rejection):
-      lastFrameObservation = nil
-      explorationInkStatus = "ink or geometry unclear: \(rejection.reason); no redraw requested"
       overlayResultChannels.clearWorkflow(source: frameMode, owner: .borderValidation)
       throw LearningPathOperationError.inkRejected(String(describing: rejection.reason))
     }
@@ -12703,17 +12589,15 @@ extension PlotterApplicationRuntime {
       case .runStep(_, let step):
         return try await executeBorderValidationStep(step)
       case .acceptComparison(_, let assessment):
-        try commitComparisonAttemptAndArtifact(assessment)
-        borderValidationAssessment = assessment
-        currentEnvironmentState.borderValidation.comparisonReviewIsPinned = true
+        let histories = try commitComparisonAttemptAndArtifact(assessment)
         await persistCompletedPictureFrameEvidence()
-        return .completed(.comparisonAccepted(assessment))
+        return .completed(.comparisonAccepted(assessment, histories: histories))
       case .rejectComparison(_, let reason):
-        recordComparisonAttempt(
+        let histories = try recordComparisonAttempt(
           assessment: nil,
           disposition: .failed("Operator rejected Border validation: \(reason)")
         )
-        return .completed(.comparisonRejected(reason))
+        return .completed(.comparisonRejected(reason, histories: histories))
       }
     } catch is CancellationError {
       return .cancelled("Border validation was cancelled.")
@@ -12727,92 +12611,66 @@ extension PlotterApplicationRuntime {
   private func executeBorderValidationStep(
     _ step: BorderValidationStep
   ) async throws -> PlotterBorderValidationEffectResult {
-    let payloadSnapshot = borderValidationPayloadSnapshot()
-    activeBorderValidationOperation = ActiveBorderValidationOperation(
-      step: step,
-      strokeState: .notAdmitted
-    )
-    defer { activeBorderValidationOperation = nil }
-
-    do {
-      switch step {
-      case .chooseDrawingBorderPlan:
-        try recordDrawingBorderPlan()
+    switch step {
+    case .chooseDrawingBorderPlan:
+      let planned = try recordDrawingBorderPlan()
+      try commitDrawingArtifact(for: step)
+      return .completed(.planned(
+        program: planned.program,
+        plan: planned.plan,
+        revision: planned.revision
+      ))
+    case .captureLocalPreFrameBaseline:
+      let baseline = try await captureLocalPreFrameBaseline()
+      try commitDrawingArtifact(for: step)
+      return .completed(.baselineCaptured(
+        baseline.frame,
+        revealPosition: baseline.revealPosition
+      ))
+    case .moveToDrawingBorderStart:
+      let movement = try await moveToRecordedDrawingBorderStart()
+      return .completed(.movedToStart(movement.position, feed: movement.feed))
+    case .drawDrawingBorder:
+      let priorOutcome = borderValidationSnapshot.drawingOutcome
+      let progress = BorderDrawingEffectProgress()
+      do {
+        try await drawDrawingBorderTrial(progress: progress)
         try commitDrawingArtifact(for: step)
-        guard let program = borderValidationProgram,
-          let plan = drawingBorderPlan,
-          let revision = borderValidationTipRegistrationRevisionID
-        else {
-          throw LearningPathOperationError.requiredState(
-            "Border validation planning did not publish its exact plan facts."
-          )
-        }
-        return .completed(.planned(program: program, plan: plan, revision: revision))
-      case .captureLocalPreFrameBaseline:
-        try await captureLocalPreFrameBaseline()
-        try commitDrawingArtifact(for: step)
-        guard let frame = localPreFrameBaseline,
-          let revealPosition = borderValidationRevealPosition
-        else {
-          throw LearningPathOperationError.requiredState(
-            "Border validation baseline capture did not publish exact frame facts."
-          )
-        }
-        return .completed(.baselineCaptured(frame, revealPosition: revealPosition))
-      case .moveToDrawingBorderStart:
-        try await moveToRecordedDrawingBorderStart()
-        let position = try await currentSettledMachinePositionForEffect()
-        return .completed(.movedToStart(position, feed: lastTravelFeedSelection))
-      case .drawDrawingBorder:
-        try await drawDrawingBorderTrial()
-        try commitDrawingArtifact(for: step)
-        return .completed(.borderExecuted(borderValidationDrawingOutcome))
-      case .revealAndObserveNewInk:
-        try await revealAndObserveTrialInk()
-        try commitDrawingArtifact(for: step)
-        guard let postFrame = explorationPostFrame,
-          let region = borderValidationObservationRegion,
-          let observation = lastFrameObservation
-        else {
-          throw LearningPathOperationError.requiredState(
-            "Border validation observation did not publish exact frame and Vision facts."
-          )
-        }
-        return .completed(.observedInk(
-          postFrame: postFrame,
-          region: region,
-          observation: observation,
-          inkStatus: explorationInkStatus
-        ))
-      case .compareIntendedAndObservedGeometry:
-        return .completed(.comparisonAccepted(.predictionObserved))
-      }
-    } catch {
-      let strokeState = activeBorderValidationOperation?.strokeState
-      if step == .drawDrawingBorder,
-        borderValidationDrawingOutcome != payloadSnapshot.drawingOutcome
-          || strokeState != .notAdmitted
-      {
-        var commitFailure: String?
-        if strokeState == .completedNaturally {
-          do {
-            try commitDrawingArtifact(for: .drawDrawingBorder)
-          } catch {
-            commitFailure = String(describing: error)
+        return .completed(.borderExecuted(progress.outcome))
+      } catch {
+        if progress.outcome != priorOutcome || progress.strokeState != .notAdmitted {
+          var commitFailure: String?
+          if progress.strokeState == .completedNaturally {
+            do {
+              try commitDrawingArtifact(for: .drawDrawingBorder)
+            } catch {
+              commitFailure = String(describing: error)
+            }
           }
+          let base =
+            "Drawing Border execution produced controller evidence, so physical ink may exist. Drawing will not restart; Resume Border Validation Observation will return Pen Up and inspect the existing camera frame."
+          let detail =
+            commitFailure.map {
+              "\(base) The frame-execution artifact also needs attention: \($0)"
+            } ?? "\(base) Post-stroke settlement needs attention: \(error)"
+          return .completed(.possibleInk(detail, outcome: progress.outcome))
         }
-        let base =
-          "Drawing Border execution produced controller evidence, so physical ink may exist. Drawing will not restart; Resume Border Validation Observation will return Pen Up and inspect the existing camera frame."
-        let detail =
-          commitFailure.map {
-            "\(base) The frame-execution artifact also needs attention: \($0)"
-          } ?? "\(base) Post-stroke settlement needs attention: \(error)"
-        return .completed(.possibleInk(detail, outcome: borderValidationDrawingOutcome))
+        throw error
       }
-      if step != .revealAndObserveNewInk {
-        restoreBorderValidationPayload(payloadSnapshot)
-      }
-      throw error
+    case .revealAndObserveNewInk:
+      let observation = try await revealAndObserveTrialInk()
+      try commitDrawingArtifact(for: step)
+      return .completed(.observedInk(
+        postFrame: observation.postFrame,
+        region: observation.region,
+        observation: observation.observation,
+        inkStatus: observation.inkStatus
+      ))
+    case .compareIntendedAndObservedGeometry:
+      return .completed(.comparisonAccepted(
+        .predictionObserved,
+        histories: borderValidationSnapshot.comparisonAttemptHistories
+      ))
     }
   }
 }

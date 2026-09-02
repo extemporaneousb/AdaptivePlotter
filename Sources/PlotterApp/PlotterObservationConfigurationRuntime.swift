@@ -1,4 +1,5 @@
 import Foundation
+import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
@@ -42,11 +43,6 @@ struct UserDefaultsObservationPreferencePort:
   }
 }
 
-struct PlotterObservationConfigurationReference: Hashable, Sendable {
-  let revision: UInt64
-  let capabilityID: UUID
-}
-
 enum PlotterObservationConfigurationIntent: Hashable, Sendable {
   case refreshSources
   case selectLiveSource(CameraDeviceID)
@@ -60,22 +56,6 @@ enum PlotterObservationConfigurationIntent: Hashable, Sendable {
     penCapColor: PenCapColor?
   )
   case requestDiagnostics
-}
-
-enum PlotterObservationOperatorIntent: Hashable, Sendable {
-  case refresh
-  case selectSource(OperatorFrameMode, CameraDeviceID?)
-  case stopLiveSource
-  case restartLiveSource
-  case setCadence(VisionAnalysisCadence)
-  case setRegion(PixelRect?, displayedFrame: DisplayedFrame)
-  case setOverlay(UserSceneOverlay, enabled: Bool)
-  case requestDiagnostics
-}
-
-struct PlotterObservationOperatorSubmission: Hashable, Sendable {
-  let reference: PlotterObservationConfigurationReference
-  let intent: PlotterObservationOperatorIntent
 }
 
 struct PlotterObservationConfigurationProjection: Sendable {

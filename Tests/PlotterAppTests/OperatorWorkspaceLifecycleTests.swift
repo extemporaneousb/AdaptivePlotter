@@ -98,7 +98,7 @@ struct PlotterApplicationRuntimeLifecycleTests {
     await workspace.performTestExerciseAction(.start, for: owner)
 
     #expect(workspace.contextualStopPresentation == nil)
-    #expect(workspace.borderValidationStep == .revealAndObserveNewInk)
+    #expect(workspace.borderValidationSnapshot.step == .revealAndObserveNewInk)
     #expect(workspace.restartableExerciseItemID == nil)
     #expect(workspace.explorationError?.contains("will not restart") == true)
     await workspace.shutdown()
@@ -129,7 +129,9 @@ struct PlotterApplicationRuntimeLifecycleTests {
         $0.provenance.kind == .intendedPath && $0.provenance.source == .planned
       })
     let displayedFrame = try #require(surface.displayedFrame)
-    let drawingBorderPath = try #require(workspace.drawingBorderPlan?.strokes.first?.path)
+    let drawingBorderPath = try #require(
+      workspace.borderValidationSnapshot.drawingBorderPlan?.strokes.first?.path
+    )
     let registration = try #require(workspace.tipCameraRegistration)
     guard case .polyline(let predictedBorder) = predicted.geometry else {
       Issue.record("The model prediction must be a camera-pixel polyline.")
@@ -140,7 +142,7 @@ struct PlotterApplicationRuntimeLifecycleTests {
     let projectedBorder = try drawingBorderPath.points.map { try registration.tipPixel(at: $0) }
     #expect(predictedBorder.points == projectedBorder)
     #expect((await harness.simulator.snapshot()).mpos == positionBeforeGo)
-    #expect(workspace.borderValidationStep == .moveToDrawingBorderStart)
+    #expect(workspace.borderValidationSnapshot.step == .moveToDrawingBorderStart)
     #expect(
       workspace.selectedOperatorActionPresentation(for: owner).activity?.outcome == .inProgress)
     #expect(
@@ -155,8 +157,8 @@ struct PlotterApplicationRuntimeLifecycleTests {
     await pacing.resume()
     await trial.value
 
-    #expect(workspace.borderValidationAssessment == nil)
-    #expect(workspace.borderValidationStep == .compareIntendedAndObservedGeometry)
+    #expect(workspace.borderValidationSnapshot.assessment == nil)
+    #expect(workspace.borderValidationSnapshot.step == .compareIntendedAndObservedGeometry)
     #expect(workspace.activeExerciseAttemptID != nil)
     #expect(!workspace.completedDrawingComparisonReviewIsAvailable)
     #expect(
@@ -172,12 +174,13 @@ struct PlotterApplicationRuntimeLifecycleTests {
       for: owner
     )
 
-    #expect(workspace.borderValidationAssessment == .predictionObserved)
+    #expect(workspace.borderValidationSnapshot.assessment == .predictionObserved)
     #expect(workspace.completedDrawingComparisonReviewIsAvailable)
     #expect(workspace.completedDrawingComparisonReviewIsPinned)
     let completedSurface = workspace.testActionSurfacePresentation
     #expect(
-      completedSurface.displayedFrame?.frame.id == workspace.explorationPostFrame?.frame.id)
+      completedSurface.displayedFrame?.frame.id
+        == workspace.borderValidationSnapshot.postFrame?.frame.id)
     #expect(
       Set(completedSurface.overlays.map(\.provenance.kind)).isSuperset(of: [
         .intendedPath,

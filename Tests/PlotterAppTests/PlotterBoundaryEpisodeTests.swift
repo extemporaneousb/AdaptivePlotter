@@ -451,9 +451,16 @@ struct PlotterBoundaryEpisodeTests {
     #expect(request.renewalBounds.maximumMM == 50)
 
     let active = workspace.testPlotterUIProjection(selectedItemID: owner, includesLearningPath: true)
+    let boundaryRuntime = try #require(runtimeAccess.runtime)
+    let expectedCapability = try #require(
+      (await boundaryRuntime.snapshot(for: .live)).projection.cancellationCapabilityID
+    )
     let stopAction = try #require(active.semantic.actions.first { action in
-      if case .boundary(.stop(_)) = action.intent { return true }
-      return false
+      guard case .learningAction(let request) = action.intent,
+        request.item.rawValue == "\(owner.number)-\(owner.title)",
+        case .boundary(.stop(let capability)) = request.action
+      else { return false }
+      return capability == expectedCapability
     })
     let exact = try #require(active.semantic.request(for: stopAction.id))
     let stale = PlotterUIRequest(
@@ -831,11 +838,15 @@ struct PlotterBoundaryEpisodeTests {
       includesLearningPath: true
     )
     let boundaryIntents = uiProjection.semantic.actions.compactMap { action in
-      if case .boundary(let intent) = action.intent { return intent }
+      if case .learningAction(let request) = action.intent,
+        case .boundary(let intent) = request.action
+      {
+        return intent
+      }
       return nil
     }
     #expect(boundaryIntents == [.recoverPublication(recovery)])
-    let recoveryActionID = PlotterAppUIActionID.retainedLearning(
+    let recoveryActionID = learningActionID(
       .boundary(.recoverPublication(recovery)),
       owner: boundaryOwner
     )

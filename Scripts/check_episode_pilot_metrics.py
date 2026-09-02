@@ -17,7 +17,7 @@ BASELINE_COMMIT = "96253197a42dc6052ef76ad53c4c94c1c5f745a1"
 OPERATOR = "Sources/PlotterApp/OperatorWorkspace.swift"
 DRAWING_ACTIONS = "Sources/PlotterApp/DrawingStudioPresentation.swift"
 COMPARISON_ACTIONS = "Sources/PlotterApp/CompletedComparisonReviewPresentation.swift"
-LEARNING_ACTIONS = "Sources/PlotterApp/LearningPathPresentation.swift"
+LEARNING_ACTIONS = "Sources/PlotterEpisodeModel/PlotterIntent.swift"
 UI_SINK = "Sources/PlotterUI/PlotterUI.swift"
 
 
@@ -74,7 +74,7 @@ def ow_func(member: str) -> Symbol:
 
 
 def exercise(member: str) -> Symbol:
-    return enum_case(LEARNING_ACTIONS, "ExerciseActionKind", member)
+    return enum_case(LEARNING_ACTIONS, "PlotterLearningAction", member)
 
 
 def drawing(member: str) -> Symbol:

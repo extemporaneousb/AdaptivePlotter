@@ -40,7 +40,7 @@ class EpisodeInventoryTests(unittest.TestCase):
     def test_ea10c_current_typed_action_and_task_replace_retired_workspace_paths(self) -> None:
         rows, scans = validate_manifest()
         seams = {row["id"]: row["seams"] for row in rows}
-        self.assertEqual({"ExerciseActionKind.cameraCalibration"}, seams["INT-012"])
+        self.assertEqual({"PlotterLearningAction.cameraCalibration"}, seams["INT-012"])
         self.assertEqual({"PlotterCameraCalibrationRuntime.activeTask"}, seams["TSK-005"])
         self.assertEqual(
             {
@@ -89,8 +89,8 @@ class EpisodeInventoryTests(unittest.TestCase):
         seams = {row["id"]: row["seams"] for row in rows}
         self.assertEqual(
             {
-                "ExerciseActionKind.tipCalibration",
-                "ExerciseActionKind.pointSelectionCorrection",
+                "PlotterLearningAction.tipCalibration",
+                "PlotterLearningAction.pointSelectionCorrection",
             },
             seams["INT-013"],
         )
@@ -140,7 +140,7 @@ class EpisodeInventoryTests(unittest.TestCase):
         seams = {row["id"]: row["seams"] for row in rows}
         self.assertEqual(
             {
-                "ExerciseActionKind.borderValidation",
+                "PlotterLearningAction.borderValidation",
                 "PlotterBorderValidationIntent.begin",
                 "PlotterBorderValidationIntent.acceptObservedPrediction",
                 "PlotterBorderValidationIntent.reject",
@@ -236,12 +236,12 @@ class EpisodeInventoryTests(unittest.TestCase):
         seams = {row["id"]: row["seams"] for row in rows}
         self.assertEqual(
             {
-                "ExerciseActionKind.applySavedLearning",
-                "ExerciseActionKind.startNewLearning",
-                "ExerciseActionKind.restart",
-                "ExerciseActionKind.redoThisStep",
-                "ExerciseActionKind.recordAnotherAttempt",
-                "ExerciseActionKind.paperReplaced",
+                "PlotterLearningAction.applySavedLearning",
+                "PlotterLearningAction.startNewLearning",
+                "PlotterLearningAction.restart",
+                "PlotterLearningAction.redoThisStep",
+                "PlotterLearningAction.recordAnotherAttempt",
+                "PlotterLearningAction.paperReplaced",
                 "PlotterArtifactResetIntent.compareSavedLearning",
                 "PlotterArtifactResetIntent.applySavedLearning",
                 "PlotterArtifactResetIntent.retainSavedLearning",

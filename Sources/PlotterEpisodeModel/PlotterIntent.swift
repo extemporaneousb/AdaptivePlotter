@@ -292,6 +292,229 @@ public enum PlotterLearningIntent: Codable, Hashable, Sendable {
   case setEnabled(Bool)
 }
 
+/// Canonical values-only controller request; App reconstructs the lower link descriptor.
+public struct PlotterControllerSessionReference: Hashable, Sendable {
+  public let revision: UInt64; public let capabilityID: UUID
+  public init(revision: UInt64, capabilityID: UUID) {
+    self.revision = revision; self.capabilityID = capabilityID
+  }
+}
+public struct PlotterControllerSerialDevice: Hashable, Sendable {
+  public let identifier, displayName, transport: String; public let bsdPath: String?
+  public init(identifier: String, displayName: String, bsdPath: String?, transport: String) {
+    self.identifier = identifier; self.displayName = displayName
+    self.bsdPath = bsdPath; self.transport = transport
+  }
+}
+public enum PlotterControllerSessionIntent: Hashable, Sendable {
+  case refreshSerialDevices, toggleConnection, requestPassiveProbe, clearAlarm
+  case toggleMotionAuthorization
+  case selectSerialDevice(PlotterControllerSerialDevice)
+}
+public struct PlotterControllerSessionRequest: Hashable, Sendable {
+  public let reference: PlotterControllerSessionReference
+  public let intent: PlotterControllerSessionIntent
+  public init(reference: PlotterControllerSessionReference, intent: PlotterControllerSessionIntent) {
+    self.reference = reference; self.intent = intent
+  }
+}
+
+/// Canonical values-only camera/Vision request; App reconstructs lower effect inputs.
+public struct PlotterObservationConfigurationReference: Hashable, Sendable {
+  public let revision: UInt64; public let capabilityID: UUID
+  public init(revision: UInt64, capabilityID: UUID) {
+    self.revision = revision; self.capabilityID = capabilityID
+  }
+}
+public enum PlotterObservationConfigurationSource: Hashable, Sendable { case live, simulated }
+public struct PlotterObservationRegion: Hashable, Sendable {
+  public let x, y, width, height: Int
+  public init(x: Int, y: Int, width: Int, height: Int) {
+    self.x = x; self.y = y; self.width = width; self.height = height
+  }
+}
+public struct PlotterObservationFrameIdentity: Hashable, Sendable {
+  public let frameID, cameraConfigurationID: String
+  public let sequence, captureNanoseconds: UInt64
+  public init(frameID: String, sequence: UInt64, captureNanoseconds: UInt64, cameraConfigurationID: String) {
+    self.frameID = frameID; self.sequence = sequence
+    self.captureNanoseconds = captureNanoseconds; self.cameraConfigurationID = cameraConfigurationID
+  }
+}
+public enum PlotterObservationOperatorIntent: Hashable, Sendable {
+  case refresh, stopLiveSource, restartLiveSource, requestDiagnostics
+  case selectSource(PlotterObservationConfigurationSource, cameraID: String?)
+  case setCadence(framesPerSecond: Double)
+  case setRegion(PlotterObservationRegion?, displayedFrame: PlotterObservationFrameIdentity)
+  case setOverlay(identifier: String, enabled: Bool)
+}
+public struct PlotterObservationOperatorSubmission: Hashable, Sendable {
+  public let reference: PlotterObservationConfigurationReference
+  public let intent: PlotterObservationOperatorIntent
+  public init(reference: PlotterObservationConfigurationReference, intent: PlotterObservationOperatorIntent) {
+    self.reference = reference; self.intent = intent
+  }
+}
+
+public struct PlotterLearningItemIdentity: RawRepresentable, Codable, Hashable, Sendable {
+  public let rawValue: String
+  public init(rawValue: String) { self.rawValue = rawValue }
+}
+public struct ContextualStopCapabilityID: RawRepresentable, Codable, Hashable, Sendable {
+  public let rawValue: UUID
+  public init(rawValue: UUID = UUID()) { self.rawValue = rawValue }
+}
+public enum PlotterLearningChoice: String, Codable, CaseIterable, Hashable, Sendable {
+  case yes, no
+}
+public enum PlotterLearningPenCommand: String, Codable, Hashable, Sendable { case raise, lower }
+public enum PlotterLearningCameraCalibrationAction: String, Codable, Hashable, Sendable {
+  case buildFivePositionProposal, acceptProposal, rejectProposal
+}
+public enum PlotterLearningTipCalibrationAction: Codable, Hashable, Sendable {
+  case beginFourMarkBatch, revalidateCheckpoint, acceptProposal, rejectProposal, retryCommit
+  case captureNewClickFrame(retainedPointCount: Int)
+}
+public enum PlotterLearningPointSelectionCorrectionAction: String, Codable, Hashable, Sendable {
+  case undoLastPoint, clearPoints
+}
+public enum PlotterLearningBorderValidationAction: Codable, Hashable, Sendable {
+  case acceptObservedPrediction, reject(String)
+}
+
+/// Model-owned meaning carried unchanged from actionability to the feature owner.
+public enum PlotterLearningAction: Codable, Hashable, Sendable {
+  case applySavedLearning, startNewLearning, start, cancel, restart, redoThisStep
+  case recordAnotherAttempt, paperReplaced
+  case choice(PlotterLearningChoice)
+  case setPenSetpoint(PlotterLearningPenCommand, Int)
+  case stopPenInteraction(PlotterPenInteractionCancellationCapabilityID)
+  case boundary(PlotterBoundaryIntent), stop(ContextualStopCapabilityID)
+  case cameraCalibration(PlotterLearningCameraCalibrationAction)
+  case tipCalibration(PlotterLearningTipCalibrationAction)
+  case pointSelectionCorrection(PlotterLearningPointSelectionCorrectionAction)
+  case borderValidation(PlotterLearningBorderValidationAction)
+}
+public struct PlotterLearningActionRequest: Codable, Hashable, Sendable {
+  public let item: PlotterLearningItemIdentity; public let action: PlotterLearningAction
+  public init(item: PlotterLearningItemIdentity, action: PlotterLearningAction) {
+    self.item = item; self.action = action
+  }
+}
+
+/// One stable Learning journal identity, minted once when its record is created.
+public struct PlotterLearningEpisodeID: RawRepresentable, Hashable, Sendable {
+  public let rawValue: UUID; public init(rawValue: UUID = UUID()) { self.rawValue = rawValue }
+}
+public struct PlotterLearningTransitionID: Hashable, Sendable {
+  public let episodeID: PlotterLearningEpisodeID; public let sequence: UInt64
+  public init(episodeID: PlotterLearningEpisodeID, sequence: UInt64) { self.episodeID = episodeID; self.sequence = sequence }
+}
+public enum PlotterLearningEpisodeRefusalReason: Hashable, Sendable {
+  case staleUIRevision, staleRuntimeRevision, unknownAction, mismatchedIntent
+  case unavailableAction, ownerRefused
+}
+public enum PlotterLearningEpisodeResult: Hashable, Sendable {
+  case accepted(owner: EpisodeAuthorityID)
+  case refused(reason: PlotterLearningEpisodeRefusalReason, owner: EpisodeAuthorityID, remedy: String)
+}
+public enum PlotterLearningRecordRequest: Hashable, Sendable {
+  case action(PlotterLearningActionRequest)
+  case reset(PlotterLearningResetRequest)
+}
+public struct PlotterLearningPostTransitionProjection: Hashable, Sendable {
+  public let stateRevision: PlotterProjectionRevision
+  public let currentItem: PlotterLearningItemIdentity
+  public let activeOwner: PlotterLearningItemIdentity?
+  public let learningIsEnabled: Bool
+  public init(
+    stateRevision: PlotterProjectionRevision,
+    currentItem: PlotterLearningItemIdentity,
+    activeOwner: PlotterLearningItemIdentity?,
+    learningIsEnabled: Bool
+  ) {
+    self.stateRevision = stateRevision; self.currentItem = currentItem
+    self.activeOwner = activeOwner; self.learningIsEnabled = learningIsEnabled
+  }
+}
+public struct PlotterLearningEpisode: Hashable, Sendable {
+  public let transitionID: PlotterLearningTransitionID
+  public let request: PlotterLearningRecordRequest; public let environment: PlotterEnvironment
+  public let preStateRevision: PlotterProjectionRevision
+  public let result: PlotterLearningEpisodeResult
+  public let postTransitionProjection: PlotterLearningPostTransitionProjection
+  public var postStateRevision: PlotterProjectionRevision { postTransitionProjection.stateRevision }
+  public var stateChangePublished: Bool { preStateRevision != postStateRevision }
+  public var sequence: UInt64 { transitionID.sequence }
+}
+
+/// One bounded ordered admission/result record; feature journals remain separate.
+public struct PlotterLearningEpisodeRecord: Sendable {
+  public struct Reservation: Hashable, Sendable {
+    public let transitionID: PlotterLearningTransitionID
+    public let request: PlotterLearningRecordRequest; public let environment: PlotterEnvironment
+    public let preStateRevision: PlotterProjectionRevision
+  }
+  public private(set) var entries: [PlotterLearningEpisode] = []
+  public let episodeID: PlotterLearningEpisodeID
+  private var nextSequence: UInt64 = 1; private let maximumEntries: Int
+  public init(episodeID: PlotterLearningEpisodeID = .init(), maximumEntries: Int = 128) { self.episodeID = episodeID; self.maximumEntries = max(1, maximumEntries) }
+
+  public mutating func reserve(
+    _ request: PlotterLearningRecordRequest,
+    environment: PlotterEnvironment,
+    preStateRevision: PlotterProjectionRevision
+  ) -> Reservation {
+    let sequence = nextSequence; nextSequence &+= 1
+    let transitionID = PlotterLearningTransitionID(episodeID: episodeID, sequence: sequence)
+    return Reservation(transitionID: transitionID, request: request,
+      environment: environment, preStateRevision: preStateRevision)
+  }
+
+  public mutating func publish(
+    _ reservation: Reservation,
+    result: PlotterLearningEpisodeResult,
+    postTransitionProjection: PlotterLearningPostTransitionProjection
+  ) {
+    entries.append(.init(
+      transitionID: reservation.transitionID, request: reservation.request,
+      environment: reservation.environment, preStateRevision: reservation.preStateRevision,
+      result: result, postTransitionProjection: postTransitionProjection
+    ))
+    entries.sort { $0.sequence < $1.sequence }
+    if entries.count > maximumEntries { entries.removeFirst(entries.count - maximumEntries) }
+  }
+}
+
+public enum PlotterLearningResetSource: String, Codable, Hashable, Sendable { case live, simulated }
+public enum PlotterLearningResetScope: Hashable, Sendable {
+  case from(PlotterLearningItemIdentity), all
+}
+public struct PlotterLearningResetRequest: Hashable, Sendable {
+  public let scope: PlotterLearningResetScope; public let source: PlotterLearningResetSource
+  public let anchor: PlotterLearningItemIdentity; public let affectedItems: [PlotterLearningItemIdentity]
+  public let expectedCurrentRevisionIDs: Set<String>; public let expectedAcceptedAttemptSequence: UInt64
+  public let removesDurableMachineCheckpoint, removesDurableTipCheckpoint, physicalInkMayRemain: Bool
+  public init(
+    scope: PlotterLearningResetScope, source: PlotterLearningResetSource,
+    anchor: PlotterLearningItemIdentity, affectedItems: [PlotterLearningItemIdentity],
+    expectedCurrentRevisionIDs: Set<String>, expectedAcceptedAttemptSequence: UInt64,
+    removesDurableMachineCheckpoint: Bool, removesDurableTipCheckpoint: Bool,
+    physicalInkMayRemain: Bool
+  ) {
+    self.scope = scope; self.source = source; self.anchor = anchor
+    self.affectedItems = affectedItems; self.expectedCurrentRevisionIDs = expectedCurrentRevisionIDs
+    self.expectedAcceptedAttemptSequence = expectedAcceptedAttemptSequence
+    self.removesDurableMachineCheckpoint = removesDurableMachineCheckpoint
+    self.removesDurableTipCheckpoint = removesDurableTipCheckpoint
+    self.physicalInkMayRemain = physicalInkMayRemain
+  }
+  public var identity: String {
+    let scopeID = switch scope { case .from(let item): "from-\(item.rawValue)"; case .all: "all" }
+    return "learning.reset.\(source.rawValue).\(scopeID).\(expectedAcceptedAttemptSequence).\(expectedCurrentRevisionIDs.sorted().joined(separator: ","))"
+  }
+}
+
 public enum PlotterEvidenceQuestion: String, Codable, CaseIterable, Hashable, Sendable {
   case pointIdentity
   case motionSettlement

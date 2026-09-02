@@ -281,7 +281,7 @@ struct PlotterLearningPresentationCompilerTests {
     )
 
     #expect(projection.currentItemID == boundary)
-    #expect(projection.currentActionStrip?.ownerID == boundary)
+    #expect(projection.currentActionStrip?.ownerID == "\(boundary.number)-\(boundary.title)")
     #expect(
       projection.currentActionStrip?.actions.map(\.kind)
         == [.boundary(.acquire(direction: .positiveX, mode: .normal))]
@@ -402,7 +402,7 @@ struct PlotterLearningPresentationCompilerTests {
           "Cancel Attempt",
         ]),
       (.committing(PlotterTipCalibrationOperationID(), isRetry: true),
-        4, ["Retry Pen-Tip Calibration Save", "Cancel Attempt"]),
+        4, ["Saving or Revalidating Tip Calibration…", "Cancel Attempt"]),
     ]
 
     for (phase, collectedClickCount, titles) in phases {
@@ -415,6 +415,11 @@ struct PlotterLearningPresentationCompilerTests {
         selectedItemID: owner
       ).currentActionStrip
       #expect(strip?.actions.map(\.title) == titles)
+      if case .committing = phase {
+        #expect(!((strip?.actions ?? []).contains {
+          $0.kind == .tipCalibration(.retryCommit)
+        }))
+      }
     }
   }
 

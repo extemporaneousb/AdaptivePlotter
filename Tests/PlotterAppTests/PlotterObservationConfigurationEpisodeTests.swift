@@ -246,10 +246,14 @@ struct PlotterObservationConfigurationEpisodeTests {
       log: EventLog()
     )
     let projection = workspace.observationConfigurationProjection
-    await workspace.submitObservationConfiguration(projection.request(.setCadence(.fiveFPS)))
+    await workspace.submitObservationConfiguration(projection.request(.setCadence(
+      framesPerSecond: VisionAnalysisCadence.fiveFPS.rawValue
+    )))
     #expect(workspace.observationConfigurationProjection.cadence == .fiveFPS)
 
-    await workspace.submitObservationConfiguration(projection.request(.setCadence(.twoFPS)))
+    await workspace.submitObservationConfiguration(projection.request(.setCadence(
+      framesPerSecond: VisionAnalysisCadence.twoFPS.rawValue
+    )))
     #expect(workspace.observationConfigurationProjection.cadence == .fiveFPS)
     await workspace.shutdown()
   }

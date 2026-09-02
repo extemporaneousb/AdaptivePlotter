@@ -520,6 +520,7 @@ struct PlotterApplicationRuntimeView: View {
 }
 
 private struct WorkbenchPaneControls: View {
+  @State private var requestRefusal: String?
   let visibility: WorkbenchPaneVisibility
   let videoSettings: VideoSettingsPresentation
   let exerciseDetailCollapseUnavailableReason: String?
@@ -538,6 +539,9 @@ private struct WorkbenchPaneControls: View {
   let performVideoSettingsAction: (VideoSettingsVisibilityAction) -> Void
 
   var body: some View {
+    let learningRequest = plotterUIProjection.request(
+      matching: .learning(.setEnabled(!learningIsEnabled))
+    )
     HStack(spacing: 8) {
       Button {
         submit(PlotterAppUIActionID.learningMode)
@@ -547,7 +551,7 @@ private struct WorkbenchPaneControls: View {
           systemImage: learningIsEnabled ? "graduationcap.fill" : "graduationcap"
         )
       }
-      .operatorButton()
+      .operatorButton(isEnabled: learningModeRemedy == nil && learningRequest != nil)
       .controlSize(.small)
       .help(
         learningModeRemedy
@@ -559,6 +563,13 @@ private struct WorkbenchPaneControls: View {
           .foregroundStyle(.orange)
           .lineLimit(1)
           .help(learningModeRemedy)
+      }
+      if let requestRefusal {
+        Label(requestRefusal, systemImage: "exclamationmark.triangle.fill")
+          .font(.caption2)
+          .foregroundStyle(.orange)
+          .lineLimit(2)
+          .help(requestRefusal)
       }
       if let learningRecordingDiagnostic {
         Label(learningRecordingDiagnostic, systemImage: "externaldrive.badge.exclamationmark")
@@ -581,7 +592,12 @@ private struct WorkbenchPaneControls: View {
         }
         .operatorButton(drawingStudioIsPresented ? .negative : .affirmative)
         .controlSize(.small)
-        .disabled(drawingStudioChangeUnavailableReason != nil)
+        .disabled(
+          drawingStudioChangeUnavailableReason != nil
+            || plotterUIProjection.request(matching: .drawingDraft(
+              drawingStudioIsPresented ? .close : .open
+            )) == nil
+        )
         .help(
           drawingStudioChangeUnavailableReason
             ?? "Select, place, resize, preview, and execute a drawing program."
@@ -656,8 +672,19 @@ private struct WorkbenchPaneControls: View {
   }
 
   private func submit(_ actionID: PlotterUIActionID) {
-    Task {
-      _ = await plotterUIIntentSink.submitProjectedAction(actionID, in: plotterUIProjection)
+    Task { @MainActor in
+      guard let disposition = await plotterUIIntentSink.submitProjectedAction(
+        actionID,
+        in: plotterUIProjection
+      ) else {
+        requestRefusal = "Refresh the current action before retrying."
+        return
+      }
+      if case .refused(let refusal) = disposition {
+        requestRefusal = refusal.remedy
+      } else {
+        requestRefusal = nil
+      }
     }
   }
 

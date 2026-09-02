@@ -368,7 +368,7 @@ struct LearningPathProjection: Hashable, Sendable {
   let currentItemID: LearningPathItemID
   let items: [LearningPathItemPresentation]
   let selectedAction: OperatorActionPresentation
-  let currentActionStrip: ExerciseActionStripPresentation?
+  let currentActionStrip: PlotterUILearningActionStripDecision?
   let contextualStop: ContextualStopPresentation?
   let resetSurface: LearningResetSurfacePresentation
   let menu: LearningPathMenuPresentation
@@ -397,121 +397,11 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
     ))
   }
 
-  func exerciseAction(
-    _ action: PlotterUILearningSemanticAction
-  ) -> ExerciseActionKind? {
-    switch action {
-    case .applySavedLearning: return .applySavedLearning
-    case .startNewLearning: return .startNewLearning
-    case .start: return .start
-    case .choice(let choice): return .choice(operatorChoice(choice))
-    case .setPenSetpoint:
-      return nil
-    case .stopPenInteraction(let capability):
-      return .stop(ContextualStopCapabilityID(rawValue: capability.rawValue))
-    case .boundary(let intent): return .boundary(intent)
-    case .cancel: return .cancel
-    case .stop(let id): return .stop(ContextualStopCapabilityID(rawValue: id))
-    case .restart: return .restart
-    case .redoThisStep: return .redoThisStep
-    case .recordAnotherAttempt: return .recordAnotherAttempt
-    case .runCameraCalibration: return .cameraCalibration(.buildFivePositionProposal)
-    case .acceptCameraCalibration: return .cameraCalibration(.acceptProposal)
-    case .discardCameraSamples, .rejectCameraCalibration:
-      return .cameraCalibration(.rejectProposal)
-    case .drawSparseTipCircles: return .tipCalibration(.beginFourMarkBatch)
-    case .captureNewSparseTipClickFrame(let retainedPointCount):
-      return .tipCalibration(.captureNewClickFrame(retainedPointCount: retainedPointCount))
-    case .undoSparseTipClick: return .pointSelectionCorrection(.undoLastPoint)
-    case .clearSparseTipClicks: return .pointSelectionCorrection(.clearPoints)
-    case .revalidateTipCalibration: return .tipCalibration(.revalidateCheckpoint)
-    case .acceptTipCalibration: return .tipCalibration(.acceptProposal)
-    case .rejectTipCalibration: return .tipCalibration(.rejectProposal)
-    case .retryTipCalibrationCommit: return .tipCalibration(.retryCommit)
-    case .paperReplaced: return .paperReplaced
-    case .acceptBorderValidation:
-      return .borderValidation(.acceptObservedPrediction)
-    case .rejectBorderValidation:
-      return .borderValidation(.reject("Operator rejected the observed Drawing Border comparison."))
-    }
-  }
-
-  func candidates(
-    _ strip: PlotterUILearningActionStripDecision
-  ) -> [PlotterUIActionCandidate] {
-    guard let owner = itemID(strip.ownerID) else { return [] }
-    return strip.actionDecisions().map { decision in
-      let id = actionID(decision.action, owner: owner)
-      return decision.candidate(ownerID: strip.ownerID, id: id)
-    }
-  }
-
-  func semanticAction(
-    for actionID: PlotterUIActionID,
-    in strip: PlotterUILearningActionStripDecision
-  ) -> PlotterUILearningSemanticAction? {
-    guard let owner = itemID(strip.ownerID) else { return nil }
-    return strip.actionDecisions().first { decision in
-      self.actionID(decision.action, owner: owner) == actionID
-    }?.action
-  }
-
   func actionStrip(
     _ decision: PlotterUILearningActionStripDecision?
-  ) -> ExerciseActionStripPresentation? {
-    guard let decision, let owner = itemID(decision.ownerID) else { return nil }
-    return ExerciseActionStripPresentation(
-      ownerID: owner,
-      actions: decision.actions.compactMap { action in
-        guard let kind = exerciseAction(action.action) else { return nil }
-        return .init(
-          kind: kind,
-          title: action.title,
-          role: exerciseRole(action.role),
-          unavailableReason: action.unavailableReason
-        )
-      },
-      directionSelection: decision.directionSelection.map {
-        ExerciseDirectionSelectionPresentation(
-          purpose: .boundary,
-          options: $0.options.map(boundaryDirection),
-          selected: boundaryDirection($0.selected)
-        )
-      },
-      penSetpointAdjustment: decision.penAdjustment.map {
-        PenSetpointAdjustmentPresentation(
-          command: penCommand($0.command),
-          value: $0.value,
-          minimumValue: $0.minimumValue,
-          maximumValue: $0.maximumValue,
-          unavailableReason: $0.unavailableReason
-        )
-      },
-      mustRemainVisible: decision.mustRemainVisible
-    )
-  }
-
-  private func actionID(
-    _ action: PlotterUILearningSemanticAction,
-    owner: LearningPathItemID
-  ) -> PlotterUIActionID {
-    if case .setPenSetpoint(let command, let value) = action {
-      return PlotterAppUIActionID.penInteractionSetpoint(
-        penCommand(command),
-        value: value,
-        owner: owner
-      )
-    }
-    if case .stopPenInteraction(let capability) = action {
-      return PlotterAppUIActionID.retainedLearning(
-        .stop(ContextualStopCapabilityID(rawValue: capability.rawValue)),
-        owner: owner
-      )
-    }
-    guard let retained = exerciseAction(action) else {
-      preconditionFailure("Unmapped canonical Learning action \(action)")
-    }
-    return PlotterAppUIActionID.retainedLearning(retained, owner: owner)
+  ) -> PlotterUILearningActionStripDecision? {
+    guard let decision, itemID(decision.ownerID) != nil else { return nil }
+    return decision
   }
 
   private func facts(
@@ -723,29 +613,18 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
     }
   }
 
-  private func uiChoice(_ choice: OperatorChoice) -> PlotterUILearningChoice {
+  private func uiChoice(_ choice: OperatorChoice) -> PlotterLearningChoice {
     choice == .yes ? .yes : .no
   }
 
-  private func operatorChoice(_ choice: PlotterUILearningChoice) -> OperatorChoice {
+  func operatorChoice(_ choice: PlotterLearningChoice) -> OperatorChoice {
     choice == .yes ? .yes : .no
   }
 
-  private func uiPenCommand(_ command: PenCommand) -> PlotterUILearningPenCommand {
+  private func uiPenCommand(_ command: PenCommand) -> PlotterLearningPenCommand {
     command == .raise ? .raise : .lower
   }
 
-  private func penCommand(_ command: PlotterUILearningPenCommand) -> PenCommand {
-    command == .raise ? .raise : .lower
-  }
-
-  private func exerciseRole(_ role: PlotterUILearningActionRole) -> ExerciseActionRole {
-    switch role {
-    case .positive: .positive
-    case .destructive: .destructive
-    case .standard: .standard
-    }
-  }
 }
 
 private extension PlotterUILearningItemStatus {

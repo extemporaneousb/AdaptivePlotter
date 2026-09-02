@@ -28,7 +28,6 @@ public enum LearningPathTerminology {
     public static let runCameraCalibration = "Run Five-Position Camera Calibration"
     public static let acceptCameraCalibration = "Accept Camera Calibration"
     public static let rejectCameraCalibration = "Reject Camera Calibration"
-    public static let discardCameraSamples = "Discard Captured Samples"
     public static let drawCalibrationCircles = "Draw Four Calibration Circles"
     public static let acceptPenTipCalibration = "Accept Pen-Tip Calibration"
     public static let rejectPenTipCalibration = "Reject Pen-Tip Calibration"

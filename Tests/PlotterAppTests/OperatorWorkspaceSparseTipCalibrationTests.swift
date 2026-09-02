@@ -347,7 +347,7 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
       owner: owner,
       workspace: workspace
     )
-    let runActionID = PlotterAppUIActionID.retainedLearning(
+    let runActionID = learningActionID(
       .cameraCalibration(.buildFivePositionProposal),
       owner: owner
     )
@@ -374,7 +374,7 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
       owner: owner,
       workspace: workspace
     )
-    let acceptActionID = PlotterAppUIActionID.retainedLearning(
+    let acceptActionID = learningActionID(
       .cameraCalibration(.acceptProposal),
       owner: owner
     )
@@ -648,7 +648,8 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
     await restarted.workspace.performTestExerciseAction(.start, for: drawingOwner)
     let domain = restored.applicabilityRectangle
     #expect(
-      restarted.workspace.drawingBorderPlan?.strokes.first?.path.points.first
+      restarted.workspace.borderValidationSnapshot.drawingBorderPlan?
+        .strokes.first?.path.points.first
         == (try Point2(x: domain.minX, y: domain.minY)))
 
   }
@@ -719,8 +720,8 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
     let validationOwner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     try requireEnabledPublicAction(.start, owner: validationOwner, workspace: workspace)
     await workspace.performTestExerciseAction(.start, for: validationOwner)
-    #expect(workspace.borderValidationStep == .compareIntendedAndObservedGeometry)
-    #expect(workspace.borderValidationAssessment == nil)
+    #expect(workspace.borderValidationSnapshot.step == .compareIntendedAndObservedGeometry)
+    #expect(workspace.borderValidationSnapshot.assessment == nil)
     try requireEnabledPublicAction(
       .borderValidation(.acceptObservedPrediction),
       owner: validationOwner,
@@ -732,10 +733,10 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
       for: validationOwner
     )
     #expect(await harness.simulator.persistentInk().count == inkCountBeforeDecision)
-    #expect(workspace.borderValidationAssessment == .predictionObserved)
+    #expect(workspace.borderValidationSnapshot.assessment == .predictionObserved)
 
-    let observation = try #require(workspace.lastFrameObservation)
-    let executionPlan = try #require(workspace.drawingBorderPlan)
+    let observation = try #require(workspace.borderValidationSnapshot.inkObservation)
+    let executionPlan = try #require(workspace.borderValidationSnapshot.drawingBorderPlan)
     #expect(executionPlan.provenance.registrationRevisionID.rawValue == tipRevision.rawValue)
     #expect(executionPlan.drawableRegion.bounds == acceptedBoundary)
     #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.5)
@@ -764,7 +765,7 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
       )
     })
     #expect(observation.evidence.frames.baseline.frameID != observation.evidence.frames.post.frameID)
-    #expect(workspace.borderValidationRevealPosition != nil)
+    #expect(workspace.borderValidationSnapshot.revealPosition != nil)
     #expect(await harness.simulator.persistentInk().isEmpty == false)
     #expect(
       workspace.learningArtifactGraph.revisions.contains {

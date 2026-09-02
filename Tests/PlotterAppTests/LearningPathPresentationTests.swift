@@ -1,6 +1,8 @@
 import Foundation
+import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterRuntime
+import PlotterUI
 import Testing
 
 @testable import PlotterApp
@@ -170,10 +172,10 @@ struct LearningPathPresentationTests {
       role: .destructive
     )
 
-    #expect(!start.isEnabled)
+    #expect(start.unavailableReason != nil)
     #expect(start.unavailableReason == "A responsive controller session is required.")
     #expect(start.role == .positive)
-    #expect(stop.isEnabled)
+    #expect(stop.unavailableReason == nil)
     #expect(stop.role == .destructive)
   }
 
@@ -186,8 +188,8 @@ struct LearningPathPresentationTests {
       rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
     )
 
-    #expect(ExerciseActionKind.stop(first) == .stop(first))
-    #expect(ExerciseActionKind.stop(first) != .stop(successor))
+    #expect(PlotterLearningAction.stop(first) == .stop(first))
+    #expect(PlotterLearningAction.stop(first) != .stop(successor))
   }
 
   @Test("focused questions retain their actual structured prompt and typed choices")
@@ -231,28 +233,7 @@ struct LearningPathPresentationTests {
     )
 
     #expect(strip.actions.map(\.kind) == [.redoThisStep, .recordAnotherAttempt])
-    #expect(strip.ownerID == .humanGuidedDiscovery(.penInteraction))
-  }
-
-  @Test("boundary direction presentation distinguishes available choices from a forced opposite")
-  func boundaryDirectionChoices() {
-    let available = ExerciseDirectionSelectionPresentation(
-      purpose: .boundary,
-      options: BoundaryDirection.allCases,
-      selected: .positiveX
-    )
-    let forced = ExerciseDirectionSelectionPresentation(
-      purpose: .boundary,
-      options: [.negativeX],
-      selected: .negativeX
-    )
-
-    #expect(available.purpose.label == "Boundary direction")
-    #expect(available.options == [.positiveX, .negativeX, .positiveY, .negativeY])
-    #expect(available.allowsSelection)
-    #expect(forced.options == [.negativeX])
-    #expect(forced.selected == .negativeX)
-    #expect(!forced.allowsSelection)
+    #expect(strip.ownerID == "1.1-Identify and Calibrate the Pen")
   }
 
   @Test(

@@ -164,13 +164,25 @@ Dependency behavior is intentionally asymmetric:
 - Every admitted camera-calibration action publishes a busy runtime/UI revision
   before its first lower wait, and an exact refusal/failure is rendered from the
   camera runtime rather than disappearing into generic workspace status.
-- **Discard Camera Samples** is not a valid transition without a real current
-  sample-owning typed request. The present rendered orphan is a documented
-  EA-12B deletion gap; it must not be treated as supported behavior.
+- The former camera-sample discard affordance is deleted because no current
+  sample-owning typed request exists; rejection remains the typed proposal
+  action only when a proposal is actually present.
 - **Retry Calibration Commit** is available only from the exact stable
   recoverable commit/revalidation failure. It is absent while fitting, commit,
-  save, or revalidation is in progress. The present busy-state retry projection
-  is an EA-12B actionability gap, not operator authority.
+  save, or revalidation is in progress.
+- Every rendered default Learning, calibration, Drawing Placement, completed-
+  comparison, and Drawing Studio action retains its exact
+  `PlotterLearningActionRequest` from model projection through the sole public
+  sink. An unavailable action stays disabled with its remedy; a stale or
+  mismatched submission returns a typed visible refusal and performs no lower
+  effect. The view does not reconstruct meaning from a display ID.
+- Slider values and Boundary directions are immutable exact-request candidates,
+  one per supported value or option. The view submits the selected candidate
+  unchanged; a missing or unavailable candidate is disabled or visibly refused.
+- Every effect-bearing Learning Reset is reserved as an exact
+  `PlotterLearningResetRequest` and publishes its typed owner result plus the
+  bounded immutable post-transition projection after cancellation, durable
+  reset, and owner settlement.
 - Exact Stop or root shutdown that displaces a published Pen Confirm yields a
   superseded confirmation: no accepted Pen evidence is recorded and no
   discovery successor appears.

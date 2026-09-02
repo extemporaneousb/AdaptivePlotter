@@ -136,7 +136,7 @@ extension PlotterApplicationRuntimeTests {
       owner: owner,
       workspace: workspace
     )
-    let actionID = PlotterAppUIActionID.retainedLearning(
+    let actionID = learningActionID(
       .cameraCalibration(.buildFivePositionProposal),
       owner: owner
     )
@@ -745,7 +745,7 @@ extension PlotterApplicationRuntimeTests {
     #expect(workspace.testEstimatedMachineCenter == nil)
     #expect(workspace.machineCameraRegistration == nil)
     #expect(workspace.tipCameraRegistration == nil)
-    #expect(workspace.borderValidationAssessment == nil)
+    #expect(workspace.borderValidationSnapshot.assessment == nil)
     #expect(workspace.testCurrentLearningPathItemID == anchor)
     await workspace.shutdown()
   }
@@ -764,8 +764,8 @@ extension PlotterApplicationRuntimeTests {
     let validationOwner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     try requireEnabledPublicAction(.start, owner: validationOwner, workspace: workspace)
     await workspace.performTestExerciseAction(.start, for: validationOwner)
-    #expect(workspace.borderValidationStep == .compareIntendedAndObservedGeometry)
-    #expect(workspace.borderValidationAssessment == nil)
+    #expect(workspace.borderValidationSnapshot.step == .compareIntendedAndObservedGeometry)
+    #expect(workspace.borderValidationSnapshot.assessment == nil)
     try requireEnabledPublicAction(
       .borderValidation(.acceptObservedPrediction),
       owner: validationOwner,
@@ -777,7 +777,7 @@ extension PlotterApplicationRuntimeTests {
       for: validationOwner
     )
     #expect(await harness.simulator.persistentInk().count == inkCountBeforeDecision)
-    #expect(workspace.borderValidationAssessment == .predictionObserved)
+    #expect(workspace.borderValidationSnapshot.assessment == .predictionObserved)
     let framePlan = try #require(
       workspace.learningArtifactGraph.revisions.first { revision in
         guard revision.state == .current else { return false }
@@ -796,9 +796,9 @@ extension PlotterApplicationRuntimeTests {
     let didVacate = await workspace.performLearningVacate(plan)
     #expect(didVacate)
 
-    #expect(workspace.borderValidationAssessment == nil)
-    #expect(workspace.drawingBorderPlan == nil)
-    #expect(workspace.localPreFrameBaseline == nil)
+    #expect(workspace.borderValidationSnapshot.assessment == nil)
+    #expect(workspace.borderValidationSnapshot.drawingBorderPlan == nil)
+    #expect(workspace.borderValidationSnapshot.localPreFrameBaseline == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .comparison(group)) == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .linePlan(group)) == nil)
     #expect(workspace.learningArtifactGraph.currentRevision(for: .inkObservation(group)) == nil)

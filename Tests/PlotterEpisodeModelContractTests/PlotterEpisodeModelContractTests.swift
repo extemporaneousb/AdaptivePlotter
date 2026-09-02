@@ -1102,6 +1102,125 @@ private func readyFacts() throws -> [PlotterCapabilityFact] {
   ]
 }
 
+@Suite("PlotterLearningEpisode model authority")
+struct PlotterLearningEpisodeRecordTests {
+  @Test("typed reservations publish in admission order and remain bounded")
+  func orderedBoundedRecord() {
+    let item = PlotterLearningItemIdentity(rawValue: "1.1-pen-interaction")
+    let firstRequest = PlotterLearningActionRequest(item: item, action: .start)
+    let secondRequest = PlotterLearningActionRequest(item: item, action: .choice(.yes))
+    var record = PlotterLearningEpisodeRecord(maximumEntries: 2)
+    let first = record.reserve(
+      .action(firstRequest),
+      environment: .live,
+      preStateRevision: .init(rawValue: 10)
+    )
+    let second = record.reserve(
+      .action(secondRequest),
+      environment: .simulated,
+      preStateRevision: .init(rawValue: 11)
+    )
+
+    record.publish(
+      second,
+      result: .refused(
+        reason: .ownerRefused,
+        owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime"),
+        remedy: "Wait for the active Learning action to settle before retrying."
+      ),
+      postTransitionProjection: learningProjection(item: item, revision: 11)
+    )
+    record.publish(
+      first,
+      result: .accepted(owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime")),
+      postTransitionProjection: learningProjection(item: item, revision: 12)
+    )
+
+    #expect(record.entries.map(\.sequence) == [1, 2])
+    #expect(record.entries.allSatisfy { $0.transitionID.episodeID == record.episodeID })
+    #expect(first.transitionID.episodeID == record.episodeID)
+    #expect(second.transitionID.episodeID == record.episodeID)
+    #expect(first.transitionID != second.transitionID)
+    #expect(record.entries[0].request == .action(firstRequest))
+    #expect(record.entries[0].environment == .live)
+    #expect(record.entries[0].stateChangePublished)
+    #expect(record.entries[1].request == .action(secondRequest))
+    #expect(record.entries[1].environment == .simulated)
+    #expect(!record.entries[1].stateChangePublished)
+    guard case .refused(let reason, let owner, let remedy) = record.entries[1].result else {
+      Issue.record("Busy admission must retain a typed refusal.")
+      return
+    }
+    #expect(reason == .ownerRefused)
+    #expect(owner.rawValue == "PlotterApplicationRuntime")
+    #expect(remedy.contains("active Learning action"))
+
+    let thirdRequest = PlotterLearningActionRequest(item: item, action: .paperReplaced)
+    let third = record.reserve(
+      .action(thirdRequest),
+      environment: .live,
+      preStateRevision: .init(rawValue: 12)
+    )
+    record.publish(
+      third,
+      result: .accepted(owner: EpisodeAuthorityID(rawValue: "PlotterApplicationRuntime")),
+      postTransitionProjection: learningProjection(item: item, revision: 13)
+    )
+    #expect(record.entries.map(\.sequence) == [2, 3])
+    #expect(record.entries.allSatisfy { $0.transitionID.episodeID == record.episodeID })
+    #expect(record.entries.last?.request == .action(thirdRequest))
+  }
+
+  @Test("typed reset reservation retains exact request and post-transition projection")
+  func resetRecord() {
+    let item = PlotterLearningItemIdentity(rawValue: "1.1-pen-interaction")
+    let reset = PlotterLearningResetRequest(
+      scope: .all,
+      source: .live,
+      anchor: item,
+      affectedItems: [item],
+      expectedCurrentRevisionIDs: ["01234567-89AB-CDEF-0123-456789ABCDEF"],
+      expectedAcceptedAttemptSequence: 4,
+      removesDurableMachineCheckpoint: true,
+      removesDurableTipCheckpoint: true,
+      physicalInkMayRemain: true
+    )
+    var record = PlotterLearningEpisodeRecord()
+    let reservation = record.reserve(
+      .reset(reset),
+      environment: .live,
+      preStateRevision: .init(rawValue: 20)
+    )
+    let projection = PlotterLearningPostTransitionProjection(
+      stateRevision: .init(rawValue: 21),
+      currentItem: item,
+      activeOwner: nil,
+      learningIsEnabled: false
+    )
+    record.publish(
+      reservation,
+      result: .accepted(owner: EpisodeAuthorityID(rawValue: "PlotterArtifactResetRuntime")),
+      postTransitionProjection: projection
+    )
+
+    #expect(record.entries.last?.request == .reset(reset))
+    #expect(record.entries.last?.postTransitionProjection == projection)
+    #expect(record.entries.last?.stateChangePublished == true)
+  }
+}
+
+private func learningProjection(
+  item: PlotterLearningItemIdentity,
+  revision: UInt64
+) -> PlotterLearningPostTransitionProjection {
+  PlotterLearningPostTransitionProjection(
+    stateRevision: .init(rawValue: revision),
+    currentItem: item,
+    activeOwner: nil,
+    learningIsEnabled: true
+  )
+}
+
 private func makeEvent(
   preRevision: EpisodeStateRevision,
   postRevision: EpisodeStateRevision,
