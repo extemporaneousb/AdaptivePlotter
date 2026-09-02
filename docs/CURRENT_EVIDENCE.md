@@ -8,6 +8,56 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## VAL-01 Exercise 1.4 click-frame handoff stopped — FIX-07 required
+
+On 2026-09-01 the operator ran the corrected signed application from canonical
+commit `d6191d041b70ed7b948e2b73537f47c1a29726cb`; its executable SHA-256 is
+`2bc5325e82c311522f8b7693eeb03a4e8e465439d95066502ebf56ccfa7864cd`.
+After Exercise 1.4 drew the four corner circles and returned to its center/reveal
+pose, the click surface remained on the automatically captured reveal frame.
+Moving the armature clear did not update the image on which the four circle
+centers had to be selected, and repeated camera refresh attempts did not replace
+that click frame. The operator could not obtain a current unobstructed exact
+frame and therefore could not complete the four clicks.
+
+This is an incomplete physical attempt, not a `PHYSICAL-FINAL` pass. It records
+the operator's visible-frame observation but does not claim a complete runbook
+precondition record, controller transcript, Stop case, incident export, accepted
+tip calibration, or observed-ink result. No later runbook section is promoted
+by this prefix, and `VAL-01` remains pending.
+
+Read-only runtime inspection found process `AdaptivePlotter` running the landed
+bundle. Unified AVFoundation logs show the HD Pro Webcam C920 session stopped and
+restarted at 17:51:39, posted `AVCaptureSessionDidStartRunningNotification`, and
+continued producing timestamped CMIO frames. Those logs prove camera capture
+continued; they do not prove what the operator saw. Source inspection found the
+actual presentation cause: Exercise 1.4 stages the final reveal frame in
+`PlotterPointSelectionRuntime`, assigns it to `frozenPointSelectionFrame`, and
+always gives that frozen frame precedence over `displayedFrame`. Camera refresh
+can update the lower camera owner but there is no semantic action that replaces
+the staged point-selection request. The frozen-frame behavior is intentional
+for exact click provenance; the missing operator-admitted replacement transition
+is the defect.
+
+`FIX-07` is the sole next ordinary correction package. It must preserve the
+original physical mark/reveal evidence and exact-frame refusal rules while
+adding **Capture New Click Frame**: current Idle/Pen Up and unchanged optical
+identity are reacquired, zero retained clicks is required, and one strictly
+newer exact frame atomically replaces the request. The accepted click evidence
+must cite that independently exact frame. The action performs no motion, Pen
+command, redraw, or automatic refresh. `VAL-01` is dependency-ineligible until
+FIX-07 is complete and a corrected signed build exists; migration remains
+incomplete.
+
+This repository correction is Blackdog task `TASK-6FE05AAC`, attempt
+`TASK-6FE05AAC-1f89830e3bb5`; it performs no controller, camera, Pen, motion, or
+remote-Git effect and changes no product Source or Swift Test.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check` | failed/incomplete frame-handoff evidence, FIX-07 ledger/dependency insertion, checker hash, and capsule frontier fixtures |
+| `DIFF` | passed — `git diff --check`; no output | repository-only correction |
+
 ## VAL-01 attended run stopped in section 1 — PHYSICAL-FINAL failed
 
 The operator-authorized attended run used canonical commit
@@ -2829,10 +2879,10 @@ correction. `TRANCHE-LEARNING` landed, and
 FIX-05 completed through `TASK-2BF894FC`, attempt
 `TASK-2BF894FC-06f14a3e1a5b`, GATE-01 completed through `TASK-5E431BE7`,
 attempt `TASK-5E431BE7-59658505ced4`, and FIX-06 completed through
-`TASK-4194B778`, attempt `TASK-4194B778-238b4ef7adb1`. No ordinary software or
-gate package is eligible before `VAL-01`; the next frontier is an attended-physical
-authorization boundary, not a launchable wave. No later successor dispatch is
-authorized here.
+`TASK-4194B778`, attempt `TASK-4194B778-238b4ef7adb1`. The incomplete Exercise
+1.4 frame-handoff observation makes pending software package `FIX-07` the sole
+ordinary frontier before `VAL-01`. Current Evidence adds no separate blocker to
+that package. No later successor dispatch is authorized here.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

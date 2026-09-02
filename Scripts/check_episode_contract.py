@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "3937c158d67b3ee32d185c73af7579227603559b7dd072e0d198583e7b72e9b9"
+EXPECTED_LEDGER_SHA256 = "9b2ea5f4dcf5fb9e853dea91c12c2ebc94238821080352baf798fafd5a988747"
 
 
 EXPECTED_GATES = {
@@ -163,7 +163,8 @@ EXPECTED_PACKAGE_SHAPES = {
     "FIX-05": (["TRANCHE-FINAL-COMPOSITION"], "software", ["BUILD", "COMPOSITION", "PILOT-METRICS", "AFFECTED-CONSUMERS", "DELETE", "DOC", "DIFF", "QUICK", "STRICT"]),
     "GATE-01": (["FIX-05"], "gate", ["DOC", "DIFF", "PILOT"]),
     "FIX-06": (["GATE-01"], "software", ["BUILD", "BOUNDARY", "POINT", "UI", "ARTIFACT-RESET", "DRAW-RUN", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
-    "VAL-01": (["FIX-06"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
+    "FIX-07": (["FIX-06"], "software", ["BUILD", "TIP-CAL", "POINT", "UI", "ARTIFACT-RESET", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
+    "VAL-01": (["FIX-07"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
     "GATE-02": (["VAL-01"], "gate", ["DOC", "DIFF", "FINAL-GATE"]),
 }
 
@@ -187,6 +188,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
     "FIX-03": "Correction",
     "FIX-05": "Correction",
     "FIX-06": "Correction",
+    "FIX-07": "Correction",
     "EA-10A": "Cutover",
     "EA-10B": "Cutover",
     "TRANCHE-LEARNING": "Tranche",
@@ -2734,6 +2736,10 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
         "Incident export | failed",
         "`PHYSICAL-FINAL` is failed and `VAL-01` remains pending",
         "`FIX-06` is the sole next ordinary correction package",
+        "VAL-01 Exercise 1.4 click-frame handoff stopped — FIX-07 required",
+        "`TASK-6FE05AAC`, attempt `TASK-6FE05AAC-1f89830e3bb5`",
+        "Unified AVFoundation logs show the HD Pro Webcam C920 session stopped and restarted",
+        "`FIX-07` is the sole next ordinary correction package",
         "Pilot dependency-cycle correction",
         "`TASK-B7C9E592`, attempt `TASK-B7C9E592-3408edcef715`",
         "DOC-03 is complete; migration remains incomplete",
@@ -3344,15 +3350,34 @@ def validate_wave_frontier(
             fail("FIX-06 frontier must not retain an ordinary-wave blocker")
         return
 
+    if selected == "FIX-07":
+        if rows["FIX-06"]["status"] != "complete":
+            fail("FIX-07 cannot be selected before FIX-06 completes")
+        for phrase in (
+            "VAL-01 Exercise 1.4 click-frame handoff stopped — FIX-07 required",
+            "`TASK-6FE05AAC`, attempt `TASK-6FE05AAC-1f89830e3bb5`",
+            "continued producing timestamped CMIO frames",
+            "there is no semantic action that replaces the staged point-selection request",
+            "`FIX-07` is the sole next ordinary correction package",
+            "`VAL-01` is dependency-ineligible until FIX-07 is complete",
+            "migration remains incomplete",
+        ):
+            if phrase not in normalized:
+                fail(f"FIX-07 frontier lacks failed frame-handoff evidence: {phrase}")
+        if blockers:
+            fail("FIX-07 frontier must not retain an ordinary-wave blocker")
+        return
+
     if selected is not None:
         fail(f"unexpected current ordinary wave frontier: {selected}")
 
     if (
         rows["GATE-01"]["status"] == "complete"
         and rows["FIX-06"]["status"] == "complete"
+        and rows["FIX-07"]["status"] == "complete"
         and rows["VAL-01"]["status"] == "pending"
         and rows["VAL-01"]["class"] == "attended-physical"
-        and rows["VAL-01"]["dependencies"] == ["FIX-06"]
+        and rows["VAL-01"]["dependencies"] == ["FIX-07"]
     ):
         for phrase in (
             "GATE-01 Pilot continuation decision",
