@@ -169,8 +169,12 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
       acceptedBoundaryAggregates: workspace.testAcceptedBoundaryAggregates
     )
     let revealSnapshot = await harness.simulator.snapshot()
-    #expect(revealSnapshot.mpos.xMM == batch.finalRevealPosition.point.x)
-    #expect(revealSnapshot.mpos.yMM == batch.finalRevealPosition.point.y)
+    #expect(
+      revealSnapshot.mpos == (try SimulatedLearningMPos(
+        xMM: batch.finalRevealPosition.point.x,
+        yMM: batch.finalRevealPosition.point.y
+      ))
+    )
     let clicks = try batch.marks.map {
       try registration.fit.cameraPoint(from: $0.machinePosition.point)
         .translated(by: truthOffset)
@@ -387,6 +391,42 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
     #expect(
       workspace.testCurrentLearningPathItemID
         == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+    )
+  }
+
+  @Test("projection-bound five-cap calibration preserves a fractional reference position")
+  func fiveCapAcceptancePreservesFractionalReference() async throws {
+    let initialMPos = try SimulatedLearningMPos(xMM: 0.1, yMM: -0.2)
+    let harness = makeCausalSimulatorAppFixture(initialMPos: initialMPos)
+    try await completeSimulatedPenInteractionPrerequisite(harness.workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime,
+      workspace: harness.workspace,
+      environment: .simulated
+    )
+    let workspace = harness.workspace
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    try requireEnabledPublicAction(
+      .cameraCalibration(.buildFivePositionProposal),
+      owner: owner,
+      workspace: workspace
+    )
+    let actionID = learningActionID(
+      .cameraCalibration(.buildFivePositionProposal),
+      owner: owner
+    )
+    let projection = workspace.testPlotterUIProjection(
+      selectedItemID: owner,
+      includesLearningPath: true
+    ).semantic
+    let request = try #require(projection.request(for: actionID))
+    let sink: any PlotterUIIntentSink = workspace
+
+    #expect(await sink.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+    let proposal = try #require(workspace.proposedMachineCameraRegistration)
+    #expect(
+      proposal.fitCorrespondenceProvenance.first?.machinePoint
+        == (try Point2<MachineSpace>(x: initialMPos.xMM, y: initialMPos.yMM))
     )
   }
 

@@ -22,7 +22,6 @@ struct CurrentCameraCalibrationPlanningTests {
       coordinateRevision: calibrationCoordinateRevision
     )
 
-    #expect(plan.targetPosition == target)
     #expect(
       plan.samplePositions == [
         target,
@@ -33,9 +32,6 @@ struct CurrentCameraCalibrationPlanningTests {
       ])
     #expect(plan.samples.map(\.position) == [.center, .negativeX, .positiveY, .positiveX, .negativeY])
     #expect(plan.samples.map(\.role) == [.fit, .fit, .fit, .holdout, .holdout])
-    #expect(plan.samples.map { [$0.normalizedX, $0.normalizedY] } == [
-      [0.5, 0.5], [0.1, 0.5], [0.5, 0.9], [0.9, 0.5], [0.5, 0.1],
-    ])
     #expect(
       plan.motionDeltas == [
         try Vector2(dx: -24, dy: 0),
@@ -56,6 +52,27 @@ struct CurrentCameraCalibrationPlanningTests {
       try Point2(x: position.x + delta.dx, y: position.y + delta.dy)
     }
     #expect(returnedPosition == target.point)
+  }
+
+  @Test("plan preserves a fractional target directly as calibration sample zero")
+  func preservesFractionalTargetAsSampleZero() throws {
+    let target = try MachinePosition(x: 0.1, y: -0.2)
+    let plan = try CurrentCameraCalibrationPlan(
+      targetPosition: target,
+      acceptedBoundaryAggregates: try boundaryEnvelope(
+        negativeX: -100,
+        positiveX: 100,
+        negativeY: -80,
+        positiveY: 80
+      ),
+      controllerSessionID: calibrationSessionID,
+      coordinateRevision: calibrationCoordinateRevision
+    )
+
+    #expect(plan.samples[0].position == .center)
+    #expect(plan.samples[0].role == .fit)
+    #expect(plan.samples[0].machinePosition == target)
+    #expect(plan.samplePositions[0] == target)
   }
 
   @Test("plan contracts symmetrically around an off-center target")

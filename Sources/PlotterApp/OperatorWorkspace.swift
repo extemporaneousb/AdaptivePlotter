@@ -539,8 +539,10 @@ struct PlotterApplicationRuntimeComputationDiagnostics: Equatable, Sendable {
   fileprivate(set) var selectedLearningProjectionBuildCount = 0
   fileprivate(set) var selectedLearningProjectionCacheHitCount = 0
   fileprivate(set) var learningResetPlanBuildCount = 0
+  fileprivate(set) var plotterUIProjectionBuildCount = 0
   fileprivate(set) var actionSurfaceBuildCount = 0
   fileprivate(set) var actionSurfaceCacheHitCount = 0
+  fileprivate(set) var drawingDraftSynchronizationCount = 0
   fileprivate(set) var stoppableOperationMutationCount = 0
   fileprivate(set) var stoppableOperationSemanticInvalidationCount = 0
   fileprivate(set) var visionAnalysisRevisionCount = 0
@@ -555,6 +557,21 @@ struct PlotterApplicationRuntimeComputationDiagnostics: Equatable, Sendable {
     }
     events.append(event)
   }
+}
+
+/// Narrow counters used by deterministic preview-isolation regressions and the
+/// opt-in running-app performance gate. This snapshot owns no runtime policy.
+struct PlotterPreviewIsolationDiagnostics: Equatable, Sendable {
+  let previewPublicationCount: UInt64
+  let latestPreviewSource: FrameSourceIdentity?
+  let latestPreviewFrameID: FrameID?
+  let latestPreviewSequence: UInt64?
+  let latestPreviewCaptureNanoseconds: UInt64?
+  let latestPreviewCameraConfigurationID: CameraConfigurationID?
+  let semanticPresentationRevision: UInt64
+  let plotterUIProjectionBuildCount: Int
+  let learningProjectionBuildCount: Int
+  let drawingDraftSynchronizationCount: Int
 }
 
 /// Window-layout input derived from the same projected action strip rendered
@@ -729,6 +746,15 @@ final class PlotterApplicationRuntime:
     case normal
     case replacement
     case additional
+  }
+
+  private struct SavedTrainingOpticalComparisonIdentity: Hashable, Sendable {
+    let checkpointID: UUID
+    let cameraConfigurationID: CameraConfigurationID
+
+    var artifactRuntimeValue: String {
+      "\(checkpointID.uuidString):\(cameraConfigurationID.rawValue.uuidString)"
+    }
   }
 
   private enum ExerciseAttemptLifecycle {
@@ -935,6 +961,8 @@ final class PlotterApplicationRuntime:
     ActionSurfaceDiagnosticSignature?
   @ObservationIgnored private var currentPlotterUIProjection: PlotterUIProjection?
   @ObservationIgnored private var currentPlotterUIBindingSemanticRevision: UInt64?
+  @ObservationIgnored private var currentVideoPreviewProjection: PlotterUIProjection?
+  @ObservationIgnored private var currentVideoPreviewBindingSemanticRevision: UInt64?
   @ObservationIgnored private var admissionState: AdmissionState = .open
   @ObservationIgnored private var startupState: StartupState = .notStarted
   @ObservationIgnored private(set) var learningEpisodeRecord = PlotterLearningEpisodeRecord()
@@ -942,6 +970,10 @@ final class PlotterApplicationRuntime:
   @ObservationIgnored private var semanticPresentationUpdateDepth = 0
   @ObservationIgnored private var semanticPresentationChangeIsPending = false
   @ObservationIgnored private var actionSurfaceInvalidationIsPending = false
+  @ObservationIgnored private var pendingSavedTrainingOpticalComparisonIdentities:
+    Set<SavedTrainingOpticalComparisonIdentity> = []
+  @ObservationIgnored private var lastCompletedSavedTrainingOpticalComparisonIdentity:
+    SavedTrainingOpticalComparisonIdentity?
   private(set) var frameModeSwitchInProgress = false {
     didSet {
       guard oldValue != frameModeSwitchInProgress else { return }
@@ -967,10 +999,10 @@ final class PlotterApplicationRuntime:
       markSemanticPresentationChanged()
     }
   }
-  private(set) var displayedFrame: DisplayedFrame? {
+  @ObservationIgnored let actionSurfacePreview = ActionSurfacePreviewModel()
+  @ObservationIgnored private(set) var displayedFrame: DisplayedFrame? {
     didSet {
-      invalidateActionSurfacePresentation()
-      scheduleDrawingDraftSynchronization()
+      publishActionSurfacePreview(displayedFrame)
       let isAvailable = displayedFrame != nil
       if displayedFrameAvailable != isAvailable {
         displayedFrameAvailable = isAvailable
@@ -1137,6 +1169,31 @@ final class PlotterApplicationRuntime:
     actionSurfacePresentationCache = nil
   }
 
+  var previewIsolationDiagnostics: PlotterPreviewIsolationDiagnostics {
+    let preview = actionSurfacePreview.displayedFrame
+    return PlotterPreviewIsolationDiagnostics(
+      previewPublicationCount: actionSurfacePreview.publicationCount,
+      latestPreviewSource: preview?.source,
+      latestPreviewFrameID: preview?.frame.id,
+      latestPreviewSequence: preview?.frame.sequence,
+      latestPreviewCaptureNanoseconds: preview?.frame.captureNanoseconds,
+      latestPreviewCameraConfigurationID: preview?.frame.cameraConfigurationID,
+      semanticPresentationRevision: semanticPresentationRevision,
+      plotterUIProjectionBuildCount: computationDiagnostics.plotterUIProjectionBuildCount,
+      learningProjectionBuildCount: computationDiagnostics.learningProjectionBuildCount,
+      drawingDraftSynchronizationCount: computationDiagnostics.drawingDraftSynchronizationCount
+    )
+  }
+
+  func resetPreviewIsolationDiagnostics() {
+    resetComputationDiagnosticsForTesting()
+    actionSurfacePreview.resetPublicationCount()
+  }
+
+  func markSemanticPresentationChangedForTesting() {
+    markSemanticPresentationChanged()
+  }
+
   private func withBatchedSemanticPresentationUpdate<Result>(
     _ update: () throws -> Result
   ) rethrows -> Result {
@@ -1178,6 +1235,8 @@ final class PlotterApplicationRuntime:
     computationDiagnostics.semanticPresentationRevision = semanticPresentationRevision
     learningPresentationBaseCache = nil
     selectedLearningProjectionCache = nil
+    currentVideoPreviewProjection = nil
+    currentVideoPreviewBindingSemanticRevision = nil
     if invalidatesActionSurface {
       invalidateActionSurfacePresentation()
     }
@@ -1187,6 +1246,12 @@ final class PlotterApplicationRuntime:
   private func invalidateActionSurfacePresentation() {
     actionSurfacePresentationRevision &+= 1
     actionSurfacePresentationCache = nil
+  }
+
+  private func publishActionSurfacePreview(_ frame: DisplayedFrame?) {
+    guard actionSurfacePreview.publish(frame) else { return }
+    currentVideoPreviewProjection = nil
+    currentVideoPreviewBindingSemanticRevision = nil
   }
 
   private func cameraSnapshotChangesLearningPresentation(
@@ -2038,13 +2103,28 @@ final class PlotterApplicationRuntime:
   ) {
     guard case .awaitingOperatorDecision(let checkpoint, _) = savedLearningState
     else { return }
-    let identity = "\(checkpoint.checkpointID.uuidString):\(frame.frame.cameraConfigurationID.rawValue.uuidString)"
+    let identity = SavedTrainingOpticalComparisonIdentity(
+      checkpointID: checkpoint.checkpointID,
+      cameraConfigurationID: frame.frame.cameraConfigurationID
+    )
+    guard identity != lastCompletedSavedTrainingOpticalComparisonIdentity,
+      !pendingSavedTrainingOpticalComparisonIdentities.contains(identity)
+    else { return }
+    pendingSavedTrainingOpticalComparisonIdentities.insert(identity)
     Task { @MainActor [weak self] in
       guard let self else { return }
-      _ = await self.artifactResetRuntime.submit(
-        .compareSavedLearning(checkpoint, comparisonIdentity: identity),
+      let before = self.savedLearningState
+      let applied = await self.artifactResetRuntime.submit(
+        .compareSavedLearning(
+          checkpoint,
+          comparisonIdentity: identity.artifactRuntimeValue
+        ),
         facts: self.artifactResetAdmissionFacts
       )
+      self.pendingSavedTrainingOpticalComparisonIdentities.remove(identity)
+      guard applied else { return }
+      self.lastCompletedSavedTrainingOpticalComparisonIdentity = identity
+      guard self.savedLearningState != before else { return }
       self.markSemanticPresentationChanged()
     }
   }
@@ -2066,7 +2146,7 @@ final class PlotterApplicationRuntime:
       return cached.presentation
     }
     computationDiagnostics.actionSurfaceBuildCount += 1
-    let surfaceFrame =
+    let retainedFrame =
       frozenPointSelectionFrame
       ?? (borderValidationSnapshot.comparisonReviewIsPinned
         ? borderValidationSnapshot.postFrame
@@ -2076,7 +2156,7 @@ final class PlotterApplicationRuntime:
         if case .pinned = run.review { return run.postFrame }
         return nil
       }())
-      ?? displayedFrame
+    let surfaceFrame = retainedFrame ?? displayedFrame
     let overlayComposition = OverlayPresentationComposer.compose(
       preference: overlayPreferenceState,
       channels: overlayResultChannels,
@@ -2119,6 +2199,7 @@ final class PlotterApplicationRuntime:
       }
     let presentation = ActionSurfacePresentation(
       displayedFrame: surfaceFrame,
+      usesAmbientPreviewFrame: retainedFrame == nil,
       overlays: overlayComposition.overlays
         + (surfaceFrame.map(learnedDrawingOverlays) ?? [])
         + (surfaceFrame.map(borderValidationPredictionOverlays) ?? []),
@@ -2228,6 +2309,7 @@ final class PlotterApplicationRuntime:
   }
 
   private func scheduleDrawingDraftSynchronization() {
+    computationDiagnostics.drawingDraftSynchronizationCount += 1
     drawingDraftSynchronizationGeneration &+= 1
     let generation = drawingDraftSynchronizationGeneration
     let facts = drawingDraftExternalFacts
@@ -3913,7 +3995,7 @@ final class PlotterApplicationRuntime:
       markSemanticPresentationChanged()
       await reconcileAutomaticVisionAnalysis()
     case .setRegion(let region, let identity):
-      guard let displayedFrame,
+      guard let displayedFrame = actionSurfacePreview.displayedFrame,
         displayedFrame.frame.id.rawValue == identity.frameID,
         displayedFrame.frame.sequence == identity.sequence,
         displayedFrame.frame.captureNanoseconds == identity.captureNanoseconds,
@@ -4055,6 +4137,7 @@ final class PlotterApplicationRuntime:
     pendingPointSelection: PlotterPointSelectionSubmission? = nil,
     observationViewport: ActionSurfaceViewportState? = nil
   ) -> PlotterAppUIProjection {
+    computationDiagnostics.plotterUIProjectionBuildCount += 1
     let learningPath = includesLearningPath
       ? learningPathProjection(selectedItemID: selectedItemID) : nil
     let currentLearning = learningPresentationBase()
@@ -4174,31 +4257,6 @@ final class PlotterApplicationRuntime:
           identifier: overlay.rawValue,
           enabled: enabled
         ))),
-        owner: "PlotterObservationConfigurationRuntime"
-      )
-    }
-    if let displayedFrame,
-      let region = observationViewport?.selectedRegion(
-        frameWidth: displayedFrame.frame.width,
-        frameHeight: displayedFrame.frame.height
-      )
-    {
-      let nextRegion = observation.regionLock?.matches(displayedFrame) == true ? nil : region
-      appendApplicationCandidate(
-        id: PlotterAppUIActionID.observationRegion,
-        title: nextRegion == nil ? "Unlock analysis region" : "Lock analysis region",
-        intent: .observation(observation.request(.setRegion(
-          nextRegion.map {
-            PlotterObservationRegion(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
-          },
-          displayedFrame: .init(
-            frameID: displayedFrame.frame.id.rawValue,
-            sequence: displayedFrame.frame.sequence,
-            captureNanoseconds: displayedFrame.frame.captureNanoseconds,
-            cameraConfigurationID: displayedFrame.frame.cameraConfigurationID.rawValue.uuidString
-          )
-        ))),
-        unavailableReason: observation.calibrationBusyReason,
         owner: "PlotterObservationConfigurationRuntime"
       )
     }
@@ -4430,6 +4488,57 @@ final class PlotterApplicationRuntime:
     )
   }
 
+  func videoPreviewProjection(
+    displayedFrame: DisplayedFrame?,
+    observationViewport: ActionSurfaceViewportState
+  ) -> PlotterUIProjection {
+    let observation = observationConfigurationProjection
+    var candidates: [PlotterUIActionCandidate] = []
+    if let displayedFrame,
+      actionSurfacePreview.displayedFrame.map({
+        $0.source == displayedFrame.source
+          && $0.frame.id == displayedFrame.frame.id
+          && $0.frame.sequence == displayedFrame.frame.sequence
+          && $0.frame.captureNanoseconds == displayedFrame.frame.captureNanoseconds
+          && $0.frame.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
+      }) == true,
+      let region = observationViewport.selectedRegion(
+        frameWidth: displayedFrame.frame.width,
+        frameHeight: displayedFrame.frame.height
+      )
+    {
+      let nextRegion = observation.regionLock?.matches(displayedFrame) == true ? nil : region
+      candidates.append(uiCandidate(
+        id: PlotterAppUIActionID.observationRegion,
+        title: nextRegion == nil ? "Unlock analysis region" : "Lock analysis region",
+        intent: .observation(observation.request(.setRegion(
+          nextRegion.map {
+            PlotterObservationRegion(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+          },
+          displayedFrame: .init(
+            frameID: displayedFrame.frame.id.rawValue,
+            sequence: displayedFrame.frame.sequence,
+            captureNanoseconds: displayedFrame.frame.captureNanoseconds,
+            cameraConfigurationID: displayedFrame.frame.cameraConfigurationID.rawValue.uuidString
+          )
+        ))),
+        unavailableReason: observation.calibrationBusyReason,
+        owner: "PlotterObservationConfigurationRuntime"
+      ))
+    }
+    let projection = PlotterUICompiler().compile(PlotterUICompilerInput(
+      revision: videoPreviewUIRevision(
+        displayedFrame: displayedFrame,
+        observationViewport: observationViewport
+      ),
+      runtimeRevisions: currentPlotterUIRuntimeRevisions(),
+      candidates: candidates
+    ))
+    currentVideoPreviewProjection = projection
+    currentVideoPreviewBindingSemanticRevision = semanticPresentationRevision
+    return projection
+  }
+
   private func uiCandidate(
     action: PlotterUIAction,
     owner: String,
@@ -4535,6 +4644,28 @@ final class PlotterApplicationRuntime:
     return PlotterUIRevision(rawValue: hash)
   }
 
+  private func videoPreviewUIRevision(
+    displayedFrame: DisplayedFrame?,
+    observationViewport: ActionSurfaceViewportState
+  ) -> PlotterUIRevision {
+    let identity = [
+      "video-preview",
+      String(semanticPresentationRevision),
+      String(describing: displayedFrame?.source),
+      displayedFrame?.frame.id.rawValue ?? "none",
+      String(displayedFrame?.frame.sequence ?? 0),
+      String(displayedFrame?.frame.captureNanoseconds ?? 0),
+      displayedFrame?.frame.cameraConfigurationID.rawValue.uuidString ?? "none",
+      String(describing: observationViewport),
+    ].joined(separator: "|")
+    var hash: UInt64 = 14_695_981_039_346_656_037
+    for byte in identity.utf8 {
+      hash ^= UInt64(byte)
+      hash &*= 1_099_511_628_211
+    }
+    return PlotterUIRevision(rawValue: hash)
+  }
+
   private func currentPlotterUIRuntimeRevisions() -> [PlotterUIRuntimeRevision] {
     var revisions = [
       PlotterUIRuntimeRevision(
@@ -4631,7 +4762,18 @@ final class PlotterApplicationRuntime:
     _ request: PlotterUIRequest,
     learningTransitionID: PlotterLearningTransitionID?
   ) async -> PlotterUIRequestDisposition {
-    guard let currentProjection = currentPlotterUIProjection else {
+    let selectedProjection: (projection: PlotterUIProjection, semanticRevision: UInt64?)? =
+      if request.actionID == PlotterAppUIActionID.observationRegion,
+        let currentVideoPreviewProjection,
+        currentVideoPreviewProjection.revision == request.uiRevision
+      {
+        (currentVideoPreviewProjection, currentVideoPreviewBindingSemanticRevision)
+      } else if let currentPlotterUIProjection {
+        (currentPlotterUIProjection, currentPlotterUIBindingSemanticRevision)
+      } else {
+        nil
+      }
+    guard let selectedProjection else {
       return plotterUIRefusal(
         request,
         reason: .staleUIRevision,
@@ -4640,6 +4782,7 @@ final class PlotterApplicationRuntime:
         remedy: "Render the current bounded UI projection before submitting."
       )
     }
+    let currentProjection = selectedProjection.projection
     let currentUIRevision = currentProjection.revision
     let currentRuntimeRevisions = currentPlotterUIRuntimeRevisions().sorted { $0.owner < $1.owner }
     let submittedRuntimeRevisions = request.runtimeRevisions.sorted { $0.owner < $1.owner }
@@ -4653,7 +4796,7 @@ final class PlotterApplicationRuntime:
       )
     }
     if request.uiRevision != currentUIRevision
-      || currentPlotterUIBindingSemanticRevision != semanticPresentationRevision
+      || selectedProjection.semanticRevision != semanticPresentationRevision
     {
       return plotterUIRefusal(
         request,
@@ -5928,7 +6071,10 @@ final class PlotterApplicationRuntime:
       } catch { return .failed(cameraCalibrationEffectFailure(actionableDescription(error))) }
     case .captureSample(let operationID, _, let expected):
       do {
-        guard protocolPositionsMatch(try await currentSettledMachinePositionForEffect(), expected)
+        guard MachinePositionAcceptancePolicy.accepts(
+          try await currentSettledMachinePositionForEffect(),
+          target: expected
+        )
         else {
           throw LearningPathOperationError.requiredState("Camera calibration is not at its required sample position.")
         }
@@ -6242,7 +6388,10 @@ final class PlotterApplicationRuntime:
       operationID: operationID
     )
     try requireCalibrationContinuation()
-    guard protocolPositionsMatch(beforeCapture.position, afterCapture.position) else {
+    guard MachinePositionAcceptancePolicy.accepts(
+      beforeCapture.position,
+      target: afterCapture.position
+    ) else {
       throw LearningPathOperationError.controllerFailed(
         "Controller MPos changed while the camera sample was being captured; the sample was discarded."
       )
@@ -6425,7 +6574,10 @@ final class PlotterApplicationRuntime:
       refreshedBaseline = refreshed
       passiveProbe = probe
     }
-    guard protocolPositionsMatch(observedPosition, expectedSettledPosition) else {
+    guard MachinePositionAcceptancePolicy.accepts(
+      observedPosition,
+      target: expectedSettledPosition
+    ) else {
       throw LearningPathOperationError.controllerFailed(
         "Controller MPos changed while sparse-tip evidence was being captured."
       )
@@ -6995,7 +7147,7 @@ final class PlotterApplicationRuntime:
           finalSnapshot?.machine.controllerState == .idle,
           finalSnapshot?.machine.penState == .up,
           let finalPosition = finalSnapshot?.machine.position,
-          protocolPositionsMatch(finalPosition, revealSettled)
+          MachinePositionAcceptancePolicy.accepts(finalPosition, target: revealSettled)
         else {
           machineSnapshot = finalSnapshot
           throw LearningPathOperationError.controllerFailed(
@@ -10460,6 +10612,7 @@ final class PlotterApplicationRuntime:
     guard applicationAdmissionIsOpen, frameMode == .live else { return }
     if let generation, !applicationEffectCanCommit(generation) { return }
     guard case .live(let deviceID) = frame.source, deviceID == selectedCameraID else { return }
+    publishActionSurfacePreview(frame)
     let hadLiveFrame = latestLiveCameraFrame != nil
     let cameraWasLive = cameraIsLive
     latestLiveCameraFrame = frame
@@ -11981,13 +12134,6 @@ final class PlotterApplicationRuntime:
       && snapshot.machine.stickyAmbiguity == nil
   }
 
-  private func protocolPositionsMatch(
-    _ actual: MachinePosition,
-    _ target: MachinePosition
-  ) -> Bool {
-    MachinePositionAcceptancePolicy.accepts(actual, target: target)
-  }
-
   static func supervisedTravelDelta(
     from current: MachinePosition,
     to target: MachinePosition
@@ -12004,21 +12150,20 @@ final class PlotterApplicationRuntime:
   private func recordProtocolPoseSettlement(
     action: LearningMotionAction,
     target: MachinePosition,
-    actual: MachinePosition,
-    toleranceMM: Double = MachinePositionAcceptancePolicy.toleranceMM
+    actual: MachinePosition
   ) -> Bool {
-    let residual = actual.point.distance(to: target.point)
+    let residual = MachinePositionAcceptancePolicy.residualMM(actual, from: target)
     lastProtocolPoseSettlement = ProtocolPoseSettlement(
       action: action,
       target: target,
       actual: actual,
       residualMM: residual,
-      toleranceMM: toleranceMM,
+      toleranceMM: MachinePositionAcceptancePolicy.toleranceMM,
       controllerSessionID: controllerSessionID,
       coordinateRevision: explorationCoordinateRevision,
       toolPaperRevision: explorationPaperInstanceRevision
     )
-    return residual <= toleranceMM
+    return MachinePositionAcceptancePolicy.accepts(residualMM: residual)
   }
 
   /// One explicit, finite, Pen-Up exercise travel. This shares the runtime's
@@ -12341,7 +12486,7 @@ final class PlotterApplicationRuntime:
       )
     }
     let current = try await currentSettledMachinePositionForEffect()
-    if !protocolPositionsMatch(current, revealPosition) {
+    if !MachinePositionAcceptancePolicy.accepts(current, target: revealPosition) {
       let delta = try Vector2<MachineSpace>(
         dx: revealPosition.point.x - current.point.x,
         dy: revealPosition.point.y - current.point.y

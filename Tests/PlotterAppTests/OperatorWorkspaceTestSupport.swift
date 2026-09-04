@@ -590,6 +590,7 @@ func boundaryEpisodeDirection(_ direction: BoundaryDirection) -> PlotterBoundary
 
 @MainActor
 func makeCausalSimulatorAppFixture(
+  initialMPos: SimulatedLearningMPos = .zero,
   observationSession: (any PlotterObservationCameraSessionPort)? = nil,
   statePersistencePort: (any PlotterApplicationStatePersistencePort)? = nil,
   residualEffectPort: (any PlotterApplicationResidualEffectPort)? = nil,
@@ -605,6 +606,7 @@ func makeCausalSimulatorAppFixture(
   // every accepted Boundary-derived sparse-tip point remains in the exact frame.
   // Dedicated runtime/renderer tests retain exact 640x480 coverage.
   let runtime = SimulatedLearningRuntime(
+    initialMPos: initialMPos,
     boundaryTruth: SimulatedLearningBoundaryTruth(
       negativeXMM: -100,
       positiveXMM: 100,
@@ -1604,6 +1606,9 @@ enum SimulatorIsolationViolation: Error {
 
 func resolvedObservationSession(
   _ fixture: TestObservationCameraSession,
+  frameUpdates: @escaping @Sendable () async -> AsyncStream<DisplayedFrame> = {
+    AsyncStream { $0.finish() }
+  },
   analysisUpdates: @escaping @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot> = {
     AsyncStream { $0.finish() }
   },
@@ -1615,6 +1620,7 @@ func resolvedObservationSession(
 ) -> any PlotterObservationCameraSessionPort {
   TestObservationCameraSessionPort(
     fixture: fixture,
+    frameUpdates: frameUpdates,
     analysisUpdates: analysisUpdates,
     inspectionSuspension: inspectionGate,
     configurationSuspension: reconfigurationGate,
@@ -1628,6 +1634,7 @@ private final class TestObservationCameraSessionPort:
   PlotterObservationCameraSessionPort, @unchecked Sendable
 {
   let fixture: TestObservationCameraSession
+  let frameUpdateSource: @Sendable () async -> AsyncStream<DisplayedFrame>
   let analysisUpdateSource: @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot>
   let inspectionSuspension: TestInspectionSuspension?
   let configurationSuspension: TestConfigurationSuspension?
@@ -1637,6 +1644,7 @@ private final class TestObservationCameraSessionPort:
 
   init(
     fixture: TestObservationCameraSession,
+    frameUpdates: @escaping @Sendable () async -> AsyncStream<DisplayedFrame>,
     analysisUpdates: @escaping @Sendable () async -> AsyncStream<PlotterSceneAnalysisSnapshot>,
     inspectionSuspension: TestInspectionSuspension?,
     configurationSuspension: TestConfigurationSuspension?,
@@ -1645,6 +1653,7 @@ private final class TestObservationCameraSessionPort:
     restartProvider: (@Sendable () async -> CameraCaptureSnapshot)?
   ) {
     self.fixture = fixture
+    frameUpdateSource = frameUpdates
     analysisUpdateSource = analysisUpdates
     self.inspectionSuspension = inspectionSuspension
     self.configurationSuspension = configurationSuspension
@@ -1670,7 +1679,7 @@ private final class TestObservationCameraSessionPort:
     if let snapshotProvider { return await snapshotProvider() }
     return fixture.snapshot
   }
-  func frames() async -> AsyncStream<DisplayedFrame> { AsyncStream { $0.finish() } }
+  func frames() async -> AsyncStream<DisplayedFrame> { await frameUpdateSource() }
   func inspectWorkflowScene(
     newerThanNanoseconds boundary: UInt64,
     requestedFeatures: SceneFeatureSet,
@@ -2600,6 +2609,67 @@ final class TestAnalysisUpdateSource: @unchecked Sendable {
     lock.unlock()
     for continuation in activeContinuations {
       continuation.yield(snapshot)
+    }
+  }
+
+  func finish() {
+    lock.lock()
+    isFinished = true
+    let activeContinuations = Array(continuations.values)
+    continuations.removeAll()
+    lock.unlock()
+    for continuation in activeContinuations {
+      continuation.finish()
+    }
+  }
+
+  private func removeContinuation(id: UUID) {
+    lock.lock()
+    continuations[id] = nil
+    lock.unlock()
+  }
+}
+
+final class TestPreviewFrameUpdateSource: @unchecked Sendable {
+  private let lock = NSLock()
+  private var continuations: [UUID: AsyncStream<DisplayedFrame>.Continuation] = [:]
+  private var subscriptions = 0
+  private var isFinished = false
+
+  var subscriptionCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return subscriptions
+  }
+
+  func updates() -> AsyncStream<DisplayedFrame> {
+    let id = UUID()
+    return AsyncStream(bufferingPolicy: .bufferingNewest(256)) { [weak self] continuation in
+      guard let self else {
+        continuation.finish()
+        return
+      }
+      continuation.onTermination = { [weak self] _ in
+        self?.removeContinuation(id: id)
+      }
+      lock.lock()
+      if isFinished {
+        lock.unlock()
+        continuation.finish()
+        return
+      }
+      subscriptions += 1
+      continuations[id] = continuation
+      lock.unlock()
+    }
+  }
+
+  func inject(_ frame: DisplayedFrame) {
+    lock.lock()
+    let activeContinuations = Array(continuations.values)
+    lock.unlock()
+    for continuation in activeContinuations {
+      continuation.yield(frame)
     }
   }
 

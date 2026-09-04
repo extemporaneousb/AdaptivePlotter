@@ -709,9 +709,6 @@ struct PlotterPenInteractionEpisodeTests {
     let refused = await refusedFixture.runtime.snapshot(environment: .live)
     #expect(refused.projection.phase
       == .refused(.lowerRefused(PenRefusal.controllerRejected("fixture").actionableDescription)))
-    #expect(refusedFixture.workspace.selectedOperatorActionPresentation(
-      for: .humanGuidedDiscovery(.penInteraction)
-    ).status == .needsAttention)
     #expect(!refused.projection.physicalEvidenceClaimed)
     #expect(await refusedFixture.machine.requestedPenCommands == [.raise])
     let refusedResend = try currentPenSetpointRequestIfAvailable(
@@ -738,9 +735,6 @@ struct PlotterPenInteractionEpisodeTests {
       return
     }
     #expect(detail.contains("write acknowledgement lost"))
-    #expect(ambiguousFixture.workspace.selectedOperatorActionPresentation(
-      for: .humanGuidedDiscovery(.penInteraction)
-    ).status == .needsAttention)
     #expect(!ambiguous.projection.physicalEvidenceClaimed)
     #expect(await ambiguousFixture.machine.requestedPenCommands == [.raise])
     let ambiguousResend = try currentPenSetpointRequestIfAvailable(

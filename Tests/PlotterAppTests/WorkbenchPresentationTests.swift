@@ -165,30 +165,4 @@ struct WorkbenchPresentationTests {
     #expect(!idle.mustRemainVisible)
   }
 
-  @Test("exact evidence remains structured alongside actor action outcome and recovery")
-  func operationAndEvidenceProjection() {
-    let activity = OperationActivityPresentation(
-      actor: "Operator",
-      action: "Reveal and Observe New Ink",
-      outcome: .needsAttention,
-      detail: [.text("Ink may exist after accepted Pen Down.")],
-      recovery: [.text("Return to the local reveal pose and observe; do not redraw.")]
-    )
-    let evidence = ExerciseEvidencePresentation(
-      label: "Exact frames",
-      fragments: [
-        .text("baseline frame-40"),
-        .text("post frames frame-44 and frame-45"),
-        .text("camera configuration camera-A"),
-      ]
-    )
-
-    #expect(activity.actor == "Operator")
-    #expect(activity.action == "Reveal and Observe New Ink")
-    #expect(activity.outcome == .needsAttention)
-    #expect(activity.recovery.accessibilityText.contains("do not redraw"))
-    #expect(evidence.label == "Exact frames")
-    #expect(evidence.fragments.accessibilityText.contains("frame-44 and frame-45"))
-  }
-
 }

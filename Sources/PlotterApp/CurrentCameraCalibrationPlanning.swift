@@ -333,8 +333,6 @@ func closedMachineRectanglePositions(
 struct CurrentCameraCalibrationSample: Hashable, Sendable {
   let position: ToolContactCalibrationPosition
   let role: TipCalibrationSampleRole
-  let normalizedX: Double
-  let normalizedY: Double
   let machinePosition: MachinePosition
 }
 
@@ -354,7 +352,6 @@ struct CurrentCameraCalibrationPlan: Hashable, Sendable {
   let samples: [CurrentCameraCalibrationSample]
   let motionDeltas: [Vector2<MachineSpace>]
 
-  var targetPosition: MachinePosition { samples[0].machinePosition }
   var samplePositions: [MachinePosition] { samples.map(\.machinePosition) }
   var fitSamples: [CurrentCameraCalibrationSample] { samples.filter { $0.role == .fit } }
   var holdoutSamples: [CurrentCameraCalibrationSample] {
@@ -433,23 +430,23 @@ struct CurrentCameraCalibrationPlan: Hashable, Sendable {
     }
     let plannedSamples = [
       CurrentCameraCalibrationSample(
-        position: .center, role: .fit, normalizedX: 0.5, normalizedY: 0.5,
-        machinePosition: try point(0.5, 0.5)
+        position: .center, role: .fit,
+        machinePosition: targetPosition
       ),
       CurrentCameraCalibrationSample(
-        position: .negativeX, role: .fit, normalizedX: 0.1, normalizedY: 0.5,
+        position: .negativeX, role: .fit,
         machinePosition: try point(0.1, 0.5)
       ),
       CurrentCameraCalibrationSample(
-        position: .positiveY, role: .fit, normalizedX: 0.5, normalizedY: 0.9,
+        position: .positiveY, role: .fit,
         machinePosition: try point(0.5, 0.9)
       ),
       CurrentCameraCalibrationSample(
-        position: .positiveX, role: .holdout, normalizedX: 0.9, normalizedY: 0.5,
+        position: .positiveX, role: .holdout,
         machinePosition: try point(0.9, 0.5)
       ),
       CurrentCameraCalibrationSample(
-        position: .negativeY, role: .holdout, normalizedX: 0.5, normalizedY: 0.1,
+        position: .negativeY, role: .holdout,
         machinePosition: try point(0.5, 0.1)
       ),
     ]

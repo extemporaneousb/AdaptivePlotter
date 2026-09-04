@@ -1,4 +1,4 @@
-.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher docs-check wave-capsule-test responsiveness-test quick-test journey-test test check strict-check
+.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher preview-performance-gate docs-check wave-capsule-test responsiveness-test quick-test journey-test test check strict-check
 
 .DEFAULT_GOAL := help
 
@@ -19,6 +19,7 @@ help:
 		'  run-app-simulated  Launch signed causal simulation without camera startup.' \
 		'  validate-app       Validate the application bundle and launcher.' \
 		'  validate-launcher  Test launcher identity and instance handling.' \
+		'  preview-performance-gate Run the signed app against the preferred camera and enforce preview isolation/CPU thresholds.' \
 		'  docs-check         Validate canonical documents, vocabulary, and execution protocol.' \
 		'  wave-capsule-test  Validate hash-bound wave capsule creation and consumption.' \
 		'  responsiveness-test Validate Learning transitions and truthful workbench controls.' \
@@ -43,6 +44,11 @@ validate-launcher: app launcher
 validate-app: app validate-launcher
 	@sh Scripts/validate_local_app_bundle.sh .build/AdaptivePlotter.app
 	@sh Scripts/test_local_app_bundle_validation.sh .build/AdaptivePlotter.app
+
+preview-performance-gate: app
+	@sh Scripts/check_running_app_preview_performance.sh \
+		"$(CURDIR)/.build/AdaptivePlotter.app" \
+		"$(PREVIEW_PERFORMANCE_EVIDENCE)"
 
 docs-check:
 	@sh Scripts/check_episode_documentation.sh

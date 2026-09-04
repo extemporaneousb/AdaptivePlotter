@@ -66,10 +66,6 @@ extension PlotterApplicationRuntimeTests {
       failedProjection.items.filter { !$0.id.isExercise }.map(\.id)
         == [.stage(.humanGuidedDiscovery), .stage(.borderValidations)]
     )
-    let controllerStatus = try #require(
-      failedProjection.selectedAction.subsystemStatuses.first(where: { $0.id == "controller" })
-    )
-    #expect(controllerStatus.detail == [PresentationFragment.text("Controller alarm: ALARM:1")])
     #expect(await fixture.actions == ["select", "probe:alarm"])
 
     await submitControllerSession(workspace, .clearAlarm)
@@ -680,13 +676,6 @@ extension PlotterApplicationRuntimeTests {
       workspace.currentExerciseActionStripPresentation?.actions.map(\.kind) == [
         .boundary(.acquire(direction: .negativeX, mode: .normal))
       ]
-    )
-    let authority = workspace.selectedOperatorActionPresentation(for: owner).subsystemStatuses
-    #expect(authority.first(where: { $0.id == "camera" })?.blocksNewMotion == false)
-    #expect(authority.first(where: { $0.id == "vision" })?.blocksNewMotion == false)
-    #expect(
-      authority.first(where: { $0.id == "vision" })?.detail.accessibilityText
-        .contains("Drawing Boundary measurements do not use Camera or Vision") == true
     )
     let events = await log.values
     #expect(

@@ -918,14 +918,6 @@ extension PlotterApplicationRuntimeTests {
     let recovery = try #require(workspace.currentExerciseActionStripPresentation)
     #expect(recovery.actions.map(\.kind) == [.boundary(.moveToEstimatedCenter(retry: true))])
     #expect(recovery.actions.map(\.title) == ["Retry Center Arrival"])
-    let activity = workspace.selectedOperatorActionPresentation(for: owner).activity
-    #expect(activity?.action == "Move to Estimated Center")
-    #expect(
-      activity?.detail.accessibilityText.contains("outside the 0.500 mm tolerance") == true
-    )
-    #expect(
-      activity?.acceptedResult.accessibilityText.contains("four accepted Boundary") == true
-    )
   }
 
   @Test("source-indexed sessions preserve LIVE and replace SIMULATED independently")

@@ -725,6 +725,17 @@ projection, not a second source/configuration owner. SwiftUI reads
 region, overlay, and diagnostics remain explicit typed actions; none retries or
 redraws automatically.
 
+High-rate ordinary frames publish through the observation-ignored
+`ActionSurfacePreviewModel`. Only `PreviewingActionSurface` and the Video
+Settings region controls observe that model. The root workbench retains a
+semantic Action Surface scaffold, but an ambient frame does not rebuild the
+aggregate `PlotterAppUIProjection`, Learning projection, sibling panels, or
+Drawing Draft. Frozen point selection and pinned comparison evidence bypass the
+ambient resolver and retain their exact frame. Saved-Learning optical work is
+keyed by a typed checkpoint/camera-configuration identity, serialized only at
+the artifact-reset boundary, and invalidates semantic presentation only when
+the saved state actually changes.
+
 `NativeSpeechAnnouncer` owns lower AVFoundation speech synthesis,
 identity-bound queueing, bounded timeout/completion, and shutdown cancellation.
 `PlotterSpeechEffectRuntime` owns application-level advisory speech admission,
@@ -804,6 +815,11 @@ Learning presentation is an immutable projection of copied facts, not a
 decision or mutation boundary. SwiftUI semantic actions submit only through the
 current aggregate projection and production `PlotterUIIntentSink`; there is no
 remaining direct `UI.learningModePresentation` mutation route.
+The Exercise detail is deliberately only the selected question, instruction,
+effect-bearing inputs/actions, inline refusal, and required Stop/cancel/close
+protection. Progress, feed, activity, subsystem-status, evidence, and logging
+rows are not a second presentation surface; runtime evidence remains owned by
+the runtimes and exact request projection.
 The deleted `PointSelectionPresentationContext` cannot copy a request or
 re-decide admission. `frozenPointSelectionFrame` holds pixels for UI
 presentation only. `pendingToolContactClickFrame` binds the exact current
@@ -1461,6 +1477,11 @@ are independent holdouts; acceptance follows the all-five refit. Publishing the
 accepted registration also publishes learned fitted presentation bounds, but
 that target change does not change the current exact viewport rectangle, camera
 evidence, or a compatible `VideoAnalysisRegionLock`.
+The fresh controller-observed target is stored directly as `C`/sample zero; it
+is never regenerated from normalized rectangle coordinates. Exact digital
+reference equality therefore remains exact even for fractional controller
+coordinates. Only physical arrival and settlement comparisons use
+`MachinePositionAcceptancePolicy`.
 
 For each LIVE correspondence, `PlotterApplicationRuntime.captureStableWorkflowCap`
 acquires exactly three strictly newer exact `inspectWorkflowScene` results after

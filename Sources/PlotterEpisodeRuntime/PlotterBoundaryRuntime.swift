@@ -1503,7 +1503,7 @@ public actor PlotterBoundaryRuntime {
       finalPosition,
       from: MachinePosition(point: center.point)
     )
-    guard residual.isFinite, residual <= MachinePositionAcceptancePolicy.toleranceMM else {
+    guard MachinePositionAcceptancePolicy.accepts(residualMM: residual) else {
       throw PlotterBoundaryRestoreError.centerResidualExceeded(residual)
     }
     authority.centerArrival = finalPosition

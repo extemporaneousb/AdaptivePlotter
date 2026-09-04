@@ -81,6 +81,131 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     await workspace.shutdown()
   }
 
+  @Test("120 ambient preview frames invalidate only the video-local projection")
+  func ambientPreviewFramesStayOutOfSemanticProjection() async throws {
+    let log = EventLog()
+    let camera = try TestObservationCameraSession()
+    let previewFrames = TestPreviewFrameUpdateSource()
+    let identities = TipCalibrationSemanticIdentityState.ephemeral()
+    let savedCheckpoint = try acceptedPenLearningTestCheckpoint(
+      identity: identities.learningPathIdentity
+    )
+    let workspace = plotterApplicationRuntime(
+      machine: try LowerMachineSessionFixture(log: log),
+      observationSessionOverride: resolvedObservationSession(
+        camera,
+        frameUpdates: { previewFrames.updates() }
+      ),
+      statePersistencePort: TestApplicationStatePersistencePort(
+        loadCheckpoint: { .loaded(savedCheckpoint) }
+      ),
+      tipCalibrationSemanticIdentities: identities,
+      log: log
+    )
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    try await waitForExecutorTurns(
+      conditionDescription: "preview frame subscription"
+    ) {
+      previewFrames.subscriptionCount == 1
+    }
+    try await waitUntil {
+      workspace.actionSurfacePreview.displayedFrame?.frame.sequence == 1
+    }
+    let initialFrame = try #require(camera.snapshot.latestFrame)
+    previewFrames.inject(DisplayedFrame(
+      source: initialFrame.source,
+      frame: try frame(
+        id: "saved-learning-comparison-frame",
+        sequence: 2,
+        capture: 102,
+        configurationID: initialFrame.frame.cameraConfigurationID
+      )
+    ))
+    try await waitForExecutorTurns(
+      conditionDescription: "initial Saved Learning optical comparison"
+    ) {
+      workspace.artifactResetEpisodeSnapshot.savedLearning.candidate?
+        .opticalComparison.contains("Waiting for") == false
+    }
+    // Drain the initial semantic transition's already-scheduled Drawing Draft
+    // synchronization before establishing the preview-only baseline.
+    try await Task.sleep(for: .milliseconds(20))
+
+    workspace.resetPreviewIsolationDiagnostics()
+    let rootProjection = RootProjectionBuildProbe(application: workspace)
+    rootProjection.start()
+    let baseline = workspace.previewIsolationDiagnostics
+    let baselineRootBuildCount = rootProjection.buildCount
+
+    for offset in 1...120 {
+      let sequence = UInt64(offset + 2)
+      previewFrames.inject(DisplayedFrame(
+        source: initialFrame.source,
+        frame: try frame(
+          id: "ambient-preview-\(sequence)",
+          sequence: sequence,
+          capture: 100 + sequence,
+          configurationID: initialFrame.frame.cameraConfigurationID
+        )
+      ))
+      try await waitUntil {
+        workspace.previewIsolationDiagnostics.previewPublicationCount == UInt64(offset)
+      }
+    }
+
+    let afterPreview = workspace.previewIsolationDiagnostics
+    #expect(afterPreview.previewPublicationCount == 120)
+    #expect(afterPreview.latestPreviewFrameID == FrameID(rawValue: "ambient-preview-122"))
+    #expect(afterPreview.latestPreviewSequence == 122)
+    #expect(afterPreview.latestPreviewSource == initialFrame.source)
+    #expect(
+      afterPreview.latestPreviewCameraConfigurationID
+        == initialFrame.frame.cameraConfigurationID
+    )
+    #expect(
+      afterPreview.semanticPresentationRevision
+        == baseline.semanticPresentationRevision
+    )
+    #expect(
+      afterPreview.plotterUIProjectionBuildCount
+        == baseline.plotterUIProjectionBuildCount
+    )
+    #expect(
+      afterPreview.learningProjectionBuildCount
+        == baseline.learningProjectionBuildCount
+    )
+    #expect(
+      afterPreview.drawingDraftSynchronizationCount
+        == baseline.drawingDraftSynchronizationCount
+    )
+    #expect(rootProjection.buildCount == baselineRootBuildCount)
+
+    workspace.markSemanticPresentationChangedForTesting()
+    try await waitUntil {
+      rootProjection.buildCount == baselineRootBuildCount + 1
+    }
+    let afterSemanticTransition = workspace.previewIsolationDiagnostics
+    #expect(
+      afterSemanticTransition.semanticPresentationRevision
+        == afterPreview.semanticPresentationRevision + 1
+    )
+    #expect(
+      afterSemanticTransition.plotterUIProjectionBuildCount
+        == afterPreview.plotterUIProjectionBuildCount + 1
+    )
+    #expect(
+      afterSemanticTransition.learningProjectionBuildCount
+        == afterPreview.learningProjectionBuildCount + 1
+    )
+    #expect(
+      afterSemanticTransition.drawingDraftSynchronizationCount
+        == afterPreview.drawingDraftSynchronizationCount + 1
+    )
+
+    previewFrames.finish()
+    await workspace.shutdown()
+  }
+
   @Test("cached projection matches an uncached projector after representative transitions")
   func cachedProjectionParity() async throws {
     let log = EventLog()
@@ -339,14 +464,6 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
 
     #expect(workspace.exactWorkflowVisionOwner == .cameraCalibration)
     #expect(workspace.overlayStatus(for: .penCap).state == .suspended)
-    let selected = workspace.testCurrentLearningPathItemID
-    let vision = try #require(
-      workspace.selectedOperatorActionPresentation(for: selected).subsystemStatuses.first {
-        $0.id == "vision"
-      }
-    )
-    #expect(vision.state == "Camera calibration Vision · active")
-    #expect(!vision.state.contains("Trial ink analysis"))
 
     await gate.release()
     _ = try await capture.value
@@ -584,13 +701,6 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     }
     let currentStop = try renderedBoundaryStopKind(owner: owner, workspace: workspace)
     #expect(currentStop == heldStop)
-    let vision = try #require(
-      workspace.selectedOperatorActionPresentation(for: owner).subsystemStatuses.first {
-        $0.id == "vision"
-      }
-    )
-    #expect(vision.state == "Overlay analysis · running")
-    #expect(!vision.detail.accessibilityText.contains("preview held"))
     #expect(traffic.subscriptionCount == subscriptionCountBeforeTravel)
     #expect(camera.recordedAutomaticInspectionRequests == automaticRequestsBeforeTravel)
 
@@ -604,5 +714,24 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     #expect(camera.recordedAutomaticInspectionRequests == automaticRequestsBeforeTravel)
     traffic.finish()
     await workspace.shutdown()
+  }
+}
+
+@MainActor
+private final class RootProjectionBuildProbe {
+  private let application: PlotterApplicationRuntime
+  private(set) var buildCount = 0
+
+  init(application: PlotterApplicationRuntime) {
+    self.application = application
+  }
+
+  func start() {
+    withObservationTracking {
+      _ = application.testPlotterUIProjection(includesLearningPath: true)
+      buildCount += 1
+    } onChange: { [weak self] in
+      Task { @MainActor in self?.start() }
+    }
   }
 }

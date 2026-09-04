@@ -299,20 +299,6 @@ struct LearningVacatePlan: Hashable, Identifiable, Sendable {
 struct LearningPathItemPresentation: Identifiable, Hashable, Sendable {
   let id: LearningPathItemID
   let status: LearningPathStageStatus
-  let summary: String
-  let isRepeatable: Bool
-
-  init(
-    id: LearningPathItemID,
-    status: LearningPathStageStatus,
-    summary: String,
-    isRepeatable: Bool = false
-  ) {
-    self.id = id
-    self.status = status
-    self.summary = summary
-    self.isRepeatable = isRepeatable
-  }
 }
 
 /// Window-local selection. None of these operations has a callback or runtime
@@ -406,34 +392,6 @@ extension Collection where Element == PresentationFragment {
   }
 }
 
-struct ExerciseTimelinePresentation: Hashable, Sendable {
-  let position: Int
-  let total: Int
-  let currentLabel: String
-
-  init(position: Int, total: Int, currentLabel: String) {
-    precondition(total > 0)
-    precondition((1...total).contains(position))
-    self.position = position
-    self.total = total
-    self.currentLabel = currentLabel
-  }
-
-  var positionText: String { "Step \(position) of \(total)" }
-}
-
-struct ExerciseEvidencePresentation: Identifiable, Hashable, Sendable {
-  let label: String
-  let fragments: [PresentationFragment]
-
-  var id: String { label }
-
-  init(label: String, fragments: [PresentationFragment]) {
-    self.label = label
-    self.fragments = fragments
-  }
-}
-
 struct ManualMotionStopActionPresentation: Hashable, Sendable {
   let capabilityID: PlotterManualMotionStopCapabilityID
   let title: String
@@ -502,22 +460,6 @@ enum MotionRequestStatusPresentation: Hashable, Sendable {
   }
 }
 
-enum SubsystemAuthorityRole: String, Hashable, Sendable {
-  case motionGate = "Motion prerequisite"
-  case operationOwner = "Active operation"
-  case advisoryEvidence = "Reference evidence"
-  case evidenceCommit = "Accepted result"
-}
-
-struct SubsystemStatusPresentation: Identifiable, Hashable, Sendable {
-  let id: String
-  let subsystem: String
-  let state: String
-  let role: SubsystemAuthorityRole
-  let blocksNewMotion: Bool
-  let detail: [PresentationFragment]
-}
-
 extension PlotterUILearningActionDecision {
   var kind: PlotterLearningAction { action }
   var isEnabled: Bool { unavailableReason == nil }
@@ -544,92 +486,21 @@ struct ExerciseQuestionPresentation: Hashable, Sendable {
   }
 }
 
-enum OperationActivityOutcome: String, Hashable, Sendable {
-  case inProgress = "In Progress"
-  case succeeded = "Succeeded"
-  case cancelled = "Cancelled"
-  case needsAttention = "Needs Attention"
-}
-
-struct OperationActivityPresentation: Hashable, Sendable {
-  let actor: String
-  let action: String
-  let phase: String?
-  let outcomeLabel: String
-  let outcome: OperationActivityOutcome
-  let detail: [PresentationFragment]
-  let acceptedResult: [PresentationFragment]
-  let recovery: [PresentationFragment]
-
-  init(
-    actor: String,
-    action: String,
-    phase: String? = nil,
-    outcomeLabel: String? = nil,
-    outcome: OperationActivityOutcome,
-    detail: [PresentationFragment] = [],
-    acceptedResult: [PresentationFragment] = [],
-    recovery: [PresentationFragment] = []
-  ) {
-    self.actor = actor
-    self.action = action
-    self.phase = phase
-    self.outcomeLabel = outcomeLabel ?? outcome.rawValue
-    self.outcome = outcome
-    self.detail = detail
-    self.acceptedResult = acceptedResult
-    self.recovery = recovery
-  }
-}
-
 struct OperatorActionPresentation: Hashable, Sendable {
   let itemID: LearningPathItemID
-  let stepNumber: String
-  let title: String
-  let status: LearningPathStageStatus
-  let participant: String?
   let instructions: [PresentationFragment]
-  let expectedObservation: [PresentationFragment]
   let question: ExerciseQuestionPresentation?
-  let timeline: ExerciseTimelinePresentation?
-  let evidence: [ExerciseEvidencePresentation]
-  let activity: OperationActivityPresentation?
-  let subsystemStatuses: [SubsystemStatusPresentation]
   let actionStrip: PlotterUILearningActionStripDecision?
-  let requestedFeedMMPerMinute: Double?
-  let feedSource: FeedSelectionSource?
 
   init(
     itemID: LearningPathItemID,
-    stepNumber: String,
-    title: String,
-    status: LearningPathStageStatus,
-    participant: String? = nil,
     instructions: [PresentationFragment],
-    expectedObservation: [PresentationFragment] = [],
     question: ExerciseQuestionPresentation? = nil,
-    timeline: ExerciseTimelinePresentation? = nil,
-    evidence: [ExerciseEvidencePresentation] = [],
-    activity: OperationActivityPresentation? = nil,
-    subsystemStatuses: [SubsystemStatusPresentation] = [],
-    actionStrip: PlotterUILearningActionStripDecision? = nil,
-    requestedFeedMMPerMinute: Double? = nil,
-    feedSource: FeedSelectionSource? = nil
+    actionStrip: PlotterUILearningActionStripDecision? = nil
   ) {
     self.itemID = itemID
-    self.stepNumber = stepNumber
-    self.title = title
-    self.status = status
-    self.participant = participant
     self.instructions = instructions
-    self.expectedObservation = expectedObservation
     self.question = question
-    self.timeline = timeline
-    self.evidence = evidence
-    self.activity = activity
-    self.subsystemStatuses = subsystemStatuses
     self.actionStrip = actionStrip
-    self.requestedFeedMMPerMinute = requestedFeedMMPerMinute
-    self.feedSource = feedSource
   }
 }

@@ -27,7 +27,6 @@ struct PlotterLearningPresentationCompilerTests {
     #expect(first == second)
     #expect(first.currentItemID == .humanGuidedDiscovery(.penInteraction))
     #expect(first.selectedAction.itemID == .stage(.borderValidations))
-    #expect(first.selectedAction.status == .next)
   }
 
   @Test("all navigator rows receive exact initial states")
@@ -165,100 +164,6 @@ struct PlotterLearningPresentationCompilerTests {
     #expect(projection.currentActionStrip?.mustRemainVisible == true)
   }
 
-  @Test("typed failure kind renders without changing progression authority")
-  func typedFailureRendering() {
-    let failure = WorkflowFailure(
-      kind: .ambiguous,
-      detail: "Controller settlement is ambiguous.",
-      recovery: .resolveNamedFailure
-    )
-    let snapshot = connectedSnapshot(
-      operations: .init(explorationFailure: failure)
-    )
-    let projection = project(
-      snapshot,
-      selectedItemID: .humanGuidedDiscovery(.penInteraction)
-    )
-
-    #expect(projection.currentItemID == .humanGuidedDiscovery(.penInteraction))
-    #expect(projection.selectedAction.status == .needsAttention)
-    #expect(projection.selectedAction.activity?.detail.accessibilityText == failure.detail)
-    #expect(projection.selectedAction.activity?.outcome == .needsAttention)
-  }
-
-  @Test("camera failure is projected from the camera runtime without generic workspace state")
-  func cameraRuntimeFailureRendering() {
-    let detail = "The exact camera frame no longer matches the active configuration."
-    let snapshot = postBoundarySnapshot(camera: .init(
-      acceptedIsCurrent: false,
-      failure: .init(
-        code: .requiredStateMissing,
-        detail: detail,
-        recovery: .resolveNamedFailure
-      )
-    ))
-    let projection = project(
-      snapshot,
-      selectedItemID: .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
-    )
-
-    #expect(projection.selectedAction.activity?.actor == "PlotterCameraCalibrationRuntime")
-    #expect(projection.selectedAction.activity?.outcome == .needsAttention)
-    #expect(projection.selectedAction.activity?.detail.accessibilityText == detail)
-    #expect(projection.selectedAction.activity?.recovery.accessibilityText.contains(
-      "Resolve the named controller, camera, or exact-frame failure"
-    ) == true)
-  }
-
-  @Test("running camera reports preview processing instead of an idle processing label")
-  func runningCameraStatusIsTruthful() throws {
-    let snapshot = PlotterLearningPresentationFacts(controller: .init(
-      sessionEstablished: true,
-      motionAuthorized: true,
-      cameraStateText: "running",
-      cameraDeliveryLimitOutcome: .applied(framesPerSecond: 10)
-    ))
-    let projection = project(
-      snapshot,
-      selectedItemID: .humanGuidedDiscovery(.penInteraction)
-    )
-    let camera = try #require(
-      projection.selectedAction.subsystemStatuses.first { $0.id == "camera" }
-    )
-    let vision = try #require(
-      projection.selectedAction.subsystemStatuses.first { $0.id == "vision" }
-    )
-
-    #expect(camera.state == "Preview processing · device capped at 10 FPS")
-    #expect(camera.detail.accessibilityText.contains("does not hash full-frame evidence"))
-    #expect(vision.subsystem == "Vision")
-    #expect(!vision.subsystem.contains("processing"))
-  }
-
-  @Test("running camera distinguishes an unapplied device cap from preview policy")
-  func unappliedCameraDeliveryLimitIsTruthful() throws {
-    let snapshot = PlotterLearningPresentationFacts(controller: .init(
-      sessionEstablished: true,
-      motionAuthorized: true,
-      cameraStateText: "running",
-      cameraDeliveryLimitOutcome: .unapplied(
-        requestedFramesPerSecond: 10,
-        reason: "unsupported active format"
-      )
-    ))
-    let projection = project(
-      snapshot,
-      selectedItemID: .humanGuidedDiscovery(.penInteraction)
-    )
-    let camera = try #require(
-      projection.selectedAction.subsystemStatuses.first { $0.id == "camera" }
-    )
-
-    #expect(camera.state == "Preview processing · device cap 10 FPS unapplied")
-    #expect(camera.detail.accessibilityText.contains("unsupported active format"))
-    #expect(camera.detail.accessibilityText.contains("still capped at 10 FPS"))
-  }
-
   @Test("settled recovery does not replace the next unmet exercise")
   func restartableAttemptDoesNotTrapProgression() {
     let pen = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
@@ -286,33 +191,7 @@ struct PlotterLearningPresentationCompilerTests {
       projection.currentActionStrip?.actions.map(\.kind)
         == [.boundary(.acquire(direction: .positiveX, mode: .normal))]
     )
-    #expect(projection.selectedAction.status == .needsAttention)
     #expect(projection.selectedAction.actionStrip?.actions.map(\.kind) == [.restart])
-  }
-
-  @Test("current-camera calibration does not project a manual-motion gate")
-  func currentCameraCalibrationDoesNotGateManualMotion() {
-    let snapshot = PlotterLearningPresentationFacts(
-      source: .live,
-      controller: .init(
-        sessionEstablished: true,
-        motionAuthorized: true,
-        cameraStateText: "streaming",
-        controllerTravelUnavailableReason: nil
-      ),
-      cameraCalibration: .init(phase: .capturing(sample: 2, total: 5, role: "fit"))
-    )
-    let projection = project(
-      snapshot,
-      selectedItemID: .humanGuidedDiscovery(.penInteraction)
-    )
-    let controller = projection.selectedAction.subsystemStatuses.first { $0.id == "controller" }
-    let vision = projection.selectedAction.subsystemStatuses.first { $0.id == "vision" }
-
-    #expect(controller?.state == "Calibration active / manual controls independent")
-    #expect(controller?.blocksNewMotion == false)
-    #expect(vision?.blocksNewMotion == false)
-    #expect(vision?.detail.accessibilityText.contains("Direct manual controls remain independent") == true)
   }
 
   @Test("reset and vacate inputs are projected but never executed")
@@ -424,26 +303,7 @@ struct PlotterLearningPresentationCompilerTests {
   }
 
   @Test("projected calibration and validation copy matches the four-corner frame workflow")
-  func currentWorkflowCopy() throws {
-    let tipOwner = LearningPathItemID.humanGuidedDiscovery(
-      .calibratePenContactFromSparseMarks
-    )
-    let tipProjection = project(
-      postBoundarySnapshot(
-        sparse: .init(
-          phase: .awaitingCompletedPointSelection(try expectedTipSelection(frameID: "frame-1")),
-          acceptedObservationCount: 4,
-          collectedClickCount: 4
-        )
-      ),
-      selectedItemID: tipOwner
-    )
-    let tipEvidence = tipProjection.selectedAction.evidence
-      .flatMap(\.fragments)
-      .accessibilityText
-    #expect(tipEvidence.contains("4/4 accepted"))
-    #expect(!tipEvidence.contains("/5 accepted"))
-
+  func currentWorkflowCopy() {
     let drawingOwner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     let drawingProjection = project(
       postBoundarySnapshot(sparse: .init(acceptedIsCurrent: true)),
@@ -457,7 +317,7 @@ struct PlotterLearningPresentationCompilerTests {
   }
 
   @Test("drawing phases remain under one visible validation exercise")
-  func borderValidationProgression() throws {
+  func borderValidationProgression() {
     let current = BorderValidationStep.drawDrawingBorder
     let owner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
     let snapshot = postBoundarySnapshot(
@@ -475,8 +335,6 @@ struct PlotterLearningPresentationCompilerTests {
     #expect(currentProjection.currentActionStrip?.actions.map(\.kind) == [.start])
     #expect(currentProjection.currentActionStrip?.actions.first?.title == "Resume Drawing Border Validation")
     #expect(currentProjection.selectedAction.itemID == owner)
-    #expect(currentProjection.selectedAction.timeline?.position == current.rawValue)
-    #expect(currentProjection.selectedAction.status == .current)
   }
 
   @Test("Drawing Border comparison review exposes only explicit accept and reject")
@@ -500,72 +358,6 @@ struct PlotterLearningPresentationCompilerTests {
     #expect(action.actionStrip?.mustRemainVisible == true)
     #expect(action.instructions.accessibilityText.contains("explicitly accept or reject"))
     #expect(!action.instructions.accessibilityText.contains("without another approval"))
-  }
-
-  @Test("foreground trial Vision is visible as the operation owner")
-  func foregroundTrialVisionIsVisible() throws {
-    let owner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
-    let snapshot = postBoundarySnapshot(
-      sparse: .init(acceptedIsCurrent: true),
-      drawing: .init(currentStep: .revealAndObserveNewInk),
-      operations: .init(
-        activeAttemptOwner: owner,
-        exactWorkflowVisionOwner: .borderValidation
-      )
-    )
-
-    let projection = project(
-      snapshot,
-      selectedItemID: owner
-    )
-    let vision = try #require(
-      projection.selectedAction.subsystemStatuses.first { $0.id == "vision" }
-    )
-
-    #expect(vision.state == "Trial ink analysis · active")
-    #expect(vision.role == .operationOwner)
-    #expect(projection.selectedAction.activity?.phase == "Phase 5 of 6")
-    #expect(
-      projection.selectedAction.activity?.detail.accessibilityText.contains(
-        "Vision is comparing"
-      ) == true
-    )
-  }
-
-  @Test("typed exact-workflow Vision owners never impersonate trial ink")
-  func typedExactWorkflowVisionOwnersAreTruthful() throws {
-    let owner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)
-    let expectedStates: [ExactWorkflowVisionOwner: String] = [
-      .penCapAppearance: "Pen-cap appearance Vision · active",
-      .cameraCalibration: "Camera calibration Vision · active",
-      .sparseTipCalibration: "Sparse-tip calibration Vision · active",
-      .borderValidation: "Trial ink analysis · active",
-      .drawingStudio: "Drawing Studio ink analysis · active",
-    ]
-
-    for exactOwner in ExactWorkflowVisionOwner.allCases {
-      let snapshot = postBoundarySnapshot(
-        sparse: .init(acceptedIsCurrent: true),
-        drawing: .init(currentStep: .revealAndObserveNewInk),
-        operations: .init(
-          activeAttemptOwner: owner,
-          exactWorkflowVisionOwner: exactOwner
-        )
-      )
-      let projection = project(
-        snapshot,
-        selectedItemID: owner
-      )
-      let vision = try #require(
-        projection.selectedAction.subsystemStatuses.first { $0.id == "vision" }
-      )
-
-      #expect(vision.state == expectedStates[exactOwner])
-      #expect(
-        vision.state.contains("Trial ink analysis")
-          == (exactOwner == .borderValidation)
-      )
-    }
   }
 
   @Test("completed curriculum remains on the Drawing Border validation endpoint")

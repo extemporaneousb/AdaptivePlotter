@@ -8,6 +8,52 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Calibration-reference fidelity and preview-isolation correction
+
+Blackdog task `TASK-6E2FA6AE`, attempt
+`TASK-6E2FA6AE-resume-3f5448c12ff2`, corrects two bounded application defects
+against base revision `79dee1716a03377318f3d40c320fa84358794025`:
+
+- `CurrentCameraCalibrationPlan` retains the fresh controller-observed
+  `targetPosition` directly as sample zero. It no longer reconstructs that
+  reference through rectangle midpoint arithmetic. The fractional `(0.1,
+  -0.2)` planner regression and the projection-bound production route through
+  `PlotterUIIntentSink` both preserve the exact first fit correspondence.
+  Digital identity remains exact; physical settlement and center-arrival
+  equivalence use the one typed `MachinePositionAcceptancePolicy`.
+- Ordinary preview publication is owned by the video-local
+  `ActionSurfacePreviewModel`, outside the aggregate semantic observation
+  graph. A persisted-Saved-Learning regression publishes 120 sequential frames
+  with zero semantic-revision, root-projection, Learning-projection, and
+  Drawing-Draft-synchronization deltas, then proves one explicit semantic
+  transition produces exactly one of each rebuild. Saved optical comparison is
+  deduplicated by typed checkpoint/camera-configuration identity and publishes
+  only an actual state change.
+- Exercise detail now renders only its question, instruction, effect-bearing
+  controls, inline refusal, and required Stop/cancel/close protection. Its
+  progress, feed, activity, subsystem-status, evidence, and logging/output
+  presentation types and producers are deleted; runtime evidence, the
+  navigator, exact requests, and Reset All remain authoritative.
+
+The pristine signed app at the base revision measured 139.1% median CPU and
+145.2% p95 over 15 one-second live-camera samples. The corrected signed-app
+preferred-camera gate advanced 97 preview frames over 12 seconds with 66.85%
+median CPU and 70.9% p95, a 51.9% and 51.2% reduction respectively. Semantic
+revision, root projection, and Drawing Draft synchronization deltas were all
+zero. Background-to-MainActor interaction latency measured 25.29 ms p95 and
+30.22 ms maximum. The machine-readable receipt is emitted by
+`make preview-performance-gate` at
+`.build/evidence/preview-performance.json`.
+
+Focused serial integration validation passed 56/56 tests, including the exact
+fractional planner/production route, 120-frame persisted-state isolation,
+minimal Exercise detail, request/Stop preservation, and gate serialization.
+The complete serial Swift package suite then passed 867/867 tests in 45.533
+seconds. A second complete pass under strict concurrency and warnings-as-errors
+passed the same 867/867 tests in 45.496 seconds.
+This is software and actual running-camera performance evidence only. It is
+not attended controller, motion, Pen, paper, click, or ink evidence.
+
 ## Model/UI consolidation tranche complete
 
 Blackdog task `TASK-34928BFE`, attempt `TASK-34928BFE-a221afbd5d52`, completed

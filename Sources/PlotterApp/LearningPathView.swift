@@ -134,8 +134,7 @@ struct LearningPathNavigator: View {
   }
 }
 
-/// Selected exercise detail. The scrollable detail and the pinned action strip
-/// are deliberately separate so long evidence cannot push controls off-screen.
+/// Selected exercise prompt and its pinned, effect-bearing controls.
 struct LearningPathView: View {
   @Binding var selection: LearningPathSelectionState
   let projection: LearningPathProjection
@@ -144,369 +143,62 @@ struct LearningPathView: View {
   let plotterUIIntentSink: any PlotterUIIntentSink
   let close: () -> Void
   let closeUnavailableReason: String?
-  @State private var pendingResetPlan: LearningVacatePlan?
 
   var body: some View {
     let selectedPresentation = projection.selectedAction
-    let resetSurface = projection.resetSurface
     let pinnedActionStrip =
       projection.currentActionStrip
       ?? selectedPresentation.actionStrip
 
     VStack(spacing: 0) {
-      detailHeader
-      Divider()
+      HStack {
+        Spacer()
+        PanelCloseButton(
+          panel: .exercise,
+          close: close,
+          unavailableReason: closeUnavailableReason
+        )
+      }
+      .padding(12)
 
       ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          selectedDetail(selectedPresentation)
-          learningResetActions(
-            selectedPlan: resetSurface.selectedPlan,
-            unavailableReason: resetSurface.unavailableReason,
-            authorityError: resetSurface.authorityError
-          )
-        }
+        selectedDetail(selectedPresentation)
         .padding(14)
       }
 
       if let strip = pinnedActionStrip {
-        Divider()
         ExerciseActionStripView(
           presentation: strip,
-          reviewedItemID: selection.selected,
           plotterUIProjection: plotterUIProjection,
           plotterUIIntentSink: plotterUIIntentSink
         )
       }
     }
     .background(Color(nsColor: .windowBackgroundColor))
-    .sheet(item: $pendingResetPlan) { plan in
-      LearningResetSheet(
-        plan: plan,
-        authorityError: projection.resetSurface.authorityError,
-        plotterUIProjection: plotterUIProjection,
-        plotterUIIntentSink: plotterUIIntentSink,
-        completed: {
-          selection.updateCurrent(currentLearningPathItemID)
-          selection.returnToCurrent()
-          pendingResetPlan = nil
-        }
-      )
-    }
-  }
-
-  private var detailHeader: some View {
-    HStack(spacing: 8) {
-      VStack(alignment: .leading, spacing: 2) {
-        Text("SELECTED EXERCISE")
-          .font(.caption2.monospaced().bold())
-          .foregroundStyle(.secondary)
-        Text("\(selection.selected.number) \(selection.selected.title)")
-          .font(.headline)
-          .lineLimit(2)
-      }
-      Spacer()
-      PanelCloseButton(
-        panel: .exercise,
-        close: close,
-        unavailableReason: closeUnavailableReason
-      )
-    }
-    .padding(12)
   }
 
   private func selectedDetail(_ presentation: OperatorActionPresentation) -> some View {
     VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .firstTextBaseline) {
-        statusLabel(presentation.status)
-        Spacer()
-        Text(presentation.stepNumber)
-          .font(.caption.monospaced().bold())
-          .foregroundStyle(.secondary)
-      }
-
-      Text(presentation.title)
-        .font(.title2.weight(.semibold))
-        .fixedSize(horizontal: false, vertical: true)
-
-      if let participant = presentation.participant {
-        labeledValue("Participant", participant)
-      }
-
-      if let timeline = presentation.timeline {
-        timelineCard(timeline)
-      }
-
       if let question = presentation.question {
-        questionCard(question)
+        fragmentText(question.prompt)
+          .font(.title3.weight(.medium))
+          .fixedSize(horizontal: false, vertical: true)
+          .textSelection(.enabled)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(question.prompt.accessibilityText)
+          .accessibilityValue(question.choices.map(\.exactPhrase).joined(separator: " or "))
       }
 
       if !presentation.instructions.isEmpty {
-        fragmentCard(
-          label: "Instruction",
-          fragments: presentation.instructions,
-          color: Color(nsColor: .controlBackgroundColor)
-        )
-      }
-
-      if !presentation.expectedObservation.isEmpty {
-        fragmentCard(
-          label: "Expected observation",
-          fragments: presentation.expectedObservation,
-          color: Color.green.opacity(0.09)
-        )
-      }
-
-      if let requestedFeedMMPerMinute = presentation.requestedFeedMMPerMinute {
-        labeledValue(
-          "Requested feed",
-          String(format: "%.1f mm/min", requestedFeedMMPerMinute)
-        )
-      }
-      if let feedSource = presentation.feedSource {
-        labeledValue("Feed source", feedSourceLabel(feedSource))
-      }
-
-      if let activity = presentation.activity {
-        operationActivityCard(activity)
-      }
-
-      if !presentation.subsystemStatuses.isEmpty {
-        subsystemAuthorityCard(presentation.subsystemStatuses)
-      }
-
-      if !presentation.evidence.isEmpty {
-        VStack(alignment: .leading, spacing: 8) {
-          Text("EVIDENCE")
-            .font(.caption2.monospaced().bold())
-            .foregroundStyle(.secondary)
-          ForEach(presentation.evidence) { evidence in
-            VStack(alignment: .leading, spacing: 4) {
-              Text(evidence.label)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-              fragmentText(evidence.fragments)
-                .font(.callout)
-                .textSelection(.enabled)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(evidence.fragments.accessibilityText)
-            }
-          }
-        }
+        fragmentText(presentation.instructions)
+          .font(.body)
+          .fixedSize(horizontal: false, vertical: true)
+          .textSelection(.enabled)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(presentation.instructions.accessibilityText)
       }
     }
     .frame(maxWidth: .infinity, alignment: .topLeading)
-  }
-
-  @ViewBuilder
-  private func learningResetActions(
-    selectedPlan: LearningVacatePlan?,
-    unavailableReason: String?,
-    authorityError: String?
-  ) -> some View {
-    if selectedPlan != nil || authorityError != nil {
-      VStack(alignment: .leading, spacing: 9) {
-        Text("RESET LEARNING")
-          .font(.caption2.monospaced().bold())
-          .foregroundStyle(.secondary)
-        Text(
-          "Resetting clears saved Learning Path results from the selected step onward. It does not move the plotter or erase marks on the paper."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
-
-        if let selectedPlan {
-          Button {
-            pendingResetPlan = selectedPlan
-          } label: {
-            Label("\(selectedPlan.title)…", systemImage: "arrow.uturn.backward.circle")
-          }
-          .buttonStyle(.bordered)
-          .disabled(unavailableReason != nil)
-          .help(
-            unavailableReason
-              ?? "Review the steps that will be reset from \(selectedPlan.anchor.number) onward"
-          )
-        }
-
-        if let reason = unavailableReason {
-          Label(reason, systemImage: "lock.fill")
-            .font(.caption)
-            .foregroundStyle(.orange)
-        }
-        if let error = authorityError {
-          Label(error, systemImage: "exclamationmark.triangle.fill")
-            .font(.caption)
-            .foregroundStyle(.orange)
-            .textSelection(.enabled)
-        }
-      }
-      .padding(11)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(Color.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
-    }
-  }
-
-  private func timelineCard(_ timeline: ExerciseTimelinePresentation) -> some View {
-    return VStack(alignment: .leading, spacing: 6) {
-      HStack {
-        Text("CURRENT TIMELINE POSITION")
-          .font(.caption2.monospaced().bold())
-          .foregroundStyle(.secondary)
-        Spacer()
-        Text(timeline.positionText)
-          .font(.caption.monospaced().bold())
-          .foregroundStyle(Color.accentColor)
-      }
-      ProgressView(value: Double(timeline.position), total: Double(timeline.total))
-        .accessibilityLabel("Exercise timeline")
-        .accessibilityValue(timeline.positionText)
-      Text(timeline.currentLabel)
-        .font(.callout.weight(.semibold))
-    }
-    .padding(10)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
-  }
-
-  private func questionCard(_ question: ExerciseQuestionPresentation) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text("FOCUSED QUESTION")
-        .font(.caption2.monospaced().bold())
-        .foregroundStyle(.secondary)
-      fragmentText(question.prompt)
-        .font(.body)
-        .fixedSize(horizontal: false, vertical: true)
-        .textSelection(.enabled)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(question.prompt.accessibilityText)
-        .accessibilityValue(question.choices.map(\.exactPhrase).joined(separator: " or "))
-    }
-    .padding(11)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
-  }
-
-  private func operationActivityCard(
-    _ activity: OperationActivityPresentation
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(alignment: .firstTextBaseline) {
-        Text("OPERATION ACTIVITY")
-          .font(.caption2.monospaced().bold())
-          .foregroundStyle(.secondary)
-        Spacer()
-        Label(activity.outcomeLabel, systemImage: activitySystemImage(activity.outcome))
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(activityColor(activity.outcome))
-      }
-      labeledValue("Actor", activity.actor)
-      labeledValue("Action", activity.action)
-      if let phase = activity.phase {
-        labeledValue("Phase", phase)
-      }
-      if !activity.detail.isEmpty {
-        activityFragments("Detail", activity.detail)
-      }
-      if !activity.acceptedResult.isEmpty {
-        activityFragments("Accepted result", activity.acceptedResult)
-      }
-      if !activity.recovery.isEmpty {
-        activityFragments("Recovery", activity.recovery)
-      }
-    }
-    .padding(11)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(
-      activityColor(activity.outcome).opacity(0.09),
-      in: RoundedRectangle(cornerRadius: 9)
-    )
-    .accessibilityElement(children: .contain)
-  }
-
-  private func activityFragments(
-    _ label: String,
-    _ fragments: [PresentationFragment]
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(label.uppercased())
-        .font(.caption2.monospaced().bold())
-        .foregroundStyle(.secondary)
-      fragmentText(fragments)
-        .font(.callout)
-        .textSelection(.enabled)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(fragments.accessibilityText)
-    }
-  }
-
-  private func subsystemAuthorityCard(
-    _ statuses: [SubsystemStatusPresentation]
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 9) {
-      Text("SYSTEM STATUS")
-        .font(.caption2.monospaced().bold())
-        .foregroundStyle(.secondary)
-      ForEach(statuses) { status in
-        VStack(alignment: .leading, spacing: 3) {
-          HStack(alignment: .firstTextBaseline, spacing: 7) {
-            Text(status.subsystem)
-              .font(.callout.weight(.semibold))
-            Text(status.state)
-              .font(.caption.monospaced())
-              .foregroundStyle(.secondary)
-            Spacer()
-            Text(status.blocksNewMotion ? "BLOCKING NEW MOTION" : "NOT BLOCKING")
-              .font(.caption2.monospaced().bold())
-              .foregroundStyle(status.blocksNewMotion ? Color.red : Color.green)
-          }
-          Text(status.role.rawValue.uppercased())
-            .font(.caption2.monospaced().bold())
-            .foregroundStyle(.secondary)
-          fragmentText(status.detail)
-            .font(.caption)
-            .textSelection(.enabled)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(status.detail.accessibilityText)
-        }
-        .padding(.vertical, 3)
-      }
-    }
-    .padding(11)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
-    .accessibilityElement(children: .contain)
-  }
-
-  private func fragmentCard(
-    label: String,
-    fragments: [PresentationFragment],
-    color: Color
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(label.uppercased())
-        .font(.caption2.monospaced().bold())
-        .foregroundStyle(.secondary)
-      fragmentText(fragments)
-        .font(.body)
-        .fixedSize(horizontal: false, vertical: true)
-        .textSelection(.enabled)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(fragments.accessibilityText)
-    }
-    .padding(11)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(color, in: RoundedRectangle(cornerRadius: 9))
-  }
-
-  private func labeledValue(_ label: String, _ value: String) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(label.uppercased())
-        .font(.caption2.monospaced().bold())
-        .foregroundStyle(.secondary)
-      Text(value)
-        .font(.callout)
-        .textSelection(.enabled)
-    }
   }
 }
 
@@ -613,36 +305,12 @@ private struct LearningResetSheet: View {
 
 private struct ExerciseActionStripView: View {
   let presentation: PlotterUILearningActionStripDecision
-  let reviewedItemID: LearningPathItemID
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
   @State private var requestRefusal: String?
 
-  private var ownerID: LearningPathItemID {
-    PlotterLearningActionabilityFactAdapter().itemID(presentation.ownerID) ?? reviewedItemID
-  }
-
   var body: some View {
     VStack(alignment: .leading, spacing: 9) {
-      HStack(alignment: .firstTextBaseline) {
-        Text("EXERCISE ACTIONS")
-          .font(.caption2.monospaced().bold())
-          .foregroundStyle(.secondary)
-        Spacer()
-        Text("\(ownerID.number) \(ownerID.title)")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.secondary)
-      }
-
-      if reviewedItemID != ownerID {
-        Label(
-          "Reviewing \(reviewedItemID.number); controls remain with the current exercise.",
-          systemImage: "eye"
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
-      }
-
       if let requestRefusal {
         Label(requestRefusal, systemImage: "exclamationmark.triangle.fill")
           .font(.caption)
@@ -683,7 +351,6 @@ private struct ExerciseActionStripView: View {
       }
     }
     .padding(12)
-    .background(.bar)
   }
 
   private func penSetpointAdjustment(
@@ -864,24 +531,6 @@ extension PlotterLearningAction {
   }
 }
 
-private func activityColor(_ outcome: OperationActivityOutcome) -> Color {
-  switch outcome {
-  case .inProgress: .accentColor
-  case .succeeded: .green
-  case .cancelled: .secondary
-  case .needsAttention: .orange
-  }
-}
-
-private func activitySystemImage(_ outcome: OperationActivityOutcome) -> String {
-  switch outcome {
-  case .inProgress: "arrow.triangle.2.circlepath"
-  case .succeeded: "checkmark.circle.fill"
-  case .cancelled: "xmark.circle"
-  case .needsAttention: "exclamationmark.triangle.fill"
-  }
-}
-
 private func fragmentText(_ fragments: [PresentationFragment]) -> Text {
   fragments.enumerated().reduce(Text("")) { result, entry in
     let (index, fragment) = entry
@@ -927,12 +576,5 @@ private func statusSystemImage(_ status: LearningPathStageStatus) -> String {
   case .current: "arrow.right.circle.fill"
   case .next: "circle"
   case .needsAttention: "exclamationmark.triangle.fill"
-  }
-}
-
-private func feedSourceLabel(_ source: FeedSelectionSource) -> String {
-  switch source {
-  case .controllerReportedCeiling: "Controller-reported ceiling"
-  case .existingFallback: "Existing fallback"
   }
 }

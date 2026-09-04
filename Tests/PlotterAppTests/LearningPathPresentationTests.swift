@@ -203,20 +203,67 @@ struct LearningPathPresentationTests {
     #expect(question.choices == [.yes, .no])
   }
 
-  @Test("operation activity retains actor outcome detail and recovery")
-  func operationActivity() {
-    let activity = OperationActivityPresentation(
-      actor: "Controller",
-      action: "Boundary Discovery X+",
-      outcome: .needsAttention,
-      detail: [.text("Controller reported Alarm.")],
-      recovery: [.text("Inspect the controller before restarting.")]
+  @Test("exercise detail carries only prompt, instruction, and effect-bearing controls")
+  func minimalExerciseDetailPresentation() {
+    let presentation = OperatorActionPresentation(
+      itemID: .humanGuidedDiscovery(.penInteraction),
+      instructions: [.text("Confirm the physical pen pose.")],
+      question: ExerciseQuestionPresentation(
+        prompt: [.text("Is the pen physically"), .cue(.up), .text("?")],
+        choices: [.yes, .no]
+      )
     )
 
-    #expect(activity.actor == "Controller")
-    #expect(activity.outcome.rawValue == "Needs Attention")
-    #expect(activity.detail.accessibilityText == "Controller reported Alarm.")
-    #expect(activity.recovery.accessibilityText == "Inspect the controller before restarting.")
+    #expect(
+      Set(Mirror(reflecting: presentation).children.compactMap(\.label))
+        == Set(["itemID", "instructions", "question", "actionStrip"])
+    )
+    #expect(presentation.instructions.accessibilityText == "Confirm the physical pen pose.")
+    #expect(presentation.question?.choices == [.yes, .no])
+  }
+
+  @Test("removed Exercise detail chrome and presentation types have zero source matches")
+  func removedExerciseDetailSourceIsDeleted() throws {
+    let repositoryRoot = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+    let sourcePaths = [
+      "Sources/PlotterApp/LearningPathView.swift",
+      "Sources/PlotterApp/LearningPathPresentation.swift",
+      "Sources/PlotterApp/LearningPathProjector.swift",
+    ]
+    let source = try sourcePaths.map {
+      try String(contentsOf: repositoryRoot.appendingPathComponent($0), encoding: .utf8)
+    }.joined(separator: "\n")
+    let removedTerms = [
+      "SELECTED EXERCISE",
+      "CURRENT TIMELINE POSITION",
+      "FOCUSED QUESTION",
+      "Expected observation",
+      "Requested feed",
+      "Feed source",
+      "OPERATION ACTIVITY",
+      "SYSTEM STATUS",
+      "RESET LEARNING",
+      "EXERCISE ACTIONS",
+      "ExerciseTimelinePresentation",
+      "ExerciseEvidencePresentation",
+      "OperationActivityPresentation",
+      "SubsystemStatusPresentation",
+    ]
+
+    for term in removedTerms {
+      #expect(!source.contains(term), "Removed Exercise detail source remains: \(term)")
+    }
+
+    #expect(source.contains("fragmentText(question.prompt)"))
+    #expect(source.contains("fragmentText(presentation.instructions)"))
+    #expect(source.contains("presentation.penAdjustment"))
+    #expect(source.contains("presentation.directionSelection"))
+    #expect(source.contains("submitPlotterUIRequest(request)"))
+    #expect(source.contains("PanelCloseButton"))
+    #expect(source.contains("projection.menu.resetAllPlan"))
   }
 
   @Test("one action strip has one owner and distinct repeat actions")

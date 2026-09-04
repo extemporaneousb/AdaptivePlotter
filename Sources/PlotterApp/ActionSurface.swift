@@ -5,10 +5,58 @@ import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
 import PlotterUI
+import Observation
 import SwiftUI
 
 enum ActionSurfaceScalePolicy: String, Sendable {
   case aspectFit
+}
+
+/// The high-rate, presentation-only frame owner. The application retains this
+/// reference outside its semantic observation graph so camera preview changes
+/// invalidate only views that explicitly observe this model.
+@MainActor
+@Observable
+final class ActionSurfacePreviewModel {
+  private(set) var displayedFrame: DisplayedFrame?
+  private(set) var publicationCount: UInt64 = 0
+
+  @discardableResult
+  func publish(_ frame: DisplayedFrame?) -> Bool {
+    if framesHaveSameIdentity(displayedFrame, frame) { return false }
+    if let displayedFrame, let frame,
+      displayedFrame.source == frame.source,
+      displayedFrame.frame.cameraConfigurationID == frame.frame.cameraConfigurationID,
+      frame.frame.captureNanoseconds < displayedFrame.frame.captureNanoseconds
+    {
+      return false
+    }
+    displayedFrame = frame
+    if frame != nil { publicationCount &+= 1 }
+    return true
+  }
+
+  func resetPublicationCount() {
+    publicationCount = 0
+  }
+
+  private func framesHaveSameIdentity(
+    _ lhs: DisplayedFrame?,
+    _ rhs: DisplayedFrame?
+  ) -> Bool {
+    switch (lhs, rhs) {
+    case (nil, nil):
+      true
+    case (.some(let lhs), .some(let rhs)):
+      lhs.source == rhs.source
+        && lhs.frame.id == rhs.frame.id
+        && lhs.frame.sequence == rhs.frame.sequence
+        && lhs.frame.captureNanoseconds == rhs.frame.captureNanoseconds
+        && lhs.frame.cameraConfigurationID == rhs.frame.cameraConfigurationID
+    case (.none, .some), (.some, .none):
+      false
+    }
+  }
 }
 
 /// Presentation-only projection from top-left-origin camera pixels into the
@@ -435,6 +483,7 @@ struct ActionSurfacePresentation: Sendable {
   static let rendererIdentity = "canonical-stamped-frame"
 
   let displayedFrame: DisplayedFrame?
+  let usesAmbientPreviewFrame: Bool
   let overlays: [CameraOverlayMeasurement]
   let simulatedAnnotations: [SimulatedLearningAnnotation]
   let simulatedViewportID: SimulatedCameraViewportID?
@@ -451,6 +500,7 @@ struct ActionSurfacePresentation: Sendable {
 
   init(
     displayedFrame: DisplayedFrame?,
+    usesAmbientPreviewFrame: Bool = true,
     overlays: [CameraOverlayMeasurement],
     simulatedAnnotations: [SimulatedLearningAnnotation] = [],
     simulatedViewportID: SimulatedCameraViewportID? = nil,
@@ -464,6 +514,7 @@ struct ActionSurfacePresentation: Sendable {
     drawingStudioCanvas: DrawingStudioCanvasPresentation? = nil
   ) {
     self.displayedFrame = displayedFrame
+    self.usesAmbientPreviewFrame = usesAmbientPreviewFrame
     self.simulatedViewportID = simulatedViewportID
     self.simulatedAnnotationsAreVisible = simulatedAnnotationsAreVisible
     if let displayedFrame {
@@ -498,6 +549,33 @@ struct ActionSurfacePresentation: Sendable {
     self.drawingStudioCanvas = drawingStudioCanvas
   }
 
+  func resolvingAmbientPreviewFrame(_ frame: DisplayedFrame?) -> Self {
+    guard usesAmbientPreviewFrame else { return self }
+    let matchingViewportContext: ActionSurfaceViewportContext? = viewportContext.flatMap {
+      context in
+      guard let frame,
+        context.source == frame.source,
+        context.cameraConfigurationID == frame.frame.cameraConfigurationID
+      else { return nil }
+      return context
+    }
+    return Self(
+      displayedFrame: frame,
+      usesAmbientPreviewFrame: true,
+      overlays: overlays,
+      simulatedAnnotations: simulatedAnnotations,
+      simulatedViewportID: simulatedViewportID,
+      simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible,
+      viewportContext: matchingViewportContext,
+      analysisRegionIsLocked: matchingViewportContext == nil ? false : analysisRegionIsLocked,
+      analyzedOverlayFrame: analyzedOverlayFrame,
+      pointSelectionRequest: pointSelectionRequest,
+      tipPresentation: tipPresentation,
+      completedComparisonReview: completedComparisonReview,
+      drawingStudioCanvas: drawingStudioCanvas
+    )
+  }
+
   var sourceBadgeLabel: String? {
     guard case .simulated = displayedFrame?.source else { return nil }
     return "SIMULATED"
@@ -508,6 +586,30 @@ struct ActionSurfacePresentation: Sendable {
     return submission.selectionID == request.id
       && submission.frame == request.frame
       && submission.presentationTransformRevision == request.presentationTransformRevision
+  }
+}
+
+/// The only Action Surface view that observes high-rate preview publication.
+/// Its semantic projection and exact effect requests remain supplied by the
+/// root application projection.
+struct PreviewingActionSurface: View {
+  let preview: ActionSurfacePreviewModel
+  let presentation: ActionSurfacePresentation
+  @Binding var viewport: ActionSurfaceViewportState
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
+  @Binding var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
+  @Binding var pendingPointSelection: PlotterPointSelectionSubmission?
+
+  var body: some View {
+    ActionSurface(
+      presentation: presentation.resolvingAmbientPreviewFrame(preview.displayedFrame),
+      viewport: $viewport,
+      plotterUIProjection: plotterUIProjection,
+      plotterUIIntentSink: plotterUIIntentSink,
+      pendingDrawingPlacement: $pendingDrawingPlacement,
+      pendingPointSelection: $pendingPointSelection
+    )
   }
 }
 

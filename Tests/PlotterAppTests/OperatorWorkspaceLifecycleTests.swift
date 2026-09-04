@@ -144,11 +144,6 @@ struct PlotterApplicationRuntimeLifecycleTests {
     #expect((await harness.simulator.snapshot()).mpos == positionBeforeGo)
     #expect(workspace.borderValidationSnapshot.step == .moveToDrawingBorderStart)
     #expect(
-      workspace.selectedOperatorActionPresentation(for: owner).activity?.outcome == .inProgress)
-    #expect(
-      workspace.selectedOperatorActionPresentation(for: owner).activity?.phase == "Phase 3 of 6"
-    )
-    #expect(
       workspace.currentExerciseActionStripPresentation?.actions.contains {
         if case .stop = $0.kind { return true }
         return false

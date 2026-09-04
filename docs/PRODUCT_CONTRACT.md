@@ -75,6 +75,17 @@ project unavailable or nonmatching until analysis or an explicit exact capture
 seals the digest. Merely rebuilding presentation or currentness state must not
 promote or hash the passive frame.
 
+Ordinary preview publication is a video-local presentation event. It may
+invalidate the Action Surface and Video Settings viewport controls, but it must
+not invalidate the aggregate semantic UI projection, Learning or sibling
+panels, or Drawing Draft. Frozen point-selection and pinned comparison frames
+remain exact evidence rather than ambient preview. Saved-Learning optical
+comparison runs once per typed checkpoint/camera-configuration identity and
+may publish UI state only when its comparison state changes. The signed-app
+performance gate must demonstrate advancing LIVE preview, zero ambient semantic
+and Drawing-Draft deltas, bounded MainActor interaction latency, and the
+declared CPU ceilings.
+
 The operator may lock the current presentation viewport as a generic scene-
 analysis region. The lock constrains which camera pixels requested pen-cap
 analysis may scan; an armature-envelope request expands its declared dependency
@@ -864,6 +875,12 @@ Camera Calibration accepts a reference, it acquires a fresh settled machine
 observation and requires that exact position to match the accepted Boundary
 center under the same policy; neither stale MPos nor a copied Boundary center is
 accepted as current controller truth.
+
+That exact fresh `MachinePosition` is sample zero of the calibration plan. The
+planner must retain it directly rather than reconstructing an equivalent point
+through normalized-coordinate arithmetic; subsequent physical settling checks
+use `MachinePositionAcceptancePolicy`, while reference identity checks remain
+exact.
 
 Shutdown is also revalidated on both sides of any suspended retained Pen
 admission. An admission that resumes after shutdown cannot create even an empty

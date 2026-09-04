@@ -318,7 +318,8 @@ struct PlotterApplicationRuntimeView: View {
           )
 
           VSplitView {
-            ActionSurface(
+            PreviewingActionSurface(
+              preview: application.actionSurfacePreview,
               presentation: actionSurfacePresentation,
               viewport: $actionSurfaceViewport,
               plotterUIProjection: ui.semantic,
@@ -455,6 +456,8 @@ struct PlotterApplicationRuntimeView: View {
         projection: ui.observationConfiguration,
         plotterUIProjection: ui.semantic,
         plotterUIIntentSink: application,
+        application: application,
+        preview: application.actionSurfacePreview,
         actionSurfacePresentation: actionSurfacePresentation,
         viewport: $actionSurfaceViewport,
         close: { layout = layout.hidingVideoSettings() }
@@ -481,6 +484,7 @@ struct PlotterApplicationRuntimeView: View {
     .toolbarRole(.editor)
     .task {
       await application.performApplicationStartup(AdaptivePlotterLaunchPolicy.current)
+      await RunningAppPreviewPerformanceGate.runIfRequested(application: application)
     }
   }
 
@@ -731,6 +735,8 @@ private struct VideoSettingsPanel: View {
   let projection: PlotterObservationConfigurationProjection
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
+  let application: PlotterApplicationRuntime
+  let preview: ActionSurfacePreviewModel
   let actionSurfacePresentation: ActionSurfacePresentation
   @Binding var viewport: ActionSurfaceViewportState
   let close: () -> Void
@@ -749,6 +755,8 @@ private struct VideoSettingsPanel: View {
           projection: projection,
           plotterUIProjection: plotterUIProjection,
           plotterUIIntentSink: plotterUIIntentSink,
+          application: application,
+          preview: preview,
           actionSurfacePresentation: actionSurfacePresentation,
           viewport: $viewport
         )
@@ -767,6 +775,8 @@ private struct VideoSettingsContents: View {
   let projection: PlotterObservationConfigurationProjection
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
+  let application: PlotterApplicationRuntime
+  let preview: ActionSurfacePreviewModel
   let actionSurfacePresentation: ActionSurfacePresentation
   @Binding var viewport: ActionSurfaceViewportState
 
@@ -837,7 +847,14 @@ private struct VideoSettingsContents: View {
   }
 
   private var analysisViewportControls: some View {
-    let displayedFrame = actionSurfacePresentation.displayedFrame
+    let displayedFrame = actionSurfacePresentation
+      .resolvingAmbientPreviewFrame(preview.displayedFrame)
+      .displayedFrame
+    let previewProjection = application.videoPreviewProjection(
+      displayedFrame: actionSurfacePresentation.usesAmbientPreviewFrame ? displayedFrame : nil,
+      observationViewport: viewport
+    )
+    let regionRequest = previewProjection.request(for: PlotterAppUIActionID.observationRegion)
     let region = displayedFrame.flatMap {
       viewport.selectedRegion(frameWidth: $0.frame.width, frameHeight: $0.frame.height)
     }
@@ -879,14 +896,14 @@ private struct VideoSettingsContents: View {
         isOn: Binding(
           get: { regionIsLocked },
           set: { _ in
-            guard displayedFrame != nil else { return }
-            submit(PlotterAppUIActionID.observationRegion)
+            guard regionRequest != nil else { return }
+            submit(PlotterAppUIActionID.observationRegion, in: previewProjection)
           }
         )
       )
       .disabled(
         displayedFrame == nil || region == nil
-          || projection.calibrationBusyReason != nil
+          || regionRequest == nil
       )
 
       Text(
@@ -1045,6 +1062,12 @@ private struct VideoSettingsContents: View {
   private func submit(_ actionID: PlotterUIActionID) {
     Task {
       _ = await plotterUIIntentSink.submitProjectedAction(actionID, in: plotterUIProjection)
+    }
+  }
+
+  private func submit(_ actionID: PlotterUIActionID, in projection: PlotterUIProjection) {
+    Task {
+      _ = await plotterUIIntentSink.submitProjectedAction(actionID, in: projection)
     }
   }
 
