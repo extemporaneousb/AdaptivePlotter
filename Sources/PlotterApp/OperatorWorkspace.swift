@@ -960,6 +960,8 @@ final class PlotterApplicationRuntime:
   @ObservationIgnored private var lastActionSurfaceDiagnosticSignature:
     ActionSurfaceDiagnosticSignature?
   @ObservationIgnored private var currentPlotterUIProjection: PlotterUIProjection?
+  @ObservationIgnored private var rootProjectionCache:
+    (inputs: PlotterAppUIProjectionInputs, projection: PlotterAppUIProjection)?
   @ObservationIgnored private var currentPlotterUIBindingSemanticRevision: UInt64?
   @ObservationIgnored private var currentVideoPreviewProjection: PlotterUIProjection?
   @ObservationIgnored private var currentVideoPreviewBindingSemanticRevision: UInt64?
@@ -1506,7 +1508,7 @@ final class PlotterApplicationRuntime:
   @ObservationIgnored private let drawingRunRuntime: PlotterDrawingRunRuntime
   @ObservationIgnored private let incidentPackageUIService: PlotterIncidentPackageUIService
   @ObservationIgnored private let observationPreferences: any PlotterObservationPreferencePort
-  @ObservationIgnored private let speechEffectRuntime: PlotterSpeechEffectRuntime
+  @ObservationIgnored let speechEffectRuntime: PlotterSpeechEffectRuntime
   @ObservationIgnored private var artifactResetRuntime: PlotterArtifactResetRuntime!
   @ObservationIgnored private lazy var cameraCalibrationRuntime = PlotterCameraCalibrationRuntime(
     effectPort: PlotterApplicationRuntimeCameraCalibrationEffectPort(application: self),
@@ -4137,6 +4139,21 @@ final class PlotterApplicationRuntime:
     pendingPointSelection: PlotterPointSelectionSubmission? = nil,
     observationViewport: ActionSurfaceViewportState? = nil
   ) -> PlotterAppUIProjection {
+    let runtimeRevisions = currentPlotterUIRuntimeRevisions()
+    let inputs = PlotterAppUIProjectionInputs(
+      semanticRevision: semanticPresentationRevision,
+      actionSurfaceRevision: actionSurfacePresentationRevision,
+      runtimeRevisions: runtimeRevisions,
+      selectedItemID: selectedItemID,
+      manualDraft: manualDraft,
+      includesLearningPath: includesLearningPath,
+      pendingDrawingPlacement: pendingDrawingPlacement,
+      pendingPointSelection: pendingPointSelection,
+      observationViewport: observationViewport
+    )
+    if let cached = rootProjectionCache, cached.inputs == inputs {
+      return cached.projection
+    }
     computationDiagnostics.plotterUIProjectionBuildCount += 1
     let learningPath = includesLearningPath
       ? learningPathProjection(selectedItemID: selectedItemID) : nil
@@ -4447,7 +4464,6 @@ final class PlotterApplicationRuntime:
       }
     }
 
-    let runtimeRevisions = currentPlotterUIRuntimeRevisions()
     let semantic = PlotterUICompiler().compile(PlotterUICompilerInput(
       revision: plotterUIRevision(
         selectedItemID: selectedItemID,
@@ -4464,7 +4480,7 @@ final class PlotterApplicationRuntime:
     ))
     currentPlotterUIProjection = semantic
     currentPlotterUIBindingSemanticRevision = semanticPresentationRevision
-    return PlotterAppUIProjection(
+    let projection = PlotterAppUIProjection(
       semantic: semantic,
       actionSurface: actionSurface,
       exercisePaneProtection: currentLearning.exercisePaneProtection,
@@ -4486,6 +4502,8 @@ final class PlotterApplicationRuntime:
       paperManagementUnavailableReason: paperManagementUnavailableReason,
       motionRequestStatus: motionRequestStatusPresentation
     )
+    rootProjectionCache = (inputs, projection)
+    return projection
   }
 
   func videoPreviewProjection(

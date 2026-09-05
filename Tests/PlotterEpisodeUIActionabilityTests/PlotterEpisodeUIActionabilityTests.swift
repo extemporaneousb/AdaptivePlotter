@@ -701,7 +701,7 @@ struct PlotterLearningUIAuthorityTests {
     draft.xDistanceMM = "not submitted"
     let locallyRecompiled = fixture.projection(manualDraft: draft)
 
-    #expect(layout.panes.motionIsPresented == false)
+    #expect(layout.panes.motionIsPresented == true)
     #expect(selection.isReviewingAnotherItem)
     #expect(draft.xDistanceMM == "not submitted")
     #expect(locallyRecompiled.semantic.revision != before.semantic.revision)

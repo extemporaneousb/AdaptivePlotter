@@ -261,19 +261,15 @@ holdout roles are data declarations only until the future active-selection,
 candidate-comparison, and readiness protocols are implemented and physically
 validated.
 
-## Incident export gate
+## Diagnostic snapshot export
 
-Before claiming the complete run, press **Incident Package** and record the
-export location, exact byte count, SHA-256, format, integrity scope, and any
-declared missing recording/frame/artifact facts. The export is diagnostic and
-must say `physicalEvidenceClaimed == false`; direct operator observations remain
-separate.
-
-The current application has no complete canonical incident-source provider, so
-the control is correctly disabled with a wrapped unavailable reason. That state
-may be inspected as a visible typed refusal/remedy case, but it cannot satisfy
-the required export. Do not begin or pass `PHYSICAL-FINAL` until the ledger's
-incident-source/export correction has landed in the exact signed build.
+Open **Diagnostics**, use **Save Snapshot…**, and record the export location,
+format, source, Learning episode identity, and current runtime/UI revisions.
+Inspect the existing transition/refusal records and the explicitly declared
+omissions. The snapshot does not include raw controller traffic or camera
+pixels and is not a complete replay archive. Direct operator observations and
+attended ink evidence remain separate. A complete canonical archive is no
+longer a prerequisite for this diagnostic check.
 
 ## Evidence record
 

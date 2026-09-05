@@ -31,7 +31,7 @@ struct LearningWorkbenchLayoutTests {
 
   @Test("all non-camera panes collapse and restore independently")
   func paneVisibility() {
-    let initial = WorkbenchPaneVisibility()
+    let initial = WorkbenchPaneVisibility(motionIsPresented: true)
     let navigatorHidden = initial.toggling(.navigator)
     let motionHidden = navigatorHidden.toggling(.motion)
     let detailHidden = motionHidden.toggling(.exerciseDetail)
@@ -308,7 +308,8 @@ struct LearningWorkbenchLayoutTests {
       plotterUIProjection: appProjection.semantic,
       plotterUIIntentSink: workspace,
       close: {},
-      closeUnavailableReason: nil
+      closeUnavailableReason: nil,
+      speechRuntime: workspace.speechEffectRuntime
     )
 
     #expect(navigator.projection == detail.projection)

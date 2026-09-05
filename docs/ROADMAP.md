@@ -57,6 +57,16 @@ revalidation. Binary/process/capture restart retains the persisted semantic
 identities; the controls must let the operator declare a real physical change
 without using application lifetime as its proxy.
 
+## Diagnostic archive integration
+
+The delivered workbench snapshot exports the existing bounded Learning record
+and current owner projections. Integrate the existing canonical incident
+assembler with durable feature recordings only when a concrete continuity,
+replay, or debugging need requires those raw artifacts. Do not add a parallel
+Learning event stream or make a complete archive a prerequisite for the normal
+operator path. Contextual Voice is native speech recognition; open-ended
+conversational reasoning and learned dialogue policies remain future work.
+
 ## 3. Durable exact-frame archive
 
 Current exact frames retain hashes and metadata but no content-addressed pixel

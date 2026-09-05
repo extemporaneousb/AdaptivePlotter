@@ -41,6 +41,15 @@ Connect and Enable Motion expose direct current-session facts. Selecting a row
 changes presentation only; it cannot admit motion, change runtime current state,
 or promote evidence.
 
+The camera occupies the main workspace; the compact Learning Path reviews stages,
+and the current exercise places its prompt and controls together. **Panels**
+shows optional manual motion and navigation; **Video** opens camera controls.
+**Voice** in the Exercise pane reads the current prompt and listens for its
+button labels or contextual yes/no responses. Recognition uses Apple Speech,
+on device where available, and pauses while the app speaks. **Diagnostics**
+(⇧⌘D) copies or saves the current owner revisions, actions/refusals, and existing
+Learning transition history without starting another event stream.
+
 Presentation zoom is available after Exercise 1.2. Zoom, pan, and **Fit Learned Plotter
 Bounds** change only the view transform. They never change camera-pixel evidence,
 frame identity, or calibration authority.

@@ -186,9 +186,14 @@ Dependency behavior is intentionally asymmetric:
 - Exact Stop or root shutdown that displaces a published Pen Confirm yields a
   superseded confirmation: no accepted Pen evidence is recorded and no
   discovery successor appears.
-- **Incident Package** is a workbench diagnostic, not a Learning transition.
-  When no complete canonical incident source exists, it is disabled with a
-  wrapped readable reason; it does not admit a guaranteed refusal.
+- **Diagnostics** opens an on-demand snapshot of existing Learning transitions,
+  current actions/refusals, source, and runtime/UI revisions. Copy/Save Snapshot
+  creates no Learning transition or additional event stream.
+- **Voice** reads the selected current exercise prompt and listens for its
+  available button labels or contextual yes/no answers. The exact captured
+  `PlotterUIRequest` goes through the same sink as a click. Voice off, playback,
+  or a replaced prompt releases input; selecting a historical row never answers
+  or advances that row. Repeat/retry affects speech input/output only.
 
 The two normal-flow acceptance buttons commit reviewable calibration evidence;
 they are not forward gates. **Accept Camera Calibration** commits the

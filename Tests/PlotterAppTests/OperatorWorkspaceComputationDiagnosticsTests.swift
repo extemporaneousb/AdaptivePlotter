@@ -1,6 +1,7 @@
 import Foundation
 import PlotterEpisodeRuntime
 import PlotterModel
+import PlotterUI
 import Testing
 
 @testable import PlotterApp
@@ -9,6 +10,53 @@ import Testing
 @Suite("Operator workspace computation diagnostics", .serialized)
 @MainActor
 struct PlotterApplicationRuntimeComputationDiagnosticsTests {
+  @Test("root redraws reuse projection while input edits and semantic actions stay current")
+  func rootRedrawsKeepRequestsCurrent() async throws {
+    let log = EventLog()
+    let workspace = plotterApplicationRuntime(machine: try LowerMachineSessionFixture(log: log), log: log)
+    let selected = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    var draft = ManualMotionDraft()
+    var viewport = ActionSurfaceViewportState()
+    func project() -> PlotterAppUIProjection {
+      workspace.plotterUIProjection(
+        selectedItemID: selected, manualDraft: draft, includesLearningPath: true,
+        observationViewport: viewport
+      )
+    }
+    let original = project()
+    let builds = workspace.previewIsolationDiagnostics.plotterUIProjectionBuildCount
+    for _ in 0..<20 {
+      #expect(project().semantic.revision == original.semantic.revision)
+      #expect(project().semantic.actions == original.semantic.actions)
+    }
+    #expect(workspace.previewIsolationDiagnostics.plotterUIProjectionBuildCount == builds)
+
+    draft.feedMMPerMinute = "not a feed"
+    let edited = project()
+    #expect(edited.semantic.revision != original.semantic.revision)
+    #expect(
+      edited.semantic.action(id: PlotterAppUIActionID.manualXPositive)?.intent
+        == .unavailableLocalInput(PlotterAppUIActionID.manualXPositive)
+    )
+    viewport.zoom = 0.5
+    let zoomed = project()
+    #expect(zoomed.semantic.revision != edited.semantic.revision)
+    #expect(project().semantic.actions == zoomed.semantic.actions)
+
+    let toggle = try #require(zoomed.semantic.request(for: PlotterAppUIActionID.learningMode))
+    let disposition = await workspace.submitPlotterUIRequest(toggle)
+    guard case .accepted = disposition else {
+      Issue.record("Current cached Learning mode request was refused: \(disposition)")
+      await workspace.shutdown()
+      return
+    }
+    let changed = project()
+    #expect(changed.learningIsEnabled != original.learningIsEnabled)
+    #expect(changed.semantic.revision != zoomed.semantic.revision)
+    #expect(project().semantic.actions == changed.semantic.actions)
+    await workspace.shutdown()
+  }
+
   @Test("presentation probes expose current recomputation owners without fixed cost assertions")
   func presentationProbeBaseline() async throws {
     let log = EventLog()
@@ -66,7 +114,9 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     #expect(diagnostics.currentLearningItemBuildCount == 1)
     #expect(diagnostics.learningProjectionBuildCount == 2)
     #expect(diagnostics.selectedLearningProjectionBuildCount == 1)
-    #expect(diagnostics.selectedLearningProjectionCacheHitCount == 1)
+    // The root now reuses the complete projection before reaching the inner
+    // selected-Learning and Action Surface caches a second time.
+    #expect(diagnostics.selectedLearningProjectionCacheHitCount == 0)
     #expect(diagnostics.learningResetPlanBuildCount == 1)
     #expect(diagnostics.learningProjectionCacheHitCount >= 2)
     #expect(diagnostics.actionSurfaceBuildCount == 1)
@@ -76,7 +126,7 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     )
     #expect(
       diagnostics.actionSurfaceCacheHitCount
-        > diagnosticsAfterFirstSurface.actionSurfaceCacheHitCount
+        == diagnosticsAfterFirstSurface.actionSurfaceCacheHitCount
     )
     await workspace.shutdown()
   }

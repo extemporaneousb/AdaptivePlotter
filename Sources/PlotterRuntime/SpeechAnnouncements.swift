@@ -39,6 +39,12 @@ struct SpeechAnnouncementQueueState: Sendable {
     return result
   }
 
+  mutating func cancel(_ id: UUID) -> UUID? {
+    if activeID == id { return resolve(id) }
+    pendingIDs.removeAll { $0 == id }
+    return nil
+  }
+
   private mutating func startNextIfNeeded() -> UUID? {
     guard activeID == nil, !pendingIDs.isEmpty else { return nil }
     let id = pendingIDs.removeFirst()
@@ -50,16 +56,18 @@ struct SpeechAnnouncementQueueState: Sendable {
 @MainActor
 private final class SpeechSynthesisQueue: NSObject, AVSpeechSynthesizerDelegate {
   private final class Request {
-    let id = UUID()
+    let id: UUID
     let message: String
     let continuation: CheckedContinuation<SpeechAnnouncementOutcome, Never>
     var timeoutTask: Task<Void, Never>?
     var utteranceIdentity: ObjectIdentifier?
 
     init(
+      id: UUID,
       message: String,
       continuation: CheckedContinuation<SpeechAnnouncementOutcome, Never>
     ) {
+      self.id = id
       self.message = message
       self.continuation = continuation
     }
@@ -79,11 +87,27 @@ private final class SpeechSynthesisQueue: NSObject, AVSpeechSynthesizerDelegate 
   }
 
   func enqueue(_ message: String) async -> SpeechAnnouncementOutcome {
-    await withCheckedContinuation { continuation in
-      let request = Request(message: message, continuation: continuation)
-      requests[request.id] = request
-      if let nextID = order.enqueue(request.id) { start(nextID) }
+    let id = UUID()
+    return await withTaskCancellationHandler {
+      guard !Task.isCancelled else { return .cancelled }
+      return await withCheckedContinuation { continuation in
+        let request = Request(id: id, message: message, continuation: continuation)
+        requests[id] = request
+        if let nextID = order.enqueue(id) { start(nextID) }
+      }
+    } onCancel: {
+      Task { @MainActor [weak self] in self?.cancel(id) }
     }
+  }
+
+  private func cancel(_ id: UUID) {
+    guard let request = requests.removeValue(forKey: id) else { return }
+    let wasActive = order.activeID == id
+    let nextID = order.cancel(id)
+    request.timeoutTask?.cancel()
+    request.continuation.resume(returning: .cancelled)
+    if wasActive { synthesizer.stopSpeaking(at: .immediate) }
+    if let nextID { start(nextID) }
   }
 
   func cancelAll() {
@@ -178,6 +202,7 @@ public actor NativeSpeechAnnouncer: SpeechAnnouncing {
   private let voiceLanguage: String?
   private let timeoutNanoseconds: UInt64
   private var queue: SpeechSynthesisQueue?
+  private var queueCreation: Task<SpeechSynthesisQueue, Never>?
   private var isShutdown = false
 
   public init(
@@ -207,11 +232,16 @@ public actor NativeSpeechAnnouncer: SpeechAnnouncing {
 
   private func synthesisQueue() async -> SpeechSynthesisQueue {
     if let queue { return queue }
-    let created = await SpeechSynthesisQueue(
-      voiceLanguage: voiceLanguage,
-      timeoutNanoseconds: timeoutNanoseconds
-    )
+    if let queueCreation { return await queueCreation.value }
+    // Publish the creation task before crossing MainActor: concurrent first
+    // announcements must share one synthesizer, not each create its own queue.
+    let creation = Task { @MainActor [voiceLanguage, timeoutNanoseconds] in
+      SpeechSynthesisQueue(voiceLanguage: voiceLanguage, timeoutNanoseconds: timeoutNanoseconds)
+    }
+    queueCreation = creation
+    let created = await creation.value
     queue = created
+    queueCreation = nil
     return created
   }
 }

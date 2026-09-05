@@ -269,7 +269,9 @@ Runtime and UI projection revisions must be independently visible so a stale or
 starved UI can be distinguished from a controller, camera, Vision, persistence,
 or workflow wait. The episode journal, controller transcript, camera lifecycle,
 and structured diagnostics remain inspectable outside `MainActor`, and the
-operator can export one bounded incident package. Recording failure is visible
+operator can export a bounded diagnostic snapshot of existing records and current
+owner projections. A complete replay archive is optional future work, not a
+Learning admission dependency. Recording failure is visible
 but cannot authorize work, manufacture evidence, alter physical safety, or delay
 Stop/shutdown.
 
@@ -288,12 +290,14 @@ byte count and SHA-256, typed refusal/remedy, explicit
 `physicalEvidenceClaimed == false`; package bytes are neither exposed, stored,
 nor exported by this presentation service.
 
-While that provider is absent, the operator control is disabled rather than
-admitting a request guaranteed to refuse. Its unavailable reason is wrapped,
-readable passive status, not clipped warning-colored button text. This is an
-honest unavailable surface, not completion of the product export requirement;
-attended validation that requires an export remains dependency-blocked until a
-complete canonical source and a separate bounded export owner exist.
+The no-source canonical archive action is absent from the workbench. The
+**Diagnostics** sheet instead copies current runtime/UI revisions, available
+requests and their refusals, camera/Vision errors, and the existing bounded
+Learning record on demand. Copy/Save Snapshot exports these same values and
+explicitly lists omitted raw recordings and in-flight or older transitions.
+It creates no event stream, journal, evidence authority, or new Learning guard.
+Full canonical archive integration remains deferred until a concrete learning
+continuity or replay/debugging requirement justifies it.
 
 ### Controller alarm recovery
 
@@ -1383,8 +1387,16 @@ No model changes during a Pen Down stroke or chooses hidden motion.
 
 ## Input, output, and launch
 
-Buttons are authoritative for choices, progression, Cancel, and Stop. Speech is
-output-only advisory guidance; failure leaves buttons usable.
+Buttons and contextual Voice responses submit the same current projected
+requests for choices, progression, Cancel, and Stop. Voice is opt-in, reads the
+current exercise prompt, then listens for its available button labels or a
+contextual yes/no answer. Microphone input is suspended during speech playback,
+and stale recognition callbacks cannot answer a successor prompt. Partial
+transcripts endpoint after a quiet interval; the current prompt can be repeated.
+Microphone level and recognized text stay local to the Voice view. Apple Speech
+uses on-device recognition when supported and may otherwise use Apple's service;
+macOS requests microphone and speech permissions when Voice is enabled. No audio
+recording is retained. Speech remains advisory and failure leaves buttons usable.
 
 Enabled affirmative transitions are green, enabled negative/Cancel/Stop
 transitions are red, enabled neutral actions are medium gray, and disabled

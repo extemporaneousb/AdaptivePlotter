@@ -199,7 +199,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         self.assertEqual("complete", rows["FIX-09"]["status"])
         self.assertEqual("complete", rows["DOC-05"]["status"])
         self.assertEqual("complete", rows["TRANCHE-MODEL-UI-CONSOLIDATION"]["status"])
-        self.assertEqual("pending", rows["FIX-10"]["status"])
+        self.assertEqual("complete", rows["FIX-10"]["status"])
         self.assertEqual("pending", rows["VAL-01"]["status"])
         self.assertEqual({}, blockers)
         self.assertEqual("complete", rows["TRANCHE-LEARNING"]["status"])
@@ -340,10 +340,10 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     capsule.validated_contract(self.root, validate_live_gates=False)
 
-    def test_fix10_frontier_requires_exact_current_evidence(self) -> None:
+    def test_completed_fix10_frontier_requires_exact_evidence(self) -> None:
         evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
         evidence = evidence_path.read_text(encoding="utf-8")
-        phrase = "`FIX-10` is the sole next ordinary software package"
+        phrase = "FIX-10 operator diagnostics and interaction correction complete"
         self.assertIn(phrase, evidence.replace("\n", " "))
         evidence_path.write_text(
             evidence.replace(
@@ -352,7 +352,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        with self.assertRaisesRegex(ValueError, "named FIX-10 frontier lacks current evidence"):
+        with self.assertRaisesRegex(ValueError, "attended-physical frontier lacks GATE-01 evidence"):
             capsule.validated_contract(self.root, validate_live_gates=False)
 
     def test_completed_incident_evidence_missing_is_rejected(self) -> None:
@@ -538,9 +538,9 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write()
         consumed = self.consume()
         self.assertEqual(created, consumed)
-        self.assertEqual("selected", consumed["launch"]["state"])
-        self.assertEqual("selected", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("FIX-10", consumed["contract"]["package"]["id"])
+        self.assertEqual("authorization_boundary", consumed["launch"]["state"])
+        self.assertEqual("authorization_boundary", consumed["contract"]["frontier"]["state"])
+        self.assertEqual("VAL-01", consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -563,23 +563,23 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             )
             row = [cell.strip() for cell in boundary_text.strip().strip("|").split("|")]
             if len(row) == 6 and row[:4] == [
-                "FIX-10", "pending", "TRANCHE-MODEL-UI-CONSOLIDATION", "software"
-            ] and row[4].startswith("Correction:") and "`INCIDENT-APP`" in row[5]:
+                "VAL-01", "pending", "FIX-10", "attended-physical"
+            ] and "`PHYSICAL-FINAL`" in row[5]:
                 ledger_rows.append((boundary, row))
         self.assertEqual(1, len(ledger_rows))
         _boundary, boundary_row = ledger_rows[0]
-        self.assertEqual("FIX-10", boundary_row[0])
+        self.assertEqual("VAL-01", boundary_row[0])
         self.assertEqual([], consumed["contract"]["ordered_authority_slices"])
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
-    def test_completed_model_ui_consolidation_selects_fix10(self) -> None:
+    def test_completed_fix10_stops_at_attended_validation(self) -> None:
         created = self.build_and_write()
 
-        self.assertEqual("selected", created["launch"]["state"])
-        self.assertEqual("selected", created["contract"]["frontier"]["state"])
+        self.assertEqual("authorization_boundary", created["launch"]["state"])
+        self.assertEqual("authorization_boundary", created["contract"]["frontier"]["state"])
         self.assertEqual(
-            "FIX-10",
+            "VAL-01",
             created["contract"]["frontier"]["package_id"],
         )
         self.assertEqual([], created["contract"]["ordered_authority_slices"])
@@ -649,9 +649,9 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         ineligible = self.terminal_task("TASK-INELIGIBLE", "GATE-02")
         created = self.build_and_write({"tasks": [removed, completed, ineligible]})
 
-        self.assertEqual("selected", created["launch"]["state"])
+        self.assertEqual("authorization_boundary", created["launch"]["state"])
         self.assertEqual(
-            "FIX-10",
+            "VAL-01",
             created["contract"]["frontier"]["package_id"],
         )
         self.assertEqual([], created["blackdog"]["live_blockers"])

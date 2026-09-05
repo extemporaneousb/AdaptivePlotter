@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 enum LearningWorkbenchLayoutPolicy {
-  static let minimumWindowWidth: CGFloat = 1_440
+  static let minimumWindowWidth: CGFloat = 1_320
   static let minimumActionSurfaceWidth: CGFloat = 640
   static let minimumActionSurfaceHeight: CGFloat = 480
 }
@@ -90,7 +90,7 @@ struct WorkbenchPaneVisibility: Equatable, Sendable {
 
   init(
     navigatorIsPresented: Bool = true,
-    motionIsPresented: Bool = true,
+    motionIsPresented: Bool = false,
     exerciseDetailIsPresented: Bool = true
   ) {
     self.navigatorIsPresented = navigatorIsPresented

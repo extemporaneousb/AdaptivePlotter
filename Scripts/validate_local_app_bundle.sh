@@ -34,12 +34,10 @@ expect_plist_value NSHighResolutionCapable true
 expect_plist_value NSCameraUsageDescription \
     "AdaptivePlotter uses the selected local camera to display the plotter workspace and capture frames for visual measurements."
 
-for forbidden_key in NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription; do
-    if /usr/libexec/PlistBuddy -c "Print :$forbidden_key" "$plist" >/dev/null 2>&1; then
-        echo "unexpected $forbidden_key in camera-only $plist" >&2
-        exit 1
-    fi
-done
+expect_plist_value NSMicrophoneUsageDescription \
+    "AdaptivePlotter listens to your responses to the current exercise when you enable Voice."
+expect_plist_value NSSpeechRecognitionUsageDescription \
+    "AdaptivePlotter transcribes spoken exercise responses using Apple Speech, on device when available."
 
 if ! verification=$(
     /usr/bin/codesign --verify --deep --strict --verbose=2 "$bundle" 2>&1

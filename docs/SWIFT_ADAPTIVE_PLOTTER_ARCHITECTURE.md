@@ -555,10 +555,11 @@ manifest/build/digest identity, invokes assembly, fabricates source
 completeness, or claims physical evidence. The App reference is presentation
 composition only; the lower assembler remains unbound and the service owns no
 backend, device, recording, evidence, or domain authority. The compiled action
-is disabled in this state, and the workbench renders the wrapped unavailable
-reason as readable secondary status. A complete provider/export coordinator is
-still required before the operator-export product contract or `PHYSICAL-FINAL`
-can pass.
+is disabled in this state and is no longer shown as a nonfunctional workbench
+button. Diagnostics instead exports the existing Learning record and current
+owner projections with explicit omissions. A complete canonical archive is not
+a prerequisite for Learning or the revised diagnostic-export check in
+`PHYSICAL-FINAL`.
 
 `PlotterEpisodeModel` depends only on `EpisodeCore` and `PlotterModel` and is
 not a package product. Its production bindings include the point-selection and
@@ -735,6 +736,31 @@ ambient resolver and retain their exact frame. Saved-Learning optical work is
 keyed by a typed checkpoint/camera-configuration identity, serialized only at
 the artifact-reset boundary, and invalidates semantic presentation only when
 the saved state actually changes.
+
+`CameraFrameLayerView` presents camera pixels through one Core Animation layer;
+transparent SwiftUI Canvas draws only overlays, with the same
+`CameraPixelToViewTransform` and unchanged exact frame/evidence bytes. This
+removes Canvas/RenderBox's repeated full-frame alpha conversion. Preview and
+voice-meter publication remain outside root semantic observation.
+
+The aggregate root projection has one cached value keyed by exact typed
+semantic/runtime revisions and window inputs. A native view reevaluation with
+unchanged inputs reuses that value; input edits and model transitions compile a
+fresh projection through the same request authority.
+
+`WorkbenchVoiceController` is a window-local input adapter over the current
+immutable rendered action strip. `NativeSpeechListener` owns Apple's microphone
+and recognizer lifetime. The controller observes the existing speech lane's
+activity, stops listening during playback, and sends the captured projected
+request to the existing sink after recognition. It owns no learning state or
+controller permission. Only its own superseded prompt is canceled in the native
+queue; unrelated workflow announcements retain their ordering.
+
+`WorkbenchDebugSnapshot` is an on-demand copy of `PlotterLearningEpisodeRecord`
+and current projections for Copy/Save in Diagnostics. No new journal or event
+stream is written. The snapshot declares raw controller traffic, camera pixels,
+audio, and older/in-flight transitions omitted. It is not a complete canonical
+incident archive and does not promote software evidence to physical evidence.
 
 `NativeSpeechAnnouncer` owns lower AVFoundation speech synthesis,
 identity-bound queueing, bounded timeout/completion, and shutdown cancellation.

@@ -10,16 +10,6 @@ if [ ! -d "$source_bundle" ]; then
     exit 1
 fi
 
-for forbidden_key in NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription; do
-    if /usr/libexec/PlistBuddy \
-        -c "Print :$forbidden_key" \
-        "$source_bundle/Contents/Info.plist" >/dev/null 2>&1
-    then
-        echo "camera-only bundle unexpectedly declares $forbidden_key" >&2
-        exit 1
-    fi
-done
-
 test_root=$(mktemp -d "$project_root/.build/.AdaptivePlotter-validation.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 
@@ -51,10 +41,10 @@ fi
 microphone_bundle="$test_root/Microphone.app"
 cp -R "$source_bundle" "$microphone_bundle"
 /usr/libexec/PlistBuddy \
-    -c 'Add :NSMicrophoneUsageDescription string Unexpected' \
+    -c 'Set :NSMicrophoneUsageDescription Unexpected' \
     "$microphone_bundle/Contents/Info.plist"
 if microphone_result=$(sh "$validator" "$microphone_bundle" 2>&1); then
-    echo "bundle validation accepted a microphone permission declaration" >&2
+    echo "bundle validation accepted an incorrect microphone permission description" >&2
     exit 1
 fi
 if ! printf '%s\n' "$microphone_result" \
@@ -68,10 +58,10 @@ fi
 speech_bundle="$test_root/SpeechRecognition.app"
 cp -R "$source_bundle" "$speech_bundle"
 /usr/libexec/PlistBuddy \
-    -c 'Add :NSSpeechRecognitionUsageDescription string Unexpected' \
+    -c 'Set :NSSpeechRecognitionUsageDescription Unexpected' \
     "$speech_bundle/Contents/Info.plist"
 if speech_result=$(sh "$validator" "$speech_bundle" 2>&1); then
-    echo "bundle validation accepted a speech-recognition permission declaration" >&2
+    echo "bundle validation accepted an incorrect speech-recognition permission description" >&2
     exit 1
 fi
 if ! printf '%s\n' "$speech_result" \

@@ -732,16 +732,31 @@ struct ActionSurface: View {
             )
           else { return }
           drawFrameAndOverlays(
-            frameImage: frameImage,
             context: &context,
             transform: transform
           )
           return
         }
 
-        drawFrameAndOverlays(frameImage: frameImage, context: &context, transform: transform)
+        drawFrameAndOverlays(context: &context, transform: transform)
       }
-      .background(Color.black)
+      .background {
+        let displayed = presentation.displayedFrame
+        let transform = displayed.flatMap { frame in
+          CameraPixelToViewTransform(
+            frameWidth: frame.frame.width,
+            frameHeight: frame.frame.height,
+            viewWidth: proxy.size.width,
+            viewHeight: proxy.size.height,
+            focusRegion: viewport.visibleRegion(
+              frameWidth: frame.frame.width, frameHeight: frame.frame.height
+            )
+          )
+        }
+        CameraFrameLayerView(image: frameImage, imageRect: transform?.imageRect ?? .zero)
+          .allowsHitTesting(false)
+      }
+      .clipped()
       .overlay(alignment: .topLeading) {
         VStack(alignment: .leading, spacing: 6) {
           if let sourceBadgeLabel = presentation.sourceBadgeLabel {
@@ -961,13 +976,9 @@ struct ActionSurface: View {
   }
 
   private func drawFrameAndOverlays(
-    frameImage: CGImage?,
     context: inout GraphicsContext,
     transform: CameraPixelToViewTransform
   ) {
-    if let frameImage {
-      context.draw(Image(decorative: frameImage, scale: 1), in: transform.imageRect)
-    }
     if let displayedFrame = presentation.displayedFrame,
       let targetPreview = presentation.drawingStudioCanvas?.targetPreview(for: displayedFrame)
     {

@@ -178,7 +178,7 @@ struct AdaptivePlotterApp: App {
 
 enum AdaptivePlotterScenePolicy {
   static let singletonWindowID = "operator-application"
-  static let minimumWindowHeight: CGFloat = 760
+  static let minimumWindowHeight: CGFloat = 700
 }
 
 enum AdaptivePlotterStartupRoute: Equatable, Sendable {
@@ -243,6 +243,7 @@ struct PlotterApplicationRuntimeView: View {
   @State private var layout = WorkbenchLayoutState()
   @State private var actionSurfaceViewport = ActionSurfaceViewportState()
   @State private var manualMotionDraft = ManualMotionDraft()
+  @State private var debugSnapshot: WorkbenchDebugSnapshot?
   @State private var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
   @State private var pendingPointSelection: PlotterPointSelectionSubmission?
   private let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
@@ -272,22 +273,7 @@ struct PlotterApplicationRuntimeView: View {
         availableWindowWidth: proxy.size.width,
         exerciseDetailMustRemainVisible: exercisePaneProtection.mustRemainVisible
       )
-      HSplitView {
-        if ui.learningIsEnabled, layout.panes.navigatorIsPresented,
-          let learningProjection
-        {
-          LearningPathNavigator(
-            selection: $selection,
-            projection: learningProjection,
-            currentLearningPathItemID: ui.currentLearningPathItemID,
-            plotterUIProjection: ui.semantic,
-            plotterUIIntentSink: application,
-            close: { layout = layout.toggling(.navigator) }
-          )
-          .frame(minWidth: 220, idealWidth: 280, maxWidth: 440)
-        }
-
-        VStack(spacing: 0) {
+      VStack(spacing: 0) {
           WorkbenchPaneControls(
             visibility: layout.panes,
             videoSettings: videoSettings,
@@ -301,7 +287,7 @@ struct PlotterApplicationRuntimeView: View {
             drawingStudioIsAvailable: ui.workbenchCapability.drawingStudioIsAvailable,
             drawingStudioIsPresented: ui.drawingStudioIsPresented,
             drawingStudioChangeUnavailableReason: ui.drawingStudioPanelChangeUnavailableReason,
-            incidentPackage: ui.incidentPackage,
+            showDiagnostics: { debugSnapshot = WorkbenchDebugSnapshot(application: application, projection: ui.semantic) },
             plotterUIProjection: ui.semantic,
             plotterUIIntentSink: application,
             togglePane: { pane in
@@ -316,6 +302,24 @@ struct PlotterApplicationRuntimeView: View {
               )
             }
           )
+
+      Divider()
+      HSplitView {
+        if ui.learningIsEnabled, layout.panes.navigatorIsPresented,
+          let learningProjection
+        {
+          LearningPathNavigator(
+            selection: $selection,
+            projection: learningProjection,
+            currentLearningPathItemID: ui.currentLearningPathItemID,
+            plotterUIProjection: ui.semantic,
+            plotterUIIntentSink: application,
+            close: { layout = layout.toggling(.navigator) }
+          )
+          .frame(minWidth: 220, idealWidth: 240, maxWidth: 300)
+        }
+
+        VStack(spacing: 0) {
 
           VSplitView {
             PreviewingActionSurface(
@@ -431,10 +435,12 @@ struct PlotterApplicationRuntimeView: View {
             plotterUIProjection: ui.semantic,
             plotterUIIntentSink: application,
             close: { layout = layout.toggling(.exerciseDetail) },
-            closeUnavailableReason: exerciseCollapseReason
+            closeUnavailableReason: exerciseCollapseReason,
+            speechRuntime: application.speechEffectRuntime
           )
-          .frame(minWidth: 300, idealWidth: 380, maxWidth: 520)
+          .frame(minWidth: 300, idealWidth: 340, maxWidth: 460)
         }
+      }
       }
       .onChange(of: proxy.size.width) { _, width in
         layout = layout.collapsingVideoSettingsIfNeeded(
@@ -443,7 +449,6 @@ struct PlotterApplicationRuntimeView: View {
         )
       }
     }
-    .background(Color.black)
     .inspector(
       isPresented: Binding(
         get: { layout.videoSettingsIsPresented },
@@ -482,6 +487,7 @@ struct PlotterApplicationRuntimeView: View {
       )
     }
     .toolbarRole(.editor)
+    .sheet(item: $debugSnapshot) { WorkbenchDiagnosticsView(snapshot: $0) }
     .task {
       await application.performApplicationStartup(AdaptivePlotterLaunchPolicy.current)
       await RunningAppPreviewPerformanceGate.runIfRequested(application: application)
@@ -536,7 +542,7 @@ private struct WorkbenchPaneControls: View {
   let drawingStudioIsAvailable: Bool
   let drawingStudioIsPresented: Bool
   let drawingStudioChangeUnavailableReason: String?
-  let incidentPackage: PlotterUIIncidentPackageState
+  let showDiagnostics: () -> Void
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
   let togglePane: (WorkbenchPane) -> Void
@@ -607,20 +613,11 @@ private struct WorkbenchPaneControls: View {
             ?? "Select, place, resize, preview, and execute a drawing program."
         )
       }
-      Button {
-        submit(PlotterAppUIActionID.incidentPackage)
-      } label: {
-        Label("Incident Package", systemImage: "shippingbox")
-      }
-      .operatorButton(isEnabled: incidentActionIsAvailable)
-      .controlSize(.small)
-      .help(incidentStatusText)
-      Label(incidentStatusText, systemImage: incidentStatusImage)
-        .font(.caption2)
-        .foregroundStyle(incidentStatusColor)
-        .lineLimit(3)
-        .fixedSize(horizontal: false, vertical: true)
-        .help(incidentStatusText)
+      Spacer(minLength: 12)
+      Button("Diagnostics", systemImage: "stethoscope", action: showDiagnostics)
+        .buttonStyle(.bordered)
+        .keyboardShortcut("d", modifiers: [.command, .shift])
+      Menu {
       if learningIsEnabled {
         paneButton(
           .navigator,
@@ -639,11 +636,16 @@ private struct WorkbenchPaneControls: View {
           unavailableReason: exerciseDetailCollapseUnavailableReason
         )
       }
+      } label: {
+        Label("Panels", systemImage: "rectangle.split.3x1")
+      }
+      .menuStyle(.borderlessButton)
+      .fixedSize()
       Button {
         performVideoSettingsAction(videoSettings.action)
       } label: {
         Label(
-          videoSettings.actionTitle,
+          "Video",
           systemImage: WorkbenchPanel.videoSettings.systemImage
         )
       }
@@ -692,43 +694,7 @@ private struct WorkbenchPaneControls: View {
     }
   }
 
-  private var incidentActionIsAvailable: Bool {
-    plotterUIProjection.action(id: PlotterAppUIActionID.incidentPackage)?.isAvailable == true
-  }
 
-  private var incidentStatusImage: String {
-    switch incidentPackage {
-    case .available: "shippingbox"
-    case .loading: "hourglass"
-    case .completed: "checkmark.seal"
-    case .unavailable, .refused: "exclamationmark.triangle"
-    }
-  }
-
-  private var incidentStatusColor: Color {
-    switch incidentPackage {
-    case .completed: .green
-    case .available: .gray
-    case .loading: .blue
-    case .unavailable: .secondary
-    case .refused: .orange
-    }
-  }
-
-  private var incidentStatusText: String {
-    switch incidentPackage {
-    case .unavailable(let reason):
-      "Unavailable: \(reason)"
-    case .available:
-      "Exact incident source is available."
-    case .loading(let phase, let completed, let total):
-      "\(phase) (\(completed)/\(total))"
-    case .completed(let metadata):
-      "Complete: format \(metadata.formatVersion), \(metadata.encoding), \(metadata.exactByteCount) bytes, SHA-256 \(metadata.payloadSHA256), scope \(metadata.integrityScope), physical evidence \(metadata.physicalEvidenceClaimed)."
-    case .refused(let reason, let remedy):
-      "Refused: \(reason) Remedy: \(remedy)"
-    }
-  }
 }
 
 private struct VideoSettingsPanel: View {

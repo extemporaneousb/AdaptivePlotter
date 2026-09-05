@@ -76,6 +76,27 @@ public actor PlotterSpeechEffectRuntime {
   private var terminalByID: [UUID: PlotterSpeechEffectTerminal] = [:]
   private var terminalOrder: [UUID] = []
   private var taskByID: [UUID: Task<SpeechAnnouncementOutcome, Never>] = [:]
+  private var activityObservers: [UUID: AsyncStream<Bool>.Continuation] = [:]
+
+  /// Playback activity for half-duplex operator input. This observes the
+  /// existing speech lane; it does not own a second synthesis queue.
+  public func activity() -> AsyncStream<Bool> {
+    let id = UUID()
+    let (stream, continuation) = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    activityObservers[id] = continuation
+    continuation.yield(!activeByID.isEmpty)
+    continuation.onTermination = { [weak self] _ in
+      Task { await self?.removeActivityObserver(id) }
+    }
+    if isShutdown { continuation.finish() }
+    return stream
+  }
+
+  private func removeActivityObserver(_ id: UUID) { activityObservers[id] = nil }
+
+  private func publishActivity() {
+    for observer in activityObservers.values { observer.yield(!activeByID.isEmpty) }
+  }
 
   public init(announcer: any SpeechAnnouncing = NativeSpeechAnnouncer()) {
     self.announcer = announcer
@@ -104,6 +125,11 @@ public actor PlotterSpeechEffectRuntime {
     admit(request)
   }
 
+  /// Cancel one superseded spoken prompt while leaving workflow cues alone.
+  public func cancel(_ requestID: UUID) {
+    taskByID[requestID]?.cancel()
+  }
+
   /// Closes admission before the first suspension, then asks the retained
   /// native owner to cancel every queued or active utterance by its own queue
   /// identity. A suspended request cannot begin synthesis after this latch.
@@ -113,6 +139,8 @@ public actor PlotterSpeechEffectRuntime {
     let tasks = Array(taskByID.values)
     await announcer.cancelForShutdown()
     for task in tasks { _ = await task.value }
+    for observer in activityObservers.values { observer.finish() }
+    activityObservers.removeAll()
   }
 
   public func snapshot() -> PlotterSpeechEffectRegistrySnapshot {
@@ -152,6 +180,7 @@ public actor PlotterSpeechEffectRuntime {
       return .admitted(admitted)
     }
     activeByID[admitted.id] = admitted
+    publishActivity()
     let task = Task { [weak self, announcer] in
       let outcome = await announcer.announce(admitted.message)
       await self?.finish(admitted, outcome: outcome)
@@ -168,6 +197,7 @@ public actor PlotterSpeechEffectRuntime {
     guard activeByID.removeValue(forKey: request.id) != nil else { return }
     taskByID[request.id] = nil
     recordTerminal(request: request, outcome: outcome)
+    publishActivity()
   }
 
   private func terminalOutcome(for id: UUID) -> SpeechAnnouncementOutcome? {

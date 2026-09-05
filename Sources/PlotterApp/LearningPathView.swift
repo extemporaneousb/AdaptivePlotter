@@ -1,5 +1,6 @@
 import Foundation
 import PlotterEpisodeModel
+import PlotterEpisodeRuntime
 import PlotterRuntime
 import PlotterUI
 import SwiftUI
@@ -19,9 +20,6 @@ struct LearningPathNavigator: View {
         VStack(alignment: .leading, spacing: 5) {
           Text("Learning Path")
             .font(.title2.weight(.semibold))
-          Text("Select a row to review it. Selection never starts or advances an exercise.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
         Spacer(minLength: 8)
         Menu {
@@ -57,16 +55,16 @@ struct LearningPathNavigator: View {
 
       Divider()
 
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 2) {
-          ForEach(projection.items) { item in
-            navigatorRow(item)
-          }
+      List(selection: Binding(
+        get: { selection.selected },
+        set: { selection.select($0) }
+      )) {
+        ForEach(projection.items) { item in
+          navigatorRow(item).tag(item.id)
         }
-        .padding(8)
       }
+      .listStyle(.sidebar)
     }
-    .background(Color(nsColor: .controlBackgroundColor))
     .sheet(item: $pendingResetPlan) { plan in
       LearningResetSheet(
         plan: plan,
@@ -83,48 +81,22 @@ struct LearningPathNavigator: View {
   }
 
   private func navigatorRow(_ item: LearningPathItemPresentation) -> some View {
-    Button {
-      selection.select(item.id)
-    } label: {
-      HStack(alignment: .top, spacing: 8) {
-        Image(systemName: statusSystemImage(item.status))
-          .foregroundStyle(statusColor(item.status))
-          .frame(width: 17)
-
-        VStack(alignment: .leading, spacing: 3) {
-          HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(item.id.number)
-              .font(.caption.monospaced().bold())
-              .foregroundStyle(.secondary)
-            Text(item.id.title)
-              .font(.callout.weight(item.id == selection.current ? .semibold : .regular))
-              .fixedSize(horizontal: false, vertical: true)
-          }
-
-          HStack(spacing: 5) {
-            Text(item.status.rawValue)
-              .font(.caption2.weight(.medium))
-              .foregroundStyle(statusColor(item.status))
-            if item.id == selection.current {
-              Text("Runtime current")
-                .font(.caption2.monospaced().bold())
-                .foregroundStyle(Color.accentColor)
-            }
-          }
-        }
-        Spacer(minLength: 0)
+    HStack(alignment: .top, spacing: 8) {
+      Image(systemName: statusSystemImage(item.status))
+        .foregroundStyle(statusColor(item.status))
+        .frame(width: 16)
+      VStack(alignment: .leading, spacing: 3) {
+        Text("\(item.id.number)  \(item.id.title)")
+          .font(.callout.weight(item.id == selection.current ? .semibold : .regular))
+          .lineLimit(3)
+          .fixedSize(horizontal: false, vertical: true)
+        Text(item.id == selection.current ? "Current exercise" : item.status.rawValue)
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
-      .padding(.leading, CGFloat(item.id.navigationDepth) * 18)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 7)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .contentShape(Rectangle())
-      .background(
-        item.id == selection.selected ? Color.accentColor.opacity(0.16) : Color.clear,
-        in: RoundedRectangle(cornerRadius: 7)
-      )
     }
-    .buttonStyle(.plain)
+    .padding(.leading, CGFloat(item.id.navigationDepth) * 8)
+    .padding(.vertical, 3)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
       "\(item.id.number) \(item.id.title), \(item.status.rawValue)"
@@ -143,6 +115,8 @@ struct LearningPathView: View {
   let plotterUIIntentSink: any PlotterUIIntentSink
   let close: () -> Void
   let closeUnavailableReason: String?
+  let speechRuntime: PlotterSpeechEffectRuntime
+  @State private var promptHeight: CGFloat = 100
 
   var body: some View {
     let selectedPresentation = projection.selectedAction
@@ -150,22 +124,28 @@ struct LearningPathView: View {
       projection.currentActionStrip
       ?? selectedPresentation.actionStrip
 
-    VStack(spacing: 0) {
-      HStack {
-        Spacer()
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(alignment: .top) {
+        Text("\(selectedPresentation.itemID.number)  \(selectedPresentation.itemID.title)")
+          .font(.headline)
+        Spacer(minLength: 8)
         PanelCloseButton(
           panel: .exercise,
           close: close,
           unavailableReason: closeUnavailableReason
         )
       }
-      .padding(12)
-
+      .padding(16)
+      Divider()
       ScrollView {
         selectedDetail(selectedPresentation)
-        .padding(14)
+          .padding(16)
+          .background(GeometryReader { proxy in
+            Color.clear.preference(key: ExercisePromptHeight.self, value: proxy.size.height)
+          })
       }
-
+      .frame(height: min(180, max(1, promptHeight)), alignment: .top)
+      .onPreferenceChange(ExercisePromptHeight.self) { promptHeight = $0 }
       if let strip = pinnedActionStrip {
         ExerciseActionStripView(
           presentation: strip,
@@ -173,8 +153,17 @@ struct LearningPathView: View {
           plotterUIIntentSink: plotterUIIntentSink
         )
       }
+      Spacer(minLength: 0)
+      Divider()
+      WorkbenchVoiceView(
+        context: selection.selected == currentLearningPathItemID
+          ? WorkbenchVoiceContext(presentation: selectedPresentation, projection: plotterUIProjection)
+          : nil,
+        speech: speechRuntime,
+        sink: plotterUIIntentSink
+      )
+      .padding(12)
     }
-    .background(Color(nsColor: .windowBackgroundColor))
   }
 
   private func selectedDetail(_ presentation: OperatorActionPresentation) -> some View {
@@ -199,6 +188,13 @@ struct LearningPathView: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .topLeading)
+  }
+}
+
+private struct ExercisePromptHeight: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
   }
 }
 

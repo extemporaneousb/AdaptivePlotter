@@ -33,8 +33,7 @@ to the task.
 - Read Swift Architecture for current owners and dependencies.
 - Read Episode Architecture Execution Plan for any episode/runtime migration,
   centralized semantic ingress, replay, simulation, UI state-machine, or
-  model/UI authority consolidation, Learning episode identity, or pending
-  incident-export task.
+  model/UI authority consolidation, Learning episode identity, or diagnostic export or future incident archive work.
 - Read Episode Architecture Vocabulary whenever target names, type boundaries,
   observation/evidence semantics, or forbidden synonyms matter.
 - Read Current Evidence before any status or validation claim.

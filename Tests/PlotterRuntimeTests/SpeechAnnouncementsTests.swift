@@ -5,6 +5,20 @@ import Testing
 
 @Suite("Speech announcements")
 struct SpeechAnnouncementsTests {
+  @Test("cancelling a queued prompt preserves active workflow speech and its successor")
+  func cancelOnePrompt() {
+    let cue = UUID(), prompt = UUID(), successor = UUID()
+    var state = SpeechAnnouncementQueueState()
+    _ = state.enqueue(cue)
+    _ = state.enqueue(prompt)
+    _ = state.enqueue(successor)
+    #expect(state.cancel(prompt) == nil)
+    #expect(state.activeID == cue)
+    #expect(state.pendingIDs == [successor])
+    #expect(state.cancel(cue) == successor)
+    #expect(state.resolve(cue) == nil)
+    #expect(state.activeID == successor)
+  }
   @Test("empty announcement completes without starting speech")
   func emptyAnnouncement() async {
     let announcer = NativeSpeechAnnouncer(timeoutNanoseconds: 1_000_000)

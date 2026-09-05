@@ -117,7 +117,7 @@ struct WorkbenchToolbar: ToolbarContent {
   }
 
   var body: some ToolbarContent {
-    ToolbarItem(placement: .principal) {
+    ToolbarItem(placement: .navigation) {
       let session = controllerSession
       let controllerSlot = WorkbenchControllerSlotPresentation(mode: session.environment)
       let connectionAction = WorkbenchConnectionActionPresentation(
@@ -129,7 +129,8 @@ struct WorkbenchToolbar: ToolbarContent {
       HStack(spacing: 8) {
         if !controllerSlot.isSerialSelectionEnabled {
           Label(controllerSlot.title, systemImage: "cpu")
-            .frame(width: 220)
+            .labelStyle(.titleAndIcon)
+            .fixedSize()
             .foregroundStyle(.secondary)
             .help("SIMULATED uses the isolated learning simulator, not a serial controller")
         } else {
@@ -150,7 +151,7 @@ struct WorkbenchToolbar: ToolbarContent {
           }
           .labelsHidden()
           .pickerStyle(.menu)
-          .frame(width: 220)
+          .frame(width: 180)
           .disabled(session.selectionUnavailableReason != nil)
           .help(session.selectionUnavailableReason ?? "Select one available controller")
         }
@@ -201,7 +202,6 @@ struct WorkbenchToolbar: ToolbarContent {
     ToolbarItem(placement: .primaryAction) {
       let session = controllerSession
       HStack(spacing: 12) {
-        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
           WorkbenchStatusIndicator(
             indicator: .camera,
             label: session.environment == .simulated
@@ -213,7 +213,6 @@ struct WorkbenchToolbar: ToolbarContent {
               ? .blue
               : observationConfiguration.cameraIsLive ? .green : .red
           )
-        }
         WorkbenchStatusIndicator(
           indicator: .plotter,
           label: WorkbenchConnectionIndicator.plotter.label(
@@ -292,8 +291,6 @@ private struct WorkbenchStatusIndicator: View {
           .font(.system(size: 8, weight: .semibold))
           .foregroundStyle(.white)
       }
-      Text(label)
-        .font(.caption)
     }
     .fixedSize()
     .accessibilityElement(children: .ignore)

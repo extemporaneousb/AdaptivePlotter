@@ -8,6 +8,90 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## FIX-10 operator diagnostics and interaction correction complete
+
+Blackdog task `TASK-128DF0C7`, attempt `TASK-128DF0C7-93f0fac9a2b1`, implements
+the user's revised scope against `6429ceb3ea0437045792b151b4a78f3f589dfd9c`.
+The recent Blackdog requests for FIX-09, model/UI consolidation, and Exercise
+simplification were inspected directly from their retained request artifacts.
+The intended direction remains one model-owned Learning path, useful evidence,
+and responsive human interaction; no Learning sequence or admission rule was
+added or changed.
+
+- Camera pixels now render through `CameraFrameLayerView` and Core Animation;
+  Canvas renders only overlays using the same `CameraPixelToViewTransform`.
+  A fresh signed baseline measured 67.3% median CPU, 74.8% p95, and 98 preview
+  updates in 12 seconds. Sampling identified Canvas/RenderBox full-frame alpha
+  conversion as a hot path. The initial corrected run measured 37.25% median,
+  57.9% p95, and 104 updates. Semantic, root, and Drawing synchronization deltas
+  were zero; MainActor p95 was essentially unchanged (26.38 to 26.53 ms).
+  Source resolution, camera configuration, evidence bytes, and cadence were
+  preserved. A stale pre-existing app bundle was rejected as a source baseline.
+- A later camera measurement exposed two root projection rebuilds with no
+  semantic change; that run failed isolation despite improved CPU. A repeat
+  passed, but the unconditional root compiler still made native view
+  reevaluation unnecessarily expensive. A single-entry projection cache now
+  compares exact typed semantic/runtime revisions and window inputs before
+  rebuilding. The regression covers repeated redraws, invalid manual input,
+  viewport changes, an accepted Learning-mode request, and continued freshness.
+  The final signed candidate passed two consecutive live-camera runs: median
+  CPU 36.9% and 36.7% (about 45% below the 67.3% baseline), p95 CPU 72.6% and
+  72.9%, and 98 preview updates in each 12-second window. Both had zero
+  semantic/root/Drawing deltas and stable live camera configuration. MainActor
+  p95 was 26.86 and 25.37 ms; maxima were 34.18 and 30.96 ms. Peak CPU and
+  interaction latency were not materially improved; sustained preview CPU was.
+- Native sidebar rows replace custom navigator cards; a full-width utility bar
+  replaces the crowded camera-column strip. The current prompt and pinned
+  controls are adjacent, Motion starts collapsed, the minimum window width is
+  1,320 points, and the unused status timer is removed. Actual signed-app
+  screenshots were inspected in SIMULATED mode; controls and overlays render
+  with the camera layer. Stop remains outside the prompt's scrolling area.
+- Opt-in contextual Voice reads the current prompt, listens for current button
+  labels or contextual yes/no answers, displays input level and transcript,
+  endpoints settled partials, and supports repeat/retry. It submits the exact
+  captured `PlotterUIRequest` through the existing sink. Playback, Voice off,
+  and context replacement release microphone input. The native speech queue
+  now shares concurrent first initialization and can cancel one superseded
+  prompt without canceling unrelated workflow cues. Apple Speech prefers
+  on-device recognition when supported; no audio recording is retained.
+- Diagnostics copies or atomically saves JSON from the existing bounded
+  Learning record and current source, UI/runtime revisions, actions/refusals,
+  and camera/Vision errors. The snapshot explicitly omits raw controller,
+  camera, audio, older, and in-flight records. It creates no event stream and
+  does not claim canonical replay completeness or physical evidence. FIX-10's
+  former complete-source/archive prerequisite is superseded by this practical
+  diagnostic export; archival integration is deferred in Roadmap.
+- The obsolete repository-wide prohibition on microphone/speech input is
+  removed. App privacy declarations and their existing validation now describe
+  the implemented opt-in input workflow. No new product guard or interlock is
+  introduced.
+
+Focused speech, Voice, diagnostics, and layout checks passed 25/25; the final
+computation/cache suite passed 11/11. The final `make strict-check` passed
+876/876 tests in 18.643 seconds, along with signed-app,
+launcher, documentation/architecture contracts, and 61 Python contract tests.
+The earlier serial full pass found one fixture that assumed Motion started
+open; its toggle expectation was corrected. The initial strict build found a
+Binding method-reference sendability warning; an explicitly isolated closure
+corrected it before the final strict pass.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `BUILD` | passed — signed application built and bundle/launcher validation completed | Current production sources under strict concurrency and warnings as errors |
+| `INCIDENT-APP` | passed — 2/2 WorkbenchDiagnosticsTests | Existing ordered Learning record, current refusal/revisions, declared omissions, and export without mutation |
+| `UI` | passed — 25/25 focused Voice, speech, diagnostics, and layout tests plus actual signed-app screenshot inspection | Native pane arrangement, contextual exact-request submission, microphone lifecycle through injected input, and camera/overlay rendering |
+| `DOC` | passed — canonical documentation and architecture checks plus 61 Python contract tests | Revised FIX-10 scope and completed software frontier |
+| `DIFF` | passed — git diff --check | Task source, tests, scripts, and documentation |
+| `QUICK` | passed — 866/866 tests in 17.052 seconds | Unit and component suite under strict concurrency and warnings as errors |
+| `JOURNEY` | passed — 10/10 tests in 5.644 seconds | Sequential retained causal journeys under strict concurrency and warnings as errors |
+| `STRICT` | passed — 876/876 tests in 18.643 seconds and full make strict-check | Signed app, launcher, complete Swift suite, and repository contracts |
+
+`FIX-10` is complete as software/repository evidence. No attended camera click,
+controller, motion, Stop, paper, or observed-ink validation was performed by this
+task. Microphone permissions, physical recognition accuracy, and human turn-taking
+remain unverified on the operator's device; automated Voice uses injected input.
+The revised diagnostic snapshot does not satisfy those physical observations.
+
 ## Calibration-reference fidelity and preview-isolation correction
 
 Blackdog task `TASK-6E2FA6AE`, attempt
@@ -3253,9 +3337,9 @@ reconciled to their canonical-main landing commits rather than retained as
 stale task-local candidates. FIX-03, DOC-03, the later tranches, EA-11C,
 FIX-05, GATE-01, FIX-06, FIX-07, FIX-08, and FIX-09 have final completion
 evidence. DOC-05 has final repository-only completion evidence. The completed
-model/UI consolidation tranche supplies FIX-10's model identity prerequisite;
-FIX-10 is now the next ordinary software package, and `VAL-01` remains
-dependency-ineligible until incident-source/export work is complete.
+model/UI consolidation tranche supplies FIX-10's model identity prerequisite.
+FIX-10 is complete with the revised operator diagnostics and interaction scope;
+`VAL-01` is the remaining attended-physical authorization boundary.
 Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
@@ -3302,6 +3386,7 @@ Detailed scope and limitations remain in the named evidence sections.
 | FIX-07 | `TASK-EA60F469` | `BUILD=passed`, `TIP-CAL=passed`, `POINT=passed`, `UI=passed`, `ARTIFACT-RESET=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-07 explicit exact click-frame replacement |
 | FIX-08 | `TASK-EB3E64FA` | `BUILD=passed`, `THROUGHPUT=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-08 operator-throughput correction complete |
 | FIX-09 | `TASK-9C229F54` | `BUILD=passed`, `RESPONSIVENESS=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-09 initial Learning responsiveness and truthful controls complete |
+| FIX-10 | `TASK-128DF0C7` | `BUILD=passed`, `INCIDENT-APP=passed`, `UI=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed` | FIX-10 operator diagnostics and interaction correction complete |
 | DOC-05 | `TASK-5168D237` | `DOC=passed`, `DIFF=passed` | Historical DOC-05 model/UI consolidation audit and plan correction |
 | TRANCHE-MODEL-UI-CONSOLIDATION | `TASK-34928BFE` | `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `STRICT=passed`, `CRITIC=passed` | Model/UI consolidation tranche complete |
 | EA-12A | `TASK-34928BFE` | `BUILD=passed`, `BORDER-VALIDATION=passed`, `COMPOSITION=passed`, `AFFECTED-CONSUMERS=passed`, `DIFF=passed`, `DELETE=passed` | EA-12A Border runtime sole-owner completion |
@@ -3317,22 +3402,16 @@ or canonical correction. The selector stops at that first eligible row; it
 never skips ahead to later work. An empty table means Current Evidence adds no
 admission blocker beyond the canonical ledger and live Blackdog claims.
 
-The dependency-ready ordinary frontier is pending software package `FIX-10`.
-`TRANCHE-MODEL-UI-CONSOLIDATION` and its ordered `EA-12A`, `EA-12B`, and
-`EA-12C` slices are complete through `TASK-34928BFE`, attempt
-`TASK-34928BFE-a221afbd5d52`; their stable model-owned episode and exact-request
-route satisfy FIX-10's prerequisite without supplying an incident source or
-export. FIX-09 initial Learning responsiveness and truthful controls complete
-was delivered by `TASK-9C229F54`, attempt `TASK-9C229F54-1984133960c1`.
-`FIX-09` is complete as software/repository evidence: Confirm
-publishes `.confirming` before any predecessor wait, held speech playback does
-not delay the Pen command or next prompt, each camera action publishes a busy
-runtime/UI revision before its first lower suspension, controller presentation
-uses one semantic Connect/Disconnect action, interactive capture retains its
-10 FPS device-delivery cap, and the no-source Incident Package action is
-disabled. `FIX-10` is the sole next ordinary software package; `VAL-01` is
-dependency-ineligible until FIX-10 is complete. Current Evidence adds no
-separate ordinary-wave blocker.
+FIX-10 operator diagnostics and interaction correction complete is the current
+software outcome. `FIX-10` is complete as software/repository evidence through
+`TASK-128DF0C7`, attempt `TASK-128DF0C7-93f0fac9a2b1`. No ordinary software or
+gate package is eligible before `VAL-01` within this migration ledger. Ordinary
+user-directed product improvements are not blocked by the physical-validation
+frontier. The frontier is an attended-physical authorization boundary, not a
+launchable wave. `VAL-01` remains pending and requires separate attended-physical
+authorization. The full canonical archive is no longer a prerequisite; the
+revised runbook verifies the delivered diagnostic snapshot without treating it
+as physical evidence. Current Evidence adds no separate ordinary-wave blocker.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

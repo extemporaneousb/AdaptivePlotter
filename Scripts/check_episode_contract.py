@@ -28,7 +28,7 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "df0fcc70796992a3e0a7d7f9d9739de355caa6972821234501f8888a5e8b0952"
+EXPECTED_LEDGER_SHA256 = "c4bdbbfb82b22e1e11772d4303f931c40e7f5d126403c95192744017288121c0"
 
 
 EXPECTED_GATES = {
@@ -73,7 +73,7 @@ EXPECTED_GATES = {
     "REPLAY": ("`swift test --filter PlotterRecordingReplayTests`", "EA-05B"),
     "INCIDENT": ("`swift test --filter PlotterIncidentPackageTests`", "EA-05C"),
     "INCIDENT-APP": (
-        "`swift test --filter PlotterIncidentPackageApplicationTests` proves exact production source selection, canonical identity, bounded atomic export, unavailable/refused remedies, and readable action state without a second recorder, journal, assembler, or UI ingress",
+        "`swift test --filter WorkbenchDiagnosticsTests` proves on-demand export of existing Learning identity, ordered transitions, source, current actions/refusals, and runtime/UI revisions with declared omissions and no new event stream",
         "FIX-10",
     ),
     "POINT": ("`swift test --filter PlotterPointSelectionEpisodeTests`", "EA-04"),
@@ -123,7 +123,7 @@ EXPECTED_GATES = {
         "EA-01",
     ),
     "PHYSICAL-FINAL": (
-        "On the exact signed landed FIX-10 validation candidate, one continuously attending operator executes Attended Hardware Runbook sections 1 through 6 and completes its Evidence record; the record must additionally capture one visible typed refusal/remedy, active owner/progress/Stop, runtime/UI revisions, one bounded incident export, controller transcript completeness, camera artifact presence or declared absence, and observed-ink/ambiguity outcomes",
+        "On the exact signed landed FIX-10 validation candidate, one continuously attending operator executes Attended Hardware Runbook sections 1 through 6 and completes its Evidence record; the record must additionally capture one visible typed refusal/remedy, active owner/progress/Stop, runtime/UI revisions, one bounded diagnostic snapshot export, controller transcript completeness, camera artifact presence or declared absence, and observed-ink/ambiguity outcomes",
         "VAL-01",
     ),
     "FINAL-GATE": (
@@ -268,6 +268,7 @@ EXPECTED_COMPLETE_PACKAGES = {
     "FIX-07",
     "FIX-08",
     "FIX-09",
+    "FIX-10",
     "DOC-05",
     "TRANCHE-MODEL-UI-CONSOLIDATION",
     "EA-12A",
@@ -3742,7 +3743,7 @@ def validate_wave_frontier(
             "`FIX-08` is complete as software/repository evidence",
             "FIX-09 initial Learning responsiveness and truthful controls complete",
             "`FIX-09` is complete as software/repository evidence",
-            "FIX-10 incident source and bounded export complete",
+            "FIX-10 operator diagnostics and interaction correction complete",
             "`FIX-10` is complete as software/repository evidence",
             "No attended camera click, controller, motion, Stop, paper, or observed-ink validation was performed by this task",
             "No ordinary software or gate package is eligible before `VAL-01`",

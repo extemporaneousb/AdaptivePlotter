@@ -13,6 +13,20 @@ struct ManualMotionDraft: Hashable, Sendable {
   var feedMMPerMinute = "500"
 }
 
+/// Exact inputs to the root projection. Native layout/focus updates can
+/// reevaluate a view without changing any of these model or window values.
+struct PlotterAppUIProjectionInputs: Equatable {
+  let semanticRevision: UInt64
+  let actionSurfaceRevision: UInt64
+  let runtimeRevisions: [PlotterUIRuntimeRevision]
+  let selectedItemID: LearningPathItemID
+  let manualDraft: ManualMotionDraft
+  let includesLearningPath: Bool
+  let pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
+  let pendingPointSelection: PlotterPointSelectionSubmission?
+  let observationViewport: ActionSurfaceViewportState?
+}
+
 struct PlotterAppUIProjection: Sendable {
   let semantic: PlotterUIProjection
   let actionSurface: ActionSurfacePresentation
