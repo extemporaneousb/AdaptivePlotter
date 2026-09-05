@@ -120,7 +120,7 @@ holdouts. It may be emitted only when every predeclared requirement passes and
 no counted trial is refused, ambiguous, possible-ink, or Vision-unclear.
 
 Until 4.2–4.5 pass attended physical evaluation, the truthful states are **Map
-ready** after Exercise 1.4 and **Drawing validation complete**
+ready** after Exercise 1.4 and **Learning complete**
 after Exercise 2.1—not **Trained**. Direct Drawing Studio execution may use that
 validated current map and records every outcome, but **Adaptive drawing ready**
 may appear only from a current scoped Ready assessment.

@@ -186,13 +186,19 @@ Dependency behavior is intentionally asymmetric:
 - Exact Stop or root shutdown that displaces a published Pen Confirm yields a
   superseded confirmation: no accepted Pen evidence is recorded and no
   discovery successor appears.
-- **Diagnostics** opens an on-demand snapshot of existing Learning transitions,
-  current actions/refusals, source, and runtime/UI revisions. Copy/Save Snapshot
-  creates no Learning transition or additional event stream.
+- **View** contains checked noun labels for Learning Path, Exercise, Motion,
+  Video Settings, and the available Drawing Studio. Diagnostics is a secondary
+  item in the same menu, not a state-saving step.
+- **Diagnostics** displays current workflow phases, drawing outcomes, retained
+  terminal details, actions/refusals, source, and runtime/UI revisions. Copy
+  Diagnostics is available for troubleshooting. Learning checkpoints and Border
+  outcomes are retained automatically; there is no Save Snapshot action.
 - **Voice** reads the selected current exercise prompt and listens for its
-  available button labels or contextual yes/no answers. The exact captured
-  `PlotterUIRequest` goes through the same sink as a click. Voice off, playback,
-  or a replaced prompt releases input; selecting a historical row never answers
+  available actions using natural yes/no responses, contextual “move” and axis
+  variants, and Stop. Stop dispatches on the first matching partial transcript.
+  Unchanged questions keep listening across runtime revision updates, and the
+  latest `PlotterUIRequest` goes through the same sink as a click. Voice off,
+  playback, or a replaced question releases input; selecting a historical row never answers
   or advances that row. Repeat/retry affects speech input/output only.
 
 The two normal-flow acceptance buttons commit reviewable calibration evidence;

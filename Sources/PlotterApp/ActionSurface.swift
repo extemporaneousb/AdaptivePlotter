@@ -156,6 +156,13 @@ enum ActionSurfaceTipPresentation: Hashable, Sendable {
     }
   }
 
+  var interactionPrompt: String? {
+    switch self {
+    case .awaitingClick, .collectingClicks, .selected: statusText
+    case .notCalibrated, .calibrated: nil
+    }
+  }
+
   var reviewGeometry: ActionSurfaceTipReviewGeometry? {
     guard case .selected(let click, let uncertainty, let prediction, _) = self else {
       return nil
@@ -485,6 +492,11 @@ struct ActionSurfacePresentation: Sendable {
   let displayedFrame: DisplayedFrame?
   let usesAmbientPreviewFrame: Bool
   let overlays: [CameraOverlayMeasurement]
+  /// Last measured geometry on the moving preview. Original frame identities
+  /// stay intact; exact-frame selection and evidence still use `overlays`.
+  let ambientOverlays: [CameraOverlayMeasurement]
+  let ambientOverlayFrame: DisplayedFrame?
+  var renderedOverlays: [CameraOverlayMeasurement] { overlays + ambientOverlays }
   let simulatedAnnotations: [SimulatedLearningAnnotation]
   let simulatedViewportID: SimulatedCameraViewportID?
   let simulatedAnnotationsAreVisible: Bool
@@ -502,6 +514,8 @@ struct ActionSurfacePresentation: Sendable {
     displayedFrame: DisplayedFrame?,
     usesAmbientPreviewFrame: Bool = true,
     overlays: [CameraOverlayMeasurement],
+    ambientOverlays: [CameraOverlayMeasurement] = [],
+    ambientOverlayFrame: DisplayedFrame? = nil,
     simulatedAnnotations: [SimulatedLearningAnnotation] = [],
     simulatedViewportID: SimulatedCameraViewportID? = nil,
     simulatedAnnotationsAreVisible: Bool = true,
@@ -517,6 +531,20 @@ struct ActionSurfacePresentation: Sendable {
     self.usesAmbientPreviewFrame = usesAmbientPreviewFrame
     self.simulatedViewportID = simulatedViewportID
     self.simulatedAnnotationsAreVisible = simulatedAnnotationsAreVisible
+    let compatibleAmbientFrame = ambientOverlayFrame.flatMap { measured -> DisplayedFrame? in
+      guard usesAmbientPreviewFrame, let displayedFrame,
+        measured.source == displayedFrame.source,
+        measured.frame.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID,
+        measured.frame.width == displayedFrame.frame.width,
+        measured.frame.height == displayedFrame.frame.height,
+        measured.frame.sequence <= displayedFrame.frame.sequence
+      else { return nil }
+      return measured
+    }
+    self.ambientOverlayFrame = compatibleAmbientFrame
+    self.ambientOverlays = compatibleAmbientFrame.map { measured in
+      ambientOverlays.filter { $0.matches(measured) && displayedFrame.map($0.matches) != true }
+    } ?? []
     if let displayedFrame {
       self.overlays = overlays.filter { $0.matches(displayedFrame) }
       if simulatedAnnotationsAreVisible, let simulatedViewportID {
@@ -534,7 +562,7 @@ struct ActionSurfacePresentation: Sendable {
         $0.matchesExactDisplayedFrame(displayedFrame) ? $0 : nil
       }
       self.analyzedOverlayFrame = analyzedOverlayFrame.flatMap {
-        $0.matches(displayedFrame) ? $0 : nil
+        $0.matches(displayedFrame) || compatibleAmbientFrame.map($0.matches) == true ? $0 : nil
       }
     } else {
       self.overlays = []
@@ -563,6 +591,8 @@ struct ActionSurfacePresentation: Sendable {
       displayedFrame: frame,
       usesAmbientPreviewFrame: true,
       overlays: overlays,
+      ambientOverlays: renderedOverlays,
+      ambientOverlayFrame: ambientOverlayFrame ?? displayedFrame,
       simulatedAnnotations: simulatedAnnotations,
       simulatedViewportID: simulatedViewportID,
       simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible,
@@ -775,7 +805,9 @@ struct ActionSurface: View {
           VStack(alignment: .trailing, spacing: 3) {
             Text("DISPLAYED FRAME \(frame.sequence) · \(frame.width)×\(frame.height)")
             if let analyzed = presentation.analyzedOverlayFrame {
-              Text("OVERLAYS ANALYZED FROM THIS EXACT FRAME \(analyzed.frameSequence)")
+              Text(analyzed.frameID == frame.id
+                ? "OVERLAYS · FRAME \(analyzed.frameSequence)"
+                : "LATEST MEASUREMENT · FRAME \(analyzed.frameSequence)")
             }
           }
           .font(.caption2.monospaced())
@@ -787,12 +819,14 @@ struct ActionSurface: View {
         }
       }
       .overlay(alignment: .bottomLeading) {
-        Text(presentation.tipPresentation.statusText)
+        if let prompt = presentation.tipPresentation.interactionPrompt {
+        Text(prompt)
           .font(.caption.monospaced().bold())
           .foregroundStyle(.white)
           .padding(7)
           .background(.black.opacity(0.72))
           .padding(8)
+        }
       }
       .overlay(alignment: .bottomTrailing) {
         if !presentation.completedComparisonReview.controls.isEmpty {
@@ -984,7 +1018,7 @@ struct ActionSurface: View {
     {
       draw(targetPreview, in: &context, transform: transform)
     }
-    for overlay in presentation.overlays {
+    for overlay in presentation.renderedOverlays {
       draw(overlay, in: &context, transform: transform)
     }
     if let review = presentation.tipPresentation.reviewGeometry {
@@ -1163,12 +1197,15 @@ struct ActionSurface: View {
       }
       context.stroke(path, with: .color(style.color), style: stroke)
     }
+    // Ink and trail annotations can contain one item per segment. Labelling
+    // every segment obscures the geometry, especially calibration circles.
+    if annotation.kind == .ink || annotation.kind == .recentMotionTrail { return }
     context.draw(
       Text(annotation.visibleLabel)
         .font(.caption2.monospaced().bold())
         .foregroundStyle(style.color),
       at: transform.point(annotation.anchor),
-      anchor: .bottomLeading
+      anchor: annotation.kind == .currentCapAnchor ? .topLeading : .bottomLeading
     )
   }
 

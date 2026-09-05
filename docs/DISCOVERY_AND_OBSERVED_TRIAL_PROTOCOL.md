@@ -419,26 +419,30 @@ exercises or approval gates:
    processing. Retain observed geometry and residual, or a typed rejection.
 6. **Compare.** On normal observed-ink success, record the typed intended versus
    observed comparison automatically and display predicted cyan, observed white,
-   and residual orange geometry on the exact post-frame. Pin that frame and
-   comparison for explicit later review, and append an evaluation-holdout
-   drawing-run record.
+   and residual orange geometry on the exact post-frame. Retain that frame for
+   explicit later review, resume live preview, and append an evaluation-holdout
+   drawing-run record. A naturally completed draw with a rejected Vision
+   observation also completes Learning: retain the exact rejection as
+   `visionUnclear`, with zero verified ink strokes and no successful comparison
+   artifact. Both paths retain the result automatically in the existing drawing
+   evidence archive and accepted Learning checkpoint.
 
 **Stop** remains available for active motion. Refusal or ambiguity before
 contact creates no drawing evidence and stops for recovery. Once stroke
 admission or possible ink exists, no path may redraw automatically; recovery
 continues only with Pen-Up return and observation of the existing mark. A Vision
-rejection or comparison-commit failure stops for review or retry without
-drawing again.
+rejection after controller-completed drawing is an observation-quality result,
+not a reason to repeat the drawing. Motion failures and comparison-commit
+failures remain visible with their actual phase and detail.
 
-Completion remains on Exercise 2.1 with review/reset operations available. It proves one
-attributable validation of the current map, not a generally trained adaptive
-drawing model. The toolbar reports **Drawing validation complete** and exposes
-Drawing Studio as a separate direct workbench, not a
-selectable Learning Path stage.
+Completion marks Exercise 2.1 complete with review/reset operations available.
+The graduation cap fills and the toolbar reports **Learning complete**. Drawing
+Studio is available in View. Trial completion and observation quality are
+separate facts; completion does not assert general adaptive-drawing readiness.
 
 ## Drawing Studio — place, run, and observe
 
-1. Open **Drawing Studio** after the attributable Exercise 2.1 result. Use
+1. Open **Drawing Studio** after the completed Exercise 2.1 trial. Use
    **Review Comparison** to return to the pinned exact post-frame or
    **Resume Live Preview** before placement.
 2. Confirm the accepted Drawing Boundary outline is visible. Place the current

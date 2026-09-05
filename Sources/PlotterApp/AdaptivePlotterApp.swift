@@ -558,7 +558,7 @@ private struct WorkbenchPaneControls: View {
       } label: {
         Label(
           learningActionTitle,
-          systemImage: learningIsEnabled ? "graduationcap.fill" : "graduationcap"
+          systemImage: "book"
         )
       }
       .operatorButton(isEnabled: learningModeRemedy == nil && learningRequest != nil)
@@ -588,70 +588,39 @@ private struct WorkbenchPaneControls: View {
           .lineLimit(1)
           .help(learningRecordingDiagnostic)
       }
-      if drawingStudioIsAvailable {
-        Button {
-          submit(
-            drawingStudioIsPresented
-              ? PlotterAppUIActionID.drawingClose : PlotterAppUIActionID.drawingOpen
-          )
-        } label: {
-          Label(
-            drawingStudioIsPresented ? "Hide Drawing Studio" : "Drawing Studio",
-            systemImage: "scribble.variable"
+      Spacer(minLength: 12)
+      Menu {
+        if learningIsEnabled {
+          paneToggle(.navigator, panel: .learningPath)
+          paneToggle(
+            .exerciseDetail, panel: .exercise,
+            unavailableReason: exerciseDetailCollapseUnavailableReason
           )
         }
-        .operatorButton(drawingStudioIsPresented ? .negative : .affirmative)
-        .controlSize(.small)
-        .disabled(
-          drawingStudioChangeUnavailableReason != nil
-            || plotterUIProjection.request(matching: .drawingDraft(
-              drawingStudioIsPresented ? .close : .open
-            )) == nil
-        )
-        .help(
-          drawingStudioChangeUnavailableReason
-            ?? "Select, place, resize, preview, and execute a drawing program."
-        )
-      }
-      Spacer(minLength: 12)
-      Button("Diagnostics", systemImage: "stethoscope", action: showDiagnostics)
-        .buttonStyle(.bordered)
-        .keyboardShortcut("d", modifiers: [.command, .shift])
-      Menu {
-      if learningIsEnabled {
-        paneButton(
-          .navigator,
-          panel: .learningPath
-        )
-      }
-      paneButton(
-        .motion,
-        panel: .motion,
-        unavailableReason: motionCollapseUnavailableReason
-      )
-      if learningIsEnabled {
-        paneButton(
-          .exerciseDetail,
-          panel: .exercise,
-          unavailableReason: exerciseDetailCollapseUnavailableReason
-        )
-      }
+        paneToggle(.motion, panel: .motion, unavailableReason: motionCollapseUnavailableReason)
+        Toggle(WorkbenchPanel.videoSettings.title, isOn: Binding(
+          get: { videoSettings.isPresented },
+          set: { _ in performVideoSettingsAction(videoSettings.action) }
+        ))
+        .disabled(!videoSettings.isActionEnabled)
+        .help(videoSettings.unavailableReasonText ?? "Camera configuration and measured overlays")
+        if drawingStudioIsAvailable {
+          Toggle("Drawing Studio", isOn: Binding(
+            get: { drawingStudioIsPresented },
+            set: { presented in
+              submit(presented ? PlotterAppUIActionID.drawingOpen : PlotterAppUIActionID.drawingClose)
+            }
+          ))
+          .disabled(drawingStudioChangeUnavailableReason != nil)
+        }
+        Divider()
+        Button("Diagnostics…", action: showDiagnostics)
+          .keyboardShortcut("d", modifiers: [.command, .shift])
       } label: {
-        Label("Panels", systemImage: "rectangle.split.3x1")
+        Label("View", systemImage: "rectangle.split.3x1")
       }
       .menuStyle(.borderlessButton)
       .fixedSize()
-      Button {
-        performVideoSettingsAction(videoSettings.action)
-      } label: {
-        Label(
-          "Video",
-          systemImage: WorkbenchPanel.videoSettings.systemImage
-        )
-      }
-      .operatorButton(isEnabled: videoSettings.isActionEnabled)
-      .controlSize(.small)
-      .help(videoSettings.unavailableReasonText ?? videoSettings.actionTitle)
     }
     .padding(.horizontal, 10)
     .padding(.vertical, 6)
@@ -659,22 +628,17 @@ private struct WorkbenchPaneControls: View {
   }
 
   @ViewBuilder
-  private func paneButton(
+  private func paneToggle(
     _ pane: WorkbenchPane,
     panel: WorkbenchPanel,
     unavailableReason: String? = nil
   ) -> some View {
-    let title = panel.actionTitle(isPresented: visibility.isPresented(pane))
-    Button {
-      togglePane(pane)
-    } label: {
-      Label(title, systemImage: panel.systemImage)
-    }
-    .operatorButton(
-      isEnabled: unavailableReason == nil || !visibility.isPresented(pane)
-    )
-    .controlSize(.small)
-    .help(unavailableReason ?? title)
+    Toggle(panel.title, isOn: Binding(
+      get: { visibility.isPresented(pane) },
+      set: { _ in togglePane(pane) }
+    ))
+    .disabled(unavailableReason != nil && visibility.isPresented(pane))
+    .help(unavailableReason ?? panel.title)
   }
 
   private func submit(_ actionID: PlotterUIActionID) {

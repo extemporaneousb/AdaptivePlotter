@@ -24,6 +24,44 @@ struct WorkbenchVoiceTests {
     #expect(voiceContext(actions: [.start]).matching("please start")?.title == "Start")
   }
 
+  @Test("Boundary movement accepts conversational and speech-recognizer variants")
+  func naturalMovement() {
+    let context = voiceContext(actions: [.boundary(.acquire(direction: .positiveY, mode: .normal))])
+    for phrase in ["move", "go ahead", "move towards Y plus", "move toward why plus",
+                   "please move in positive y", "can you move", "go to the boundary", "move y+"] {
+      #expect(context.matching(phrase) != nil, "Unrecognized: \(phrase)")
+    }
+    for phrase in ["don't move", "move y minus", "move x plus", "move x and y"] {
+      #expect(context.matching(phrase) == nil)
+    }
+    #expect(voiceContext().matching("it doesn't look right")?.title == "NO")
+    #expect(voiceContext().matching("it does")?.title == "YES")
+  }
+
+  @Test("revision-only updates keep listening and Stop dispatches a partial immediately")
+  func immediateStopUsesLatestRevision() async throws {
+    let speech = PlotterSpeechEffectRuntime(announcer: ImmediateVoiceAnnouncer())
+    let listener = TestVoiceListener()
+    var requests: [PlotterUIRequest] = []
+    let controller = WorkbenchVoiceController(speech: speech, listener: listener) {
+      requests.append($0)
+      return .accepted(requestID: $0.id)
+    }
+    let action = PlotterLearningAction.boundary(.stop(.init()))
+    controller.update(voiceContext(revision: 1, actions: [action]))
+    controller.setEnabled(true)
+    try await eventually { controller.isListening }
+    controller.update(voiceContext(revision: 2, actions: [action]))
+    #expect(listener.startCount == 1)
+    listener.send(.transcript("stop moving now", isFinal: false))
+    let deadline = ContinuousClock.now.advanced(by: .milliseconds(300))
+    while requests.isEmpty, ContinuousClock.now < deadline { await Task.yield() }
+    #expect(requests.count == 1)
+    #expect(requests.first?.uiRevision.rawValue == 2)
+    controller.stop()
+    await speech.shutdown()
+  }
+
   @Test("speech completion opens input and a spoken answer uses its captured projection")
   func responseUsesCapturedRequest() async throws {
     let speech = PlotterSpeechEffectRuntime(announcer: ImmediateVoiceAnnouncer())
@@ -59,7 +97,7 @@ struct WorkbenchVoiceTests {
     controller.setEnabled(true)
     try await eventually { controller.isListening }
     let obsolete = listener.continuation
-    controller.update(voiceContext(revision: 2))
+    controller.update(voiceContext(revision: 2, actions: [.choice(.no)]))
     try await eventually { controller.isListening && listener.startCount == 2 }
     obsolete?.yield(.transcript("yes", isFinal: true))
     for _ in 0..<10 { await Task.yield() }

@@ -293,8 +293,11 @@ nor exported by this presentation service.
 The no-source canonical archive action is absent from the workbench. The
 **Diagnostics** sheet instead copies current runtime/UI revisions, available
 requests and their refusals, camera/Vision errors, and the existing bounded
-Learning record on demand. Copy/Save Snapshot exports these same values and
+Learning record on demand, including Border phase, outcome, and retained
+terminal details. View > Diagnostics offers Copy Diagnostics for support and
 explicitly lists omitted raw recordings and in-flight or older transitions.
+Learning checkpoints and completed Border outcomes are retained automatically;
+there is no operator Save Snapshot step.
 It creates no event stream, journal, evidence authority, or new Learning guard.
 Full canonical archive integration remains deferred until a concrete learning
 continuity or replay/debugging requirement justifies it.
@@ -1167,9 +1170,10 @@ deterministically, renders the model-predicted paper-contact border in cyan
 on the live current frame before motion, captures the baseline, moves and draws
 all four edges, returns to reveal, runs planned-drawing Vision, and records the
 normal comparison without further approval. Motion retains one
-capability-bound **Stop**. A refusal, ambiguity, possible-ink outcome, rejected
-Vision result, or failed atomic commit stops at a truthful recovery state and
-never authorizes redraw.
+capability-bound **Stop**. A refusal, ambiguity, possible-ink outcome, or failed
+atomic commit stops at a truthful recovery state and never authorizes redraw.
+A rejected Vision result after naturally completed drawing is retained as an
+inconclusive observation and completes the trial without another operator action.
 
 Intended geometry, observed ink, and residuals are required contextual Stage 2
 evidence and have no global visibility toggles. An attributable observed frame
@@ -1179,15 +1183,18 @@ accepted calibration. Possible ink or
 ambiguous motion never triggers automatic redraw or resend.
 
 Exercise 1.4 means **pen-tip calibration ready** within its recorded applicability
-and semantic identities. One successful Exercise 2.1 run means **one attributable validation
-complete**. Neither state means a generally trained adaptive drawing model;
+and semantic identities. A controller-completed Exercise 2.1 trial means
+**Learning complete** once its observation outcome is recorded. Attributable
+ink comparison and inconclusive Vision are distinct retained outcomes; rejected
+Vision records zero verified ink strokes and creates no successful comparison
+artifact. Neither completion state means a generally trained adaptive drawing model;
 that claim requires the repeated coverage, reserved holdouts, candidate/prior
 comparison, shape evaluation, and typed readiness work defined in the Roadmap.
 
 ## Direct Drawing Studio boundary
 
-One attributable Exercise 2.1 validation establishes **Drawing validation
-complete**. It permits direct bounded drawing with the accepted pen-tip
+One completed Exercise 2.1 trial establishes **Learning complete**, fills the
+graduation cap, and permits direct bounded drawing with the accepted pen-tip
 calibration; it does not establish **Adaptive drawing ready**. Paper readiness
 remains a separate operator assertion and is never inferred from that calibration.
 

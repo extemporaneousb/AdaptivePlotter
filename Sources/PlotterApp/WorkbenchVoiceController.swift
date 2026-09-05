@@ -11,10 +11,13 @@ struct WorkbenchVoiceContext: Equatable {
   let commands: [PlotterUIAction]
   let projection: PlotterUIProjection
 
-  init(presentation: OperatorActionPresentation, projection: PlotterUIProjection) {
+  init(
+    presentation: OperatorActionPresentation, projection: PlotterUIProjection,
+    actionStrip: PlotterUILearningActionStripDecision? = nil
+  ) {
     prompt = presentation.question?.prompt.accessibilityText
       ?? presentation.instructions.accessibilityText
-    let requests = Set(presentation.actionStrip?.actions.map(\.request) ?? [])
+    let requests = Set((actionStrip ?? presentation.actionStrip)?.actions.map(\.request) ?? [])
     commands = projection.actions.filter { action in
       guard action.isAvailable, case .learningAction(let request) = action.intent else { return false }
       return requests.contains(request)
@@ -28,20 +31,58 @@ struct WorkbenchVoiceContext: Equatable {
       && lhs.projection.runtimeRevisions == rhs.projection.runtimeRevisions
   }
 
-  var phrases: [String] { commands.map(\.title) + ["yes", "no", "stop", "repeat the question"] }
+  var phrases: [String] {
+    commands.map(\.title) + [
+      "yes", "no", "it does", "it doesn't", "move", "go ahead", "move towards Y plus",
+      "move towards Y minus", "move towards X plus", "move towards X minus",
+      "stop", "stop moving", "that's enough", "repeat the question"
+    ]
+  }
+
+  func matchingStop(_ transcript: String) -> PlotterUIAction? {
+    let text = Self.normalized(transcript)
+    let words = text.split(separator: " ").map(String.init)
+    guard !Self.hasNegation(text),
+      words.first == "stop" || words.first == "halt"
+        || text.hasPrefix("please stop") || text.hasPrefix("can you stop")
+        || text == "that s enough" || text == "enough"
+    else { return nil }
+    return uniqueCommand { action in
+      switch action {
+      case .stop, .stopPenInteraction, .boundary(.stop): true
+      default: false
+      }
+    }
+  }
+
+  private func uniqueCommand(_ matches: (PlotterLearningAction) -> Bool) -> PlotterUIAction? {
+    let candidates = commands.filter {
+      guard case .learningAction(let request) = $0.intent else { return false }
+      return matches(request.action)
+    }
+    return candidates.count == 1 ? candidates[0] : nil
+  }
+
+  private static func hasNegation(_ text: String) -> Bool {
+    let tokens = Set(text.split(separator: " ").map(String.init))
+    return !tokens.isDisjoint(with: ["no", "nope", "nah", "not", "never"])
+      || ["don t", "doesn t", "isn t", "aren t", "can t", "didn t", "won t"]
+        .contains { text.contains($0) }
+  }
 
   func matching(_ transcript: String) -> PlotterUIAction? {
     let text = Self.normalized(transcript)
+    if let stop = matchingStop(transcript) { return stop }
     let exact = commands.filter { Self.normalized($0.title) == text }
     if exact.count == 1 { return exact[0] }
-    let tokens = Set(text.split(separator: " ").map(String.init))
     let first = text.split(separator: " ").first.map(String.init) ?? ""
     let positive = ["yes", "yep", "yeah", "correct", "okay", "ok"].contains(first)
-      || ["that s correct", "looks good", "it is"].contains(text)
-    let hasNegation = !tokens.isDisjoint(with: ["no", "nope", "nah", "not"])
-      || ["don t", "isn t", "can t", "didn t"].contains { text.contains($0) }
+      || ["that s correct", "looks good", "it is", "it does", "that s right", "it did"].contains(text)
+    let hasNegation = Self.hasNegation(text)
     let negative = ["no", "nope", "nah"].contains(first)
-      || ["it isn t", "not yet", "that s not right"].contains(text)
+      || ["it isn t", "it doesn t", "it does not", "it didn t", "it did not",
+          "not yet", "that s not right", "that s wrong", "no it doesn t"]
+        .contains { text == $0 || text.hasPrefix($0 + " ") }
     if positive && hasNegation { return nil }
     if positive != negative {
       let choices = commands.filter {
@@ -51,23 +92,37 @@ struct WorkbenchVoiceContext: Equatable {
       }
       if choices.count == 1 { return choices[0] }
     }
-    if ["stop", "stop now", "please stop"].contains(text) {
-      let stops = commands.filter {
-        guard case .learningAction(let request) = $0.intent else { return false }
-        switch request.action {
-        case .stop, .stopPenInteraction, .boundary(.stop): return true
-        default: return false
-        }
-      }
-      if stops.count == 1 { return stops[0] }
+    var polite = text
+    for prefix in ["could you please ", "can you please ", "would you ", "could you ", "can you ", "please "] {
+      if polite.hasPrefix(prefix) { polite = String(polite.dropFirst(prefix.count)); break }
     }
-    let polite = text.hasPrefix("please ") ? String(text.dropFirst(7)) : text
+    let words = Set(polite.split(separator: " ").map(String.init))
+    let asksToMove = ["move", "go", "start", "continue", "keep moving"].contains {
+      polite == $0 || polite.hasPrefix($0 + " ")
+    }
+    if asksToMove && !hasNegation {
+      // The offered Boundary action supplies the direction. Explicit axis/sign
+      // words qualify it; they never choose a different, unoffered movement.
+      let x = !words.isDisjoint(with: ["x", "ex", "axe"])
+      let y = !words.isDisjoint(with: ["y", "why"])
+      let plus = !words.isDisjoint(with: ["plus", "positive"])
+      let minus = !words.isDisjoint(with: ["minus", "negative"])
+      if let movement = uniqueCommand({ action in
+        guard case .boundary(.acquire(let direction, _)) = action else { return false }
+        let isX = direction == .negativeX || direction == .positiveX
+        let isPlus = direction == .positiveX || direction == .positiveY
+        return (!x || isX) && (!y || !isX) && (!plus || isPlus) && (!minus || !isPlus)
+      }) { return movement }
+    }
     let matches = commands.filter { Self.normalized($0.title) == polite }
     return matches.count == 1 ? matches[0] : nil
   }
 
   static func normalized(_ text: String) -> String {
-    text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
+    text.lowercased().replacingOccurrences(of: "+", with: " plus ")
+      .replacingOccurrences(of: "−", with: " minus ")
+      .replacingOccurrences(of: "-", with: " minus ")
+      .components(separatedBy: CharacterSet.alphanumerics.inverted)
       .filter { !$0.isEmpty }.joined(separator: " ")
   }
 }
@@ -112,8 +167,12 @@ final class WorkbenchVoiceController {
 
   func update(_ context: WorkbenchVoiceContext?) {
     guard self.context != context else { return }
+    let choicesChanged = self.context?.commands != context?.commands
+      || self.context?.prompt != context?.prompt
     self.context = context
-    restart()
+    // Controller telemetry can refresh the request revision without changing
+    // the question. Keep the microphone open and submit with the newest copy.
+    if choicesChanged { restart() }
   }
 
   func repeatPrompt() {
@@ -191,7 +250,7 @@ final class WorkbenchVoiceController {
             // Apple's live recognizer need not end a request after each reply.
             let changed = self.transcript != text
             self.transcript = text
-            if isFinal {
+            if isFinal || self.context?.matchingStop(text) != nil {
               self.finishUtterance(text, context: context, generation: id)
             } else if changed {
               self.silenceTask?.cancel()
@@ -213,6 +272,7 @@ final class WorkbenchVoiceController {
 
   private func finishUtterance(_ text: String, context: WorkbenchVoiceContext, generation id: UUID) {
     guard generation == id, isEnabled, isListening, !playbackIsActive else { return }
+    let context = self.context ?? context
     stopInput()
     let normalized = WorkbenchVoiceContext.normalized(text)
     if ["repeat", "repeat the question", "say that again"].contains(normalized) {
@@ -222,7 +282,7 @@ final class WorkbenchVoiceController {
     guard let command = context.matching(text),
       let request = context.projection.request(for: command.id)
     else {
-      status = "Heard “\(text)”. Say a button label, or repeat."
+      status = "Heard “\(text)”. Try a short answer, move, stop, or repeat."
       // Keep the same question open, using the existing speech lane to avoid
       // feeding the recovery prompt back into recognition.
       let request = PlotterSpeechEffectRequest(

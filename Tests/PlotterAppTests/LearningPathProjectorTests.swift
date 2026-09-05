@@ -356,7 +356,7 @@ struct PlotterLearningPresentationCompilerTests {
       .borderValidation(.reject("Operator rejected the observed Drawing Border comparison.")),
     ])
     #expect(action.actionStrip?.mustRemainVisible == true)
-    #expect(action.instructions.accessibilityText.contains("explicitly accept or reject"))
+    #expect(action.instructions.accessibilityText.contains("automatically"))
     #expect(!action.instructions.accessibilityText.contains("without another approval"))
   }
 

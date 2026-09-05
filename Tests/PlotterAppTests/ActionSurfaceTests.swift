@@ -707,6 +707,36 @@ func overlayIdentityMismatchIsHidden() throws {
   #expect(presentation.overlays == [matching])
 }
 
+@Test("Measured cap and armature remain visible between preview frames without changing provenance")
+func ambientPreviewKeepsMeasuredOverlays() throws {
+  let measured = try testDisplayedFrame()
+  let preview = try testDisplayedFrame(configuration: measured.frame.cameraConfigurationID)
+  let overlays = try [CameraOverlayKind.penCap, .armatureEstimate].map { kind in
+    CameraOverlayMeasurement(
+      frameID: measured.frame.id, cameraConfigurationID: measured.frame.cameraConfigurationID,
+      geometry: .point(try Point2(x: 1, y: 1)),
+      provenance: .init(kind: kind, source: .measured, algorithmRevision: "test")
+    )
+  }
+  let presentation = ActionSurfacePresentation(
+    displayedFrame: measured, overlays: overlays,
+    analyzedOverlayFrame: .init(measured)
+  )
+  let advanced = presentation.resolvingAmbientPreviewFrame(preview)
+  #expect(advanced.displayedFrame?.frame.id == preview.frame.id)
+  #expect(advanced.overlays.isEmpty)
+  #expect(advanced.renderedOverlays == overlays)
+  #expect(advanced.analyzedOverlayFrame?.frameID == measured.frame.id)
+  #expect(advanced.pointSelectionRequest == nil)
+  #expect(presentation.resolvingAmbientPreviewFrame(try testDisplayedFrame()).renderedOverlays.isEmpty)
+  #expect(presentation.resolvingAmbientPreviewFrame(nil).renderedOverlays.isEmpty)
+  let pinned = ActionSurfacePresentation(displayedFrame: measured, usesAmbientPreviewFrame: false, overlays: overlays)
+  #expect(pinned.resolvingAmbientPreviewFrame(preview).displayedFrame?.frame.id == measured.frame.id)
+  #expect(ActionSurfaceTipPresentation.notCalibrated.interactionPrompt == nil)
+  #expect(ActionSurfaceTipPresentation.calibrated(prediction: nil).interactionPrompt == nil)
+  #expect(ActionSurfaceTipPresentation.awaitingClick("Click the cap").interactionPrompt == "Click the cap")
+}
+
 @Test("Simulated annotations require exact frame configuration and viewport identity")
 func simulatedAnnotationIdentityAndToggle() throws {
   let configuration = CameraConfigurationID()

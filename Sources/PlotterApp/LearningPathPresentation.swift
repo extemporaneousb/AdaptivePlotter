@@ -19,6 +19,7 @@ struct PlotterAppUIProjectionInputs: Equatable {
   let semanticRevision: UInt64
   let actionSurfaceRevision: UInt64
   let runtimeRevisions: [PlotterUIRuntimeRevision]
+  let drawingDraftReference: PlotterDrawingDraftProjectionReference
   let selectedItemID: LearningPathItemID
   let manualDraft: ManualMotionDraft
   let includesLearningPath: Bool

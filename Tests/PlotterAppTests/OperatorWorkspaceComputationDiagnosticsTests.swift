@@ -177,9 +177,11 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       workspace.artifactResetEpisodeSnapshot.savedLearning.candidate?
         .opticalComparison.contains("Waiting for") == false
     }
-    // Drain the initial semantic transition's already-scheduled Drawing Draft
-    // synchronization before establishing the preview-only baseline.
-    try await Task.sleep(for: .milliseconds(20))
+    // Wait for the actual draft reference, not an assumed scheduler delay.
+    try await waitUntil {
+      workspace.drawingDraftSnapshot.projection.externalFacts
+        == workspace.drawingDraftExternalFacts.revisions
+    }
 
     workspace.resetPreviewIsolationDiagnostics()
     let rootProjection = RootProjectionBuildProbe(application: workspace)

@@ -761,18 +761,7 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
     try requireEnabledPublicAction(.start, owner: validationOwner, workspace: workspace)
     await workspace.performTestExerciseAction(.start, for: validationOwner)
     #expect(workspace.borderValidationSnapshot.step == .compareIntendedAndObservedGeometry)
-    #expect(workspace.borderValidationSnapshot.assessment == nil)
-    try requireEnabledPublicAction(
-      .borderValidation(.acceptObservedPrediction),
-      owner: validationOwner,
-      workspace: workspace
-    )
-    let inkCountBeforeDecision = await harness.simulator.persistentInk().count
-    await workspace.performTestExerciseAction(
-      .borderValidation(.acceptObservedPrediction),
-      for: validationOwner
-    )
-    #expect(await harness.simulator.persistentInk().count == inkCountBeforeDecision)
+    #expect(workspace.activeExerciseAttemptID == nil)
     #expect(workspace.borderValidationSnapshot.assessment == .predictionObserved)
 
     let observation = try #require(workspace.borderValidationSnapshot.inkObservation)

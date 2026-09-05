@@ -6,12 +6,14 @@ import Testing
 struct WorkbenchCapabilityPresentationTests {
   @Test("learning capability vocabulary states exactly what has been established")
   func capabilityVocabulary() {
+    #expect(WorkbenchLearningCapabilityState.mapReady.systemImage == "graduationcap")
+    #expect(WorkbenchLearningCapabilityState.interactiveLearningComplete.systemImage == "graduationcap.fill")
     #expect(
       WorkbenchLearningCapabilityState.allCases.map(\.title) == [
         "Pen-tip calibration required",
         "Saved calibration needs revalidation",
         "Pen-tip calibration ready",
-        "Drawing validation complete",
+        "Learning complete",
         "Adaptive drawing ready",
       ]
     )

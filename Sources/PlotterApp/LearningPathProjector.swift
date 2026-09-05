@@ -697,7 +697,7 @@ struct PlotterLearningDetailedPresentationNormalizer: Sendable {
     case .stage(.borderValidations):
       "Use the accepted pen-tip calibration to preview, draw, observe, and compare the Drawing Border through the four calibration-circle centers."
     case .borderValidation(.chooseDrawingBorderPlan):
-      "Press Draw and Validate Drawing Border once. The app previews the Drawing Border, captures a baseline, draws the perimeter, returns Pen Up for a new image, and then waits for explicit acceptance or rejection of the observed comparison."
+      "Press Draw and Validate Drawing Border once. The app previews the Drawing Border, captures a baseline, draws the perimeter, returns Pen Up for a new image, compares the observation, and retains the result automatically."
     case .borderValidation(let step): drawingActionText(step)
     }
   }
@@ -735,10 +735,25 @@ extension PlotterLearningDetailedPresentationNormalizer {
       return OperatorActionPresentation(
         itemID: itemID,
         instructions: [.text(isVisibleTrial
-          ? "Press Draw and Validate Drawing Border once for one closed Drawing Border. Keep Stop available during motion; after planning, preview, baseline capture, drawing, reveal, and Vision analysis, explicitly accept or reject the observed comparison."
+          ? drawingTrialInstruction(snapshot.drawing)
           : drawingActionText(step))],
         actionStrip: actionStrip
       )
+    }
+  }
+
+  private func drawingTrialInstruction(_ drawing: PlotterLearningPresentationFacts.DrawingFacts) -> String {
+    if let assessment = drawing.assessment {
+      return "Learning complete. " + assessment.title + ". The result is retained automatically."
+        + (assessment == .drawingCompleted ? " \(drawing.inkStatus)" : " Open Drawing Studio from View to continue.")
+    }
+    switch drawing.phase {
+    case .failed(let detail), .rejected(let detail), .possibleInk(let detail), .cancelled(let detail):
+      return "\(drawing.currentStep.title): \(detail)"
+    case .idle:
+      return "Press Draw and Validate Drawing Border once. The app captures the baseline, draws, reveals the result, compares the ink, and retains the completed trial automatically."
+    default:
+      return drawingActionText(drawing.currentStep)
     }
   }
 
@@ -819,7 +834,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
     case .revealAndObserveNewInk:
       "Return Pen Up to the local reveal pose, settle, capture a newer frame, and extract new ink."
     case .compareIntendedAndObservedGeometry:
-      "Review the plan-to-ink comparison, then explicitly accept or reject it. Rejection records terminal truth and never redraws automatically."
+      "Record the plan-to-ink comparison and retain the completed trial automatically."
     }
   }
 

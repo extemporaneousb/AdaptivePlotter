@@ -2253,7 +2253,7 @@ final class PlotterApplicationRuntime:
     drawingDraftSnapshot.paperCoverageIsCurrent
   }
 
-  private var drawingDraftExternalFacts: PlotterDrawingDraftExternalFacts {
+  var drawingDraftExternalFacts: PlotterDrawingDraftExternalFacts {
     let opticalConfiguration = displayedFrame.flatMap {
       try? exactTipCalibrationFrame($0).opticalConfiguration
     }
@@ -2330,17 +2330,22 @@ final class PlotterApplicationRuntime:
   }
 
   var interactiveLearningIsComplete: Bool {
-    if borderValidationSnapshot.assessment == .predictionObserved { return true }
-    guard let registration = tipCameraRegistration else { return false }
-    return drawingEvidenceArchive.records.contains { record in
+    borderValidationSnapshot.assessment != nil || retainedLearningCompletion != nil
+  }
+
+  private var retainedLearningCompletion: BorderValidationAssessment? {
+    guard let registration = tipCameraRegistration else { return nil }
+    let record = drawingEvidenceArchive.records.last { record in
       record.role == .evaluationHoldout
-        && record.evidenceDisposition == .attributable
+        && record.executionDisposition == .completed
+        && [.attributable, .visionUnclear].contains(record.evidenceDisposition)
         && drawingValidationRevision(
           record.tipCalibration.acceptedRevisionID,
           matches: registration
         )
         && record.paper.contactPlane == currentPaperRevisionContext.contactPlane
     }
+    return record.map { $0.evidenceDisposition == .attributable ? .predictionObserved : .drawingCompleted }
   }
 
   private func drawingValidationRevision(
@@ -4144,6 +4149,7 @@ final class PlotterApplicationRuntime:
       semanticRevision: semanticPresentationRevision,
       actionSurfaceRevision: actionSurfacePresentationRevision,
       runtimeRevisions: runtimeRevisions,
+      drawingDraftReference: drawingDraftSnapshot.projection,
       selectedItemID: selectedItemID,
       manualDraft: manualDraft,
       includesLearningPath: includesLearningPath,
@@ -9170,63 +9176,22 @@ final class PlotterApplicationRuntime:
   }
 
   private func restoreInteractiveLearningCompletionFromEvidence() {
-    guard frameMode == .live, interactiveLearningIsComplete else { return }
-    let result = borderValidationRuntime.apply(
-      .restoreAcceptedAssessment(.predictionObserved)
-    )
+    guard frameMode == .live, let assessment = retainedLearningCompletion else { return }
+    let result = borderValidationRuntime.apply(.restoreAcceptedAssessment(assessment))
     if case .refused(let reason, let remedy) = result.disposition {
       drawingEvidenceError = "\(reason) Remedy: \(remedy)"
     }
   }
 
   private func persistCompletedPictureFrameEvidence() async {
-    guard frameMode == .live,
-      let attemptID = activeExerciseAttemptID,
-      let registration = tipCameraRegistration,
-      let program = borderValidationSnapshot.program,
-      let plan = borderValidationSnapshot.drawingBorderPlan,
-      let observation = borderValidationSnapshot.inkObservation,
-      case .completed(let progress, _) = borderValidationSnapshot.drawingOutcome
-    else { return }
+    guard frameMode == .live, let attemptID = activeExerciseAttemptID,
+      let registration = tipCameraRegistration else { return }
     do {
-      let provenance = try PlotterDrawingPlanningAdapter.planningProvenance(
-        for: registration
-      )
-      let registrationSHA = provenance.registrationContentHash.description
-      let record = try DrawingRunEvidenceRecord(
-        runID: RunID(attemptID.rawValue),
-        requestID: attemptID.rawValue,
-        role: .evaluationHoldout,
-        evidenceDisposition: .attributable,
-        requestFrontier: .admitted,
-        executionFrontiers: DrawingRunExecutionFrontiers(
-          plannedStrokeCount: UInt32(progress.plannedStrokeCount),
-          commandedStrokeCount: UInt32(progress.commandedStrokeCount),
-          controllerCompletedStrokeCount: UInt32(progress.controllerCompletedStrokeCount),
-          inkVerifiedStrokeCount: 1
-        ),
-        executionDisposition: .completed,
-        program: DrawingProgramEvidenceReference(program: program),
-        placement: DrawingPlacementEvidenceReference(
-          placementID: attemptID.rawValue,
-          placement: plan.placement
-        ),
-        plan: DrawingExecutionPlanEvidenceReference(plan: plan),
-        planningProvenance: provenance,
-        tipCalibration: DrawingTipCalibrationEvidenceReference(
-          acceptedRevisionID: registration.acceptedRevisionID,
-          registrationEvidenceSHA256: registrationSHA,
-          applicability: registration.applicability,
-          estimatorRevision: registration.estimatorRevision
-        ),
-        paper: currentPaperRevisionContext,
-        observation: .observed(observation.evidence),
-        recordedAt: RuntimeTimestamp(
-          monotonicNanoseconds: max(
-            nowNanoseconds(), observation.evidence.frames.post.captureNanoseconds
-          )
-        )
-      )
+      guard let record = try DrawingBorderEvidence.record(
+        snapshot: borderValidationSnapshot, attemptID: attemptID,
+        registration: registration, paper: currentPaperRevisionContext,
+        nowNanoseconds: nowNanoseconds()
+      ) else { return }
       drawingEvidenceArchive = try await drawingEvidencePort.append(record)
       let stageFourCheckpoint = AcceptedStageFourCheckpoint(
         recordID: record.recordID,
@@ -9237,7 +9202,7 @@ final class PlotterApplicationRuntime:
       persistAcceptedLearningPathCheckpoint(stageFour: stageFourCheckpoint)
       drawingEvidenceError = nil
     } catch {
-      drawingEvidenceError = "Completed comparison could not be archived: \(error)"
+      drawingEvidenceError = "Completed Drawing Border could not be retained: \(error)"
     }
   }
 
@@ -12428,6 +12393,23 @@ final class PlotterApplicationRuntime:
         raised,
         action: "Raise simulated pen after Drawing Border"
       )
+      if let refusal = raised.refusal { throw refusal }
+      // Aggregate only the causal segments that completed above. This outcome
+      // belongs to the SIMULATED session and never becomes live ink evidence.
+      let stroke = plan.strokes[0]
+      let segmentCount = stroke.path.points.count - 1
+      progress.outcome = .completed(
+        progress: DrawingPlanProgressSnapshot(
+          operationID: DrawingPlanOperationID(), planRevisionID: plan.revisionID,
+          plannedStrokeCount: 1, plannedSegmentCount: segmentCount,
+          commandedStrokeCount: 1, controllerCompletedStrokeCount: 1,
+          submittedSegmentCount: segmentCount, controllerCompletedSegmentCount: segmentCount,
+          completedStrokeIDs: [stroke.logicalStrokeID],
+          completedCheckpointIDs: [stroke.endingCheckpointID],
+          activeStrokeID: nil, activeSegmentIndex: nil
+        ),
+        finalPosition: try await currentSettledMachinePositionForEffect()
+      )
       return
     }
     let operationID = DrawingPlanOperationID()
@@ -12487,8 +12469,7 @@ final class PlotterApplicationRuntime:
   private func revealAndObserveTrialInk() async throws -> (
     postFrame: DisplayedFrame,
     region: PixelRect,
-    observation: PlannedDrawingObservation,
-    inkStatus: String
+    outcome: PlannedDrawingObservationOutcome
   ) {
     guard let baseline = borderValidationSnapshot.localPreFrameBaseline,
       let revealPosition = borderValidationSnapshot.revealPosition,
@@ -12589,12 +12570,12 @@ final class PlotterApplicationRuntime:
       return (
         post,
         trialRegion,
-        observation,
-        "new Drawing Border ink observed with planned-path residual"
+        .observed(observation)
       )
     case .rejected(let rejection):
       overlayResultChannels.clearWorkflow(source: frameMode, owner: .borderValidation)
-      throw LearningPathOperationError.inkRejected(String(describing: rejection.reason))
+      if rejection.reason == .computationCancelled { throw CancellationError() }
+      return (post, trialRegion, .rejected(rejection))
     }
   }
 
@@ -12752,7 +12733,9 @@ extension PlotterApplicationRuntime {
       case .runStep(_, let step):
         return try await executeBorderValidationStep(step)
       case .acceptComparison(_, let assessment):
-        let histories = try commitComparisonAttemptAndArtifact(assessment)
+        let histories = try assessment == .predictionObserved
+          ? commitComparisonAttemptAndArtifact(assessment)
+          : recordComparisonAttempt(assessment: assessment, disposition: .succeeded)
         await persistCompletedPictureFrameEvidence()
         return .completed(.comparisonAccepted(assessment, histories: histories))
       case .rejectComparison(_, let reason):
@@ -12822,13 +12805,21 @@ extension PlotterApplicationRuntime {
       }
     case .revealAndObserveNewInk:
       let observation = try await revealAndObserveTrialInk()
-      try commitDrawingArtifact(for: step)
-      return .completed(.observedInk(
-        postFrame: observation.postFrame,
-        region: observation.region,
-        observation: observation.observation,
-        inkStatus: observation.inkStatus
-      ))
+      switch observation.outcome {
+      case .observed(let measured):
+        try commitDrawingArtifact(for: step)
+        return .completed(.observedInk(
+          postFrame: observation.postFrame, region: observation.region,
+          observation: measured, inkStatus: "New Drawing Border ink compared with the planned path."
+        ))
+      case .rejected(let rejection):
+        if case .completed = borderValidationSnapshot.drawingOutcome {
+          return .completed(.observationUnclear(
+            postFrame: observation.postFrame, region: observation.region, rejection: rejection
+          ))
+        }
+        throw LearningPathOperationError.inkRejected(String(describing: rejection.reason))
+      }
     case .compareIntendedAndObservedGeometry:
       return .completed(.comparisonAccepted(
         .predictionObserved,

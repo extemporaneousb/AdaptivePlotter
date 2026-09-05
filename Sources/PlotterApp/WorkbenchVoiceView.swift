@@ -23,8 +23,9 @@ struct WorkbenchVoiceView: View {
         Toggle(isOn: Binding(get: { controller.isEnabled }, set: { controller.setEnabled($0) })) {
           Label("Voice", systemImage: controller.isListening ? "mic.fill" : "mic")
         }
-        .toggleStyle(.button)
-        .help("Read the current prompt and listen for its button labels or a yes/no answer. Uses Apple Speech; on-device recognition when available.")
+        .toggleStyle(.switch)
+        .controlSize(.small)
+        .help("Read the current prompt and listen for answers such as yes, no, move, or stop. Uses Apple Speech; on-device recognition when available.")
         if controller.isEnabled {
           Text(controller.status)
             .font(.caption)

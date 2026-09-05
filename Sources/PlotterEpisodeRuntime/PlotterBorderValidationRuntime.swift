@@ -38,10 +38,12 @@ public enum BorderValidationStep: Int, CaseIterable, Hashable, Identifiable, Sen
 
 public enum BorderValidationAssessment: String, Hashable, Sendable {
   case predictionObserved
+  case drawingCompleted
 
   public var title: String {
     switch self {
     case .predictionObserved: "Observed frame compared with predicted geometry"
+    case .drawingCompleted: "Drawing Border completed; Vision comparison inconclusive"
     }
   }
 }
@@ -105,6 +107,7 @@ public struct PlotterBorderValidationSnapshot: Sendable {
   public internal(set) var drawingBorderPlan: ExecutionPlanRevision?
   public internal(set) var drawingOutcome: DrawingPlanOutcome?
   public internal(set) var inkObservation: PlannedDrawingObservation?
+  public internal(set) var observationRejection: DrawingObservationRejection?
   public internal(set) var inkStatus: String
   public internal(set) var lastTravelFeedSelection: TravelFeedSelection?
   public internal(set) var assessment: BorderValidationAssessment?
@@ -131,6 +134,7 @@ public struct PlotterBorderValidationSnapshot: Sendable {
     drawingBorderPlan: ExecutionPlanRevision? = nil,
     drawingOutcome: DrawingPlanOutcome? = nil,
     inkObservation: PlannedDrawingObservation? = nil,
+    observationRejection: DrawingObservationRejection? = nil,
     inkStatus: String = "no Drawing Border observation yet",
     lastTravelFeedSelection: TravelFeedSelection? = nil,
     assessment: BorderValidationAssessment? = nil,
@@ -154,6 +158,7 @@ public struct PlotterBorderValidationSnapshot: Sendable {
     self.drawingBorderPlan = drawingBorderPlan
     self.drawingOutcome = drawingOutcome
     self.inkObservation = inkObservation
+    self.observationRejection = observationRejection
     self.inkStatus = inkStatus
     self.lastTravelFeedSelection = lastTravelFeedSelection
     self.assessment = assessment
@@ -189,6 +194,7 @@ public struct PlotterBorderValidationSnapshot: Sendable {
       postFrame = nil
       observationRegion = nil
       inkObservation = nil
+      observationRejection = nil
       inkStatus = "no Drawing Border observation yet"
     }
     assessment = nil
@@ -256,6 +262,9 @@ public enum PlotterBorderValidationEffectFact: Sendable {
     region: PixelRect,
     observation: PlannedDrawingObservation,
     inkStatus: String
+  )
+  case observationUnclear(
+    postFrame: DisplayedFrame, region: PixelRect, rejection: DrawingObservationRejection
   )
   case comparisonAccepted(
     BorderValidationAssessment,
@@ -336,6 +345,9 @@ public final class PlotterBorderValidationRuntime {
       )
     case .restoreAcceptedAssessment(let assessment):
       state.assessment = assessment
+      state.inkStatus = assessment.title
+      state.phase = .accepted
+      state.step = .compareIntendedAndObservedGeometry
     case .installComparisonHistories(let histories):
       state.comparisonAttemptHistories = histories
     }
@@ -399,6 +411,13 @@ public final class PlotterBorderValidationRuntime {
         guard await submitStep(step) else { return state }
         if case .possibleInk = state.phase { return state }
         advanceAfterSuccess(step)
+      }
+      let assessment: BorderValidationAssessment = state.observationRejection == nil
+        ? .predictionObserved : .drawingCompleted
+      _ = await submitAcceptComparison(assessment)
+      if case .accepted = state.phase {
+        state.comparisonReviewIsPinned = false
+        emitSnapshot()
       }
     case .acceptObservedPrediction:
       _ = await submitAcceptComparison(.predictionObserved)
@@ -507,7 +526,14 @@ public final class PlotterBorderValidationRuntime {
       state.postFrame = postFrame
       state.observationRegion = region
       state.inkObservation = observation
+      state.observationRejection = nil
       state.inkStatus = inkStatus
+    case .observationUnclear(let postFrame, let region, let rejection):
+      state.postFrame = postFrame
+      state.observationRegion = region
+      state.inkObservation = nil
+      state.observationRejection = rejection
+      state.inkStatus = "Drawing completed. Vision comparison inconclusive: \(rejection.reason)"
     case .comparisonAccepted(let assessment, let histories):
       state.assessment = assessment
       state.comparisonAttemptHistories = histories
@@ -516,7 +542,9 @@ public final class PlotterBorderValidationRuntime {
       recordTerminal(
         operationID: state.activeOperationID,
         step: .compareIntendedAndObservedGeometry,
-        detail: "Operator accepted the observed Drawing Border comparison."
+        detail: assessment == .predictionObserved
+          ? "Drawing Border completed and its observed comparison was recorded automatically."
+          : state.inkStatus
       )
     case .comparisonRejected(let reason, let histories):
       state.assessment = nil

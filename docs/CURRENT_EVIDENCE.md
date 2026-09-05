@@ -8,6 +8,74 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Voice, live overlays, and automatic Border graduation correction
+
+Blackdog task `TASK-C1E95129`, attempt `TASK-C1E95129-484a914e4e9d`, follows
+the user's attended feedback on `dc20a6f65e7597cccf01e1f2b8a0f4d472935b1b`.
+This request explicitly changes Border completion: controller-completed drawing
+must finish Learning even when its Vision comparison is inconclusive. It does
+not change the preceding calibration sequence or add admission rules.
+
+The running app and the operator's saved diagnostic were inspected read-only.
+The diagnostic showed accepted calibration and a dispatched Border start, but
+omitted the failure behind the visible Retry action. Its action-ingress
+acceptance is not proof of successful drawing or observed ink. The current
+accepted calibration checkpoint was already retained automatically. No claim
+is made about the omitted failure's exact cause, and no current physical result
+was retroactively promoted.
+
+- Voice recognizes contextual Boundary “move”/“go” and axis/sign variations,
+  including Apple Speech's “why” for Y. Stop dispatches a matching partial
+  transcript immediately. Revision-only updates keep the microphone open and
+  use the newest request; a changed question still replaces the context. Voice
+  uses the actual pinned strip, and its native switch makes enablement explicit.
+- Ambient preview retains the last measured cap/armature geometry without
+  changing its frame identity. The display labels its measurement frame;
+  exact-frame evidence and point selection retain their exact matching. Source
+  or camera-configuration changes discard the preview geometry. The redundant
+  calibration-status banner is removed, and simulated ink segments no longer
+  each print a label over the drawing.
+- One checked **View** menu contains the panel nouns, including Video Settings
+  and available Drawing Studio. Diagnostics is a secondary menu item. The
+  operator Save Snapshot action is removed; Copy Diagnostics includes Border
+  phase, step, drawing outcome, ink status, and retained terminal details.
+- Border `.begin` now runs through comparison and completion automatically.
+  Attributable observation creates the existing comparison artifacts. Rejected
+  Vision after naturally completed drawing records `visionUnclear`, zero
+  verified ink strokes, and the exact rejection, without creating a successful
+  ink/residual comparison artifact. Both outcomes use the existing drawing
+  archive and accepted Learning checkpoint. Cancelled or uncertain execution
+  remains distinct. No new event journal or archive format was introduced.
+- The simulator now retains the aggregate outcome of its naturally completed
+  Border segments. The source-indexed simulated result remains nonphysical.
+  Completion marks Exercise 2.1 complete, fills the graduation cap, exposes
+  Drawing Studio in View, and resumes live preview; exact comparison remains
+  available for later review.
+- The root projection cache also keys on Drawing Draft's complete projection
+  reference, including external facts. A fixed 20 ms setup delay in the preview
+  isolation test was replaced with a wait for the actual synchronized facts.
+
+The focused interaction/completion suite passed 43/43. A temporary offscreen
+AppKit/SwiftUI host rendered the production workbench with injected causal
+simulation; the completed rows, filled cap, View menu, camera/geometry, and Voice
+switch were inspected. The temporary render test was removed after capture.
+The first full strict run passed the new behavior tests but exposed the preview
+test's setup race (three assertions in that test); the synchronization and cache
+reference correction followed that evidence. The final isolation/Voice/completion
+suite passed 19/19, including zero semantic/root/Learning/Drawing changes over
+120 preview frames.
+
+Final validation passed: `make strict-check` ran 880/880 Swift tests in 19.586
+seconds, signed-app/bundle checks, documentation/architecture checks, and all 61
+Python contract tests. `make quick-test` passed 870/870 in 19.075 seconds and the
+serial `make journey-test` passed 10/10 in 5.946 seconds, both with strict
+concurrency and warnings as errors. `git diff --check` passed.
+
+The existing live app was left running. No controller command, physical redraw,
+or microphone session was initiated for verification. The signed live-camera
+performance gate was not run because it requires stopping the current app;
+this work makes no new measured CPU or attended hardware claim.
+
 ## FIX-10 operator diagnostics and interaction correction complete
 
 Blackdog task `TASK-128DF0C7`, attempt `TASK-128DF0C7-93f0fac9a2b1`, implements

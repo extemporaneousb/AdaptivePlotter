@@ -104,8 +104,8 @@ struct PlotterApplicationRuntimeLifecycleTests {
     await workspace.shutdown()
   }
 
-  @Test("Draw and Validate Drawing Border previews before motion and waits for explicit acceptance")
-  func oneGoPreviewsThenWaitsForExplicitAcceptance() async throws {
+  @Test("Drawing Border previews before motion and graduates automatically")
+  func oneGoPreviewsThenGraduatesAutomatically() async throws {
     let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     try await completeSimulatedPenInteractionPrerequisite(workspace)
@@ -152,25 +152,13 @@ struct PlotterApplicationRuntimeLifecycleTests {
     await pacing.resume()
     await trial.value
 
-    #expect(workspace.borderValidationSnapshot.assessment == nil)
-    #expect(workspace.borderValidationSnapshot.step == .compareIntendedAndObservedGeometry)
-    #expect(workspace.activeExerciseAttemptID != nil)
-    #expect(!workspace.completedDrawingComparisonReviewIsAvailable)
-    #expect(
-      workspace.selectedOperatorActionPresentation(for: owner).actionStrip?.actions.map(\.kind)
-        == [
-          .borderValidation(.acceptObservedPrediction),
-          .borderValidation(.reject("Operator rejected the observed Drawing Border comparison.")),
-        ]
-    )
-
-    await workspace.performTestExerciseAction(
-      .borderValidation(.acceptObservedPrediction),
-      for: owner
-    )
-
     #expect(workspace.borderValidationSnapshot.assessment == .predictionObserved)
+    #expect(workspace.activeExerciseAttemptID == nil)
+    #expect(workspace.currentExerciseActionStripPresentation == nil)
     #expect(workspace.completedDrawingComparisonReviewIsAvailable)
+    #expect(!workspace.completedDrawingComparisonReviewIsPinned)
+    #expect(workspace.workbenchCapabilityPresentation.learning.systemImage == "graduationcap.fill")
+    await workspace.reviewCompletedDrawingComparison()
     #expect(workspace.completedDrawingComparisonReviewIsPinned)
     let completedSurface = workspace.testActionSurfacePresentation
     #expect(

@@ -90,7 +90,7 @@ struct LearningPathNavigator: View {
           .font(.callout.weight(item.id == selection.current ? .semibold : .regular))
           .lineLimit(3)
           .fixedSize(horizontal: false, vertical: true)
-        Text(item.id == selection.current ? "Current exercise" : item.status.rawValue)
+        Text(item.id == selection.current && item.status != .complete ? "Current exercise" : item.status.rawValue)
           .font(.caption)
           .foregroundStyle(.secondary)
       }
@@ -157,7 +157,10 @@ struct LearningPathView: View {
       Divider()
       WorkbenchVoiceView(
         context: selection.selected == currentLearningPathItemID
-          ? WorkbenchVoiceContext(presentation: selectedPresentation, projection: plotterUIProjection)
+          ? WorkbenchVoiceContext(
+            presentation: selectedPresentation, projection: plotterUIProjection,
+            actionStrip: pinnedActionStrip
+          )
           : nil,
         speech: speechRuntime,
         sink: plotterUIIntentSink

@@ -3,7 +3,6 @@ import Foundation
 import PlotterEpisodeModel
 import PlotterUI
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// An on-demand copy of existing records and projections. It records no new
 /// events and does not claim to be a complete replay archive or ink evidence.
@@ -60,7 +59,13 @@ struct WorkbenchDebugSnapshot: Codable, Identifiable {
              unavailableReason: $0.unavailableReason)
     }
     diagnostics = projection.diagnostics.map(\.summary)
-      + [application.cameraError, application.visionError].compactMap { $0 }
+      + [application.cameraError, application.visionError, application.explorationError,
+         application.drawingEvidenceError].compactMap { $0 }
+      + application.borderValidationSnapshot.terminalHistory.map(\.detail)
+      + ["Drawing Border phase: \(application.borderValidationSnapshot.phase)",
+         "Drawing Border step: \(application.borderValidationSnapshot.step.title)",
+         "Drawing outcome: \(String(describing: application.borderValidationSnapshot.drawingOutcome))",
+         application.borderValidationSnapshot.inkStatus]
     limitations = [
       "Snapshot of current owners and the existing bounded Learning record (up to 128 retained transitions).",
       "Feature journals retain their own identities; no unrelated journals are merged.",
@@ -92,8 +97,12 @@ struct WorkbenchDiagnosticsView: View {
       }
       Text("Runtime \(snapshot.semanticRevision) · UI \(snapshot.uiRevision) · \(snapshot.transitions.count) Learning transitions")
         .font(.callout.monospaced())
-      Text("A snapshot of the current state, available actions, refusals, and existing Learning history.")
+      Text("Learning is retained automatically. These details describe the current workflow and its recorded outcomes.")
         .foregroundStyle(.secondary)
+      if !snapshot.diagnostics.isEmpty {
+        Text(snapshot.diagnostics.joined(separator: "\n"))
+          .font(.callout).textSelection(.enabled)
+      }
       ScrollView {
         Text((try? snapshot.encoded()).flatMap { String(data: $0, encoding: .utf8) } ?? "Snapshot encoding failed")
           .font(.system(.caption, design: .monospaced))
@@ -103,8 +112,7 @@ struct WorkbenchDiagnosticsView: View {
       }
       .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
       HStack {
-        Button("Copy Snapshot", systemImage: "doc.on.doc") { copySnapshot() }
-        Button("Save Snapshot…", systemImage: "square.and.arrow.down") { saveSnapshot() }
+        Button("Copy Diagnostics", systemImage: "doc.on.doc") { copySnapshot() }
         if let exportStatus { Text(exportStatus).font(.caption).foregroundStyle(.secondary) }
       }
     }
@@ -121,16 +129,4 @@ struct WorkbenchDiagnosticsView: View {
     } catch { exportStatus = error.localizedDescription }
   }
 
-  private func saveSnapshot() {
-    let panel = NSSavePanel()
-    panel.allowedContentTypes = [.json]
-    panel.nameFieldStringValue = "AdaptivePlotter-debug-\(snapshot.id.uuidString.prefix(8)).json"
-    panel.begin { response in
-      guard response == .OK, let url = panel.url else { return }
-      do {
-        try snapshot.encoded().write(to: url, options: .atomic)
-        exportStatus = "Saved \(url.lastPathComponent)"
-      } catch { exportStatus = error.localizedDescription }
-    }
-  }
 }

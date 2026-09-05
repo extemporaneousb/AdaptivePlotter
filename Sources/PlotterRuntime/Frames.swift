@@ -412,9 +412,10 @@ public struct CameraMeasurementProvenance: Codable, Hashable, Sendable {
   }
 }
 
-/// A measurement may be drawn only over the exact pixels from which it was
-/// derived. Matching both identities rejects overlays across camera
-/// reconfiguration.
+/// Retains the exact pixels from which a measurement was derived. Evidence and
+/// point selection use exact matching. A live preview may display the last
+/// measured geometry with its original provenance; it must not relabel that
+/// geometry as a measurement of newer pixels or another camera configuration.
 public struct CameraOverlayMeasurement: Codable, Hashable, Sendable {
   public let frameID: FrameID
   public let cameraConfigurationID: CameraConfigurationID

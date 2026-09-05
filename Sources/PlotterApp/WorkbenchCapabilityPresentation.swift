@@ -17,7 +17,7 @@ enum WorkbenchLearningCapabilityState: CaseIterable, Hashable, Sendable {
     case .savedMapNeedsRevalidation: "Saved calibration needs revalidation"
     case .mapReady: "Pen-tip calibration ready"
     case .interactiveLearningComplete:
-      "Drawing validation complete"
+      "Learning complete"
     case .adaptiveDrawingReady: "Adaptive drawing ready"
     }
   }
@@ -31,7 +31,7 @@ enum WorkbenchLearningCapabilityState: CaseIterable, Hashable, Sendable {
     case .mapReady:
       "The current accepted pen-tip calibration is available; Drawing Border validation is still pending."
     case .interactiveLearningComplete:
-      "The current pen-tip calibration has one attributable Drawing Border validation; adaptive readiness is not established."
+      "The calibrated Drawing Border trial completed. Its observation quality is retained separately; adaptive readiness is not established."
     case .adaptiveDrawingReady:
       "The current drawing-readiness assessment is accepted for its declared scope."
     }
@@ -42,6 +42,13 @@ enum WorkbenchLearningCapabilityState: CaseIterable, Hashable, Sendable {
     case .learningNeeded, .savedMapNeedsRevalidation: .needsAttention
     case .mapReady, .interactiveLearningComplete: .available
     case .adaptiveDrawingReady: .ready
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .interactiveLearningComplete, .adaptiveDrawingReady: "graduationcap.fill"
+    case .learningNeeded, .savedMapNeedsRevalidation, .mapReady: "graduationcap"
     }
   }
 }
@@ -103,7 +110,7 @@ struct WorkbenchCapabilityIndicator: View {
         title: presentation.learning.title,
         detail: presentation.learning.detail,
         colorToken: presentation.learning.colorToken,
-        systemImage: "graduationcap.fill"
+        systemImage: presentation.learning.systemImage
       )
       Divider().frame(height: 18)
       status(

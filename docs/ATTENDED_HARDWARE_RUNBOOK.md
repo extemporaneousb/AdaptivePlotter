@@ -219,10 +219,12 @@ checkpoint and perform a new four-mark calibration.
 8. Confirm the exact post-frame and cyan intended, white observed, and
    orange residual overlays remain available through **Review Comparison**
    after live preview resumes.
-9. Confirm the result says **Drawing validation complete**
+9. Confirm the result says **Learning complete** and the graduation cap is filled
    and does not claim **Trained** or **Adaptive drawing ready**.
 
-If possible ink, rejected Vision evidence, or an uncertain controller outcome
+If Vision rejects a comparison after controller-completed drawing, confirm
+Learning completes while the rejection is retained as `visionUnclear`, with
+zero verified ink strokes. If possible ink or an uncertain controller outcome
 occurs, confirm the automatic chain stops. Any offered recovery may return Pen
 Up and observe the existing stroke, but it must not redraw it.
 
@@ -261,10 +263,12 @@ holdout roles are data declarations only until the future active-selection,
 candidate-comparison, and readiness protocols are implemented and physically
 validated.
 
-## Diagnostic snapshot export
+## Automatic retention and diagnostics
 
-Open **Diagnostics**, use **Save Snapshot…**, and record the export location,
-format, source, Learning episode identity, and current runtime/UI revisions.
+Confirm the accepted Learning checkpoint and completed Border outcome are
+retained without a Save action. Open **View > Diagnostics** and inspect the
+source, Learning episode identity, runtime/UI revisions, Border phase/outcome,
+and terminal details. **Copy Diagnostics** is available for a support report.
 Inspect the existing transition/refusal records and the explicitly declared
 omissions. The snapshot does not include raw controller traffic or camera
 pixels and is not a complete replay archive. Direct operator observations and
