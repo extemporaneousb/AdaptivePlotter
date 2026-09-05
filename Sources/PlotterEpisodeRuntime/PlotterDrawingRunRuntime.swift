@@ -1036,7 +1036,7 @@ public actor PlotterDrawingRunRuntime {
           maximumBackgroundMeanAbsoluteDifference: 12,
           observerRevision: try AlgorithmRevisionEvidence(
             component: "planned-drawing-observer",
-            revision: "bounded-nearest-polyline-v1"
+            revision: VisionWorker.plannedDrawingObserverRevision
           ),
           additionalAlgorithmRevisions: [
             try AlgorithmRevisionEvidence(

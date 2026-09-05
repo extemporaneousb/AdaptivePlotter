@@ -20,7 +20,6 @@ public struct PlannedDrawingObservationRequest: Hashable, Sendable {
   public let maximumRegionPixelCount: Int
   public let maximumIntendedPointCount: Int
   public let maximumAssociationEvaluationCount: Int
-  public let maximumAssociationDistancePixels: Double
   public let associationAmbiguityTolerancePixels: Double
   public let centrelineSampleSpacingPixels: Double
   public let maximumCentrelineSampleCountPerPolyline: Int
@@ -43,7 +42,6 @@ public struct PlannedDrawingObservationRequest: Hashable, Sendable {
     maximumRegionPixelCount: Int = 1_000_000,
     maximumIntendedPointCount: Int = 25_000,
     maximumAssociationEvaluationCount: Int = 5_000_000,
-    maximumAssociationDistancePixels: Double = 4,
     associationAmbiguityTolerancePixels: Double = 0.01,
     centrelineSampleSpacingPixels: Double = 4,
     maximumCentrelineSampleCountPerPolyline: Int = 4_096,
@@ -65,7 +63,6 @@ public struct PlannedDrawingObservationRequest: Hashable, Sendable {
     self.maximumRegionPixelCount = maximumRegionPixelCount
     self.maximumIntendedPointCount = maximumIntendedPointCount
     self.maximumAssociationEvaluationCount = maximumAssociationEvaluationCount
-    self.maximumAssociationDistancePixels = maximumAssociationDistancePixels
     self.associationAmbiguityTolerancePixels = associationAmbiguityTolerancePixels
     self.centrelineSampleSpacingPixels = centrelineSampleSpacingPixels
     self.maximumCentrelineSampleCountPerPolyline = maximumCentrelineSampleCountPerPolyline
@@ -80,6 +77,15 @@ public struct PlannedDrawingObservation: Codable, Hashable, Sendable {
   public let overlays: [CameraOverlayMeasurement]
   public let observedPixelCount: Int
   public let computation: PlannedDrawingObservationComputationDiagnostics?
+
+  public var diagnosticSummary: String {
+    let detected = "\(observedPixelCount) newly darkened pixels measured."
+    guard let residual = evidence.residual else { return detected }
+    return detected + String(
+      format: " Path residual RMS %.2f px; maximum %.2f px (%u samples).",
+      residual.rootMeanSquarePixels, residual.maximumPixels, residual.correspondenceCount
+    )
+  }
 
   public init(
     evidence: DrawingObservedInkEvidence,
@@ -241,6 +247,8 @@ public enum PlannedDrawingObservationOutcome: Codable, Hashable, Sendable {
 }
 
 extension VisionWorker {
+  public static let plannedDrawingObserverRevision = "nearest-polyline-residual-v2"
+
   static func plannedDrawingCancellationCheckpoint(
     _ stage: PlannedDrawingObservationCheckpointStage,
     computation: PlannedDrawingObservationComputationDiagnostics,
@@ -269,6 +277,7 @@ extension VisionWorker {
   ) async -> PlannedDrawingObservationOutcome {
     let requestedAlgorithms = request.additionalAlgorithmRevisions.union([request.observerRevision])
     var computation = PlannedDrawingObservationComputationDiagnostics.zero
+    var detectedPixelCount: Int?
     func reject(
       _ reason: DrawingObservationRejectionReason,
       algorithms: Set<AlgorithmRevisionEvidence> = []
@@ -278,7 +287,8 @@ extension VisionWorker {
         let rejection = try? DrawingObservationRejection(
           frames: request.frames,
           reason: reason,
-          algorithmRevisions: revisions
+          algorithmRevisions: revisions,
+          detectedPixelCount: detectedPixelCount
         )
       else {
         // The request always carries a valid frame pair and observer revision.
@@ -399,6 +409,7 @@ extension VisionWorker {
       return reject(.algorithmFailure(code: "ink-extraction-failed"), algorithms: algorithms)
     }
     let newInk = newInkEvaluation.pixels
+    detectedPixelCount = newInk.count
     computation = computation.addingInkComputation(
       evaluatedPixelCount: newInkEvaluation.evaluatedPixelCount,
       checkpointCount: newInkEvaluation.cancellationCheckpointCount,
@@ -437,7 +448,6 @@ extension VisionWorker {
         with: request.intendedCameraPolylines,
         observationShiftX: alignment.shiftX,
         observationShiftY: alignment.shiftY,
-        maximumDistance: request.maximumAssociationDistancePixels,
         ambiguityTolerance: request.associationAmbiguityTolerancePixels,
         baseComputation: computation,
         checkpointHandler: checkpointHandler
@@ -469,14 +479,11 @@ extension VisionWorker {
         algorithms: algorithms
       )
     }
-    guard association.unassociatedPixelCount == 0 else {
-      return reject(.correspondenceUnavailable, algorithms: algorithms)
-    }
     guard
       association.byPolyline.allSatisfy({
         $0.count >= request.minimumInkPixelsPerPolyline
       })
-    else { return reject(.inkMissing, algorithms: algorithms) }
+    else { return reject(.correspondenceUnavailable, algorithms: algorithms) }
 
     guard
       let sampled = Self.sampleObservedCentrelines(
@@ -534,7 +541,6 @@ extension VisionWorker {
 extension VisionWorker {
   struct PlannedInkAssociation {
     let byPolyline: [[PlannedAssociatedInkPixel]]
-    let unassociatedPixelCount: Int
     let ambiguousPixelCount: Int
   }
 
@@ -579,8 +585,6 @@ extension VisionWorker {
       && request.maximumRegionPixelCount > 0
       && request.maximumIntendedPointCount >= 2
       && request.maximumAssociationEvaluationCount > 0
-      && request.maximumAssociationDistancePixels.isFinite
-      && request.maximumAssociationDistancePixels > 0
       && request.associationAmbiguityTolerancePixels.isFinite
       && request.associationAmbiguityTolerancePixels >= 0
       && request.centrelineSampleSpacingPixels.isFinite
@@ -611,13 +615,11 @@ extension VisionWorker {
     with intended: [Polyline<CameraPixelSpace>],
     observationShiftX: Int,
     observationShiftY: Int,
-    maximumDistance: Double,
     ambiguityTolerance: Double,
     baseComputation: PlannedDrawingObservationComputationDiagnostics,
     checkpointHandler: PlannedDrawingObservationCheckpointHandler?
   ) async throws -> CancellablePlannedInkAssociationEvaluation {
     var grouped = Array(repeating: [PlannedAssociatedInkPixel](), count: intended.count)
-    var unassociated = 0
     var ambiguous = 0
     var evaluationCount = 0
     var budget = CancellationCheckpointBudget()
@@ -692,12 +694,10 @@ extension VisionWorker {
         if lhs.index != rhs.index { return lhs.index < rhs.index }
         return lhs.projection.alongDistance < rhs.projection.alongDistance
       }
-      guard let nearest = ranked.first,
-        nearest.projection.distance <= maximumDistance
-      else {
-        unassociated += 1
-        continue
-      }
+      // Distance is the quantity this observer measures. Rejecting candidates
+      // beyond the predicted path would censor the residual before computing it.
+      // The validated request contains at least one nondegenerate polyline.
+      let nearest = ranked[0]
       if ranked.count > 1,
         ranked[1].projection.distance - nearest.projection.distance <= ambiguityTolerance
       {
@@ -724,7 +724,6 @@ extension VisionWorker {
     return CancellablePlannedInkAssociationEvaluation(
       association: PlannedInkAssociation(
         byPolyline: grouped,
-        unassociatedPixelCount: unassociated,
         ambiguousPixelCount: ambiguous
       ),
       evaluationCount: evaluationCount,

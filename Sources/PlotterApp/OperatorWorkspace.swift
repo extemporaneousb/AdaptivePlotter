@@ -12549,7 +12549,7 @@ final class PlotterApplicationRuntime:
           FixedCameraOpticalSettlingPolicy.maximumBackgroundMeanAbsoluteDifference,
         observerRevision: try AlgorithmRevisionEvidence(
           component: "planned-drawing-border-observer",
-          revision: "bounded-nearest-closed-polyline-v1"
+          revision: VisionWorker.plannedDrawingObserverRevision
         ),
         additionalAlgorithmRevisions: [
           try AlgorithmRevisionEvidence(
@@ -12810,7 +12810,7 @@ extension PlotterApplicationRuntime {
         try commitDrawingArtifact(for: step)
         return .completed(.observedInk(
           postFrame: observation.postFrame, region: observation.region,
-          observation: measured, inkStatus: "New Drawing Border ink compared with the planned path."
+          observation: measured, inkStatus: measured.diagnosticSummary
         ))
       case .rejected(let rejection):
         if case .completed = borderValidationSnapshot.drawingOutcome {
@@ -12818,7 +12818,7 @@ extension PlotterApplicationRuntime {
             postFrame: observation.postFrame, region: observation.region, rejection: rejection
           ))
         }
-        throw LearningPathOperationError.inkRejected(String(describing: rejection.reason))
+        throw LearningPathOperationError.inkRejected(rejection.diagnosticSummary)
       }
     case .compareIntendedAndObservedGeometry:
       return .completed(.comparisonAccepted(

@@ -52,6 +52,72 @@ struct PlannedDrawingObservationTests {
     let fixture = try drawingFixture(includeNewInk: false)
     let outcome = await VisionWorker().observePlannedDrawingInk(fixture.request)
     #expect(rejectionReason(outcome) == .inkMissing)
+    guard case .rejected(let rejection) = outcome else { return }
+    #expect(rejection.detectedPixelCount == 0)
+  }
+
+  @Test("a clearly visible displaced border produces a residual, not a correspondence failure")
+  func displacedBorderRemainsMeasurable() async throws {
+    let fixture = try closedBorderFixture(offsetX: 6, offsetY: 6)
+    let outcome = await VisionWorker().observePlannedDrawingInk(fixture.request)
+    guard case .observed(let observation) = outcome else {
+      Issue.record("visible displaced border was discarded: \(outcome)")
+      return
+    }
+    let residual = try #require(observation.evidence.residual)
+    #expect(residual.maximumPixels > 4)
+    #expect(residual.rootMeanSquarePixels > 2)
+    #expect(observation.observedPixelCount >= 72)
+    #expect(observation.evidence.frames == fixture.request.frames)
+    #expect(observation.diagnosticSummary.contains("Path residual RMS"))
+  }
+
+  @Test("one distant changed pixel does not discard an otherwise measured border")
+  func strayPixelDoesNotVetoBorder() async throws {
+    let fixture = try closedBorderFixture(includeStrayPixel: true)
+    let outcome = await VisionWorker().observePlannedDrawingInk(fixture.request)
+    guard case .observed(let observation) = outcome else {
+      Issue.record("visible border was discarded because of a stray pixel: \(outcome)")
+      return
+    }
+    #expect(observation.evidence.residual != nil)
+    #expect(observation.observedPixelCount == 73)
+  }
+
+  @Test("detected pixels without sampled geometry remain distinct from missing ink in durable diagnostics")
+  func detectedButUnsampledPixelDiagnosticsRoundTrip() async throws {
+    let fixture = try drawingFixture()
+    let post = try PaperSceneSimulator(width: 48, height: 36).render(
+      strokes: [SimulatedPaperStroke(
+        start: PaperPixelPoint(x: 8, y: 8), end: PaperPixelPoint(x: 8, y: 8)
+      )],
+      sequence: 11, captureNanoseconds: 11,
+      cameraConfigurationID: fixture.baseline.cameraConfigurationID
+    )
+    let frames = try DrawingObservationFramePair(
+      source: .simulated, baseline: ExactFrameProvenance(frame: fixture.baseline),
+      post: ExactFrameProvenance(frame: post)
+    )
+    let outcome = await VisionWorker().observePlannedDrawingInk(request(
+      frames: frames, baseline: fixture.baseline, post: post, intended: fixture.intended
+    ))
+    guard case .rejected(let rejection) = outcome else {
+      Issue.record("a single pixel cannot define a sampled path")
+      return
+    }
+    #expect(rejection.reason == .correspondenceUnavailable)
+    #expect(rejection.detectedPixelCount == 1)
+    #expect(rejection.diagnosticSummary.contains("1 newly darkened pixels detected"))
+    let encoded = try JSONEncoder().encode(rejection)
+    #expect(try JSONDecoder().decode(DrawingObservationRejection.self, from: encoded) == rejection)
+    var legacy = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    legacy.removeValue(forKey: "detectedPixelCount")
+    let restored = try JSONDecoder().decode(
+      DrawingObservationRejection.self, from: JSONSerialization.data(withJSONObject: legacy)
+    )
+    #expect(restored.reason == rejection.reason)
+    #expect(restored.detectedPixelCount == nil)
+    #expect(restored.diagnosticSummary.contains("Detected pixel count unavailable"))
   }
 
   @Test("indistinguishable intended paths are rejected as ambiguous evidence")
@@ -421,6 +487,44 @@ private struct PlannedDrawingFixture {
   let intended: [Polyline<CameraPixelSpace>]
   let strokes: [SimulatedPaperStroke]
   let request: PlannedDrawingObservationRequest
+}
+
+private func closedBorderFixture(
+  offsetX: Int = 0,
+  offsetY: Int = 0,
+  includeStrayPixel: Bool = false
+) throws -> PlannedDrawingFixture {
+  let camera = CameraConfigurationID()
+  let simulator = PaperSceneSimulator(width: 48, height: 36)
+  let corners = [(8, 8), (30, 8), (30, 22), (8, 22), (8, 8)]
+  var strokes = zip(corners, corners.dropFirst()).map { start, end in
+    SimulatedPaperStroke(
+      start: PaperPixelPoint(x: start.0 + offsetX, y: start.1 + offsetY),
+      end: PaperPixelPoint(x: end.0 + offsetX, y: end.1 + offsetY)
+    )
+  }
+  if includeStrayPixel {
+    strokes.append(SimulatedPaperStroke(
+      start: PaperPixelPoint(x: 20, y: 15), end: PaperPixelPoint(x: 20, y: 15)
+    ))
+  }
+  let baseline = try simulator.render(
+    strokes: [], sequence: 10, captureNanoseconds: 10, cameraConfigurationID: camera
+  )
+  let post = try simulator.render(
+    strokes: strokes, sequence: 11, captureNanoseconds: 11, cameraConfigurationID: camera
+  )
+  let intended = [try Polyline<CameraPixelSpace>(points: corners.map {
+    try Point2(x: Double($0.0), y: Double($0.1))
+  })]
+  let frames = try DrawingObservationFramePair(
+    source: .simulated,
+    baseline: ExactFrameProvenance(frame: baseline), post: ExactFrameProvenance(frame: post)
+  )
+  return PlannedDrawingFixture(
+    baseline: baseline, post: post, intended: intended, strokes: strokes,
+    request: request(frames: frames, baseline: baseline, post: post, intended: intended)
+  )
 }
 
 private func drawingFixture(

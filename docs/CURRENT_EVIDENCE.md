@@ -8,6 +8,47 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing Border residual censorship correction, 2026-09-05
+
+Blackdog task `TASK-574A84BC`, attempt `TASK-574A84BC-3ad89a0fd063`, follows
+the user's challenge that clear Border ink should produce a residual rather
+than a detection failure. The earlier completion correction did not change
+the detector. Source inspection found that the observer first extracted new
+darkened pixels, then rejected the entire observation if any candidate was more
+than four pixels from every predicted path. That `correspondenceUnavailable`
+result occurred before residual construction. It did not mean no ink pixels
+were detected.
+
+Two deterministic camera-image regressions reproduced that rejection on the
+unchanged observer: a closed rectangle translated six pixels on each axis,
+and an exact rectangle with one distant changed pixel. Both now produce sampled
+geometry and residual evidence. The arbitrary maximum association distance and
+its all-pixels veto are removed; the two production callers record the shared
+`nearest-polyline-residual-v2` observer revision. No motion, calibration,
+completion, or model-promotion semantics changed.
+
+Existing rejection evidence now optionally retains the detected pixel count.
+Zero detected pixels remains `inkMissing`; detected pixels that cannot form a
+sampled path report `correspondenceUnavailable` with their count. Legacy records
+without counts still decode. Border diagnostics retain the reason code plus its
+explanation, or the measured pixel count and RMS/maximum residual on success.
+There is no new stream or archive. This observer still uses same-pose frame
+subtraction within the requested region: it does not establish complete edge
+visibility or distinguish every shadow change from ink.
+
+Validation passed with strict concurrency and warnings as errors: 34 focused
+observer/evidence/Border tests in 8.766 seconds, `make quick-test` 874/874 in
+17.924 seconds, and serial `make journey-test` 10/10 in 5.834 seconds. The first
+focused run passed the detector regressions but exposed two diagnostic assertions
+because the explanation had replaced the reason code; the final presentation
+retains both. `make docs-check` and `git diff --check` passed.
+
+The existing process and saved files were inspected read-only. The latest saved
+operator diagnostic still omits the precise live rejection, and the drawing
+archive predates that run. These reproductions establish the software defect,
+not the exact cause of the latest physical incident. No hardware commands,
+redraw, or app restart were performed; no new attended physical claim is made.
+
 ## Voice, live overlays, and automatic Border graduation correction
 
 Blackdog task `TASK-C1E95129`, attempt `TASK-C1E95129-484a914e4e9d`, follows

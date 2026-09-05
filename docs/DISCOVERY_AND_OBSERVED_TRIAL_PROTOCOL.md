@@ -415,8 +415,12 @@ exercises or approval gates:
 5. **Reveal and observe.** Return Pen Up to the recorded reveal MPos, require
    fresh Idle/final MPos within 0.5 mm, capture a post-frame strictly newer
    than the baseline and drawing settlement, and run bounded same-pose
-   black/new-ink Vision. While this runs, the UI states that drawing-validation Vision owns
-   processing. Retain observed geometry and residual, or a typed rejection.
+   new-ink difference Vision. While this runs, the UI states that drawing-validation Vision owns
+   processing. Match detected pixels to the nearest planned path without a
+   distance cutoff, so geometric error produces a residual. Retain observed
+   geometry and residual, or a typed rejection with the detected pixel count
+   when extraction ran. A correspondence rejection does not mean no pixels
+   were detected.
 6. **Compare.** On normal observed-ink success, record the typed intended versus
    observed comparison automatically and display predicted cyan, observed white,
    and residual orange geometry on the exact post-frame. Retain that frame for

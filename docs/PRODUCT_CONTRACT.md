@@ -1175,6 +1175,16 @@ atomic commit stops at a truthful recovery state and never authorizes redraw.
 A rejected Vision result after naturally completed drawing is retained as an
 inconclusive observation and completes the trial without another operator action.
 
+Planned-drawing observation measures departure from the prediction. A detected
+pixel's distance from the planned path must contribute to the measurement, not
+veto the entire observation through a maximum correspondence distance. The
+observer compares newly darkened pixels in the recorded region with the nearest
+planned path and retains the sampled geometry and residual. This remains a
+before/after difference measurement, not proof that every edge is visible or
+that every changed pixel is ink. Rejections retain the detected pixel count when
+extraction ran; zero detected pixels and inability to form a sampled path are
+distinct diagnostics.
+
 Intended geometry, observed ink, and residuals are required contextual Stage 2
 evidence and have no global visibility toggles. An attributable observed frame
 is retained in the append-only drawing-run archive as an evaluation holdout and

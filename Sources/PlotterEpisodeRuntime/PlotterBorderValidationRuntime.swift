@@ -533,7 +533,7 @@ public final class PlotterBorderValidationRuntime {
       state.observationRegion = region
       state.inkObservation = nil
       state.observationRejection = rejection
-      state.inkStatus = "Drawing completed. Vision comparison inconclusive: \(rejection.reason)"
+      state.inkStatus = "Drawing completed. Vision comparison inconclusive: \(rejection.diagnosticSummary)"
     case .comparisonAccepted(let assessment, let histories):
       state.assessment = assessment
       state.comparisonAttemptHistories = histories

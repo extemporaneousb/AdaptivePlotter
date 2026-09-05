@@ -385,11 +385,47 @@ public struct DrawingObservationRejection: Codable, Hashable, Sendable {
   public let frames: DrawingObservationFramePair
   public let reason: DrawingObservationRejectionReason
   public let algorithmRevisions: Set<AlgorithmRevisionEvidence>
+  /// Nil means extraction did not finish, or this is a legacy record.
+  public let detectedPixelCount: Int?
+
+  public var diagnosticSummary: String {
+    let detail: String
+    switch reason {
+    case .inkMissing:
+      detail = detectedPixelCount == 0
+        ? "No newly darkened pixels met the ink threshold."
+        : "Observer reported insufficient ink for measurement."
+    case .correspondenceUnavailable:
+      detail = "Detected pixels could not form a sampled path for residual measurement."
+    case .inkAmbiguous(let count):
+      detail = "\(count) detected pixels match multiple planned paths equally."
+    case .excessiveAlignment:
+      detail = "Before/after camera displacement exceeded the frame alignment range."
+    case .excessiveBackgroundResidual:
+      detail = "Before/after background changes exceeded the frame subtraction tolerance."
+    case .invalidFrameIdentity:
+      detail = "The supplied images do not match the recorded frame pair."
+    case .observationPoseMismatch:
+      detail = "Before/after images have different controller poses."
+    case .computationCancelled:
+      detail = "Observation computation was cancelled."
+    case .unsupportedDrawing:
+      detail = "The planned geometry cannot be observed in the requested image region."
+    case .algorithmFailure(let code):
+      detail = "Observer could not complete: \(code)."
+    }
+    let summary = "\(reason): \(detail)"
+    if let detectedPixelCount {
+      return "\(detectedPixelCount) newly darkened pixels detected. \(summary)"
+    }
+    return "\(summary) Detected pixel count unavailable."
+  }
 
   public init(
     frames: DrawingObservationFramePair,
     reason: DrawingObservationRejectionReason,
-    algorithmRevisions: Set<AlgorithmRevisionEvidence>
+    algorithmRevisions: Set<AlgorithmRevisionEvidence>,
+    detectedPixelCount: Int? = nil
   ) throws {
     guard reason.isValid, !algorithmRevisions.isEmpty else {
       throw DrawingRunEvidenceError.invalidObservation
@@ -397,9 +433,12 @@ public struct DrawingObservationRejection: Codable, Hashable, Sendable {
     self.frames = frames
     self.reason = reason
     self.algorithmRevisions = algorithmRevisions
+    self.detectedPixelCount = detectedPixelCount
   }
 
-  private enum CodingKeys: String, CodingKey { case frames, reason, algorithmRevisions }
+  private enum CodingKeys: String, CodingKey {
+    case frames, reason, algorithmRevisions, detectedPixelCount
+  }
 
   public init(from decoder: any Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -409,7 +448,8 @@ public struct DrawingObservationRejection: Codable, Hashable, Sendable {
       algorithmRevisions: values.decode(
         Set<AlgorithmRevisionEvidence>.self,
         forKey: .algorithmRevisions
-      )
+      ),
+      detectedPixelCount: values.decodeIfPresent(Int.self, forKey: .detectedPixelCount)
     )
   }
 }
