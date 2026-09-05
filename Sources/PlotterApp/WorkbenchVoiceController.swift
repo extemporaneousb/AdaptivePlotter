@@ -40,12 +40,12 @@ struct WorkbenchVoiceContext: Equatable {
   }
 
   func matchingStop(_ transcript: String) -> PlotterUIAction? {
-    let text = Self.normalized(transcript)
-    let words = text.split(separator: " ").map(String.init)
-    guard !Self.hasNegation(text),
-      words.first == "stop" || words.first == "halt"
-        || text.hasPrefix("please stop") || text.hasPrefix("can you stop")
-        || text == "that s enough" || text == "enough"
+    let text = Self.removingPolitePrefix(Self.normalized(transcript))
+    let first = text.split(separator: " ").first
+    // An explicit Stop takes effect before any following explanation. Negation
+    // before the command ("please don't stop") still is not a Stop request.
+    guard first == "stop" || first == "halt"
+      || text == "that s enough" || text == "enough"
     else { return nil }
     return uniqueCommand { action in
       switch action {
@@ -92,10 +92,7 @@ struct WorkbenchVoiceContext: Equatable {
       }
       if choices.count == 1 { return choices[0] }
     }
-    var polite = text
-    for prefix in ["could you please ", "can you please ", "would you ", "could you ", "can you ", "please "] {
-      if polite.hasPrefix(prefix) { polite = String(polite.dropFirst(prefix.count)); break }
-    }
+    let polite = Self.removingPolitePrefix(text)
     let words = Set(polite.split(separator: " ").map(String.init))
     let asksToMove = ["move", "go", "start", "continue", "keep moving"].contains {
       polite == $0 || polite.hasPrefix($0 + " ")
@@ -116,6 +113,13 @@ struct WorkbenchVoiceContext: Equatable {
     }
     let matches = commands.filter { Self.normalized($0.title) == polite }
     return matches.count == 1 ? matches[0] : nil
+  }
+
+  private static func removingPolitePrefix(_ text: String) -> String {
+    for prefix in ["could you please ", "can you please ", "would you ", "could you ", "can you ", "please "] {
+      if text.hasPrefix(prefix) { return String(text.dropFirst(prefix.count)) }
+    }
+    return text
   }
 
   static func normalized(_ text: String) -> String {

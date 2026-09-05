@@ -71,6 +71,16 @@ Python contract tests. `make quick-test` passed 870/870 in 19.075 seconds and th
 serial `make journey-test` passed 10/10 in 5.946 seconds, both with strict
 concurrency and warnings as errors. `git diff --check` passed.
 
+A final Voice-only refinement, task `TASK-4E89A571`, attempt
+`TASK-4E89A571-2483f06060a6`, follows landed `58b1b3b`. An explicit spoken Stop
+now takes precedence over a trailing explanation such as “that is not right”;
+polite prefixes use the same normalization as movement. “Please do not stop”
+is still distinct from a Stop request. All 8 focused Voice tests passed with
+strict concurrency and warnings as errors in 0.977 seconds, including immediate
+partial dispatch and unchanged-question microphone continuity. Documentation
+and architecture checks plus `git diff --check` passed. The full-suite counts
+above refer to the preceding UI/completion change.
+
 The existing live app was left running. No controller command, physical redraw,
 or microphone session was initiated for verification. The signed live-camera
 performance gate was not run because it requires stopping the current app;

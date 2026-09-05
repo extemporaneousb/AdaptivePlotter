@@ -38,6 +38,18 @@ struct WorkbenchVoiceTests {
     #expect(voiceContext().matching("it does")?.title == "YES")
   }
 
+  @Test("an explicit Stop survives a negated explanation and polite variations")
+  func stopCommandPrecedesExplanation() {
+    let context = voiceContext(actions: [.boundary(.stop(.init()))])
+    for phrase in ["stop", "stop, that's not right", "stop, don't move any further",
+                   "please stop, it isn't right", "could you please stop", "would you stop"] {
+      #expect(context.matchingStop(phrase) != nil, "Unrecognized Stop: \(phrase)")
+    }
+    for phrase in ["don't stop", "please don't stop", "can you not stop", "I did not say stop"] {
+      #expect(context.matchingStop(phrase) == nil)
+    }
+  }
+
   @Test("revision-only updates keep listening and Stop dispatches a partial immediately")
   func immediateStopUsesLatestRevision() async throws {
     let speech = PlotterSpeechEffectRuntime(announcer: ImmediateVoiceAnnouncer())
@@ -53,7 +65,7 @@ struct WorkbenchVoiceTests {
     try await eventually { controller.isListening }
     controller.update(voiceContext(revision: 2, actions: [action]))
     #expect(listener.startCount == 1)
-    listener.send(.transcript("stop moving now", isFinal: false))
+    listener.send(.transcript("stop, that is not right", isFinal: false))
     let deadline = ContinuousClock.now.advanced(by: .milliseconds(300))
     while requests.isEmpty, ContinuousClock.now < deadline { await Task.yield() }
     #expect(requests.count == 1)
