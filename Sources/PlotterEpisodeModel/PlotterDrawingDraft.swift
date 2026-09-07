@@ -13,6 +13,9 @@ public enum PlotterDrawingDraftIntent: Hashable, Sendable {
   case centerInDrawableRegion
   case beginNewPlan
   case assertPaperCoverage
+  case prepareCoverageExperiment
+  case nextCoverageTrial
+  case leaveCoverageExperiment
 }
 
 public struct PlotterDrawingDraftCameraPlacement: Hashable, Sendable {

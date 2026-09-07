@@ -2256,7 +2256,13 @@ final class PlotterApplicationRuntime:
       toolAssemblyRevision: toolAssemblyRevision,
       paper: currentPaperRevisionContext,
       runInProgress: drawingRunIsActive,
-      terminalRequiresNewPlan: drawingRunRequiresNewPlan
+      terminalRequiresNewPlan: drawingRunRequiresNewPlan,
+      coverageRecords: drawingEvidenceArchive.records,
+      drawingArchiveIsAvailable: manualMotionEnvironment == .simulated || {
+        guard let snapshot = drawingRunSnapshot,
+          case .available = snapshot.evidenceArchiveAvailability else { return false }
+        return true
+      }()
     )
   }
 
@@ -2398,7 +2404,7 @@ final class PlotterApplicationRuntime:
       uniformScale: draft.uniformScale,
       allowedScale: draft.allowedScale,
       rotationDegrees: draft.rotationDegrees,
-      placementIsEnabled: editingIsEnabled && !drawingRunRequiresNewPlan
+      placementIsEnabled: editingIsEnabled && !drawingRunRequiresNewPlan && draft.coverageExperiment == nil
     )
     return DrawingStudioPresentation(
       catalog: draft.catalog.map {
@@ -2413,7 +2419,11 @@ final class PlotterApplicationRuntime:
       ),
       editingIsEnabled: editingIsEnabled && !drawingRunRequiresNewPlan,
       runProjection: run?.projection,
-      runState: drawingStudioRunState(run)
+      runState: drawingStudioRunState(run),
+      coverageExperiment: draft.coverageExperiment,
+      coverageAssessment: draft.coverageAssessment,
+      coverageUnavailableReason: draft.coverageUnavailableReason,
+      coverageSelectedTrial: DrawingCoverageTrialDescriptor.decode(draft.program?.source)?.trialIndex
     )
   }
 
@@ -2648,6 +2658,7 @@ final class PlotterApplicationRuntime:
         case .loaded(let archive):
           self.drawingEvidenceArchive = archive
           self.drawingEvidenceError = nil
+          self.scheduleDrawingDraftSynchronization()
         case .absent:
           break
         case .rejected(let rejection):
@@ -4288,13 +4299,19 @@ final class PlotterApplicationRuntime:
       owner: "PlotterDrawingDraftRuntime"
     ))
     if drawingStudioIsPresented {
+      for control in drawing.coverageControls {
+        candidates.append(uiCandidate(
+          id: PlotterAppUIActionID.drawingDraft(control.intent), title: control.title,
+          intent: .drawingDraft(control.intent), unavailableReason: control.unavailableReason,
+          owner: "PlotterDrawingDraftRuntime"))
+      }
       if let pendingDrawingProgram {
         let intent = PlotterDrawingDraftIntent.selectProgram(pendingDrawingProgram)
         candidates.append(uiCandidate(
           id: PlotterAppUIActionID.drawingDraft(intent),
           title: "Use Portrait",
           intent: .drawingDraft(intent),
-          unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+          unavailableReason: drawing.authoringUnavailableReason,
           owner: "PlotterDrawingDraftRuntime"
         ))
       }
@@ -4304,7 +4321,7 @@ final class PlotterApplicationRuntime:
           id: PlotterAppUIActionID.drawingDraft(intent),
           title: "Select \(item.title)",
           intent: .drawingDraft(intent),
-          unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+          unavailableReason: drawing.authoringUnavailableReason,
           owner: "PlotterDrawingDraftRuntime"
         )
       })
@@ -4314,7 +4331,7 @@ final class PlotterApplicationRuntime:
           id: PlotterAppUIActionID.drawingDraft(intent),
           title: "Set evidence role \(role.rawValue)",
           intent: .drawingDraft(intent),
-          unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+          unavailableReason: drawing.authoringUnavailableReason,
           owner: "PlotterDrawingDraftRuntime"
         )
       })
@@ -4323,7 +4340,7 @@ final class PlotterApplicationRuntime:
         id: PlotterAppUIActionID.drawingDraft(centerIntent),
         title: "Center Target",
         intent: .drawingDraft(centerIntent),
-        unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+        unavailableReason: drawing.authoringUnavailableReason,
         owner: "PlotterDrawingDraftRuntime"
       ))
       if let pendingDrawingPlacement {
@@ -4363,7 +4380,7 @@ final class PlotterApplicationRuntime:
           id: PlotterAppUIActionID.drawingDraft(intent),
           title: "Set scale \(scale)",
           intent: .drawingDraft(intent),
-          unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+          unavailableReason: drawing.authoringUnavailableReason,
           owner: "PlotterDrawingDraftRuntime"
         )
       })
@@ -4373,7 +4390,7 @@ final class PlotterApplicationRuntime:
           id: PlotterAppUIActionID.drawingDraft(intent),
           title: "Set rotation \(degrees) degrees",
           intent: .drawingDraft(intent),
-          unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+          unavailableReason: drawing.authoringUnavailableReason,
           owner: "PlotterDrawingDraftRuntime"
         )
       })

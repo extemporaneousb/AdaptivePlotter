@@ -8,6 +8,54 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Active coverage selection and bounded cross-track fitting, 2026-09-07
+
+Blackdog task `task-901bb5e0446f4b7eb3748bb20e6a8be1` added a usable Active
+Learning workflow to Drawing Studio. Prepare Coverage Experiment seals 32
+training and 16 reserved-holdout lines across four quadrants and four signed
+axis directions. Next Experiment Trial balances coverage, spatial distance, and
+estimated mean uncertainty. The existing draft/planning/run/Stop/review path owns
+each operator-stepped trial; the generic run owner and controller were not
+replaced. Immutable program source provenance carries the design and fixed role
+into the existing checksummed archive, which reconstructs the experiment after
+reopening. LIVE preparation requires a known archive; known occupied sheets,
+failed trials, duplicate attempts, wrong roles, reused frames, geometry mismatch,
+and changed semantic provenance stop selection. A failed resume cannot leave a
+runnable default drawing behind.
+
+The candidate fits independent, equally weighted central-span line means in
+machine coordinates: intercept, X/Y spatial slopes, and signed travel-direction
+terms for each cross-track axis. Rank checks and a rectangle-wide 2 mm bound
+reject unsupported fits. After all training completes, the fixed candidate is
+compared against 16 untouched holdouts using predeclared overall, quadrant,
+direction, and quadrant/direction RMS checks. The UI separately displays
+applicability, coefficients, fit standard errors, training error, holdout error,
+and group comparisons. No candidate changes the accepted affine map or emits
+Adaptive drawing ready. Along-track backlash, automatic batch execution,
+corrected-execution holdouts, explicit model acceptance, and shape validation
+remain unfinished.
+
+Offscreen native UI inspection exposed an existing axis-line preview failure:
+zero width or height caused `invalidBounds`, preventing a usable target preview.
+Preview bounds now receive at least one display pixel on a collapsed axis;
+exact projected paths, plans, and applicability are unchanged. The rendered
+coverage trial now reports Target preview ready. Minimum experiment-area and
+central-span endpoint checks absorb only arithmetic residue through the existing
+numerical epsilon, with exact digital identity comparisons retained.
+
+Validation on the final implementation: strict quick tests passed **913/913** in
+19.915 seconds; all **10/10** retained journeys passed in 5.517 seconds. Fourteen
+new test declarations include known-coefficient recovery, holdout leakage,
+local-regression rejection, rank/bound refusal, fractional area boundaries,
+48-trial canonical planning and archive reopening, failed-resume and archive-load
+admission, exact-span sampling, editor/provenance invalidation, and production UI
+requests with zero simulated ink effects. The native Drawing Studio rendering
+was inspected offscreen at 390 points wide. The strict signed application build
+passed with the stable local development identity. Documentation checks and
+`git diff --check` passed. Synthetic records, simulated calibration, and native
+UI rendering are software evidence only. No physical controller, camera, pen,
+paper, ink, corrected drawing, or attended model acceptance was validated.
+
 ## Drawing Studio access and numerical drawing corrections, 2026-09-07
 
 Blackdog task `task-85a511b20c7d45deac3810d46d117e12` confirmed that portrait

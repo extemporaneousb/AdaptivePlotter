@@ -34,7 +34,7 @@ Drawing Border** click previews the planned Drawing Border and owns the
 normal baseline, motion, drawing, reveal, Vision, and comparison phases. Those
 phases are visible activity, not six approval buttons. The exact post-frame
 comparison remains reviewable after the exercise finishes. That attributable
-validation enables running from **Drawing Studio**; adaptive model fitting and
+validation enables running from **Drawing Studio**; corrected-execution model acceptance and
 adaptive readiness remain Roadmap scope and are not Learning Path stages.
 
 Connect and Enable Motion expose direct current-session facts. Selecting a row
@@ -243,6 +243,16 @@ cannot silently promote a model. Ambiguous motion or possible ink never causes
 an automatic redraw.
 
 ## Drawing Studio
+
+**Active Learning** in Drawing Studio prepares a sealed coverage experiment:
+32 training lines and 16 reserved holdouts across four regions and four signed
+axis directions. Review and Run each suggested line; after terminal review use
+New Drawing, then Next Experiment Trial. The software selects informative
+remaining locations, fits bounded spatial/direction cross-track candidates, and
+shows training and holdout comparisons. It resumes the same experiment from the
+drawing archive. Failed or ambiguous trials stop selection. Candidates remain
+diagnostic; automatic batch execution, corrected physical holdouts, and explicit
+model acceptance are still required before adaptive drawing readiness.
 
 **Drawing Studio** is always visible in the workbench and in **View**. Open it
 before calibration to select a vector drawing or use **Create Portrait…** to

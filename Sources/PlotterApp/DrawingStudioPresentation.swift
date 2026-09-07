@@ -192,6 +192,32 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   let editingIsEnabled: Bool
   let runProjection: PlotterDrawingRunProjectionReference?
   let runState: DrawingStudioRunState
+  let coverageExperiment: DrawingCoverageExperiment?
+  let coverageAssessment: DrawingCoverageAssessment?
+  let coverageUnavailableReason: String?
+  let coverageSelectedTrial: Int?
+
+  var authoringIsEnabled: Bool { authoringUnavailableReason == nil }
+  var authoringUnavailableReason: String? {
+    guard editingIsEnabled else { return runState.detail }
+    return coverageExperiment == nil ? nil : "Leave the coverage experiment before editing its sealed geometry."
+  }
+
+  var coverageControls: [(intent: PlotterDrawingDraftIntent, title: String, unavailableReason: String?)] {
+    let busy = editingIsEnabled ? nil : runState.detail
+    guard coverageExperiment != nil else {
+      return [(.prepareCoverageExperiment, "Prepare Coverage Experiment", busy)]
+    }
+    var controls: [(PlotterDrawingDraftIntent, String, String?)] = []
+    if let assessment = coverageAssessment, assessment.nextTrial != nil {
+      let currentIsUnattempted = coverageSelectedTrial.map { !assessment.attemptedIndices.contains($0) } ?? false
+      controls.append((.nextCoverageTrial, "Next Experiment Trial",
+        busy ?? coverageUnavailableReason ?? assessment.blocker
+          ?? (currentIsUnattempted ? "Run or leave the currently proposed trial first." : nil)))
+    }
+    controls.append((.leaveCoverageExperiment, "Leave Experiment", busy))
+    return controls
+  }
 
   init(
     catalog: [DrawingStudioCatalogItemPresentation],
@@ -200,7 +226,11 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     canvas: DrawingStudioCanvasPresentation,
     editingIsEnabled: Bool,
     runProjection: PlotterDrawingRunProjectionReference?,
-    runState: DrawingStudioRunState
+    runState: DrawingStudioRunState,
+    coverageExperiment: DrawingCoverageExperiment? = nil,
+    coverageAssessment: DrawingCoverageAssessment? = nil,
+    coverageUnavailableReason: String? = nil,
+    coverageSelectedTrial: Int? = nil
   ) {
     self.catalog = catalog
     self.selectedCatalogItemID = selectedCatalogItemID
@@ -219,6 +249,10 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     self.editingIsEnabled = editingIsEnabled
     self.runProjection = runProjection
     self.runState = runState
+    self.coverageExperiment = coverageExperiment
+    self.coverageAssessment = coverageAssessment
+    self.coverageUnavailableReason = coverageUnavailableReason
+    self.coverageSelectedTrial = coverageSelectedTrial
   }
 
   var selectedCatalogItem: DrawingStudioCatalogItemPresentation? {
@@ -323,7 +357,9 @@ struct DrawingStudioView: View {
         Text("Drawing Studio")
           .font(.title3.bold())
         Text(
-          "Choose a drawing or create a portrait, place its target, then run the reviewed plan."
+          presentation.coverageExperiment == nil
+            ? "Choose a drawing or create a portrait, place its target, then run the reviewed plan."
+            : "Review the proposed coverage line, then run its exact plan."
         )
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -337,23 +373,28 @@ struct DrawingStudioView: View {
           .textSelection(.enabled)
       }
 
-      HStack {
-        Button { portraitIsPresented = true } label: {
-          Label("Create Portrait…", systemImage: "person.crop.rectangle")
-        }
-        .disabled(!presentation.editingIsEnabled || portraitStrokeStyle == nil)
-        if presentation.selectedCatalogItemID == nil {
-          Text("Portrait selected").font(.caption).foregroundStyle(.secondary)
+      if presentation.coverageExperiment == nil {
+        HStack {
+          Button { portraitIsPresented = true } label: {
+            Label("Create Portrait…", systemImage: "person.crop.rectangle")
+          }
+          .disabled(!presentation.authoringIsEnabled || portraitStrokeStyle == nil)
+          if presentation.selectedCatalogItemID == nil {
+            Text("Portrait selected").font(.caption).foregroundStyle(.secondary)
+          }
         }
       }
-      catalog
-      if let selected = presentation.selectedCatalogItem {
-        Text(selected.detail)
-          .font(.caption)
-          .foregroundStyle(.secondary)
+      coverageExperiment
+      if presentation.coverageExperiment == nil {
+        catalog
+        if let selected = presentation.selectedCatalogItem {
+          Text(selected.detail)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        evidenceRole
+        placement
       }
-      evidenceRole
-      placement
       runStatus
       controls
     }
@@ -365,6 +406,74 @@ struct DrawingStudioView: View {
                            strokeStyle: portraitStrokeStyle, useProgram: usePortrait)
       }
     }
+  }
+
+  private var coverageExperiment: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Active Learning").font(.headline)
+      if let experiment = presentation.coverageExperiment {
+        if experiment.tip.applicability.opticalConfiguration.source == .simulated {
+          Text("SIMULATED — NOT PHYSICAL EVIDENCE").font(.caption.bold()).foregroundStyle(.orange)
+        }
+        Text("32 training lines · 16 reserved holdouts · 4 regions · X± / Y±")
+          .font(.caption).foregroundStyle(.secondary)
+        Text(String(format: "Applicable area %.1f × %.1f mm · correction bound 2 mm",
+          experiment.extent.width, experiment.extent.height)).font(.caption)
+        if let index = presentation.coverageSelectedTrial {
+          Text(experiment.trials[index].label).font(.caption.bold())
+        }
+        if let reason = presentation.coverageUnavailableReason {
+          Text(reason).font(.caption).foregroundStyle(.orange)
+        }
+        if let assessment = presentation.coverageAssessment {
+          Text("Measured: \(assessment.trainingCount)/32 training · \(assessment.holdoutCount)/16 holdouts")
+            .font(.caption.monospacedDigit())
+          if let blocker = assessment.blocker {
+            Text(blocker).font(.caption).foregroundStyle(.orange)
+          }
+          if let candidate = assessment.candidate {
+            Text("Candidate fitted · affine prior remains current").font(.caption.bold())
+            Text(String(format: "Fit standard error: X %.3f mm · Y %.3f mm",
+              candidate.vertical.residualStandardErrorMM, candidate.horizontal.residualStandardErrorMM))
+              .font(.caption)
+            DisclosureGroup("Position and direction coefficients") {
+              Text("Cross-track only. Coefficients: intercept, normalized X, normalized Y, signed direction.")
+                .font(.caption2)
+              Text("X: " + candidate.vertical.coefficients.map { String(format: "%.4f", $0) }.joined(separator: ", "))
+              Text("Y: " + candidate.horizontal.coefficients.map { String(format: "%.4f", $0) }.joined(separator: ", "))
+            }.font(.caption.monospaced())
+          }
+          if let comparison = assessment.comparison {
+            Text(comparison.passed ? "Held-out prediction comparison passed" : "Held-out comparison failed — retain prior")
+              .font(.caption.bold()).foregroundStyle(comparison.passed ? .green : .orange)
+            Text(String(format: "Trial-mean RMS: training %.3f → %.3f mm · holdout %.3f → %.3f mm",
+              comparison.training.priorRMSMM, comparison.training.candidateRMSMM,
+              comparison.holdout.priorRMSMM, comparison.holdout.candidateRMSMM)).font(.caption)
+            DisclosureGroup("Holdout regions and directions") {
+              ForEach(comparison.groups, id: \.label) { metric in
+                Text(String(format: "%@: %.3f → %.3f mm", metric.label,
+                  metric.priorRMSMM, metric.candidateRMSMM)).font(.caption2.monospacedDigit())
+              }
+            }
+            Text("Prediction evidence only. Corrected execution and shape holdouts are required before model acceptance.")
+              .font(.caption).foregroundStyle(.secondary)
+          }
+        }
+      } else {
+        Text("Select informative lines and fit bounded spatial and direction-dependent cross-track error. Requires a clear sheet inside the calibrated area.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      ForEach(presentation.coverageControls, id: \.intent) { control in
+        Button(control.title) { submitDraft(control.intent) }
+          .disabled(control.unavailableReason != nil || draftRequest(control.intent) == nil)
+          .help(control.unavailableReason ?? control.title)
+      }
+      if presentation.coverageExperiment != nil {
+        Text("Review and Run each proposed line. After its evidence settles, use New Drawing, then Next Experiment Trial. Stop ends the current trial; an inconclusive trial halts the experiment.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+    }
+    .fixedSize(horizontal: false, vertical: true)
   }
 
   private var catalog: some View {
@@ -388,7 +497,7 @@ struct DrawingStudioView: View {
             .buttonStyle(.bordered)
             .tint(item.id == presentation.selectedCatalogItemID ? .accentColor : .secondary)
             .disabled(
-              !presentation.editingIsEnabled
+              !presentation.authoringIsEnabled
                 || draftRequest(.selectCatalogItem(item.id)) == nil
             )
             .accessibilityHint(item.detail)
@@ -411,7 +520,7 @@ struct DrawingStudioView: View {
       }
     }
     .disabled(
-      !presentation.editingIsEnabled
+      !presentation.authoringIsEnabled
         || draftRequest(.setEvidenceRole(presentation.evidenceRole)) == nil
     )
     .help("Choose before execution; a holdout cannot become training evidence after inspection.")
@@ -441,7 +550,7 @@ struct DrawingStudioView: View {
           .frame(width: 52, alignment: .trailing)
       }
       .disabled(
-        !presentation.editingIsEnabled
+        !presentation.authoringIsEnabled
           || draftRequest(.setUniformScale(presentation.canvas.placement.allowedScale.lowerBound)) == nil
       )
       HStack {
@@ -459,7 +568,7 @@ struct DrawingStudioView: View {
           .frame(width: 58, alignment: .trailing)
       }
       .disabled(
-        !presentation.editingIsEnabled
+        !presentation.authoringIsEnabled
           || draftRequest(
             .setRotationDegrees(presentation.canvas.placement.rotationDegrees)
           ) == nil
@@ -471,7 +580,7 @@ struct DrawingStudioView: View {
       }
       .operatorButton(.neutral)
       .disabled(
-        !presentation.editingIsEnabled || draftRequest(.centerInDrawableRegion) == nil
+        !presentation.authoringIsEnabled || draftRequest(.centerInDrawableRegion) == nil
       )
     }
   }

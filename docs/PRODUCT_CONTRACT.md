@@ -1324,7 +1324,7 @@ known and cites request/execution frontiers, program/placement/plan hashes plus
 the complete immutable execution-plan geometry for new records,
 tip-calibration and paper provenance, terminal execution disposition, and exact
 observation outcome. The checksummed archive is append-only. Records can be
-inputs to later training and evaluation; they cannot replay motion, restore a
+inputs to coverage candidate fitting and evaluation; they cannot replay motion, restore a
 capability, promote calibration, or accept a model. `DrawingReadinessAssessment`
 is a typed schema only until all declared coverage, untouched holdout,
 candidate-versus-prior, and shape-holdout requirements have attributable
@@ -1425,12 +1425,57 @@ operation admission is package-scoped to the production adapter. Execution
 pacing can change future suspension policy for deterministic tests but cannot
 admit, Stop, cancel, settle, or reattribute an effect.
 
-## Future adaptive direction
+## Active coverage experiments and residual candidates
 
-Adaptive Drawing remains unapplied roadmap scope. Candidate fitting, dataset
-splits, holdouts, and bounded experiment proposals are not implemented or
-selectable in the current application. The former speculative online-learning
-and model-mismatch simulator code is intentionally absent.
+Drawing Studio exposes **Prepare Coverage Experiment**, **Next Experiment Trial**,
+and **Leave Experiment** through the existing draft intent owner. Preparing or
+selecting a trial creates an immutable program and preview only. The operator
+reviews and runs each line through the existing Run/Stop owner, reviews its
+terminal, and uses New Drawing before selecting the next trial. Automatic batch
+execution is not implemented. The former speculative online-learning and
+model-mismatch simulator code remains absent.
+
+The versioned design reserves 32 training lines and 16 holdout lines across four
+quadrants and X+, X−, Y+, Y− before any result exists. Lines occupy distinct
+cells within the intersection of the accepted Drawing Boundary and tip-map
+applicability, inset by 2 mm. The design needs at least 72 × 54 mm after the inset;
+planned lines are 4–12 mm long with at least 5 mm separation. A clear sheet is an
+operator prerequisite. Known ordinary-drawing ink or another coverage experiment
+on the same paper identity prevents a fresh experiment on that sheet. Archive
+availability is required before LIVE preparation. Geometry, placement, and roles
+are sealed while the experiment is selected. Selection balances uncovered
+region/direction pairs, spatial separation, and estimated mean uncertainty;
+results cannot change the split or create extra locations.
+
+The existing program source provenance carries the complete experiment definition
+and trial index into the checksummed drawing archive. Preparing again reconstructs
+the same experiment from that archive. There is no second dataset, recorder, or
+model-acceptance authority. Failed, ambiguous, possible-ink, cancelled, incomplete,
+wrong-role, duplicate, stale-provenance, or geometrically mismatched trials halt
+selection and remain diagnostic records. Recorded locations are never proposed
+for another run. A changed map, tool, machine, camera semantic identity, region,
+or paper invalidates the experiment. A holdout observed before all 32 training
+trials is a protocol violation, not fitting data.
+
+The first candidate estimates **mean cross-track** machine-space error only.
+Horizontal lines measure Y error; vertical lines measure X error. The signed
+centreline is interpolated across the central 60% of each line. Each line supplies
+one equally weighted measurement; image pixels are not independent trials.
+Separate X/Y least-squares fits estimate an intercept, normalized X/Y spatial
+slopes, and a signed travel-direction term. Rank-deficient fits refuse. The sum
+of absolute coefficients bounds predictions to 2 mm throughout the declared
+rectangle. This model does not identify along-track backlash or validate corners,
+curves, or speed-dependent behaviour.
+
+All training must complete before reserved holdouts are selected. The candidate
+then stays fixed. The predeclared comparison requires at least 0.05 mm and 10%
+improvement in held-out trial-mean RMS, with no regression in any quadrant,
+direction, or quadrant/direction pair; 1e-9 mm absorbs arithmetic residue only.
+Training error, fit standard error, held-out error, applicability, and each group
+comparison are shown separately. These are prediction comparisons on ink executed
+with the affine prior, not proof of corrected physical execution. A failed or
+inconclusive comparison leaves the prior current. Even a passing comparison does
+not apply coefficients or emit Adaptive drawing ready.
 
 Model candidates are diagnostic until explicitly accepted against reserved
 physical observations. Fast state and slow parameters remain separate. Slow

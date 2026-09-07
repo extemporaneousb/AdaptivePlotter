@@ -1887,6 +1887,27 @@ remain current, while paper, source, camera configuration, or contact-plane
 changes invalidate the assertion. It never expands the accepted Drawing
 Boundary. SIMULATED assertions remain nonphysical.
 
+`DrawingCoverageExperiment` is an immutable versioned program producer. Its
+48-line geometry and split are carried in existing program source provenance.
+`PlotterDrawingDraftRuntime` owns prepare/next/leave, seals editor mutation,
+reconstructs an experiment from the existing drawing archive, and projects
+`DrawingCoverageAssessment`. Only archive/provenance changes recompute that
+assessment; ambient video does not enter it. Each proposed trial is planned by
+`PlotterDrawingPlanningAdapter` and run by the unchanged drawing-run owner.
+Terminal review and its exact New Drawing handoff remain required between trials.
+
+The assessment validates attributable record frontiers, exact program/placement/
+plan geometry, paper, tip evidence hash and applicability, observation source,
+frame dimensions, unique frame identities, roles, and training-before-holdout
+order. It derives signed central-span line means in machine coordinates.
+`CrossTrackResidualCandidate` uses rank-checked least squares for separate X/Y
+spatial and signed-direction terms, with a rectangle-wide 2 mm prediction bound.
+`CrossTrackHoldoutComparison` applies the fixed overall and group RMS policy.
+The UI presents candidate coefficients, standard errors, applicability, progress,
+and comparison results. These values have no model-application, controller,
+readiness, or new persistence authority. Automatic batch execution and corrected
+physical holdout evaluation remain unfinished product work.
+
 `PortraitStudioModel` owns optional portrait capture and the three labeled pose
 images inside Drawing Studio. Its separate `CameraCapture` excludes the selected
 observation device. Only `PortraitCameraPreview` reads the changing preview frame;

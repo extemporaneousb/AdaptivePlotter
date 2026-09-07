@@ -1,4 +1,3 @@
-import CryptoKit
 import EpisodeCore
 import Foundation
 import PlotterEpisodeModel
@@ -42,6 +41,8 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
   public let displayedFrame: PlotterExactFrameReference?
   public let runInProgress: Bool
   public let terminalRequiresNewPlan: Bool
+  public let coverageRecordIDs: [DrawingEvidenceRecordID]
+  public let drawingArchiveIsAvailable: Bool
 
   public init(
     environment: PlotterEnvironment,
@@ -53,7 +54,9 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
     paper: PaperRevisionContext,
     displayedFrame: PlotterExactFrameReference?,
     runInProgress: Bool,
-    terminalRequiresNewPlan: Bool
+    terminalRequiresNewPlan: Bool,
+    coverageRecordIDs: [DrawingEvidenceRecordID] = [],
+    drawingArchiveIsAvailable: Bool = true
   ) {
     self.environment = environment
     self.interactiveLearningIsComplete = interactiveLearningIsComplete
@@ -65,6 +68,8 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
     self.displayedFrame = displayedFrame
     self.runInProgress = runInProgress
     self.terminalRequiresNewPlan = terminalRequiresNewPlan
+    self.coverageRecordIDs = coverageRecordIDs
+    self.drawingArchiveIsAvailable = drawingArchiveIsAvailable
   }
 }
 
@@ -72,6 +77,8 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
   public let revisions: PlotterDrawingDraftExternalFactRevisions
   public let displayedFrame: DisplayedFrame?
   public let registration: TipCameraRegistration?
+  /// Existing archive records, including ordinary drawings that may occupy a sheet.
+  public let coverageRecords: [DrawingRunEvidenceRecord]
 
   public init(
     environment: PlotterEnvironment,
@@ -83,11 +90,14 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
     toolAssemblyRevision: ToolAssemblyRevision,
     paper: PaperRevisionContext,
     runInProgress: Bool,
-    terminalRequiresNewPlan: Bool
+    terminalRequiresNewPlan: Bool,
+    coverageRecords: [DrawingRunEvidenceRecord] = [],
+    drawingArchiveIsAvailable: Bool = true
   ) {
     let exactFrameReference = displayedFrame?.plotterExactFrameReferenceIfMaterialized
     self.displayedFrame = exactFrameReference == nil ? nil : displayedFrame
     self.registration = registration
+    self.coverageRecords = coverageRecords
     revisions = PlotterDrawingDraftExternalFactRevisions(
       environment: environment,
       interactiveLearningIsComplete: interactiveLearningIsComplete,
@@ -98,7 +108,9 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
       paper: paper,
       displayedFrame: exactFrameReference,
       runInProgress: runInProgress,
-      terminalRequiresNewPlan: terminalRequiresNewPlan
+      terminalRequiresNewPlan: terminalRequiresNewPlan,
+      coverageRecordIDs: coverageRecords.map(\.recordID),
+      drawingArchiveIsAvailable: drawingArchiveIsAvailable
     )
   }
 }
@@ -150,6 +162,7 @@ public enum PlotterDrawingDraftRefusalReason: Hashable, Sendable {
   case drawableRegionUnavailable
   case invalidScale
   case invalidRotation
+  case coverageExperimentUnavailable
   case planningFailed(String)
   case paperPersistenceFailed(String)
 }
@@ -224,6 +237,9 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
   public let paperCoverageIsCurrent: Bool
   public let paperCoverageDisplay: PlotterDrawingDraftPaperCoverageDisplay?
   public let lastSubmissionRefusal: PlotterDrawingDraftRefusal?
+  public let coverageExperiment: DrawingCoverageExperiment?
+  public let coverageAssessment: DrawingCoverageAssessment?
+  public let coverageUnavailableReason: String?
 
   public static func initial(
     environment: PlotterEnvironment,
@@ -265,7 +281,8 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
       paperCoverageObservation: nil,
       paperCoverageIsCurrent: false,
       paperCoverageDisplay: nil,
-      lastSubmissionRefusal: nil
+      lastSubmissionRefusal: nil,
+      coverageExperiment: nil, coverageAssessment: nil, coverageUnavailableReason: nil
     )
   }
 }
@@ -369,11 +386,7 @@ public enum PlotterDrawingPlanningAdapter {
   package static func planningProvenance(
     for registration: TipCameraRegistration
   ) throws -> DrawingPlanningProvenance {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys]
-    let digest = try PlotterModel.Digest(
-      bytes: Array(SHA256.hash(data: encoder.encode(registration)))
-    )
+    let digest = try registration.drawingEvidenceContentHash()
     return DrawingPlanningProvenance(
       modelRevisionID: DrawingModelRevisionID(registration.acceptedRevisionID.rawValue),
       modelContentHash: digest,
@@ -402,6 +415,10 @@ public actor PlotterDrawingDraftRuntime {
     var preview: PlotterDrawingDraftPreview?
     var paperCoverageObservation: PaperCoverageObservation?
     var lastSubmissionRefusal: PlotterDrawingDraftRefusal?
+    var coverageExperiment: DrawingCoverageExperiment?
+    var coverageAssessment: DrawingCoverageAssessment?
+    var coverageRecordIDs: [DrawingEvidenceRecordID]?
+    var coverageUnavailableReason: String?
   }
 
   private enum Authority {
@@ -511,7 +528,90 @@ public actor PlotterDrawingDraftRuntime {
       )
     }
 
+    if state.coverageExperiment != nil {
+      switch submission.intent {
+      case .open, .close, .beginNewPlan, .assertPaperCoverage,
+        .nextCoverageTrial, .leaveCoverageExperiment, .prepareCoverageExperiment: break
+      default:
+        return refuse(submission, state: &state, facts: facts, owner: Authority.draft,
+          reason: .coverageExperimentUnavailable,
+          remedy: "Coverage geometry and evidence roles are sealed. Leave the experiment to author another drawing.")
+      }
+    }
+
     switch submission.intent {
+    case .prepareCoverageExperiment, .nextCoverageTrial:
+      do {
+        guard facts.revisions.drawingArchiveIsAvailable else {
+          throw PlotterModelError.invalidValue("Load the drawing archive before preparing or resuming an experiment.")
+        }
+        guard let registration = facts.registration,
+          let region = facts.revisions.drawableRegion else {
+          throw PlotterModelError.invalidValue("Restore current tip calibration and Drawing Boundary first.")
+        }
+        let prior = try PlotterDrawingPlanningAdapter.planningProvenance(for: registration)
+        if state.coverageExperiment == nil {
+          // Resume from existing immutable source provenance. Never propose a
+          // fresh overlapping design on a sheet with earlier experiment ink.
+          if facts.coverageRecords.contains(where: {
+            $0.paper == facts.revisions.paper && $0.role == .ordinaryDrawing
+              && $0.executionFrontiers.commandedStrokeCount > 0
+          }) {
+            throw PlotterModelError.invalidValue("This sheet already has drawing ink. Replace the sheet before preparing coverage trials.")
+          }
+          if let priorRecord = facts.coverageRecords.last(where: {
+            $0.paper == facts.revisions.paper && $0.program.source?.kind == DrawingCoverageExperiment.sourceKind
+          }) {
+            guard let descriptor = DrawingCoverageTrialDescriptor.decode(priorRecord.program.source) else {
+              throw PlotterModelError.invalidValue("The sheet has unreadable experiment provenance. Use a new sheet.")
+            }
+            state.coverageExperiment = descriptor.experiment
+          } else {
+            state.coverageExperiment = try DrawingCoverageExperiment(region: region,
+              registration: registration, prior: prior, paper: facts.revisions.paper,
+              style: StrokeStyle(nominalLineWidth: 0.4,
+                penProfileID: PenProfileID(facts.revisions.toolAssemblyRevision.rawValue)))
+          }
+          state.coverageRecordIDs = nil
+        }
+        guard let experiment = state.coverageExperiment,
+          experiment.isCurrent(registration: registration, prior: prior,
+            region: region, paper: facts.revisions.paper) else {
+          throw PlotterModelError.invalidValue("Experiment provenance changed. Leave the experiment and use a new sheet.")
+        }
+        let assessment = DrawingCoverageAssessment.evaluate(experiment: experiment,
+          records: facts.coverageRecords, registration: registration)
+        state.coverageAssessment = assessment
+        state.coverageRecordIDs = facts.revisions.coverageRecordIDs
+        state.coverageUnavailableReason = nil
+        if let blocker = assessment.blocker { throw PlotterModelError.invalidValue(blocker) }
+        if let trial = assessment.nextTrial ?? experiment.trials.last(where: { assessment.attemptedIndices.contains($0.index) }) {
+          state.suppliedProgram = try experiment.program(for: trial)
+          state.evidenceRole = trial.role
+          state.machineCenter = experiment.center
+          state.uniformScale = 1
+          state.rotationDegrees = 0
+          state.placementID = UUID()
+        }
+      } catch {
+        if state.coverageExperiment != nil {
+          state.plan = nil
+          state.preview = nil
+          state.coverageUnavailableReason = String(describing: error)
+        }
+        return refuse(submission, state: &state, facts: facts, owner: Authority.draft,
+          reason: .coverageExperimentUnavailable, remedy: String(describing: error))
+      }
+    case .leaveCoverageExperiment:
+      state.coverageExperiment = nil
+      state.coverageAssessment = nil
+      state.coverageRecordIDs = nil
+      state.coverageUnavailableReason = nil
+      state.suppliedProgram = nil
+      state.evidenceRole = .ordinaryDrawing
+      state.uniformScale = 0.25
+      state.machineCenter = nil
+      state.placementID = UUID()
     case .open:
       state.isOpen = true
     case .close:
@@ -725,6 +825,25 @@ public actor PlotterDrawingDraftRuntime {
     facts: PlotterDrawingDraftExternalFacts,
     requestID: PlotterDrawingDraftRequestID?
   ) {
+    if let experiment = state.coverageExperiment {
+      if let registration = facts.registration,
+        let region = facts.revisions.drawableRegion,
+        let prior = try? PlotterDrawingPlanningAdapter.planningProvenance(for: registration),
+        experiment.isCurrent(registration: registration, prior: prior,
+          region: region, paper: facts.revisions.paper) {
+        state.coverageUnavailableReason = nil
+        if state.coverageRecordIDs != facts.revisions.coverageRecordIDs {
+          state.coverageAssessment = DrawingCoverageAssessment.evaluate(experiment: experiment,
+            records: facts.coverageRecords, registration: registration)
+          state.coverageRecordIDs = facts.revisions.coverageRecordIDs
+        }
+      } else {
+        state.coverageUnavailableReason = "Experiment provenance changed. Leave the experiment and use a new sheet."
+        state.plan = nil
+        state.preview = nil
+        return
+      }
+    }
     // Artwork is independent of calibration. Retain it while planning is
     // unavailable so an authored portrait survives Learning and revalidation.
     let program = state.suppliedProgram ?? (try? DrawingProgramCatalog.program(
@@ -735,6 +854,15 @@ public actor PlotterDrawingDraftRuntime {
       )
     ))
     state.program = program
+    if let experiment = state.coverageExperiment,
+      DrawingCoverageTrialDescriptor.decode(program?.source)?.experiment != experiment {
+      state.plan = nil
+      state.preview = nil
+      state.planningRefusal = issue(requestID: requestID, state: state, facts: facts,
+        owner: Authority.draft, reason: .coverageExperimentUnavailable,
+        remedy: state.coverageAssessment?.blocker ?? "Select a current sealed experiment trial or leave the experiment.")
+      return
+    }
     guard let registration = facts.registration else {
       state.plan = nil
       state.preview = nil
@@ -762,6 +890,16 @@ public actor PlotterDrawingDraftRuntime {
       return
     }
     guard let program else { return }
+    if let assessment = state.coverageAssessment,
+      let descriptor = DrawingCoverageTrialDescriptor.decode(program.source),
+      assessment.blocker != nil || assessment.attemptedIndices.contains(descriptor.trialIndex) {
+      state.plan = nil
+      state.preview = nil
+      state.planningRefusal = issue(requestID: requestID, state: state, facts: facts,
+        owner: Authority.draft, reason: .coverageExperimentUnavailable,
+        remedy: assessment.blocker ?? "This trial is recorded. Select Next Experiment Trial or leave the experiment.")
+      return
+    }
     let built = PlotterDrawingPlanningAdapter.buildDraft(
       program: program,
       machineCenter: state.machineCenter,
@@ -838,12 +976,17 @@ public actor PlotterDrawingDraftRuntime {
         })
       }
       let points = projected.flatMap(\.points)
-      let bounds = points.isEmpty ? nil : try AxisAlignedBounds<CameraPixelSpace>(
-        minX: points.map(\.x).min()!,
-        minY: points.map(\.y).min()!,
-        maxX: points.map(\.x).max()!,
-        maxY: points.map(\.y).max()!
-      )
+      let bounds: AxisAlignedBounds<CameraPixelSpace>?
+      if let minX = points.map(\.x).min(), let maxX = points.map(\.x).max(),
+        let minY = points.map(\.y).min(), let maxY = points.map(\.y).max() {
+        // Bounds are a display/hit-target rectangle. An axis-aligned line has
+        // zero extent on one axis; give that axis a pixel without altering the
+        // exact projected path, execution geometry, or evidence applicability.
+        let padX = max(0, 1 - (maxX - minX)) / 2
+        let padY = max(0, 1 - (maxY - minY)) / 2
+        bounds = try AxisAlignedBounds(minX: minX - padX, minY: minY - padY,
+                                       maxX: maxX + padX, maxY: maxY + padY)
+      } else { bounds = nil }
       return PlotterDrawingDraftPreview(
         displayedFrame: frame,
         strokes: projected,
@@ -936,7 +1079,10 @@ public actor PlotterDrawingDraftRuntime {
       paperCoverageObservation: state.paperCoverageObservation,
       paperCoverageIsCurrent: coverageIsCurrent,
       paperCoverageDisplay: coverageDisplay,
-      lastSubmissionRefusal: state.lastSubmissionRefusal
+      lastSubmissionRefusal: state.lastSubmissionRefusal,
+      coverageExperiment: state.coverageExperiment,
+      coverageAssessment: state.coverageAssessment,
+      coverageUnavailableReason: state.coverageUnavailableReason
     )
   }
 
@@ -944,6 +1090,7 @@ public actor PlotterDrawingDraftRuntime {
     state: SourceState,
     facts: PlotterDrawingDraftExternalFacts
   ) -> ClosedRange<Double> {
+    if state.coverageExperiment != nil { return 1...1 }
     guard let region = facts.revisions.drawableRegion else { return 0.02...1 }
     let extent = state.suppliedProgram?.fieldExtent
       ?? DrawingProgramCatalog.entry(for: state.selectedCatalogItemID).fieldExtent

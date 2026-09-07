@@ -23,8 +23,9 @@ plan, compatibility workflow, or effect-capable shadow path.
 
 The product experiments below may supply requirements to a package, but they do
 not bypass its dependencies or introduce another episode runtime. Adaptive
-selection, candidate fitting, and promotion remain later product capabilities
-on the canonical program/plan/evidence/episode path.
+selection and cross-track candidate fitting now use the canonical
+program/plan/evidence path. Batch execution and model acceptance remain product
+work on those owners.
 
 ## 1. Attended sparse-calibration validation
 
@@ -76,28 +77,25 @@ association with the evidence graph.
 
 ## 4.2 Coverage Line Trials
 
-The typed run record, fixed evidence roles, multi-stroke execution owner,
-generic planned-ink observer, and append-only archive now exist. Add the active
-selection policy and bounded training batch that choose clean lines across the accepted map's
-position range and all four signed axis directions. One operator action starts
-the batch; software owns normal trial-to-trial progression and **Stop** remains
-available throughout. Each line keeps its own baseline/reveal frames, exact tip
-revision, controller and paper identities, request, execution, ink, and
-residual. Possible ink, ambiguous motion, or unclear Vision stops the batch
-without redrawing or silently counting the trial.
-
-Reserve some coverage locations before fitting. They are holdouts and cannot be
-promoted into training evidence after results are known.
+The sealed coverage selector and operator-stepped trials are implemented.
+Automate the bounded batch so one operator action starts it, software owns normal
+trial-to-trial progression, and **Stop** remains available throughout. Preserve
+the delivered exact per-line baseline/reveal, role, provenance, controller, ink,
+and residual records. Possible ink, ambiguous motion, unclear Vision, or archive
+failure must stop the batch without redraw. Keep the split fixed before results.
+Validate the line dimensions, spacing, observer coverage, and selection policy on
+attended physical hardware before claiming training reliability.
 
 ## 4.3 Direction and Residual Model Training
 
-Compare the current affine map against bounded candidate corrections for
-direction-dependent backlash and spatial residual. Fit only attributable
-training trials. Preserve the accepted affine map as the prior and rollback
-authority. Report applicability, uncertainty, training residuals, and reserved
-holdout residuals separately. A candidate may advance only when it improves the
-predeclared held-out metric without regressing any declared region or direction;
-software failure or inconclusive evidence leaves the prior current.
+Bounded spatial and signed-direction **cross-track** candidate fitting and
+reserved-holdout prediction comparison are implemented. Add experiments that can
+identify along-track backlash and other effects that straight-line interiors
+cannot measure. Evaluate corrected execution against the affine prior with
+predeclared physical holdouts, then add explicit scoped candidate acceptance and
+rollback. The current candidate is diagnostic and never changes execution.
+Retain separate applicability, uncertainty, training error, and holdout error;
+failed or inconclusive evidence must leave the affine prior current.
 
 ## 4.4 Stroke and Shape Holdouts
 
@@ -144,9 +142,10 @@ model-quality gates.
 ## 7. Adaptive model promotion and face programs
 
 Direct placed-vector drawing is implemented outside the Learning Path. The next
-adaptive step is not another execution path: implement the 4.2 selector, 4.3
-candidate-versus-prior fitter, sealed physical holdouts, and readiness emission
-on the existing program/plan/evidence types. Do not restore the deleted
+adaptive step is bounded batch progression, corrected-execution physical
+holdouts, explicit model acceptance, and readiness emission on the existing
+program/plan/evidence types. The selector and diagnostic cross-track fitter are
+implemented. Do not restore the deleted
 speculative online dataset, policy/reward scaffolding, model-mismatch overlay,
 or dormant navigation route as a compatibility surface.
 
