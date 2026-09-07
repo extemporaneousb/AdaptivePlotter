@@ -31,6 +31,14 @@ struct WorkbenchVoiceContext: Equatable {
       && lhs.projection.runtimeRevisions == rhs.projection.runtimeRevisions
   }
 
+  var stopIsOnlyResponse: Bool {
+    !commands.isEmpty && commands.allSatisfy(\.isLearningStop)
+  }
+
+  var conversationChoices: [String] {
+    commands.map { $0.isLearningStop ? "stop" : $0.id.rawValue }
+  }
+
   var phrases: [String] {
     commands.map(\.title) + [
       "yes", "no", "it does", "it doesn't", "move", "go ahead", "move towards Y plus",
@@ -171,8 +179,8 @@ final class WorkbenchVoiceController {
 
   func update(_ context: WorkbenchVoiceContext?) {
     guard self.context != context else { return }
-    let choicesChanged = self.context?.commands != context?.commands
-      || self.context?.prompt != context?.prompt
+    let choicesChanged = self.context?.conversationChoices != context?.conversationChoices
+      || (self.context?.prompt != context?.prompt && context?.stopIsOnlyResponse != true)
     self.context = context
     // Controller telemetry can refresh the request revision without changing
     // the question. Keep the microphone open and submit with the newest copy.
@@ -197,16 +205,22 @@ final class WorkbenchVoiceController {
     let priorPrompt = promptID
     promptID = nil
     guard isEnabled, let context, !context.commands.isEmpty else {
-      if let priorPrompt { Task { await speech.cancel(priorPrompt) } }
+      Task { [weak self, speech] in
+        guard self?.generation == id else { return }
+        await speech.prioritizeOperatorInput(false)
+        if let priorPrompt { await speech.cancel(priorPrompt) }
+      }
       status = isEnabled ? "Waiting for current exercise choices" : "Voice off"
       return
     }
     status = "Preparing Voice…"
-    let shouldSpeak = lastSpokenPrompt != context.prompt
+    let shouldSpeak = lastSpokenPrompt != context.prompt && !context.stopIsOnlyResponse
     lastSpokenPrompt = context.prompt
     activityTask = Task { [weak self, speech] in
-      if let priorPrompt { await speech.cancel(priorPrompt) }
       guard let self, self.generation == id, !Task.isCancelled else { return }
+      await speech.prioritizeOperatorInput(context.stopIsOnlyResponse)
+      if let priorPrompt { await speech.cancel(priorPrompt) }
+      guard self.generation == id, !Task.isCancelled else { return }
       if shouldSpeak, !context.prompt.isEmpty {
         let request = PlotterSpeechEffectRequest(message: context.prompt)
         self.promptID = request.id
@@ -224,7 +238,7 @@ final class WorkbenchVoiceController {
           self.stopInput()
           self.status = "Speaking…"
         } else if !self.isSubmitting {
-          self.beginListening(context, generation: id)
+          if self.inputTask == nil { self.beginListening(self.context ?? context, generation: id) }
         }
       }
       if self.generation == id { self.stop() }
@@ -248,7 +262,8 @@ final class WorkbenchVoiceController {
           case .level(let value): self.inputLevel = value
           case .failed(let detail):
             self.stopInput()
-            self.status = "\(detail) · Retry Voice"
+            self.status = "\(detail) · Reconnecting microphone…"
+            self.retryInput(context, generation: id)
           case .transcript(let text, let isFinal):
             // Endpoint on a settled partial as well as the recognizer's final:
             // Apple's live recognizer need not end a request after each reply.
@@ -265,12 +280,24 @@ final class WorkbenchVoiceController {
             }
           }
         }
+        if self.generation == id, !Task.isCancelled, self.isListening {
+          self.stopInput()
+          self.retryInput(context, generation: id)
+        }
       } catch is CancellationError {
       } catch {
         guard self.generation == id, !Task.isCancelled else { return }
         self.stopInput()
         self.status = error.localizedDescription
       }
+    }
+  }
+
+  private func retryInput(_ context: WorkbenchVoiceContext, generation id: UUID) {
+    silenceTask = Task { [weak self] in
+      do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+      guard let self, self.generation == id, self.isEnabled, !self.playbackIsActive else { return }
+      self.beginListening(self.context ?? context, generation: id)
     }
   }
 
@@ -292,6 +319,11 @@ final class WorkbenchVoiceController {
       let request = PlotterSpeechEffectRequest(
         message: "Please say " + context.commands.map(\.title).joined(separator: ", or ")
       )
+      if context.stopIsOnlyResponse {
+        // Keep listening rather than reading a Stop instruction into the mic.
+        beginListening(context, generation: id)
+        return
+      }
       promptID = request.id
       Task { [weak self, speech] in
         guard self?.generation == id, self?.isEnabled == true else { return }

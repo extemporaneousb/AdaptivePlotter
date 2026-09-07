@@ -35,23 +35,23 @@ struct DrawingPlanRunInterpreterTests {
   @Test("two strokes execute in plan order and commit checkpoints only after Pen Up")
   func twoStrokeOrderingAndCheckpoints() async throws {
     let request = try drawingPlanRequest([
-      [(1, 0), (2, 0)],
-      [(2, 1), (2, 2)],
+      [(2, 0), (4, 0)],
+      [(4, 2), (4, 4)],
     ])
-    let travel1 = try travelRequest(from: (0, 0), to: (1, 0), request: request)
-    let stroke1 = try strokeRequest(from: (1, 0), to: (2, 0), request: request)
-    let travel2 = try travelRequest(from: (2, 0), to: (2, 1), request: request)
-    let stroke2 = try strokeRequest(from: (2, 1), to: (2, 2), request: request)
+    let travel1 = try travelRequest(from: (0, 0), to: (2, 0), request: request)
+    let stroke1 = try strokeRequest(from: (2, 0), to: (4, 0), request: request)
+    let travel2 = try travelRequest(from: (4, 0), to: (4, 2), request: request)
+    let stroke2 = try strokeRequest(from: (4, 2), to: (4, 4), request: request)
     var exchanges = drawingPlanProbeExchanges(position: (0, 0))
     exchanges += penExchanges(.raise, at: (0, 0), profile: request.penActuationProfile)
-    exchanges += travelExchanges(travel1, from: (0, 0), to: (1, 0))
-    exchanges += penExchanges(.lower, at: (1, 0), profile: request.penActuationProfile)
-    exchanges += strokeExchanges(stroke1, from: (1, 0), to: (2, 0))
-    exchanges += penExchanges(.raise, at: (2, 0), profile: request.penActuationProfile)
-    exchanges += travelExchanges(travel2, from: (2, 0), to: (2, 1))
-    exchanges += penExchanges(.lower, at: (2, 1), profile: request.penActuationProfile)
-    exchanges += strokeExchanges(stroke2, from: (2, 1), to: (2, 2))
-    exchanges += penExchanges(.raise, at: (2, 2), profile: request.penActuationProfile)
+    exchanges += travelExchanges(travel1, from: (0, 0), to: (2, 0))
+    exchanges += penExchanges(.lower, at: (2, 0), profile: request.penActuationProfile)
+    exchanges += strokeExchanges(stroke1, from: (2, 0), to: (4, 0))
+    exchanges += penExchanges(.raise, at: (4, 0), profile: request.penActuationProfile)
+    exchanges += travelExchanges(travel2, from: (4, 0), to: (4, 2))
+    exchanges += penExchanges(.lower, at: (4, 2), profile: request.penActuationProfile)
+    exchanges += strokeExchanges(stroke2, from: (4, 2), to: (4, 4))
+    exchanges += penExchanges(.raise, at: (4, 4), profile: request.penActuationProfile)
     let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
 
     let outcome = await fixture.interpreter.requestDrawingPlan(request)
@@ -60,7 +60,7 @@ struct DrawingPlanRunInterpreterTests {
       Issue.record("expected completed two-stroke plan, got \(outcome)")
       return
     }
-    #expect(finalPosition == (try MachinePosition(x: 2, y: 2)))
+    #expect(finalPosition == (try MachinePosition(x: 4, y: 4)))
     #expect(progress.completedStrokeIDs == request.plan.strokes.map(\.logicalStrokeID))
     #expect(progress.completedCheckpointIDs == request.plan.checkpoints.map(\.id))
     #expect(progress.commandedStrokeCount == 2)
@@ -263,8 +263,8 @@ struct DrawingPlanRunInterpreterTests {
 
   @Test("travel and Pen Down refusals do not cross the commanded-stroke frontier")
   func preStrokeRefusals() async throws {
-    let travelRequestPlan = try drawingPlanRequest([[(1, 0), (2, 0)]])
-    let travel = try travelRequest(from: (0, 0), to: (1, 0), request: travelRequestPlan)
+    let travelRequestPlan = try drawingPlanRequest([[(2, 0), (4, 0)]])
+    let travel = try travelRequest(from: (0, 0), to: (2, 0), request: travelRequestPlan)
     var travelExchanges = drawingPlanProbeExchanges(position: (0, 0))
     travelExchanges += penExchanges(
       .raise,

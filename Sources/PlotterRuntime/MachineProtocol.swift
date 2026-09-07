@@ -904,6 +904,16 @@ public enum JogCancelRefusal: Codable, Hashable, Sendable {
 /// `transmitted` therefore means exactly one `0x85` byte was written; only a
 /// later typed Idle status promotes it to `completed`.
 public enum JogCancelOutcome: Codable, Hashable, Sendable {
+  /// Cancellation and segment completion can carry separate controller samples.
+  /// Compare their physical poses through the shared settlement policy.
+  func isSettled(at position: MachinePosition) -> Bool {
+    switch self {
+    case .completed(let actual): MachinePositionAcceptancePolicy.accepts(actual, target: position)
+    case .refused(.noActiveJog): true
+    default: false
+    }
+  }
+
   case refused(JogCancelRefusal)
   case transmitted
   case completed(finalPosition: MachinePosition)

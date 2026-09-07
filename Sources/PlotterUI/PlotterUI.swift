@@ -993,11 +993,12 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
           }
         case .penConfirmation(let command, let value, let minimum, let maximum):
           let reason = facts.startUnavailableReasons[item.ownerID]
-          actions = penSetpointDrainIsInProgress ? [] : [.init(
+          actions = [.init(
               itemID: item.ownerID,
               action: .choice(.yes),
               title: command == .raise ? "Confirm Pen Up" : "Confirm Pen Down",
-              unavailableReason: reason
+              unavailableReason: penSetpointDrainIsInProgress
+                ? "Applying the selected servo setting…" : reason
             )]
           adjustment = PlotterUILearningPenAdjustmentDecision(
             command: command,

@@ -46,22 +46,19 @@ enum ExerciseActionLayoutPolicy {
 }
 
 enum WorkbenchPane: Hashable, Sendable {
-  case navigator
   case motion
-  case exerciseDetail
+  case learningPath
 }
 
 enum WorkbenchPanel: CaseIterable, Hashable, Sendable {
   case learningPath
   case motion
-  case exercise
   case videoSettings
 
   var title: String {
     switch self {
     case .learningPath: "Learning Path"
     case .motion: "Motion"
-    case .exercise: "Exercise"
     case .videoSettings: "Video Settings"
     }
   }
@@ -70,7 +67,6 @@ enum WorkbenchPanel: CaseIterable, Hashable, Sendable {
     switch self {
     case .learningPath: "sidebar.left"
     case .motion: "rectangle.bottomthird.inset.filled"
-    case .exercise: "sidebar.right"
     case .videoSettings: "sidebar.trailing"
     }
   }
@@ -84,34 +80,29 @@ enum WorkbenchPanel: CaseIterable, Hashable, Sendable {
 /// camera, controller, or exercise authority, and the camera is never a
 /// hideable pane.
 struct WorkbenchPaneVisibility: Equatable, Sendable {
-  var navigatorIsPresented: Bool
   var motionIsPresented: Bool
-  var exerciseDetailIsPresented: Bool
+  var learningPathIsPresented: Bool
 
   init(
-    navigatorIsPresented: Bool = true,
     motionIsPresented: Bool = false,
-    exerciseDetailIsPresented: Bool = true
+    learningPathIsPresented: Bool = true
   ) {
-    self.navigatorIsPresented = navigatorIsPresented
     self.motionIsPresented = motionIsPresented
-    self.exerciseDetailIsPresented = exerciseDetailIsPresented
+    self.learningPathIsPresented = learningPathIsPresented
   }
 
   func isPresented(_ pane: WorkbenchPane) -> Bool {
     switch pane {
-    case .navigator: navigatorIsPresented
     case .motion: motionIsPresented
-    case .exerciseDetail: exerciseDetailIsPresented
+    case .learningPath: learningPathIsPresented
     }
   }
 
   func toggling(_ pane: WorkbenchPane) -> WorkbenchPaneVisibility {
     var result = self
     switch pane {
-    case .navigator: result.navigatorIsPresented.toggle()
     case .motion: result.motionIsPresented.toggle()
-    case .exerciseDetail: result.exerciseDetailIsPresented.toggle()
+    case .learningPath: result.learningPathIsPresented.toggle()
     }
     return result
   }
@@ -164,14 +155,11 @@ struct WorkbenchLayoutState: Equatable, Sendable {
 
 enum VideoSettingsUnavailableReason: Hashable, Sendable {
   case protectedCameraRequiresWindowWidth(Int)
-  case activeExerciseRequiresWindowWidth(Int)
 
   var message: String {
     switch self {
     case .protectedCameraRequiresWindowWidth(let width):
       "Widen the window to at least \(width) points so the protected camera and Video Settings can coexist."
-    case .activeExerciseRequiresWindowWidth(let width):
-      "Widen the window to at least \(width) points so the protected camera, Video Settings, and active Exercise controls including Stop can coexist."
     }
   }
 }
@@ -193,23 +181,20 @@ struct VideoSettingsPresentation: Equatable, Sendable {
 /// an open-then-close flash.
 struct VideoSettingsVisibilityPolicy: Equatable, Sendable {
   let minimumCameraWidth: CGFloat
-  let minimumNavigatorWidth: CGFloat
-  let minimumDetailWidth: CGFloat
+  let minimumLearningWidth: CGFloat
   let splitSeparation: CGFloat
   let inspectorWidth: CGFloat
   let inspectorSeparation: CGFloat
 
   init(
     minimumCameraWidth: CGFloat = 640,
-    minimumNavigatorWidth: CGFloat = 220,
-    minimumDetailWidth: CGFloat = 300,
+    minimumLearningWidth: CGFloat = 340,
     splitSeparation: CGFloat = 8,
     inspectorWidth: CGFloat = 360,
     inspectorSeparation: CGFloat = 8
   ) {
     self.minimumCameraWidth = Self.nonnegativeFinite(minimumCameraWidth)
-    self.minimumNavigatorWidth = Self.nonnegativeFinite(minimumNavigatorWidth)
-    self.minimumDetailWidth = Self.nonnegativeFinite(minimumDetailWidth)
+    self.minimumLearningWidth = Self.nonnegativeFinite(minimumLearningWidth)
     self.splitSeparation = Self.nonnegativeFinite(splitSeparation)
     self.inspectorWidth = Self.nonnegativeFinite(inspectorWidth)
     self.inspectorSeparation = Self.nonnegativeFinite(inspectorSeparation)
@@ -222,46 +207,29 @@ struct VideoSettingsVisibilityPolicy: Equatable, Sendable {
   }
 
   func minimumContentWidth(for panes: WorkbenchPaneVisibility) -> CGFloat {
-    let presentedSideCount = [
-      panes.navigatorIsPresented,
-      panes.exerciseDetailIsPresented,
-    ].filter { $0 }.count
-    return minimumCameraWidth
-      + (panes.navigatorIsPresented ? minimumNavigatorWidth : 0)
-      + (panes.exerciseDetailIsPresented ? minimumDetailWidth : 0)
-      + CGFloat(presentedSideCount) * splitSeparation
+    minimumCameraWidth
+      + (panes.learningPathIsPresented ? minimumLearningWidth + splitSeparation : 0)
   }
 
-  /// Hides the navigator first, then the Exercise detail only if it is not the
-  /// active operation's protected control surface. A protected Exercise pane
-  /// is restored before admission if it was previously hidden.
+  /// The Learning panel is presentation only. Stop is also in the persistent
+  /// command bar, so opening an inspector never depends on exercise completion.
   func preparingPanesToShow(
     _ panes: WorkbenchPaneVisibility,
-    availableWindowWidth: CGFloat,
-    exerciseDetailMustRemainVisible: Bool
+    availableWindowWidth: CGFloat
   ) -> WorkbenchPaneVisibility? {
     let width = Self.nonnegativeFinite(availableWindowWidth)
     func fits(_ candidate: WorkbenchPaneVisibility) -> Bool {
       width >= minimumContentWidth(for: candidate) + inspectorWidth + inspectorSeparation
     }
-
     var candidate = panes
-    if exerciseDetailMustRemainVisible {
-      candidate.exerciseDetailIsPresented = true
-    }
-    guard !fits(candidate) else { return candidate }
-
-    candidate.navigatorIsPresented = false
-    guard !fits(candidate) else { return candidate }
-    guard !exerciseDetailMustRemainVisible else { return nil }
-    candidate.exerciseDetailIsPresented = false
+    if fits(candidate) { return candidate }
+    candidate.learningPathIsPresented = false
     return fits(candidate) ? candidate : nil
   }
 
   func presentation(
     layout: WorkbenchLayoutState,
-    availableWindowWidth: CGFloat,
-    exerciseDetailMustRemainVisible: Bool
+    availableWindowWidth: CGFloat
   ) -> VideoSettingsPresentation {
     if layout.videoSettingsIsPresented {
       return VideoSettingsPresentation(
@@ -276,19 +244,6 @@ struct VideoSettingsVisibilityPolicy: Equatable, Sendable {
     let unavailableReason: VideoSettingsUnavailableReason?
     if width < minimumWidthToShow {
       unavailableReason = .protectedCameraRequiresWindowWidth(Int(minimumWidthToShow))
-    } else if preparingPanesToShow(
-      layout.panes,
-      availableWindowWidth: width,
-      exerciseDetailMustRemainVisible: exerciseDetailMustRemainVisible
-    ) == nil {
-      let protectedPanes = WorkbenchPaneVisibility(
-        navigatorIsPresented: false,
-        motionIsPresented: layout.panes.motionIsPresented,
-        exerciseDetailIsPresented: true
-      )
-      unavailableReason = .activeExerciseRequiresWindowWidth(
-        Int(minimumContentWidth(for: protectedPanes) + inspectorWidth + inspectorSeparation)
-      )
     } else {
       unavailableReason = nil
     }
@@ -305,8 +260,7 @@ struct VideoSettingsVisibilityPolicy: Equatable, Sendable {
   func transition(
     from layout: WorkbenchLayoutState,
     action: VideoSettingsVisibilityAction,
-    availableWindowWidth: CGFloat,
-    exerciseDetailMustRemainVisible: Bool
+    availableWindowWidth: CGFloat
   ) -> WorkbenchLayoutState? {
     switch action {
     case .hide:
@@ -316,8 +270,7 @@ struct VideoSettingsVisibilityPolicy: Equatable, Sendable {
       guard
         let panes = preparingPanesToShow(
           layout.panes,
-          availableWindowWidth: availableWindowWidth,
-          exerciseDetailMustRemainVisible: exerciseDetailMustRemainVisible
+          availableWindowWidth: availableWindowWidth
         )
       else { return nil }
       return WorkbenchLayoutState(

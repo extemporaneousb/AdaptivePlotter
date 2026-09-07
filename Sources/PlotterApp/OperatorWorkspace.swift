@@ -574,13 +574,6 @@ struct PlotterPreviewIsolationDiagnostics: Equatable, Sendable {
   let drawingDraftSynchronizationCount: Int
 }
 
-/// Window-layout input derived from the same projected action strip rendered
-/// in the Exercise pane. It is intentionally narrower than a full Learning
-/// projection so layout decisions cannot trigger another projection build.
-struct ExercisePaneProtectionPresentation: Hashable, Sendable {
-  let mustRemainVisible: Bool
-}
-
 struct LearningModePresentation: Hashable, Sendable {
   let isEnabled: Bool
   let actionTitle: String
@@ -597,7 +590,6 @@ private final class LearningPresentationBase {
   let actionability: PlotterUILearningActionabilityProjection
   let currentItemID: LearningPathItemID
   let currentProjection: LearningPathProjection
-  let exercisePaneProtection: ExercisePaneProtectionPresentation
 
   init(
     revision: UInt64,
@@ -613,9 +605,6 @@ private final class LearningPresentationBase {
     self.actionability = actionability
     self.currentItemID = currentItemID
     self.currentProjection = currentProjection
-    exercisePaneProtection = ExercisePaneProtectionPresentation(
-      mustRemainVisible: currentProjection.currentActionStrip?.mustRemainVisible == true
-    )
   }
 }
 
@@ -2806,23 +2795,6 @@ final class PlotterApplicationRuntime:
         )
       )
     }
-    if !context.isProposed,
-      let position = try? currentMachinePosition(),
-      let point = try? registration.tipPixel(at: position.point)
-    {
-      overlays.append(
-        CameraOverlayMeasurement(
-          frameID: displayedFrame.frame.id,
-          cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
-          geometry: .point(point),
-          provenance: CameraMeasurementProvenance(
-            kind: .predictedContactPoint,
-            source: .inferred,
-            algorithmRevision: "accepted-tip-current-position-v1"
-          )
-        )
-      )
-    }
     if let savedCandidate,
       let machineCamera = savedCandidate.machineCamera?.registration,
       let position = try? currentMachinePosition(),
@@ -4080,10 +4052,6 @@ final class PlotterApplicationRuntime:
     learningPresentationBase().currentProjection.currentActionStrip
   }
 
-  var exercisePaneProtectionPresentation: ExercisePaneProtectionPresentation {
-    learningPresentationBase().exercisePaneProtection
-  }
-
   func selectedOperatorActionPresentation(
     for itemID: LearningPathItemID
   ) -> OperatorActionPresentation {
@@ -4491,7 +4459,6 @@ final class PlotterApplicationRuntime:
     let projection = PlotterAppUIProjection(
       semantic: semantic,
       actionSurface: actionSurface,
-      exercisePaneProtection: currentLearning.exercisePaneProtection,
       learningMode: learningModePresentation,
       learningPath: learningPath,
       currentLearningPathItemID: plotterUILearningItemID(
@@ -4822,8 +4789,11 @@ final class PlotterApplicationRuntime:
         remedy: "The root application runtime is shut down; no successor effect can start."
       )
     }
-    if request.uiRevision != currentUIRevision
-      || selectedProjection.semanticRevision != semanticPresentationRevision
+    let isImmediateStop: Bool = if case .learningAction(let action) = request.intent {
+      action.action.isImmediateStop
+    } else { false }
+    if !isImmediateStop && (request.uiRevision != currentUIRevision
+      || selectedProjection.semanticRevision != semanticPresentationRevision)
     {
       return plotterUIRefusal(
         request,
@@ -4833,7 +4803,7 @@ final class PlotterApplicationRuntime:
         remedy: "Refresh the current UI projection before retrying."
       )
     }
-    if submittedRuntimeRevisions != currentRuntimeRevisions {
+    if !isImmediateStop && submittedRuntimeRevisions != currentRuntimeRevisions {
       return plotterUIRefusal(
         request,
         reason: .staleRuntimeRevision,
@@ -12517,6 +12487,8 @@ final class PlotterApplicationRuntime:
     }
     let post = try await captureProtocolFrame(newerThan: baseline.frame.captureNanoseconds)
     displayedFrame = post
+    // Tip projection uses the shared drawing-containment policy, including
+    // field/machine round-trip residue at the closed calibration boundary.
     let intended = try plan.strokes.map { stroke in
       try Polyline(points: stroke.path.points.map { try registration.tipPixel(at: $0) })
     }

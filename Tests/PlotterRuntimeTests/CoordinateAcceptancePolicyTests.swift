@@ -10,7 +10,7 @@ struct CoordinateAcceptancePolicyTests {
       MachinePositionAcceptancePolicy.metric == .euclideanResidualMillimetres
     )
     #expect(
-      MachinePositionAcceptancePolicy.revision == .controllerQuantizedEuclideanV1
+      MachinePositionAcceptancePolicy.revision == .controllerQuantizedEuclideanV2
     )
     #expect(
       DrawingRegionContainmentPolicy.metric == .axisAlignedClosedBounds
@@ -25,10 +25,10 @@ struct CoordinateAcceptancePolicyTests {
     )
   }
 
-  @Test("controller settlement retains the Euclidean half-millimetre threshold")
+  @Test("controller settlement retains the Euclidean one-millimetre threshold")
   func controllerSettlementThreshold() {
-    #expect(MachinePositionAcceptancePolicy.accepts(residualMM: 0.5))
-    #expect(!MachinePositionAcceptancePolicy.accepts(residualMM: 0.501))
+    #expect(MachinePositionAcceptancePolicy.accepts(residualMM: 1.0))
+    #expect(!MachinePositionAcceptancePolicy.accepts(residualMM: 1.001))
   }
 
   @Test("drawing containment admits only the separately versioned numerical epsilon")

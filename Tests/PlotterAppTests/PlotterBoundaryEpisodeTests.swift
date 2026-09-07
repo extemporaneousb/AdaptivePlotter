@@ -471,14 +471,10 @@ struct PlotterBoundaryEpisodeTests {
       intent: exact.intent
     )
     let sink: any PlotterUIIntentSink = workspace
-    guard case .refused(let staleRefusal) = await sink.submitPlotterUIRequest(stale) else {
-      Issue.record("Expected stale Boundary runtime revision to refuse.")
-      return
-    }
-    #expect(staleRefusal.reason == .staleRuntimeRevision)
-
+    // Cancellation keeps the exact active capability even when unrelated
+    // runtime revisions change after the operator's Stop was rendered.
     await lowerGate.releaseFirstSegment()
-    let exactStop = Task { await sink.submitPlotterUIRequest(exact) }
+    let exactStop = Task { await sink.submitPlotterUIRequest(stale) }
     let stopDisposition = await exactStop.value
     guard case .accepted(_) = stopDisposition else {
       Issue.record("Expected the exact projected Boundary Stop request to route.")
@@ -1131,7 +1127,7 @@ struct PlotterBoundaryEpisodeTests {
     let outsideCenter = await outside.effects.waitForCenterAdmission(1)
     await outside.effects.settle(
       outsideCenter.handle,
-      with: .completed(finalPosition: try MachinePosition(x: 0.501, y: 0), idleVerified: true)
+      with: .completed(finalPosition: try MachinePosition(x: 1.001, y: 0), idleVerified: true)
     )
     let needsRetry = await outside.recorder.waitForTerminalCount(1, environment: .live)
     #expect(needsRetry.centerArrivalPosition == nil)

@@ -390,8 +390,8 @@ struct CurrentCameraCalibrationPlan: Hashable, Sendable {
     let safeMinY = acceptedBoundaryAggregates[.negativeY]!.estimateMM + Self.safetyMarginMM
     let safeMaxY = acceptedBoundaryAggregates[.positiveY]!.estimateMM - Self.safetyMarginMM
     let center = targetPosition.point
-    guard center.x >= safeMinX, center.x <= safeMaxX,
-      center.y >= safeMinY, center.y <= safeMaxY
+    guard DrawingRegionContainmentPolicy.contains(center, in: try AxisAlignedBounds(
+      minX: safeMinX, minY: safeMinY, maxX: safeMaxX, maxY: safeMaxY))
     else { throw CurrentCameraCalibrationPlanningError.centerOutsideSafeEnvelope }
 
     // The rectangle is deliberately symmetric around the selected center. A

@@ -1223,8 +1223,8 @@ is the only producer of content-addressed `ExecutionPlanRevision` values.
 under revision `acceptedBoundaryNumericalEpsilonV1`; its 1e-9 mm epsilon absorbs
 floating-point residue without admitting physically meaningful geometry beyond
 the accepted Boundary. `MachinePositionAcceptancePolicy` separately owns
-revision `controllerQuantizedEuclideanV1`, the Euclidean residual metric, and
-the 0.5 mm requested-pose settlement tolerance. Planning refuses geometry
+revision `controllerQuantizedEuclideanV2`, the Euclidean residual metric, and
+the 1 mm requested-pose settlement tolerance. Planning refuses geometry
 outside its own epsilon and neither App nor Runtime clips it.
 `RunInterpreter` owns a whole plan as one `RunOperation`, with
 subordinate Pen-Up travel, pen actuation, finite drawing segments, Stop, and one

@@ -5,6 +5,14 @@ by clicking it. **Connect** and **Enable Motion** belong to the workbench
 toolbar. They are external prerequisites, not Learning Path stages, exercises,
 or transitions.
 
+Learning Path navigation and exercise controls share one panel. Closing it or
+unchecking View → Learning Path only hides that panel; it leaves Learning and
+its current operation unchanged. The persistent command bar retains the exact
+current Stop. Voice is window-local and remains available with the panel hidden.
+Buttons show press, pending, and result feedback. Stop uses its own symbol and
+styling; ordinary choices do not encode Yes/No as green/red. Servo dragging
+commits once on release, with Confirm visibly unavailable during settlement.
+
 ```mermaid
 flowchart TD
   subgraph workbench["External workbench prerequisites — not Learning Path steps"]

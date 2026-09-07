@@ -41,14 +41,19 @@ Connect and Enable Motion expose direct current-session facts. Selecting a row
 changes presentation only; it cannot admit motion, change runtime current state,
 or promote evidence.
 
-The camera occupies the main workspace; the compact Learning Path reviews stages,
-and the current exercise places its prompt and controls together. **Panels**
-shows optional manual motion and navigation; **Video** opens camera controls.
-**Voice** in the Exercise pane reads the current prompt and listens for its
-button labels or contextual yes/no responses. Recognition uses Apple Speech,
-on device where available, and pauses while the app speaks. **Diagnostics**
-(⇧⌘D) copies or saves the current owner revisions, actions/refusals, and existing
-Learning transition history without starting another event stream.
+The camera occupies the main workspace. One **Learning Path** panel contains
+an Exercise picker, the selected prompt, and current exercise controls. Its X
+and the checked **View → Learning Path** menu item change visibility only;
+Learning activation is a separate control. Stop remains in the persistent
+command bar and Voice stays in the window when the panel is hidden.
+
+**Voice** reads questions and recognizes contextual answers and movement.
+When Stop is the only offered response, advisory playback yields to microphone
+input, including on subsequent Boundary legs. A partial “stop” submits
+immediately using the current cancellation capability; telemetry revision changes
+do not veto that Stop. Ordinary questions pause recognition during playback.
+**Diagnostics** (⇧⌘D) exports existing owner revisions, actions/refusals, and
+Learning transition history without another event stream.
 
 Presentation zoom is available after Exercise 1.2. Zoom, pan, and **Fit Learned Plotter
 Bounds** change only the view transform. They never change camera-pixel evidence,
@@ -78,7 +83,7 @@ limit-aware **Clear Alarm** action can send one guarded `$X` request.
 
 Controller `ok` proves acceptance only. Motion completes after fresh Idle and
 final MPos. Every production pose comparison uses attributable controller
-evidence and the shared 0.5 mm Euclidean settlement policy. Unknown post-write
+evidence and the shared 1 mm Euclidean settlement policy. Unknown post-write
 state is sticky and is never automatically resent.
 
 ## Sparse tip calibration
@@ -278,10 +283,10 @@ future declared coverage/model-comparison/holdout requirements.
 ## Workbench and evidence
 
 One singleton window contains the Learning Path, always-mounted camera/action
-surface, selected exercise, Motion region, optional Drawing Studio, and optional Video Settings. The
-state-dependent Show/Hide controls and matching panel close controls share one
-grammar. A panel that owns the only active Stop cannot be hidden until its
-operation settles.
+surface, Motion region, optional Drawing Studio, and optional Video Settings.
+View contains noun-labeled checked panel toggles. Learning can be hidden during
+an exercise because its Stop also remains in the command bar. A manual jog
+still retains its Motion-panel Stop control.
 
 Video Settings combines camera selection, adjacent Refresh, scene-analysis
 frames per second, viewport zoom/drag/region lock, and exactly two readable
@@ -328,8 +333,12 @@ The toolbar owns controller selection, Connect/Disconnect, Enable Motion, and
 compact status. Exercise Start, choices, Cancel, Stop, Restart, Redo, and Record
 Another Attempt stay with the exercise. A settled failed or cancelled attempt
 keeps Restart on its own review row but does not replace the next unmet exercise
-or its Start control. Buttons are authoritative input; speech is advisory output
-only.
+or its Start control. Buttons show a depressed press, pending spinner, and
+accepted/refused result. Repeated clicks cannot queue another in-flight request.
+Yes/No and ordinary commands use neutral system colors; Stop has a separate
+symbol and orange styling. Speech responses use the same current typed requests.
+Servo sliders edit locally and send the selected value on release; Confirm
+stays visible with its reason while the setpoint settles.
 
 Manual X distance, Y distance, and feed remain editable text fields initialized
 to 50 mm, 50 mm, and 500 mm/min. After Motion is enabled, camera, Vision,

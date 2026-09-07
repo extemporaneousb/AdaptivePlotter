@@ -6,6 +6,20 @@ import Testing
 
 @Suite("Tip applicability evidence policy")
 struct TipApplicabilityEvidencePolicyTests {
+  @Test("calibration domains share drawing containment at floating-point edges")
+  func domainRoundoffUsesSharedContainment() throws {
+    let registration = try TipAuthorityFixture().registration()
+    let edge = try Point2<MachineSpace>(x: registration.applicabilityRectangle.maxX.nextUp, y: 50)
+    #expect(!registration.applicabilityRectangle.contains(edge))
+    #expect(DrawingRegionContainmentPolicy.contains(edge, in: registration.applicabilityRectangle))
+    #expect(try registration.tipPixel(at: edge) == registration.cameraFromMachine.applying(to: edge))
+    #expect(try registration.diagnosticProjection(at: edge).applicability == .insideRecordedApplicability)
+    let path = try Polyline(points: [Point2<MachineSpace>(x: 50, y: 50), edge])
+    let projection = try TipApplicabilityEvidencePolicy.project(paths: [path], using: registration)
+    #expect(projection.diagnosticLimitation == nil)
+    #expect(projection.attributableCameraPolylines?.first?.points.count == 2)
+  }
+
   @Test("outside projection remains diagnostic but cannot enter evidence")
   func outsideProjectionIsDiagnosticOnly() throws {
     let registration = try TipAuthorityFixture().registration()

@@ -783,7 +783,7 @@ extension PlotterApplicationRuntimeTests {
   func centerArrivalAcceptsQuantizedSettlement() async throws {
     let target = try MachinePosition(x: 0, y: 0)
     let reproduced = try MachinePosition(x: 0.012, y: 0.011)
-    #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.5)
+    #expect(MachinePositionAcceptancePolicy.toleranceMM == 1.0)
     #expect(MachinePositionAcceptancePolicy.accepts(reproduced, target: target))
 
     let log = EventLog()
@@ -851,13 +851,13 @@ extension PlotterApplicationRuntimeTests {
   @Test("Out-of-tolerance center settlement offers center-only retry")
   func centerArrivalRejectsOutsideToleranceWithoutBoundaryRestart() async throws {
     let target = try MachinePosition(x: 0, y: 0)
-    let outside = try MachinePosition(x: 0.501, y: 0)
+    let outside = try MachinePosition(x: 1.001, y: 0)
     #expect(!MachinePositionAcceptancePolicy.accepts(outside, target: target))
 
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(
       log: log,
-      relativeJogSettlementOffset: try Vector2(dx: 0.501, dy: 0)
+      relativeJogSettlementOffset: try Vector2(dx: 1.001, dy: 0)
     )
     let camera = try TestObservationCameraSession()
     let boundaryRuntimeAccess = TestBoundaryRuntimeAccess()

@@ -81,9 +81,9 @@ struct WorkbenchTopBarLayoutTests {
     let disable = WorkbenchMotionAuthorizationActionPresentation(isAuthorized: true)
 
     #expect(enable.title == "Enable Motion")
-    #expect(enable.role.chrome(isEnabled: true) == .affirmative)
+    #expect(enable.role.chrome(isEnabled: true) == .neutralEnabled)
     #expect(disable.title == "Disable Motion")
-    #expect(disable.role.chrome(isEnabled: true) == .negative)
+    #expect(disable.role.chrome(isEnabled: true) == .neutralEnabled)
   }
 
   @Test("disabled Motion exposes its full reason as visible toolbar text")
@@ -103,9 +103,9 @@ struct WorkbenchTopBarLayoutTests {
     let disconnect = WorkbenchConnectionActionPresentation(action: .disconnect)
 
     #expect(connect.title == "Connect")
-    #expect(connect.role.chrome(isEnabled: true) == .affirmative)
+    #expect(connect.role.chrome(isEnabled: true) == .neutralEnabled)
     #expect(disconnect.title == "Disconnect")
-    #expect(disconnect.role.chrome(isEnabled: true) == .negative)
+    #expect(disconnect.role.chrome(isEnabled: true) == .neutralEnabled)
     #expect(disconnect.role.chrome(isEnabled: false) == .disabled)
   }
 }

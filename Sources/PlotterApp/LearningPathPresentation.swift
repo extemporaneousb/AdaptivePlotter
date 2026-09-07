@@ -32,7 +32,6 @@ struct PlotterAppUIProjectionInputs: Equatable {
 struct PlotterAppUIProjection: Sendable {
   let semantic: PlotterUIProjection
   let actionSurface: ActionSurfacePresentation
-  let exercisePaneProtection: ExercisePaneProtectionPresentation
   let learningMode: LearningModePresentation
   let learningPath: LearningPathProjection?
   let currentLearningPathItemID: LearningPathItemID
@@ -483,6 +482,7 @@ extension PlotterUILearningActionDecision {
   var kind: PlotterLearningAction { action }
   var isEnabled: Bool { unavailableReason == nil }
   var buttonRole: OperatorButtonRole {
+    if kind.isImmediateStop { return .stop }
     if case .choice(let choice) = kind {
       return choice == .yes ? .affirmative : .negative
     }

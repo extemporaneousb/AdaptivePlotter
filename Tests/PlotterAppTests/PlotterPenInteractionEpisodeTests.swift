@@ -673,14 +673,8 @@ struct PlotterPenInteractionEpisodeTests {
       actionID: refreshedStop.actionID,
       intent: refreshedStop.intent
     )
-    guard case .refused(let staleRefusal) = await sink.submitPlotterUIRequest(stale) else {
-      Issue.record("Expected a stale UI-bound Pen Stop capability to be refused.")
-      return
-    }
-    #expect(staleRefusal.reason == .staleUIRevision)
-    #expect(await stopFixture.machine.requestedPenCommands.isEmpty)
-
-    let exactStop = try currentPenStopRequest(stopFixture.workspace)
+    // Stop retains the exact active capability despite UI revision churn.
+    let exactStop = stale
     guard case .learningAction(let exactRequest) = exactStop.intent,
       case .stopPenInteraction(let exactCapability) = exactRequest.action
     else {

@@ -217,15 +217,13 @@ func videoSettingsOperatorActionDisposition(
   from layout: WorkbenchLayoutState,
   action: VideoSettingsVisibilityAction,
   availableWindowWidth: CGFloat,
-  exerciseDetailMustRemainVisible: Bool,
   policy: VideoSettingsVisibilityPolicy
 ) -> VideoSettingsOperatorActionDisposition? {
   guard
     let nextLayout = policy.transition(
       from: layout,
       action: action,
-      availableWindowWidth: availableWindowWidth,
-      exerciseDetailMustRemainVisible: exerciseDetailMustRemainVisible
+      availableWindowWidth: availableWindowWidth
     )
   else { return nil }
   return VideoSettingsOperatorActionDisposition(
@@ -252,33 +250,26 @@ struct PlotterApplicationRuntimeView: View {
     let ui = application.plotterUIProjection(
       selectedItemID: selection.selected,
       manualDraft: manualMotionDraft,
-      includesLearningPath:
-        layout.panes.navigatorIsPresented || layout.panes.exerciseDetailIsPresented,
+      includesLearningPath: true,
       pendingDrawingPlacement: pendingDrawingPlacement,
       pendingPointSelection: pendingPointSelection,
       observationViewport: actionSurfaceViewport
     )
     let actionSurfacePresentation = ui.actionSurface
-    let exercisePaneProtection = ui.exercisePaneProtection
     let learningMode = ui.learningMode
     let learningProjection = ui.learningPath
     let motionCollapseUnavailableReason = ui.manualMotion.stopAction == nil
       ? nil : "Stop the active manual jog before hiding its Stop control."
 
     GeometryReader { proxy in
-      let exerciseCollapseReason =
-        exerciseDetailCollapseUnavailableReason(exercisePaneProtection)
       let videoSettings = videoSettingsPolicy.presentation(
         layout: layout,
-        availableWindowWidth: proxy.size.width,
-        exerciseDetailMustRemainVisible: exercisePaneProtection.mustRemainVisible
+        availableWindowWidth: proxy.size.width
       )
       VStack(spacing: 0) {
           WorkbenchPaneControls(
             visibility: layout.panes,
             videoSettings: videoSettings,
-            exerciseDetailCollapseUnavailableReason:
-              exerciseCollapseReason,
             motionCollapseUnavailableReason: motionCollapseUnavailableReason,
             learningIsEnabled: learningMode.isEnabled,
             learningActionTitle: learningMode.actionTitle,
@@ -297,7 +288,6 @@ struct PlotterApplicationRuntimeView: View {
               performVideoSettingsAction(
                 action,
                 availableWindowWidth: proxy.size.width,
-                exercisePaneProtection: exercisePaneProtection,
                 projection: ui.semantic
               )
             }
@@ -305,20 +295,6 @@ struct PlotterApplicationRuntimeView: View {
 
       Divider()
       HSplitView {
-        if ui.learningIsEnabled, layout.panes.navigatorIsPresented,
-          let learningProjection
-        {
-          LearningPathNavigator(
-            selection: $selection,
-            projection: learningProjection,
-            currentLearningPathItemID: ui.currentLearningPathItemID,
-            plotterUIProjection: ui.semantic,
-            plotterUIIntentSink: application,
-            close: { layout = layout.toggling(.navigator) }
-          )
-          .frame(minWidth: 220, idealWidth: 240, maxWidth: 300)
-        }
-
         VStack(spacing: 0) {
 
           VSplitView {
@@ -428,7 +404,7 @@ struct PlotterApplicationRuntimeView: View {
           .background(Color(nsColor: .controlBackgroundColor))
         }
 
-        if ui.learningIsEnabled, layout.panes.exerciseDetailIsPresented,
+        if layout.panes.learningPathIsPresented,
           let learningProjection
         {
           LearningPathView(
@@ -437,13 +413,25 @@ struct PlotterApplicationRuntimeView: View {
             currentLearningPathItemID: ui.currentLearningPathItemID,
             plotterUIProjection: ui.semantic,
             plotterUIIntentSink: application,
-            close: { layout = layout.toggling(.exerciseDetail) },
-            closeUnavailableReason: exerciseCollapseReason,
-            speechRuntime: application.speechEffectRuntime
+            close: { layout = layout.toggling(.learningPath) }
           )
-          .frame(minWidth: 300, idealWidth: 340, maxWidth: 460)
+          .frame(minWidth: 340, idealWidth: 390, maxWidth: 480)
         }
       }
+      Divider()
+      WorkbenchVoiceView(
+        context: learningProjection.map { learning in
+          let current = selection.selected == ui.currentLearningPathItemID
+            ? learning : application.learningPathProjection(selectedItemID: ui.currentLearningPathItemID)
+          return WorkbenchVoiceContext(
+            presentation: current.selectedAction, projection: ui.semantic,
+            actionStrip: learning.currentActionStrip)
+        },
+        speech: application.speechEffectRuntime,
+        sink: application
+      )
+      .padding(.horizontal, 12)
+      .padding(.vertical, 6)
       }
       .onChange(of: proxy.size.width) { _, width in
         layout = layout.collapsingVideoSettingsIfNeeded(
@@ -497,17 +485,10 @@ struct PlotterApplicationRuntimeView: View {
     }
   }
 
-  private func exerciseDetailCollapseUnavailableReason(
-    _ presentation: ExercisePaneProtectionPresentation
-  ) -> String? {
-    guard presentation.mustRemainVisible else { return nil }
-    return "Finish or cancel the active exercise attempt before hiding its controls."
-  }
-
   private func usePortraitProgram(_ program: DrawingProgram) async -> String? {
     let projection = application.plotterUIProjection(
       selectedItemID: selection.selected, manualDraft: manualMotionDraft,
-      includesLearningPath: layout.panes.navigatorIsPresented || layout.panes.exerciseDetailIsPresented,
+      includesLearningPath: true,
       pendingDrawingProgram: program, pendingDrawingPlacement: pendingDrawingPlacement,
       pendingPointSelection: pendingPointSelection, observationViewport: actionSurfaceViewport)
     guard let request = projection.semantic.request(matching: .drawingDraft(.selectProgram(program))) else {
@@ -529,7 +510,6 @@ struct PlotterApplicationRuntimeView: View {
   private func performVideoSettingsAction(
     _ action: VideoSettingsVisibilityAction,
     availableWindowWidth: CGFloat,
-    exercisePaneProtection: ExercisePaneProtectionPresentation,
     projection: PlotterUIProjection
   ) {
     guard
@@ -537,7 +517,6 @@ struct PlotterApplicationRuntimeView: View {
         from: layout,
         action: action,
         availableWindowWidth: availableWindowWidth,
-        exerciseDetailMustRemainVisible: exercisePaneProtection.mustRemainVisible,
         policy: videoSettingsPolicy
       )
     else { return }
@@ -551,7 +530,6 @@ private struct WorkbenchPaneControls: View {
   @State private var requestRefusal: String?
   let visibility: WorkbenchPaneVisibility
   let videoSettings: VideoSettingsPresentation
-  let exerciseDetailCollapseUnavailableReason: String?
   let motionCollapseUnavailableReason: String?
   let learningIsEnabled: Bool
   let learningActionTitle: String
@@ -606,15 +584,19 @@ private struct WorkbenchPaneControls: View {
           .lineLimit(1)
           .help(learningRecordingDiagnostic)
       }
+      ForEach(plotterUIProjection.actions.filter(\.isLearningStop)) { action in
+        OperatorRequestButton(
+          title: "Stop", role: .stop,
+          request: plotterUIProjection.request(for: action.id),
+          unavailableReason: action.unavailableReason,
+          sink: plotterUIIntentSink
+        )
+        .keyboardShortcut(.cancelAction)
+        .help(action.title)
+      }
       Spacer(minLength: 12)
       Menu {
-        if learningIsEnabled {
-          paneToggle(.navigator, panel: .learningPath)
-          paneToggle(
-            .exerciseDetail, panel: .exercise,
-            unavailableReason: exerciseDetailCollapseUnavailableReason
-          )
-        }
+        paneToggle(.learningPath, panel: .learningPath)
         paneToggle(.motion, panel: .motion, unavailableReason: motionCollapseUnavailableReason)
         Toggle(WorkbenchPanel.videoSettings.title, isOn: Binding(
           get: { videoSettings.isPresented },
@@ -1102,7 +1084,7 @@ private struct MotionPanel: View {
           Label(stop.title, systemImage: "stop.fill")
             .frame(maxWidth: .infinity)
         }
-        .operatorButton(.negative)
+        .operatorButton(.stop)
         .keyboardShortcut(.cancelAction)
         .help(stop.detail)
         .accessibilityHint(stop.detail)
@@ -1142,23 +1124,13 @@ private struct MotionPanel: View {
         }
       }
 
-      HStack(spacing: 6) {
-        Button {
-          submit(PlotterAppUIActionID.manualPenUp)
-        } label: {
-          Label("Pen Up", systemImage: "arrow.up.to.line")
-        }
-        .operatorButton(
-          isEnabled: presentation.penUpUnavailableReason == nil
-        )
-        Button {
-          submit(PlotterAppUIActionID.manualPenDown)
-        } label: {
-          Label("Pen Down", systemImage: "arrow.down.to.line")
-        }
-        .operatorButton(
-          isEnabled: presentation.penDownUnavailableReason == nil
-        )
+      HStack(alignment: .top, spacing: 6) {
+        OperatorRequestButton(
+          title: "Pen Up", request: plotterUIProjection.request(for: PlotterAppUIActionID.manualPenUp),
+          unavailableReason: presentation.penUpUnavailableReason, sink: plotterUIIntentSink)
+        OperatorRequestButton(
+          title: "Pen Down", request: plotterUIProjection.request(for: PlotterAppUIActionID.manualPenDown),
+          unavailableReason: presentation.penDownUnavailableReason, sink: plotterUIIntentSink)
       }
 
       Text(presentation.penStateText)

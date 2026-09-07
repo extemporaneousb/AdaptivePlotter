@@ -99,13 +99,13 @@ struct TipCalibrationAuthorityTests {
       )
     }
     #expect(throws: TipCalibrationAuthorityError.frameEvidenceMismatch) {
-      try fixture.observation(position: .center, markPositionResidualMM: 0.501)
+      try fixture.observation(position: .center, markPositionResidualMM: 1.001)
     }
     #expect(throws: TipCalibrationAuthorityError.frameEvidenceMismatch) {
-      try fixture.observation(position: .center, revealPositionResidualMM: 0.501)
+      try fixture.observation(position: .center, revealPositionResidualMM: 1.001)
     }
     #expect(throws: TipCalibrationAuthorityError.frameEvidenceMismatch) {
-      try fixture.observation(position: .center, markGeometryCenterResidualMM: 0.501)
+      try fixture.observation(position: .center, markGeometryCenterResidualMM: 1.001)
     }
   }
 

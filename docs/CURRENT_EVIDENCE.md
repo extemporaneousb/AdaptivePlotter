@@ -8,6 +8,55 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Boundary measurement and workbench interaction fixes, 2026-09-06
+
+Blackdog task `TASK-77F69619` inspected the running signed `f4f12da` app
+(PID 21805), captured its window read-only, and inspected the saved Learning
+checkpoint. The visible failure was **Reveal Drawing: outsideDomain**, before
+ink detection. Its recorded Y maximum was `85.917`; the FieldSpace-to-machine
+round trip produced `85.91700000000002`, outside an exact containment test by
+`1.4210854715202004e-14` mm. The existing DrawingRegionContainmentPolicy already
+handles numerical boundary residue, but tip projection bypassed it.
+
+The comparison audit covered App, Runtime, EpisodeRuntime, and Model position,
+coordinate, bounds, residual, and result comparisons. Tip projection, tip
+observation domain validation, diagnostic/evidence applicability, and the
+calibration-center envelope now use the existing DrawingRegionContainmentPolicy.
+Boundary cancellation also compared two controller-position payloads by exact
+equality; it now uses MachinePositionAcceptancePolicy. The shared physical
+settlement value is 1 mm Euclidean under `controllerQuantizedEuclideanV2`.
+Digital request/frame/revision identities and numerical matrix checks retain
+their existing meaning. No parallel coordinate policy was introduced.
+
+Voice gives microphone input priority while Stop is the sole response, cancels
+advisory speech through its existing owner, and reconnects ended recognition.
+Refreshing a Stop capability does not restart recognition; UI/telemetry revision
+churn does not veto a still-reached, capability-bound Stop. The runtime continues
+to reject foreign cancellation capabilities. Tests cover two successive Boundary
+legs, held speech, partial Stop, stale UI/runtime revisions, and recognition
+reconnection. Superseded voice tasks cannot reapply an old playback preference.
+
+One Learning Path panel now contains an Exercise picker, prompt, and current
+actions. Its X and checked View menu entry change only presentation. The old
+Exercise visibility/protection projection was deleted; Stop stays in the command
+bar and Voice stays in the window when Learning is hidden. Operator buttons use
+neutral system chrome, distinct Stop styling, depressed press feedback, and
+pending/result feedback. Servo dragging is local until release and the slider no
+longer draws hundreds of ticks. Confirm remains visible during setpoint drain.
+The ambient pink contact-point marker was removed: it projected controller MPos
+through the tip model and did not track a camera observation. Planned drawing
+and residual comparison overlays retain their own predictions.
+
+Validation: strict quick tests passed 892/892 in 17.831 seconds; serial strict
+journeys passed 10/10 in 5.889 seconds. Focused interaction/rendering tests passed
+26/26, with offscreen AppKit inspection of the combined panel in light and dark
+appearance. The quick suite includes the 120-frame preview-isolation regression
+and automatic Border graduation. Documentation checks and diff whitespace checks
+passed. The signed live-camera performance gate and attended microphone/controller/
+pen/paper validation were not run; read-only inspection of the failing old app
+is not physical validation of this patch. No controller command or app restart
+was issued during verification.
+
 ## Portrait authoring through the current drawing path, 2026-09-06
 
 Blackdog task `TASK-D03058E2`, attempt `TASK-D03058E2-669670521eb3`, follows

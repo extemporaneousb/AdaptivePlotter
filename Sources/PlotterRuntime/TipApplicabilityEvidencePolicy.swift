@@ -64,7 +64,7 @@ extension TipCameraRegistration {
       recordedApplicabilityRectangle: applicabilityRectangle,
       machinePoint: machinePoint,
       cameraPoint: try cameraFromMachine.applying(to: machinePoint),
-      applicability: applicabilityRectangle.contains(machinePoint)
+      applicability: DrawingRegionContainmentPolicy.contains(machinePoint, in: applicabilityRectangle)
         ? .insideRecordedApplicability
         : .outsideRecordedApplicability
     )
@@ -85,7 +85,7 @@ public enum TipApplicabilityEvidencePolicy {
       var projectedPoints: [Point2<CameraPixelSpace>] = []
       projectedPoints.reserveCapacity(path.points.count)
       for machinePoint in path.points {
-        guard registration.applicabilityRectangle.contains(machinePoint) else {
+        guard DrawingRegionContainmentPolicy.contains(machinePoint, in: registration.applicabilityRectangle) else {
           return TipApplicabilityEvidenceProjection(
             storage: .diagnosticOnly(
               TipApplicabilityEvidenceLimitation(

@@ -5,7 +5,8 @@ import PlotterRuntime
 import PlotterUI
 import SwiftUI
 
-struct LearningPathNavigator: View {
+/// One Learning panel with exercise selection, prompt, and current controls.
+struct LearningPathView: View {
   @Binding var selection: LearningPathSelectionState
   let projection: LearningPathProjection
   let currentLearningPathItemID: LearningPathItemID
@@ -15,157 +16,73 @@ struct LearningPathNavigator: View {
   @State private var pendingResetPlan: LearningVacatePlan?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .top, spacing: 8) {
-        VStack(alignment: .leading, spacing: 5) {
-          Text("Learning Path")
-            .font(.title2.weight(.semibold))
-        }
-        Spacer(minLength: 8)
-        Menu {
-          Button(role: .destructive) {
-            pendingResetPlan = projection.menu.resetAllPlan
-          } label: {
-            Label("Reset All Learning…", systemImage: "arrow.counterclockwise")
-          }
-          .disabled(projection.menu.resetAllPlan == nil)
-        } label: {
-          Image(systemName: "ellipsis.circle")
-            .font(.title3)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .accessibilityLabel("Learning Path Actions")
-        .help("Learning Path Actions")
-        PanelCloseButton(panel: .learningPath, close: close)
-      }
-      .padding(14)
-
-      if selection.isReviewingAnotherItem {
-        Button {
-          selection.returnToCurrent()
-        } label: {
-          Label("Return to Current", systemImage: "arrow.uturn.backward.circle.fill")
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(.borderedProminent)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
-      }
-
-      Divider()
-
-      List(selection: Binding(
-        get: { selection.selected },
-        set: { selection.select($0) }
-      )) {
-        ForEach(projection.items) { item in
-          navigatorRow(item).tag(item.id)
-        }
-      }
-      .listStyle(.sidebar)
-    }
-    .sheet(item: $pendingResetPlan) { plan in
-      LearningResetSheet(
-        plan: plan,
-        authorityError: projection.resetSurface.authorityError,
-        plotterUIProjection: plotterUIProjection,
-        plotterUIIntentSink: plotterUIIntentSink,
-        completed: {
-          selection.updateCurrent(currentLearningPathItemID)
-          selection.returnToCurrent()
-          pendingResetPlan = nil
-        }
-      )
-    }
-  }
-
-  private func navigatorRow(_ item: LearningPathItemPresentation) -> some View {
-    HStack(alignment: .top, spacing: 8) {
-      Image(systemName: statusSystemImage(item.status))
-        .foregroundStyle(statusColor(item.status))
-        .frame(width: 16)
-      VStack(alignment: .leading, spacing: 3) {
-        Text("\(item.id.number)  \(item.id.title)")
-          .font(.callout.weight(item.id == selection.current ? .semibold : .regular))
-          .lineLimit(3)
-          .fixedSize(horizontal: false, vertical: true)
-        Text(item.id == selection.current && item.status != .complete ? "Current exercise" : item.status.rawValue)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-    }
-    .padding(.leading, CGFloat(item.id.navigationDepth) * 8)
-    .padding(.vertical, 3)
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(
-      "\(item.id.number) \(item.id.title), \(item.status.rawValue)"
-        + (item.id == selection.current ? ", current exercise" : "")
-    )
-    .accessibilityHint("Reviews this row without starting an action")
-  }
-}
-
-/// Selected exercise prompt and its pinned, effect-bearing controls.
-struct LearningPathView: View {
-  @Binding var selection: LearningPathSelectionState
-  let projection: LearningPathProjection
-  let currentLearningPathItemID: LearningPathItemID
-  let plotterUIProjection: PlotterUIProjection
-  let plotterUIIntentSink: any PlotterUIIntentSink
-  let close: () -> Void
-  let closeUnavailableReason: String?
-  let speechRuntime: PlotterSpeechEffectRuntime
-  @State private var promptHeight: CGFloat = 100
-
-  var body: some View {
     let selectedPresentation = projection.selectedAction
     let pinnedActionStrip =
       projection.currentActionStrip
       ?? selectedPresentation.actionStrip
 
     VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .top) {
-        Text("\(selectedPresentation.itemID.number)  \(selectedPresentation.itemID.title)")
-          .font(.headline)
-        Spacer(minLength: 8)
-        PanelCloseButton(
-          panel: .exercise,
-          close: close,
-          unavailableReason: closeUnavailableReason
-        )
+      HStack {
+        Text("Learning Path").font(.headline)
+        Spacer()
+        Menu {
+          Button("Reset All Learning…", role: .destructive) {
+            pendingResetPlan = projection.menu.resetAllPlan
+          }
+          .disabled(projection.menu.resetAllPlan == nil)
+        } label: {
+          Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .accessibilityLabel("Learning Path Actions")
+        PanelCloseButton(panel: .learningPath, close: close)
       }
-      .padding(16)
+      .padding(12)
+      Picker("Exercise", selection: Binding(
+        get: { selection.selected }, set: { selection.select($0) }
+      )) {
+        ForEach(projection.items) { item in
+          Label("\(item.id.number)  \(item.id.title) · \(item.status.rawValue)",
+            systemImage: statusSystemImage(item.status))
+            .tag(item.id)
+        }
+      }
+      .labelsHidden()
+      .pickerStyle(.menu)
+      .padding(.horizontal, 12)
+      .padding(.bottom, 10)
+      if selection.isReviewingAnotherItem {
+        Button("Return to Current Exercise") { selection.returnToCurrent() }
+          .buttonStyle(.borderless)
+          .padding(.horizontal, 12)
+          .padding(.bottom, 10)
+      }
       Divider()
       ScrollView {
-        selectedDetail(selectedPresentation)
-          .padding(16)
-          .background(GeometryReader { proxy in
-            Color.clear.preference(key: ExercisePromptHeight.self, value: proxy.size.height)
-          })
+        VStack(alignment: .leading, spacing: 0) {
+          selectedDetail(selectedPresentation).padding(16)
+          if let strip = pinnedActionStrip {
+            ExerciseActionStripView(
+              presentation: strip,
+              plotterUIProjection: plotterUIProjection,
+              plotterUIIntentSink: plotterUIIntentSink
+            )
+          }
+        }
       }
-      .frame(height: min(180, max(1, promptHeight)), alignment: .top)
-      .onPreferenceChange(ExercisePromptHeight.self) { promptHeight = $0 }
-      if let strip = pinnedActionStrip {
-        ExerciseActionStripView(
-          presentation: strip,
-          plotterUIProjection: plotterUIProjection,
-          plotterUIIntentSink: plotterUIIntentSink
-        )
-      }
-      Spacer(minLength: 0)
-      Divider()
-      WorkbenchVoiceView(
-        context: selection.selected == currentLearningPathItemID
-          ? WorkbenchVoiceContext(
-            presentation: selectedPresentation, projection: plotterUIProjection,
-            actionStrip: pinnedActionStrip
-          )
-          : nil,
-        speech: speechRuntime,
-        sink: plotterUIIntentSink
+
+    }
+    .sheet(item: $pendingResetPlan) { plan in
+      LearningResetSheet(
+        plan: plan, authorityError: projection.resetSurface.authorityError,
+        plotterUIProjection: plotterUIProjection, plotterUIIntentSink: plotterUIIntentSink,
+        completed: {
+          selection.updateCurrent(currentLearningPathItemID)
+          selection.returnToCurrent()
+          pendingResetPlan = nil
+        }
       )
-      .padding(12)
     }
   }
 
@@ -191,13 +108,6 @@ struct LearningPathView: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .topLeading)
-  }
-}
-
-private struct ExercisePromptHeight: PreferenceKey {
-  static let defaultValue: CGFloat = 0
-  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-    value = max(value, nextValue())
   }
 }
 
@@ -335,19 +245,12 @@ private struct ExerciseActionStripView: View {
         alignment: .leading,
         spacing: 7
       ) {
-        ForEach(presentation.actions, id: \.request) { action in
+        ForEach(presentation.actions, id: \.controlIdentity) { action in
           actionButton(action)
         }
       }
 
-      ForEach(presentation.actions.filter { $0.unavailableReason != nil }, id: \.request) { action in
-        if let reason = action.unavailableReason {
-          Label("\(action.title): \(reason)", systemImage: "exclamationmark.triangle.fill")
-            .font(.caption)
-            .foregroundStyle(.orange)
-            .textSelection(.enabled)
-        }
-      }
+
     }
     .padding(12)
   }
@@ -355,53 +258,7 @@ private struct ExerciseActionStripView: View {
   private func penSetpointAdjustment(
     _ adjustment: PlotterUILearningPenAdjustmentDecision
   ) -> some View {
-    let title = adjustment.command == .raise ? "Pen Up servo" : "Pen Down servo"
-    let minimum = adjustment.candidates.map(\.value).min() ?? adjustment.value
-    let maximum = adjustment.candidates.map(\.value).max() ?? adjustment.value
-    let currentCandidate = adjustment.candidates.first { $0.value == adjustment.value }
-    let unavailableReason: String? = if let currentCandidate {
-      currentCandidate.decision.unavailableReason
-    } else {
-      "The exact current Pen setpoint request is unavailable."
-    }
-    return VStack(alignment: .leading, spacing: 6) {
-      HStack {
-        Text(title)
-          .font(.caption.weight(.semibold))
-        Spacer()
-        Text("S\(adjustment.value)")
-          .font(.body.monospaced().bold())
-      }
-      Slider(
-        value: Binding(
-          get: { Double(adjustment.value) },
-          set: { value in
-            let exactValue = Int(value.rounded())
-            guard let candidate = adjustment.candidates.first(where: { $0.value == exactValue }) else {
-              requestRefusal = "Refresh the exact current Pen setpoint choices before retrying."
-              return
-            }
-            guard let unavailableReason = candidate.decision.unavailableReason else {
-              submitLearningRequest(candidate.decision.request)
-              return
-            }
-            requestRefusal = unavailableReason
-          }
-        ),
-        in: Double(minimum)...Double(maximum),
-        step: 1
-      )
-      .disabled(unavailableReason != nil)
-      .help(unavailableReason ?? title)
-      .accessibilityLabel(title)
-      .accessibilityValue("S\(adjustment.value)")
-      .accessibilityHint(
-        "Adjusts and sends the current Pen \(adjustment.command == .raise ? "Up" : "Down") servo value."
-      )
-      Text("Move the slider until the physical pen position is correct, then confirm that position.")
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-    }
+    PenSetpointControl(adjustment: adjustment, submit: submitLearningRequest)
   }
 
   @ViewBuilder
@@ -492,41 +349,68 @@ private struct ExerciseActionStripView: View {
     let exactRequest = plotterUIProjection.request(matching: .learningAction(action.request))
     let unavailableReason = action.unavailableReason
       ?? (exactRequest == nil ? "Refresh the current Learning action before retrying." : nil)
-    let button = Button {
-      submitLearningRequest(action.request)
-    } label: {
-      Text(action.title)
-        .multilineTextAlignment(.center)
-        .lineLimit(nil)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.vertical, 2)
-        .frame(
-          maxWidth: .infinity,
-          minHeight: ExerciseActionLayoutPolicy.minimumButtonHeight
-        )
-    }
-    .help(unavailableReason ?? action.title)
-
-    let styledButton = button.operatorButton(
-      action.buttonRole,
-      isEnabled: unavailableReason == nil
+    OperatorRequestButton(
+      title: action.title, role: action.buttonRole,
+      request: exactRequest, unavailableReason: unavailableReason,
+      sink: plotterUIIntentSink, expands: true
     )
-    if action.kind.isImmediateStopOrVisionCancel {
-      styledButton.keyboardShortcut(.cancelAction)
-    } else {
-      styledButton
+  }
+}
+
+/// Dragging is a local draft. Commit one selected setpoint on release instead
+/// of repeatedly replacing the command/confirmation surface under the pointer.
+private struct PenSetpointControl: View {
+  let adjustment: PlotterUILearningPenAdjustmentDecision
+  let submit: (PlotterLearningActionRequest) -> Void
+  @State private var draft = PenSetpointDraft()
+  @State private var isEditing = false
+
+  var body: some View {
+    let title = adjustment.command == .raise ? "Pen Up servo" : "Pen Down servo"
+    let value = draft.value ?? adjustment.value
+    let minimum = adjustment.candidates.map(\.value).min() ?? value
+    let maximum = adjustment.candidates.map(\.value).max() ?? value
+    let reason = adjustment.candidates.first { $0.value == adjustment.value }?.decision.unavailableReason
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Text(title).font(.caption.weight(.semibold))
+        Spacer()
+        Text("S\(value)").font(.body.monospaced().bold())
+      }
+      Slider(value: Binding(
+        get: { Double(value) },
+        set: {
+          draft.change(to: Int($0.rounded()))
+          if !isEditing { commitDraft() }
+        }
+      ), in: Double(minimum)...Double(maximum), onEditingChanged: { editing in
+        isEditing = editing
+        if !editing { commitDraft() }
+      })
+      .disabled(reason != nil)
+      .help(reason ?? "Release to send the selected servo setting")
+      .accessibilityLabel(title)
+      .accessibilityValue("S\(value)")
+      Text(reason ?? "Release to apply the setting, then confirm the physical pen position.")
+        .font(.caption2).foregroundStyle(.secondary)
+    }
+    .onChange(of: adjustment.command) { _, _ in draft = PenSetpointDraft() }
+  }
+
+  private func commitDraft() {
+    if let selected = draft.commit(),
+      let candidate = adjustment.candidates.first(where: { $0.value == selected }) {
+      submit(candidate.decision.request)
     }
   }
 }
 
-extension PlotterLearningAction {
-  fileprivate var isImmediateStopOrVisionCancel: Bool {
-    switch self {
-    case .stop:
-      true
-    default:
-      false
-    }
+struct PenSetpointDraft {
+  private(set) var value: Int?
+  mutating func change(to value: Int) { self.value = value }
+  mutating func commit() -> Int? {
+    defer { value = nil }
+    return value
   }
 }
 
@@ -548,8 +432,8 @@ private func fragmentText(_ fragments: [PresentationFragment]) -> Text {
 
 private func cueColor(_ cue: PresentationCue) -> Color {
   switch cue {
-  case .no, .stop, .down: .red
-  case .yes, .up: .green
+  case .stop: .orange
+  case .no, .down, .yes, .up: .primary
   case .direction: .accentColor
   }
 }

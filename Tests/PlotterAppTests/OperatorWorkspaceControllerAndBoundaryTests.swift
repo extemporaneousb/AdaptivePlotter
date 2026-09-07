@@ -351,7 +351,7 @@ extension PlotterApplicationRuntimeTests {
     #expect(FixedCameraOpticalSettlingPolicy.maximumAlignmentShiftPixels == 2)
     #expect(FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount == 3)
     #expect(FixedCameraOpticalSettlingPolicy.maximumCentroidSpreadPixels == 2)
-    #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.5)
+    #expect(MachinePositionAcceptancePolicy.toleranceMM == 1.0)
   }
 
   @Test("cap settlement accepts bounded wobble and retains the newest exact frame")

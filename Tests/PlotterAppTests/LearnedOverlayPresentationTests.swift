@@ -20,7 +20,7 @@ struct LearnedOverlayPresentationTests {
     #expect(
       ActionSurfaceOverlayPresentationGrammar.semanticLabel(
         for: .predictedContactPoint
-      ) == "PREDICTED CONTACT POINT · NOT OBSERVED"
+      ) == nil
     )
     #expect(
       ActionSurfaceOverlayPresentationGrammar.semanticLabel(for: .paperCoverage)

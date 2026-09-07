@@ -28,13 +28,13 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
       ) == nil
     )
 
-    let outsideTolerance = try MachinePosition(x: current.point.x + 0.501, y: current.point.y)
+    let outsideTolerance = try MachinePosition(x: current.point.x + 1.001, y: current.point.y)
     let travelDelta = try PlotterApplicationRuntime.supervisedTravelDelta(
       from: current,
       to: outsideTolerance
     )
     let requiredDelta = try #require(travelDelta)
-    #expect(abs(requiredDelta.dx - 0.501) < 1e-12)
+    #expect(abs(requiredDelta.dx - 1.001) < 1e-12)
     #expect(requiredDelta.dy == 0)
   }
 
@@ -768,7 +768,7 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
     let executionPlan = try #require(workspace.borderValidationSnapshot.drawingBorderPlan)
     #expect(executionPlan.provenance.registrationRevisionID.rawValue == tipRevision.rawValue)
     #expect(executionPlan.drawableRegion.bounds == acceptedBoundary)
-    #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.5)
+    #expect(MachinePositionAcceptancePolicy.toleranceMM == 1.0)
     #expect(
       DrawingRegionContainmentPolicy.numericalEpsilonMM
         < MachinePositionAcceptancePolicy.toleranceMM

@@ -52,7 +52,7 @@ They may share a mechanical Jog Cancel primitive but never share a successful
 semantic disposition. Sticky ambiguity suppresses new physical motion.
 
 Every production comparison of requested pose and settled MPos uses fresh
-attributable controller evidence, compatible context, and the shared 0.5 mm
+attributable controller evidence, compatible context, and the shared 1 mm
 Euclidean policy.
 
 Presentation zoom, pan, and fitted bounds are available after Exercise 1.2. They are
@@ -100,8 +100,9 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
    completing them enables the existing question without another cap click or
    a Learning Path continuation step.
 4. The Up step presents the current Up slider. It is seeded at `S40` in a fresh
-   session and otherwise starts from the already-current value. Moving it
-   commands the displayed value. Once operational dependencies admit the
+   session and otherwise starts from the already-current value. Dragging edits a
+   local draft; releasing commands the selected value once. Confirm remains
+   visible with “Applying the selected servo setting…” during the drain. Once operational dependencies admit the
    request, **Confirm Pen Up** immediately replaces itself with a non-clickable
    confirming revision before waiting for any setpoint/terminal drain. A stale
    second click cannot duplicate confirmation or actuation. The first request
@@ -155,7 +156,7 @@ by the dependency chain and does not hide Exercise 1.1 or the next physical acti
    records its forced opposite.
 10. After all four sides, **Move to Estimated Center** admits one stoppable
     Pen-Up move.
-11. Arrival succeeds only when the final MPos is within 0.5 mm of the derived
+11. Arrival succeeds only when the final MPos is within 1 mm of the derived
     center.
 
 Boundary renewal has no Vision adviser. Controller authority, the fixed bounded
@@ -207,7 +208,7 @@ The ordered positions and roles are:
    baseline. Each later sample must compare compatible and advance that local
    baseline.
 3. At every LIVE position, move Pen Up under the existing stoppable owner and
-   require fresh Idle/final MPos within 0.5 mm. Establish a preliminary fresh-
+   require fresh Idle/final MPos within 1 mm. Establish a preliminary fresh-
    frame boundary, then acquire exactly three strictly newer exact inspection
    frames with one unchanged source and camera configuration. The preliminary
    boundary frame is not accepted cap evidence. Every inspection frame must
@@ -262,7 +263,7 @@ and camera-holdout authority.
    inter-circle, and reveal travel; do not issue another raise solely to begin
    travel while the authorization remains current. At each canonical position,
    require fresh Idle/final MPos
-   within 0.5 mm, capture and retain that circle's exact pre-mark frame and cap
+   within 1 mm, capture and retain that circle's exact pre-mark frame and cap
    anchor, and retain its controller and settled-position evidence.
 3. Verify the full circle lies inside the accepted Boundary envelope. Move Pen Up
    to its +X start point and settle.
@@ -416,11 +417,11 @@ exercises or approval gates:
 2. **Capture local baseline.** With Pen Up and the controller Idle, capture one
    exact fresh frame and record the current MPos as this validation's reveal pose.
 3. **Move to Drawing Border start.** Move Pen Up under one stoppable owner. Completion
-   requires fresh Idle/final MPos within 0.5 mm.
+   requires fresh Idle/final MPos within 1 mm.
 4. **Draw Drawing Border.** Confirm the start, lower the pen once, execute all
    four orthogonal edges under the canonical drawing-plan owner, and raise.
 5. **Reveal and observe.** Return Pen Up to the recorded reveal MPos, require
-   fresh Idle/final MPos within 0.5 mm, capture a post-frame strictly newer
+   fresh Idle/final MPos within 1 mm, capture a post-frame strictly newer
    than the baseline and drawing settlement, and run bounded same-pose
    new-ink difference Vision. While this runs, the UI states that drawing-validation Vision owns
    processing. Match detected pixels to the nearest planned path without a

@@ -1,14 +1,28 @@
 import PlotterModel
-import PlotterRuntime
+@testable import PlotterRuntime
 import Testing
 
 @Suite("Machine position acceptance")
 struct MachinePositionAcceptancePolicyTests {
-  @Test("uses the accepted half-millimetre Euclidean settlement tolerance")
-  func usesHalfMillimetreTolerance() {
-    #expect(MachinePositionAcceptancePolicy.toleranceMM == 0.5)
-    #expect(MachinePositionAcceptancePolicy.accepts(residualMM: 0.5))
-    #expect(!MachinePositionAcceptancePolicy.accepts(residualMM: 0.501))
+  @Test("Boundary cancellation samples need compatible physical positions, not equal payloads")
+  func cancellationUsesSharedSettlementPolicy() throws {
+    let settled = try MachinePosition(x: -36.620, y: -72.210)
+    let reported = try MachinePosition(x: -36.633, y: -72.210)
+    let cancellation = JogCancelOutcome.completed(finalPosition: reported)
+    #expect(cancellation != .completed(finalPosition: settled))
+    #expect(cancellation.isSettled(at: settled))
+    #expect(JogCancelOutcome.completed(finalPosition: try MachinePosition(x: -35.870, y: -72.210))
+      .isSettled(at: settled))
+    #expect(!JogCancelOutcome.completed(finalPosition: try MachinePosition(x: -35.420, y: -72.210))
+      .isSettled(at: settled))
+    #expect(!JogCancelOutcome.transmitted.isSettled(at: settled))
+  }
+
+  @Test("uses the accepted one-millimetre Euclidean settlement tolerance")
+  func usesOneMillimetreTolerance() {
+    #expect(MachinePositionAcceptancePolicy.toleranceMM == 1.0)
+    #expect(MachinePositionAcceptancePolicy.accepts(residualMM: 1.0))
+    #expect(!MachinePositionAcceptancePolicy.accepts(residualMM: 1.001))
   }
 
   @Test("accepts a reproduced controller-quantized residual")

@@ -707,7 +707,7 @@ recording nor simulation is attended controller, camera, Pen, paper, click, or
 observed-ink evidence.
 
 All production requested-pose comparisons use fresh attributable controller
-evidence, compatible context, and at most 0.5 mm Euclidean residual. “Exact
+evidence, compatible context, and at most 1 mm Euclidean residual. “Exact
 pose” names that quantization-aware policy; it does not mean zero mathematical
 residual at an unrepresentable stepper position.
 

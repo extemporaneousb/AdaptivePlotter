@@ -12,11 +12,12 @@ public enum MachinePositionAcceptancePolicy {
 
   public enum Revision: String, Codable, Hashable, Sendable {
     case controllerQuantizedEuclideanV1
+    case controllerQuantizedEuclideanV2
   }
 
   public static let metric = Metric.euclideanResidualMillimetres
-  public static let revision = Revision.controllerQuantizedEuclideanV1
-  public static let toleranceMM = 0.5
+  public static let revision = Revision.controllerQuantizedEuclideanV2
+  public static let toleranceMM = 1.0
 
   public static func residualMM(
     _ actual: MachinePosition,

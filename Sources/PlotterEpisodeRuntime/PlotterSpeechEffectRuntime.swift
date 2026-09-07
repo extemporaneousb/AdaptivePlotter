@@ -72,6 +72,7 @@ public actor PlotterSpeechEffectRuntime {
 
   private let announcer: any SpeechAnnouncing
   private var isShutdown = false
+  private var operatorInputHasPriority = false
   private var activeByID: [UUID: PlotterSpeechEffectRequest] = [:]
   private var terminalByID: [UUID: PlotterSpeechEffectTerminal] = [:]
   private var terminalOrder: [UUID] = []
@@ -130,6 +131,16 @@ public actor PlotterSpeechEffectRuntime {
     taskByID[requestID]?.cancel()
   }
 
+  /// During a moving exercise the microphone must be available for Stop.
+  /// Cancel advisory playback and suppress new cues until that phase ends;
+  /// cancelling speech never cancels the operation that requested it.
+  public func prioritizeOperatorInput(_ enabled: Bool) {
+    operatorInputHasPriority = enabled
+    if enabled {
+      for task in taskByID.values { task.cancel() }
+    }
+  }
+
   /// Closes admission before the first suspension, then asks the retained
   /// native owner to cancel every queued or active utterance by its own queue
   /// identity. A suspended request cannot begin synthesis after this latch.
@@ -167,7 +178,7 @@ public actor PlotterSpeechEffectRuntime {
 
   private func admit(_ request: PlotterSpeechEffectRequest) -> PlotterSpeechEffectAdmission {
     let message = request.message.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !isShutdown else { return .cancelled }
+    guard !isShutdown, !operatorInputHasPriority else { return .cancelled }
     guard activeByID[request.id] == nil, terminalByID[request.id] == nil else {
       return .refused("The advisory speech request identity has already been used.")
     }

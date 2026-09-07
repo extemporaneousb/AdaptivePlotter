@@ -9,6 +9,64 @@ import Testing
 @Suite("Contextual workbench voice", .serialized)
 @MainActor
 struct WorkbenchVoiceTests {
+  @Test("each boundary leg gives Stop priority over advisory playback")
+  func stopWorksOnBothLegsDuringCues() async throws {
+    let announcer = HeldVoiceAnnouncer()
+    let speech = PlotterSpeechEffectRuntime(announcer: announcer)
+    let listener = TestVoiceListener()
+    var requests: [PlotterUIRequest] = []
+    let controller = WorkbenchVoiceController(speech: speech, listener: listener) {
+      requests.append($0)
+      return .accepted(requestID: $0.id)
+    }
+    controller.setEnabled(true)
+    for revision: UInt64 in [1, 2] {
+      controller.update(voiceContext(revision: revision,
+        actions: [.boundary(.acquire(direction: revision == 1 ? .positiveY : .negativeY, mode: .normal))]))
+      try await eventually { controller.status == "Speaking…" || controller.isListening }
+      if !controller.isListening {
+        try await eventually { await announcer.pendingCount > 0 }
+        await announcer.finish()
+      }
+      try await eventually { controller.isListening }
+      _ = await speech.start(.init(message: "Moving to the next boundary; say Stop."))
+      let stop = PlotterLearningAction.boundary(.stop(.init()))
+      controller.update(voiceContext(revision: revision + 10, actions: [stop]))
+      try await eventually { controller.isListening }
+      let count = listener.startCount
+      // A refreshed operation capability must not tear down recognition.
+      let latest = voiceContext(revision: revision + 20, actions: [.boundary(.stop(.init()))])
+      controller.update(latest)
+      #expect(listener.startCount == count)
+      listener.send(.transcript("stop", isFinal: false))
+      try await eventually { requests.count == Int(revision) }
+      #expect(requests.last?.uiRevision == latest.projection.revision)
+      #expect(requests.last?.intent == latest.matchingStop("stop")?.intent)
+    }
+    controller.stop()
+    await speech.shutdown()
+  }
+
+  @Test("recognition stream failure reconnects while Stop remains offered")
+  func recognitionReconnects() async throws {
+    let speech = PlotterSpeechEffectRuntime(announcer: ImmediateVoiceAnnouncer())
+    let listener = TestVoiceListener()
+    var count = 0
+    let controller = WorkbenchVoiceController(speech: speech, listener: listener) {
+      count += 1
+      return .accepted(requestID: $0.id)
+    }
+    controller.update(voiceContext(actions: [.boundary(.stop(.init()))]))
+    controller.setEnabled(true)
+    try await eventually { controller.isListening }
+    listener.send(.failed("Speech service ended the session"))
+    try await eventually { controller.isListening && listener.startCount == 2 }
+    listener.send(.transcript("stop", isFinal: false))
+    try await eventually { count == 1 }
+    controller.stop()
+    await speech.shutdown()
+  }
+
   @Test("responses resolve only to the exact offered action")
   func contextualResponses() {
     let context = voiceContext()
@@ -136,10 +194,12 @@ struct WorkbenchVoiceTests {
     controller.setEnabled(true)
     try await eventually { controller.status == "Speaking…" }
     #expect(!controller.isListening)
+    try await eventually { await announcer.pendingCount > 0 }
     await announcer.finish()
     try await eventually { controller.isListening }
     _ = await speech.start(.init(message: "Workflow cue"))
     try await eventually { !controller.isListening }
+    try await eventually { await announcer.pendingCount > 0 }
     await announcer.finish()
     try await eventually { controller.isListening }
     controller.stop()
@@ -193,11 +253,12 @@ private func voiceContext(
 }
 
 @MainActor
-private func eventually(_ condition: () -> Bool) async throws {
+private func eventually(_ condition: () async -> Bool) async throws {
   let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-  while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
-  #expect(condition())
-  if !condition() { throw CancellationError() }
+  while !(await condition()), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+  let passed = await condition()
+  #expect(passed)
+  if !passed { throw CancellationError() }
 }
 
 @MainActor
@@ -220,10 +281,18 @@ private actor ImmediateVoiceAnnouncer: SpeechAnnouncing {
 }
 
 private actor HeldVoiceAnnouncer: SpeechAnnouncing {
-  private var continuation: CheckedContinuation<SpeechAnnouncementOutcome, Never>?
+  private var continuations: [UUID: CheckedContinuation<SpeechAnnouncementOutcome, Never>] = [:]
+  var pendingCount: Int { continuations.count }
   func announce(_ text: String) async -> SpeechAnnouncementOutcome {
-    await withCheckedContinuation { continuation = $0 }
+    let id = UUID()
+    return await withTaskCancellationHandler {
+      guard !Task.isCancelled else { return .cancelled }
+      return await withCheckedContinuation { continuations[id] = $0 }
+    } onCancel: {
+      Task { await self.finish(id) }
+    }
   }
-  func finish() { continuation?.resume(returning: .completed); continuation = nil }
+  private func finish(_ id: UUID) { continuations.removeValue(forKey: id)?.resume(returning: .completed) }
+  func finish() { for id in Array(continuations.keys) { finish(id) } }
   func cancelForShutdown() async { finish() }
 }

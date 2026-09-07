@@ -119,10 +119,6 @@ extension PlotterApplicationRuntime {
     testPlotterUIProjection().currentLearningPathItemID
   }
 
-  var testExercisePaneProtectionPresentation: ExercisePaneProtectionPresentation {
-    testPlotterUIProjection().exercisePaneProtection
-  }
-
   var testLearningIsEnabled: Bool {
     testPlotterUIProjection().learningIsEnabled
   }

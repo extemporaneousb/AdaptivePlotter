@@ -1117,7 +1117,7 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
         observation.consumedLearningArtifactRevisionIDs.contains(
           machineCameraRegistrationRevisionID
         ),
-        applicabilityRectangle.contains(observation.intendedMarkPosition.point),
+        DrawingRegionContainmentPolicy.contains(observation.intendedMarkPosition.point, in: applicabilityRectangle),
         MachinePositionAcceptancePolicy.accepts(
           observation.markGeometry.center,
           target: observation.intendedMarkPosition
@@ -1247,7 +1247,7 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
   }
 
   public func tipPixel(at machinePoint: Point2<MachineSpace>) throws -> Point2<CameraPixelSpace> {
-    guard applicabilityRectangle.contains(machinePoint)
+    guard DrawingRegionContainmentPolicy.contains(machinePoint, in: applicabilityRectangle)
     else { throw GeometryError.outsideDomain }
     return try cameraFromMachine.applying(to: machinePoint)
   }

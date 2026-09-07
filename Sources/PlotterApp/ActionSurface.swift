@@ -1322,7 +1322,7 @@ struct ActionSurface: View {
     case .paperCoverage:
       return (.mint, 2, [4, 3])
     case .predictedContactPoint:
-      return (.purple, 3, [])
+      return (.secondary, 1.5, [3, 3])
     case .penCap:
       return (.yellow, 2, [])
     case .armatureEstimate:

@@ -1079,8 +1079,7 @@ public actor RunInterpreter {
     }
     let settledPosition = finalPosition ?? boundary.lastSettledPosition
     if let settledPosition,
-      cancelOutcome == .completed(finalPosition: settledPosition)
-        || cancelOutcome == .refused(.noActiveJog)
+      cancelOutcome.isSettled(at: settledPosition)
     {
       let outcome = BoundaryMotionOutcome.settled(
         BoundaryMotionSettlement(

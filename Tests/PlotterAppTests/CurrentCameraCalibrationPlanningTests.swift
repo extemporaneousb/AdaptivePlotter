@@ -7,6 +7,32 @@ import Testing
 
 @Suite("Current-camera calibration planning")
 struct CurrentCameraCalibrationPlanningTests {
+  @Test("live fractional border round trip still produces a complete camera prediction")
+  func fractionalBorderPrediction() throws {
+    // Coordinates retained from the 2026-09-06 LIVE outsideDomain failure.
+    let bounds = try AxisAlignedBounds<MachineSpace>(
+      minX: -357.052, minY: -94.056, maxX: -99.716, maxY: 85.917)
+    let border = try DrawingBorderPlan(bounds: bounds)
+    let placement = try DrawingPlacement(
+      fieldAnchor: Point2(x: 0, y: 0), machineAnchor: border.startPosition.point,
+      uniformScale: 1)
+    let executed = try placement.applying(to: border.fieldPath)
+    #expect(executed.points.contains { !bounds.contains($0) })
+    #expect(executed.points[1].y - bounds.maxY < 1e-12)
+    let transform = try AffineTransform2<MachineSpace, CameraPixelSpace>(
+      m11: -1.6855608038158412, m12: 0.042683097551509966,
+      m21: -0.01195600123519079, m22: -1.3297014792618584,
+      tx: 858.9853609502268, ty: 334.1615169300525)
+    #expect(DrawingRegionContainmentPolicy.contains(executed, in: bounds))
+    let prediction = [try transform.applying(to: executed)]
+    #expect(prediction.count == 1)
+    #expect(prediction[0].points.count == 5)
+    #expect(prediction[0].points.first == prediction[0].points.last)
+    for (machine, pixel) in zip(executed.points, prediction[0].points) {
+      #expect(pixel == (try transform.applying(to: machine)))
+    }
+  }
+
   @Test("plan creates the exact five-position normalized cross and returns to center")
   func fivePositionCross() throws {
     let target = try MachinePosition(x: 0, y: 0)
