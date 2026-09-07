@@ -359,6 +359,13 @@ For an unchanged physical setup:
    implicitly apply saved Learning. Require no cap capture, click, mark, paper
    replacement, or Learning Path replay for an operator-accepted unchanged setup.
 
+When the saved package and drawing archive contain a completed Drawing Border
+result for that calibration, applying Saved Learning restores **Learning
+complete**, the filled graduation cap, and Drawing Studio availability. Tip
+checkpoint revalidation retains the original accepted calibration lineage, so
+its existing Border result can survive subsequent save/load cycles without
+another Border draw.
+
 If the controller coordinate frame was actually reset, the camera was moved or
 reframed, the tool/contact profile changed, or the contact plane changed, do
 not claim the unchanged-restart path. A detectable controller or optical

@@ -1424,6 +1424,16 @@ public enum TipCalibrationApplicabilityDecision: Hashable, Sendable {
 }
 
 extension TipCameraRegistration {
+  /// Revalidation replaces the process-local revision while retaining the
+  /// accepted calibration evaluated by an existing Drawing Border record.
+  public func matchesDrawingValidationRevision(_ revision: LearningArtifactRevisionID) -> Bool {
+    if revision == acceptedRevisionID { return true }
+    guard case .checkpointRevalidated(let durableSourceRevision, _) = derivation else {
+      return false
+    }
+    return revision == durableSourceRevision
+  }
+
   /// Derives a new accepted revision from a quarantined checkpoint after fresh
   /// controller/cap evidence has revalidated the original semantic authority.
   /// Raw observation identities and hashes remain unchanged; their in-memory

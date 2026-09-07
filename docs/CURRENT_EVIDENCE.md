@@ -8,6 +8,38 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Completed Learning checkpoint continuity, 2026-09-06
+
+Blackdog task `TASK-7C1CB34C`, attempt `TASK-7C1CB34C-2e9db9e44a5f`, traces
+the user's request to finish setup and reuse it after restart. Accepted values
+are saved automatically; unchanged startup still offers Use Saved Learning.
+The Drawing Studio catalog and run-evidence roles are implemented, while active
+experiment selection and residual-model fitting remain the Roadmap's unfinished
+work. Completing Border validation does not mint an adaptively trained model.
+
+Inspection found an inconsistent revision rule: completion restoration already
+recognized the original acceptance retained by checkpoint revalidation, but
+aggregate checkpoint validation required the Border's tip revision to equal the
+newly issued tip revision. A new regression reproduced
+`invalidStageFourReference` when saving completed Learning after revalidation.
+
+The existing lineage predicate now belongs to `TipCameraRegistration` and is
+shared by completion restoration and checkpoint validation. Revalidation retains
+the original Border record/reference through subsequent saves without requiring
+another draw. No new event stream, model fit, startup action, or learning-path
+guard was added. The regression performs an initial save/load and two subsequent
+revalidation/save/load cycles, preserves the exact original Border reference,
+and confirms that unrelated calibration revisions remain unrelated.
+
+Validation passed with strict concurrency and warnings as errors: 26 focused
+checks in 2.464 seconds, `make quick-test` 875/875 in 19.172 seconds, and serial
+`make journey-test` 10/10 in 6.565 seconds. `make docs-check` and
+`git diff --check` passed. Existing unchanged-restart, no-new-mark recovery, and
+automatic Border-completion checks passed. These are software and causal
+simulation results, not an attended physical restart/drawing claim. The user's
+saved package was inspected read-only; no persisted operator data was changed
+and no hardware command or app restart was initiated.
+
 ## Drawing Border residual censorship correction, 2026-09-05
 
 Blackdog task `TASK-574A84BC`, attempt `TASK-574A84BC-3ad89a0fd063`, follows

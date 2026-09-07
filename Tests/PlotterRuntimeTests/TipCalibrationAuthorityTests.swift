@@ -554,6 +554,74 @@ struct TipCalibrationAuthorityTests {
     #expect(sourceRevision == original.acceptedRevisionID)
   }
 
+  @Test("Completed Border checkpoint survives repeated calibration revalidation and save/load")
+  func completedLearningCheckpointSurvivesRepeatedRevalidation() throws {
+    let fixture = try TipAuthorityFixture()
+    var registration = try fixture.registration()
+    let applicability = registration.applicability
+    let identity = LearningPathSemanticIdentity(
+      machineGeometry: applicability.machineGeometry,
+      toolAssembly: applicability.toolAssembly,
+      penContactProfile: applicability.penContactProfile,
+      paperInstance: PaperInstanceRevision(),
+      paperContactPlane: applicability.paperContactPlane,
+      cameraMountRevision: applicability.opticalConfiguration.mountRevision,
+      cameraReframingRevision: applicability.opticalConfiguration.reframingRevision
+    )
+    let border = AcceptedStageFourCheckpoint(
+      recordID: DrawingEvidenceRecordID(),
+      tipCalibrationRevisionID: registration.acceptedRevisionID,
+      paperContactPlane: applicability.paperContactPlane
+    )
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = AcceptedLearningPathCheckpointStore(
+      fileURL: directory.appendingPathComponent("accepted-learning.json")
+    )
+    for cycle in 0..<3 {
+      if cycle > 0 {
+        let time = UInt64(800 + cycle * 200)
+        registration = try registration.revalidatedFromCheckpoint(
+          evidence: fixture.revalidationEvidence(
+            context: registration.applicability, frameTime: time - 100, timestamp: time - 50
+          ),
+          acceptedRevisionID: LearningArtifactRevisionID(),
+          machineCameraRegistrationRevisionID: fixture.machineCameraRevision,
+          observationArtifactRevisionIDs: Dictionary(uniqueKeysWithValues:
+            registration.observationEvidence.map { ($0.observationID, LearningArtifactRevisionID()) }
+          ),
+          acceptedAt: fixture.timestamp(time)
+        )
+      }
+      let tip = try AcceptedTipCalibrationCheckpoint(
+        registration: registration,
+        acceptanceEvent: TipCalibrationAcceptanceEvent(
+          acceptedRevisionID: registration.acceptedRevisionID,
+          timestamp: registration.acceptedAt, actor: "checkpoint-test"
+        )
+      )
+      let checkpoint = try AcceptedLearningPathCheckpoint(
+        semanticIdentity: identity, tipCalibration: tip, stageFour: border
+      )
+      try store.save(checkpoint)
+      guard case .loaded(let restored) = store.load() else {
+        Issue.record("Completed Learning did not survive save/load cycle \(cycle)")
+        return
+      }
+      #expect(restored.stageFour == border)
+      registration = try #require(restored.tipCalibration?.registration)
+      let unrelatedBorder = AcceptedStageFourCheckpoint(
+        recordID: border.recordID, tipCalibrationRevisionID: LearningArtifactRevisionID(),
+        paperContactPlane: applicability.paperContactPlane
+      )
+      #expect(throws: AcceptedLearningPathCheckpointError.invalidStageFourReference) {
+        try AcceptedLearningPathCheckpoint(
+          semanticIdentity: identity, tipCalibration: tip, stageFour: unrelatedBorder
+        )
+      }
+    }
+  }
+
   @Test("Artifact graph enforces exact tip-calibration dependency shapes")
   func graphEnforcesDependencyShapesAndTransitiveInvalidation() throws {
     let fixture = try TipAuthorityFixture()

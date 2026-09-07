@@ -2339,23 +2339,12 @@ final class PlotterApplicationRuntime:
       record.role == .evaluationHoldout
         && record.executionDisposition == .completed
         && [.attributable, .visionUnclear].contains(record.evidenceDisposition)
-        && drawingValidationRevision(
-          record.tipCalibration.acceptedRevisionID,
-          matches: registration
+        && registration.matchesDrawingValidationRevision(
+          record.tipCalibration.acceptedRevisionID
         )
         && record.paper.contactPlane == currentPaperRevisionContext.contactPlane
     }
     return record.map { $0.evidenceDisposition == .attributable ? .predictionObserved : .drawingCompleted }
-  }
-
-  private func drawingValidationRevision(
-    _ evidenceRevision: LearningArtifactRevisionID,
-    matches registration: TipCameraRegistration
-  ) -> Bool {
-    if evidenceRevision == registration.acceptedRevisionID { return true }
-    guard case .checkpointRevalidated(let durableSourceRevision, _) = registration.derivation
-    else { return false }
-    return evidenceRevision == durableSourceRevision
   }
 
   var workbenchCapabilityPresentation: WorkbenchCapabilityPresentation {

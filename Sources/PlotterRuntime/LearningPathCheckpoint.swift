@@ -347,8 +347,9 @@ public struct AcceptedLearningPathCheckpoint: Codable, Hashable, Sendable {
     if let stageFour {
       guard stageFour.paperContactPlane == semanticIdentity.paperContactPlane,
         let tipCalibration,
-        stageFour.tipCalibrationRevisionID
-          == tipCalibration.registration.acceptedRevisionID
+        tipCalibration.registration.matchesDrawingValidationRevision(
+          stageFour.tipCalibrationRevisionID
+        )
       else { throw AcceptedLearningPathCheckpointError.invalidStageFourReference }
     }
     if let penCapAppearance {

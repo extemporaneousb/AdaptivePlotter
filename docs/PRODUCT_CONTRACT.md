@@ -1136,6 +1136,13 @@ complete package can replace it atomically. The operator owns this decision.
 Binary replacement, process restart, and capture-session restart perform no cap
 capture, click, mark, paper replacement, or Learning Path replay.
 
+Checkpoint revalidation can issue a new tip-registration revision while retaining
+the original accepted calibration lineage. An existing Drawing Border record
+continues to cite the revision it actually evaluated. Both completion restoration
+and aggregate-checkpoint validation recognize the retained original acceptance;
+a revalidation revision change alone must not discard that Border result or
+prevent saving it again.
+
 An actual controller-coordinate reset, camera move/remount/reframe, tool or
 contact-profile change, or paper-contact-plane change is a physical semantic
 change, not a software restart. A detectable context or optical mismatch keeps
