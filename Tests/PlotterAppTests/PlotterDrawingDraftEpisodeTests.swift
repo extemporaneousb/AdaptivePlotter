@@ -10,6 +10,37 @@ import Testing
 @Suite("Drawing Studio draft episode", .serialized)
 @MainActor
 struct PlotterDrawingDraftEpisodeTests {
+  @Test("portrait vectors retain exact identity through placement and the ordinary drawing plan")
+  func portraitProgramIntegration() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let facts = fixture.facts()
+    var snapshot = try await open(runtime, facts: facts)
+    let program = try PortraitVectorizer.program(
+      from: portraitTestRaster(), pose: .right, style: .hatch,
+      strokeStyle: StrokeStyle(nominalLineWidth: 0.4,
+        penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue)))
+    snapshot = try applied(await runtime.submit(
+      PlotterDrawingDraftSubmission(projection: snapshot.projection, intent: .selectProgram(program)),
+      facts: facts))
+    #expect(snapshot.selectedCatalogItemID == nil)
+    #expect(snapshot.program == program)
+    let plan = try #require(snapshot.plan)
+    #expect(plan.strokes.count == program.strokes.count)
+    #expect(snapshot.preview?.programContentHash == program.contentHash)
+    snapshot = try applied(await runtime.submit(
+      PlotterDrawingDraftSubmission(projection: snapshot.projection, intent: .setUniformScale(0.1)), facts: facts))
+    #expect(snapshot.program == program)
+    #expect(snapshot.plan?.contentHash != plan.contentHash)
+    let roundTrip = try JSONDecoder().decode(ExecutionPlanRevision.self, from: JSONEncoder().encode(try #require(snapshot.plan)))
+    #expect(roundTrip == snapshot.plan)
+    snapshot = try applied(await runtime.submit(
+      PlotterDrawingDraftSubmission(projection: snapshot.projection, intent: .selectCatalogItem(.circle)), facts: facts))
+    #expect(snapshot.selectedCatalogItemID == .circle)
+    #expect(snapshot.program?.source.kind != "portrait")
+    #expect(snapshot.program?.contentHash != program.contentHash)
+  }
+
   @Test("open and close enforce typed prerequisites and exact remedies")
   func openClosePrerequisitesAndRemedies() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()

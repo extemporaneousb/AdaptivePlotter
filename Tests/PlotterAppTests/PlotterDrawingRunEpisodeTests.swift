@@ -10,6 +10,44 @@ import Testing
 @Suite("Drawing Studio run episode", .serialized)
 @MainActor
 struct PlotterDrawingRunEpisodeTests {
+  @Test("portrait follows ordinary execution observation and evidence persistence")
+  func portraitExecution() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let program = try PortraitVectorizer.program(
+      from: portraitTestRaster(), pose: .front, style: .hatch,
+      strokeStyle: StrokeStyle(nominalLineWidth: 0.4,
+        penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue)))
+    let built = PlotterDrawingPlanningAdapter.buildDraft(
+      program: program, machineCenter: try Point2(
+        x: (fixture.registration.applicabilityRectangle.minX + fixture.registration.applicabilityRectangle.maxX)/2,
+        y: (fixture.registration.applicabilityRectangle.minY + fixture.registration.applicabilityRectangle.maxY)/2),
+      uniformScale: 0.02, rotationDegrees: 0,
+      drawableRegion: fixture.drawableRegion, registration: fixture.registration)
+    let plan = PlotterDrawingRunPlan(
+      draftRevision: PlotterDrawingDraftRevision(rawValue: 2), program: program,
+      placementID: UUID(), plan: try #require(built.plan), evidenceRole: .ordinaryDrawing,
+      paperCoverage: fixture.plan.paperCoverage, registration: fixture.registration)
+    let harness = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: plan))
+    let current = await harness.runtime.synchronize(environment: .live)
+    let result = await harness.runtime.submit(PlotterDrawingRunSubmission(projection: current.projection, intent: .start))
+    let recordedEvents = await harness.events.values
+    #expect(recordedEvents == [
+      "normalize", "travel", "capture-baseline", "execute", "capture-post", "observe", "append",
+    ])
+    #expect(try #require(await harness.interpreter.planRequests.first).plan == plan.plan)
+    let terminal = try #require(result.snapshot.terminal)
+    #expect(terminal.disposition == .succeeded)
+    #expect(terminal.record.program.contentHash == program.contentHash)
+    #expect(terminal.record.program.source == program.source)
+    let decoded = try JSONDecoder().decode(DrawingProgramEvidenceReference.self, from: JSONEncoder().encode(terminal.record.program))
+    #expect(decoded.source == program.source)
+    #expect(terminal.record.plan.executionPlan?.strokes.count == program.strokes.count)
+    guard case .persisted = result.snapshot.evidencePersistence else {
+      Issue.record("Portrait run evidence was not persisted by the ordinary evidence owner.")
+      return
+    }
+  }
+
   @Test("saved drawing projection requires complete paper identity and no new exact-frame request")
   func savedDrawingProjectionCurrentness() throws {
     let paper = PaperRevisionContext(

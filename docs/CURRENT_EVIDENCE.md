@@ -8,6 +8,50 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Portrait authoring through the current drawing path, 2026-09-06
+
+Blackdog task `TASK-D03058E2`, attempt `TASK-D03058E2-669670521eb3`, follows
+inspection of current Learning persistence and the historical Plotter portrait
+renderer. Current Learning saves one aggregate accepted-prefix package; raw
+run evidence remains separate, and completed Border validation does not train
+an adaptive drawing policy. The previous face renderer had not been integrated.
+Its useful face-crop and tonal-vectorization ideas now enter Drawing Studio as
+another DrawingProgram producer, without the legacy bridge or controller path.
+
+Create Portrait accepts an imported image or an exact capture from a separate
+camera owner, retains labeled left/front/right photos within the editor, and
+previews Contour, Hatch, and Crosshatch styles. Face localization and optional
+Vision person/background masking are separate operations; a missing detection
+retains the image and reports what was unavailable. This is not facial-part
+segmentation or 3D multi-view reconstruction. Heavy analysis runs on worker tasks
+and changing style reuses the analyzed raster. Only the portrait preview child
+reads its camera frames. The selected observation camera is excluded from the
+portrait camera choices.
+
+Use Portrait submits the immutable generated program to the existing Drawing
+Draft owner. The shared planner consumes that program, preserves its identity
+through placement changes, and the normal Drawing Run path executes, observes,
+and appends its evidence. The existing evidence reference now also retains
+optional generator provenance; older hash-only references still decode. No new
+Learning guard, recorder, event stream, or execution loop was added. Raw portrait
+photos are not automatically written into the Learning package or run archive.
+
+Focused strict validation passed 42 tests, covering image/FieldSpace orientation,
+closed contour continuity, deterministic style geometry and JSON round trips,
+pose switching, independent camera ownership, generic draft placement, and
+ordinary run/evidence integration. The run test includes pen-up travel to the
+portrait's first point. The default strict quick suite passed 887/887 in 17.474
+seconds; the serial strict journeys passed 10/10 in 5.347 seconds. The optional
+external-photo test used scikit-image's public-domain
+[NASA astronaut reference](https://scikit-image.org/docs/stable/api/skimage.data.html#skimage.data.astronaut),
+kept outside the repository. Face cropping, person masking, and all three styles
+took about 1.37 seconds together on this host, yielding 191, 221, and 384 strokes.
+The generated style previews were inspected visually. Native controls were
+checked in an offscreen AppKit host, including the populated vector preview.
+`make docs-check` and `git diff --check` passed. These are software/image results; no
+attended two-camera, microphone, controller, motion, or physical ink validation
+was performed. Profile-face quality and physical portrait quality remain open.
+
 ## Completed Learning checkpoint continuity, 2026-09-06
 
 Blackdog task `TASK-7C1CB34C`, attempt `TASK-7C1CB34C-2e9db9e44a5f`, traces

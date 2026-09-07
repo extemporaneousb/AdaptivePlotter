@@ -26,13 +26,15 @@ struct DrawingRunEpisodeFixture: Sendable {
     draftRevision: UInt64 = 2
   ) throws -> PlotterDrawingRunPlan {
     let built = PlotterDrawingPlanningAdapter.buildDraft(
-      catalogItemID: catalogItemID,
+      program: try DrawingProgramCatalog.program(
+        for: catalogItemID,
+        style: StrokeStyle(nominalLineWidth: 0.4,
+          penProfileID: PenProfileID(registration.applicability.toolAssembly.rawValue))),
       machineCenter: center,
       uniformScale: 0.02,
       rotationDegrees: 0,
       drawableRegion: drawableRegion,
-      registration: registration,
-      toolAssemblyRevision: registration.applicability.toolAssembly
+      registration: registration
     )
     return PlotterDrawingRunPlan(
       draftRevision: PlotterDrawingDraftRevision(rawValue: draftRevision),
@@ -128,13 +130,15 @@ enum DrawingRunEpisodeFixtureCache {
       algorithmRevision: "drawing-run-episode-paper-v1"
     )
     let built = PlotterDrawingPlanningAdapter.buildDraft(
-      catalogItemID: .line,
+      program: try DrawingProgramCatalog.program(
+        for: .line,
+        style: StrokeStyle(nominalLineWidth: 0.4,
+          penProfileID: PenProfileID(registration.applicability.toolAssembly.rawValue))),
       machineCenter: nil,
       uniformScale: 0.02,
       rotationDegrees: 0,
       drawableRegion: drawableRegion,
-      registration: registration,
-      toolAssemblyRevision: registration.applicability.toolAssembly
+      registration: registration
     )
     let plan = PlotterDrawingRunPlan(
       draftRevision: PlotterDrawingDraftRevision(rawValue: 1),

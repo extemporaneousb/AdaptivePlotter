@@ -310,6 +310,11 @@ struct DrawingStudioView: View {
   let presentation: DrawingStudioPresentation
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
+  var plotterCameraID: CameraDeviceID? = nil
+  var portraitStrokeStyle: PlotterModel.StrokeStyle? = nil
+  var usePortrait: (DrawingProgram) async -> String? = { _ in "Portrait input is unavailable." }
+  @State private var portrait = PortraitStudioModel()
+  @State private var portraitIsPresented = false
   @State private var requestRefusal: String?
 
   var body: some View {
@@ -318,7 +323,7 @@ struct DrawingStudioView: View {
         Text("Drawing Studio")
           .font(.title3.bold())
         Text(
-          "Select a deterministic drawing program, place its projected target, then run the exact reviewed plan."
+          "Choose a drawing or create a portrait, place its target, then run the reviewed plan."
         )
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -331,6 +336,15 @@ struct DrawingStudioView: View {
           .textSelection(.enabled)
       }
 
+      HStack {
+        Button { portraitIsPresented = true } label: {
+          Label("Create Portrait…", systemImage: "person.crop.rectangle")
+        }
+        .disabled(!presentation.editingIsEnabled || portraitStrokeStyle == nil)
+        if presentation.selectedCatalogItemID == nil {
+          Text("Portrait selected").font(.caption).foregroundStyle(.secondary)
+        }
+      }
       catalog
       if let selected = presentation.selectedCatalogItem {
         Text(selected.detail)
@@ -344,6 +358,12 @@ struct DrawingStudioView: View {
     }
     .padding(12)
     .accessibilityElement(children: .contain)
+    .sheet(isPresented: $portraitIsPresented) {
+      if let portraitStrokeStyle {
+        PortraitStudioView(model: portrait, plotterCameraID: plotterCameraID,
+                           strokeStyle: portraitStrokeStyle, useProgram: usePortrait)
+      }
+    }
   }
 
   private var catalog: some View {

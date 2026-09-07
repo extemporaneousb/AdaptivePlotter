@@ -5,6 +5,7 @@ public enum PlotterDrawingDraftIntent: Hashable, Sendable {
   case open
   case close
   case selectCatalogItem(DrawingCatalogEntryID)
+  case selectProgram(DrawingProgram)
   case setEvidenceRole(BorderValidationEvidenceRole)
   case placeAtCameraPoint(PlotterDrawingDraftCameraPlacement)
   case setUniformScale(Double)

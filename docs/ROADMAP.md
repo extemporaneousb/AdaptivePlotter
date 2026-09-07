@@ -150,7 +150,10 @@ on the existing program/plan/evidence types. Do not restore the deleted
 speculative online dataset, policy/reward scaffolding, model-mismatch overlay,
 or dormant navigation route as a compatibility surface.
 
-The historical face renderer should return only as another deterministic
-`DrawingProgram` producer consumed by the existing placement, planning, preview,
-execution, observation, and evidence flow. It must not own calibration,
-controller commands, paper state, plan execution, or model promotion.
+Remaining portrait work is attended two-camera and ink-quality evaluation across
+front and profile faces, richer styles (facets, stipple, feature landmarks), and
+multi-view composition or reconstruction. The delivered portrait producer uses
+the existing DrawingProgram placement, planning, execution, and evidence path.
+Person/background masking is implemented; facial-part segmentation and 3D head
+reconstruction are not. No portrait feature should own calibration, controller
+commands, paper state, plan execution, or model promotion.

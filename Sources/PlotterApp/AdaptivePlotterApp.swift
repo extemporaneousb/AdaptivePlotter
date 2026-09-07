@@ -417,7 +417,10 @@ struct PlotterApplicationRuntimeView: View {
               DrawingStudioView(
                 presentation: ui.drawingStudio,
                 plotterUIProjection: ui.semantic,
-                plotterUIIntentSink: application
+                plotterUIIntentSink: application,
+                plotterCameraID: application.selectedCameraID,
+                portraitStrokeStyle: application.drawingDraftSnapshot.program?.strokes.first?.style,
+                usePortrait: usePortraitProgram
               )
             }
           }
@@ -499,6 +502,21 @@ struct PlotterApplicationRuntimeView: View {
   ) -> String? {
     guard presentation.mustRemainVisible else { return nil }
     return "Finish or cancel the active exercise attempt before hiding its controls."
+  }
+
+  private func usePortraitProgram(_ program: DrawingProgram) async -> String? {
+    let projection = application.plotterUIProjection(
+      selectedItemID: selection.selected, manualDraft: manualMotionDraft,
+      includesLearningPath: layout.panes.navigatorIsPresented || layout.panes.exerciseDetailIsPresented,
+      pendingDrawingProgram: program, pendingDrawingPlacement: pendingDrawingPlacement,
+      pendingPointSelection: pendingPointSelection, observationViewport: actionSurfaceViewport)
+    guard let request = projection.semantic.request(matching: .drawingDraft(.selectProgram(program))) else {
+      return projection.drawingStudio.runState.detail
+    }
+    if case .refused(let refusal) = await application.submitPlotterUIRequest(request) {
+      return refusal.remedy
+    }
+    return nil
   }
 
   private func submitPlotterUIAction(

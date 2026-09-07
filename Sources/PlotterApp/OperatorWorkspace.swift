@@ -4129,6 +4129,7 @@ final class PlotterApplicationRuntime:
     selectedItemID: LearningPathItemID,
     manualDraft: ManualMotionDraft,
     includesLearningPath: Bool,
+    pendingDrawingProgram: DrawingProgram? = nil,
     pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement? = nil,
     pendingPointSelection: PlotterPointSelectionSubmission? = nil,
     observationViewport: ActionSurfaceViewportState? = nil
@@ -4142,6 +4143,7 @@ final class PlotterApplicationRuntime:
       selectedItemID: selectedItemID,
       manualDraft: manualDraft,
       includesLearningPath: includesLearningPath,
+      pendingDrawingProgramHash: pendingDrawingProgram?.contentHash.description,
       pendingDrawingPlacement: pendingDrawingPlacement,
       pendingPointSelection: pendingPointSelection,
       observationViewport: observationViewport
@@ -4314,6 +4316,16 @@ final class PlotterApplicationRuntime:
       owner: "PlotterDrawingDraftRuntime"
     ))
     if drawingStudioIsPresented {
+      if let pendingDrawingProgram {
+        let intent = PlotterDrawingDraftIntent.selectProgram(pendingDrawingProgram)
+        candidates.append(uiCandidate(
+          id: PlotterAppUIActionID.drawingDraft(intent),
+          title: "Use Portrait",
+          intent: .drawingDraft(intent),
+          unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+          owner: "PlotterDrawingDraftRuntime"
+        ))
+      }
       candidates.append(contentsOf: drawing.catalog.map { item in
         let intent = PlotterDrawingDraftIntent.selectCatalogItem(item.id)
         return uiCandidate(
@@ -4464,6 +4476,7 @@ final class PlotterApplicationRuntime:
         selectedItemID: selectedItemID,
         manualDraft: manualDraft,
         includesLearningPath: includesLearningPath,
+        pendingDrawingProgramHash: pendingDrawingProgram?.contentHash.description,
         pendingDrawingPlacement: pendingDrawingPlacement,
         pendingPointSelection: currentPendingPointSelection,
         observationViewport: observationViewport
@@ -4645,12 +4658,13 @@ final class PlotterApplicationRuntime:
     selectedItemID: LearningPathItemID,
     manualDraft: ManualMotionDraft,
     includesLearningPath: Bool,
+    pendingDrawingProgramHash: String?,
     pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?,
     pendingPointSelection: PlotterPointSelectionSubmission?,
     observationViewport: ActionSurfaceViewportState?
   ) -> PlotterUIRevision {
     var hash: UInt64 = 14_695_981_039_346_656_037
-    for byte in "\(semanticPresentationRevision)|\(selectedItemID)|\(manualDraft.xDistanceMM)|\(manualDraft.yDistanceMM)|\(manualDraft.feedMMPerMinute)|\(includesLearningPath)|\(String(describing: pendingDrawingPlacement))|\(String(describing: pendingPointSelection))|\(String(describing: observationViewport))".utf8 {
+    for byte in "\(semanticPresentationRevision)|\(selectedItemID)|\(manualDraft.xDistanceMM)|\(manualDraft.yDistanceMM)|\(manualDraft.feedMMPerMinute)|\(includesLearningPath)|\(pendingDrawingProgramHash ?? "")|\(String(describing: pendingDrawingPlacement))|\(String(describing: pendingPointSelection))|\(String(describing: observationViewport))".utf8 {
       hash ^= UInt64(byte)
       hash &*= 1_099_511_628_211
     }
@@ -4888,10 +4902,15 @@ final class PlotterApplicationRuntime:
       where request.actionID == PlotterAppUIActionID.drawingDraft(intent)
         || (intent == .open && request.actionID == PlotterAppUIActionID.drawingOpen)
         || (intent == .close && request.actionID == PlotterAppUIActionID.drawingClose):
-      submitDrawingDraft(PlotterDrawingDraftSubmission(
+      await performDrawingDraftSubmission(PlotterDrawingDraftSubmission(
         projection: drawingDraftSnapshot.projection,
         intent: intent
       ))
+      if let refusal = drawingDraftSnapshot.lastSubmissionRefusal {
+        return plotterUIRefusal(
+          request, reason: .retainedOwnerRefused, currentUIRevision: currentUIRevision,
+          currentRuntimeRevisions: currentRuntimeRevisions, remedy: refusal.remedy)
+      }
     case .drawingRun(let intent)
       where request.actionID == PlotterAppUIActionID.drawingRun(intent):
       guard let drawingRunSnapshot else {

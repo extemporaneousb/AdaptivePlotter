@@ -23,6 +23,7 @@ struct PlotterAppUIProjectionInputs: Equatable {
   let selectedItemID: LearningPathItemID
   let manualDraft: ManualMotionDraft
   let includesLearningPath: Bool
+  let pendingDrawingProgramHash: String?
   let pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
   let pendingPointSelection: PlotterPointSelectionSubmission?
   let observationViewport: ActionSurfaceViewportState?
@@ -97,7 +98,10 @@ enum PlotterAppUIActionID {
   }
 
   static func drawingDraft(_ intent: PlotterDrawingDraftIntent) -> PlotterUIActionID {
-    PlotterUIActionID(rawValue: "drawing.draft.\(String(describing: intent))")
+    if case .selectProgram(let program) = intent {
+      return PlotterUIActionID(rawValue: "drawing.draft.program.\(program.contentHash)")
+    }
+    return PlotterUIActionID(rawValue: "drawing.draft.\(String(describing: intent))")
   }
 
   static func drawingRun(_ intent: PlotterDrawingRunIntent) -> PlotterUIActionID {

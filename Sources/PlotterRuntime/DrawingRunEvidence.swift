@@ -18,14 +18,18 @@ public enum DrawingRunEvidenceError: Error, Equatable, Sendable {
 public struct DrawingProgramEvidenceReference: Codable, Hashable, Sendable {
   public let programID: ProgramID
   public let contentHash: Digest
+  /// Retains generator/capture provenance without storing the source photo.
+  /// Older hash-only references decode with no source.
+  public let source: DrawingSourceProvenance?
 
-  public init(programID: ProgramID, contentHash: Digest) {
+  public init(programID: ProgramID, contentHash: Digest, source: DrawingSourceProvenance? = nil) {
     self.programID = programID
     self.contentHash = contentHash
+    self.source = source
   }
 
   public init(program: DrawingProgram) {
-    self.init(programID: program.id, contentHash: program.contentHash)
+    self.init(programID: program.id, contentHash: program.contentHash, source: program.source)
   }
 }
 

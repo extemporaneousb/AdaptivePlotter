@@ -209,7 +209,7 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
   public let projection: PlotterDrawingDraftProjectionReference
   public let isOpen: Bool
   public let catalog: [DrawingProgramCatalogEntry]
-  public let selectedCatalogItemID: DrawingCatalogEntryID
+  public let selectedCatalogItemID: DrawingCatalogEntryID?
   public let evidenceRole: BorderValidationEvidenceRole
   public let uniformScale: Double
   public let allowedScale: ClosedRange<Double>
@@ -293,22 +293,20 @@ public struct PlotterDrawingDraftPlanBuild: Hashable, Sendable {
 /// geometry, containment, checkpoint, and content-addressed identity authority.
 public enum PlotterDrawingPlanningAdapter {
   public static func buildDraft(
-    catalogItemID: DrawingCatalogEntryID,
+    program: DrawingProgram,
     machineCenter: Point2<MachineSpace>?,
     uniformScale: Double,
     rotationDegrees: Double,
     drawableRegion: DrawableMachineRegion,
-    registration: TipCameraRegistration,
-    toolAssemblyRevision: ToolAssemblyRevision
+    registration: TipCameraRegistration
   ) -> PlotterDrawingDraftPlanBuild {
-    let entry = DrawingProgramCatalog.entry(for: catalogItemID)
     let maximum = max(
       0.02,
       min(
         (drawableRegion.effectiveBounds.maxX - drawableRegion.effectiveBounds.minX)
-          / entry.fieldExtent.width,
+          / program.fieldExtent.width,
         (drawableRegion.effectiveBounds.maxY - drawableRegion.effectiveBounds.minY)
-          / entry.fieldExtent.height
+          / program.fieldExtent.height
       ) * 0.9
     )
     let allowedScale = 0.02...maximum
@@ -322,17 +320,10 @@ public enum PlotterDrawingPlanningAdapter {
           y: (drawableRegion.effectiveBounds.minY + drawableRegion.effectiveBounds.maxY) / 2
         )
       }
-      let program = try DrawingProgramCatalog.program(
-        for: entry.id,
-        style: StrokeStyle(
-          nominalLineWidth: 0.4,
-          penProfileID: PenProfileID(toolAssemblyRevision.rawValue)
-        )
-      )
       let placement = try DrawingPlacement(
         fieldAnchor: Point2(
-          x: entry.fieldExtent.width / 2,
-          y: entry.fieldExtent.height / 2
+          x: program.fieldExtent.width / 2,
+          y: program.fieldExtent.height / 2
         ),
         machineAnchor: center,
         uniformScale: uniformScale,
@@ -352,13 +343,6 @@ public enum PlotterDrawingPlanningAdapter {
         failure: nil
       )
     } catch {
-      let program = try? DrawingProgramCatalog.program(
-        for: entry.id,
-        style: StrokeStyle(
-          nominalLineWidth: 0.4,
-          penProfileID: PenProfileID(toolAssemblyRevision.rawValue)
-        )
-      )
       return PlotterDrawingDraftPlanBuild(
         program: program,
         center: machineCenter,
@@ -407,6 +391,7 @@ public actor PlotterDrawingDraftRuntime {
     var revision = PlotterDrawingDraftRevision(rawValue: 0)
     var isOpen = false
     var selectedCatalogItemID: DrawingCatalogEntryID = .square
+    var suppliedProgram: DrawingProgram?
     var evidenceRole: BorderValidationEvidenceRole = .ordinaryDrawing
     var uniformScale = 0.25
     var rotationDegrees = 0.0
@@ -546,6 +531,11 @@ public actor PlotterDrawingDraftRuntime {
       state.isOpen = false
     case .selectCatalogItem(let id):
       state.selectedCatalogItemID = id
+      state.suppliedProgram = nil
+      state.placementID = UUID()
+    case .selectProgram(let program):
+      state.suppliedProgram = program
+      state.uniformScale = min(state.uniformScale, allowedScale(state: state, facts: facts).upperBound)
       state.placementID = UUID()
     case .setEvidenceRole(let role):
       state.evidenceRole = role
@@ -776,14 +766,21 @@ public actor PlotterDrawingDraftRuntime {
       )
       return
     }
+    let program = state.suppliedProgram ?? (try? DrawingProgramCatalog.program(
+      for: state.selectedCatalogItemID,
+      style: StrokeStyle(
+        nominalLineWidth: 0.4,
+        penProfileID: PenProfileID(facts.revisions.toolAssemblyRevision.rawValue)
+      )
+    ))
+    guard let program else { return }
     let built = PlotterDrawingPlanningAdapter.buildDraft(
-      catalogItemID: state.selectedCatalogItemID,
+      program: program,
       machineCenter: state.machineCenter,
       uniformScale: state.uniformScale,
       rotationDegrees: state.rotationDegrees,
       drawableRegion: region,
-      registration: registration,
-      toolAssemblyRevision: facts.revisions.toolAssemblyRevision
+      registration: registration
     )
     state.machineCenter = built.center ?? state.machineCenter
     state.program = built.program
@@ -936,7 +933,7 @@ public actor PlotterDrawingDraftRuntime {
       ),
       isOpen: state.isOpen,
       catalog: DrawingProgramCatalog.entries,
-      selectedCatalogItemID: state.selectedCatalogItemID,
+      selectedCatalogItemID: state.suppliedProgram == nil ? state.selectedCatalogItemID : nil,
       evidenceRole: state.evidenceRole,
       uniformScale: state.uniformScale,
       allowedScale: allowedScale(state: state, facts: facts),
@@ -960,12 +957,13 @@ public actor PlotterDrawingDraftRuntime {
     facts: PlotterDrawingDraftExternalFacts
   ) -> ClosedRange<Double> {
     guard let region = facts.revisions.drawableRegion else { return 0.02...1 }
-    let entry = DrawingProgramCatalog.entry(for: state.selectedCatalogItemID)
+    let extent = state.suppliedProgram?.fieldExtent
+      ?? DrawingProgramCatalog.entry(for: state.selectedCatalogItemID).fieldExtent
     let maximum = max(
       0.02,
       min(
-        (region.effectiveBounds.maxX - region.effectiveBounds.minX) / entry.fieldExtent.width,
-        (region.effectiveBounds.maxY - region.effectiveBounds.minY) / entry.fieldExtent.height
+        (region.effectiveBounds.maxX - region.effectiveBounds.minX) / extent.width,
+        (region.effectiveBounds.maxY - region.effectiveBounds.minY) / extent.height
       ) * 0.9
     )
     return 0.02...maximum

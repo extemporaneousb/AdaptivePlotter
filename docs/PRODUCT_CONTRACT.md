@@ -1224,8 +1224,28 @@ registration, region, paper, frame, or run fact; closed studio; active run; or r
 terminal receives an exact owner/reason/remedy refusal. The UI renders the
 returned immutable snapshot; it does not decide admission or rebuild a plan.
 
-The built-in catalog is a set of deterministic `DrawingProgram` producers, not
-precomputed machine commands. Placement is one immutable field-to-machine
+The built-in catalog and portrait authoring are deterministic `DrawingProgram`
+producers, not precomputed machine commands. Portrait authoring accepts a photo
+or one exact frame from an independently owned optional camera. Left, front, and
+right are labeled individual captures; selecting a pose and Contour, Hatch, or
+Crosshatch produces ordered FieldSpace polylines. Face localization supplies a
+padded crop and Vision person segmentation can remove background. A missing
+face or person mask retains the image, with a visible analysis explanation;
+these detectors do not gate drawing creation. This is person/background masking,
+not segmentation of individual facial parts or reconstruction of a 3D head.
+
+The portrait editor retains its captures in memory while Drawing Studio remains
+open. It does not add them to the Learning package or automatically persist raw
+photos. Use Portrait installs the immutable generated program through the same
+draft intent owner as catalog selection. It does not start motion. Placement,
+execution, Stop, and observation use the existing drawing path. Program source
+provenance identifies the image/raster digests, crop, pose, and style; completed
+runs retain it alongside their reconstructable execution plan in the existing
+drawing evidence archive. Preview
+frames and image analysis stay local to portrait authoring; the observation
+camera, accepted calibration, and Learning state are unchanged by capture.
+
+Placement is one immutable field-to-machine
 transform. `DrawingPlanner` clips nothing: every planned stroke must fit inside
 the effective `DrawableMachineRegion`, or planning is refused. The resulting
 `ExecutionPlanRevision` is content-addressed and binds program, placement,

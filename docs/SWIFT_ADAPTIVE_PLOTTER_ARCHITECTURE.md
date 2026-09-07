@@ -1887,6 +1887,23 @@ remain current, while paper, source, camera configuration, or contact-plane
 changes invalidate the assertion. It never expands the accepted Drawing
 Boundary. SIMULATED assertions remain nonphysical.
 
+`PortraitStudioModel` owns optional portrait capture and the three labeled pose
+images inside Drawing Studio. Its separate `CameraCapture` excludes the selected
+observation device. Only `PortraitCameraPreview` reads the changing preview frame;
+these frames do not enter the root semantic projection. `PortraitImageAnalyzer`
+runs bounded image decoding, face cropping, contrast normalization, and optional
+person masking on worker tasks. Style changes reuse the analyzed raster.
+`PortraitVectorizer` generates deterministic joined tonal contours or continuous
+hatch/crosshatch polylines, preserving top-left image to lower-left FieldSpace
+orientation. It has no controller or Learning dependencies.
+
+Use Portrait supplies `.selectProgram(DrawingProgram)` to the existing draft
+runtime. The root projection binds this action to the program digest rather than
+serializing its points into an action identifier. The planning adapter now
+consumes a program directly, and catalog selection remains a program producer.
+The UI sink awaits draft installation and returns the retained owner's result.
+No portrait-specific run loop or evidence archive exists.
+
 Drawing Studio views consume immutable catalog, placement, target-preview,
 parameter, and run-state presentations. A video click carries its exact frame
 reference and is inverted through the current registration into a machine
