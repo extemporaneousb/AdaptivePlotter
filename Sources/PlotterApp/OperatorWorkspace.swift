@@ -2370,8 +2370,9 @@ final class PlotterApplicationRuntime:
     guard let snapshot = drawingRunSnapshot else { return false }
     if snapshot.terminal != nil { return true }
     switch snapshot.noRedraw {
-    case .clear: return false
-    case .archiveUnavailable, .newPlanRequired, .planMayContainInk: return true
+    // Archive availability gates Run, not creation of an unexecuted draft.
+    case .clear, .archiveUnavailable: return false
+    case .newPlanRequired, .planMayContainInk: return true
     }
   }
 
@@ -2458,10 +2459,8 @@ final class PlotterApplicationRuntime:
         reason: "SIMULATED previews placement only and cannot produce physical drawing evidence."
       )
     }
-    if let previewStatus = drawingDraftSnapshot.preview?.status,
-      case .diagnosticOnly(let limitation) = previewStatus
-    {
-      return .ready(detail: tipApplicabilityDiagnosticDetail(limitation))
+    if case .archiveUnavailable(let detail) = snapshot.noRedraw {
+      return .unavailable(reason: "Drawing run archive unavailable: \(detail)")
     }
     guard interactiveLearningIsComplete else {
       return .unavailable(reason: "Complete Drawing Border validation first.")
@@ -2471,6 +2470,11 @@ final class PlotterApplicationRuntime:
         reason: drawingDraftSnapshot.planningRefusal?.remedy
           ?? "Review an exact plan and assert current paper coverage."
       )
+    }
+    if let previewStatus = drawingDraftSnapshot.preview?.status,
+      case .diagnosticOnly(let limitation) = previewStatus
+    {
+      return .ready(detail: tipApplicabilityDiagnosticDetail(limitation))
     }
     return .ready(
       detail: "The reviewed plan is inside the accepted Drawing Boundary on confirmed paper."
@@ -4343,21 +4347,26 @@ final class PlotterApplicationRuntime:
         unavailableReason: paperManagementUnavailableReason,
         owner: "PlotterDrawingDraftRuntime"
       ))
-      let minimumScaleStep = Int(ceil(drawing.canvas.placement.allowedScale.lowerBound * 100))
-      let maximumScaleStep = Int(floor(drawing.canvas.placement.allowedScale.upperBound * 100))
+      let allowedScale = drawing.canvas.placement.allowedScale
+      let minimumScaleStep = Int(ceil(allowedScale.lowerBound * 100))
+      let maximumScaleStep = Int(floor(allowedScale.upperBound * 100))
+      // A program change may clamp to a fractional bound between slider steps.
+      // Preserve that exact bound in the projection instead of rounding it out
+      // of the runtime's admissible range and disabling the Size control.
+      var scales: Set<Double> = [allowedScale.lowerBound, allowedScale.upperBound]
       if minimumScaleStep <= maximumScaleStep {
-        candidates.append(contentsOf: (minimumScaleStep...maximumScaleStep).prefix(2_000).map {
-          scaleStep in
-          let intent = PlotterDrawingDraftIntent.setUniformScale(Double(scaleStep) / 100)
-          return uiCandidate(
-            id: PlotterAppUIActionID.drawingDraft(intent),
-            title: "Set scale \(Double(scaleStep) / 100)",
-            intent: .drawingDraft(intent),
-            unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
-            owner: "PlotterDrawingDraftRuntime"
-          )
-        })
+        scales.formUnion((minimumScaleStep...maximumScaleStep).prefix(2_000).map { Double($0) / 100 })
       }
+      candidates.append(contentsOf: scales.sorted().map { scale in
+        let intent = PlotterDrawingDraftIntent.setUniformScale(scale)
+        return uiCandidate(
+          id: PlotterAppUIActionID.drawingDraft(intent),
+          title: "Set scale \(scale)",
+          intent: .drawingDraft(intent),
+          unavailableReason: drawing.editingIsEnabled ? nil : drawing.runState.detail,
+          owner: "PlotterDrawingDraftRuntime"
+        )
+      })
       candidates.append(contentsOf: (-180...180).map { degrees in
         let intent = PlotterDrawingDraftIntent.setRotationDegrees(Double(degrees))
         return uiCandidate(

@@ -1215,6 +1215,15 @@ graduation cap, and permits direct bounded drawing with the accepted pen-tip
 calibration; it does not establish **Adaptive drawing ready**. Paper readiness
 remains a separate operator assertion and is never inferred from that calibration.
 
+Drawing Studio and Create Portrait are available before Learning completion.
+Authoring retains an immutable program without requiring a registration or
+Drawing Boundary; placement and planning still require those current artifacts,
+and physical running retains its existing Learning, paper, and motion admission.
+A missing calibration must remove the plan, not erase the authored program.
+An unavailable run archive prevents running; it does not require a New Drawing
+handoff or prevent authoring. Actual retained terminals and possible-ink state
+continue to require their existing handoff.
+
 Drawing Studio draft edits are revision-bound requests, not direct workspace
 mutations. Open, close, catalog selection, evidence role, exact-frame placement,
 scale, rotation, centering, new-plan, and paper assertion are typed

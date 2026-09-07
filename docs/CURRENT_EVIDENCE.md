@@ -8,6 +8,47 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing Studio access and numerical drawing corrections, 2026-09-07
+
+Blackdog task `task-85a511b20c7d45deac3810d46d117e12` confirmed that portrait
+authoring was already implemented but hidden behind completed Border validation.
+Drawing Studio now has an always-visible workbench entry and remains in View.
+It opens before Learning completion, and Create Portrait/Use Portrait retain the
+immutable program without a camera registration or Drawing Boundary. Planning
+resumes against that same program when calibration becomes available. Missing
+calibration clears the plan, not the artwork. An unavailable run archive no
+longer masquerades as an executed-drawing terminal that blocks authoring.
+Actual terminals and possible-ink state retain their existing handoff; Run still
+requires current Learning, calibration, paper, archive, and controller admission.
+Diagnostic-only preview status no longer precedes those readiness checks.
+
+Three numeric regressions were reproduced before correction. A translated valid
+10 mm camera-calibration span became `9.999999999999998` and failed planning;
+its check now uses the existing DrawingRegionContainmentPolicy numerical epsilon.
+The generic runner skipped a 0.4 mm Pen-Up move between hatch strokes because
+it used the 1 mm settlement policy to decide whether travel existed. Only a
+move that rounds to zero through MachineController's existing wire encoder is
+now omitted. Tests cover signed gaps, 0.001 mm wire resolution, the 1 mm policy
+boundary, and sub-wire residue. Finally, selecting wide artwork could clamp
+scale to a valid fractional maximum absent from the UI's hundredth-step request
+catalog. Exact range endpoints are now present, slider rounding stays within the
+range, and a currently oversized draft can still be resized. Digital program,
+frame, request, revision, Stop, and no-redraw identities retain exact checks.
+
+Validation: focused strict tests passed 70/70 in 2.634 seconds, strict quick
+tests passed 899/899 in 18.336 seconds, and serial strict journeys passed 10/10
+in 5.558 seconds. Regressions exercise the production UI request path from initial
+startup through portrait selection, program preservation across calibration loss
+and restoration, fractional scale submission, and effect-free run refusal for
+missing Learning/paper. Existing corrupt-archive, exact-frame, Stop, possible-ink,
+saved-checkpoint, automatic Border-graduation, and 120-frame preview-isolation
+tests passed. Documentation and whitespace checks passed; the stable-local signed
+application bundle built and validated. Offscreen native rendering was inspected with Create Portrait
+enabled before calibration. Initial test integration failures were corrected
+before these final passes. Active trial selection, residual-model fitting, and
+adaptive readiness emission remain unfinished. No attended camera/controller,
+motion, pen, paper, click, or ink validation occurred.
+
 ## Boundary measurement and workbench interaction fixes, 2026-09-06
 
 Blackdog task `TASK-77F69619` inspected the running signed `f4f12da` app

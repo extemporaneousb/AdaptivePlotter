@@ -142,7 +142,6 @@ public protocol PlotterDrawingDraftIntentSink: AnyObject {
 
 public enum PlotterDrawingDraftRefusalReason: Hashable, Sendable {
   case staleProjection
-  case learningIncomplete
   case studioClosed
   case retainedRunOwnsMutation
   case terminalRunRequiresHandoff
@@ -407,7 +406,6 @@ public actor PlotterDrawingDraftRuntime {
 
   private enum Authority {
     static let draft = EpisodeAuthorityID(rawValue: "PlotterDrawingDraftRuntime")
-    static let learning = EpisodeAuthorityID(rawValue: "PlotterLearningAuthority")
     static let registration = EpisodeAuthorityID(rawValue: "TipCameraRegistration")
     static let region = EpisodeAuthorityID(rawValue: "PlotterModel.DrawableMachineRegion")
     static let camera = EpisodeAuthorityID(rawValue: "CameraEvidenceAuthority")
@@ -476,18 +474,7 @@ public actor PlotterDrawingDraftRuntime {
       )
     }
 
-    if case .open = submission.intent {
-      guard facts.revisions.interactiveLearningIsComplete else {
-        return refuse(
-          submission,
-          state: &state,
-          facts: facts,
-          owner: Authority.learning,
-          reason: .learningIncomplete,
-          remedy: "Complete Drawing Border validation before opening Drawing Studio."
-        )
-      }
-    } else {
+    if submission.intent != .open {
       guard state.isOpen else {
         return refuse(
           submission,
@@ -738,8 +725,17 @@ public actor PlotterDrawingDraftRuntime {
     facts: PlotterDrawingDraftExternalFacts,
     requestID: PlotterDrawingDraftRequestID?
   ) {
+    // Artwork is independent of calibration. Retain it while planning is
+    // unavailable so an authored portrait survives Learning and revalidation.
+    let program = state.suppliedProgram ?? (try? DrawingProgramCatalog.program(
+      for: state.selectedCatalogItemID,
+      style: StrokeStyle(
+        nominalLineWidth: 0.4,
+        penProfileID: PenProfileID(facts.revisions.toolAssemblyRevision.rawValue)
+      )
+    ))
+    state.program = program
     guard let registration = facts.registration else {
-      state.program = nil
       state.plan = nil
       state.preview = nil
       state.planningRefusal = issue(
@@ -753,7 +749,6 @@ public actor PlotterDrawingDraftRuntime {
       return
     }
     guard let region = facts.revisions.drawableRegion else {
-      state.program = nil
       state.plan = nil
       state.preview = nil
       state.planningRefusal = issue(
@@ -766,13 +761,6 @@ public actor PlotterDrawingDraftRuntime {
       )
       return
     }
-    let program = state.suppliedProgram ?? (try? DrawingProgramCatalog.program(
-      for: state.selectedCatalogItemID,
-      style: StrokeStyle(
-        nominalLineWidth: 0.4,
-        penProfileID: PenProfileID(facts.revisions.toolAssemblyRevision.rawValue)
-      )
-    ))
     guard let program else { return }
     let built = PlotterDrawingPlanningAdapter.buildDraft(
       program: program,

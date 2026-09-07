@@ -7,6 +7,28 @@ import Testing
 
 @Suite("Current-camera calibration planning")
 struct CurrentCameraCalibrationPlanningTests {
+  @Test("minimum calibration span survives fractional translation without admitting a smaller envelope")
+  func fractionalMinimumCalibrationSpan() throws {
+    let target = try MachinePosition(x: 0.2, y: -0.2)
+    let plan = try CurrentCameraCalibrationPlan(
+      targetPosition: target,
+      acceptedBoundaryAggregates: boundaryEnvelope(
+        negativeX: -14.8, positiveX: 15.2, negativeY: -15.2, positiveY: 14.8),
+      controllerSessionID: calibrationSessionID,
+      coordinateRevision: calibrationCoordinateRevision)
+    #expect(plan.samplePositions[0] == target)
+    #expect(plan.samplePositions.count == 5)
+    #expect(abs(plan.applicabilityRectangle.maxX - plan.applicabilityRectangle.minX - 10) < 1e-12)
+    #expect(throws: CurrentCameraCalibrationPlanningError.insufficientXAxisSpan) {
+      try CurrentCameraCalibrationPlan(
+        targetPosition: target,
+        acceptedBoundaryAggregates: boundaryEnvelope(
+          negativeX: -14.799, positiveX: 15.2, negativeY: -15.2, positiveY: 14.8),
+        controllerSessionID: calibrationSessionID,
+        coordinateRevision: calibrationCoordinateRevision)
+    }
+  }
+
   @Test("live fractional border round trip still produces a complete camera prediction")
   func fractionalBorderPrediction() throws {
     // Coordinates retained from the 2026-09-06 LIVE outsideDomain failure.

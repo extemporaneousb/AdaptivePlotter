@@ -629,20 +629,20 @@ public actor RunInterpreter {
         ))
       }
       let strokeStart = MachinePosition(point: stroke.path.start)
-      if !MachinePositionAcceptancePolicy.accepts(currentPosition, target: strokeStart) {
-        let delta: Vector2<MachineSpace>
-        do {
-          delta = try currentPosition.point.vector(to: stroke.path.start)
-        } catch {
-          return finishDrawingPlan(.refused(
-            progress: currentDrawingPlanProgress(request),
-            reason: .machinePositionUnavailable
-          ))
-        }
-        let travel = RelativeJogRequest(
-          delta: delta,
-          feedMMPerMinute: request.travelFeedMMPerMinute
-        )
+      let delta: Vector2<MachineSpace>
+      do {
+        delta = try currentPosition.point.vector(to: stroke.path.start)
+      } catch {
+        return finishDrawingPlan(.refused(
+          progress: currentDrawingPlanProgress(request),
+          reason: .machinePositionUnavailable
+        ))
+      }
+      let travel = RelativeJogRequest(
+        delta: delta,
+        feedMMPerMinute: request.travelFeedMMPerMinute
+      )
+      if !MachineController.relativeJogRoundsToZero(travel) {
         let outcome = await machineController.requestRelativeJog(travel)
         lastMotionOutcome = outcome
         switch outcome {

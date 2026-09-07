@@ -34,7 +34,7 @@ Drawing Border** click previews the planned Drawing Border and owns the
 normal baseline, motion, drawing, reveal, Vision, and comparison phases. Those
 phases are visible activity, not six approval buttons. The exact post-frame
 comparison remains reviewable after the exercise finishes. That attributable
-validation unlocks the separate **Drawing Studio**; adaptive model fitting and
+validation enables running from **Drawing Studio**; adaptive model fitting and
 adaptive readiness remain Roadmap scope and are not Learning Path stages.
 
 Connect and Enable Motion expose direct current-session facts. Selecting a row
@@ -244,16 +244,23 @@ an automatic redraw.
 
 ## Drawing Studio
 
-After one attributable Exercise 2.1 validation, the top capability indicator says
-**Drawing validation complete** and Drawing Studio becomes
-available independently of the Learning Path. The operator can select one of
-11 deterministic `DrawingProgram` producers—line, polyline, rectangle, square,
-triangle, regular polygon, circle, ellipse, star, pyramid, or elephant—then
-place its target on the video, resize it, rotate it, and inspect the projected
-plan. Curves are deterministically tessellated before execution.
+**Drawing Studio** is always visible in the workbench and in **View**. Open it
+before calibration to select a vector drawing or use **Create Portrait…** to
+import a face photo or capture from a separate camera. **Use Portrait** retains
+the generated program while calibration is unavailable; its plan is built when
+a current pen-tip registration and Drawing Boundary become available.
 
-The accepted Drawing Boundary projects as the persistent drawable outline with
-the current predicted tip point. Paper is a separate operator fact:
+The operator can select one of 11 deterministic `DrawingProgram` producers—line,
+polyline, rectangle, square, triangle, regular polygon, circle, ellipse, star,
+pyramid, or elephant—or a portrait in Contour, Hatch, or Crosshatch style.
+With current calibration, place the target on the video, resize it, rotate it,
+and inspect the projected plan. Curves are deterministically tessellated before
+execution. Running still requires completed Exercise 2.1 validation, the current
+calibration, paper coverage, and explicit motion authorization. Learning
+completion does not establish adaptive training.
+
+The accepted Drawing Boundary projects as the persistent drawable outline.
+Paper is a separate operator fact:
 **Confirm Paper Coverage** binds the current sheet and exact frame to the
 outlined region before Run can become eligible. **New Sheet — Same Contact
 Plane** preserves learned geometry but requires a fresh coverage confirmation;
@@ -268,10 +275,10 @@ a newer exact frame, compares arbitrary planned polylines with new ink, and
 retains intended, observed, and residual overlays for review. Refusal,
 cancellation, ambiguity, or possible ink is terminal and never redraws.
 
-Current `bab0900` source still applies the 0.5 mm pose-settlement value as an
-axis-wise outward planning tolerance. The episode ledger's `FIX-00` package
-must remove that cross-owner policy before the attended migration baseline; it
-is not part of the product contract above.
+Drawing admission uses `DrawingRegionContainmentPolicy` with numerical epsilon;
+controller settlement uses the separate `MachinePositionAcceptancePolicy`.
+Representable Pen-Up moves between strokes are commanded even when their length
+is within settlement tolerance.
 
 Drawing Border validation and later run evidence are stored in a checksummed,
 append-only archive with fixed predeclared roles: ordinary drawing, training,

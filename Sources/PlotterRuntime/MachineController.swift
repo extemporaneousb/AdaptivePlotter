@@ -1307,6 +1307,13 @@ public actor MachineController {
     return 2 * sqrt(distance / pathAcceleration)
   }
 
+  /// A requested move may be omitted only when both axes round to zero in the
+  /// same encoder used for controller admission. Settlement tolerance does not
+  /// define whether distinct planned stroke starts require Pen-Up travel.
+  static func relativeJogRoundsToZero(_ request: RelativeJogRequest) -> Bool {
+    makeWireRelativeJog(request).refusal == .zeroDelta
+  }
+
   public static func encodeRelativeJog(_ request: RelativeJogRequest) -> Data {
     makeWireRelativeJog(request).wire?.bytes ?? Data()
   }

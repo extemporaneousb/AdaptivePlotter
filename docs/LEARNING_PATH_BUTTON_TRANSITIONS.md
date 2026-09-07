@@ -194,8 +194,9 @@ Dependency behavior is intentionally asymmetric:
 - Exact Stop or root shutdown that displaces a published Pen Confirm yields a
   superseded confirmation: no accepted Pen evidence is recorded and no
   discovery successor appears.
-- **View** contains checked noun labels for Learning Path, Exercise, Motion,
-  Video Settings, and the available Drawing Studio. Diagnostics is a secondary
+- **View** contains checked noun labels for Learning Path, Motion,
+  Video Settings, and Drawing Studio. Drawing Studio authoring is always available;
+  physical Run retains its calibration, paper, and motion prerequisites. Diagnostics is a secondary
   item in the same menu, not a state-saving step.
 - **Diagnostics** displays current workflow phases, drawing outcomes, retained
   terminal details, actions/refusals, source, and runtime/UI revisions. Copy

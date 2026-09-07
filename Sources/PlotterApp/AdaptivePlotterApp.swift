@@ -275,7 +275,6 @@ struct PlotterApplicationRuntimeView: View {
             learningActionTitle: learningMode.actionTitle,
             learningModeRemedy: learningMode.remedy,
             learningRecordingDiagnostic: learningMode.recordingDiagnostic,
-            drawingStudioIsAvailable: ui.workbenchCapability.drawingStudioIsAvailable,
             drawingStudioIsPresented: ui.drawingStudioIsPresented,
             drawingStudioChangeUnavailableReason: ui.drawingStudioPanelChangeUnavailableReason,
             showDiagnostics: { debugSnapshot = WorkbenchDebugSnapshot(application: application, projection: ui.semantic) },
@@ -535,7 +534,6 @@ private struct WorkbenchPaneControls: View {
   let learningActionTitle: String
   let learningModeRemedy: String?
   let learningRecordingDiagnostic: String?
-  let drawingStudioIsAvailable: Bool
   let drawingStudioIsPresented: Bool
   let drawingStudioChangeUnavailableReason: String?
   let showDiagnostics: () -> Void
@@ -595,6 +593,16 @@ private struct WorkbenchPaneControls: View {
         .help(action.title)
       }
       Spacer(minLength: 12)
+      OperatorRequestButton(
+        title: drawingStudioIsPresented ? "Close Drawing Studio" : "Drawing Studio",
+        role: .neutral,
+        request: plotterUIProjection.request(for: drawingStudioIsPresented
+          ? PlotterAppUIActionID.drawingClose : PlotterAppUIActionID.drawingOpen),
+        unavailableReason: drawingStudioChangeUnavailableReason,
+        sink: plotterUIIntentSink
+      )
+      .controlSize(.small)
+      .help("Create a portrait or choose a vector drawing. Calibration is required for placement and running.")
       Menu {
         paneToggle(.learningPath, panel: .learningPath)
         paneToggle(.motion, panel: .motion, unavailableReason: motionCollapseUnavailableReason)
@@ -604,15 +612,13 @@ private struct WorkbenchPaneControls: View {
         ))
         .disabled(!videoSettings.isActionEnabled)
         .help(videoSettings.unavailableReasonText ?? "Camera configuration and measured overlays")
-        if drawingStudioIsAvailable {
-          Toggle("Drawing Studio", isOn: Binding(
-            get: { drawingStudioIsPresented },
-            set: { presented in
-              submit(presented ? PlotterAppUIActionID.drawingOpen : PlotterAppUIActionID.drawingClose)
-            }
-          ))
-          .disabled(drawingStudioChangeUnavailableReason != nil)
-        }
+        Toggle("Drawing Studio", isOn: Binding(
+          get: { drawingStudioIsPresented },
+          set: { presented in
+            submit(presented ? PlotterAppUIActionID.drawingOpen : PlotterAppUIActionID.drawingClose)
+          }
+        ))
+        .disabled(drawingStudioChangeUnavailableReason != nil)
         Divider()
         Button("Diagnostics…", action: showDiagnostics)
           .keyboardShortcut("d", modifiers: [.command, .shift])

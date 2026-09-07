@@ -51,8 +51,7 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
 }
 
 /// One visible Exercise 1.4 mark. The circle is a 16-chord approximation whose
-/// maximum radial deviation is below the shared 0.5 mm machine-position
-/// acceptance policy.
+/// maximum radial deviation is checked by the machine-position acceptance policy.
 struct SparseTipCircularMarkPlan: Hashable, Sendable {
   static let radiusMM = 2.0
   static let chordCount = 16
@@ -409,10 +408,12 @@ struct CurrentCameraCalibrationPlan: Hashable, Sendable {
     ].min()!
     let spanX = 2 * halfSpanX
     let spanY = 2 * halfSpanY
-    guard spanX >= Self.minimumUsableSpanMM else {
+    // Translation can leave the exact minimum span a few ULPs below 10 mm.
+    // Use only the existing geometric epsilon, never controller settlement.
+    guard spanX >= Self.minimumUsableSpanMM - DrawingRegionContainmentPolicy.numericalEpsilonMM else {
       throw CurrentCameraCalibrationPlanningError.insufficientXAxisSpan
     }
-    guard spanY >= Self.minimumUsableSpanMM else {
+    guard spanY >= Self.minimumUsableSpanMM - DrawingRegionContainmentPolicy.numericalEpsilonMM else {
       throw CurrentCameraCalibrationPlanningError.insufficientYAxisSpan
     }
 

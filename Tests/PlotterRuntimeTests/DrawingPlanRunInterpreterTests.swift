@@ -6,6 +6,52 @@ import Testing
 
 @Suite("Owner-bound drawing plan runner")
 struct DrawingPlanRunInterpreterTests {
+  @Test("sub-wire start residue does not issue a zero-delta jog or reject settled drawing")
+  func subWireStartResidue() async throws {
+    let request = try drawingPlanRequest([[(0.0004, 0), (1.0004, 0)]])
+    var exchanges = drawingPlanProbeExchanges(position: (0, 0))
+    exchanges += penExchanges(.raise, at: (0, 0), profile: request.penActuationProfile)
+    exchanges += penExchanges(.lower, at: (0, 0), profile: request.penActuationProfile)
+    exchanges += strokeExchanges(try strokeRequest(from: (0.0004, 0), to: (1.0004, 0), request: request),
+      from: (0, 0), to: (1, 0))
+    exchanges += penExchanges(.raise, at: (1, 0), profile: request.penActuationProfile)
+    let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
+    guard case .completed = await fixture.interpreter.requestDrawingPlan(request) else {
+      Issue.record("Wire-zero travel should retain normal drawing and settlement tolerance")
+      return
+    }
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+  }
+
+  @Test("portrait stroke gaps within settlement tolerance command Pen-Up travel",
+    arguments: [-0.4, 0.001, 0.4, 1.0])
+  func submillimetreStrokeTravel(gap: Double) async throws {
+    let request = try drawingPlanRequest([
+      [(0, 0), (2, 0)], [(2, gap), (0, gap)],
+    ])
+    var exchanges = drawingPlanProbeExchanges(position: (0, 0))
+    exchanges += penExchanges(.raise, at: (0, 0), profile: request.penActuationProfile)
+    exchanges += penExchanges(.lower, at: (0, 0), profile: request.penActuationProfile)
+    exchanges += strokeExchanges(try strokeRequest(from: (0, 0), to: (2, 0), request: request),
+      from: (0, 0), to: (2, 0))
+    exchanges += penExchanges(.raise, at: (2, 0), profile: request.penActuationProfile)
+    exchanges += travelExchanges(try travelRequest(from: (2, 0), to: (2, gap), request: request),
+      from: (2, 0), to: (2, gap))
+    exchanges += penExchanges(.lower, at: (2, gap), profile: request.penActuationProfile)
+    exchanges += strokeExchanges(try strokeRequest(from: (2, gap), to: (0, gap), request: request),
+      from: (2, gap), to: (0, gap))
+    exchanges += penExchanges(.raise, at: (0, gap), profile: request.penActuationProfile)
+    let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
+    let outcome = await fixture.interpreter.requestDrawingPlan(request)
+    guard case .completed(let progress, let position) = outcome else {
+      Issue.record("Expected both distinct hatch strokes with their travel, got \(outcome)")
+      return
+    }
+    #expect(position == (try MachinePosition(x: 0, y: gap)))
+    #expect(progress.completedCheckpointIDs == request.plan.checkpoints.map(\.id))
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+  }
+
   @Test("plan redundantly commands Pen Up before travel when Pen Up was already commanded")
   func planNormalizesKnownPenUp() async throws {
     let request = try drawingPlanRequest([[(0, 0), (1, 0)]])

@@ -10,6 +10,24 @@ import Testing
 @Suite("Drawing Studio run episode", .serialized)
 @MainActor
 struct PlotterDrawingRunEpisodeTests {
+  @Test("authored plans do not bypass Learning or paper prerequisites")
+  func authoringDoesNotAuthorizeRun() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    for learningComplete in [false, true] {
+      let harness = await drawingRunHarness(fixture: fixture,
+        facts: fixture.facts(learningComplete: learningComplete, paperCurrent: false))
+      let current = await harness.runtime.synchronize(environment: .live)
+      let result = await harness.runtime.submit(
+        PlotterDrawingRunSubmission(projection: current.projection, intent: .start))
+      let refusal = try drawingRunRefusal(result)
+      #expect(refusal.reason == (learningComplete ? .paperCoverageNotCurrent : .learningIncomplete))
+      #expect(await harness.events.values.isEmpty)
+      #expect(await harness.interpreter.planRequests.isEmpty)
+      #expect(await harness.camera.requests.isEmpty)
+      #expect(await harness.evidence.attempts.isEmpty)
+    }
+  }
+
   @Test("portrait follows ordinary execution observation and evidence persistence")
   func portraitExecution() async throws {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()

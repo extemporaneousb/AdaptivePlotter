@@ -327,6 +327,7 @@ struct DrawingStudioView: View {
         )
         .font(.caption)
         .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
       }
 
       if let requestRefusal {
@@ -426,7 +427,11 @@ struct DrawingStudioView: View {
         Slider(
           value: Binding(
             get: { presentation.canvas.placement.uniformScale },
-            set: { submitDraft(.setUniformScale(($0 * 100).rounded() / 100)) }
+            set: {
+              let allowed = presentation.canvas.placement.allowedScale
+              submitDraft(.setUniformScale(min(allowed.upperBound,
+                max(allowed.lowerBound, ($0 * 100).rounded() / 100))))
+            }
           ),
           in: presentation.canvas.placement.allowedScale,
           step: 0.01
@@ -437,7 +442,7 @@ struct DrawingStudioView: View {
       }
       .disabled(
         !presentation.editingIsEnabled
-          || draftRequest(.setUniformScale(presentation.canvas.placement.uniformScale)) == nil
+          || draftRequest(.setUniformScale(presentation.canvas.placement.allowedScale.lowerBound)) == nil
       )
       HStack {
         Text("Rotation")

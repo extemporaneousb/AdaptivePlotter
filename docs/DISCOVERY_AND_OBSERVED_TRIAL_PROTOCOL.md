@@ -362,7 +362,7 @@ For an unchanged physical setup:
 
 When the saved package and drawing archive contain a completed Drawing Border
 result for that calibration, applying Saved Learning restores **Learning
-complete**, the filled graduation cap, and Drawing Studio availability. Tip
+complete**, the filled graduation cap, and Drawing Studio run eligibility. Tip
 checkpoint revalidation retains the original accepted calibration lineage, so
 its existing Border result can survive subsequent save/load cycles without
 another Border draw.
@@ -449,13 +449,16 @@ failures remain visible with their actual phase and detail.
 
 Completion marks Exercise 2.1 complete with review/reset operations available.
 The graduation cap fills and the toolbar reports **Learning complete**. Drawing
-Studio is available in View. Trial completion and observation quality are
+Studio running becomes available; its authoring controls are always accessible.
+Trial completion and observation quality are
 separate facts; completion does not assert general adaptive-drawing readiness.
 
 ## Drawing Studio — place, run, and observe
 
-1. Open **Drawing Studio** after the completed Exercise 2.1 trial. Use
-   **Review Comparison** to return to the pinned exact post-frame or
+1. Open **Drawing Studio** from the workbench button or **View**, including before
+   Learning completion. Choose a catalog drawing or **Create Portrait…**, then
+   **Use Portrait** to retain its vectors. Complete Exercise 2.1 before running.
+   Use **Review Comparison** to return to the pinned exact post-frame or
    **Resume Live Preview** before placement.
 2. Confirm the accepted Drawing Boundary outline is visible. Place the current
    physical sheet over it and choose **Assert Sheet Covers Outline**. The assertion

@@ -10,6 +10,68 @@ import Testing
 @Suite("Drawing Studio draft episode", .serialized)
 @MainActor
 struct PlotterDrawingDraftEpisodeTests {
+  @Test("wide artwork retains a reachable exact fractional maximum scale in the production UI")
+  func fractionalMaximumScaleRemainsReachable() async throws {
+    let harness = makeCausalSimulatorAppFixture()
+    let workspace = harness.workspace
+    try await completeSimulatedPenInteractionPrerequisite(workspace)
+    try await installAcceptedBoundaryTestProjection(runtime: harness.boundaryRuntime,
+      workspace: workspace, environment: .simulated)
+    try await completeSimulatedTipCalibration(workspace, simulator: harness.simulator)
+    _ = await workspace.currentDrawingRunFacts(for: .simulated)
+    let item = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let initial = workspace.testPlotterUIProjection(selectedItemID: item, includesLearningPath: true)
+    let openRequest = try #require(initial.semantic.request(for: PlotterAppUIActionID.drawingOpen))
+    #expect(await workspace.submitPlotterUIRequest(openRequest) == .accepted(requestID: openRequest.id))
+    let base = try #require(workspace.drawingDraftSnapshot.program)
+    let program = try DrawingProgram(id: ProgramID(), fieldExtent: Size2(width: 1003, height: 100),
+      strokes: base.strokes, source: DrawingSourceProvenance(kind: "wide-artwork-test", sourceIdentifier: "fractional-scale-regression"))
+    let selection = workspace.plotterUIProjection(selectedItemID: item, manualDraft: ManualMotionDraft(),
+      includesLearningPath: true, pendingDrawingProgram: program)
+    let selectRequest = try #require(selection.semantic.request(matching: .drawingDraft(.selectProgram(program))))
+    #expect(await workspace.submitPlotterUIRequest(selectRequest) == .accepted(requestID: selectRequest.id))
+    let projection = workspace.testPlotterUIProjection(selectedItemID: item, includesLearningPath: true)
+    let placement = projection.drawingStudio.canvas.placement
+    #expect(placement.uniformScale == placement.allowedScale.upperBound)
+    #expect(placement.uniformScale != (placement.uniformScale * 100).rounded() / 100)
+    let resize = try #require(projection.semantic.request(matching: .drawingDraft(.setUniformScale(placement.allowedScale.upperBound))))
+    #expect(await workspace.submitPlotterUIRequest(resize) == .accepted(requestID: resize.id))
+    #expect(workspace.drawingDraftSnapshot.program == program)
+    await workspace.shutdown()
+  }
+
+  @Test("portrait authoring survives unavailable calibration and builds the same program after Learning")
+  func portraitBeforeCalibration() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let unavailable = PlotterDrawingDraftExternalFacts(
+      environment: .simulated, interactiveLearningIsComplete: false,
+      displayedFrame: nil, opticalConfiguration: nil, registration: nil,
+      drawableRegion: nil, toolAssemblyRevision: fixture.registration.applicability.toolAssembly,
+      paper: fixture.paper, runInProgress: false, terminalRequiresNewPlan: false)
+    var snapshot = try await open(runtime, facts: unavailable)
+    let style = try #require(snapshot.program?.strokes.first?.style)
+    let portrait = try PortraitVectorizer.program(
+      from: portraitTestRaster(), pose: .front, style: .contours, strokeStyle: style)
+    snapshot = try applied(await runtime.submit(
+      PlotterDrawingDraftSubmission(projection: snapshot.projection, intent: .selectProgram(portrait)),
+      facts: unavailable))
+    #expect(snapshot.program == portrait)
+    #expect(snapshot.plan == nil)
+    #expect(snapshot.planningRefusal?.reason == .registrationUnavailable)
+    #expect(!snapshot.paperCoverageIsCurrent)
+
+    let ready = await runtime.synchronize(fixture.facts())
+    #expect(ready.program == portrait)
+    #expect(ready.plan?.sourceProgramContentHash == portrait.contentHash)
+    #expect(ready.plan?.strokes.count == portrait.strokes.count)
+    let lostCalibration = await runtime.synchronize(unavailable)
+    #expect(lostCalibration.program == portrait)
+    #expect(lostCalibration.plan == nil)
+    let restored = await runtime.synchronize(fixture.facts())
+    #expect(restored.plan == ready.plan)
+  }
+
   @Test("portrait vectors retain exact identity through placement and the ordinary drawing plan")
   func portraitProgramIntegration() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
@@ -41,30 +103,18 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(snapshot.program?.contentHash != program.contentHash)
   }
 
-  @Test("open and close enforce typed prerequisites and exact remedies")
+  @Test("authoring opens before Learning completion while active runs retain their controls")
   func openClosePrerequisitesAndRemedies() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let runtime = PlotterDrawingDraftRuntime()
     let incompleteFacts = fixture.facts(learningComplete: false)
     let initial = await runtime.synchronize(incompleteFacts)
-    let refusedOpen = await runtime.submit(
+    let opened = try applied(await runtime.submit(
       PlotterDrawingDraftSubmission(projection: initial.projection, intent: .open),
       facts: incompleteFacts
-    )
-    let learningRefusal = try refusal(refusedOpen)
-
-    #expect(learningRefusal.owner.rawValue == "PlotterLearningAuthority")
-    #expect(learningRefusal.reason == .learningIncomplete)
-    #expect(learningRefusal.remedy == "Complete Drawing Border validation before opening Drawing Studio.")
-    #expect(!refusedOpen.snapshot.isOpen)
-
-    let readyFacts = fixture.facts()
-    let synchronized = await runtime.synchronize(readyFacts)
-    let opened = try applied(await runtime.submit(
-      PlotterDrawingDraftSubmission(projection: synchronized.projection, intent: .open),
-      facts: readyFacts
     ))
     #expect(opened.isOpen)
+    let readyFacts = fixture.facts()
 
     let busyFacts = fixture.facts(runInProgress: true)
     let busy = await runtime.synchronize(busyFacts)

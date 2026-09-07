@@ -93,10 +93,6 @@ struct WorkbenchCapabilityPresentation: Hashable, Sendable {
   var accessibilityValue: String {
     "\(learning.title). \(learning.detail) \(paper.title). \(paper.detail)"
   }
-
-  var drawingStudioIsAvailable: Bool {
-    learning == .interactiveLearningComplete || learning == .adaptiveDrawingReady
-  }
 }
 
 /// Compact toolbar rendering for already-derived capability and paper facts.
