@@ -113,7 +113,6 @@ struct CompletedComparisonReviewControls: View {
   let displayedFrame: DisplayedFrame?
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
-  @State private var requestRefusal: String?
 
   var body: some View {
     let status = presentation.displayStatus(for: displayedFrame)
@@ -123,38 +122,26 @@ struct CompletedComparisonReviewControls: View {
         .foregroundStyle(statusColor(status))
         .multilineTextAlignment(.trailing)
         .fixedSize(horizontal: false, vertical: true)
-      if let requestRefusal {
-        Text(requestRefusal)
-          .font(.caption2)
-          .foregroundStyle(.orange)
-          .multilineTextAlignment(.trailing)
-      }
       HStack(spacing: 7) {
         ForEach(presentation.controls) { control in
           let retainedIntent: PlotterUIRetainedComparisonIntent =
             control.intent == .reviewComparison ? .reviewExactFrame : .resumeLivePreview
           let intent = PlotterUIIntent.retainedComparisonReview(retainedIntent)
           let request = plotterUIProjection.request(matching: intent)
-          Button {
-            submit(intent)
-          } label: {
-            Label(control.title, systemImage: control.systemImage)
-          }
-          .operatorButton(control.role, isEnabled: request != nil)
+          OperatorRequestButton(
+            title: control.title, role: control.role, request: request,
+            unavailableReason: request == nil ? "Refresh the completed comparison." : nil,
+            sink: plotterUIIntentSink
+          )
           .controlSize(.small)
-          .help(request == nil ? "Refresh the completed comparison before retrying." : control.title)
         }
         if case .reviewingExactFrame = presentation.state,
           presentation.drawingDraftProjection != nil
         {
-          Button {
-            submit(.drawingDraft(.open))
-          } label: {
-            Label("Open Drawing Studio", systemImage: "scribble.variable")
-          }
-          .operatorButton(
-            .affirmative,
-            isEnabled: plotterUIProjection.request(matching: .drawingDraft(.open)) != nil
+          OperatorRequestButton(
+            title: "Open Drawing Studio", role: .affirmative,
+            request: plotterUIProjection.request(matching: .drawingDraft(.open)),
+            unavailableReason: nil, sink: plotterUIIntentSink
           )
           .controlSize(.small)
         }
@@ -163,21 +150,6 @@ struct CompletedComparisonReviewControls: View {
     .padding(8)
     .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 7))
     .accessibilityElement(children: .contain)
-  }
-
-  private func submit(_ intent: PlotterUIIntent) {
-    guard let request = plotterUIProjection.request(matching: intent) else {
-      requestRefusal = "Refresh the current comparison control before retrying."
-      return
-    }
-    Task { @MainActor in
-      let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
-      if case .refused(let refusal) = disposition {
-        requestRefusal = refusal.remedy
-      } else {
-        requestRefusal = nil
-      }
-    }
   }
 
   private func statusColor(_ status: CompletedComparisonReviewDisplayStatus) -> Color {

@@ -8,6 +8,55 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing Studio interaction and computation feedback, 2026-09-07
+
+Blackdog task `task-9e77d810d58341708ce48083c287b1a7` addressed repeated
+Drawing Studio refusals and slow interaction after Learning completion.
+A read-only sample of the user's application (PID 43417, before these changes)
+showed 188.3% CPU, SwiftUI/AttributeGraph layout and root projection work while
+an AppKit menu was open, and background pen-cap matching repeatedly converting
+the same selected color to HSV for each pixel. This is a workload sample, not
+a controlled before/after speed comparison.
+
+Opening and closing Studio now check the draft revision, environment, and
+current eligibility without requiring old camera or Learning facts to remain
+unchanged for panel visibility. Non-pixel authoring accepts advancing frames
+within the same camera context while retaining semantic fact checks.
+Placement clicks and paper assertions still require exact frame identity.
+The production regression completes Drawing Border, pins its comparison,
+opens Studio through the canonical UI sink, and verifies the review is unpinned.
+A separate 120-frame regression opens from a request displayed before the next
+preview frame arrives.
+
+Overlay-only presentation changes retain semantic control requests and refresh
+only the video part of the cached projection; point-selection admission is
+still compared. Camera diagnostic counters no longer invalidate the aggregate
+workbench. Pen-cap matching computes the selected color's HSV once per scan
+with unchanged matching arithmetic. Size and rotation sliders submit on release.
+Studio and comparison buttons use the existing synchronous pending latch and
+show elapsed request time. A workbench status strip displays existing operation
+phases and elapsed time in the displayed phase, without fabricated percentages.
+The canonical UI sink emits received, accepted/refused, and duration metadata to
+unified logging under `com.adaptiveplotter.app` / `ui-actions`; the test process
+produced readable Open Drawing Studio, Use Portrait, and refusal events.
+These are submitted application actions, not every native click or key event.
+
+Validation: strict focused tests passed **42/42** in 2.833 seconds; strict quick
+tests passed **920/920** in 21.199 seconds; retained causal journeys passed
+**10/10** in 6.082 seconds. Documentation checks and `git diff --check` passed.
+The task-local application built with strict concurrency and warnings as errors
+and passed stable local signing/bundle validation.
+
+After the user's application had exited, the signed-app preferred-camera
+performance gate passed all twelve checks: **98 preview frames in 12 seconds**,
+**39.05% median / 62.9% p95 CPU**, **26.577 ms p95 / 31.274 ms maximum**
+MainActor probe latency, stable camera configuration, and **zero semantic,
+root-projection, and Drawing-Draft synchronization deltas**.
+This verifies normal LIVE preview and software response; it does not measure
+the earlier retained-comparison workload, attended mouse interaction, physical
+ink, or spoken mechanical Stop latency. The benchmark submitted no workflow
+intent and terminated its own application instance.
+
 ## Short Voice replies and Boundary Stop dispatch, 2026-09-07
 
 Blackdog task `task-bb47a2f387b5493e88e16679813eeb93` addressed the operator's

@@ -292,6 +292,7 @@ struct PlotterApplicationRuntimeView: View {
             }
           )
 
+      WorkbenchComputationStatus(application: application)
       Divider()
       HSplitView {
         VStack(spacing: 0) {

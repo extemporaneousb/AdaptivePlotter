@@ -10,6 +10,62 @@ import Testing
 @Suite("Drawing Studio draft episode", .serialized)
 @MainActor
 struct PlotterDrawingDraftEpisodeTests {
+  @Test("panel visibility survives preview advancement without admitting stale draft edits")
+  func panelVisibilitySurvivesPreviewAdvancement() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let initial = await runtime.synchronize(fixture.facts())
+    let next = try replacingFrame(fixture.frame, id: "open-preview", sequenceDelta: 1)
+    let opened = try applied(await runtime.submit(
+      PlotterDrawingDraftSubmission(projection: initial.projection, intent: .open),
+      facts: fixture.facts(displayedFrame: next)))
+    #expect(opened.isOpen)
+    let latest = try replacingFrame(fixture.frame, id: "close-preview", sequenceDelta: 2)
+    let latestFacts = fixture.facts(displayedFrame: latest)
+    let edit = await runtime.submit(
+      PlotterDrawingDraftSubmission(projection: opened.projection, intent: .assertPaperCoverage),
+      facts: latestFacts)
+    #expect(try refusal(edit).reason == .staleProjection)
+    let closed = try applied(await runtime.submit(
+      PlotterDrawingDraftSubmission(projection: opened.projection, intent: .close),
+      facts: latestFacts))
+    #expect(!closed.isOpen)
+    let stale = await runtime.submit(
+      PlotterDrawingDraftSubmission(projection: initial.projection, intent: .open),
+      facts: latestFacts)
+    #expect(try refusal(stale).reason == .staleProjection)
+  }
+
+  @Test("authoring survives new pixels but rejects changed camera and run authority")
+  func authoringSurvivesPreviewOnlyChanges() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let next = try replacingFrame(fixture.frame, id: "authoring-preview", sequenceDelta: 1)
+    for intent: PlotterDrawingDraftIntent in [
+      .selectCatalogItem(.circle), .setUniformScale(0.5), .setRotationDegrees(10),
+      .setEvidenceRole(.training), .centerInDrawableRegion,
+    ] {
+      let runtime = PlotterDrawingDraftRuntime()
+      let opened = try await open(runtime, facts: fixture.facts())
+      _ = try applied(await runtime.submit(
+        PlotterDrawingDraftSubmission(projection: opened.projection, intent: intent),
+        facts: fixture.facts(displayedFrame: next)))
+    }
+
+    let changedCamera = try replacingFrame(fixture.frame, id: "changed-camera",
+      sequenceDelta: 2, cameraConfigurationID: CameraConfigurationID())
+    for facts in [
+      fixture.facts(displayedFrame: changedCamera),
+      fixture.facts(runInProgress: true),
+    ] {
+      let runtime = PlotterDrawingDraftRuntime()
+      let opened = try await open(runtime, facts: fixture.facts())
+      let result = await runtime.submit(
+        PlotterDrawingDraftSubmission(projection: opened.projection, intent: .setUniformScale(0.5)),
+        facts: facts)
+      #expect(try refusal(result).reason == .staleProjection)
+    }
+  }
+
   @Test("wide artwork retains a reachable exact fractional maximum scale in the production UI")
   func fractionalMaximumScaleRemainsReachable() async throws {
     let harness = makeCausalSimulatorAppFixture()
@@ -189,7 +245,7 @@ struct PlotterDrawingDraftEpisodeTests {
       PlotterDrawingDraftSubmission(
         requestID: externalRequestID,
         projection: selected.projection,
-        intent: .setEvidenceRole(.reservedHoldout)
+        intent: .assertPaperCoverage
       ),
       facts: newerFacts
     )

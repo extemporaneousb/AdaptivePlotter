@@ -183,6 +183,14 @@ struct PlotterApplicationRuntimeLifecycleTests {
     #expect(!workspace.paperCoverageIsCurrent)
     #expect(workspace.activeExerciseAttemptID == nil)
     #expect(workspace.currentExerciseActionStripPresentation == nil)
+    let reviewUI = workspace.testPlotterUIProjection(selectedItemID: owner, includesLearningPath: true)
+    let openStudio = try #require(reviewUI.semantic.request(matching: .drawingDraft(.open)))
+    let disposition = await workspace.submitPlotterUIRequest(openStudio)
+    #expect(disposition == .accepted(requestID: openStudio.id))
+    let studioIsPresented = workspace.drawingStudioIsPresented
+    let comparisonIsPinned = workspace.completedDrawingComparisonReviewIsPinned
+    #expect(studioIsPresented)
+    #expect(!comparisonIsPinned)
     await workspace.shutdown()
   }
 

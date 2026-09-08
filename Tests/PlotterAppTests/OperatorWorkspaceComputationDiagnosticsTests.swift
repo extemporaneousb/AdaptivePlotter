@@ -254,6 +254,20 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
         == afterPreview.drawingDraftSynchronizationCount + 1
     )
 
+    // The same reached Open action remains usable after video-only updates.
+    try await waitUntil {
+      workspace.drawingDraftSnapshot.projection.externalFacts
+        == workspace.drawingDraftExternalFacts.revisions
+    }
+    let projection = workspace.testPlotterUIProjection(
+      selectedItemID: .humanGuidedDiscovery(.penInteraction), includesLearningPath: true)
+    let openRequest = try #require(projection.semantic.request(for: PlotterAppUIActionID.drawingOpen))
+    previewFrames.inject(DisplayedFrame(source: initialFrame.source,
+      frame: try frame(id: "open-after-preview", sequence: 123, capture: 223,
+        configurationID: initialFrame.frame.cameraConfigurationID)))
+    try await waitUntil { workspace.actionSurfacePreview.displayedFrame?.frame.sequence == 123 }
+    #expect(await workspace.submitPlotterUIRequest(openRequest) == .accepted(requestID: openRequest.id))
+    #expect(workspace.drawingStudioIsPresented)
     previewFrames.finish()
     await workspace.shutdown()
   }
@@ -515,11 +529,13 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     }
 
     #expect(workspace.exactWorkflowVisionOwner == .cameraCalibration)
+    #expect(workspace.workbenchComputationPresentation?.title == "Analyzing camera calibration")
     #expect(workspace.overlayStatus(for: .penCap).state == .suspended)
 
     await gate.release()
     _ = try await capture.value
     #expect(workspace.exactWorkflowVisionOwner == nil)
+    #expect(workspace.workbenchComputationPresentation == nil)
     #expect(workspace.overlayStatus(for: .penCap).state != .suspended)
     await workspace.shutdown()
   }
@@ -553,14 +569,31 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     try await waitForExecutorTurnsAsync {
       await machine.requestedPenCommands == [.raise]
     }
+    var previousProjection: PlotterAppUIProjection?
+    var previousBuildCount: Int?
     for revision in 10...12 {
       traffic.inject(revision: UInt64(revision))
       try await waitForExecutorTurns {
         workspace.computationDiagnosticsForTesting.visionAnalysisRevisionCount
           == revision - 9
       }
-      _ = workspace.currentExerciseActionStripPresentation
-      _ = workspace.testActionSurfacePresentation
+      if revision == 10 {
+        // The first result changes stopped -> running. Finish that semantic
+        // publication before measuring subsequent overlay-only revisions.
+        try await waitUntil {
+          workspace.drawingDraftSnapshot.projection.externalFacts
+            == workspace.drawingDraftExternalFacts.revisions
+        }
+      }
+      let projection = workspace.testPlotterUIProjection(includesLearningPath: true)
+      let buildCount = workspace.computationDiagnosticsForTesting.plotterUIProjectionBuildCount
+      if let previousProjection, let previousBuildCount {
+        #expect(projection.semantic.revision == previousProjection.semantic.revision)
+        #expect(projection.semantic.actions == previousProjection.semantic.actions)
+        #expect(buildCount == previousBuildCount)
+      }
+      previousProjection = projection
+      previousBuildCount = buildCount
     }
 
     var diagnostics = workspace.computationDiagnosticsForTesting

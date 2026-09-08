@@ -350,6 +350,9 @@ struct DrawingStudioView: View {
   @State private var portrait = PortraitStudioModel()
   @State private var portraitIsPresented = false
   @State private var requestRefusal: String?
+  @State private var draftFeedback = OperatorRequestFeedback()
+  @State private var scaleDraft: Double?
+  @State private var rotationDraft: Double?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -366,6 +369,13 @@ struct DrawingStudioView: View {
         .fixedSize(horizontal: false, vertical: true)
       }
 
+      if let startedAt = draftFeedback.startedAt {
+        HStack {
+          ProgressView().controlSize(.small)
+          Text("Updating drawing")
+          OperatorRequestElapsedTime(startedAt: startedAt)
+        }
+      }
       if let requestRefusal {
         Label(requestRefusal, systemImage: "exclamationmark.triangle.fill")
           .font(.caption)
@@ -384,16 +394,16 @@ struct DrawingStudioView: View {
           }
         }
       }
-      coverageExperiment
+      coverageExperiment.disabled(draftFeedback.isPending)
       if presentation.coverageExperiment == nil {
-        catalog
+        catalog.disabled(draftFeedback.isPending)
         if let selected = presentation.selectedCatalogItem {
           Text(selected.detail)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        evidenceRole
-        placement
+        evidenceRole.disabled(draftFeedback.isPending)
+        placement.disabled(draftFeedback.isPending)
       }
       runStatus
       controls
@@ -535,17 +545,23 @@ struct DrawingStudioView: View {
         Text("Size")
         Slider(
           value: Binding(
-            get: { presentation.canvas.placement.uniformScale },
+            get: { scaleDraft ?? presentation.canvas.placement.uniformScale },
             set: {
               let allowed = presentation.canvas.placement.allowedScale
-              submitDraft(.setUniformScale(min(allowed.upperBound,
-                max(allowed.lowerBound, ($0 * 100).rounded() / 100))))
+              scaleDraft = min(allowed.upperBound,
+                max(allowed.lowerBound, ($0 * 100).rounded() / 100))
             }
           ),
           in: presentation.canvas.placement.allowedScale,
-          step: 0.01
+          step: 0.01,
+          onEditingChanged: { editing in
+            if !editing, let value = scaleDraft {
+              scaleDraft = nil
+              submitDraft(.setUniformScale(value))
+            }
+          }
         )
-        Text(String(format: "%.2f×", presentation.canvas.placement.uniformScale))
+        Text(String(format: "%.2f×", scaleDraft ?? presentation.canvas.placement.uniformScale))
           .monospacedDigit()
           .frame(width: 52, alignment: .trailing)
       }
@@ -557,13 +573,19 @@ struct DrawingStudioView: View {
         Text("Rotation")
         Slider(
           value: Binding(
-            get: { presentation.canvas.placement.rotationDegrees },
-            set: { submitDraft(.setRotationDegrees($0.rounded())) }
+            get: { rotationDraft ?? presentation.canvas.placement.rotationDegrees },
+            set: { rotationDraft = $0.rounded() }
           ),
           in: -180...180,
-          step: 1
+          step: 1,
+          onEditingChanged: { editing in
+            if !editing, let value = rotationDraft {
+              rotationDraft = nil
+              submitDraft(.setRotationDegrees(value))
+            }
+          }
         )
-        Text(String(format: "%.1f°", presentation.canvas.placement.rotationDegrees))
+        Text(String(format: "%.1f°", rotationDraft ?? presentation.canvas.placement.rotationDegrees))
           .monospacedDigit()
           .frame(width: 58, alignment: .trailing)
       }
@@ -607,14 +629,12 @@ struct DrawingStudioView: View {
       ForEach(presentation.controls) { control in
         let intent = PlotterUIIntent.drawingRun(control.intent)
         let request = plotterUIProjection.request(matching: intent)
-        Button {
-          submit(intent)
-        } label: {
-          Label(control.title, systemImage: control.systemImage)
-        }
-        .operatorButton(control.role)
-        .disabled(!control.isEnabled || request == nil)
-        .help(request == nil ? "Refresh the current Drawing Studio control." : control.title)
+        OperatorRequestButton(
+          title: control.title, role: control.role,
+          request: control.isEnabled ? request : nil,
+          unavailableReason: request == nil ? "Refresh the current Drawing Studio control." : nil,
+          sink: plotterUIIntentSink
+        )
       }
     }
   }
@@ -632,8 +652,11 @@ struct DrawingStudioView: View {
       requestRefusal = "Refresh the current Drawing Studio control before retrying."
       return
     }
+    guard draftFeedback.begin() else { return }
+    requestRefusal = nil
     Task { @MainActor in
       let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
+      draftFeedback.finish(disposition)
       if case .refused(let refusal) = disposition {
         requestRefusal = refusal.remedy
       } else {

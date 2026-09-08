@@ -733,6 +733,8 @@ public actor VisionWorker {
     priors: PlotterSceneVisionPriors
   ) throws -> [PixelComponent] {
     let count = region.width * region.height
+    let selectedColor = Self.hsv(red: priors.penCapColor.red,
+      green: priors.penCapColor.green, blue: priors.penCapColor.blue)
     let matching = try frame.bytes.withUnsafeBytes { bytes in
       var matching = [Bool](repeating: false, count: count)
       for localY in 0..<region.height {
@@ -748,7 +750,7 @@ public actor VisionWorker {
             red: red,
             green: green,
             blue: blue,
-            target: priors.penCapColor
+            selected: selectedColor
           )
         }
       }
@@ -818,10 +820,9 @@ public actor VisionWorker {
     red: UInt8,
     green: UInt8,
     blue: UInt8,
-    target: PenCapColor
+    selected: (hueDegrees: Double, saturation: Double, value: Double)
   ) -> Bool {
     let pixel = hsv(red: red, green: green, blue: blue)
-    let selected = hsv(red: target.red, green: target.green, blue: target.blue)
 
     if selected.saturation < 0.15 {
       return pixel.saturation <= 0.22

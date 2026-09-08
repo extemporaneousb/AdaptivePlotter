@@ -17,7 +17,7 @@ struct ManualMotionDraft: Hashable, Sendable {
 /// reevaluate a view without changing any of these model or window values.
 struct PlotterAppUIProjectionInputs: Equatable {
   let semanticRevision: UInt64
-  let actionSurfaceRevision: UInt64
+  var actionSurfaceRevision: UInt64
   let runtimeRevisions: [PlotterUIRuntimeRevision]
   let drawingDraftReference: PlotterDrawingDraftProjectionReference
   let selectedItemID: LearningPathItemID
@@ -31,7 +31,7 @@ struct PlotterAppUIProjectionInputs: Equatable {
 
 struct PlotterAppUIProjection: Sendable {
   let semantic: PlotterUIProjection
-  let actionSurface: ActionSurfacePresentation
+  var actionSurface: ActionSurfacePresentation
   let learningMode: LearningModePresentation
   let learningPath: LearningPathProjection?
   let currentLearningPathItemID: LearningPathItemID

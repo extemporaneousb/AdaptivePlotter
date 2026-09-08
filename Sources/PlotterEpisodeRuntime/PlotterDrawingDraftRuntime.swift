@@ -44,6 +44,27 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
   public let coverageRecordIDs: [DrawingEvidenceRecordID]
   public let drawingArchiveIsAvailable: Bool
 
+  /// Authoring does not interpret pixels. Preserve every semantic identity and
+  /// camera configuration while allowing a newer frame from the same stream.
+  fileprivate func matchesAuthoring(_ other: Self) -> Bool {
+    guard displayedFrame?.source == other.displayedFrame?.source,
+      displayedFrame?.cameraConfigurationID == other.displayedFrame?.cameraConfigurationID,
+      displayedFrame?.width == other.displayedFrame?.width,
+      displayedFrame?.height == other.displayedFrame?.height,
+      displayedFrame?.rowBytes == other.displayedFrame?.rowBytes,
+      displayedFrame?.pixelFormat == other.displayedFrame?.pixelFormat else { return false }
+    return replacingFrame(with: other.displayedFrame) == other
+  }
+
+  private func replacingFrame(with frame: PlotterExactFrameReference?) -> Self {
+    Self(environment: environment, interactiveLearningIsComplete: interactiveLearningIsComplete,
+      registrationRevisionID: registrationRevisionID, opticalConfiguration: opticalConfiguration,
+      drawableRegion: drawableRegion, toolAssemblyRevision: toolAssemblyRevision,
+      paper: paper, displayedFrame: frame, runInProgress: runInProgress,
+      terminalRequiresNewPlan: terminalRequiresNewPlan, coverageRecordIDs: coverageRecordIDs,
+      drawingArchiveIsAvailable: drawingArchiveIsAvailable)
+  }
+
   public init(
     environment: PlotterEnvironment,
     interactiveLearningIsComplete: Bool,
@@ -480,7 +501,21 @@ public actor PlotterDrawingDraftRuntime {
     let current = await synchronizeWithinMutationBoundary(facts)
     let environment = facts.revisions.environment
     var state = states[environment] ?? SourceState()
-    guard submission.projection == current.projection else {
+    let projectionMatches: Bool
+    switch submission.intent {
+    case .open, .close:
+      // Panel visibility grants no drawing or evidence authority. Eligibility
+      // below uses current facts even while completion is being published.
+      projectionMatches = submission.projection.environment == current.projection.environment
+        && submission.projection.draftRevision == current.projection.draftRevision
+    case .placeAtCameraPoint, .assertPaperCoverage:
+      projectionMatches = submission.projection == current.projection
+    default:
+      projectionMatches = submission.projection.environment == current.projection.environment
+        && submission.projection.draftRevision == current.projection.draftRevision
+        && submission.projection.externalFacts.matchesAuthoring(current.projection.externalFacts)
+    }
+    guard projectionMatches else {
       return refuse(
         submission,
         state: &state,

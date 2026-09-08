@@ -86,6 +86,12 @@ performance gate must demonstrate advancing LIVE preview, zero ambient semantic
 and Drawing-Draft deltas, bounded MainActor interaction latency, and the
 declared CPU ceilings.
 
+Camera diagnostic counters alone do not invalidate the workbench. An overlay-
+only change refreshes the video presentation while retaining current semantic
+control requests; changed point-selection admission still recompiles controls.
+Pen-cap recognition computes the selected color's HSV representation once per
+scan, with the same per-pixel matching thresholds.
+
 The operator may lock the current presentation viewport as a generic scene-
 analysis region. The lock constrains which camera pixels requested pen-cap
 analysis may scan; an armature-envelope request expands its declared dependency
@@ -223,6 +229,17 @@ Slider values and Boundary directions are not reconstructed from owner, number,
 title, or display identity: immutable actionability contains one exact typed
 request for each supported value or option, and an absent or unavailable
 candidate is disabled or refused without a lower effect.
+
+Drawing Studio and completed-comparison buttons latch at submission and show
+pending feedback with elapsed time until their sink returns. Size and rotation
+sliders keep their drag value locally and submit the final value on release.
+The workbench displays the current computation phase from existing Vision,
+calibration, Border, and drawing-run owners; its elapsed clock is local to that
+displayed phase and does not estimate percent complete or change admission.
+The canonical UI sink emits unified-log request receipt, accepted/refused
+outcome, and duration under `com.adaptiveplotter.app` / `ui-actions`. Those
+metadata logs supplement existing records; they are not a new event store and
+do not claim to capture every native mouse or keyboard event.
 
 `PlotterLearningEpisodeRecord` is the one model-owned bounded Learning episode
 record. It mints one stable `PlotterLearningEpisodeID` for its lifetime and an
@@ -1228,8 +1245,13 @@ Drawing Studio draft edits are revision-bound requests, not direct workspace
 mutations. Open, close, catalog selection, evidence role, exact-frame placement,
 scale, rotation, centering, new-plan, and paper assertion are typed
 `PlotterDrawingDraftIntent` values submitted against the immutable draft and
-external-fact revisions shown to the operator. A stale draft; changed Learning,
-registration, region, paper, frame, or run fact; closed studio; active run; or retained
+external-fact revisions shown to the operator. Open and close bind the current
+draft revision and environment and check current eligibility, without requiring
+old camera or Learning facts to remain unchanged for panel visibility.
+Authoring tolerates frame advancement within the same source, configuration, and pixel layout;
+exact-frame placement and paper assertion still require the displayed frame's
+complete identity. A stale draft; changed Learning, registration, region, paper,
+camera configuration, or run fact; closed studio; active run; or retained
 terminal receives an exact owner/reason/remedy refusal. The UI renders the
 returned immutable snapshot; it does not decide admission or rebuild a plan.
 

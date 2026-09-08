@@ -583,7 +583,7 @@ def validate_product_contract(text: str) -> None:
         "Execution pacing can change future suspension policy for deterministic tests but cannot admit, Stop, cancel, settle, or reattribute an effect",
         "Drawing Studio draft edits are revision-bound requests, not direct workspace mutations",
         "`PlotterDrawingDraftIntent` values submitted against the immutable draft and external-fact revisions shown to the operator",
-        "A stale draft; changed Learning, registration, region, paper, frame, or run fact; closed studio; active run; or retained terminal receives an exact owner/reason/remedy refusal",
+        "A stale draft; changed Learning, registration, region, paper, camera configuration, or run fact; closed studio; active run; or retained terminal receives an exact owner/reason/remedy refusal",
         "One planning adapter is the only upper route to that pure planner",
         "does not move Border sequencing, execution, observation, or evidence semantics into Drawing Studio draft authority",
         "Paper assertion persistence is nominal authority, not a presentation cache",

@@ -133,11 +133,13 @@ final class OperatorRequestFeedback {
   private(set) var isPending = false
   private(set) var result: String?
   private(set) var wasAccepted = false
+  private(set) var startedAt: Date?
 
   /// Latch synchronously at mouse-up, before scheduling the asynchronous sink.
   func begin() -> Bool {
     guard !isPending else { return false }
     isPending = true
+    startedAt = Date()
     result = nil
     wasAccepted = false
     return true
@@ -145,6 +147,7 @@ final class OperatorRequestFeedback {
 
   func finish(_ disposition: PlotterUIRequestDisposition) {
     isPending = false
+    startedAt = nil
     switch disposition {
     case .accepted: wasAccepted = true; result = "Accepted"
     case .refused(let refusal): wasAccepted = false; result = refusal.remedy
@@ -185,11 +188,24 @@ struct OperatorRequestButton: View {
       .operatorButton(role, isEnabled: request != nil && !feedback.isPending)
       .help(feedback.isPending ? "Request sent; waiting for completion" : unavailableReason ?? title)
       .accessibilityValue(feedback.isPending ? "In progress" : feedback.result ?? unavailableReason ?? "Ready")
-      if let detail = feedback.result, !feedback.wasAccepted {
+      if let startedAt = feedback.startedAt {
+        OperatorRequestElapsedTime(startedAt: startedAt)
+      } else if let detail = feedback.result, !feedback.wasAccepted {
         Text(detail).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
       } else if let unavailableReason, !feedback.isPending {
         Text(unavailableReason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       }
+    }
+  }
+}
+
+struct OperatorRequestElapsedTime: View {
+  let startedAt: Date
+
+  var body: some View {
+    TimelineView(.periodic(from: startedAt, by: 1)) { context in
+      Text("In progress · \(Int(max(0, context.date.timeIntervalSince(startedAt)))) s")
+        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
     }
   }
 }

@@ -983,9 +983,8 @@ final class PlotterApplicationRuntime:
     set { currentEnvironmentState.lastContextualStopAuditRecord = newValue }
   }
 
-  private(set) var cameraSnapshot: CameraCaptureSnapshot? {
+  @ObservationIgnored private(set) var cameraSnapshot: CameraCaptureSnapshot? {
     didSet {
-      invalidateActionSurfacePresentation()
       guard cameraSnapshotChangesLearningPresentation(oldValue, cameraSnapshot) else { return }
       markSemanticPresentationChanged()
     }
@@ -1250,8 +1249,10 @@ final class PlotterApplicationRuntime:
     _ newValue: CameraCaptureSnapshot?
   ) -> Bool {
     oldValue?.selectedDeviceID != newValue?.selectedDeviceID
+      || oldValue?.devices != newValue?.devices
       || oldValue?.state != newValue?.state
       || oldValue?.error != newValue?.error
+      || oldValue?.diagnostics.deliveryLimitOutcome != newValue?.diagnostics.deliveryLimitOutcome
       || oldValue?.diagnostics.previewPublicationPaused
         != newValue?.diagnostics.previewPublicationPaused
   }
@@ -2491,7 +2492,7 @@ final class PlotterApplicationRuntime:
     )
   }
 
-  private func drawingRunPhaseDetail(_ phase: PlotterDrawingRunPhase) -> String {
+  func drawingRunPhaseDetail(_ phase: PlotterDrawingRunPhase) -> String {
     switch phase {
     case .idle: "Waiting for a reviewed exact plan."
     case .validating: "Revalidating the exact EA-08A plan and current facts."
@@ -4134,6 +4135,23 @@ final class PlotterApplicationRuntime:
     if let cached = rootProjectionCache, cached.inputs == inputs {
       return cached.projection
     }
+    if let cached = rootProjectionCache {
+      var semanticInputs = inputs
+      semanticInputs.actionSurfaceRevision = cached.inputs.actionSurfaceRevision
+      let currentSurface = actionSurfacePresentation
+      let selectionAdmissionUnchanged = pendingPointSelection.map {
+        currentSurface.acceptsPendingPointSelection($0)
+          == cached.projection.actionSurface.acceptsPendingPointSelection($0)
+      } ?? true
+      if semanticInputs == cached.inputs, selectionAdmissionUnchanged {
+        // New measured overlays need a new video presentation, not a new set
+        // of control requests or a rebuild of Learning and Drawing controls.
+        var projection = cached.projection
+        projection.actionSurface = currentSurface
+        rootProjectionCache = (inputs, projection)
+        return projection
+      }
+    }
     computationDiagnostics.plotterUIProjectionBuildCount += 1
     let learningPath = includesLearningPath
       ? learningPathProjection(selectedItemID: selectedItemID) : nil
@@ -4750,6 +4768,18 @@ final class PlotterApplicationRuntime:
   }
 
   func submitPlotterUIRequest(
+    _ request: PlotterUIRequest
+  ) async -> PlotterUIRequestDisposition {
+    let title = currentPlotterUIProjection?.action(id: request.actionID)?.title ?? "Unavailable action"
+    let started = ContinuousClock.now
+    WorkbenchRequestTelemetry.received(request, title: title)
+    let result = await submitRecordedPlotterUIRequest(request)
+    WorkbenchRequestTelemetry.finished(request, title: title, disposition: result,
+      duration: started.duration(to: .now))
+    return result
+  }
+
+  private func submitRecordedPlotterUIRequest(
     _ request: PlotterUIRequest
   ) async -> PlotterUIRequestDisposition {
     let learningRecordRequest: PlotterLearningRecordRequest
