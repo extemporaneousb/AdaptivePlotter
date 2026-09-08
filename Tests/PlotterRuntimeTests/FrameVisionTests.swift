@@ -146,6 +146,53 @@ struct FrameVisionTests {
     #expect(combined.overlays.last?.provenance.source == .inferred)
   }
 
+  @Test("1080p scene-kernel cost matrix", .enabled(if:
+    ProcessInfo.processInfo.environment["ADAPTIVEPLOTTER_VISION_COST"] == "1"))
+  func sceneKernelCost() async throws {
+    // Opt-in timing evidence, never a timing assertion in the ordinary suite.
+    // Run this test alone in each build configuration, without other workloads.
+    let frame = try greenSceneFrame(width: 1920, height: 1080,
+      rectangles: [(950, 510, 20, 30)]).materializingContentHash(for: .analysis)
+    let worker = VisionWorker()
+    let cases: [(String, SceneFeatureSet, PixelRect?)] = [
+      ("cap_default", [.penCap], nil),
+      ("cap_armature_default", [.penCap, .armatureEnvelope], nil),
+      ("cap_armature_200x200", [.penCap, .armatureEnvelope],
+        PixelRect(x: 860, y: 425, width: 200, height: 200)),
+    ]
+    #if DEBUG
+    let configuration = "debug"
+    #else
+    let configuration = "release"
+    #endif
+    var matrix: [[String: Any]] = []
+    for (name, features, region) in cases {
+      var samples: [Double] = []
+      var inspectedPixels = 0
+      for index in 0..<9 {
+        let start = ContinuousClock.now
+        let result = try await worker.inspectPlotterScene(
+          in: frame, requestedFeatures: features, analysisRegion: region)
+        let elapsed = start.duration(to: .now).components
+        if index > 0 {
+          samples.append(Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15)
+        }
+        #expect(result.penCap.measurement?.pixelCount == 600)
+        #expect((result.computation.inspectedPixelCounts[.armatureEnvelope] ?? 0) == 0)
+        inspectedPixels = result.computation.inspectedPixelCounts[.penCap] ?? 0
+      }
+      samples.sort()
+      matrix.append(["case": name, "inspectedPixels": inspectedPixels,
+        "medianMilliseconds": (samples[samples.count / 2 - 1] + samples[samples.count / 2]) / 2,
+        "maximumMilliseconds": samples.last!])
+    }
+    let data = try JSONSerialization.data(withJSONObject: [
+      "configuration": configuration, "width": 1920, "height": 1080,
+      "hashingIncluded": false, "synthetic": true, "cases": matrix,
+    ], options: [.sortedKeys])
+    print("SCENE_VISION_COST " + String(decoding: data, as: UTF8.self))
+  }
+
   @Test("cap diagnostics distinguish no pixels rejected components and ambiguous leaders")
   func capDiagnostics() async throws {
     let worker = VisionWorker()

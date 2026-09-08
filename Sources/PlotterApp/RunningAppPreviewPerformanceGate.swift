@@ -35,6 +35,11 @@ struct RunningAppPreviewPerformanceConfiguration: Equatable, Sendable {
 struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
   static let schema = "adaptiveplotter.running-app-preview-runtime.v1"
 
+  #if DEBUG
+  var buildConfiguration = "debug"
+  #else
+  var buildConfiguration = "release"
+  #endif
   let schema: String
   let measurementDurationSeconds: Double
   let previewPublicationCount: UInt64

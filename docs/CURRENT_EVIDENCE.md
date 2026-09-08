@@ -8,6 +8,75 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Optimized application builds and measured scene-analysis cost, 2026-09-07
+
+Blackdog task `task-77d1d5bb6bc1435abfd97181c7728757` separated pen/armature
+analysis cost from video rendering and the preceding SwiftUI observation fix.
+The normal packaging script selected `.build/debug/AdaptivePlotter`; SwiftPM's
+recorded compiler arguments confirmed `-Onone`. `make app` now defaults to
+`APP_CONFIGURATION=release`, and explicit debug app builds remain available.
+The signed bundle labels its configuration, the running performance report
+records the compile-time configuration, and the gate verifies that they match.
+The ordinary developer `make build` remains unchanged.
+
+The armature envelope is already cap-anchored inferred geometry. Its diagnostic
+pixel count is zero; enabling it with the pen cap does not run another image
+scan. The cap detector performs HSV thresholding and connected components over
+the configured search region (740,512 pixels in the default 1920x1080 case).
+Automatic analysis already waits at least 500 ms after completion at the default
+two-Hz setting, with one active scan and only the newest pending frame retained.
+It does not segment the armature or analyze every camera frame.
+
+A standalone probe linked against the current debug modules measured about
+**490 ms** per scan on a synthetic 1920x1080 BGRA frame, about **487 ms** with the
+armature envelope, and **30 ms** with a 200x200 region. The same probe linked
+against optimized modules measured about **4.5 ms**, **4.5 ms**, and **0.55 ms**.
+This is an approximately 100-fold detector-kernel difference, not a claim of a
+100-fold application speedup. Each case retained the same 600-pixel cap.
+Frame construction and hashing were outside the timed region.
+
+The reproducible opt-in `FrameVisionTests/sceneKernelCost` benchmark then passed
+against the release test build: **4.450 ms** pen-only median, **4.473 ms** with
+armature, and **0.478 ms** for the restricted region. It uses one warmup and eight
+timed scans per case, reports build configuration and inspected pixels, and
+checks the cap result and zero armature pixel scans. Normal tests skip this
+timing probe. No tracking heuristic, measurement threshold, or analysis cadence
+changed; predicted-position search remains a possible later optimization.
+
+Strict release quick tests passed **924 tests** in 16.375 seconds, with optional
+image/native-render/timing probes skipped. The opt-in timing test passed
+separately in 0.120 seconds. All **10 retained release journeys** passed in
+1.422 seconds. The standalone release app passed stable local signing, launcher
+logic/instance handling, and negative bundle checks including invalid build
+configuration. Build/package selection was checked for both release and debug;
+an invalid configuration was rejected before packaging. Documentation checks,
+shell syntax checks, and `git diff --check` passed.
+
+Both signed release camera gates passed all **14** checks:
+
+| Scenario | Median / p95 CPU | p95 / maximum MainActor probe | Frames / 12 seconds |
+| --- | --- | --- | --- |
+| LIVE preview | 36.4% / 38.0% | 24.979 / 31.030 ms | 98 |
+| LIVE preview with Studio open | 36.1% / 38.3% | 25.420 / 28.486 ms | 98 |
+
+Both explicitly reported release, stable camera configuration, no active
+analysis or drawing plan, and zero semantic/root/draft deltas. These empty-
+Studio measurements are similar to the prior debug preview baseline. They do
+not measure the additional cost of analysis in a learned live drawing session.
+A separate three-second sample of an owned release profiling instance
+(PID 63020) showed substantial Core Animation image preparation/copy and
+CoreGraphics/vImage color conversion, with the main thread otherwise often
+waiting. Pen detection and drawing planning were not hot paths in that sample.
+Its counters retained zero root/draft deltas. Profiling perturbs timing, so that
+run is not a performance-gate result. The helper terminated its own process
+after the runtime report was written and its exit grace period elapsed.
+
+No user application was running when diagnosis began. The gates and profile
+used owned camera-preview instances; they did not apply Saved Learning or submit
+controller, motion, pen, or drawing execution intent. The original user's
+flashing, learned drawing workload, physical ink, and spoken mechanical Stop
+remain unverified by these software and preview measurements.
+
 ## Drawing Studio analysis isolation and plan reuse, 2026-09-07
 
 Blackdog task `task-02974c49731d45e49e6ece1c9dd67808` addressed excessive

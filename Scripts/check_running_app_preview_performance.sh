@@ -30,6 +30,8 @@ if [ ! -x "$python" ]; then
     exit 1
 fi
 sh "$project_root/Scripts/validate_local_app_bundle.sh" "$bundle" >/dev/null
+bundle_configuration=$(/usr/libexec/PlistBuddy -c 'Print :AdaptivePlotterBuildConfiguration' \
+    "$bundle/Contents/Info.plist")
 
 if /usr/bin/pgrep -x AdaptivePlotter >/dev/null 2>&1; then
     echo "AdaptivePlotter is already running; quit it before measuring the signed app" >&2
@@ -118,7 +120,7 @@ fi
     "$runtime_report" "$cpu_samples" "$evidence" \
     "$cpu_median_limit" "$cpu_p95_limit" \
     "$interaction_p95_milliseconds_limit" "$interaction_max_milliseconds_limit" \
-    "$minimum_preview_frames" "$minimum_cpu_samples" "$minimum_interaction_samples" "$scenario" <<'PY'
+    "$minimum_preview_frames" "$minimum_cpu_samples" "$minimum_interaction_samples" "$scenario" "$bundle_configuration" <<'PY'
 import json
 import math
 import pathlib
@@ -137,6 +139,7 @@ import sys
     minimum_cpu_samples,
     minimum_interaction_samples,
     scenario,
+    bundle_configuration,
 ) = sys.argv[1:]
 
 
@@ -164,6 +167,7 @@ thresholds = {
     "minimumInteractionSampleCount": int(minimum_interaction_samples),
 }
 measurements = {
+    "buildConfiguration": runtime["buildConfiguration"],
     "cpuPercentSamples": cpu,
     "cpuMedianPercent": statistics.median(cpu) if cpu else None,
     "cpuP95Percent": percentile(cpu, 0.95) if cpu else None,
@@ -187,6 +191,7 @@ measurements = {
     "automaticAnalysisWasRunning": runtime["automaticAnalysisWasRunning"],
 }
 checks = {
+    "buildConfigurationMatchesBundle": runtime["buildConfiguration"] == bundle_configuration,
     "cpuSampleCount": len(cpu) >= thresholds["minimumCPUSampleCount"],
     "cpuMedian": bool(cpu)
     and measurements["cpuMedianPercent"] <= thresholds["cpuMedianPercentMaximum"],

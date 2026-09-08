@@ -2,14 +2,19 @@
 set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-binary="$project_root/.build/debug/AdaptivePlotter"
+configuration=${1:-release}
+case "$configuration" in
+    release|debug) ;;
+    *) echo "unsupported app build configuration: $configuration" >&2; exit 1 ;;
+esac
+binary="$project_root/.build/$configuration/AdaptivePlotter"
 output="$project_root/.build/AdaptivePlotter.app"
 template="$project_root/Resources/AdaptivePlotter-Info.plist"
 requested_signing_identity=${ADAPTIVEPLOTTER_CODESIGN_IDENTITY:-"AdaptivePlotter Local Development"}
 signing_keychain=${ADAPTIVEPLOTTER_CODESIGN_KEYCHAIN:-}
 
 if [ ! -x "$binary" ]; then
-    echo "AdaptivePlotter executable is missing; run 'make build' first" >&2
+    echo "AdaptivePlotter $configuration executable is missing; run 'make app APP_CONFIGURATION=$configuration' first" >&2
     exit 1
 fi
 if [ ! -f "$template" ]; then
@@ -24,6 +29,8 @@ trap 'rm -rf "$staging_root"' EXIT HUP INT TERM
 mkdir -p "$staging_bundle/Contents/MacOS"
 install -m 755 "$binary" "$staging_bundle/Contents/MacOS/AdaptivePlotter"
 install -m 644 "$template" "$staging_bundle/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :AdaptivePlotterBuildConfiguration string $configuration" \
+    "$staging_bundle/Contents/Info.plist"
 
 signing_identity=-
 signing_mode=ad-hoc
@@ -75,5 +82,6 @@ rm -rf "$output"
 mv "$staging_bundle" "$output"
 
 sh "$project_root/Scripts/validate_local_app_bundle.sh" "$output"
+echo "AdaptivePlotter build: $configuration" >&2
 echo "AdaptivePlotter signing: $signing_mode ($signing_identity)" >&2
 echo "$output"

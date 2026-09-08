@@ -75,6 +75,12 @@ project unavailable or nonmatching until analysis or an explicit exact capture
 seals the digest. Merely rebuilding presentation or currentness state must not
 promote or hash the passive frame.
 
+The supported signed application uses an optimized release build by default;
+unoptimized app builds require explicit `APP_CONFIGURATION=debug`. Bundles and
+performance reports identify their build configuration. Developer `make build`
+and ordinary Swift tests may remain debug builds. Timing of image kernels in a
+debug build must not be presented as optimized application performance.
+
 Ordinary preview publication is a video-local presentation event. It may
 invalidate the Action Surface and Video Settings viewport controls, but it must
 not invalidate the aggregate semantic UI projection, Learning or sibling

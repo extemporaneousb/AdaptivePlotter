@@ -22,6 +22,12 @@ expect_plist_value() {
     fi
 }
 
+configuration=$(/usr/libexec/PlistBuddy -c 'Print :AdaptivePlotterBuildConfiguration' "$plist")
+case "$configuration" in
+    release|debug) ;;
+    *) echo "unexpected AdaptivePlotterBuildConfiguration: $configuration" >&2; exit 1 ;;
+esac
+
 expect_plist_value CFBundleExecutable AdaptivePlotter
 expect_plist_value CFBundleIdentifier com.bullard.AdaptivePlotter
 expect_plist_value CFBundlePackageType APPL

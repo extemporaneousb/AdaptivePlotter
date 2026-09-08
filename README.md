@@ -403,6 +403,18 @@ sequentially. `make test` runs the complete suite. `make check` adds signed app,
 launcher, repository-contract, and diff validation; `make strict-check` repeats
 that gate with complete Swift concurrency checking and warnings as errors.
 
+`make app` and `make run-app` build an optimized **release** executable by
+default. `make build` remains the fast developer build. Use
+`make app APP_CONFIGURATION=debug` when you explicitly need an unoptimized app.
+The bundle and preview-performance report record the build configuration;
+performance claims must identify it.
+
+For an isolated, synthetic 1080p detector comparison, run
+`ADAPTIVEPLOTTER_VISION_COST=1 swift test -c release --jobs 4 --filter FrameVisionTests/sceneKernelCost`
+(and repeat with `-c debug` for comparison). It reports pen-only, pen-plus-armature,
+and a restricted search region, with one warmup and eight timed scans per case.
+Hashing and UI work are excluded; this is not a live-session benchmark.
+
 `make run-app` constructs the signed bundle and uses the single-instance
 launcher. Do not run the raw SwiftPM executable for camera or controller work.
 The launcher activates the exact existing bundle when possible and refuses

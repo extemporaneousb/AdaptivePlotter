@@ -72,6 +72,19 @@ then
     exit 1
 fi
 
+configuration_bundle="$test_root/InvalidConfiguration.app"
+cp -R "$source_bundle" "$configuration_bundle"
+/usr/libexec/PlistBuddy -c 'Set :AdaptivePlotterBuildConfiguration unknown' \
+    "$configuration_bundle/Contents/Info.plist"
+if configuration_result=$(sh "$validator" "$configuration_bundle" 2>&1); then
+    echo "bundle validator accepted an unknown build configuration" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$configuration_result" | grep -Fq 'unexpected AdaptivePlotterBuildConfiguration'; then
+    printf '%s\n' "$configuration_result" >&2
+    exit 1
+fi
+
 signature_details=$(/usr/bin/codesign -d --verbose=4 "$source_bundle" 2>&1)
 signature_requirement=$(/usr/bin/codesign -d -r- "$source_bundle" 2>&1)
 if printf '%s\n' "$signature_details" | grep -Fqx 'Signature=adhoc'; then
