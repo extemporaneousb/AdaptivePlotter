@@ -8,6 +8,51 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Short Voice replies and Boundary Stop dispatch, 2026-09-07
+
+Blackdog task `task-bb47a2f387b5493e88e16679813eeb93` addressed the operator's
+report of unreliable spoken Boundary Stop. The running app emitted repeated
+Apple local Speech service errors (kAFAssistantErrorDomain 1101); controller
+records alone cannot identify the microphone, recognition, or physical stopping
+latency. The existing partial-Stop path already bypassed its 900 ms endpoint,
+but synchronously stopped AVAudioEngine before scheduling the typed Stop sink.
+Boundary Start also closed recognition, and a subsequent movement cue could
+close the reopened microphone again.
+
+Voice now advertises unique short replies from the current typed actions:
+Start, Confirmed, Cancel, and Stop. No preserves a negative observation, and
+Reject preserves explicit proposal rejection. Boundary prompts speak the offered
+direction and ask for Start; retry prompts and visible hints use the same short
+replies. Stop enters the existing request sink before audio teardown. Spoken
+Boundary Start suppresses advisory speech before admission and retains input into the
+Stop-only phase, including accumulated Start Stop recognition. Duplicate Stop
+callbacks cannot submit again while cancellation is pending. No control or
+motion authority was moved out of its existing owner. A reproduced accumulating
+background-transcript failure is corrected by advancing only the consumed text
+prefix after the quiet interval; microphone capture stays open for the next Stop.
+A full parallel run exposed a delayed UI-timer race in that segmentation. It now
+uses timestamps captured at recognition ingress, including callbacks queued
+together behind UI work. Changed response choices also invalidate the spoken
+prompt cache even when the original exercise instructions are unchanged.
+
+Native recognition retains its recognizer for the session, reports an error
+that accompanies a nonfinal result, and explicitly reports normal recognition
+completion. Meter updates no longer evict recognized transcripts from a bounded
+queue. The current physical application's process and bundle were left intact;
+these changes require a later build/relaunch to take effect in that application.
+Apple Speech service recovery and attended mechanical Stop latency remain
+unverified; synthetic speech callbacks and test controllers are software evidence.
+
+Validation: focused strict Voice, speech-owner, and production Boundary request
+regressions passed **19/19** in 2.259 seconds. Strict quick tests passed
+**918/918** in 21.038 seconds; retained causal journeys passed **10/10** in
+6.470 seconds. Tests assert Stop sink entry before audio teardown, no duplicate
+pending Stop, current request identity, uninterrupted spoken Start-to-Stop input,
+background transcript segmentation, short-answer ambiguity, recognition restart,
+and the actual application-to-test-controller cancellation path. Documentation
+checks and `git diff --check` passed. The strict task-local signed application
+build and `codesign --verify --deep --strict` passed without launching the bundle.
+
 ## Active coverage selection and bounded cross-track fitting, 2026-09-07
 
 Blackdog task `task-901bb5e0446f4b7eb3748bb20e6a8be1` added a usable Active

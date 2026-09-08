@@ -3,9 +3,11 @@
 import Foundation
 
 public enum SpeechInputEvent: Sendable {
-  case transcript(String, isFinal: Bool)
+  // Capture recognition time before delivery can queue behind UI work.
+  case transcript(String, isFinal: Bool, observedAt: ContinuousClock.Instant = .now)
   case level(Float)
   case failed(String)
+  case ended
 }
 
 /// Microphone input only. Interpreting a response belongs to the current UI
@@ -20,6 +22,7 @@ public protocol SpeechListening: AnyObject {
 public final class NativeSpeechListener: SpeechListening {
   private var engine: AVAudioEngine?
   private var request: SFSpeechAudioBufferRecognitionRequest?
+  private var recognizer: SFSpeechRecognizer?
   private var recognition: SFSpeechRecognitionTask?
   private var continuation: AsyncStream<SpeechInputEvent>.Continuation?
   private var sessionID: UUID?
@@ -55,7 +58,10 @@ public final class NativeSpeechListener: SpeechListening {
     request.taskHint = .confirmation
     request.contextualStrings = Array(contextualPhrases.prefix(100))
     request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
-    let (stream, continuation) = AsyncStream<SpeechInputEvent>.makeStream(bufferingPolicy: .bufferingNewest(16))
+    let (stream, continuation) = AsyncStream<SpeechInputEvent>.makeStream()
+    // Never let meter updates evict a recognized Stop while the UI is busy.
+    // Events contain text/scalars only; audio buffers are not retained here.
+    self.recognizer = recognizer
     self.engine = engine
     self.request = request
     self.continuation = continuation
@@ -72,8 +78,12 @@ public final class NativeSpeechListener: SpeechListening {
     recognition = recognizer.recognitionTask(with: request) { result, error in
       if let result {
         continuation.yield(.transcript(result.bestTranscription.formattedString, isFinal: result.isFinal))
-      } else if let error {
+      }
+      if let error, result?.isFinal != true {
         continuation.yield(.failed(error.localizedDescription))
+      } else if result?.isFinal == true {
+        // The consumer orders Stop submission before microphone teardown.
+        continuation.yield(.ended)
       }
     }
     do {
@@ -97,6 +107,7 @@ public final class NativeSpeechListener: SpeechListening {
     request = nil
     recognition?.cancel()
     recognition = nil
+    recognizer = nil
     continuation?.finish()
     continuation = nil
   }

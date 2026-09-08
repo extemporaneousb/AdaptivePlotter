@@ -573,8 +573,9 @@ extension PlotterApplicationRuntimeTests {
   }
 
   @Test(
-    "boundary Stop commits controller evidence without consulting Camera or Vision")
-  func boundaryStopCompletesTransaction() async throws {
+    "button and Voice Stop commit controller evidence without consulting Camera or Vision",
+    arguments: [false, true])
+  func boundaryStopCompletesTransaction(useVoice: Bool) async throws {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(
       log: log,
@@ -652,9 +653,28 @@ extension PlotterApplicationRuntimeTests {
       includesLearningPath: true
     ).semantic
     let stopRequest = try #require(stopProjection.request(for: stopActionID))
-    async let first = workspace.submitPlotterUIRequest(stopRequest)
-    async let repeated = workspace.submitPlotterUIRequest(stopRequest)
-    _ = await (first, repeated)
+    if useVoice {
+      let listener = TestVoiceListener()
+      var settled = false
+      let voice = WorkbenchVoiceController(speech: workspace.speechEffectRuntime, listener: listener) {
+        let disposition = await workspace.submitPlotterUIRequest($0)
+        settled = true
+        return disposition
+      }
+      voice.update(WorkbenchVoiceContext(
+        presentation: workspace.learningPathProjection(selectedItemID: owner).selectedAction,
+        projection: stopProjection))
+      voice.setEnabled(true)
+      try await waitUntil { voice.isListening }
+      listener.send(.transcript("Stop", isFinal: false))
+      listener.send(.transcript("Stop", isFinal: true))
+      try await waitUntil { settled }
+      voice.stop()
+    } else {
+      async let first = workspace.submitPlotterUIRequest(stopRequest)
+      async let repeated = workspace.submitPlotterUIRequest(stopRequest)
+      _ = await (first, repeated)
+    }
 
     #expect(await machine.cancelCount == 1)
     #expect(await machine.cancelIntents == [.operatorStop])

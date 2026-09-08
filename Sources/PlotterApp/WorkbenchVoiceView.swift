@@ -25,7 +25,7 @@ struct WorkbenchVoiceView: View {
         }
         .toggleStyle(.switch)
         .controlSize(.small)
-        .help("Read the current prompt and listen for answers such as yes, no, move, or stop. Uses Apple Speech; on-device recognition when available.")
+        .help("Read the current question and listen for short replies: Stop, Confirmed, Cancel, Start, or No when offered. Uses Apple Speech; on-device recognition when available.")
         if controller.isEnabled {
           Text(controller.status)
             .font(.caption)
@@ -41,6 +41,11 @@ struct WorkbenchVoiceView: View {
         }
       }
       if controller.isEnabled {
+        if let context, !context.commands.isEmpty {
+          Text(context.responseHint)
+            .font(.caption.weight(.medium))
+            .fixedSize(horizontal: false, vertical: true)
+        }
         if controller.isListening {
           ProgressView(value: Double(controller.inputLevel))
             .progressViewStyle(.linear)

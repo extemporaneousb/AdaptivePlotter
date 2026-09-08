@@ -9,6 +9,154 @@ import Testing
 @Suite("Contextual workbench voice", .serialized)
 @MainActor
 struct WorkbenchVoiceTests {
+  @Test("short replies preserve the distinct offered meanings and reject ambiguity")
+  func shortReplies() {
+    let question = voiceContext(actions: [.choice(.yes), .choice(.no), .cancel])
+    #expect(question.replies == ["Confirmed", "No", "Cancel"])
+    #expect(question.matching("Confirmed")?.intent == question.matching("yes")?.intent)
+    #expect(question.matching("Cancel")?.intent != question.matching("No")?.intent)
+    #expect(question.matching("Confirmed, no") == nil)
+    #expect(question.matching("don't start") == nil)
+    let move = voiceContext(actions: [.boundary(.acquire(direction: .positiveY, mode: .normal))])
+    #expect(move.replies == ["Start"])
+    #expect(move.spokenPrompt == "Move Toward positive Y? Say Start.")
+    #expect(move.matching("Start")?.intent == move.commands.first?.intent)
+    #expect(move.matching("Confirmed") == nil)
+    #expect(voiceContext(actions: [.choice(.yes)], disableYes: true).matching("Confirmed") == nil)
+    let ambiguous = voiceContext(actions: [.start, .boundary(.acquire(direction: .positiveY, mode: .normal))])
+    #expect(ambiguous.matching("Start") == nil)
+    #expect(ambiguous.matching("please Start") == nil)
+    #expect(ambiguous.replies == ["Move Toward Y+"])
+    for reply in question.replies + move.replies {
+      #expect(question.matching(reply) != nil || move.matching(reply) != nil)
+    }
+    for action: PlotterLearningAction in [.cameraCalibration(.acceptProposal),
+      .tipCalibration(.acceptProposal), .borderValidation(.acceptObservedPrediction)] {
+      #expect(voiceContext(actions: [action]).matching("Confirmed") != nil)
+    }
+    #expect(voiceContext(actions: [.boundary(.cancel(.init()))]).matching("Cancel") != nil)
+  }
+
+  @Test("a changed Boundary direction speaks its new short question even with unchanged instructions")
+  func changedChoicesSpeakAgain() async throws {
+    let announcer = ImmediateVoiceAnnouncer()
+    let speech = PlotterSpeechEffectRuntime(announcer: announcer)
+    let listener = TestVoiceListener()
+    let controller = WorkbenchVoiceController(speech: speech, listener: listener) {
+      .accepted(requestID: $0.id)
+    }
+    controller.update(voiceContext(actions: [.boundary(.acquire(direction: .positiveY, mode: .normal))]))
+    controller.setEnabled(true)
+    try await eventually { controller.isListening }
+    controller.update(voiceContext(revision: 2,
+      actions: [.boundary(.acquire(direction: .negativeY, mode: .normal))]))
+    try await eventually { controller.isListening && listener.startCount == 2 }
+    #expect(await announcer.messages == [
+      "Move Toward positive Y? Say Start.", "Move Toward negative Y? Say Start."
+    ])
+    controller.stop()
+    await speech.shutdown()
+  }
+
+  @Test("queued background and Stop callbacks use recognition time without cycling the microphone")
+  func movingDoesNotEndpointBackgroundSpeech() async throws {
+    let speech = PlotterSpeechEffectRuntime(announcer: ImmediateVoiceAnnouncer())
+    let listener = TestVoiceListener()
+    var count = 0
+    let controller = WorkbenchVoiceController(speech: speech, listener: listener) {
+      count += 1
+      return .accepted(requestID: $0.id)
+    }
+    controller.update(voiceContext(actions: [.boundary(.stop(.init()))]))
+    controller.setEnabled(true)
+    try await eventually { controller.isListening }
+    let starts = listener.startCount
+    // Both callbacks are queued before the consumer gets another actor turn.
+    // A UI timer cannot establish the utterance boundary in this case.
+    let captured = ContinuousClock.now - .seconds(2)
+    listener.send(.transcript("background conversation", isFinal: false, observedAt: captured))
+    listener.send(.transcript("background conversation Stop", isFinal: false,
+      observedAt: captured + .seconds(1)))
+    try await eventually { count == 1 }
+    // The only restart is after cancellation returns, never before submission.
+    #expect(listener.startCount <= starts + 1)
+    controller.stop()
+    await speech.shutdown()
+  }
+
+  @Test("Stop enters its sink before audio teardown, including a final and ended callback")
+  func stopPrecedesAudioTeardown() async throws {
+    let speech = PlotterSpeechEffectRuntime(announcer: ImmediateVoiceAnnouncer())
+    let listener = TestVoiceListener()
+    var stopsAtSubmission: Int?
+    var release: CheckedContinuation<Void, Never>?
+    var count = 0
+    let controller = WorkbenchVoiceController(speech: speech, listener: listener) {
+      count += 1
+      stopsAtSubmission = listener.stopCount
+      await withCheckedContinuation { release = $0 }
+      return .accepted(requestID: $0.id)
+    }
+    controller.update(voiceContext(actions: [.boundary(.stop(.init()))]))
+    controller.setEnabled(true)
+    try await eventually { controller.isListening }
+    let before = listener.stopCount
+    listener.send(.transcript("Stop", isFinal: true))
+    listener.send(.failed("Service failed alongside its last result"))
+    listener.send(.ended)
+    let deadline = ContinuousClock.now.advanced(by: .milliseconds(300))
+    while release == nil, ContinuousClock.now < deadline { await Task.yield() }
+    #expect(count == 1)
+    #expect(stopsAtSubmission == before)
+    listener.send(.transcript("Stop", isFinal: true))
+    for _ in 0..<10 { await Task.yield() }
+    #expect(count == 1)
+    release?.resume()
+    controller.stop()
+    await speech.shutdown()
+  }
+
+  @Test("Start keeps input open and cumulative Stop interrupts its suspended submission")
+  func startToStopWithoutMicrophoneGap() async throws {
+    let speech = PlotterSpeechEffectRuntime(announcer: ImmediateVoiceAnnouncer())
+    let listener = TestVoiceListener()
+    var requests: [PlotterUIRequest] = []
+    var releaseStart: CheckedContinuation<Void, Never>?
+    let controller = WorkbenchVoiceController(speech: speech, listener: listener) {
+      requests.append($0)
+      if requests.count == 1 {
+        // The real Boundary owner emits its advisory movement cue on admission.
+        _ = await speech.start(.init(message: "Moving toward the drawing boundary."))
+        await withCheckedContinuation { releaseStart = $0 }
+      }
+      return .accepted(requestID: $0.id)
+    }
+    controller.update(voiceContext(actions: [.boundary(.acquire(direction: .positiveY, mode: .normal))]))
+    controller.setEnabled(true)
+    try await eventually { controller.isListening }
+    let starts = listener.startCount
+    listener.send(.transcript("Start", isFinal: false))
+    try await eventually { releaseStart != nil }
+    let current = voiceContext(revision: 2, actions: [.boundary(.stop(.init()))])
+    controller.update(current)
+    #expect(controller.isListening)
+    #expect(listener.startCount == starts)
+    listener.send(.transcript("Start Stop", isFinal: false))
+    let deadline = ContinuousClock.now.advanced(by: .milliseconds(300))
+    while requests.count < 2, ContinuousClock.now < deadline { await Task.yield() }
+    #expect(requests.count == 2)
+    #expect(requests.last?.intent == current.matchingStop("Stop")?.intent)
+    #expect(requests.last?.uiRevision == current.projection.revision)
+    controller.update(voiceContext(revision: 3))
+    releaseStart?.resume()
+    try await eventually { controller.isListening }
+    listener.send(.transcript("Confirmed", isFinal: true))
+    try await eventually { requests.count == 3 }
+    #expect(requests.last?.uiRevision.rawValue == 3)
+    controller.stop()
+    await speech.shutdown()
+  }
+
   @Test("each boundary leg gives Stop priority over advisory playback")
   func stopWorksOnBothLegsDuringCues() async throws {
     let announcer = HeldVoiceAnnouncer()
@@ -262,9 +410,10 @@ private func eventually(_ condition: () async -> Bool) async throws {
 }
 
 @MainActor
-private final class TestVoiceListener: SpeechListening {
+final class TestVoiceListener: SpeechListening {
   var continuation: AsyncStream<SpeechInputEvent>.Continuation?
   var startCount = 0
+  var stopCount = 0
   func start(contextualPhrases: [String]) async throws -> AsyncStream<SpeechInputEvent> {
     startCount += 1
     let (stream, continuation) = AsyncStream<SpeechInputEvent>.makeStream()
@@ -272,11 +421,15 @@ private final class TestVoiceListener: SpeechListening {
     return stream
   }
   func send(_ event: SpeechInputEvent) { continuation?.yield(event) }
-  func stop() { continuation?.finish(); continuation = nil }
+  func stop() { stopCount += 1; continuation?.finish(); continuation = nil }
 }
 
 private actor ImmediateVoiceAnnouncer: SpeechAnnouncing {
-  func announce(_ text: String) async -> SpeechAnnouncementOutcome { .completed }
+  private(set) var messages: [String] = []
+  func announce(_ text: String) async -> SpeechAnnouncementOutcome {
+    messages.append(text)
+    return .completed
+  }
   func cancelForShutdown() async {}
 }
 

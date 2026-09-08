@@ -39,12 +39,51 @@ struct WorkbenchVoiceContext: Equatable {
     commands.map { $0.isLearningStop ? "stop" : $0.id.rawValue }
   }
 
+  /// Short replies are aliases for unique, currently offered typed actions.
+  /// A negative observation remains No; it must never become cancellation.
+  private func reply(for action: PlotterUIAction) -> String {
+    guard case .learningAction(let request) = action.intent else { return action.title }
+    switch request.action {
+    case .stop, .stopPenInteraction, .boundary(.stop): return "Stop"
+    case .choice(.yes), .cameraCalibration(.acceptProposal), .tipCalibration(.acceptProposal),
+      .borderValidation(.acceptObservedPrediction): return "Confirmed"
+    case .choice(.no): return "No"
+    case .cancel, .boundary(.cancel): return "Cancel"
+    case .cameraCalibration(.rejectProposal), .tipCalibration(.rejectProposal),
+      .borderValidation(.reject): return "Reject"
+    case .start, .boundary(.acquire), .boundary(.moveToEstimatedCenter),
+      .cameraCalibration(.buildFivePositionProposal), .tipCalibration(.beginFourMarkBatch),
+      .tipCalibration(.revalidateCheckpoint): return "Start"
+    default: return action.title
+    }
+  }
+
+  var replies: [String] {
+    commands.compactMap { command in
+      let short = reply(for: command)
+      let candidate = commands.filter { reply(for: $0) == short }.count == 1 ? short : command.title
+      return matching(candidate)?.id == command.id ? candidate : nil
+    }
+  }
+
+  var responseHint: String {
+    replies.isEmpty ? "Use the buttons for these choices."
+      : "Say " + replies.joined(separator: " or ") + "."
+  }
+
+  var spokenPrompt: String {
+    if let movement = commands.first(where: { $0.startsBoundaryMotion }) {
+      return movement.title.replacingOccurrences(of: "Y+", with: "positive Y")
+        .replacingOccurrences(of: "Y−", with: "negative Y")
+        .replacingOccurrences(of: "X+", with: "positive X")
+        .replacingOccurrences(of: "X−", with: "negative X") + "? " + responseHint
+    }
+    return prompt + " " + responseHint
+  }
+
   var phrases: [String] {
-    commands.map(\.title) + [
-      "yes", "no", "it does", "it doesn't", "move", "go ahead", "move towards Y plus",
-      "move towards Y minus", "move towards X plus", "move towards X minus",
-      "stop", "stop moving", "that's enough", "repeat the question"
-    ]
+    // Keep Stop in the recognizer vocabulary before movement starts, too.
+    ["Stop", "Confirmed", "Cancel", "Start"] + replies + ["yes", "no", "repeat"]
   }
 
   func matchingStop(_ transcript: String) -> PlotterUIAction? {
@@ -79,8 +118,11 @@ struct WorkbenchVoiceContext: Equatable {
   }
 
   func matching(_ transcript: String) -> PlotterUIAction? {
-    let text = Self.normalized(transcript)
+    let text = Self.removingPolitePrefix(Self.normalized(transcript))
     if let stop = matchingStop(transcript) { return stop }
+    let alias = commands.filter { Self.normalized(reply(for: $0)) == text }
+    if alias.count > 1 { return nil }
+    if alias.count == 1 { return alias[0] }
     let exact = commands.filter { Self.normalized($0.title) == text }
     if exact.count == 1 { return exact[0] }
     let first = text.split(separator: " ").first.map(String.init) ?? ""
@@ -100,10 +142,9 @@ struct WorkbenchVoiceContext: Equatable {
       }
       if choices.count == 1 { return choices[0] }
     }
-    let polite = Self.removingPolitePrefix(text)
-    let words = Set(polite.split(separator: " ").map(String.init))
+    let words = Set(text.split(separator: " ").map(String.init))
     let asksToMove = ["move", "go", "start", "continue", "keep moving"].contains {
-      polite == $0 || polite.hasPrefix($0 + " ")
+      text == $0 || text.hasPrefix($0 + " ")
     }
     if asksToMove && !hasNegation {
       // The offered Boundary action supplies the direction. Explicit axis/sign
@@ -119,8 +160,7 @@ struct WorkbenchVoiceContext: Equatable {
         return (!x || isX) && (!y || !isX) && (!plus || isPlus) && (!minus || !isPlus)
       }) { return movement }
     }
-    let matches = commands.filter { Self.normalized($0.title) == polite }
-    return matches.count == 1 ? matches[0] : nil
+    return nil
   }
 
   private static func removingPolitePrefix(_ text: String) -> String {
@@ -136,6 +176,16 @@ struct WorkbenchVoiceContext: Equatable {
       .replacingOccurrences(of: "-", with: " minus ")
       .components(separatedBy: CharacterSet.alphanumerics.inverted)
       .filter { !$0.isEmpty }.joined(separator: " ")
+  }
+}
+
+private extension PlotterUIAction {
+  var startsBoundaryMotion: Bool {
+    guard case .learningAction(let request) = intent else { return false }
+    switch request.action {
+    case .boundary(.acquire), .boundary(.moveToEstimatedCenter): return true
+    default: return false
+    }
   }
 }
 
@@ -160,6 +210,11 @@ final class WorkbenchVoiceController {
   @ObservationIgnored private var lastSpokenPrompt: String?
   @ObservationIgnored private var isSubmitting = false
   @ObservationIgnored private var playbackIsActive = false
+  @ObservationIgnored private var submissionID: UUID?
+  @ObservationIgnored private var submittingStop = false
+  @ObservationIgnored private var preservingInputForStop = false
+  @ObservationIgnored private var consumedPrefix = ""
+  @ObservationIgnored private var lastTranscriptChange: ContinuousClock.Instant?
 
   init(
     speech: PlotterSpeechEffectRuntime,
@@ -184,7 +239,22 @@ final class WorkbenchVoiceController {
     self.context = context
     // Controller telemetry can refresh the request revision without changing
     // the question. Keep the microphone open and submit with the newest copy.
-    if choicesChanged { restart() }
+    if choicesChanged {
+      if preservingInputForStop, isListening, context?.stopIsOnlyResponse == true {
+        // The same recognition request spans the operator's Start and Stop.
+        // Only Stop can consume its remaining transcript in the new context.
+        silenceTask?.cancel()
+        silenceTask = nil
+        lastSpokenPrompt = context?.spokenPrompt
+        let id = generation
+        Task { [weak self, speech] in
+          guard self?.generation == id else { return }
+          await speech.prioritizeOperatorInput(true)
+        }
+      } else {
+        restart()
+      }
+    }
   }
 
   func repeatPrompt() {
@@ -202,6 +272,10 @@ final class WorkbenchVoiceController {
     activityTask?.cancel()
     stopInput()
     isSubmitting = false
+    submissionID = nil
+    submittingStop = false
+    preservingInputForStop = false
+    consumedPrefix = ""
     let priorPrompt = promptID
     promptID = nil
     guard isEnabled, let context, !context.commands.isEmpty else {
@@ -214,15 +288,15 @@ final class WorkbenchVoiceController {
       return
     }
     status = "Preparing Voice…"
-    let shouldSpeak = lastSpokenPrompt != context.prompt && !context.stopIsOnlyResponse
-    lastSpokenPrompt = context.prompt
+    let shouldSpeak = lastSpokenPrompt != context.spokenPrompt && !context.stopIsOnlyResponse
+    lastSpokenPrompt = context.spokenPrompt
     activityTask = Task { [weak self, speech] in
       guard let self, self.generation == id, !Task.isCancelled else { return }
       await speech.prioritizeOperatorInput(context.stopIsOnlyResponse)
       if let priorPrompt { await speech.cancel(priorPrompt) }
       guard self.generation == id, !Task.isCancelled else { return }
-      if shouldSpeak, !context.prompt.isEmpty {
-        let request = PlotterSpeechEffectRequest(message: context.prompt)
+      if shouldSpeak {
+        let request = PlotterSpeechEffectRequest(message: context.spokenPrompt)
         self.promptID = request.id
         _ = await speech.start(request)
         guard self.generation == id, !Task.isCancelled else {
@@ -248,6 +322,8 @@ final class WorkbenchVoiceController {
   private func beginListening(_ context: WorkbenchVoiceContext, generation id: UUID) {
     stopInput()
     transcript = ""
+    consumedPrefix = ""
+    lastTranscriptChange = nil
     status = "Opening microphone…"
     inputTask = Task { [weak self] in
       guard let self else { return }
@@ -260,29 +336,50 @@ final class WorkbenchVoiceController {
           guard self.generation == id, !Task.isCancelled, self.isListening else { return }
           switch event {
           case .level(let value): self.inputLevel = value
+          case .ended:
+            if !self.submittingStop {
+              self.beginListening(self.context ?? context, generation: id)
+            }
           case .failed(let detail):
+            if self.submittingStop { continue }
             self.stopInput()
             self.status = "\(detail) · Reconnecting microphone…"
             self.retryInput(context, generation: id)
-          case .transcript(let text, let isFinal):
+          case .transcript(let text, let isFinal, let observedAt):
             // Endpoint on a settled partial as well as the recognizer's final:
             // Apple's live recognizer need not end a request after each reply.
             let changed = self.transcript != text
+            if changed, self.context?.stopIsOnlyResponse == true, !self.submittingStop,
+              let previous = self.lastTranscriptChange,
+              observedAt - previous >= .milliseconds(900)
+            {
+              // Segment by recognition time, even if both callbacks queue
+              // behind a busy UI thread. No timer or microphone restart gates Stop.
+              self.consumedPrefix = WorkbenchVoiceContext.normalized(self.transcript)
+            }
+            if changed { self.lastTranscriptChange = observedAt }
             self.transcript = text
-            if isFinal || self.context?.matchingStop(text) != nil {
-              self.finishUtterance(text, context: context, generation: id)
+            let reply = self.unconsumedReply(text)
+            if self.context?.matchingStop(reply) != nil {
+              self.finishUtterance(reply, context: context, generation: id)
+            } else if self.isSubmitting || self.context?.stopIsOnlyResponse == true {
+              continue
+            } else if isFinal {
+              self.finishUtterance(reply, context: context, generation: id)
             } else if changed {
               self.silenceTask?.cancel()
               self.silenceTask = Task { [weak self] in
-                do { try await Task.sleep(for: .milliseconds(900)) } catch { return }
-                self?.finishUtterance(text, context: context, generation: id)
+                let shortReply = self?.context?.replies.contains {
+                  WorkbenchVoiceContext.normalized($0) == WorkbenchVoiceContext.normalized(reply)
+                } == true
+                do { try await Task.sleep(for: .milliseconds(shortReply ? 350 : 900)) } catch { return }
+                self?.finishUtterance(reply, context: context, generation: id)
               }
             }
           }
         }
-        if self.generation == id, !Task.isCancelled, self.isListening {
-          self.stopInput()
-          self.retryInput(context, generation: id)
+        if self.generation == id, !Task.isCancelled, self.isListening, !self.submittingStop {
+          self.beginListening(self.context ?? context, generation: id)
         }
       } catch is CancellationError {
       } catch {
@@ -304,7 +401,8 @@ final class WorkbenchVoiceController {
   private func finishUtterance(_ text: String, context: WorkbenchVoiceContext, generation id: UUID) {
     guard generation == id, isEnabled, isListening, !playbackIsActive else { return }
     let context = self.context ?? context
-    stopInput()
+    let stop = context.matchingStop(text)
+    guard !isSubmitting || (stop != nil && !submittingStop) else { return }
     let normalized = WorkbenchVoiceContext.normalized(text)
     if ["repeat", "repeat the question", "say that again"].contains(normalized) {
       repeatPrompt()
@@ -313,17 +411,14 @@ final class WorkbenchVoiceController {
     guard let command = context.matching(text),
       let request = context.projection.request(for: command.id)
     else {
-      status = "Heard “\(text)”. Try a short answer, move, stop, or repeat."
+      if context.stopIsOnlyResponse { return }
+      stopInput()
+      status = "Heard “\(text)”. " + context.responseHint
       // Keep the same question open, using the existing speech lane to avoid
       // feeding the recovery prompt back into recognition.
       let request = PlotterSpeechEffectRequest(
-        message: "Please say " + context.commands.map(\.title).joined(separator: ", or ")
+        message: context.responseHint
       )
-      if context.stopIsOnlyResponse {
-        // Keep listening rather than reading a Stop instruction into the mic.
-        beginListening(context, generation: id)
-        return
-      }
       promptID = request.id
       Task { [weak self, speech] in
         guard self?.generation == id, self?.isEnabled == true else { return }
@@ -332,22 +427,55 @@ final class WorkbenchVoiceController {
       }
       return
     }
+    silenceTask?.cancel()
+    silenceTask = nil
     isSubmitting = true
+    submittingStop = stop != nil
+    preservingInputForStop = command.startsBoundaryMotion
+    consumedPrefix = WorkbenchVoiceContext.normalized(transcript)
+    let submission = UUID()
+    submissionID = submission
+    // Do not put synchronous AVAudioEngine teardown ahead of the Stop sink.
+    // Keep input through Boundary Start as well, so Stop can interrupt admission.
+    if stop == nil && !preservingInputForStop { stopInput() }
     status = "Heard “\(text)” · \(command.title)"
-    Task { [weak self, submit] in
+    Task(priority: stop == nil ? nil : .userInitiated) { [weak self, submit, speech] in
+      guard let self, self.generation == id, self.submissionID == submission else { return }
+      if command.startsBoundaryMotion {
+        // Suppress the movement cue before the owner can issue it. Otherwise
+        // playback can close the microphone before the Stop projection arrives.
+        await speech.prioritizeOperatorInput(true)
+        guard self.generation == id, self.submissionID == submission else { return }
+      }
       let disposition = await submit(request)
-      guard let self, self.generation == id else { return }
+      guard self.generation == id, self.submissionID == submission else { return }
       self.isSubmitting = false
+      self.submittingStop = false
       switch disposition {
       case .accepted:
         self.status = "\(command.title) accepted"
       case .refused(let refusal):
         self.status = refusal.remedy
+        self.preservingInputForStop = false
+        await speech.prioritizeOperatorInput(self.context?.stopIsOnlyResponse == true)
+        guard self.generation == id, self.submissionID == submission else { return }
       }
       // A normal state transition supplies a new context. A non-advancing
       // answer can keep this question current and must remain conversational.
-      if !self.playbackIsActive { self.beginListening(context, generation: id) }
+      if !self.playbackIsActive, !self.preservingInputForStop {
+        self.beginListening(self.context ?? context, generation: id)
+      }
     }
+  }
+
+  private func unconsumedReply(_ text: String) -> String {
+    let normalized = WorkbenchVoiceContext.normalized(text)
+    guard !consumedPrefix.isEmpty else { return text }
+    if normalized == consumedPrefix { return "" }
+    if normalized.hasPrefix(consumedPrefix + " ") {
+      return String(normalized.dropFirst(consumedPrefix.count + 1))
+    }
+    return text
   }
 
   private func stopInput() {

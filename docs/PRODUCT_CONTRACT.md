@@ -1486,12 +1486,33 @@ No model changes during a Pen Down stroke or chooses hidden motion.
 ## Input, output, and launch
 
 Buttons and contextual Voice responses submit the same current projected
-requests for choices, progression, Cancel, and Stop. Voice is opt-in, reads the
-current exercise prompt, then listens for its available button labels or a
-contextual yes/no answer. Microphone input is suspended during speech playback,
-and stale recognition callbacks cannot answer a successor prompt. Partial
-transcripts endpoint after a quiet interval; the current prompt can be repeated.
-Microphone level and recognized text stay local to the Voice view. Apple Speech
+requests for choices, progression, Cancel, and Stop. Voice is opt-in and offers
+short replies for unique current actions: Start for the offered motion or
+exercise, Confirmed for affirmative observation or acceptance, Cancel for ending
+the attempt, and Stop for active motion. No remains a negative observation;
+Reject remains an explicit proposal rejection. Ambiguous or unavailable aliases
+cannot select an action. The Voice view displays the current replies, and spoken
+prompts and retry prompts name those replies rather than requiring long button
+labels. Full button labels and contextual yes/no remain accepted.
+
+Stop dispatches the first matching partial through the current typed request
+sink before microphone teardown, without waiting for a final transcript or a
+silence timer. Duplicate partial/final Stop callbacks cannot submit again while
+that Stop is pending. Spoken Boundary Start suppresses advisory playback before motion
+admission and retains recognition into the Stop-only phase; an accumulated
+"Start Stop" transcript consumes Start once and dispatches the remaining Stop.
+Unrelated speech during motion advances only the consumed transcript prefix
+after 900 ms of unchanged recognition, using recognition-ingress timestamps so
+UI scheduling cannot erase the utterance boundary. The microphone stays open. A normally
+ended recognition request reopens immediately; service errors retry after 500 ms.
+Recognized events cannot be evicted by microphone-meter events.
+
+Outside motion, microphone input is suspended during speech playback, and stale
+recognition callbacks cannot answer a successor question. Exact short replies
+endpoint after 350 ms of unchanged recognition; other responses use 900 ms. The
+current prompt can be repeated. These are application timing rules, not a bound
+on Apple's recognition latency or mechanical stopping time. Microphone level and
+recognized text stay local to the Voice view. Apple Speech
 uses on-device recognition when supported and may otherwise use Apple's service;
 macOS requests microphone and speech permissions when Voice is enabled. No audio
 recording is retained. Speech remains advisory and failure leaves buttons usable.
