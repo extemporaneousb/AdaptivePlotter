@@ -186,6 +186,9 @@ measurements = {
         "drawingDraftSynchronizationCountDelta"
     ],
     "measurementDurationSeconds": runtime["measurementDurationSeconds"],
+    "overlayPresentationRevisionDelta": runtime["overlayPresentationRevisionDelta"],
+    "overlayCanvasDrawCountDelta": runtime["overlayCanvasDrawCountDelta"],
+    "overlayCanvasBuildCountDelta": runtime["overlayCanvasBuildCountDelta"],
     "drawingStudioWasOpen": runtime["drawingStudioWasOpen"],
     "drawingPlanWasAvailable": runtime["drawingPlanWasAvailable"],
     "automaticAnalysisWasRunning": runtime["automaticAnalysisWasRunning"],
@@ -211,6 +214,10 @@ checks = {
     >= thresholds["minimumPreviewFramesAdvanced"],
     "semanticPresentationUnchanged": measurements["semanticPresentationRevisionDelta"] == 0,
     "rootProjectionNotRebuilt": measurements["rootProjectionBuildCountDelta"] == 0,
+    # Core Animation can repaint a retained Canvas without rebuilding its view.
+    # Enforce application invalidation here; retain actual draws as raw evidence.
+    "overlayRebuildsBoundedByPresentationChanges": measurements["overlayCanvasBuildCountDelta"]
+    <= measurements["overlayPresentationRevisionDelta"],
     "drawingDraftNotSynchronized": measurements[
         "drawingDraftSynchronizationCountDelta"
     ]

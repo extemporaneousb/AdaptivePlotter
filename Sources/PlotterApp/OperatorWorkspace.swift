@@ -572,6 +572,9 @@ struct PlotterPreviewIsolationDiagnostics: Equatable, Sendable {
   let plotterUIProjectionBuildCount: Int
   let learningProjectionBuildCount: Int
   let drawingDraftSynchronizationCount: Int
+  let overlayCanvasDrawCount: Int
+  let overlayCanvasBuildCount: Int
+  let overlayPresentationRevision: UInt64
 }
 
 struct LearningModePresentation: Hashable, Sendable {
@@ -1174,7 +1177,10 @@ final class PlotterApplicationRuntime:
       semanticPresentationRevision: semanticPresentationRevision,
       plotterUIProjectionBuildCount: computationDiagnostics.plotterUIProjectionBuildCount,
       learningProjectionBuildCount: computationDiagnostics.learningProjectionBuildCount,
-      drawingDraftSynchronizationCount: computationDiagnostics.drawingDraftSynchronizationCount
+      drawingDraftSynchronizationCount: computationDiagnostics.drawingDraftSynchronizationCount,
+      overlayCanvasDrawCount: actionSurfacePreview.overlayCanvasDrawCount,
+      overlayCanvasBuildCount: actionSurfacePreview.overlayCanvasBuildCount,
+      overlayPresentationRevision: actionSurfacePreview.presentationRevision
     )
   }
 

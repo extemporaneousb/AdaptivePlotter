@@ -743,6 +743,16 @@ transparent SwiftUI Canvas draws only overlays, with the same
 removes Canvas/RenderBox's repeated full-frame alpha conversion. Preview and
 voice-meter publication remain outside root semantic observation.
 
+`ActionSurfaceOverlayCanvas` is an equatable child containing only admitted
+geometry and the camera-to-view transform. Advancing video pixels and frame
+counter labels reuse its paths and text. Measurement, exact-frame eligibility,
+annotation, and viewport changes update it immediately. The native image host
+also skips Core Animation transactions when image identity and viewport are
+unchanged. The preview owner's observation-ignored counters distinguish Canvas view
+builds from renderer invocations. The signed-app gate enforces the application
+invalidation bound and reports raw draws, including framework repaints; neither
+counter can invalidate the view it measures.
+
 The aggregate root projection has one cached value keyed by exact typed
 semantic/runtime revisions and window inputs. A native view reevaluation with
 unchanged inputs reuses that value; input edits and model transitions compile a

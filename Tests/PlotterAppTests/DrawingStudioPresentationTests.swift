@@ -61,6 +61,13 @@ struct DrawingStudioPresentationTests {
 
     #expect(canvas.targetPreview(for: exact) != nil)
     #expect(canvas.targetPreview(for: stale) == nil)
+    let surface = ActionSurfacePresentation(displayedFrame: exact, overlays: [], drawingStudioCanvas: canvas)
+    let exactContent = ActionSurfaceOverlayContent(presentation: surface)
+    #expect(exactContent.targetPreview != nil)
+    let advancedContent = ActionSurfaceOverlayContent(
+      presentation: surface.resolvingAmbientPreviewFrame(stale))
+    #expect(advancedContent.targetPreview == nil)
+    #expect(advancedContent != exactContent)
     #expect(
       ActionSurfacePresentation(
         displayedFrame: exact,

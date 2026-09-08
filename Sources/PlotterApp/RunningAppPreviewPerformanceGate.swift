@@ -51,6 +51,9 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
   let semanticPresentationRevisionDelta: UInt64
   let rootProjectionBuildCountDelta: Int
   let drawingDraftSynchronizationCountDelta: Int
+  var overlayPresentationRevisionDelta: UInt64 = 0
+  var overlayCanvasDrawCountDelta: Int = 0
+  var overlayCanvasBuildCountDelta: Int = 0
   var drawingStudioWasOpen: Bool = false
   var drawingPlanWasAvailable: Bool = false
   var automaticAnalysisWasRunning: Bool = false
@@ -113,7 +116,9 @@ enum RunningAppPreviewPerformanceGate {
       try? await clock.sleep(for: warmupDuration)
     }
 
-    application.resetPreviewIsolationDiagnostics()
+    // Snapshot deltas without clearing warmed presentation caches. The test
+    // reset helper deliberately invalidates caches and would manufacture an
+    // overlay rebuild on the first measured frame.
     let start = application.previewIsolationDiagnostics
     do {
       try Data("ready\n".utf8).write(to: readyMarkerURL, options: .atomic)
@@ -153,6 +158,9 @@ enum RunningAppPreviewPerformanceGate {
         end.plotterUIProjectionBuildCount - start.plotterUIProjectionBuildCount,
       drawingDraftSynchronizationCountDelta:
         end.drawingDraftSynchronizationCount - start.drawingDraftSynchronizationCount,
+      overlayPresentationRevisionDelta: subtract(end.overlayPresentationRevision, start.overlayPresentationRevision),
+      overlayCanvasDrawCountDelta: end.overlayCanvasDrawCount - start.overlayCanvasDrawCount,
+      overlayCanvasBuildCountDelta: end.overlayCanvasBuildCount - start.overlayCanvasBuildCount,
       drawingStudioWasOpen: application.drawingStudioIsPresented,
       drawingPlanWasAvailable: application.drawingDraftSnapshot.plan != nil,
       automaticAnalysisWasRunning: application.videoAnalysisIsActive,

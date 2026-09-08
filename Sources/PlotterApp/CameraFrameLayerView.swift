@@ -18,6 +18,7 @@ struct CameraFrameLayerView: NSViewRepresentable {
 final class CameraFrameLayerHost: NSView {
   private let imageLayer = CALayer()
   private var displayedImage: CGImage?
+  private var displayedRect: CGRect = .zero
   override var isFlipped: Bool { true }
 
   init() {
@@ -35,13 +36,19 @@ final class CameraFrameLayerHost: NSView {
   override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
   func display(_ image: CGImage?, in rect: CGRect) {
+    // Overlay and control updates can revisit the representable with the same
+    // pixels and viewport. They require no Core Animation transaction.
+    guard displayedImage !== image || displayedRect != rect else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     if displayedImage !== image {
       displayedImage = image
       imageLayer.contents = image
     }
-    imageLayer.frame = rect
+    if displayedRect != rect {
+      displayedRect = rect
+      imageLayer.frame = rect
+    }
     CATransaction.commit()
   }
 }

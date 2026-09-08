@@ -8,6 +8,73 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Camera overlay redraw isolation, 2026-09-08
+
+Blackdog task `task-1bc9d779b5664cf388f681443aea3cc7` audited the current
+optimized application and removed remaining frame-driven overlay drawing.
+No user-owned AdaptivePlotter process was running at diagnosis. The supported
+app already used release configuration; current compiler commands retained
+`-O`, `-g`, and a SwiftPM-generated dSYM. A release process sample resolved Swift
+function names and source locations. Application diagnostics and unified
+logging are not conditional on `DEBUG`; optimized local-variable inspection and
+stepping retain the normal compiler-optimization limitations. The final release
+Studio instance (PID 73194) emitted readable received/accepted Open Drawing
+Studio events through `com.adaptiveplotter.app` / `ui-actions`.
+
+`ActionSurfaceOverlayCanvas` now receives only already-admitted geometry and
+the shared camera-to-view transform. SwiftUI equality reuses its drawing across
+ordinary video frames. New measurements, exact-frame eligibility changes,
+annotations, zoom, pan, and resize still invalidate the drawing immediately.
+The frame image and frame-counter labels continue advancing independently.
+The native image host skips Core Animation transactions for identical image
+identity and viewport. Canonical frame bytes, evidence matching, control
+requests, image colors/resolution, and analysis cadence remain unchanged.
+
+The preview owner's observation-ignored counters distinguish Canvas view builds
+from actual renderer invocations. The signed-app gate exports both deltas and
+the video-presentation revision delta. It enforces the application invalidation
+bound and reports raw draws, including framework repaints.
+A deterministic 2,001-point regression retained overlay inputs over 120 frames;
+source/configuration loss, missing frames, clicks, and viewport changes
+invalidated the inputs. Exact Drawing Studio targets disappeared on a different
+frame. An opt-in native `NSHostingView` test exercised the production Action
+Surface with the same dense geometry: after native startup settled, 30 advancing
+frames caused zero Canvas redraws; resize and configuration changes redrew it.
+
+Strict focused/native tests passed **12/12**. Strict quick tests passed
+**926/926**, with optional probes skipped, and all **10 retained journeys**
+passed. The native rendering probe was
+run separately with `ACTION_SURFACE_RENDER_TEST=1`.
+
+The original performance probe cleared presentation caches after warmup when
+resetting counters; that manufactured one overlay rebuild at measurement start.
+The probe now takes cumulative before/after counter snapshots without mutating
+warmed caches. Both final signed release camera scenarios passed all **15**
+checks. Before/after runs used the same preferred camera and 12-second window:
+
+| Scenario | Median CPU before / after | p95 CPU before / after | p95 MainActor probe before / after |
+| --- | --- | --- | --- |
+| LIVE preview | 39.55% / 35.75% | 49.5% / 39.0% | 27.349 / 25.449 ms |
+| LIVE preview with empty Studio open | 37.45% / 35.45% | 46.0% / 39.0% | 25.870 / 24.939 ms |
+
+Every run advanced 98 frames with stable camera configuration and zero
+semantic/root/draft deltas. Both final runs had zero overlay-presentation,
+Canvas-view-build, and actual Canvas-draw deltas. Final maximum scheduling
+probe delays were 28.599 ms in preview and 30.463 ms with Studio open. These
+short runs show a modest CPU reduction, not a large learned-session speedup.
+All four reports declared no drawing plan and no active automatic analysis.
+
+A separate owned baseline process sample (PID 71563) showed substantial Core
+Animation image preparation/copying and CoreGraphics/vImage color conversion.
+That sample ran during compilation and perturbed the app, so its gate timing
+was rejected as comparative performance evidence. The sample still exposed
+symbolized call paths; it does not quantify a learned-session bottleneck.
+
+No Saved Learning was applied and no controller, motion, pen, or drawing-run
+intent was submitted. Native synthetic geometry and live camera preview do not
+prove responsiveness during the user's learned drawing workload, attended
+mechanical Stop, or physical ink.
+
 ## Optimized application builds and measured scene-analysis cost, 2026-09-07
 
 Blackdog task `task-77d1d5bb6bc1435abfd97181c7728757` separated pen/armature

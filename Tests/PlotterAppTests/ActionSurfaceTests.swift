@@ -737,6 +737,41 @@ func ambientPreviewKeepsMeasuredOverlays() throws {
   #expect(ActionSurfaceTipPresentation.awaitingClick("Click the cap").interactionPrompt == "Click the cap")
 }
 
+@MainActor
+@Test("Overlay drawing ignores advancing pixels but responds to measurements and viewport changes")
+func overlayDrawingReusesGeometry() throws {
+  let measured = try testDisplayedFrame()
+  let overlay = CameraOverlayMeasurement(
+    frameID: measured.frame.id, cameraConfigurationID: measured.frame.cameraConfigurationID,
+    geometry: .polyline(try Polyline(points: (0...2_000).map {
+      try Point2<CameraPixelSpace>(x: Double($0) / 1_000, y: Double($0 % 2))
+    })),
+    provenance: .init(kind: .intendedPath, source: .diagnostic, algorithmRevision: "test")
+  )
+  let base = ActionSurfacePresentation(displayedFrame: measured, overlays: [overlay])
+  let content = ActionSurfaceOverlayContent(presentation: base)
+  let transform = CameraPixelToViewTransform(
+    frameWidth: 2, frameHeight: 2, viewWidth: 400, viewHeight: 300)
+  let original = ActionSurfaceOverlayCanvas(content: content, transform: transform, diagnostics: nil)
+  for _ in 0..<120 {
+    let next = try testDisplayedFrame(configuration: measured.frame.cameraConfigurationID)
+    let presentation = base.resolvingAmbientPreviewFrame(next)
+    #expect(presentation.displayedFrame?.frame.id == next.frame.id)
+    #expect(ActionSurfaceOverlayCanvas(content: .init(presentation: presentation),
+      transform: transform, diagnostics: nil) == original)
+  }
+  let reconfigured = base.resolvingAmbientPreviewFrame(try testDisplayedFrame())
+  #expect(ActionSurfaceOverlayContent(presentation: reconfigured).overlays.isEmpty)
+  #expect(ActionSurfaceOverlayContent(presentation: reconfigured) != content)
+  #expect(ActionSurfaceOverlayContent(presentation: base.resolvingAmbientPreviewFrame(nil)) != content)
+  let changed = ActionSurfacePresentation(displayedFrame: measured, overlays: [],
+    tipPresentation: .collectingClicks(prompt: "Click", clicks: [try Point2(x: 1, y: 1)]))
+  #expect(ActionSurfaceOverlayContent(presentation: changed) != content)
+  let zoomed = CameraPixelToViewTransform(frameWidth: 2, frameHeight: 2,
+    viewWidth: 400, viewHeight: 300, focusRegion: PixelRect(x: 1, y: 0, width: 1, height: 1))
+  #expect(ActionSurfaceOverlayCanvas(content: content, transform: zoomed, diagnostics: nil) != original)
+}
+
 @Test("Simulated annotations require exact frame configuration and viewport identity")
 func simulatedAnnotationIdentityAndToggle() throws {
   let configuration = CameraConfigurationID()
