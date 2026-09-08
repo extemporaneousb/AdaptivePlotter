@@ -610,6 +610,7 @@ private final class LearningPresentationBase {
 
 private struct SelectedLearningProjectionCache {
   let revision: UInt64
+  let cameraIsLive: Bool
   let selectedItemID: LearningPathItemID
   let projection: LearningPathProjection
 }
@@ -1015,7 +1016,7 @@ final class PlotterApplicationRuntime:
       markSemanticPresentationChanged()
     }
   }
-  private(set) var overlayResultChannels = OverlayResultChannels() {
+  @ObservationIgnored private(set) var overlayResultChannels = OverlayResultChannels() {
     didSet { invalidateActionSurfacePresentation() }
   }
   private(set) var cameraError: String? {
@@ -1036,15 +1037,17 @@ final class PlotterApplicationRuntime:
       markSemanticPresentationChanged()
     }
   }
-  private(set) var visionAnalysisSnapshot: PlotterSceneAnalysisSnapshot = .stopped {
+  @ObservationIgnored private(set) var visionAnalysisSnapshot: PlotterSceneAnalysisSnapshot = .stopped {
     didSet {
       invalidateActionSurfacePresentation()
       guard oldValue.phase != visionAnalysisSnapshot.phase else { return }
       markSemanticPresentationChanged()
     }
   }
-  private(set) var videoVisionDiagnostics: CameraSourceSessionVisionDiagnostics?
-  private(set) var lastSceneMeasurement: PlotterSceneMeasurement?
+  @ObservationIgnored private(set) var videoVisionDiagnostics: CameraSourceSessionVisionDiagnostics? {
+    didSet { actionSurfacePreview.invalidatePresentation() }
+  }
+  @ObservationIgnored private(set) var lastSceneMeasurement: PlotterSceneMeasurement?
   private(set) var simulatorEvidenceLabel = "SIMULATED — NOT PHYSICAL EVIDENCE"
   private(set) var simulatorPenState: PenState = .unknown
   private(set) var simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
@@ -1236,6 +1239,7 @@ final class PlotterApplicationRuntime:
   private func invalidateActionSurfacePresentation() {
     actionSurfacePresentationRevision &+= 1
     actionSurfacePresentationCache = nil
+    actionSurfacePreview.invalidatePresentation()
   }
 
   private func publishActionSurfacePreview(_ frame: DisplayedFrame?) {
@@ -1952,7 +1956,7 @@ final class PlotterApplicationRuntime:
       guard snapshot.revision != visionAnalysisSnapshot.revision else { return }
       let priorFrameID = visionAnalysisSnapshot.latestResult?.displayedFrame.frame.id
       visionAnalysisSnapshot = snapshot
-      visionError = snapshot.lastError
+      if visionError != snapshot.lastError { visionError = snapshot.lastError }
       computationDiagnostics.visionAnalysisRevisionCount += 1
       computationDiagnostics.record(.visionAnalysisRevision(
         revision: snapshot.revision,
@@ -4084,6 +4088,7 @@ final class PlotterApplicationRuntime:
     }
     if let cached = selectedLearningProjectionCache,
       cached.revision == base.revision,
+      cached.cameraIsLive == base.cameraIsLive,
       cached.selectedItemID == selectedItemID
     {
       computationDiagnostics.selectedLearningProjectionCacheHitCount += 1
@@ -4102,6 +4107,7 @@ final class PlotterApplicationRuntime:
     )
     selectedLearningProjectionCache = SelectedLearningProjectionCache(
       revision: base.revision,
+      cameraIsLive: base.cameraIsLive,
       selectedItemID: selectedItemID,
       projection: projection
     )
@@ -4121,6 +4127,7 @@ final class PlotterApplicationRuntime:
     let runtimeRevisions = currentPlotterUIRuntimeRevisions()
     let inputs = PlotterAppUIProjectionInputs(
       semanticRevision: semanticPresentationRevision,
+      cameraIsLive: cameraIsLive,
       actionSurfaceRevision: actionSurfacePresentationRevision,
       runtimeRevisions: runtimeRevisions,
       drawingDraftReference: drawingDraftSnapshot.projection,
@@ -4488,6 +4495,7 @@ final class PlotterApplicationRuntime:
         selectedItemID: selectedItemID,
         manualDraft: manualDraft,
         includesLearningPath: includesLearningPath,
+        cameraIsLive: inputs.cameraIsLive,
         pendingDrawingProgramHash: pendingDrawingProgram?.contentHash.description,
         pendingDrawingPlacement: pendingDrawingPlacement,
         pendingPointSelection: currentPendingPointSelection,
@@ -4669,13 +4677,14 @@ final class PlotterApplicationRuntime:
     selectedItemID: LearningPathItemID,
     manualDraft: ManualMotionDraft,
     includesLearningPath: Bool,
+    cameraIsLive: Bool,
     pendingDrawingProgramHash: String?,
     pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?,
     pendingPointSelection: PlotterPointSelectionSubmission?,
     observationViewport: ActionSurfaceViewportState?
   ) -> PlotterUIRevision {
     var hash: UInt64 = 14_695_981_039_346_656_037
-    for byte in "\(semanticPresentationRevision)|\(selectedItemID)|\(manualDraft.xDistanceMM)|\(manualDraft.yDistanceMM)|\(manualDraft.feedMMPerMinute)|\(includesLearningPath)|\(pendingDrawingProgramHash ?? "")|\(String(describing: pendingDrawingPlacement))|\(String(describing: pendingPointSelection))|\(String(describing: observationViewport))".utf8 {
+    for byte in "\(semanticPresentationRevision)|\(selectedItemID)|\(manualDraft.xDistanceMM)|\(manualDraft.yDistanceMM)|\(manualDraft.feedMMPerMinute)|\(includesLearningPath)|\(cameraIsLive)|\(pendingDrawingProgramHash ?? "")|\(String(describing: pendingDrawingPlacement))|\(String(describing: pendingPointSelection))|\(String(describing: observationViewport))".utf8 {
       hash ^= UInt64(byte)
       hash &*= 1_099_511_628_211
     }
@@ -5377,11 +5386,8 @@ final class PlotterApplicationRuntime:
       computationDiagnostics.learningProjectionCacheHitCount += 1
       return cached
     }
-    if let cached = learningPresentationBaseCache,
-      cached.cameraIsLive != currentCameraIsLive
-    {
-      markSemanticPresentationChanged()
-    }
+    // Reading presentation cannot publish semantic state or schedule planning.
+    // Freshness is an explicit cache input; frame arrival publishes transitions.
     let revision = semanticPresentationRevision
     let base = buildLearningPresentationBase(revision: revision)
     learningPresentationBaseCache = base

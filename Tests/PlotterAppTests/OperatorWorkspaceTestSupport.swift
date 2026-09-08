@@ -2588,7 +2588,7 @@ final class TestAnalysisUpdateSource: @unchecked Sendable {
     }
   }
 
-  func inject(revision: UInt64) {
+  func inject(revision: UInt64, result: PlotterSceneAnalysisResult? = nil) {
     let snapshot = PlotterSceneAnalysisSnapshot(
       revision: revision,
       phase: PlotterSceneAnalysisPhase(
@@ -2597,7 +2597,7 @@ final class TestAnalysisUpdateSource: @unchecked Sendable {
         analysisRegion: nil,
         penCapColor: .green
       ),
-      latestResult: nil,
+      latestResult: result,
       lastError: nil
     )
     lock.lock()

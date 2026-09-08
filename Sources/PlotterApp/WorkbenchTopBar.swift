@@ -94,7 +94,7 @@ struct WorkbenchConnectionActionPresentation: Equatable, Sendable {
 /// Exercise Stop and utility-panel launchers belong to the workbench content.
 struct WorkbenchToolbar: ToolbarContent {
   let controllerSession: PlotterControllerSessionProjection
-  let observationConfiguration: PlotterObservationConfigurationProjection
+  let application: PlotterApplicationRuntime
   let motionRequestStatus: MotionRequestStatusPresentation
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
@@ -102,14 +102,14 @@ struct WorkbenchToolbar: ToolbarContent {
 
   init(
     controllerSession: PlotterControllerSessionProjection,
-    observationConfiguration: PlotterObservationConfigurationProjection,
+    application: PlotterApplicationRuntime,
     motionRequestStatus: MotionRequestStatusPresentation,
     plotterUIProjection: PlotterUIProjection,
     plotterUIIntentSink: any PlotterUIIntentSink,
     capabilityPresentation: WorkbenchCapabilityPresentation? = nil
   ) {
     self.controllerSession = controllerSession
-    self.observationConfiguration = observationConfiguration
+    self.application = application
     self.motionRequestStatus = motionRequestStatus
     self.plotterUIProjection = plotterUIProjection
     self.plotterUIIntentSink = plotterUIIntentSink
@@ -202,17 +202,7 @@ struct WorkbenchToolbar: ToolbarContent {
     ToolbarItem(placement: .primaryAction) {
       let session = controllerSession
       HStack(spacing: 12) {
-          WorkbenchStatusIndicator(
-            indicator: .camera,
-            label: session.environment == .simulated
-              ? "Simulator"
-              : WorkbenchConnectionIndicator.camera.label(
-                isActive: observationConfiguration.cameraIsLive
-              ),
-            color: session.environment == .simulated
-              ? .blue
-              : observationConfiguration.cameraIsLive ? .green : .red
-          )
+        WorkbenchCameraStatus(application: application)
         WorkbenchStatusIndicator(
           indicator: .plotter,
           label: WorkbenchConnectionIndicator.plotter.label(
@@ -272,6 +262,29 @@ private struct MotionRequestStatusView: View {
     case .busy: .accentColor
     case .unavailable: .secondary
     case .needsAttention: .orange
+    }
+  }
+}
+
+/// Time-based camera health is read in this small view. Its clock must not
+/// publish semantic revisions or invalidate Learning and Drawing Studio.
+private struct WorkbenchCameraStatus: View {
+  let application: PlotterApplicationRuntime
+
+  var body: some View {
+    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+      let simulated = application.frameMode == .simulated
+      let live = application.cameraIsLive
+      let delayed = !simulated && application.cameraSnapshot?.state == .running && !live
+      WorkbenchStatusIndicator(
+        indicator: .camera,
+        label: simulated ? "Simulator" : delayed ? "Camera delayed"
+          : WorkbenchConnectionIndicator.camera.label(isActive: live),
+        color: simulated ? .blue : live ? .green : .red
+      )
+      .help(delayed
+        ? "No preview frame received within one second. This indicates delayed frame delivery, not camera vibration."
+        : application.cameraStateText)
     }
   }
 }

@@ -8,6 +8,60 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing Studio analysis isolation and plan reuse, 2026-09-07
+
+Blackdog task `task-02974c49731d45e49e6ece1c9dd67808` addressed excessive
+Studio CPU and a flashing camera indicator. No user-owned AdaptivePlotter
+process was running during this investigation, so the reported learned-drawing
+workload and flashing were not sampled or reproduced. The camera indicator's
+code uses a one-second frame-delivery check, not a camera-vibration tolerance.
+
+The earlier root compiler cache did not prevent SwiftUI from subscribing to
+per-result analysis and overlay properties during a cold render. Analysis
+snapshots, overlay channels, last measurements, and pull-only Vision diagnostics
+now remain outside root Observation. The existing video preview owner invalidates
+Action Surface and Video Settings locally. Analysis phase and error changes
+still publish semantic state. Reading stale camera presentation no longer
+publishes semantic changes or schedules draft synchronization. A small toolbar
+clock refreshes camera health locally and labels a running but late stream
+**Camera delayed**.
+
+Draft derivation caches exact artwork, placement, registration, boundary, tool,
+paper, optical, and coverage inputs. Advancing frames and control-status changes
+reuse the plan and projected prediction. Measured overlays retain exact-frame
+matching. Changed or missing authority rebuilds or removes the plan, and an
+experiment refusal invalidates cleared cached derivation for later recovery.
+Continuous native sliders retain rounded size/rotation values and commit on
+release or keyboard/accessibility edits without the prior discrete tick arrays.
+
+Regression evidence: a cold root Observation subscription with Studio open
+receives **100 actual analysis results** plus a diagnostics refresh, with zero
+root invalidations, semantic changes, or draft synchronizations while video
+and overlay state advance. A **2,001-point drawing** survives **120 frame changes**
+and Learning/run-status changes without another derivation; placement changes
+rebuild, missing authority removes the plan, and restored authority recovers it.
+Strict focused tests passed **46/46** in 4.200 seconds. Final strict quick tests
+passed **923/923** in 19.842 seconds, and retained causal journeys passed
+**10/10** in 5.536 seconds. Documentation checks and `git diff --check` passed.
+
+The strict signed application passed all **13** checks in both camera gates:
+
+| Scenario | Median / p95 CPU | p95 / maximum MainActor probe | Frames / 12 seconds |
+| --- | --- | --- | --- |
+| LIVE preview | 37.0% / 40.3% | 23.699 / 33.985 ms | 98 |
+| LIVE preview with Studio open | 37.6% / 39.4% | 24.581 / 27.998 ms | 98 |
+
+Both had stable camera configuration and zero semantic, root-compiler, and
+draft-synchronization deltas. The Studio scenario before these changes was
+40.0% median / 44.5% p95 CPU; this small difference is not evidence of the
+reported learned-workload speedup. Both final reports explicitly record
+`drawingPlanWasAvailable=false` and `automaticAnalysisWasRunning=false`.
+The gate opens the panel only; it does not apply Saved Learning or authorize
+motion, pen, or drawing execution. These measurements verify preview/empty-
+Studio response. The software traffic regressions verify analysis isolation
+and plan reuse. Neither proves attended interaction with a learned drawing,
+physical ink, spoken Stop latency, or the cause of the user's observed flashing.
+
 ## Drawing Studio interaction and computation feedback, 2026-09-07
 
 Blackdog task `task-9e77d810d58341708ce48083c287b1a7` addressed repeated

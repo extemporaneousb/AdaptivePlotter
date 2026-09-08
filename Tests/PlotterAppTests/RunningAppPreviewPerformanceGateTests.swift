@@ -20,6 +20,14 @@ struct RunningAppPreviewPerformanceGateTests {
     ]))
     #expect(configuration.reportURL.path == "/tmp/report.json")
     #expect(configuration.readyMarkerURL.path == "/tmp/ready")
+    #expect(!configuration.includesDrawingStudio)
+    let studio = RunningAppPreviewPerformanceConfiguration(arguments: [
+      RunningAppPreviewPerformanceConfiguration.enabledArgument, "YES",
+      RunningAppPreviewPerformanceConfiguration.reportArgument, "/tmp/studio.json",
+      RunningAppPreviewPerformanceConfiguration.readyMarkerArgument, "/tmp/studio-ready",
+      RunningAppPreviewPerformanceConfiguration.drawingStudioArgument, "YES",
+    ])
+    #expect(studio?.includesDrawingStudio == true)
   }
 
   @Test("runtime report retains the raw evidence consumed by the shell gate")

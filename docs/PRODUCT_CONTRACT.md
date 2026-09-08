@@ -92,6 +92,17 @@ control requests; changed point-selection admission still recompiles controls.
 Pen-cap recognition computes the selected color's HSV representation once per
 scan, with the same per-pixel matching thresholds.
 
+Analysis results and pull-only Vision diagnostics use the existing
+`ActionSurfacePreviewModel` to invalidate video-local consumers. The root must
+not observe per-result snapshots even when its compiler cache can return early.
+Only analysis phase/error changes publish semantic revisions. Reading camera
+freshness is pure and cannot schedule draft planning. A local toolbar clock
+refreshes the one-second delivery check; a running session with late frames is
+labeled **Camera delayed**, without interpreting scene vibration as camera loss.
+The signed-app gate supports `PREVIEW_PERFORMANCE_SCENARIO=drawing-studio` and
+records whether Studio, a drawing plan, and automatic analysis were actually
+present, so an empty Studio benchmark cannot claim a learned-workload result.
+
 The operator may lock the current presentation viewport as a generic scene-
 analysis region. The lock constrains which camera pixels requested pen-cap
 analysis may scan; an armature-envelope request expands its declared dependency
@@ -1254,6 +1265,15 @@ complete identity. A stale draft; changed Learning, registration, region, paper,
 camera configuration, or run fact; closed studio; active run; or retained
 terminal receives an exact owner/reason/remedy refusal. The UI renders the
 returned immutable snapshot; it does not decide admission or rebuild a plan.
+
+Draft derivation reuses unchanged program, placement, registration, region,
+tool, paper, optical configuration, and experiment/coverage inputs across
+frame and control-status changes. Predicted geometry may be rebound to a newer
+matching frame; measured overlays and exact-frame actions retain their own
+identity checks. Missing or changed authority still removes or rebuilds the
+plan. Size and rotation use continuous native sliders with rounded values and
+submit at release (or on keyboard/accessibility edits), without hundreds of
+native tick marks or planning every pointer movement.
 
 The built-in catalog and portrait authoring are deterministic `DrawingProgram`
 producers, not precomputed machine commands. Portrait authoring accepts a photo

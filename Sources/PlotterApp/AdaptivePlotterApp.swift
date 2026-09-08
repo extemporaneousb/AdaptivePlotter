@@ -255,7 +255,6 @@ struct PlotterApplicationRuntimeView: View {
       pendingPointSelection: pendingPointSelection,
       observationViewport: actionSurfaceViewport
     )
-    let actionSurfacePresentation = ui.actionSurface
     let learningMode = ui.learningMode
     let learningProjection = ui.learningPath
     let motionCollapseUnavailableReason = ui.manualMotion.stopAction == nil
@@ -299,8 +298,8 @@ struct PlotterApplicationRuntimeView: View {
 
           VSplitView {
             PreviewingActionSurface(
+              application: application,
               preview: application.actionSurfacePreview,
-              presentation: actionSurfacePresentation,
               viewport: $actionSurfaceViewport,
               plotterUIProjection: ui.semantic,
               plotterUIIntentSink: application,
@@ -449,12 +448,10 @@ struct PlotterApplicationRuntimeView: View {
       )
     ) {
       VideoSettingsPanel(
-        projection: ui.observationConfiguration,
         plotterUIProjection: ui.semantic,
         plotterUIIntentSink: application,
         application: application,
         preview: application.actionSurfacePreview,
-        actionSurfacePresentation: actionSurfacePresentation,
         viewport: $actionSurfaceViewport,
         close: { layout = layout.hidingVideoSettings() }
       )
@@ -470,7 +467,7 @@ struct PlotterApplicationRuntimeView: View {
     .toolbar {
       WorkbenchToolbar(
         controllerSession: ui.controllerSession,
-        observationConfiguration: ui.observationConfiguration,
+        application: application,
         motionRequestStatus: ui.motionRequestStatus,
         plotterUIProjection: ui.semantic,
         plotterUIIntentSink: application,
@@ -669,16 +666,15 @@ private struct WorkbenchPaneControls: View {
 }
 
 private struct VideoSettingsPanel: View {
-  let projection: PlotterObservationConfigurationProjection
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
   let application: PlotterApplicationRuntime
   let preview: ActionSurfacePreviewModel
-  let actionSurfacePresentation: ActionSurfacePresentation
   @Binding var viewport: ActionSurfaceViewportState
   let close: () -> Void
 
   var body: some View {
+    let _ = preview.presentationRevision
     VStack(spacing: 10) {
       HStack {
         Text("Video Settings")
@@ -689,12 +685,12 @@ private struct VideoSettingsPanel: View {
 
       ScrollView {
         VideoSettingsContents(
-          projection: projection,
+          projection: application.observationConfigurationProjection,
           plotterUIProjection: plotterUIProjection,
           plotterUIIntentSink: plotterUIIntentSink,
           application: application,
           preview: preview,
-          actionSurfacePresentation: actionSurfacePresentation,
+          actionSurfacePresentation: application.actionSurfacePresentation,
           viewport: $viewport
         )
       }

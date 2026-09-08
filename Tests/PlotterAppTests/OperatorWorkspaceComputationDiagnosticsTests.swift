@@ -57,6 +57,91 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     await workspace.shutdown()
   }
 
+  @Test("reading stale camera presentation cannot invalidate state or replan an open Studio")
+  func cameraFreshnessReadsArePure() async throws {
+    let clock = ComputationTestClock()
+    let log = EventLog()
+    let camera = try TestObservationCameraSession()
+    let workspace = plotterApplicationRuntime(machine: try LowerMachineSessionFixture(log: log),
+      camera: camera, residualEffectPort: TestApplicationResidualEffectPort(
+        discoverDevices: { [] }, readNanoseconds: { clock.read() }), log: log)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    let initial = workspace.testPlotterUIProjection(includesLearningPath: true)
+    let open = try #require(initial.semantic.request(for: PlotterAppUIActionID.drawingOpen))
+    #expect(await workspace.submitPlotterUIRequest(open) == .accepted(requestID: open.id))
+    try await waitUntil {
+      workspace.drawingDraftSnapshot.projection.externalFacts == workspace.drawingDraftExternalFacts.revisions
+    }
+    let live = workspace.testPlotterUIProjection(includesLearningPath: true)
+    #expect(live.observationConfiguration.cameraIsLive)
+    let baseline = workspace.previewIsolationDiagnostics
+    clock.set(2_000_000_100)
+    let stale = workspace.testPlotterUIProjection(includesLearningPath: true)
+    #expect(!stale.observationConfiguration.cameraIsLive)
+    #expect(stale.semantic.revision != live.semantic.revision)
+    for _ in 0..<100 {
+      #expect(workspace.testPlotterUIProjection(includesLearningPath: true).semantic.revision == stale.semantic.revision)
+    }
+    let after = workspace.previewIsolationDiagnostics
+    #expect(after.semanticPresentationRevision == baseline.semanticPresentationRevision)
+    #expect(after.drawingDraftSynchronizationCount == baseline.drawingDraftSynchronizationCount)
+    #expect(after.plotterUIProjectionBuildCount == baseline.plotterUIProjectionBuildCount + 1)
+    await workspace.shutdown()
+  }
+
+  @Test("analysis results update video without invalidating the open Studio root")
+  func analysisResultsStayVideoLocal() async throws {
+    let log = EventLog()
+    let camera = try TestObservationCameraSession(providesInspectionOverlay: true)
+    let traffic = TestAnalysisUpdateSource()
+    let workspace = plotterApplicationRuntime(
+      machine: try LowerMachineSessionFixture(log: log),
+      observationSessionOverride: resolvedObservationSession(
+        camera, analysisUpdates: { traffic.updates() }), log: log)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    try await waitForExecutorTurns { traffic.subscriptionCount == 1 }
+    let open = try #require(workspace.testPlotterUIProjection(includesLearningPath: true)
+      .semantic.request(for: PlotterAppUIActionID.drawingOpen))
+    #expect(await workspace.submitPlotterUIRequest(open) == .accepted(requestID: open.id))
+    traffic.inject(revision: 10)
+    try await waitForExecutorTurns { workspace.visionAnalysisSnapshot.revision == 10 }
+    try await waitUntil {
+      workspace.drawingDraftSnapshot.projection.externalFacts == workspace.drawingDraftExternalFacts.revisions
+    }
+    // Force a cold root compile inside Observation tracking. A warmed compiler
+    // cache can conceal dependencies that SwiftUI subscribed to on first render.
+    var draft = ManualMotionDraft()
+    draft.feedMMPerMinute = "501"
+    let root = RootProjectionBuildProbe(application: workspace, manualDraft: draft)
+    root.start()
+    let baseline = workspace.previewIsolationDiagnostics
+    let videoRevision = workspace.actionSurfacePreview.presentationRevision
+    let rootBuildCount = root.buildCount
+    for revision in 11...110 {
+      let inspection = try camera.inspection(after: UInt64(revision + 100))
+      traffic.inject(revision: UInt64(revision), result: PlotterSceneAnalysisResult(
+        displayedFrame: inspection.displayedFrame, measurement: inspection.measurement,
+        analysisDurationNanoseconds: 1_000_000, completedNanoseconds: UInt64(revision + 102)))
+      try await waitForExecutorTurns { workspace.visionAnalysisSnapshot.revision == UInt64(revision) }
+      // Read the same fresh projection used by the video-local SwiftUI child.
+      let surface = workspace.actionSurfacePresentation
+      #expect(surface.displayedFrame?.frame.id == inspection.displayedFrame.frame.id)
+      #expect(workspace.overlayStatus(for: .penCap).state == .available)
+    }
+    await submitObservationConfigurationForTest(workspace, .requestDiagnostics)
+    // Yield until queued Observation callbacks can run before checking counts.
+    for _ in 0..<10 { await Task.yield() }
+    let after = workspace.previewIsolationDiagnostics
+    #expect(workspace.drawingStudioIsPresented)
+    #expect(workspace.actionSurfacePreview.presentationRevision > videoRevision)
+    #expect(workspace.lastSceneMeasurement?.frameID == FrameID(rawValue: "fresh-211"))
+    #expect(root.buildCount == rootBuildCount)
+    #expect(after.semanticPresentationRevision == baseline.semanticPresentationRevision)
+    #expect(after.plotterUIProjectionBuildCount == baseline.plotterUIProjectionBuildCount)
+    #expect(after.drawingDraftSynchronizationCount == baseline.drawingDraftSynchronizationCount)
+    await workspace.shutdown()
+  }
+
   @Test("presentation probes expose current recomputation owners without fixed cost assertions")
   func presentationProbeBaseline() async throws {
     let log = EventLog()
@@ -805,18 +890,38 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
 @MainActor
 private final class RootProjectionBuildProbe {
   private let application: PlotterApplicationRuntime
+  private let manualDraft: ManualMotionDraft
   private(set) var buildCount = 0
 
-  init(application: PlotterApplicationRuntime) {
+  init(application: PlotterApplicationRuntime, manualDraft: ManualMotionDraft = ManualMotionDraft()) {
     self.application = application
+    self.manualDraft = manualDraft
   }
 
   func start() {
     withObservationTracking {
-      _ = application.testPlotterUIProjection(includesLearningPath: true)
+      _ = application.plotterUIProjection(
+        selectedItemID: .humanGuidedDiscovery(.penInteraction),
+        manualDraft: manualDraft, includesLearningPath: true)
       buildCount += 1
     } onChange: { [weak self] in
       Task { @MainActor in self?.start() }
     }
+  }
+}
+
+
+private final class ComputationTestClock: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: UInt64 = 100
+  func read() -> UInt64 {
+    lock.lock()
+    defer { lock.unlock() }
+    return value
+  }
+  func set(_ next: UInt64) {
+    lock.lock()
+    defer { lock.unlock() }
+    value = next
   }
 }

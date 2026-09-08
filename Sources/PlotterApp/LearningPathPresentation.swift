@@ -17,6 +17,7 @@ struct ManualMotionDraft: Hashable, Sendable {
 /// reevaluate a view without changing any of these model or window values.
 struct PlotterAppUIProjectionInputs: Equatable {
   let semanticRevision: UInt64
+  let cameraIsLive: Bool
   var actionSurfaceRevision: UInt64
   let runtimeRevisions: [PlotterUIRuntimeRevision]
   let drawingDraftReference: PlotterDrawingDraftProjectionReference

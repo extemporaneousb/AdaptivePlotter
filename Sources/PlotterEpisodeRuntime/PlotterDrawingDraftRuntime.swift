@@ -440,7 +440,43 @@ public actor PlotterDrawingDraftRuntime {
     var coverageAssessment: DrawingCoverageAssessment?
     var coverageRecordIDs: [DrawingEvidenceRecordID]?
     var coverageUnavailableReason: String?
+    var derivationKey: DerivationKey?
+    var previewDerivationIsAvailable = false
   }
+
+  /// Geometry depends on artwork and calibration, not camera pixels, control
+  /// progress, panel visibility, or the current Learning status.
+  private struct DerivationKey: Equatable {
+    let catalog: DrawingCatalogEntryID
+    let suppliedProgramHash: PlotterModel.Digest?
+    let center: Point2<MachineSpace>?
+    let scale: Double
+    let rotation: Double
+    let registration: TipCameraRegistration?
+    let region: DrawableMachineRegion?
+    let tool: ToolAssemblyRevision
+    let paper: PaperRevisionContext
+    let experiment: DrawingCoverageExperiment?
+    let coverageRecords: [DrawingEvidenceRecordID]
+    let opticalConfiguration: CameraOpticalConfigurationIdentity?
+
+    init(state: SourceState, facts: PlotterDrawingDraftExternalFacts) {
+      catalog = state.selectedCatalogItemID
+      suppliedProgramHash = state.suppliedProgram?.contentHash
+      center = state.machineCenter
+      scale = state.uniformScale
+      rotation = state.rotationDegrees
+      registration = facts.registration
+      region = facts.revisions.drawableRegion
+      tool = facts.revisions.toolAssemblyRevision
+      paper = facts.revisions.paper
+      experiment = state.coverageExperiment
+      coverageRecords = facts.revisions.coverageRecordIDs
+      opticalConfiguration = facts.revisions.opticalConfiguration
+    }
+  }
+
+  package private(set) var derivationBuildCount = 0
 
   private enum Authority {
     static let draft = EpisodeAuthorityID(rawValue: "PlotterDrawingDraftRuntime")
@@ -630,6 +666,7 @@ public actor PlotterDrawingDraftRuntime {
         }
       } catch {
         if state.coverageExperiment != nil {
+          state.derivationKey = nil
           state.plan = nil
           state.preview = nil
           state.coverageUnavailableReason = String(describing: error)
@@ -860,6 +897,34 @@ public actor PlotterDrawingDraftRuntime {
     facts: PlotterDrawingDraftExternalFacts,
     requestID: PlotterDrawingDraftRequestID?
   ) {
+    let key = DerivationKey(state: state, facts: facts)
+    if state.derivationKey == key {
+      if let refusal = state.planningRefusal {
+        state.planningRefusal = issue(requestID: requestID, state: state, facts: facts,
+          owner: refusal.owner, reason: refusal.reason, remedy: refusal.remedy)
+      }
+      guard state.previewDerivationIsAvailable else { return }
+      if let frame = facts.displayedFrame, let previous = state.preview,
+        previous.displayedFrame.source == frame.source,
+        previous.displayedFrame.frame.cameraConfigurationID == frame.frame.cameraConfigurationID,
+        previous.displayedFrame.frame.width == frame.frame.width,
+        previous.displayedFrame.frame.height == frame.frame.height,
+        previous.displayedFrame.frame.pixelFormat == frame.frame.pixelFormat {
+        state.preview = PlotterDrawingDraftPreview(displayedFrame: frame,
+          strokes: previous.strokes, bounds: previous.bounds,
+          programContentHash: previous.programContentHash,
+          planRevisionID: previous.planRevisionID, status: previous.status)
+      } else {
+        state.preview = facts.registration.flatMap {
+          makePreview(state: state, facts: facts, registration: $0)
+        }
+      }
+      return
+    }
+    derivationBuildCount += 1
+    state.previewDerivationIsAvailable = false
+    // Planning may resolve the default center. Cache its resulting inputs.
+    defer { state.derivationKey = DerivationKey(state: state, facts: facts) }
     if let experiment = state.coverageExperiment {
       if let registration = facts.registration,
         let region = facts.revisions.drawableRegion,
@@ -958,6 +1023,7 @@ public actor PlotterDrawingDraftRuntime {
     } else {
       state.planningRefusal = nil
     }
+    state.previewDerivationIsAvailable = true
     state.preview = makePreview(state: state, facts: facts, registration: registration)
   }
 
@@ -1005,7 +1071,7 @@ public actor PlotterDrawingDraftRuntime {
         paths: plan.strokes.map(\.path),
         using: registration
       )
-      let projected = try plan.strokes.map { stroke in
+      let projected = try evidenceProjection.attributableCameraPolylines ?? plan.strokes.map { stroke in
         try Polyline(points: stroke.path.points.map {
           try registration.diagnosticProjection(at: $0).cameraPoint
         })

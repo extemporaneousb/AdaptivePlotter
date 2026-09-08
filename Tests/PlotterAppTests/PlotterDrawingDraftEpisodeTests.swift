@@ -66,6 +66,55 @@ struct PlotterDrawingDraftEpisodeTests {
     }
   }
 
+  @Test("large drawing geometry is derived once across preview and status changes")
+  func unchangedGeometryIsNotReplanned() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let opened = try await open(runtime, facts: fixture.facts())
+    let style = try #require(opened.program?.strokes.first?.style)
+    let points: [Point2<FieldSpace>] = try (0...2_000).map { index in
+      let angle = Double(index) * 2 * Double.pi / 2_000
+      return try Point2(x: 50 + 40 * cos(angle), y: 50 + 40 * sin(angle))
+    }
+    let program = try DrawingProgram(id: ProgramID(), fieldExtent: Size2(width: 100, height: 100),
+      strokes: [LogicalStroke(id: StrokeID(), path: Polyline(points: points), style: style, ordering: 0)],
+      source: DrawingSourceProvenance(kind: "geometry-reuse-test", sourceIdentifier: "2001-point-circle"))
+    let selected = try applied(await runtime.submit(
+      .init(projection: opened.projection, intent: .selectProgram(program)), facts: fixture.facts()))
+    let planID = try #require(selected.plan?.revisionID)
+    let derivations = await runtime.derivationBuildCount
+    for index in 1...120 {
+      let nextFrame = try replacingFrame(fixture.frame, id: "cached-preview-\(index)",
+        sequenceDelta: UInt64(index))
+      let snapshot = await runtime.synchronize(fixture.facts(displayedFrame: nextFrame))
+      #expect(snapshot.plan?.revisionID == planID)
+      #expect(snapshot.preview?.displayedFrame.frame.id == nextFrame.frame.id)
+      #expect(snapshot.preview?.strokes.first?.points.count == points.count)
+    }
+    _ = await runtime.synchronize(fixture.facts(learningComplete: false, runInProgress: true))
+    let ready = await runtime.synchronize(fixture.facts())
+    #expect(await runtime.derivationBuildCount == derivations)
+    let resized = try applied(await runtime.submit(
+      .init(projection: ready.projection, intent: .setUniformScale(0.2)), facts: fixture.facts()))
+    #expect(resized.plan?.revisionID != planID)
+    #expect(await runtime.derivationBuildCount == derivations + 1)
+    let oldPreview = try #require(ready.preview)
+    #expect(oldPreview.strokes != resized.preview?.strokes)
+    // Unavailable derivations remain unavailable on cache hits; restoring the
+    // exact authority must rebuild even if the artwork has not changed.
+    let missingRegion = fixture.facts(displayedFrame: fixture.frame,
+      opticalConfiguration: fixture.opticalConfiguration,
+      registration: fixture.registration, drawableRegion: nil)
+    let unavailable = await runtime.synchronize(missingRegion)
+    let repeated = await runtime.synchronize(missingRegion)
+    #expect(unavailable.plan == nil && unavailable.preview == nil)
+    #expect(repeated.plan == nil && repeated.preview == nil)
+    let restored = await runtime.synchronize(fixture.facts())
+    #expect(restored.plan?.revisionID == resized.plan?.revisionID)
+    #expect(restored.preview != nil)
+
+  }
+
   @Test("wide artwork retains a reachable exact fractional maximum scale in the production UI")
   func fractionalMaximumScaleRemainsReachable() async throws {
     let harness = makeCausalSimulatorAppFixture()

@@ -20,6 +20,13 @@ enum ActionSurfaceScalePolicy: String, Sendable {
 final class ActionSurfacePreviewModel {
   private(set) var displayedFrame: DisplayedFrame?
   private(set) var publicationCount: UInt64 = 0
+  private(set) var presentationRevision: UInt64 = 0
+
+  /// Refreshes video-local overlay and diagnostic consumers. The application
+  /// remains the authority for the presentation and its exact-frame evidence.
+  func invalidatePresentation() {
+    presentationRevision &+= 1
+  }
 
   @discardableResult
   func publish(_ frame: DisplayedFrame?) -> Bool {
@@ -620,11 +627,11 @@ struct ActionSurfacePresentation: Sendable {
 }
 
 /// The only Action Surface view that observes high-rate preview publication.
-/// Its semantic projection and exact effect requests remain supplied by the
-/// root application projection.
+/// It reads overlays locally; semantic control requests remain supplied by
+/// the root application projection.
 struct PreviewingActionSurface: View {
+  let application: PlotterApplicationRuntime
   let preview: ActionSurfacePreviewModel
-  let presentation: ActionSurfacePresentation
   @Binding var viewport: ActionSurfaceViewportState
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
@@ -632,8 +639,9 @@ struct PreviewingActionSurface: View {
   @Binding var pendingPointSelection: PlotterPointSelectionSubmission?
 
   var body: some View {
+    let _ = preview.presentationRevision
     ActionSurface(
-      presentation: presentation.resolvingAmbientPreviewFrame(preview.displayedFrame),
+      presentation: application.actionSurfacePresentation.resolvingAmbientPreviewFrame(preview.displayedFrame),
       viewport: $viewport,
       plotterUIProjection: plotterUIProjection,
       plotterUIIntentSink: plotterUIIntentSink,

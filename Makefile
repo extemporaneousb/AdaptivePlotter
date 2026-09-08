@@ -48,7 +48,7 @@ validate-app: app validate-launcher
 preview-performance-gate: app
 	@sh Scripts/check_running_app_preview_performance.sh \
 		"$(CURDIR)/.build/AdaptivePlotter.app" \
-		"$(PREVIEW_PERFORMANCE_EVIDENCE)"
+		"$(PREVIEW_PERFORMANCE_EVIDENCE)" "$(or $(PREVIEW_PERFORMANCE_SCENARIO),preview)"
 
 docs-check:
 	@sh Scripts/check_episode_documentation.sh

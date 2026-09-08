@@ -6,9 +6,11 @@ struct RunningAppPreviewPerformanceConfiguration: Equatable, Sendable {
   static let enabledArgument = "-AdaptivePlotterPreviewPerformanceGate"
   static let reportArgument = "-AdaptivePlotterPreviewPerformanceReport"
   static let readyMarkerArgument = "-AdaptivePlotterPreviewPerformanceReadyMarker"
+  static let drawingStudioArgument = "-AdaptivePlotterPreviewPerformanceDrawingStudio"
 
   let reportURL: URL
   let readyMarkerURL: URL
+  let includesDrawingStudio: Bool
 
   init?(arguments: [String]) {
     guard Self.value(after: Self.enabledArgument, in: arguments)?
@@ -18,6 +20,8 @@ struct RunningAppPreviewPerformanceConfiguration: Equatable, Sendable {
     else { return nil }
     reportURL = URL(fileURLWithPath: reportPath)
     readyMarkerURL = URL(fileURLWithPath: readyMarkerPath)
+    includesDrawingStudio = Self.value(after: Self.drawingStudioArgument, in: arguments)?
+      .caseInsensitiveCompare("YES") == .orderedSame
   }
 
   private static func value(after argument: String, in arguments: [String]) -> String? {
@@ -42,11 +46,15 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
   let semanticPresentationRevisionDelta: UInt64
   let rootProjectionBuildCountDelta: Int
   let drawingDraftSynchronizationCountDelta: Int
+  var drawingStudioWasOpen: Bool = false
+  var drawingPlanWasAvailable: Bool = false
+  var automaticAnalysisWasRunning: Bool = false
   let interactionLatencyMilliseconds: [Double]
 }
 
 /// Opt-in instrumentation for the repository's signed-app performance gate.
-/// It reads observation-only counters and never submits workflow intent.
+/// It can open the Studio panel, but never applies Saved Learning or submits
+/// controller, motion, pen, or drawing execution intent.
 @MainActor
 enum RunningAppPreviewPerformanceGate {
   private static let previewStartupTimeout: Duration = .seconds(15)
@@ -60,6 +68,15 @@ enum RunningAppPreviewPerformanceGate {
   ) async {
     guard let configuration = RunningAppPreviewPerformanceConfiguration(arguments: arguments)
     else { return }
+
+    if configuration.includesDrawingStudio {
+      let projection = application.plotterUIProjection(
+        selectedItemID: .humanGuidedDiscovery(.penInteraction),
+        manualDraft: ManualMotionDraft(), includesLearningPath: true)
+      if let request = projection.semantic.request(for: PlotterAppUIActionID.drawingOpen) {
+        _ = await application.submitPlotterUIRequest(request)
+      }
+    }
 
     let report = await measure(
       application: application,
@@ -131,6 +148,9 @@ enum RunningAppPreviewPerformanceGate {
         end.plotterUIProjectionBuildCount - start.plotterUIProjectionBuildCount,
       drawingDraftSynchronizationCountDelta:
         end.drawingDraftSynchronizationCount - start.drawingDraftSynchronizationCount,
+      drawingStudioWasOpen: application.drawingStudioIsPresented,
+      drawingPlanWasAvailable: application.drawingDraftSnapshot.plan != nil,
+      automaticAnalysisWasRunning: application.videoAnalysisIsActive,
       interactionLatencyMilliseconds: interactionLatencies
     )
   }

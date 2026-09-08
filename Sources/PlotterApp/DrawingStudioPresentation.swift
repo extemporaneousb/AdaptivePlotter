@@ -353,6 +353,8 @@ struct DrawingStudioView: View {
   @State private var draftFeedback = OperatorRequestFeedback()
   @State private var scaleDraft: Double?
   @State private var rotationDraft: Double?
+  @State private var scaleIsEditing = false
+  @State private var rotationIsEditing = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -550,15 +552,13 @@ struct DrawingStudioView: View {
               let allowed = presentation.canvas.placement.allowedScale
               scaleDraft = min(allowed.upperBound,
                 max(allowed.lowerBound, ($0 * 100).rounded() / 100))
+              if !scaleIsEditing { commitScale() }
             }
           ),
           in: presentation.canvas.placement.allowedScale,
-          step: 0.01,
           onEditingChanged: { editing in
-            if !editing, let value = scaleDraft {
-              scaleDraft = nil
-              submitDraft(.setUniformScale(value))
-            }
+            scaleIsEditing = editing
+            if !editing { commitScale() }
           }
         )
         Text(String(format: "%.2f×", scaleDraft ?? presentation.canvas.placement.uniformScale))
@@ -574,15 +574,15 @@ struct DrawingStudioView: View {
         Slider(
           value: Binding(
             get: { rotationDraft ?? presentation.canvas.placement.rotationDegrees },
-            set: { rotationDraft = $0.rounded() }
+            set: {
+              rotationDraft = $0.rounded()
+              if !rotationIsEditing { commitRotation() }
+            }
           ),
           in: -180...180,
-          step: 1,
           onEditingChanged: { editing in
-            if !editing, let value = rotationDraft {
-              rotationDraft = nil
-              submitDraft(.setRotationDegrees(value))
-            }
+            rotationIsEditing = editing
+            if !editing { commitRotation() }
           }
         )
         Text(String(format: "%.1f°", rotationDraft ?? presentation.canvas.placement.rotationDegrees))
@@ -637,6 +637,18 @@ struct DrawingStudioView: View {
         )
       }
     }
+  }
+
+  private func commitScale() {
+    guard let value = scaleDraft else { return }
+    scaleDraft = nil
+    submitDraft(.setUniformScale(value))
+  }
+
+  private func commitRotation() {
+    guard let value = rotationDraft else { return }
+    rotationDraft = nil
+    submitDraft(.setRotationDegrees(value))
   }
 
   private func submitDraft(_ intent: PlotterDrawingDraftIntent) {

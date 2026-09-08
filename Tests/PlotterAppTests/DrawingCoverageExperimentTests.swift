@@ -157,6 +157,17 @@ struct DrawingCoverageExperimentTests {
       #expect(refusal.reason == .coverageExperimentUnavailable)
     } else { Issue.record("An unknown archive allowed coverage reservation") }
     #expect(result.snapshot.coverageExperiment == nil)
+    let available = facts(f, records: [])
+    snapshot = await runtime.synchronize(available)
+    snapshot = try await submit(.prepareCoverageExperiment, runtime, snapshot, available)
+    let planID = try #require(snapshot.plan?.revisionID)
+    snapshot = await runtime.synchronize(unavailable)
+    let interrupted = await runtime.submit(
+      .init(projection: snapshot.projection, intent: .prepareCoverageExperiment), facts: unavailable)
+    #expect(interrupted.snapshot.plan == nil)
+    let recovered = await runtime.synchronize(available)
+    #expect(recovered.plan?.revisionID == planID)
+
   }
 
   @Test("an observed line exactly spanning the central 60 percent remains measurable")

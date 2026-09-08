@@ -4,6 +4,12 @@ set -eu
 project_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 bundle=${1:-"$project_root/.build/AdaptivePlotter.app"}
 evidence=${2:-"$project_root/.build/evidence/preview-performance.json"}
+scenario=${3:-preview}
+case "$scenario" in
+    preview) drawing_studio=NO ;;
+    drawing-studio) drawing_studio=YES ;;
+    *) echo "unknown preview performance scenario: $scenario" >&2; exit 1 ;;
+esac
 executable="$bundle/Contents/MacOS/AdaptivePlotter"
 python="$project_root/.VE/bin/python"
 
@@ -52,6 +58,7 @@ trap cleanup EXIT HUP INT TERM
     -AdaptivePlotterPreviewPerformanceGate YES \
     -AdaptivePlotterPreviewPerformanceReport "$runtime_report" \
     -AdaptivePlotterPreviewPerformanceReadyMarker "$measurement_ready" \
+    -AdaptivePlotterPreviewPerformanceDrawingStudio "$drawing_studio" \
     >"$application_log" 2>&1 &
 application_pid=$!
 
@@ -111,7 +118,7 @@ fi
     "$runtime_report" "$cpu_samples" "$evidence" \
     "$cpu_median_limit" "$cpu_p95_limit" \
     "$interaction_p95_milliseconds_limit" "$interaction_max_milliseconds_limit" \
-    "$minimum_preview_frames" "$minimum_cpu_samples" "$minimum_interaction_samples" <<'PY'
+    "$minimum_preview_frames" "$minimum_cpu_samples" "$minimum_interaction_samples" "$scenario" <<'PY'
 import json
 import math
 import pathlib
@@ -129,6 +136,7 @@ import sys
     minimum_preview_frames,
     minimum_cpu_samples,
     minimum_interaction_samples,
+    scenario,
 ) = sys.argv[1:]
 
 
@@ -174,6 +182,9 @@ measurements = {
         "drawingDraftSynchronizationCountDelta"
     ],
     "measurementDurationSeconds": runtime["measurementDurationSeconds"],
+    "drawingStudioWasOpen": runtime["drawingStudioWasOpen"],
+    "drawingPlanWasAvailable": runtime["drawingPlanWasAvailable"],
+    "automaticAnalysisWasRunning": runtime["automaticAnalysisWasRunning"],
 }
 checks = {
     "cpuSampleCount": len(cpu) >= thresholds["minimumCPUSampleCount"],
@@ -199,10 +210,12 @@ checks = {
         "drawingDraftSynchronizationCountDelta"
     ]
     == 0,
+    "requestedStudioIsOpen": scenario != "drawing-studio" or runtime["drawingStudioWasOpen"],
 }
 evidence = {
     "schema": "adaptiveplotter.preview-performance-gate.v1",
     "route": "signed-app-preferred-camera",
+    "scenario": scenario,
     "thresholds": thresholds,
     "measurements": measurements,
     "checks": checks,
