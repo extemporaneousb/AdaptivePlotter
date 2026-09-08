@@ -723,6 +723,7 @@ struct ActionSurface: View {
   @Binding private var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
   @Binding private var pendingPointSelection: PlotterPointSelectionSubmission?
   @StateObject private var imageCache = FramePresentationImageCache()
+  @StateObject private var overlayCache = ActionSurfaceOverlayContentCache()
   @State private var priorDragTranslation: CGSize = .zero
   @State private var drawingPlacementRefusal: String?
   private let plotterUIProjection: PlotterUIProjection
@@ -774,8 +775,10 @@ struct ActionSurface: View {
           )
         )
       }
+      let overlayContent = overlayCache.resolve(
+        ActionSurfaceOverlayContent(presentation: presentation), transform: transform)
       ActionSurfaceOverlayCanvas(
-        content: ActionSurfaceOverlayContent(presentation: presentation),
+        content: overlayContent,
         transform: transform,
         diagnostics: renderDiagnostics
       )
@@ -802,10 +805,10 @@ struct ActionSurface: View {
         if let frame = presentation.displayedFrame?.frame {
           VStack(alignment: .trailing, spacing: 3) {
             Text("DISPLAYED FRAME \(frame.sequence) · \(frame.width)×\(frame.height)")
-            if let analyzed = presentation.analyzedOverlayFrame {
+            if let analyzed = overlayContent.analyzedOverlayFrame {
               Text(analyzed.frameID == frame.id
                 ? "OVERLAYS · FRAME \(analyzed.frameSequence)"
-                : "LATEST MEASUREMENT · FRAME \(analyzed.frameSequence)")
+                : "DISPLAYED MEASUREMENT · FRAME \(analyzed.frameSequence)")
             }
           }
           .font(.caption2.monospaced())
@@ -920,8 +923,8 @@ struct ActionSurface: View {
       }
       .accessibilityValue(
         [
-          presentation.analyzedOverlayFrame.map {
-            "Overlays analyzed from displayed exact frame \($0.frameSequence)"
+          overlayContent.analyzedOverlayFrame.map {
+            "Displayed measurement from frame \($0.frameSequence)"
           },
           presentation.simulatedAnnotationsAreVisible
             ? presentation.simulatedAnnotations.map(\.accessibleValue).joined(separator: ", ")

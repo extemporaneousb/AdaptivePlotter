@@ -8,6 +8,55 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Canvas geometry deadband and trigger audit, 2026-09-08
+
+Blackdog task `task-a942cd2f248b4cd29c9e2dfeef29109e` follows the redraw-isolation
+change below. The Canvas had still compared full measurement identity, so a new
+frame ID or tiny measured-coordinate change could invalidate identical or nearly
+identical drawing. Its exact visual equality now compares only drawn geometry,
+style, labels, admitted target visibility, source/configuration, and viewport.
+
+Passive LIVE cap and armature rendering now uses an **8-screen-point deadband**
+against the last displayed scene. Retained geometry preserves its original
+measurement frame and both visible/accessibility captions identify that frame.
+Motion beyond the threshold refreshes the coherent scene group, including when
+many small moves cumulatively exceed it. Zoom changes the camera-pixel threshold
+so the tolerance stays fixed in screen points. Viewport changes, geometry
+removal/topology, source/configuration changes, exact-frame interaction, and
+operator/planned geometry bypass the deadband. Canonical measurement values,
+frame matching, and click transforms remain exact.
+
+Strict focused/native tests passed **18/18**. After the initial exact-to-ambient
+caption/layout transition settled, an `NSHostingView` running the production
+Action Surface accepted 30 new measured frames with up to **4.8 screen points**
+of jitter and produced **zero Canvas view builds and zero actual redraws**.
+A **9.6-point** move and entry into exact review redrew immediately. The separate
+2,001-point overlay test also retained its Canvas over 30 advancing frames;
+resize and camera-configuration changes redrew it. Deterministic tests cover
+8.0/8.01-point thresholds, cumulative drift, zoom scale, diagonal distance,
+armature vertices, coherent scene replacement, detector revision changes,
+shape/topology, removal, and exact review. The initial native test included the
+caption startup transition and observed one extra redraw; the final probe warms
+that transition before measuring steady traffic, matching the existing dense
+geometry probe.
+
+Strict quick tests passed **935/935**, with optional native/camera probes
+skipped in that suite; native probes were run separately with
+`ACTION_SURFACE_RENDER_TEST=1`. Documentation checks and `git diff --check`
+passed. Retained causal journeys were not repeated for this rendering-only
+change.
+
+A user-owned canonical application (PID 75586) started during validation. The
+signed-app performance gate's precondition refused another instance; the live
+benchmark was skipped and the running app was left intact. A read-only 3-second
+sample resolved current release Swift symbols and showed SwiftUI update/layout
+and Core Animation image preparation work. Compilation was concurrent and the
+operator's live activity was uncontrolled, so that sample is not comparative
+CPU or latency evidence. The earlier task's signed-app measurements remain
+historical; this follow-up claims measured redraw elimination for synthetic
+jitter, not a newly measured live-workload speedup. No controller or physical
+motion was exercised.
+
 ## Camera overlay redraw isolation, 2026-09-08
 
 Blackdog task `task-1bc9d779b5664cf388f681443aea3cc7` audited the current

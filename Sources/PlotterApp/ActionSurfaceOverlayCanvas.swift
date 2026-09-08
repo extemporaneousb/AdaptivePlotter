@@ -2,28 +2,8 @@ import PlotterModel
 import PlotterRuntime
 import SwiftUI
 
-/// Copied, already-admitted drawing inputs only. Frame bytes, frame counters,
-/// control requests, and diagnostics cannot invalidate the overlay Canvas.
-/// Exact-frame and ambient compatibility filtering happens before this value.
-struct ActionSurfaceOverlayContent: Equatable, Sendable {
-  let targetPreview: DrawingStudioTargetPreview?
-  let overlays: [CameraOverlayMeasurement]
-  let tipReview: ActionSurfaceTipReviewGeometry?
-  let clickMarkers: [Point2<CameraPixelSpace>]
-  let simulatedAnnotations: [SimulatedLearningAnnotation]
-
-  init(presentation: ActionSurfacePresentation) {
-    targetPreview = presentation.drawingStudioCanvas?.targetPreview(for: presentation.displayedFrame)
-    overlays = presentation.renderedOverlays
-    tipReview = presentation.tipPresentation.reviewGeometry
-    clickMarkers = presentation.tipPresentation.clickMarkers
-    simulatedAnnotations = presentation.simulatedAnnotationsAreVisible
-      ? presentation.simulatedAnnotations : []
-  }
-}
-
-/// SwiftUI retains this Canvas while pixels advance underneath it. New overlay
-/// results and viewport changes redraw immediately; no timer delays evidence.
+/// SwiftUI retains this Canvas while pixels advance underneath it. Viewport and
+/// exact drawing changes redraw immediately; passive scene jitter is stabilized upstream.
 struct ActionSurfaceOverlayCanvas: View, Equatable {
   let content: ActionSurfaceOverlayContent
   let transform: CameraPixelToViewTransform?

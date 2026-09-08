@@ -124,12 +124,19 @@ as inferred, not independently segmented. Preference, requested computation,
 typed run status, and exact-frame geometry are separate state. Only an operator
 action or persistence load may mutate preference. Scene, workflow, and simulator
 result channels have separate owners; one producer cannot erase another's
-result. Pure presentation composition renders geometry only when frame identity,
-camera configuration, and source all match. While a newer frame is analyzing,
-the last completed geometry remains renderable only over its still-displayed
-exact source frame; result completion replaces the displayed-frame/geometry pair
-atomically. Analysis activity alone never removes matching completed geometry
-or replaces its completed typed status with a transient one.
+result. Exact-frame presentation admits geometry only when frame identity,
+camera configuration, and source all match. Frozen review retains the exact
+source frame and geometry atomically. The moving ambient preview may show the
+last compatible measured scene with its original frame provenance and a caption
+identifying the displayed measurement. Passive LIVE pen-cap and armature
+geometry uses an 8-screen-point display deadband against the last displayed
+scene, not the preceding sample. Crossing that threshold updates the scene
+group together. Metadata-only changes do not redraw identical geometry.
+Source/configuration, viewport, topology, removal, exact-frame interactions,
+and operator/planned geometry update immediately. This rendering tolerance
+never changes measurement values, evidence matching, or click coordinates.
+Analysis activity alone never removes matching completed geometry or replaces
+its completed typed status with a transient one.
 
 The visible run-state vocabulary is Off, Waiting, Analyzing, Found/Available,
 Not found/Unavailable, Candidate rejected, Ambiguous, Failed, Suspended, and

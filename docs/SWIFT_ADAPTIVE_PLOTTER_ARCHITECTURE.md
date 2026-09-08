@@ -744,12 +744,20 @@ removes Canvas/RenderBox's repeated full-frame alpha conversion. Preview and
 voice-meter publication remain outside root semantic observation.
 
 `ActionSurfaceOverlayCanvas` is an equatable child containing only admitted
-geometry and the camera-to-view transform. Advancing video pixels and frame
-counter labels reuse its paths and text. Measurement, exact-frame eligibility,
-annotation, and viewport changes update it immediately. The native image host
-also skips Core Animation transactions when image identity and viewport are
-unchanged. The preview owner's observation-ignored counters distinguish Canvas view
-builds from renderer invocations. The signed-app gate enforces the application
+geometry and the camera-to-view transform. Advancing video pixels, frame
+identities, and diagnostic metadata reuse its paths and text when visible
+geometry and styles are unchanged. `ActionSurfaceOverlayContentCache` applies
+an 8-screen-point deadband to passive LIVE measured pen-cap and inferred
+armature geometry. It compares every point/corner against the last displayed
+scene, so gradual motion accumulates; crossing the threshold updates the entire
+scene group. Retained geometry keeps its original frame provenance and the
+caption identifies the displayed measurement. Fresh measurements and evidence
+remain untouched. Frozen review, point selection, operator/planned geometry,
+source/configuration, topology, visibility, and viewport changes bypass the
+geometric deadband. The Canvas still uses exact, transitive visual equality.
+The native image host also skips Core Animation transactions when image identity
+and viewport are unchanged. The preview owner's observation-ignored counters
+distinguish Canvas view builds from renderer invocations. The signed-app gate enforces the application
 invalidation bound and reports raw draws, including framework repaints; neither
 counter can invalidate the view it measures.
 
