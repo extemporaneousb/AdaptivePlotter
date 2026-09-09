@@ -715,8 +715,6 @@ final class PlotterApplicationRuntime:
   PlotterControllerSessionIntentSink,
   PlotterLearningActivityFactProviding,
   PlotterPenInteractionProjectionSink,
-  PlotterDrawingDraftIntentSink,
-  PlotterDrawingRunIntentSink,
   PlotterPointSelectionContinuationPort,
   PlotterBorderValidationEffectPort,
   PlotterArtifactResetEffectPort,
@@ -876,7 +874,7 @@ final class PlotterApplicationRuntime:
     }
   }
   var learningIsEnabled: Bool { pointSelectionEpisodeProjection.learningIsEnabled }
-  var drawingStudioIsPresented: Bool { drawingDraftSnapshot.isOpen }
+  var drawingTargetIsVisible: Bool { drawingDraftSnapshot.isTargetVisible }
 
   private(set) var serialDevices: [MachineLinkDescriptor] = []
   private(set) var selectedSerialDevice: MachineLinkDescriptor? {
@@ -1051,7 +1049,6 @@ final class PlotterApplicationRuntime:
     didSet { actionSurfacePreview.invalidatePresentation() }
   }
   @ObservationIgnored private(set) var lastSceneMeasurement: PlotterSceneMeasurement?
-  private(set) var simulatorEvidenceLabel = "SIMULATED — NOT PHYSICAL EVIDENCE"
   private(set) var simulatorPenState: PenState = .unknown
   private(set) var simulatorLearningSummary = "Switch to SIMULATED to inspect model behavior."
   private(set) var simulatedLearningSnapshot: SimulatedLearningSnapshot? {
@@ -1500,6 +1497,11 @@ final class PlotterApplicationRuntime:
   @ObservationIgnored private let machineSession: (any PlotterMachineSession)?
   @ObservationIgnored private let controllerSessionRuntime: PlotterControllerSessionRuntime
   @ObservationIgnored private let observationRuntime: PlotterObservationConfigurationRuntime?
+  let portraitStudio: PortraitStudioModel
+  private var workbenchCameraSnapshot = PlotterWorkbenchCameraSnapshot()
+  var workbenchCameraRole: WorkbenchCameraRole { workbenchCameraSnapshot.role }
+  var cameraRoleIsTransitioning: Bool { workbenchCameraSnapshot.isTransitioning }
+  var cameraRoleError: String? { workbenchCameraSnapshot.error }
   @ObservationIgnored private let pointSelectionRuntime: PlotterPointSelectionRuntime
   @ObservationIgnored private let manualMotionRuntime: PlotterManualMotionRuntime
   @ObservationIgnored private let penInteractionRuntime: PlotterPenInteractionRuntime
@@ -1674,12 +1676,24 @@ final class PlotterApplicationRuntime:
   private(set) var drawingDraftSnapshot: PlotterDrawingDraftSnapshot {
     didSet {
       guard oldValue != drawingDraftSnapshot else { return }
-      guard oldValue.isOpen || drawingDraftSnapshot.isOpen else { return }
+      if oldValue.isTargetVisible != drawingDraftSnapshot.isTargetVisible
+        || oldValue.residualRecords != drawingDraftSnapshot.residualRecords
+        || oldValue.residualAnalysis != drawingDraftSnapshot.residualAnalysis {
+        markSemanticPresentationChanged(invalidatesActionSurface: false)
+      }
+      guard oldValue.isTargetVisible || drawingDraftSnapshot.isTargetVisible else { return }
       invalidateActionSurfacePresentation()
     }
   }
   private(set) var drawingRunSnapshot: PlotterDrawingRunSnapshot?
+  // One Drawing Run runtime owns this application lifetime. Its per-source
+  // revisions continue across new-run/reset handoffs and source switches.
+  @ObservationIgnored private var drawingRunSeenPublications:
+    [PlotterEnvironment: (revision: PlotterDrawingRunRevision,
+      activeRunID: RunID?, progress: DrawingPlanProgressSnapshot?)] = [:]
   @ObservationIgnored private var drawingDraftSynchronizationGeneration: UInt64 = 0
+  @ObservationIgnored private(set) var drawingDraftSynchronizationTask: Task<Void, Never>?
+  @ObservationIgnored private var drawingEvidenceReloadTask: Task<Void, Never>?
   @ObservationIgnored private var learningActivityFactRevision: UInt64 = 0
   private var controllerSessionID: UUID {
     get { currentEnvironmentState.controllerSessionID }
@@ -1738,6 +1752,7 @@ final class PlotterApplicationRuntime:
     machineSession: (any PlotterMachineSession)? = nil,
     observationSession: (any PlotterObservationCameraSessionPort)? = nil,
     observationRecordingStore: EpisodeRecordingStore? = nil,
+    portraitStudio: PortraitStudioModel? = nil,
     pointSelectionRuntime: PlotterPointSelectionRuntime = PlotterPointSelectionRuntime(),
     pointSelectionRecordingDiagnostic: String? = nil,
     manualMotionComposition: PlotterManualMotionRuntimeComposition? = nil,
@@ -1773,7 +1788,7 @@ final class PlotterApplicationRuntime:
     self.drawingDraftRuntime = drawingDraftRuntime
     drawingRunRuntime = drawingRunComposition.runtime
     self.incidentPackageUIService = incidentPackageUIService
-    drawingEvidencePort = DrawingRunEvidenceComposition.port
+    drawingEvidencePort = drawingRunComposition.evidencePort
     drawingDraftSnapshot = PlotterDrawingDraftSnapshot.initial(
       environment: .live,
       toolAssemblyRevision: tipCalibrationSemanticIdentities.toolAssembly,
@@ -1796,10 +1811,13 @@ final class PlotterApplicationRuntime:
       )
     )
     self.machineSession = machineSession
+    let resolvedPortraitStudio = portraitStudio ?? PortraitStudioModel()
+    self.portraitStudio = resolvedPortraitStudio
     if let observationSession {
       observationRuntime = PlotterObservationConfigurationRuntime(
         lower: observationSession,
-        recordingStore: observationRecordingStore
+        recordingStore: observationRecordingStore,
+        portrait: resolvedPortraitStudio
       )
     } else {
       observationRuntime = nil
@@ -1952,13 +1970,23 @@ final class PlotterApplicationRuntime:
 
   private func installObservationEvent(_ event: PlotterObservationRuntimeEvent) {
     switch event {
+    case .cameraRole(let snapshot):
+      guard workbenchCameraSnapshot != snapshot else { return }
+      workbenchCameraSnapshot = snapshot
+      if snapshot.role == .portrait {
+        clearAutomaticVisionPresentation()
+        displayedFrame = nil
+        latestLiveCameraFrame = nil
+      }
+      markSemanticPresentationChanged()
     case .camera(let snapshot):
       cameraSnapshot = snapshot
-      if let latest = snapshot.latestFrame { receive(latest) }
+      if workbenchCameraRole == .plotter, let latest = snapshot.latestFrame { receive(latest) }
       updateCameraError()
     case .frame(let frame):
       receive(frame)
     case .analysis(let snapshot):
+      guard workbenchCameraRole == .plotter, !cameraRoleIsTransitioning else { return }
       guard snapshot.revision != visionAnalysisSnapshot.revision else { return }
       let priorFrameID = visionAnalysisSnapshot.latestResult?.displayedFrame.frame.id
       visionAnalysisSnapshot = snapshot
@@ -2216,7 +2244,7 @@ final class PlotterApplicationRuntime:
       pointSelectionRequest: surfacePointSelectionRequest,
       tipPresentation: tipPresentation,
       completedComparisonReview: completedComparisonReviewPresentation,
-      drawingStudioCanvas: drawingStudioIsPresented ? drawingStudioPresentation.canvas : nil
+      drawingStudioCanvas: drawingTargetIsVisible ? drawingStudioPresentation.canvas : nil
     )
     let signature = ActionSurfaceDiagnosticSignature(
       frameID: presentation.displayedFrame?.frame.id,
@@ -2253,6 +2281,12 @@ final class PlotterApplicationRuntime:
     drawingDraftSnapshot.paperCoverageIsCurrent
   }
 
+  var drawingStrokeStyle: StrokeStyle {
+    drawingDraftSnapshot.program?.strokes.first?.style
+      ?? (try! StrokeStyle(nominalLineWidth: 0.4,
+        penProfileID: PenProfileID(drawingDraftSnapshot.projection.externalFacts.toolAssemblyRevision.rawValue)))
+  }
+
   var drawingDraftExternalFacts: PlotterDrawingDraftExternalFacts {
     let opticalConfiguration = displayedFrame.flatMap {
       try? exactTipCalibrationFrame($0).opticalConfiguration
@@ -2277,13 +2311,6 @@ final class PlotterApplicationRuntime:
     )
   }
 
-  func submitDrawingDraft(_ submission: PlotterDrawingDraftSubmission) {
-    guard applicationAdmissionIsOpen else { return }
-    Task { @MainActor [weak self] in
-      await self?.performDrawingDraftSubmission(submission)
-    }
-  }
-
   private func performDrawingDraftSubmission(
     _ submission: PlotterDrawingDraftSubmission
   ) async {
@@ -2299,7 +2326,7 @@ final class PlotterApplicationRuntime:
     switch result.disposition {
     case .applied:
       drawingEvidenceError = nil
-      if submission.intent == .open {
+      if submission.intent == .showTarget {
         let reviewResult = borderValidationRuntime.apply(.setComparisonReviewPinned(false))
         if case .refused(let reason, let remedy) = reviewResult.disposition {
           drawingEvidenceError = "\(reason) Remedy: \(remedy)"
@@ -2317,15 +2344,26 @@ final class PlotterApplicationRuntime:
   }
 
   private func scheduleDrawingDraftSynchronization() {
+    // Closing feature owners still publish their final semantic state. Those
+    // notifications must not recreate work after shutdown canceled this chain.
+    guard applicationAdmissionIsOpen else { return }
     computationDiagnostics.drawingDraftSynchronizationCount += 1
     drawingDraftSynchronizationGeneration &+= 1
     let generation = drawingDraftSynchronizationGeneration
     let facts = drawingDraftExternalFacts
-    Task { @MainActor [weak self] in
-      guard let self else { return }
+    let previous = drawingDraftSynchronizationTask
+    previous?.cancel()
+    drawingDraftSynchronizationTask = Task { @MainActor [weak self] in
+      // A predecessor may already be inside Run's nested Draft fact read.
+      // Cancellation alone does not join that publication tail. The retained
+      // replacement completes only after its predecessors have settled.
+      await previous?.value
+      guard !Task.isCancelled, let self,
+        generation == self.drawingDraftSynchronizationGeneration else { return }
       let snapshot = await self.drawingDraftRuntime.synchronize(facts)
-      guard generation == self.drawingDraftSynchronizationGeneration else { return }
+      guard !Task.isCancelled, generation == self.drawingDraftSynchronizationGeneration else { return }
       self.installDrawingDraftSnapshot(snapshot)
+      await self.synchronizeDrawingRunProjection()
     }
   }
 
@@ -2393,12 +2431,6 @@ final class PlotterApplicationRuntime:
     }
   }
 
-  var drawingStudioPanelChangeUnavailableReason: String? {
-    drawingRunIsActive
-      ? "Drawing Studio cannot be hidden until the canonical run settles."
-      : nil
-  }
-
   var paperManagementUnavailableReason: String? {
     drawingRunIsActive
       ? "Paper identity cannot change while Drawing Run owns execution or evidence capture."
@@ -2408,8 +2440,7 @@ final class PlotterApplicationRuntime:
   var drawingStudioPresentation: DrawingStudioPresentation {
     let draft = drawingDraftSnapshot
     let run = drawingRunSnapshot
-    let editingIsEnabled =
-      drawingStudioIsPresented && run?.activeRunID == nil && run?.terminal == nil
+    let editingIsEnabled = run?.activeRunID == nil && run?.terminal == nil
     let placement = DrawingStudioPlacementPresentation(
       centerCameraPixel: draft.centerCameraPixel,
       uniformScale: draft.uniformScale,
@@ -2418,11 +2449,6 @@ final class PlotterApplicationRuntime:
       placementIsEnabled: editingIsEnabled && !drawingRunRequiresNewPlan && draft.coverageExperiment == nil
     )
     return DrawingStudioPresentation(
-      catalog: draft.catalog.map {
-        DrawingStudioCatalogItemPresentation(catalogEntry: $0)
-      },
-      selectedCatalogItemID: draft.selectedCatalogItemID,
-      evidenceRole: draft.evidenceRole,
       canvas: DrawingStudioCanvasPresentation(
         draftProjection: draft.projection,
         placement: placement,
@@ -2434,7 +2460,9 @@ final class PlotterApplicationRuntime:
       coverageExperiment: draft.coverageExperiment,
       coverageAssessment: draft.coverageAssessment,
       coverageUnavailableReason: draft.coverageUnavailableReason,
-      coverageSelectedTrial: DrawingCoverageTrialDescriptor.decode(draft.program?.source)?.trialIndex
+      coverageSelectedTrial: DrawingCoverageTrialDescriptor.decode(draft.program?.source)?.trialIndex,
+      residualRecords: draft.residualRecords,
+      residualAnalysis: draft.residualAnalysis
     )
   }
 
@@ -2443,9 +2471,6 @@ final class PlotterApplicationRuntime:
   ) -> DrawingStudioRunState {
     guard let snapshot else {
       return .unavailable(reason: "Drawing Run is synchronizing the exact EA-08A plan.")
-    }
-    if let refusal = snapshot.lastRefusal {
-      return .unavailable(reason: drawingRunRefusalDetail(refusal))
     }
     if let capabilityID = snapshot.stopCapabilityID, snapshot.activeRunID != nil {
       return .running(
@@ -2475,31 +2500,18 @@ final class PlotterApplicationRuntime:
         return .terminal(runID: terminal.runID, detail: detail)
       }
     }
-    guard snapshot.projection.environment == .live else {
-      return .unavailable(
-        reason: "SIMULATED previews placement only and cannot produce physical drawing evidence."
-      )
+    switch snapshot.readiness {
+    case .synchronizing:
+      return .unavailable(reason: "Checking the current drawing and controller.")
+    case .unavailable(let issue):
+      return .unavailable(reason: issue.detail)
+    case .ready:
+      if let previewStatus = drawingDraftSnapshot.preview?.status,
+        case .diagnosticOnly(let limitation) = previewStatus {
+        return .ready(detail: tipApplicabilityDiagnosticDetail(limitation))
+      }
+      return .ready(detail: "Ready to draw. Pen Up is established before travel.")
     }
-    if case .archiveUnavailable(let detail) = snapshot.noRedraw {
-      return .unavailable(reason: "Drawing run archive unavailable: \(detail)")
-    }
-    guard interactiveLearningIsComplete else {
-      return .unavailable(reason: "Complete Drawing Border validation first.")
-    }
-    guard drawingDraftSnapshot.plan != nil, paperCoverageIsCurrent else {
-      return .unavailable(
-        reason: drawingDraftSnapshot.planningRefusal?.remedy
-          ?? "Review an exact plan and assert current paper coverage."
-      )
-    }
-    if let previewStatus = drawingDraftSnapshot.preview?.status,
-      case .diagnosticOnly(let limitation) = previewStatus
-    {
-      return .ready(detail: tipApplicabilityDiagnosticDetail(limitation))
-    }
-    return .ready(
-      detail: "The reviewed plan is inside the accepted Drawing Boundary on confirmed paper."
-    )
   }
 
   func drawingRunPhaseDetail(_ phase: PlotterDrawingRunPhase) -> String {
@@ -2518,7 +2530,7 @@ final class PlotterApplicationRuntime:
   }
 
   private func drawingRunRefusalDetail(_ refusal: PlotterDrawingRunRefusal) -> String {
-    "Drawing Run refused \(String(describing: refusal.reason)); remedy: \(String(describing: refusal.remedy))."
+    refusal.detail ?? "Drawing Run refused \(String(describing: refusal.reason)); remedy: \(String(describing: refusal.remedy))."
   }
 
   private func drawingRunTerminalDetail(_ terminal: PlotterDrawingRunTerminal) -> String {
@@ -2592,7 +2604,10 @@ final class PlotterApplicationRuntime:
     let capturedFacts = drawingDraftExternalFacts
     let draft = await drawingDraftRuntime.synchronize(capturedFacts)
     installDrawingDraftSnapshot(draft)
-    let interpreter = environment == .live ? await machineSession?.snapshot() : nil
+    // Projection consumes the existing published controller truth. Drawing
+    // Run start/pre-effect admission obtains its own fresh lower snapshot;
+    // semantic Learning updates must not poll the controller for this cache.
+    let interpreter = environment == .live ? machineSnapshot : nil
     let runPlan: PlotterDrawingRunPlan?
     if let program = draft.program,
       let plan = draft.plan,
@@ -2623,14 +2638,15 @@ final class PlotterApplicationRuntime:
     )
   }
 
-  func submitDrawingRun(_ submission: PlotterDrawingRunSubmission) async {
-    guard applicationAdmissionIsOpen else { return }
+  @discardableResult
+  func submitDrawingRun(_ submission: PlotterDrawingRunSubmission) async -> PlotterDrawingRunSubmissionResult? {
+    guard applicationAdmissionIsOpen else { return nil }
     let result = await drawingRunRuntime.submit(submission)
-    guard applicationAdmissionIsOpen else { return }
+    guard applicationAdmissionIsOpen else { return result }
     installDrawingRunSnapshot(result.snapshot)
     guard case .applied = result.disposition,
       case .beginNewRun = submission.intent
-    else { return }
+    else { return result }
     overlayResultChannels.clearWorkflow(source: frameMode, owner: .drawingStudio)
     let synchronized = await drawingDraftRuntime.synchronize(drawingDraftExternalFacts)
     installDrawingDraftSnapshot(synchronized)
@@ -2641,6 +2657,7 @@ final class PlotterApplicationRuntime:
       )
     )
     await synchronizeDrawingRunProjection()
+    return result
   }
 
   private func synchronizeDrawingRunProjection() async {
@@ -2650,8 +2667,25 @@ final class PlotterApplicationRuntime:
     installDrawingRunSnapshot(snapshot)
   }
 
-  private func installDrawingRunSnapshot(_ snapshot: PlotterDrawingRunSnapshot) {
-    guard snapshot.projection.environment == manualMotionEnvironment else { return }
+  func installDrawingRunSnapshot(_ snapshot: PlotterDrawingRunSnapshot) {
+    let environment = snapshot.projection.environment
+    let revision = snapshot.projection.runRevision
+    // Awaited submissions and the buffered stream share this publication
+    // owner. A queued earlier phase must not replace the returned terminal.
+    // Equal revisions can carry fresh progress and remain admissible.
+    if let seen = drawingRunSeenPublications[environment] {
+      guard revision >= seen.revision else { return }
+      if revision == seen.revision, let activeRunID = seen.activeRunID,
+        snapshot.activeRunID == activeRunID, let previous = seen.progress {
+        guard let progress = snapshot.progress,
+          progress.isExecutionFrontier(atLeastAsAdvancedAs: previous)
+        else { return }
+      }
+    }
+    drawingRunSeenPublications[environment] = (revision, snapshot.activeRunID, snapshot.progress)
+    guard environment == manualMotionEnvironment else { return }
+    guard snapshot != drawingRunSnapshot else { return }
+    let previousPersistence = drawingRunSnapshot?.evidencePersistence
     drawingRunSnapshot = snapshot
     if let post = snapshot.postFrame,
       let observation = snapshot.presentationObservation
@@ -2662,17 +2696,25 @@ final class PlotterApplicationRuntime:
         owner: .drawingStudio
       )
     }
-    if case .persisted = snapshot.evidencePersistence {
-      Task { [weak self, drawingEvidencePort] in
-        guard let self else { return }
+    if case .persisted(_, let revision) = snapshot.evidencePersistence,
+      snapshot.evidencePersistence != previousPersistence,
+      revision > drawingEvidenceArchive.revision, applicationAdmissionIsOpen {
+      let previousReload = drawingEvidenceReloadTask
+      previousReload?.cancel()
+      drawingEvidenceReloadTask = Task { [weak self, drawingEvidencePort] in
+        await previousReload?.value
+        guard !Task.isCancelled, let self, self.applicationAdmissionIsOpen else { return }
         switch await drawingEvidencePort.load() {
         case .loaded(let archive):
+          guard !Task.isCancelled, self.applicationAdmissionIsOpen,
+            archive != self.drawingEvidenceArchive else { return }
           self.drawingEvidenceArchive = archive
           self.drawingEvidenceError = nil
           self.scheduleDrawingDraftSynchronization()
         case .absent:
           break
         case .rejected(let rejection):
+          guard !Task.isCancelled, self.applicationAdmissionIsOpen else { return }
           self.drawingEvidenceError = "Saved drawing evidence was rejected: \(rejection)"
         }
       }
@@ -2943,14 +2985,14 @@ final class PlotterApplicationRuntime:
       completedDrawingComparisonReviewIsAvailable,
       !drawingRunIsActive
     else { return }
-    if drawingStudioIsPresented {
+    if drawingTargetIsVisible {
       await performDrawingDraftSubmission(
         PlotterDrawingDraftSubmission(
           projection: drawingDraftSnapshot.projection,
-          intent: .close
+          intent: .hideTarget
         )
       )
-      guard !drawingStudioIsPresented else { return }
+      guard !drawingTargetIsVisible else { return }
     }
     let result = borderValidationRuntime.apply(.setComparisonReviewPinned(true))
     if case .refused(let reason, let remedy) = result.disposition {
@@ -3018,19 +3060,6 @@ final class PlotterApplicationRuntime:
       sceneIsAvailable: sceneOverlayIsAvailable,
       workflowVisionIsExclusive: exactWorkflowVisionOwner != nil
     ).statuses[overlay]!
-  }
-
-  func overlayCardPresentation(for overlay: UserSceneOverlay) -> OverlayCardPresentation {
-    OverlayCardPresentation(
-      overlay: overlay,
-      isOn: overlayPreferenceState.enabled.contains(overlay),
-      status: overlayStatus(for: overlay),
-      roiText: videoAnalysisRegionText,
-      cadenceText: frameMode == .live
-        ? "\(visionAnalysisCadence.rawValue) frames per second"
-        : "Causal simulated frames",
-      nowNanoseconds: nowNanoseconds()
-    )
   }
 
   private var sceneOverlayIsAvailable: Bool {
@@ -3404,10 +3433,9 @@ final class PlotterApplicationRuntime:
   }
 
   var penInteractionCompleted: Bool {
-    guard learningArtifactGraph.currentRevision(for: .penInteraction) != nil else { return false }
-    return frameMode == .simulated
-      ? simulatedLearningSnapshot?.penPose == .up
-      : machineSnapshot?.machine.penState == .up
+    // Accepted calibration survives a restart and ordinary Pen Down commands.
+    // Current pen pose belongs to execution settlement, not Learning progress.
+    learningArtifactGraph.currentRevision(for: .penInteraction) != nil
   }
 
   var relevantBoundaryObservationCount: Int {
@@ -3936,18 +3964,9 @@ final class PlotterApplicationRuntime:
       cameraIsLive: cameraIsLive,
       sourceChangeUnavailableReason: observationSourceChangeUnavailableReason,
       calibrationBusyReason: currentCameraCalibrationBusyReason,
-      simulatorEvidenceLabel: simulatorEvidenceLabel,
-      simulatorSummary: simulatorLearningSummary,
-      cameraStateText: cameraStateText,
-      captureThroughputText: captureThroughputText,
-      visionThroughputText: visionThroughputText,
-      cameraError: cameraError,
-      visionError: visionError,
       cadence: visionAnalysisCadence,
       regionLock: videoAnalysisRegionLock,
-      overlayCards: UserSceneOverlay.allCases.map { overlayCardPresentation(for: $0) },
-      enabledOverlays: overlayPreferenceState.enabled,
-      penCapAppearance: penCapAppearanceSelection
+      enabledOverlays: overlayPreferenceState.enabled
     )
   }
 
@@ -3960,6 +3979,31 @@ final class PlotterApplicationRuntime:
       submission.reference.capabilityID == controllerSessionID
     else { return "The observation projection changed; use the current action." }
     switch submission.intent {
+    case .selectCameraRole(let role):
+      if let reason = observationSourceChangeUnavailableReason { return reason }
+      let result = await submitObservationIntent(.selectCameraRole(role))
+      guard applicationAdmissionIsOpen else { return "Camera selection was cancelled during application shutdown." }
+      guard let observationRuntime else { return "The camera runtime is unavailable." }
+      installObservationEvent(.cameraRole(await observationRuntime.workbenchCameraSnapshot()))
+      cameraSnapshot = await observationRuntime.snapshot()
+      if workbenchCameraRole == .plotter, !cameraRoleIsTransitioning {
+        frameMode = .live
+        displayedFrame = cameraSnapshot?.latestFrame
+        latestLiveCameraFrame = cameraSnapshot.flatMap { validatedLiveCameraFrame(in: $0) }
+        reconcileCameraDependentLearningAuthority(with: displayedFrame)
+        updateCameraError()
+        if let exactFrame = try? await observationRuntime.captureFrame(newerThanNanoseconds: 0),
+          workbenchCameraRole == .plotter, !cameraRoleIsTransitioning
+        {
+          receive(exactFrame)
+        }
+        await reconcileAutomaticVisionAnalysis()
+      }
+      switch result {
+      case .failed(let detail)?, .refused(let detail)?: return detail
+      case .stale?: return "The camera selection changed; use the current camera action."
+      default: return nil
+      }
     case .refresh:
       await refreshObservationSources()
     case .selectSource(.simulated, _):
@@ -4240,6 +4284,15 @@ final class PlotterApplicationRuntime:
       intent: .observation(observation.request(.refresh)),
       owner: "PlotterObservationConfigurationRuntime"
     )
+    for role in WorkbenchCameraRole.allCases {
+      appendApplicationCandidate(
+        id: PlotterAppUIActionID.observationCameraRole(role),
+        title: role == .portrait ? "Use portrait camera" : "Show on Plotter Video",
+        intent: .observation(observation.request(.selectCameraRole(role))),
+        unavailableReason: observation.sourceChangeUnavailableReason,
+        owner: "PlotterObservationConfigurationRuntime"
+      )
+    }
     appendApplicationCandidate(
       id: PlotterAppUIActionID.observationSimulated,
       title: "Use simulated source",
@@ -4322,14 +4375,13 @@ final class PlotterApplicationRuntime:
       ))
     }
     candidates.append(uiCandidate(
-      id: drawingStudioIsPresented
-        ? PlotterAppUIActionID.drawingClose : PlotterAppUIActionID.drawingOpen,
-      title: drawingStudioIsPresented ? "Close Drawing Studio" : "Open Drawing Studio",
-      intent: .drawingDraft(drawingStudioIsPresented ? .close : .open),
-      unavailableReason: drawingStudioPanelChangeUnavailableReason,
+      id: PlotterAppUIActionID.drawingDraft(drawingTargetIsVisible ? .hideTarget : .showTarget),
+      title: drawingTargetIsVisible ? "Hide Drawing Target" : "Show Drawing Target",
+      intent: .drawingDraft(drawingTargetIsVisible ? .hideTarget : .showTarget),
+      unavailableReason: nil,
       owner: "PlotterDrawingDraftRuntime"
     ))
-    if drawingStudioIsPresented {
+    do {
       for control in drawing.coverageControls {
         candidates.append(uiCandidate(
           id: PlotterAppUIActionID.drawingDraft(control.intent), title: control.title,
@@ -4346,26 +4398,21 @@ final class PlotterApplicationRuntime:
           owner: "PlotterDrawingDraftRuntime"
         ))
       }
-      candidates.append(contentsOf: drawing.catalog.map { item in
-        let intent = PlotterDrawingDraftIntent.selectCatalogItem(item.id)
-        return uiCandidate(
-          id: PlotterAppUIActionID.drawingDraft(intent),
-          title: "Select \(item.title)",
-          intent: .drawingDraft(intent),
-          unavailableReason: drawing.authoringUnavailableReason,
-          owner: "PlotterDrawingDraftRuntime"
-        )
-      })
-      candidates.append(contentsOf: BorderValidationEvidenceRole.allCases.map { role in
-        let intent = PlotterDrawingDraftIntent.setEvidenceRole(role)
-        return uiCandidate(
-          id: PlotterAppUIActionID.drawingDraft(intent),
-          title: "Set evidence role \(role.rawValue)",
-          intent: .drawingDraft(intent),
-          unavailableReason: drawing.authoringUnavailableReason,
-          owner: "PlotterDrawingDraftRuntime"
-        )
-      })
+      for record in drawing.residualRecords {
+        let intent = PlotterDrawingDraftIntent.selectResidualRecord(record.recordID, selected: !record.isSelected)
+        candidates.append(uiCandidate(id: PlotterAppUIActionID.drawingDraft(intent),
+          title: "Select archived \(record.title)", intent: .drawingDraft(intent),
+          unavailableReason: nil, owner: "PlotterDrawingDraftRuntime"))
+      }
+      let analyzeIntent = PlotterDrawingDraftIntent.analyzeSelectedResiduals
+      candidates.append(uiCandidate(id: PlotterAppUIActionID.drawingDraft(analyzeIntent),
+        title: "Analyze for Learning", intent: .drawingDraft(analyzeIntent),
+        unavailableReason: drawing.residualRecords.contains(where: \.isSelected) ? nil : "Select an archived drawing first.",
+        owner: "PlotterDrawingDraftRuntime"))
+      let fitIntent = PlotterDrawingDraftIntent.fitInDrawableRegion
+      candidates.append(uiCandidate(id: PlotterAppUIActionID.drawingDraft(fitIntent),
+        title: "Fit Target", intent: .drawingDraft(fitIntent),
+        unavailableReason: drawing.authoringUnavailableReason, owner: "PlotterDrawingDraftRuntime"))
       let centerIntent = PlotterDrawingDraftIntent.centerInDrawableRegion
       candidates.append(uiCandidate(
         id: PlotterAppUIActionID.drawingDraft(centerIntent),
@@ -4525,8 +4572,7 @@ final class PlotterApplicationRuntime:
       learningIsEnabled: learningIsEnabled,
       manualMotion: manual,
       drawingStudio: drawing,
-      drawingStudioIsPresented: drawingStudioIsPresented,
-      drawingStudioPanelChangeUnavailableReason: drawingStudioPanelChangeUnavailableReason,
+      drawingTargetIsVisible: drawingTargetIsVisible,
       drawingDraftProjection: drawingDraftSnapshot.projection,
       workbenchCapability: workbenchCapabilityPresentation,
       incidentPackage: semantic.incidentPackage,
@@ -4940,9 +4986,7 @@ final class PlotterApplicationRuntime:
       )
       await resolveManualMotionEvidence(using: action)
     case .drawingDraft(let intent)
-      where request.actionID == PlotterAppUIActionID.drawingDraft(intent)
-        || (intent == .open && request.actionID == PlotterAppUIActionID.drawingOpen)
-        || (intent == .close && request.actionID == PlotterAppUIActionID.drawingClose):
+      where request.actionID == PlotterAppUIActionID.drawingDraft(intent):
       await performDrawingDraftSubmission(PlotterDrawingDraftSubmission(
         projection: drawingDraftSnapshot.projection,
         intent: intent
@@ -4963,10 +5007,15 @@ final class PlotterApplicationRuntime:
           remedy: "Wait for Drawing Run projection synchronization."
         )
       }
-      await submitDrawingRun(PlotterDrawingRunSubmission(
+      let result = await submitDrawingRun(PlotterDrawingRunSubmission(
         projection: drawingRunSnapshot.projection,
         intent: intent
       ))
+      if case .refused(let refusal) = result?.disposition {
+        return plotterUIRefusal(request, reason: .retainedOwnerRefused,
+          currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
+          remedy: drawingRunRefusalDetail(refusal))
+      }
     case .penInteraction(let intent):
       if case .stop = intent,
         let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id
@@ -9130,7 +9179,8 @@ final class PlotterApplicationRuntime:
   }
 
   private var automaticVisionAnalysisShouldRun: Bool {
-    guard frameMode == .live, livePenCapAppearanceSelection != nil, sceneAnalysisIsRequested,
+    guard workbenchCameraRole == .plotter, !cameraRoleIsTransitioning,
+      frameMode == .live, livePenCapAppearanceSelection != nil, sceneAnalysisIsRequested,
       case .running = cameraSnapshot?.state
     else { return false }
     return true
@@ -10586,10 +10636,16 @@ final class PlotterApplicationRuntime:
     learningTask?.task.cancel()
     let observationSubscription = observationProjectionTask
     let drawingSubscription = drawingRunProjectionTask
+    let draftSynchronization = drawingDraftSynchronizationTask
+    let evidenceReload = drawingEvidenceReloadTask
     observationSubscription?.cancel()
     drawingSubscription?.cancel()
+    draftSynchronization?.cancel()
+    evidenceReload?.cancel()
     observationProjectionTask = nil
     drawingRunProjectionTask = nil
+    drawingDraftSynchronizationTask = nil
+    drawingEvidenceReloadTask = nil
     await liveBorderValidationRuntime.closeAdmissionAndCancel()
     await simulatedBorderValidationRuntime.closeAdmissionAndCancel()
     await artifactResetRuntime.shutdown()
@@ -10607,6 +10663,8 @@ final class PlotterApplicationRuntime:
     }
     await observationSubscription?.value
     await drawingSubscription?.value
+    await draftSynchronization?.value
+    await evidenceReload?.value
     await controllerSessionRuntime.shutdown()
     installDrawingRunSnapshot(
       await drawingRunRuntime.beginShutdown(environment: .live)
@@ -10622,7 +10680,11 @@ final class PlotterApplicationRuntime:
     await manualMotionRuntime.shutdown()
     await stopAndSettleActiveMotionForShutdown()
     await awaitApplicationEffectsSettlement()
-    await observationRuntime?.shutdown()
+    if let observationRuntime {
+      await observationRuntime.shutdown()
+    } else {
+      await portraitStudio.shutdown()
+    }
     // Persistence occurs only after admission is closed and every effect owner
     // has settled, while the source-indexed semantic state is still intact.
     persistAcceptedLearningPathCheckpoint()
@@ -10638,7 +10700,8 @@ final class PlotterApplicationRuntime:
     _ frame: DisplayedFrame,
     generation: PlotterApplicationEffectLease? = nil
   ) {
-    guard applicationAdmissionIsOpen, frameMode == .live else { return }
+    guard applicationAdmissionIsOpen, frameMode == .live,
+      workbenchCameraRole == .plotter, !cameraRoleIsTransitioning else { return }
     if let generation, !applicationEffectCanCommit(generation) { return }
     guard case .live(let deviceID) = frame.source, deviceID == selectedCameraID else { return }
     publishActionSurfacePreview(frame)

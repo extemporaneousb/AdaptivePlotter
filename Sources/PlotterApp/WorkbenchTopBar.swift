@@ -157,8 +157,10 @@ struct WorkbenchToolbar: ToolbarContent {
         }
 
         Button(connectionAction.title) {
+          WorkbenchRequestTelemetry.nativeActionHandled("workbench.controller.connect")
           submit(PlotterAppUIActionID.controllerConnection)
         }
+        .accessibilityIdentifier("workbench.controller.connect")
         .operatorButton(
           connectionAction.role,
           isEnabled: session.connectionUnavailableReason == nil
@@ -169,8 +171,10 @@ struct WorkbenchToolbar: ToolbarContent {
         )
 
         Button(motionAction.title) {
+          WorkbenchRequestTelemetry.nativeActionHandled("workbench.controller.motion")
           submit(PlotterAppUIActionID.controllerMotion)
         }
+        .accessibilityIdentifier("workbench.controller.motion")
         .operatorButton(
           motionAction.role,
           isEnabled: session.motionAuthorizationUnavailableReason == nil
@@ -273,18 +277,24 @@ private struct WorkbenchCameraStatus: View {
 
   var body: some View {
     TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-      let simulated = application.frameMode == .simulated
-      let live = application.cameraIsLive
-      let delayed = !simulated && application.cameraSnapshot?.state == .running && !live
+      let portrait = application.workbenchCameraRole == .portrait
+      let simulated = !portrait && application.frameMode == .simulated
+      let live = portrait ? application.portraitStudio.cameraIsRunning : application.cameraIsLive
+      let switching = application.cameraRoleIsTransitioning
+      let delayed = !portrait && !simulated && !switching
+        && application.cameraSnapshot?.state == .running && !live
+      let error = application.cameraRoleError
+        ?? (portrait ? application.portraitStudio.cameraStatus : application.cameraError)
+      let label = switching ? "Switching camera"
+        : portrait ? (live ? "Portrait Camera Live" : "Portrait Camera Off")
+        : simulated ? "Simulator" : delayed ? "Plotter camera delayed"
+        : WorkbenchConnectionIndicator.camera.label(isActive: live)
       WorkbenchStatusIndicator(
         indicator: .camera,
-        label: simulated ? "Simulator" : delayed ? "Camera delayed"
-          : WorkbenchConnectionIndicator.camera.label(isActive: live),
-        color: simulated ? .blue : live ? .green : .red
+        label: label,
+        color: switching ? .gray : simulated ? .blue : live ? .green : error != nil || delayed ? .red : .gray
       )
-      .help(delayed
-        ? "No preview frame received within one second. This indicates delayed frame delivery, not camera vibration."
-        : application.cameraStateText)
+      .help(error ?? (delayed ? "No plotter preview frame received within one second." : label))
     }
   }
 }

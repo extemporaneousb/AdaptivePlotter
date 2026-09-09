@@ -33,6 +33,24 @@ if "$launcher" --validate-only "$project_root/.build/Missing.app" >/dev/null 2>&
     exit 1
 fi
 
+# A valid PID-only invocation with an absent process must fail, never launch.
+absent_pid=2147483647
+if ! /bin/kill -0 "$absent_pid" 2>/dev/null; then
+    set +e
+    absent_activation=$("$launcher" --activate-existing-pid "$absent_pid" "$bundle" 2>&1)
+    absent_status=$?
+    set -e
+    if [ "$absent_status" -eq 0 ]; then
+        echo "PID-only launcher accepted a nonexistent process" >&2
+        exit 1
+    fi
+    if ! printf '%s\n' "$absent_activation" | grep -Fq "pid=$absent_pid"; then
+        printf '%s\n' "$absent_activation" >&2
+        echo "PID-only refusal omitted the requested process identity" >&2
+        exit 1
+    fi
+fi
+
 test_root=$(mktemp -d "$project_root/.build/.AdaptivePlotter-launcher-validation.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 

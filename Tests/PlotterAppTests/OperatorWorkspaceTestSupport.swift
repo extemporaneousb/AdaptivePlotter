@@ -313,11 +313,16 @@ func nominalIncidentPackageUIService() -> PlotterIncidentPackageUIService {
 
 func nominalDrawingRunComposition(
   machineSession: (any PlotterMachineSession)? = nil,
-  observationSession: (any PlotterObservationCameraSessionPort)? = nil
+  observationSession: (any PlotterObservationCameraSessionPort)? = nil,
+  evidencePort: DrawingRunEvidencePort? = nil
 ) -> PlotterDrawingRunComposition {
-  PlotterDrawingRunComposition.make(
+  let isolatedEvidence = evidencePort ?? DrawingRunEvidencePort(store: DrawingRunEvidenceStore(
+    fileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
+      "drawing-evidence-test-\(UUID().uuidString)/evidence.json")))
+  return PlotterDrawingRunComposition.make(
     machineSession: machineSession ?? MachineSessionComposition.session,
-    observationSession: observationSession ?? CameraComposition.makeIsolatedObservationSessionForTesting()
+    observationSession: observationSession ?? CameraComposition.makeIsolatedObservationSessionForTesting(),
+    evidencePort: isolatedEvidence
   )
 }
 
@@ -1442,6 +1447,9 @@ func plotterApplicationRuntime(
   machine: LowerMachineSessionFixture,
   camera: TestObservationCameraSession? = nil,
   observationSessionOverride: (any PlotterObservationCameraSessionPort)? = nil,
+  portraitStudio: PortraitStudioModel? = nil,
+  drawingPlanBegin: (@Sendable (DrawingPlanRequest) async -> DrawingPlanAdmission)? = nil,
+  drawingRunRuntimeAccess: ((PlotterDrawingRunRuntime) -> Void)? = nil,
   boundaryMotionBegin:
     (
       @Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
@@ -1451,6 +1459,7 @@ func plotterApplicationRuntime(
   speechAnnouncer: (any SpeechAnnouncing)? = nil,
   statePersistencePort: (any PlotterApplicationStatePersistencePort)? = nil,
   drawingDraftRuntime: PlotterDrawingDraftRuntime = nominalDrawingDraftRuntime(),
+  drawingEvidencePort: DrawingRunEvidencePort? = nil,
   tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
   residualEffectPort: (any PlotterApplicationResidualEffectPort)? = nil,
   penInteractionRuntimeFactory:
@@ -1504,7 +1513,7 @@ func plotterApplicationRuntime(
         )
       )
     },
-    beginDrawingPlan: nil,
+    beginDrawingPlan: drawingPlanBegin,
     beginPenActuation: { command, profile in
       .admitted(PenActuationOperation(
         id: UUID(),
@@ -1546,19 +1555,21 @@ func plotterApplicationRuntime(
     statePersistencePort: boundaryPersistencePort,
     speechEffectRuntime: speechEffectRuntime
   )
+  let drawingRunComposition = nominalDrawingRunComposition(
+    machineSession: machineSession, observationSession: resolvedObservationPort,
+    evidencePort: drawingEvidencePort)
+  drawingRunRuntimeAccess?(drawingRunComposition.runtime)
   let workspace = PlotterApplicationRuntime(
     machineSession: machineSession,
     observationSession: resolvedObservationPort,
+    portraitStudio: portraitStudio,
     manualMotionComposition: manualMotionComposition,
     penInteractionRuntime: penInteractionRuntime,
     boundaryRuntime: boundaryComposition.runtime,
     speechEffectRuntime: speechEffectRuntime,
     statePersistencePort: statePersistencePort,
     drawingDraftRuntime: drawingDraftRuntime,
-    drawingRunComposition: nominalDrawingRunComposition(
-      machineSession: machineSession,
-      observationSession: resolvedObservationPort
-    ),
+    drawingRunComposition: drawingRunComposition,
     incidentPackageUIService: nominalIncidentPackageUIService(),
     tipCalibrationSemanticIdentities: tipCalibrationSemanticIdentities,
     residualEffectPort: resolvedResidualEffectPort,
@@ -2200,6 +2211,7 @@ actor LowerMachineSessionFixture {
   private var hasActuatedPen = false
   private var lastMotion: MotionOutcome?
   private var lastDrawing: DrawingStrokeOutcome?
+  private var drawingPlanProgress: DrawingPlanProgressSnapshot?
   private var lastPen: PenOutcome?
   private var lastCancel: JogCancelOutcome?
   private var queuedPenOutcomes: [PenOutcome] = []
@@ -2255,6 +2267,10 @@ actor LowerMachineSessionFixture {
     queuedPenOutcomes.append(outcome)
   }
 
+  func setDrawingPlanProgress(_ progress: DrawingPlanProgressSnapshot) {
+    drawingPlanProgress = progress
+  }
+
   func snapshot() -> RunInterpreterSnapshot {
     snapshotCallCount += 1
     return RunInterpreterSnapshot(
@@ -2281,6 +2297,7 @@ actor LowerMachineSessionFixture {
       ),
       lastMotionOutcome: lastMotion,
       lastDrawingStrokeOutcome: lastDrawing,
+      drawingPlanProgress: drawingPlanProgress,
       lastPenOutcome: lastPen,
       lastProbe: nil,
       lastJogCancelOutcome: lastCancel

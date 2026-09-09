@@ -186,7 +186,7 @@ func drawingRunFrame(
   )
 }
 
-func drawingRunReadySnapshot(position: MachinePosition) -> RunInterpreterSnapshot {
+func drawingRunReadySnapshot(position: MachinePosition, penState: PenState = .up) -> RunInterpreterSnapshot {
   let descriptor = MachineLinkDescriptor(
     identifier: "drawing-run-interpreter",
     displayName: "Drawing Run Interpreter",
@@ -202,7 +202,7 @@ func drawingRunReadySnapshot(position: MachinePosition) -> RunInterpreterSnapsho
       blockers: [],
       controllerState: .idle,
       position: position,
-      penState: .up,
+      penState: penState,
       motionGuardState: .active,
       operationInFlight: false,
       lastMotionOutcome: nil,
@@ -296,7 +296,7 @@ actor DrawingRunHoldGate {
 }
 
 actor DrawingRunPlanGate {
-  private var request: DrawingPlanRequest?
+  private(set) var request: DrawingPlanRequest?
   private var startedWaiters: [CheckedContinuation<Void, Never>] = []
   private var continuation: CheckedContinuation<DrawingRunOutcomeKind, Never>?
   private var releasedKind: DrawingRunOutcomeKind?
@@ -323,11 +323,14 @@ actor DrawingRunPlanGate {
 }
 
 actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
-  private let ready: RunInterpreterSnapshot
+  private var ready: RunInterpreterSnapshot
   private let events: DrawingRunEventProbe
   private let outcomeKind: DrawingRunOutcomeKind
   private let normalizationGate: DrawingRunHoldGate?
   private let planGate: DrawingRunPlanGate?
+  private let releasePlanOnStop: Bool
+  private var nextSnapshotGate: DrawingRunHoldGate?
+  private var drawingProgress: DrawingPlanProgressSnapshot?
   private(set) var planRequests: [DrawingPlanRequest] = []
   private(set) var stopIntents: [JogCancelIntent] = []
 
@@ -336,20 +339,43 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
     events: DrawingRunEventProbe,
     outcomeKind: DrawingRunOutcomeKind = .completed,
     normalizationGate: DrawingRunHoldGate? = nil,
-    planGate: DrawingRunPlanGate? = nil
+    planGate: DrawingRunPlanGate? = nil,
+    releasePlanOnStop: Bool = true
   ) {
     self.ready = ready
     self.events = events
     self.outcomeKind = outcomeKind
     self.normalizationGate = normalizationGate
     self.planGate = planGate
+    self.releasePlanOnStop = releasePlanOnStop
   }
 
-  func snapshot() -> RunInterpreterSnapshot? { ready }
+  func snapshot() async -> RunInterpreterSnapshot? {
+    let captured = RunInterpreterSnapshot(currentOperation: ready.currentOperation,
+      machine: ready.machine, lastMotionOutcome: ready.lastMotionOutcome,
+      drawingPlanProgress: drawingProgress, lastProbe: ready.lastProbe)
+    let gate = nextSnapshotGate
+    nextSnapshotGate = nil
+    await gate?.hold()
+    return captured
+  }
+
+  func holdNextSnapshot(at gate: DrawingRunHoldGate) { nextSnapshotGate = gate }
+
+  func setDrawingProgress(_ progress: DrawingPlanProgressSnapshot) { drawingProgress = progress }
+
+  func setPenState(_ state: PenState) {
+    ready = drawingRunReadySnapshot(position: ready.machine.position!, penState: state)
+  }
+
+  func setPosition(_ position: MachinePosition) {
+    ready = drawingRunReadySnapshot(position: position, penState: ready.machine.penState)
+  }
 
   func normalizePenUp(profile _: PenActuationProfile) async -> PenOutcome {
     await events.append("normalize")
     await normalizationGate?.hold()
+    setPenState(.up)
     return .commandedAndSettled(command: .raise, commandedState: .up)
   }
 
@@ -382,7 +408,7 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
   func requestStop(_ intent: JogCancelIntent) async -> JogCancelOutcome {
     stopIntents.append(intent)
     await events.append("stop")
-    await planGate?.release(.cancelled)
+    if releasePlanOnStop { await planGate?.release(.cancelled) }
     return .transmitted
   }
 }
@@ -499,6 +525,7 @@ func drawingRunHarness(
   outcome: DrawingRunOutcomeKind = .completed,
   normalizationGate: DrawingRunHoldGate? = nil,
   planGate: DrawingRunPlanGate? = nil,
+  releasePlanOnStop: Bool = true,
   evidenceFailures: Int = 0,
   archiveLoadResult: DrawingRunEvidenceStoreLoadResult = .absent
 ) async -> DrawingRunRuntimeHarness {
@@ -510,7 +537,8 @@ func drawingRunHarness(
     events: events,
     outcomeKind: outcome,
     normalizationGate: normalizationGate,
-    planGate: planGate
+    planGate: planGate,
+    releasePlanOnStop: releasePlanOnStop
   )
   let camera = DrawingRunCameraProbe(
     frames: [fixture.baselineFrame, fixture.postFrame],

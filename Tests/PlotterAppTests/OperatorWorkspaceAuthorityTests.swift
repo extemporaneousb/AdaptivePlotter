@@ -67,6 +67,16 @@ extension PlotterApplicationRuntimeTests {
     #expect(pending.penUpUnavailableReason == evidence.remedy)
     #expect(pending.penDownUnavailableReason == evidence.remedy)
     #expect(workspace.motionRequestStatusPresentation == .needsAttention(evidence.remedy))
+    let evidenceUI = workspace.testPlotterUIProjection()
+    #expect(evidenceUI.controllerSession.controllerAttentionText == evidence.remedy)
+    #expect(evidenceUI.manualMotion.controllerAlertText(
+      evidenceUI.controllerSession.controllerAttentionText) == nil)
+    let evidenceRequest = try #require(evidenceUI.semantic.request(for: PlotterAppUIActionID.manualEvidence))
+    #expect(evidenceRequest.intent == .manualEvidenceDisposition(
+      effectID: evidence.action.effectID.rawValue,
+      environment: evidence.action.environment,
+      observationID: evidence.action.observationID.rawValue,
+      disposition: .acknowledgePossibleInk))
     #expect(counter.count == 1)
 
     await workspace.submitManualMotionIntent(intent)
@@ -404,6 +414,12 @@ extension PlotterApplicationRuntimeTests {
     #expect(pending.penUpUnavailableReason == recovery.remedy)
     #expect(pending.penDownUnavailableReason == recovery.remedy)
     #expect(workspace.motionRequestStatusPresentation == .needsAttention(recovery.remedy))
+    let recoveryUI = workspace.testPlotterUIProjection()
+    #expect(recoveryUI.controllerSession.controllerAttentionText == recovery.remedy)
+    #expect(recoveryUI.manualMotion.controllerAlertText(
+      recoveryUI.controllerSession.controllerAttentionText) == nil)
+    let recoveryRequest = try #require(recoveryUI.semantic.request(for: PlotterAppUIActionID.manualRecovery))
+    #expect(recoveryRequest.intent == .manualPublicationRecovery(capabilityID: recovery.capabilityID.rawValue))
 
     let blockedPen = try #require(
       workspace.testPlotterUIProjection().semantic.action(id: PlotterAppUIActionID.manualPenDown)

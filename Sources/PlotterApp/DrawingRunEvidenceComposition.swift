@@ -33,6 +33,7 @@ final class PlotterApplicationRuntimeDrawingRunFactSource: PlotterDrawingRunFact
 
 struct PlotterDrawingRunComposition: Sendable {
   let runtime: PlotterDrawingRunRuntime
+  let evidencePort: DrawingRunEvidencePort
   private let factSource: PlotterApplicationRuntimeDrawingRunFactSource
 
   @MainActor
@@ -42,20 +43,21 @@ struct PlotterDrawingRunComposition: Sendable {
 
   static func make(
     machineSession: (any PlotterMachineSession),
-    observationSession: any PlotterObservationCameraSessionPort
+    observationSession: any PlotterObservationCameraSessionPort,
+    evidencePort: DrawingRunEvidencePort = DrawingRunEvidenceComposition.port
   ) -> Self {
     let factSource = PlotterApplicationRuntimeDrawingRunFactSource()
     let interpreter = PlotterApplicationRuntimeDrawingRunInterpreterPort(session: machineSession)
     let camera = PlotterApplicationRuntimeDrawingRunCameraPort(session: observationSession)
-    let evidence = DrawingRunEvidenceComposition.port
     return Self(
       runtime: PlotterDrawingRunRuntime(
         facts: factSource,
         interpreter: interpreter,
         camera: camera,
         vision: camera,
-        evidence: evidence
+        evidence: evidencePort
       ),
+      evidencePort: evidencePort,
       factSource: factSource
     )
   }
@@ -84,13 +86,15 @@ enum DrawingRunEvidenceComposition {
 
 actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort {
   private let store: DrawingRunEvidenceStore
+  private(set) var loadCount = 0
 
   init(store: DrawingRunEvidenceStore) {
     self.store = store
   }
 
   func load() async -> DrawingRunEvidenceStoreLoadResult {
-    await store.load()
+    loadCount += 1
+    return await store.load()
   }
 
   func append(_ record: DrawingRunEvidenceRecord) async throws

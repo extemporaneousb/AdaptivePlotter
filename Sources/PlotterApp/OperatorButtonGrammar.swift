@@ -162,12 +162,17 @@ struct OperatorRequestButton: View {
   let unavailableReason: String?
   let sink: any PlotterUIIntentSink
   var expands = false
+  var nativeActionIdentifier: String? = nil
+  var showsUnavailableReason = true
   @State private var feedback = OperatorRequestFeedback()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
       Button {
         guard let request, feedback.begin() else { return }
+        if let nativeActionIdentifier {
+          WorkbenchRequestTelemetry.nativeActionHandled(nativeActionIdentifier)
+        }
         Task { feedback.finish(await sink.submitPlotterUIRequest(request)) }
       } label: {
         HStack(spacing: 6) {
@@ -192,7 +197,7 @@ struct OperatorRequestButton: View {
         OperatorRequestElapsedTime(startedAt: startedAt)
       } else if let detail = feedback.result, !feedback.wasAccepted {
         Text(detail).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-      } else if let unavailableReason, !feedback.isPending {
+      } else if let unavailableReason, showsUnavailableReason, !feedback.isPending {
         Text(unavailableReason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       }
     }

@@ -42,8 +42,10 @@ struct PlotterSceneAnalysisPipelineTests {
     #expect(diagnostics.semanticSubscriptionStartCount == 1)
     #expect(await recorder.count == 2)
 
-    await pipeline.stop()
+    let stop = Task { await pipeline.stop() }
+    try await waitUntil { await pipeline.snapshot().state == .stopped }
     await gate.releaseNext()
+    await stop.value
   }
 
   @Test("identical configuration and lifecycle reconciliation is a complete no-op")
@@ -229,7 +231,7 @@ struct PlotterSceneAnalysisPipelineTests {
     await pipeline.stop()
   }
 
-  @Test("stopping discards a late result from an already active analyzer")
+  @Test("stopping settles held analysis and discards its late result before reuse")
   func stopRejectsLateResult() async throws {
     let gate = AnalysisGate()
     let activity = ActivityRecorder()
@@ -244,14 +246,50 @@ struct PlotterSceneAnalysisPipelineTests {
     await pipeline.submit(try displayedFrame(sequence: 7))
     try await waitUntil { await gate.startedSequences == [7] }
 
-    await pipeline.stop()
+    let stop = Task { await pipeline.stop() }
+    try await waitUntil { await pipeline.snapshot().state == .stopped }
+    #expect(await pipeline.diagnostics().activeFrameSequence == 7)
+    #expect(await pipeline.diagnostics().analyzedFrameCount == 0)
     await gate.releaseNext()
-    await Task.yield()
+    await stop.value
     let snapshot = await pipeline.snapshot()
     #expect(snapshot.state == .stopped)
     #expect(await pipeline.diagnostics().analyzedFrameCount == 0)
     #expect(snapshot.latestResult == nil)
     #expect(await activity.values == [true, false])
+    await pipeline.start(cadence: .twoFPS, requestedFeatures: [.penCap])
+    await pipeline.submit(try displayedFrame(sequence: 8))
+    try await waitUntil { await gate.startedSequences == [7, 8] }
+    await gate.releaseNext()
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 1 }
+    #expect(await pipeline.snapshot().latestResult?.displayedFrame.frame.sequence == 8)
+    await pipeline.stop()
+  }
+
+  @Test("configuration changes retain one held worker and coalesce replacement analysis")
+  func reconfigurationWaitsForPriorWorker() async throws {
+    let gate = AnalysisGate()
+    let pipeline = PlotterSceneAnalysisPipeline(clock: DeterministicRuntimeClock()) { frame in
+      await gate.block(frame.sequence)
+      return sceneMeasurement(for: frame)
+    }
+    await pipeline.start(cadence: .twoFPS, requestedFeatures: [.penCap])
+    await pipeline.submit(try displayedFrame(sequence: 1))
+    try await waitUntil { await gate.startedSequences == [1] }
+    for index in 2...20 {
+      await pipeline.setAnalysisRegion(PixelRect(x: index, y: 0, width: 1, height: 1))
+      await pipeline.submit(try displayedFrame(sequence: UInt64(index)))
+    }
+    #expect(await gate.startedSequences == [1])
+    #expect(await pipeline.diagnostics().activeFrameSequence == 1)
+    #expect(await pipeline.diagnostics().pendingFrameSequence == 20)
+    await gate.releaseNext()
+    try await waitUntil { await gate.startedSequences == [1, 20] }
+    await gate.releaseNext()
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 1 }
+    #expect(await gate.maximumActiveCount == 1)
+    #expect(await pipeline.snapshot().latestResult?.displayedFrame.frame.sequence == 20)
+    await pipeline.stop()
   }
 
   @Test("failed analysis always releases its preview owner")
@@ -296,12 +334,17 @@ struct PlotterSceneAnalysisPipelineTests {
 private actor AnalysisGate {
   private(set) var startedSequences: [UInt64] = []
   private var continuations: [CheckedContinuation<Void, Never>] = []
+  private var activeCount = 0
+  private(set) var maximumActiveCount = 0
 
   func block(_ sequence: UInt64) async {
     startedSequences.append(sequence)
+    activeCount += 1
+    maximumActiveCount = max(maximumActiveCount, activeCount)
     await withCheckedContinuation { continuation in
       continuations.append(continuation)
     }
+    activeCount -= 1
   }
 
   func releaseNext() {

@@ -208,6 +208,7 @@ public struct PlotterDrawingRunSnapshot: Hashable, Sendable {
   public let review: PlotterDrawingRunReviewState
   public let lastRefusal: PlotterDrawingRunRefusal?
   public let physicalEvidenceClaimed: Bool
+  public let readiness: PlotterDrawingRunReadiness
 }
 
 public enum PlotterDrawingRunSubmissionDisposition: Hashable, Sendable {
@@ -218,11 +219,6 @@ public enum PlotterDrawingRunSubmissionDisposition: Hashable, Sendable {
 public struct PlotterDrawingRunSubmissionResult: Hashable, Sendable {
   public let disposition: PlotterDrawingRunSubmissionDisposition
   public let snapshot: PlotterDrawingRunSnapshot
-}
-
-@MainActor
-public protocol PlotterDrawingRunIntentSink: AnyObject {
-  func submitDrawingRun(_ submission: PlotterDrawingRunSubmission) async
 }
 
 public actor PlotterDrawingRunRuntime {
@@ -267,6 +263,7 @@ public actor PlotterDrawingRunRuntime {
   private struct SourceState: Sendable {
     var revision = PlotterDrawingRunRevision(rawValue: 0)
     var phase = PlotterDrawingRunPhase.idle
+    var readiness = PlotterDrawingRunReadiness.synchronizing
     var active: ActiveRun?
     var progress: DrawingPlanProgressSnapshot?
     var terminal: PlotterDrawingRunTerminal?
@@ -333,8 +330,12 @@ public actor PlotterDrawingRunRuntime {
     if case .appending = state.evidencePersistence {
       return snapshot(state, environment: environment)
     }
+    let previous = snapshot(state, environment: environment)
     state.currentPlanIdentity = currentFacts.plan?.identity
+    state.readiness = readiness(state: state, facts: currentFacts, controller: currentFacts.interpreter)
     if state.active == nil, state.terminal == nil { state.phase = .idle }
+    guard snapshot(state, environment: environment) != previous else { return previous }
+    advance(&state)
     states[environment] = state
     return publish(state, environment: environment)
   }
@@ -449,13 +450,25 @@ public actor PlotterDrawingRunRuntime {
   public func snapshot(
     environment: PlotterEnvironment
   ) async -> PlotterDrawingRunSnapshot {
-    var state = states[environment] ?? SourceState()
-    if state.phase == .executingPlan {
-      state.progress = await interpreter.snapshot()?.drawingPlanProgress ?? state.progress
-      states[environment] = state
-      _ = publish(state, environment: environment)
+    let polled = states[environment] ?? SourceState()
+    guard polled.phase == .executingPlan else {
+      return snapshot(polled, environment: environment)
     }
-    return snapshot(state, environment: environment)
+    let progress = await interpreter.snapshot()?.drawingPlanProgress
+    // The lower poll can suspend across Stop, evidence settlement or a new-run
+    // handoff. Merge progress only into the exact state that requested it.
+    var current = states[environment] ?? SourceState()
+    guard current.phase == .executingPlan,
+      current.active?.runID == polled.active?.runID,
+      current.revision == polled.revision
+    else { return snapshot(current, environment: environment) }
+    if let progress, let previous = current.progress,
+      !progress.isExecutionFrontier(atLeastAsAdvancedAs: previous) {
+      return snapshot(current, environment: environment)
+    }
+    current.progress = progress ?? current.progress
+    states[environment] = current
+    return publish(current, environment: environment)
   }
 
   public func submit(
@@ -526,88 +539,18 @@ public actor PlotterDrawingRunRuntime {
     state initialState: SourceState
   ) async -> PlotterDrawingRunSubmissionResult {
     let environment = currentFacts.environment
-    guard environment == .live else {
-      return refuse(
-        submission,
-        state: initialState,
-        owner: Authority.run,
-        reason: .simulatedRunIsNonphysical,
-        remedy: .switchToLiveSource
-      )
-    }
-    guard initialState.active == nil else {
-      return refuse(
-        submission,
-        state: initialState,
-        owner: Authority.run,
-        reason: .activeRunOwnsWorkflow,
-        remedy: .waitForActiveRun
-      )
-    }
-    guard initialState.terminal == nil else {
-      return refuse(
-        submission,
-        state: initialState,
-        owner: Authority.run,
-        reason: .terminalRequiresNewRunHandoff,
-        remedy: .beginNewPlan
-      )
-    }
-    guard case .available = initialState.evidenceArchiveAvailability else {
-      return refuse(
-        submission,
-        state: initialState,
-        owner: Authority.evidence,
-        reason: .evidenceArchiveUnavailable,
-        remedy: .restoreEvidenceArchive
-      )
-    }
-    guard currentFacts.interactiveLearningIsComplete else {
-      return refuse(
-        submission,
-        state: initialState,
-        owner: Authority.learning,
-        reason: .learningIncomplete,
-        remedy: .restoreLearningAuthority
-      )
+    let controller = await interpreter.snapshot()
+    let currentState = states[environment] ?? initialState
+    let currentReadiness = readiness(state: currentState, facts: currentFacts, controller: controller)
+    if case .unavailable(let issue) = currentReadiness {
+      return refuse(submission, state: currentState, owner: issue.owner,
+        reason: issue.reason, remedy: issue.remedy, detail: issue.detail)
     }
     guard let plan = currentFacts.plan,
-      submission.projection.planIdentity == plan.identity
-    else {
-      return refuse(
-        submission,
-        state: initialState,
-        owner: Authority.draft,
-        reason: .exactPlanUnavailable,
-        remedy: .reviewExactPlan
-      )
-    }
-    guard currentFacts.paperCoverageIsCurrent else {
-      return refuse(
-        submission,
-        state: initialState,
-        owner: Authority.paper,
-        reason: .paperCoverageNotCurrent,
-        remedy: .assertCurrentPaperCoverage
-      )
-    }
-    guard !initialState.blockedPlanHashes.contains(plan.plan.contentHash) else {
-      return refuse(
-        submission,
-        state: initialState,
-        owner: Authority.run,
-        reason: .planMayAlreadyContainInk,
-        remedy: .movePlanAwayFromPossibleInk
-      )
-    }
-    guard Self.controllerIsReady(await interpreter.snapshot()), !admissionClosed else {
-      return refuse(
-        submission,
-        state: initialState,
-        owner: admissionClosed ? Authority.run : Authority.interpreter,
-        reason: admissionClosed ? .admissionClosed : .controllerUnavailable,
-        remedy: admissionClosed ? .restartApplication : .restoreControllerReadiness
-      )
+      submission.projection.planIdentity == plan.identity else {
+      return refuse(submission, state: currentState, owner: Authority.draft,
+        reason: .exactPlanUnavailable, remedy: .reviewExactPlan,
+        detail: "Review the current drawing target before drawing.")
     }
 
     let runID = RunID()
@@ -618,7 +561,8 @@ public actor PlotterDrawingRunRuntime {
       capturedEffectFacts: CapturedEffectFacts(currentFacts),
       stopCapabilityID: PlotterDrawingRunStopCapabilityID()
     )
-    var state = initialState
+    var state = currentState
+    state.readiness = currentReadiness
     state.active = active
     state.phase = .validating
     state.lastRefusal = nil
@@ -634,7 +578,7 @@ public actor PlotterDrawingRunRuntime {
     states[environment] = state
     _ = publish(state, environment: environment)
 
-    if let failure = await preEffectRefusal(for: active) {
+    if let failure = await preEffectRefusal(for: active, requiresPenUp: false) {
       return refuseBeforeFirstEffect(
         submission,
         active: active,
@@ -1340,6 +1284,7 @@ public actor PlotterDrawingRunRuntime {
     var state = initialState
     state.phase = .idle
     state.terminal = nil
+    state.readiness = .synchronizing
     state.baselineFrame = nil
     state.postFrame = nil
     state.observation = nil
@@ -1512,7 +1457,8 @@ public actor PlotterDrawingRunRuntime {
   }
 
   private func preEffectRefusal(
-    for owner: ActiveRun
+    for owner: ActiveRun,
+    requiresPenUp: Bool = true
   ) async -> PreEffectRefusal? {
     let firstFacts = await facts.drawingRunFacts(for: .live)
     if let refusal = effectFactRefusal(owner: owner, current: firstFacts) {
@@ -1546,7 +1492,7 @@ public actor PlotterDrawingRunRuntime {
         remedy: admissionClosed ? .restartApplication : .waitForActiveRun
       )
     }
-    guard Self.controllerIsReady(interpreterSnapshot) else {
+    guard Self.controllerIsReady(interpreterSnapshot, requiresPenUp: requiresPenUp) else {
       return PreEffectRefusal(
         currentFacts: currentFacts,
         owner: Authority.interpreter,
@@ -1623,6 +1569,8 @@ public actor PlotterDrawingRunRuntime {
     state.active = nil
     state.phase = .idle
     state.currentPlanIdentity = failure.currentFacts.plan?.identity
+    state.readiness = readiness(state: state, facts: failure.currentFacts,
+      controller: failure.currentFacts.interpreter)
     state.progress = nil
     state.baselineFrame = nil
     state.postFrame = nil
@@ -1742,7 +1690,8 @@ public actor PlotterDrawingRunRuntime {
       review: state.review,
       lastRefusal: state.lastRefusal,
       physicalEvidenceClaimed: environment == .live
-        && state.terminal?.disposition == .succeeded
+        && state.terminal?.disposition == .succeeded,
+      readiness: lifecycleReadiness(state) ?? state.readiness
     )
   }
 
@@ -1751,25 +1700,35 @@ public actor PlotterDrawingRunRuntime {
     state initialState: SourceState,
     owner: EpisodeAuthorityID,
     reason: PlotterDrawingRunRefusalReason,
-    remedy: PlotterDrawingRunRemedy
+    remedy: PlotterDrawingRunRemedy,
+    detail: String? = nil
   ) -> PlotterDrawingRunSubmissionResult {
+    let environment = submission.projection.environment
+    var state = initialState
+    let previousReadiness = snapshot(state, environment: environment).readiness
+    if let detail {
+      state.readiness = .unavailable(.init(owner: owner, reason: reason, remedy: remedy, detail: detail))
+    }
+    if snapshot(state, environment: environment).readiness != previousReadiness {
+      advance(&state)
+    }
     let refusal = PlotterDrawingRunRefusal(
       requestID: submission.requestID,
       projection: projection(
-        initialState,
-        environment: submission.projection.environment
+        state,
+        environment: environment
       ),
       owner: owner,
       reason: reason,
-      remedy: remedy
+      remedy: remedy,
+      detail: detail
     )
-    var state = initialState
     state.lastRefusal = refusal
-    states[submission.projection.environment] = state
-    _ = publish(state, environment: submission.projection.environment)
+    states[environment] = state
+    _ = publish(state, environment: environment)
     return PlotterDrawingRunSubmissionResult(
       disposition: .refused(refusal),
-      snapshot: snapshot(state, environment: submission.projection.environment)
+      snapshot: snapshot(state, environment: environment)
     )
   }
 
@@ -1856,18 +1815,78 @@ public actor PlotterDrawingRunRuntime {
     state.revision = PlotterDrawingRunRevision(rawValue: state.revision.rawValue &+ 1)
   }
 
-  private static func controllerIsReady(_ snapshot: RunInterpreterSnapshot?) -> Bool {
-    guard let snapshot else { return false }
+  private func readiness(
+    state: SourceState,
+    facts: PlotterDrawingRunExternalFacts,
+    controller: RunInterpreterSnapshot?
+  ) -> PlotterDrawingRunReadiness {
+    func unavailable(_ owner: EpisodeAuthorityID, _ reason: PlotterDrawingRunRefusalReason,
+                     _ remedy: PlotterDrawingRunRemedy, _ detail: String) -> PlotterDrawingRunReadiness {
+      .unavailable(.init(owner: owner, reason: reason, remedy: remedy, detail: detail))
+    }
+    if let lifecycle = lifecycleReadiness(state) { return lifecycle }
+    if facts.environment != .live {
+      return unavailable(Authority.run, .simulatedRunIsNonphysical, .switchToLiveSource, "Select the plotter camera and LIVE controller to draw.")
+    }
+    guard case .available = state.evidenceArchiveAvailability else {
+      return unavailable(Authority.evidence, .evidenceArchiveUnavailable, .restoreEvidenceArchive, "The drawing archive could not be loaded. Open Diagnostics for the file error.")
+    }
+    if !facts.interactiveLearningIsComplete {
+      return unavailable(Authority.learning, .learningIncomplete, .restoreLearningAuthority, "Use Saved Learning or complete Guided Learning/Setup before drawing.")
+    }
+    if !facts.paperCoverageIsCurrent {
+      return unavailable(Authority.paper, .paperCoverageNotCurrent, .assertCurrentPaperCoverage, "Confirm that the current sheet covers the drawing area.")
+    }
+    guard let plan = facts.plan else {
+      return unavailable(Authority.draft, .exactPlanUnavailable, .reviewExactPlan, "Show the portrait on the plotter video and fit its target inside the current drawing area.")
+    }
+    if state.blockedPlanHashes.contains(plan.plan.contentHash) {
+      return unavailable(Authority.run, .planMayAlreadyContainInk, .movePlanAwayFromPossibleInk, "This plan may already contain ink. Move the target or use a new sheet for the next drawing.")
+    }
+    if let detail = Self.controllerReadinessDetail(controller, requiresPenUp: false) {
+      return unavailable(Authority.interpreter, .controllerUnavailable, .restoreControllerReadiness, detail)
+    }
+    return .ready
+  }
+
+  private func lifecycleReadiness(_ state: SourceState) -> PlotterDrawingRunReadiness? {
+    if admissionClosed {
+      return .unavailable(.init(owner: Authority.run, reason: .admissionClosed,
+        remedy: .restartApplication, detail: "The application is shutting down."))
+    }
+    if state.active != nil {
+      return .unavailable(.init(owner: Authority.run, reason: .activeRunOwnsWorkflow,
+        remedy: .waitForActiveRun, detail: "The current drawing is still running. Stop it or wait for completion."))
+    }
+    if state.terminal != nil {
+      return .unavailable(.init(owner: Authority.run, reason: .terminalRequiresNewRunHandoff,
+        remedy: .beginNewPlan, detail: "Choose New Drawing to prepare the next drawing."))
+    }
+    return nil
+  }
+
+  private static func controllerIsReady(
+    _ snapshot: RunInterpreterSnapshot?, requiresPenUp: Bool = true
+  ) -> Bool {
+    controllerReadinessDetail(snapshot, requiresPenUp: requiresPenUp) == nil
+  }
+
+  private static func controllerReadinessDetail(
+    _ snapshot: RunInterpreterSnapshot?, requiresPenUp: Bool
+  ) -> String? {
+    guard let snapshot else { return "Connect the plotter controller before drawing." }
     let machine = snapshot.machine
-    return snapshot.currentOperation == .idle
-      && machine.connection == .connected
-      && machine.controllerState == .idle
-      && machine.motionGuardState == .active
-      && machine.penState == .up
-      && machine.position != nil
-      && !machine.operationInFlight
-      && machine.stickyAmbiguity == nil
-      && !machine.pins.hasRelevantLimitAsserted
+    if snapshot.currentOperation != .idle || machine.operationInFlight {
+      return "The controller is busy. Stop or finish its current operation."
+    }
+    if machine.connection != .connected { return "Connect the plotter controller before drawing." }
+    if machine.controllerState != .idle { return "The controller must report Idle before drawing." }
+    if machine.motionGuardState != .active { return "Enable Motion before drawing." }
+    if requiresPenUp && machine.penState != .up { return "Pen Up did not settle; inspect the pen before continuing." }
+    if machine.position == nil { return "Refresh the controller position before drawing." }
+    if machine.stickyAmbiguity != nil { return "Controller settlement is uncertain. Inspect the machine and reconnect." }
+    if machine.pins.hasRelevantLimitAsserted { return "A controller limit input is asserted. Clear the limit before drawing." }
+    return nil
   }
 
   private static func executionDisposition(

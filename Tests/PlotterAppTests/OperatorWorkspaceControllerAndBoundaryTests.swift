@@ -47,6 +47,10 @@ extension PlotterApplicationRuntimeTests {
     #expect(!workspace.controllerSessionProjection.motionAuthorized)
     #expect(workspace.controllerSessionProjection.controllerAlarmEvidenceText == "ALARM:1")
     #expect(workspace.controllerSessionProjection.controllerAttentionText == "Controller alarm: ALARM:1")
+    let alarmUI = workspace.testPlotterUIProjection()
+    #expect(alarmUI.manualMotion.controllerAlertText(
+      alarmUI.controllerSession.controllerAttentionText) == "Controller alarm: ALARM:1")
+    #expect(alarmUI.semantic.request(for: PlotterAppUIActionID.controllerClearAlarm) != nil)
     #expect(workspace.controllerSessionProjection.controllerLimitInputsText == "clear — sampled Pn has no X/Y/Z")
     #expect(
       workspace.controllerSessionProjection.controllerAlarmUnlockReadinessText == "armed — manual clear available"
@@ -773,9 +777,10 @@ extension PlotterApplicationRuntimeTests {
   }
 
   @Test(
-    "restored Learning pose does not gate manual Pen actuation"
+    "saved Learning restores accepted milestones with Unknown or Down pen without replaying cap clicks",
+    arguments: [PenState.unknown, .down]
   )
-  func acceptedBoundariesSurviveSoftwareRelaunchWithoutReplayingMotion() async throws {
+  func acceptedBoundariesSurviveSoftwareRelaunchWithoutReplayingMotion(_ penState: PenState) async throws {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
@@ -841,6 +846,7 @@ extension PlotterApplicationRuntimeTests {
     #expect(saved.boundarySideAggregates.count == 4)
     let cancelCountAtRelaunch = await machine.cancelCount
     let motionLogAtRelaunch = await log.values
+    await machine.setPenState(penState)
 
     let relaunchedCamera = try TestObservationCameraSession()
     let relaunched = plotterApplicationRuntime(
@@ -868,6 +874,9 @@ extension PlotterApplicationRuntimeTests {
         == [.applySavedLearning, .startNewLearning]
     )
     await relaunched.performTestExerciseAction(.applySavedLearning, for: savedOwner)
+    #expect(relaunched.penInteractionCompleted)
+    #expect(relaunched.activeExerciseAttemptID == nil)
+    #expect(relaunched.testActionSurfacePresentation.pointSelectionRequest == nil)
     #expect(relaunched.controllerPoseApplicability == .currentSession)
     #expect(relaunched.testAcceptedBoundaryAggregates == first.testAcceptedBoundaryAggregates)
     await relaunched.establishMachineSession(machine.descriptor)

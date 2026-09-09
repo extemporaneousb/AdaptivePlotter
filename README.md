@@ -131,10 +131,11 @@ circle centers its applicability rectangle. The accepted Drawing Boundary is the
 Drawing Studio drawable region. The target evidence contract permits the
 registration's inferred affine projection outside its inset applicability
 rectangle only for diagnostic presentation; that extrapolation cannot support
-attributable camera/ink evidence without newly validated applicability. Current
-source at DOC-01 violates that contract by reusing the extrapolated projection
-in run geometry that can later be classified attributable. This known defect is
-assigned to `FIX-01` before the physical baseline. Exercise 1.4 does not
+attributable camera/ink evidence without newly validated applicability.
+An outside-applicability plan can execute but invokes no Vision and records
+zero verified strokes as non-attributable. At `DOC-01`, extrapolated run geometry
+could incorrectly become attributable; completed `FIX-01` established the
+current evidence boundary. Exercise 1.4 does not
 change zoom, pan, preferred zoom, or viewport focus
 automatically; manual presentation transforms remain operator controlled.
 

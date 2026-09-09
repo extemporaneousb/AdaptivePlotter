@@ -1,10 +1,19 @@
 import Foundation
+import AppKit
 import OSLog
 import PlotterUI
 
 /// Bounded metadata at the existing ingress, with no parallel event store.
 enum WorkbenchRequestTelemetry {
   private static let logger = Logger(subsystem: "com.adaptiveplotter.app", category: "ui-actions")
+
+  /// Installed only by the opt-in signed-app gate. This observes a real native
+  /// control handler; it does not synthesize an action or retain an event log.
+  @MainActor static var nativeActionObserver: ((String, TimeInterval?) -> Void)?
+
+  @MainActor static func nativeActionHandled(_ identifier: String) {
+    nativeActionObserver?(identifier, NSApplication.shared.currentEvent?.timestamp)
+  }
 
   static func received(_ request: PlotterUIRequest, title: String) {
     logger.info("UI received request=\(request.id.rawValue.uuidString, privacy: .public) action=\(title, privacy: .public) revision=\(request.uiRevision.rawValue)")

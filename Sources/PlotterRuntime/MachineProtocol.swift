@@ -378,6 +378,36 @@ public struct DrawingPlanProgressSnapshot: Codable, Hashable, Sendable {
     self.activeStrokeID = activeStrokeID
     self.activeSegmentIndex = activeSegmentIndex
   }
+
+  /// Publication ordering within one lower drawing operation. These are the
+  /// interpreter's existing execution/commit frontiers, not a new revision.
+  public func isExecutionFrontier(atLeastAsAdvancedAs earlier: Self) -> Bool {
+    guard operationID == earlier.operationID,
+      planRevisionID == earlier.planRevisionID,
+      plannedStrokeCount == earlier.plannedStrokeCount,
+      plannedSegmentCount == earlier.plannedSegmentCount,
+      commandedStrokeCount >= earlier.commandedStrokeCount,
+      controllerCompletedStrokeCount >= earlier.controllerCompletedStrokeCount,
+      submittedSegmentCount >= earlier.submittedSegmentCount,
+      controllerCompletedSegmentCount >= earlier.controllerCompletedSegmentCount,
+      completedStrokeIDs.starts(with: earlier.completedStrokeIDs),
+      completedCheckpointIDs.starts(with: earlier.completedCheckpointIDs)
+    else { return false }
+    if commandedStrokeCount == earlier.commandedStrokeCount,
+      controllerCompletedStrokeCount == earlier.controllerCompletedStrokeCount,
+      submittedSegmentCount == earlier.submittedSegmentCount,
+      controllerCompletedSegmentCount == earlier.controllerCompletedSegmentCount,
+      completedStrokeIDs.count == earlier.completedStrokeIDs.count,
+      let active = earlier.activeStrokeID {
+      // Starting the next stroke publishes its identity before submitting a
+      // segment. At unchanged frontiers, the preceding nil marker is older.
+      guard activeStrokeID == active else { return false }
+      if let segment = earlier.activeSegmentIndex {
+        guard let activeSegmentIndex, activeSegmentIndex >= segment else { return false }
+      }
+    }
+    return true
+  }
 }
 
 public enum DrawingPlanRefusal: Codable, Hashable, Sendable {

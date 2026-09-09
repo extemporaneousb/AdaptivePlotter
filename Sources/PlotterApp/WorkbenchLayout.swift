@@ -2,35 +2,9 @@ import CoreGraphics
 import Foundation
 
 enum LearningWorkbenchLayoutPolicy {
-  static let minimumWindowWidth: CGFloat = 1_320
-  static let minimumActionSurfaceWidth: CGFloat = 640
-  static let minimumActionSurfaceHeight: CGFloat = 480
+  static let minimumWindowWidth: CGFloat = 1_000
 }
 
-enum OverlayCardLayoutPolicy {
-  static let minimumInspectorWidth: CGFloat = 280
-  static let idealInspectorWidth: CGFloat = 360
-  static let maximumInspectorWidth: CGFloat = 440
-  static let supportedInspectorWidths = [
-    minimumInspectorWidth,
-    idealInspectorWidth,
-    maximumInspectorWidth,
-  ]
-  static let minimumCardWidth: CGFloat = 248
-
-  static func columnCount(availableWidth: CGFloat) -> Int {
-    _ = availableWidth
-    return 1
-  }
-
-  static func contentWidth(availableWidth: CGFloat, horizontalPadding: CGFloat = 16) -> CGFloat {
-    max(0, availableWidth.isFinite ? availableWidth - horizontalPadding : 0)
-  }
-}
-
-/// Keeps workflow action titles readable in the pinned exercise pane. The
-/// grid gives up a column before compressing a button below this width; labels
-/// then grow vertically instead of being truncated.
 enum ExerciseActionLayoutPolicy {
   static let minimumButtonWidth: CGFloat = 180
   static let minimumButtonHeight: CGFloat = 32
@@ -38,260 +12,81 @@ enum ExerciseActionLayoutPolicy {
 
   static func maximumColumnCount(availableWidth: CGFloat) -> Int {
     let width = max(0, availableWidth.isFinite ? availableWidth : 0)
-    return max(
-      1,
-      Int((width + horizontalSpacing) / (minimumButtonWidth + horizontalSpacing))
-    )
+    return max(1, Int((width + horizontalSpacing) / (minimumButtonWidth + horizontalSpacing)))
   }
 }
 
-enum WorkbenchPane: Hashable, Sendable {
-  case motion
-  case learningPath
-}
+enum WorkbenchPanel: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+  case guidedLearning, video, motion, activeLearning, portraitStudio
 
-enum WorkbenchPanel: CaseIterable, Hashable, Sendable {
-  case learningPath
-  case motion
-  case videoSettings
-
+  var id: String { rawValue }
   var title: String {
     switch self {
-    case .learningPath: "Learning Path"
+    case .guidedLearning: "Guided Learning"
+    case .video: "Video"
     case .motion: "Motion"
-    case .videoSettings: "Video Settings"
+    case .activeLearning: "Active Learning"
+    case .portraitStudio: "Portrait Studio"
     }
   }
-
   var systemImage: String {
     switch self {
-    case .learningPath: "sidebar.left"
-    case .motion: "rectangle.bottomthird.inset.filled"
-    case .videoSettings: "sidebar.trailing"
+    case .guidedLearning: "graduationcap"
+    case .video: "video"
+    case .motion: "arrow.up.and.down.and.arrow.left.and.right"
+    case .activeLearning: "chart.xyaxis.line"
+    case .portraitStudio: "person.crop.rectangle"
     }
   }
-
-  func actionTitle(isPresented: Bool) -> String {
-    "\(isPresented ? "Hide" : "Show") \(title)"
-  }
-}
-
-/// Window-local presentation state. Hidden panes do not mutate Learning Path,
-/// camera, controller, or exercise authority, and the camera is never a
-/// hideable pane.
-struct WorkbenchPaneVisibility: Equatable, Sendable {
-  var motionIsPresented: Bool
-  var learningPathIsPresented: Bool
-
-  init(
-    motionIsPresented: Bool = false,
-    learningPathIsPresented: Bool = true
-  ) {
-    self.motionIsPresented = motionIsPresented
-    self.learningPathIsPresented = learningPathIsPresented
-  }
-
-  func isPresented(_ pane: WorkbenchPane) -> Bool {
-    switch pane {
-    case .motion: motionIsPresented
-    case .learningPath: learningPathIsPresented
-    }
-  }
-
-  func toggling(_ pane: WorkbenchPane) -> WorkbenchPaneVisibility {
-    var result = self
-    switch pane {
-    case .motion: result.motionIsPresented.toggle()
-    case .learningPath: result.learningPathIsPresented.toggle()
-    }
-    return result
-  }
-}
-
-enum VideoSettingsVisibilityAction: Hashable, Sendable {
-  case show
-  case hide
-}
-
-/// One atomic, window-local value for pane and inspector presentation. A Show
-/// transition prepares side panes and presents Video Settings in the same
-/// assignment, so it cannot wait behind unrelated main-actor work.
-struct WorkbenchLayoutState: Equatable, Sendable {
-  private(set) var panes: WorkbenchPaneVisibility
-  private(set) var videoSettingsIsPresented: Bool
-
-  init(
-    panes: WorkbenchPaneVisibility = WorkbenchPaneVisibility(),
-    videoSettingsIsPresented: Bool = false
-  ) {
-    self.panes = panes
-    self.videoSettingsIsPresented = videoSettingsIsPresented
-  }
-
-  func toggling(_ pane: WorkbenchPane) -> Self {
-    Self(
-      panes: panes.toggling(pane),
-      videoSettingsIsPresented: videoSettingsIsPresented
-    )
-  }
-
-  func hidingVideoSettings() -> Self {
-    Self(panes: panes, videoSettingsIsPresented: false)
-  }
-
-  func collapsingVideoSettingsIfNeeded(
-    availableContentWidth: CGFloat,
-    policy: VideoSettingsVisibilityPolicy
-  ) -> Self {
-    guard videoSettingsIsPresented,
-      policy.shouldCollapsePresentedVideoSettings(
-        availableContentWidth: availableContentWidth,
-        panes: panes
-      )
-    else { return self }
-    return hidingVideoSettings()
-  }
-}
-
-enum VideoSettingsUnavailableReason: Hashable, Sendable {
-  case protectedCameraRequiresWindowWidth(Int)
-
-  var message: String {
+  var defaultPosition: WorkbenchDock {
     switch self {
-    case .protectedCameraRequiresWindowWidth(let width):
-      "Widen the window to at least \(width) points so the protected camera and Video Settings can coexist."
+    case .guidedLearning: .left
+    case .video, .portraitStudio: .right
+    case .motion, .activeLearning: .bottom
     }
+  }
+  var isInitiallyPresented: Bool {
+    self == .guidedLearning || self == .video || self == .motion
   }
 }
 
-struct VideoSettingsPresentation: Equatable, Sendable {
-  let isPresented: Bool
-  let action: VideoSettingsVisibilityAction
-  let actionTitle: String
-  let unavailableReason: VideoSettingsUnavailableReason?
-
-  var isActionEnabled: Bool { unavailableReason == nil }
-  var unavailableReasonText: String? { unavailableReason?.message }
+enum WorkbenchDock: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+  case left, bottom, right
+  var id: String { rawValue }
+  var title: String { rawValue.capitalized }
 }
 
-/// Pure inspector admission policy. The caller supplies the workbench content
-/// width: while hidden it is the full window content width; while shown it is
-/// the width remaining after the native inspector. Checking Show admission
-/// against the protected workbench, inspector, and separator widths prevents
-/// an open-then-close flash.
-struct VideoSettingsVisibilityPolicy: Equatable, Sendable {
-  let minimumCameraWidth: CGFloat
-  let minimumLearningWidth: CGFloat
-  let splitSeparation: CGFloat
-  let inspectorWidth: CGFloat
-  let inspectorSeparation: CGFloat
-
-  init(
-    minimumCameraWidth: CGFloat = 640,
-    minimumLearningWidth: CGFloat = 340,
-    splitSeparation: CGFloat = 8,
-    inspectorWidth: CGFloat = 360,
-    inspectorSeparation: CGFloat = 8
-  ) {
-    self.minimumCameraWidth = Self.nonnegativeFinite(minimumCameraWidth)
-    self.minimumLearningWidth = Self.nonnegativeFinite(minimumLearningWidth)
-    self.splitSeparation = Self.nonnegativeFinite(splitSeparation)
-    self.inspectorWidth = Self.nonnegativeFinite(inspectorWidth)
-    self.inspectorSeparation = Self.nonnegativeFinite(inspectorSeparation)
+/// Durable window preferences only. Moving or hiding a panel cannot close a
+/// drawing draft, change the camera role, or mutate operational authority.
+struct WorkbenchLayoutState: Codable, Equatable, Sendable {
+  struct Placement: Codable, Equatable, Sendable {
+    var position: WorkbenchDock
+    var isPresented: Bool
   }
 
-  /// Video Settings can always be reached once the protected camera and inspector
-  /// fit. Side panes collapse before this lower bound is used.
-  var minimumWidthToShow: CGFloat {
-    minimumCameraWidth + inspectorWidth + inspectorSeparation
-  }
+  private var placements: [WorkbenchPanel: Placement] = [:]
 
-  func minimumContentWidth(for panes: WorkbenchPaneVisibility) -> CGFloat {
-    minimumCameraWidth
-      + (panes.learningPathIsPresented ? minimumLearningWidth + splitSeparation : 0)
+  func placement(of panel: WorkbenchPanel) -> Placement {
+    placements[panel] ?? Placement(position: panel.defaultPosition, isPresented: panel.isInitiallyPresented)
   }
-
-  /// The Learning panel is presentation only. Stop is also in the persistent
-  /// command bar, so opening an inspector never depends on exercise completion.
-  func preparingPanesToShow(
-    _ panes: WorkbenchPaneVisibility,
-    availableWindowWidth: CGFloat
-  ) -> WorkbenchPaneVisibility? {
-    let width = Self.nonnegativeFinite(availableWindowWidth)
-    func fits(_ candidate: WorkbenchPaneVisibility) -> Bool {
-      width >= minimumContentWidth(for: candidate) + inspectorWidth + inspectorSeparation
-    }
-    var candidate = panes
-    if fits(candidate) { return candidate }
-    candidate.learningPathIsPresented = false
-    return fits(candidate) ? candidate : nil
+  func isPresented(_ panel: WorkbenchPanel) -> Bool { placement(of: panel).isPresented }
+  func panels(in dock: WorkbenchDock) -> [WorkbenchPanel] {
+    WorkbenchPanel.allCases.filter { isPresented($0) && placement(of: $0).position == dock }
   }
+  var hasVisiblePanels: Bool { WorkbenchPanel.allCases.contains(where: isPresented) }
 
-  func presentation(
-    layout: WorkbenchLayoutState,
-    availableWindowWidth: CGFloat
-  ) -> VideoSettingsPresentation {
-    if layout.videoSettingsIsPresented {
-      return VideoSettingsPresentation(
-        isPresented: true,
-        action: .hide,
-        actionTitle: WorkbenchPanel.videoSettings.actionTitle(isPresented: true),
-        unavailableReason: nil
-      )
-    }
-
-    let width = Self.nonnegativeFinite(availableWindowWidth)
-    let unavailableReason: VideoSettingsUnavailableReason?
-    if width < minimumWidthToShow {
-      unavailableReason = .protectedCameraRequiresWindowWidth(Int(minimumWidthToShow))
-    } else {
-      unavailableReason = nil
-    }
-    return VideoSettingsPresentation(
-      isPresented: false,
-      action: .show,
-      actionTitle: WorkbenchPanel.videoSettings.actionTitle(isPresented: false),
-      unavailableReason: unavailableReason
-    )
+  mutating func setPresented(_ panel: WorkbenchPanel, _ presented: Bool) {
+    var value = placement(of: panel)
+    value.isPresented = presented
+    placements[panel] = value
   }
-
-  /// Returns the complete next layout for one synchronous state assignment.
-  /// A refused Show has no state to commit.
-  func transition(
-    from layout: WorkbenchLayoutState,
-    action: VideoSettingsVisibilityAction,
-    availableWindowWidth: CGFloat
-  ) -> WorkbenchLayoutState? {
-    switch action {
-    case .hide:
-      return layout.hidingVideoSettings()
-    case .show:
-      guard !layout.videoSettingsIsPresented else { return layout }
-      guard
-        let panes = preparingPanesToShow(
-          layout.panes,
-          availableWindowWidth: availableWindowWidth
-        )
-      else { return nil }
-      return WorkbenchLayoutState(
-        panes: panes,
-        videoSettingsIsPresented: true
-      )
-    }
+  mutating func move(_ panel: WorkbenchPanel, to position: WorkbenchDock) {
+    var value = placement(of: panel)
+    value.position = position
+    placements[panel] = value
   }
-
-  /// While the inspector is open, the geometry reader reports the remaining
-  /// workbench width. Close Video Settings only if even the currently presented
-  /// side panes would violate the protected camera minimum.
-  func shouldCollapsePresentedVideoSettings(
-    availableContentWidth: CGFloat,
-    panes: WorkbenchPaneVisibility
-  ) -> Bool {
-    Self.nonnegativeFinite(availableContentWidth) < minimumContentWidth(for: panes)
+  static func restored(from data: Data) -> Self {
+    (try? JSONDecoder().decode(Self.self, from: data)) ?? Self()
   }
-
-  private static func nonnegativeFinite(_ value: CGFloat) -> CGFloat {
-    guard value.isFinite else { return 0 }
-    return max(0, value)
-  }
+  var encoded: Data { (try? JSONEncoder().encode(self)) ?? Data() }
 }

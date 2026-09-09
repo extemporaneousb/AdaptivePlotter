@@ -57,8 +57,9 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     await workspace.shutdown()
   }
 
-  @Test("reading stale camera presentation cannot invalidate state or replan an open Studio")
-  func cameraFreshnessReadsArePure() async throws {
+  @Test("reading stale or future camera presentation cannot invalidate state or replan an open Studio",
+    arguments: [UInt64(0), UInt64(2_000_000_100)])
+  func cameraFreshnessReadsArePure(unavailableNow: UInt64) async throws {
     let clock = ComputationTestClock()
     let log = EventLog()
     let camera = try TestObservationCameraSession()
@@ -67,7 +68,7 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
         discoverDevices: { [] }, readNanoseconds: { clock.read() }), log: log)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     let initial = workspace.testPlotterUIProjection(includesLearningPath: true)
-    let open = try #require(initial.semantic.request(for: PlotterAppUIActionID.drawingOpen))
+    let open = try #require(initial.semantic.request(for: PlotterAppUIActionID.drawingDraft(.showTarget)))
     #expect(await workspace.submitPlotterUIRequest(open) == .accepted(requestID: open.id))
     try await waitUntil {
       workspace.drawingDraftSnapshot.projection.externalFacts == workspace.drawingDraftExternalFacts.revisions
@@ -75,7 +76,9 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     let live = workspace.testPlotterUIProjection(includesLearningPath: true)
     #expect(live.observationConfiguration.cameraIsLive)
     let baseline = workspace.previewIsolationDiagnostics
-    clock.set(2_000_000_100)
+    // Deliberately place the camera timestamp in the future or past to retain
+    // both negative policy cases independently of the live-frame fixture.
+    clock.set(unavailableNow)
     let stale = workspace.testPlotterUIProjection(includesLearningPath: true)
     #expect(!stale.observationConfiguration.cameraIsLive)
     #expect(stale.semantic.revision != live.semantic.revision)
@@ -86,6 +89,7 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     #expect(after.semanticPresentationRevision == baseline.semanticPresentationRevision)
     #expect(after.drawingDraftSynchronizationCount == baseline.drawingDraftSynchronizationCount)
     #expect(after.plotterUIProjectionBuildCount == baseline.plotterUIProjectionBuildCount + 1)
+    #expect(clock.read() == unavailableNow)
     await workspace.shutdown()
   }
 
@@ -101,13 +105,15 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     try await waitForExecutorTurns { traffic.subscriptionCount == 1 }
     let open = try #require(workspace.testPlotterUIProjection(includesLearningPath: true)
-      .semantic.request(for: PlotterAppUIActionID.drawingOpen))
+      .semantic.request(for: PlotterAppUIActionID.drawingDraft(.showTarget)))
     #expect(await workspace.submitPlotterUIRequest(open) == .accepted(requestID: open.id))
     traffic.inject(revision: 10)
     try await waitForExecutorTurns { workspace.visionAnalysisSnapshot.revision == 10 }
     try await waitUntil {
       workspace.drawingDraftSnapshot.projection.externalFacts == workspace.drawingDraftExternalFacts.revisions
     }
+    let initialSynchronization = try #require(workspace.drawingDraftSynchronizationTask)
+    await initialSynchronization.value
     // Force a cold root compile inside Observation tracking. A warmed compiler
     // cache can conceal dependencies that SwiftUI subscribed to on first render.
     var draft = ManualMotionDraft()
@@ -132,7 +138,13 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     // Yield until queued Observation callbacks can run before checking counts.
     for _ in 0..<10 { await Task.yield() }
     let after = workspace.previewIsolationDiagnostics
-    #expect(workspace.drawingStudioIsPresented)
+    if root.buildCount != rootBuildCount
+      || after.plotterUIProjectionBuildCount != baseline.plotterUIProjectionBuildCount {
+      let receipt = "Analysis video publication crossed baseline: baseline=\(baseline), after=\(after)\n"
+        + root.buildReceipts.joined(separator: "\n") + "\n"
+      FileHandle.standardError.write(Data(receipt.utf8))
+    }
+    #expect(workspace.drawingTargetIsVisible)
     #expect(workspace.actionSurfacePreview.presentationRevision > videoRevision)
     #expect(workspace.lastSceneMeasurement?.frameID == FrameID(rawValue: "fresh-211"))
     #expect(root.buildCount == rootBuildCount)
@@ -216,8 +228,9 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     await workspace.shutdown()
   }
 
-  @Test("120 ambient preview frames invalidate only the video-local projection")
-  func ambientPreviewFramesStayOutOfSemanticProjection() async throws {
+  @Test("120 ambient preview frames invalidate only the video-local projection",
+    arguments: [false, true])
+  func ambientPreviewFramesStayOutOfSemanticProjection(holdInitialPaperLoad: Bool) async throws {
     let log = EventLog()
     let camera = try TestObservationCameraSession()
     let previewFrames = TestPreviewFrameUpdateSource()
@@ -225,6 +238,8 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     let savedCheckpoint = try acceptedPenLearningTestCheckpoint(
       identity: identities.learningPathIdentity
     )
+    let loadGate = holdInitialPaperLoad ? DrawingRunHoldGate() : nil
+    let paper = ComputationPaperPersistenceProbe(loadGate: loadGate)
     let workspace = plotterApplicationRuntime(
       machine: try LowerMachineSessionFixture(log: log),
       observationSessionOverride: resolvedObservationSession(
@@ -234,6 +249,7 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       statePersistencePort: TestApplicationStatePersistencePort(
         loadCheckpoint: { .loaded(savedCheckpoint) }
       ),
+      drawingDraftRuntime: nominalDrawingDraftRuntime(paperPersistence: paper),
       tipCalibrationSemanticIdentities: identities,
       log: log
     )
@@ -262,11 +278,28 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       workspace.artifactResetEpisodeSnapshot.savedLearning.candidate?
         .opticalComparison.contains("Waiting for") == false
     }
-    // Wait for the actual draft reference, not an assumed scheduler delay.
-    try await waitUntil {
-      workspace.drawingDraftSnapshot.projection.externalFacts
-        == workspace.drawingDraftExternalFacts.revisions
+    if let loadGate {
+      await loadGate.waitUntilHeld()
+      await loadGate.release()
     }
+    // The retained synchronization publishes Draft first, then Drawing Run.
+    // This fixture does not load the archive, so its initial canonical run
+    // readiness is unavailable until startup loads it. Include that actual
+    // second publication before measuring ambient traffic.
+    try await waitUntil {
+      guard workspace.drawingDraftSnapshot.projection.externalFacts
+        == workspace.drawingDraftExternalFacts.revisions,
+        let run = workspace.drawingRunSnapshot,
+        case .unavailable(let issue) = run.readiness else { return false }
+      return issue.reason == .evidenceArchiveUnavailable
+    }
+
+    // Readiness can already be unavailable while a newer semantic task is
+    // between its first Draft publication and Run's nested Draft fact read.
+    // Join the exact retained task chain, including canceled predecessors,
+    // before the ambient-only measurement begins.
+    let initialSynchronization = try #require(workspace.drawingDraftSynchronizationTask)
+    await initialSynchronization.value
 
     workspace.resetPreviewIsolationDiagnostics()
     let rootProjection = RootProjectionBuildProbe(application: workspace)
@@ -291,6 +324,14 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     }
 
     let afterPreview = workspace.previewIsolationDiagnostics
+    if afterPreview.plotterUIProjectionBuildCount != baseline.plotterUIProjectionBuildCount
+      || rootProjection.buildCount != baselineRootBuildCount {
+      let receipt = "Ambient preview publication crossed baseline: baseline=\(baseline), after=\(afterPreview)\n"
+        + rootProjection.buildReceipts.joined(separator: "\n")
+        + "\nCurrent Draft facts: \(workspace.drawingDraftSnapshot.projection.externalFacts)\n"
+        + "Existing computation events: \(workspace.computationDiagnosticsForTesting.events)\n"
+      FileHandle.standardError.write(Data(receipt.utf8))
+    }
     #expect(afterPreview.previewPublicationCount == 120)
     #expect(afterPreview.latestPreviewFrameID == FrameID(rawValue: "ambient-preview-122"))
     #expect(afterPreview.latestPreviewSequence == 122)
@@ -346,13 +387,13 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     }
     let projection = workspace.testPlotterUIProjection(
       selectedItemID: .humanGuidedDiscovery(.penInteraction), includesLearningPath: true)
-    let openRequest = try #require(projection.semantic.request(for: PlotterAppUIActionID.drawingOpen))
+    let openRequest = try #require(projection.semantic.request(for: PlotterAppUIActionID.drawingDraft(.showTarget)))
     previewFrames.inject(DisplayedFrame(source: initialFrame.source,
       frame: try frame(id: "open-after-preview", sequence: 123, capture: 223,
         configurationID: initialFrame.frame.cameraConfigurationID)))
     try await waitUntil { workspace.actionSurfacePreview.displayedFrame?.frame.sequence == 123 }
     #expect(await workspace.submitPlotterUIRequest(openRequest) == .accepted(requestID: openRequest.id))
-    #expect(workspace.drawingStudioIsPresented)
+    #expect(workspace.drawingTargetIsVisible)
     previewFrames.finish()
     await workspace.shutdown()
   }
@@ -892,6 +933,7 @@ private final class RootProjectionBuildProbe {
   private let application: PlotterApplicationRuntime
   private let manualDraft: ManualMotionDraft
   private(set) var buildCount = 0
+  private(set) var buildReceipts: [String] = []
 
   init(application: PlotterApplicationRuntime, manualDraft: ManualMotionDraft = ManualMotionDraft()) {
     self.application = application
@@ -899,19 +941,34 @@ private final class RootProjectionBuildProbe {
   }
 
   func start() {
-    withObservationTracking {
-      _ = application.plotterUIProjection(
+    let projection = withObservationTracking {
+      let projection = application.plotterUIProjection(
         selectedItemID: .humanGuidedDiscovery(.penInteraction),
         manualDraft: manualDraft, includesLearningPath: true)
       buildCount += 1
+      return projection
     } onChange: { [weak self] in
       Task { @MainActor in self?.start() }
+    }
+    // Capture outside Observation tracking so the diagnostic cannot add root
+    // dependencies. Retain only a bounded number of metadata-only receipts.
+    if buildReceipts.count < 8 {
+      let diagnostics = application.previewIsolationDiagnostics
+      let draft = application.drawingDraftSnapshot.projection
+      let run = application.drawingRunSnapshot
+      buildReceipts.append("root=\(buildCount) uiBuilds=\(diagnostics.plotterUIProjectionBuildCount) "
+        + "semantic=\(diagnostics.semanticPresentationRevision) scheduled=\(diagnostics.drawingDraftSynchronizationCount) "
+        + "cameraLive=\(projection.observationConfiguration.cameraIsLive) "
+        + "preview=\(String(describing: diagnostics.latestPreviewFrameID)) "
+        + "draft=\(draft.draftRevision.rawValue)/\(String(describing: draft.externalFacts.displayedFrame)) "
+        + "run=\(String(describing: run?.projection.runRevision))/\(String(describing: run?.phase))/\(String(describing: run?.readiness)) "
+        + "runtimeReferences=\(projection.semantic.runtimeRevisions)")
     }
   }
 }
 
 
-private final class ComputationTestClock: @unchecked Sendable {
+final class ComputationTestClock: @unchecked Sendable {
   private let lock = NSLock()
   private var value: UInt64 = 100
   func read() -> UInt64 {

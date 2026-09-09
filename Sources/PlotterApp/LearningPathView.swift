@@ -8,14 +8,36 @@ import SwiftUI
 /// One Learning panel with exercise selection, prompt, and current controls.
 struct LearningPathView: View {
   @Binding var selection: LearningPathSelectionState
-  let projection: LearningPathProjection
+  let projection: LearningPathProjection?
+  let learningMode: LearningModePresentation
   let currentLearningPathItemID: LearningPathItemID
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
-  let close: () -> Void
   @State private var pendingResetPlan: LearningVacatePlan?
 
   var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(alignment: .top, spacing: 10) {
+        Text(learningMode.isEnabled ? "Learning On" : "Learning Off")
+          .font(.headline)
+          .accessibilityIdentifier("learning.mode.state")
+          .accessibilityValue(learningMode.isEnabled ? "On" : "Off")
+        Spacer(minLength: 0)
+        OperatorRequestButton(title: learningMode.actionTitle,
+          request: plotterUIProjection.request(for: PlotterAppUIActionID.learningMode),
+          unavailableReason: learningMode.remedy, sink: plotterUIIntentSink,
+          nativeActionIdentifier: "learning.mode")
+          .accessibilityIdentifier("learning.mode")
+      }.padding(12)
+      if learningMode.isEnabled, let projection {
+        Divider()
+        learningContent(projection)
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+  }
+
+  @ViewBuilder private func learningContent(_ projection: LearningPathProjection) -> some View {
     let selectedPresentation = projection.selectedAction
     let pinnedActionStrip =
       projection.currentActionStrip
@@ -23,8 +45,18 @@ struct LearningPathView: View {
 
     VStack(alignment: .leading, spacing: 0) {
       HStack {
-        Text("Learning Path").font(.headline)
-        Spacer()
+        Picker("Exercise", selection: Binding(
+          get: { selection.selected }, set: { selection.select($0) }
+        )) {
+          ForEach(projection.items) { item in
+            Label("\(item.id.number)  \(item.id.title) · \(item.status.rawValue)",
+              systemImage: statusSystemImage(item.status))
+              .tag(item.id)
+          }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .accessibilityIdentifier("learning.exercisePicker")
         Menu {
           Button("Reset All Learning…", role: .destructive) {
             pendingResetPlan = projection.menu.resetAllPlan
@@ -36,22 +68,8 @@ struct LearningPathView: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .accessibilityLabel("Learning Path Actions")
-        PanelCloseButton(panel: .learningPath, close: close)
       }
       .padding(12)
-      Picker("Exercise", selection: Binding(
-        get: { selection.selected }, set: { selection.select($0) }
-      )) {
-        ForEach(projection.items) { item in
-          Label("\(item.id.number)  \(item.id.title) · \(item.status.rawValue)",
-            systemImage: statusSystemImage(item.status))
-            .tag(item.id)
-        }
-      }
-      .labelsHidden()
-      .pickerStyle(.menu)
-      .padding(.horizontal, 12)
-      .padding(.bottom, 10)
       if selection.isReviewingAnotherItem {
         Button("Return to Current Exercise") { selection.returnToCurrent() }
           .buttonStyle(.borderless)
@@ -68,6 +86,7 @@ struct LearningPathView: View {
               plotterUIProjection: plotterUIProjection,
               plotterUIIntentSink: plotterUIIntentSink
             )
+            .accessibilityIdentifier("learning.exerciseActions")
           }
         }
       }

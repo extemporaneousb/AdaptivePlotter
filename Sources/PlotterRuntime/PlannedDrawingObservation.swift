@@ -79,7 +79,10 @@ public struct PlannedDrawingObservation: Codable, Hashable, Sendable {
   public let computation: PlannedDrawingObservationComputationDiagnostics?
 
   public var diagnosticSummary: String {
-    let detected = "\(observedPixelCount) newly darkened pixels measured."
+    var detected = "\(observedPixelCount) newly darkened pixels detected."
+    if let ambiguous = evidence.ambiguousPixelCount, ambiguous > 0 {
+      detected += " \(ambiguous) pixels matching multiple paths were excluded from measurement."
+    }
     guard let residual = evidence.residual else { return detected }
     return detected + String(
       format: " Path residual RMS %.2f px; maximum %.2f px (%u samples).",
@@ -247,7 +250,7 @@ public enum PlannedDrawingObservationOutcome: Codable, Hashable, Sendable {
 }
 
 extension VisionWorker {
-  public static let plannedDrawingObserverRevision = "nearest-polyline-residual-v2"
+  public static let plannedDrawingObserverRevision = "translated-reference-unique-support-v4"
 
   static func plannedDrawingCancellationCheckpoint(
     _ stage: PlannedDrawingObservationCheckpointStage,
@@ -429,31 +432,23 @@ extension VisionWorker {
     guard newInk.count <= request.maximumInkPixels else {
       return reject(.algorithmFailure(code: "ink-pixel-budget-exceeded"), algorithms: algorithms)
     }
-    let intendedSegmentCount = request.intendedCameraPolylines.reduce(0) {
-      $0 + $1.points.count - 1
-    }
-    guard intendedSegmentCount > 0,
-      newInk.count <= request.maximumAssociationEvaluationCount / intendedSegmentCount
-    else {
-      return reject(
-        .algorithmFailure(code: "association-budget-exceeded"),
-        algorithms: algorithms
-      )
-    }
-
     let associationEvaluation: CancellablePlannedInkAssociationEvaluation
     do {
-      associationEvaluation = try await Self.cancellableAssociation(
+      associationEvaluation = try await Self.cancellableCorrespondenceAssociation(
         newInk,
         with: request.intendedCameraPolylines,
+        region: request.region,
         observationShiftX: alignment.shiftX,
         observationShiftY: alignment.shiftY,
         ambiguityTolerance: request.associationAmbiguityTolerancePixels,
+        maximumEvaluationCount: request.maximumAssociationEvaluationCount,
         baseComputation: computation,
         checkpointHandler: checkpointHandler
       )
     } catch is CancellationError {
       return reject(.computationCancelled, algorithms: algorithms)
+    } catch PlannedAssociationError.evaluationBudgetExceeded {
+      return reject(.algorithmFailure(code: "association-budget-exceeded"), algorithms: algorithms)
     } catch {
       return reject(.algorithmFailure(code: "association-failed"), algorithms: algorithms)
     }
@@ -473,17 +468,18 @@ extension VisionWorker {
     } catch {
       return reject(.computationCancelled, algorithms: algorithms)
     }
-    if association.ambiguousPixelCount > 0 {
-      return reject(
-        .inkAmbiguous(candidateCount: association.ambiguousPixelCount),
-        algorithms: algorithms
-      )
-    }
     guard
       association.byPolyline.allSatisfy({
         $0.count >= request.minimumInkPixelsPerPolyline
       })
-    else { return reject(.correspondenceUnavailable, algorithms: algorithms) }
+    else {
+      // Association already excludes tied pixels. A crossing cannot invalidate
+      // the remaining unique support of both strokes, whereas duplicated paths
+      // have no unique pixels and remain unidentifiable.
+      return reject(association.ambiguousPixelCount > 0
+        ? .inkAmbiguous(candidateCount: association.ambiguousPixelCount)
+        : .correspondenceUnavailable, algorithms: algorithms)
+    }
 
     guard
       let sampled = Self.sampleObservedCentrelines(
@@ -492,7 +488,11 @@ extension VisionWorker {
         spacing: request.centrelineSampleSpacingPixels,
         maximumSamplesPerPolyline: request.maximumCentrelineSampleCountPerPolyline
       )
-    else { return reject(.correspondenceUnavailable, algorithms: algorithms) }
+    else {
+      return reject(association.ambiguousPixelCount > 0
+        ? .inkAmbiguous(candidateCount: association.ambiguousPixelCount)
+        : .correspondenceUnavailable, algorithms: algorithms)
+    }
     guard !Task.isCancelled else {
       return reject(.computationCancelled, algorithms: algorithms)
     }
@@ -505,7 +505,9 @@ extension VisionWorker {
         intendedInk: request.intendedCameraPolylines,
         observedInk: sampled.polylines,
         residual: residual,
-        algorithmRevisions: algorithms
+        algorithmRevisions: algorithms,
+        detectedPixelCount: newInk.count,
+        ambiguousPixelCount: association.ambiguousPixelCount
       )
     else {
       return reject(.algorithmFailure(code: "evidence-construction-failed"), algorithms: algorithms)
@@ -539,7 +541,7 @@ extension VisionWorker {
 }
 
 extension VisionWorker {
-  struct PlannedInkAssociation {
+  struct PlannedInkAssociation: Hashable {
     let byPolyline: [[PlannedAssociatedInkPixel]]
     let ambiguousPixelCount: Int
   }
@@ -549,14 +551,17 @@ extension VisionWorker {
     let evaluationCount: Int
     let cancellationCheckpointCount: Int
     let maximumEvaluationCountBetweenCancellationChecks: Int
+    let matchingSquaredResidual: Double
+    let matchingTranslationX: Int
+    let matchingTranslationY: Int
   }
 
-  struct PlannedAssociatedInkPixel {
+  struct PlannedAssociatedInkPixel: Hashable {
     let point: Point2<CameraPixelSpace>
     let alongDistance: Double
   }
 
-  struct PlannedPathProjection {
+  struct PlannedPathProjection: Hashable {
     let distance: Double
     let alongDistance: Double
   }
@@ -610,127 +615,283 @@ extension VisionWorker {
       && ExactFrameProvenance(frame: post.frame) == request.frames.post
   }
 
+  enum PlannedAssociationError: Error { case evaluationBudgetExceeded }
+
+  /// A request-local index over the existing intended segments. Bounding boxes
+  /// only prune impossible nearest candidates; final path distance, ties and
+  /// along-path correspondence use the same exact segment projection.
+  struct PlannedAssociationIndex {
+    struct Segment {
+      let pathIndex: Int
+      let start: Point2<CameraPixelSpace>
+      let end: Point2<CameraPixelSpace>
+      let dx: Double
+      let dy: Double
+      let squaredLength: Double
+      let length: Double
+      let precedingLength: Double
+    }
+    struct Node {
+      let minX: Double, minY: Double, maxX: Double, maxY: Double
+      let segments: [Int]
+      let children: (left: Int, right: Int)?
+      let splitsX: Bool
+    }
+    let segments: [Segment]
+    let nodes: [Node]
+    let root: Int
+
+    init(_ paths: [Polyline<CameraPixelSpace>]) throws {
+      var segments: [Segment] = []
+      for (pathIndex, path) in paths.enumerated() {
+        var precedingLength = 0.0
+        for (start, end) in zip(path.points, path.points.dropFirst()) {
+          if segments.count.isMultiple(of: 64) { try Task.checkCancellation() }
+          let dx = end.x - start.x, dy = end.y - start.y
+          let squaredLength = dx * dx + dy * dy
+          let length = sqrt(squaredLength)
+          segments.append(Segment(pathIndex: pathIndex, start: start, end: end,
+            dx: dx, dy: dy, squaredLength: squaredLength, length: length,
+            precedingLength: precedingLength))
+          precedingLength += length
+        }
+      }
+      var nodes: [Node] = []
+      func build(_ indices: [Int]) throws -> Int {
+        try Task.checkCancellation()
+        var minX = Double.infinity, minY = Double.infinity
+        var maxX = -Double.infinity, maxY = -Double.infinity
+        for index in indices {
+          let segment = segments[index]
+          minX = min(minX, min(segment.start.x, segment.end.x))
+          minY = min(minY, min(segment.start.y, segment.end.y))
+          maxX = max(maxX, max(segment.start.x, segment.end.x))
+          maxY = max(maxY, max(segment.start.y, segment.end.y))
+        }
+        let splitsX = maxX - minX >= maxY - minY
+        let children: (left: Int, right: Int)?
+        if indices.count > 8 {
+          let sorted = indices.sorted { lhs, rhs in
+            let a = segments[lhs], b = segments[rhs]
+            let ac = splitsX ? a.start.x + a.end.x : a.start.y + a.end.y
+            let bc = splitsX ? b.start.x + b.end.x : b.start.y + b.end.y
+            return ac == bc ? lhs < rhs : ac < bc
+          }
+          let middle = sorted.count / 2
+          children = (try build(Array(sorted[..<middle])), try build(Array(sorted[middle...])))
+        } else { children = nil }
+        let index = nodes.count
+        nodes.append(Node(minX: minX, minY: minY, maxX: maxX, maxY: maxY,
+          segments: indices.count <= 8 ? indices : [], children: children, splitsX: splitsX))
+        return index
+      }
+      root = try build(Array(segments.indices))
+      self.segments = segments
+      self.nodes = nodes
+    }
+  }
+
   static func cancellableAssociation(
     _ orderedInk: [InkPixel],
     with intended: [Polyline<CameraPixelSpace>],
     observationShiftX: Int,
     observationShiftY: Int,
     ambiguityTolerance: Double,
+    maximumEvaluationCount: Int,
     baseComputation: PlannedDrawingObservationComputationDiagnostics,
-    checkpointHandler: PlannedDrawingObservationCheckpointHandler?
+    checkpointHandler: PlannedDrawingObservationCheckpointHandler?,
+    matchingTranslationX: Int = 0,
+    matchingTranslationY: Int = 0,
+    index providedIndex: PlannedAssociationIndex? = nil
   ) async throws -> CancellablePlannedInkAssociationEvaluation {
+    let index: PlannedAssociationIndex
+    if let providedIndex { index = providedIndex }
+    else { index = try PlannedAssociationIndex(intended) }
     var grouped = Array(repeating: [PlannedAssociatedInkPixel](), count: intended.count)
     var ambiguous = 0
     var evaluationCount = 0
     var budget = CancellationCheckpointBudget()
+    var squaredResidual = 0.0
+
+    // Count both visited bounding nodes and exact segment projections. The
+    // original budget applies to actual work, including candidate pruning.
+    func countEvaluation() async throws {
+      if evaluationCount.isMultiple(of: plannedDrawingCancellationEvaluationChunkSize) {
+        budget.recordCheckpoint()
+        try await plannedDrawingCancellationCheckpoint(.associationChunk,
+          computation: baseComputation.addingAssociationComputation(
+            evaluationCount: evaluationCount, checkpointCount: budget.count,
+            maximumEvaluationCountBetweenChecks: budget.maximumEvaluationCountBetweenCheckpoints),
+          handler: checkpointHandler)
+      }
+      guard evaluationCount < maximumEvaluationCount else {
+        throw PlannedAssociationError.evaluationBudgetExceeded
+      }
+      budget.recordEvaluations(1)
+      evaluationCount += 1
+    }
 
     for pixel in orderedInk {
-      let point = try! Point2<CameraPixelSpace>(
-        x: Double(pixel.x + observationShiftX),
-        y: Double(pixel.y + observationShiftY)
-      )
-      var ranked: [(index: Int, projection: PlannedPathProjection)] = []
-      ranked.reserveCapacity(intended.count)
-      for (pathIndex, path) in intended.enumerated() {
-        var best: PlannedPathProjection?
-        var precedingLength = 0.0
-        for segmentIndex in 0..<(path.points.count - 1) {
-          if evaluationCount.isMultiple(of: plannedDrawingCancellationEvaluationChunkSize) {
-            budget.recordCheckpoint()
-            try await plannedDrawingCancellationCheckpoint(
-              .associationChunk,
-              computation: baseComputation.addingAssociationComputation(
-                evaluationCount: evaluationCount,
-                checkpointCount: budget.count,
-                maximumEvaluationCountBetweenChecks:
-                  budget.maximumEvaluationCountBetweenCheckpoints
-              ),
-              handler: checkpointHandler
-            )
-          }
-          budget.recordEvaluations(1)
-          evaluationCount += 1
-          let start = path.points[segmentIndex]
-          let end = path.points[segmentIndex + 1]
-          let dx = end.x - start.x
-          let dy = end.y - start.y
-          let squaredLength = dx * dx + dy * dy
-          guard squaredLength > 0 else { continue }
-          let rawT =
-            ((point.x - start.x) * dx + (point.y - start.y) * dy)
-            / squaredLength
+      let observedPoint = try! Point2<CameraPixelSpace>(
+        x: Double(pixel.x + observationShiftX), y: Double(pixel.y + observationShiftY))
+      // The correspondence reference may move; the measured point never does.
+      let point = try! Point2<CameraPixelSpace>(x: observedPoint.x - Double(matchingTranslationX),
+        y: observedPoint.y - Double(matchingTranslationY))
+      var nearestDistance = Double.infinity
+      var bestByPath: [Int: PlannedPathProjection] = [:]
+      var pending = [index.root]
+      while let nodeIndex = pending.popLast() {
+        try await countEvaluation()
+        let node = index.nodes[nodeIndex]
+        let bx = max(0, max(node.minX - point.x, point.x - node.maxX))
+        let by = max(0, max(node.minY - point.y, point.y - node.maxY))
+        // Conservative rounding expands candidate search only; it never alters
+        // the final distance/ambiguity policy or observed correspondence.
+        let rounding = max(1, max(abs(point.x), abs(point.y))) * Double.ulpOfOne * 16
+        let cutoff = nearestDistance + ambiguityTolerance + rounding
+        if bx * bx + by * by > cutoff * cutoff { continue }
+        if let children = node.children {
+          let nearerLeft = node.splitsX
+            ? point.x <= (node.minX + node.maxX) / 2
+            : point.y <= (node.minY + node.maxY) / 2
+          pending.append(nearerLeft ? children.right : children.left)
+          pending.append(nearerLeft ? children.left : children.right)
+          continue
+        }
+        for segmentIndex in node.segments {
+          try await countEvaluation()
+          let segment = index.segments[segmentIndex]
+          guard segment.squaredLength > 0 else { continue }
+          let rawT = ((point.x - segment.start.x) * segment.dx
+            + (point.y - segment.start.y) * segment.dy) / segment.squaredLength
           let t = min(1, max(0, rawT))
           let projected = try! Point2<CameraPixelSpace>(
-            x: start.x + t * dx,
-            y: start.y + t * dy
-          )
-          let segmentLength = sqrt(squaredLength)
-          let candidate = PlannedPathProjection(
-            distance: point.distance(to: projected),
-            alongDistance: precedingLength + t * segmentLength
-          )
-          if let current = best {
+            x: segment.start.x + t * segment.dx, y: segment.start.y + t * segment.dy)
+          let candidate = PlannedPathProjection(distance: point.distance(to: projected),
+            alongDistance: segment.precedingLength + t * segment.length)
+          if let current = bestByPath[segment.pathIndex] {
             if candidate.distance < current.distance
-              || (candidate.distance == current.distance
-                && candidate.alongDistance < current.alongDistance)
-            {
-              best = candidate
+              || (candidate.distance == current.distance && candidate.alongDistance < current.alongDistance) {
+              bestByPath[segment.pathIndex] = candidate
             }
-          } else {
-            best = candidate
-          }
-          precedingLength += segmentLength
+          } else { bestByPath[segment.pathIndex] = candidate }
+          nearestDistance = min(nearestDistance, candidate.distance)
         }
-        ranked.append(
-          (
-            index: pathIndex,
-            projection: best ?? PlannedPathProjection(distance: .infinity, alongDistance: 0)
-          ))
       }
-      ranked.sort { lhs, rhs in
-        if lhs.projection.distance != rhs.projection.distance {
-          return lhs.projection.distance < rhs.projection.distance
-        }
-        if lhs.index != rhs.index { return lhs.index < rhs.index }
-        return lhs.projection.alongDistance < rhs.projection.alongDistance
+      let ranked = bestByPath.sorted { lhs, rhs in
+        if lhs.value.distance != rhs.value.distance { return lhs.value.distance < rhs.value.distance }
+        if lhs.key != rhs.key { return lhs.key < rhs.key }
+        return lhs.value.alongDistance < rhs.value.alongDistance
       }
-      // Distance is the quantity this observer measures. Rejecting candidates
-      // beyond the predicted path would censor the residual before computing it.
-      // The validated request contains at least one nondegenerate polyline.
-      let nearest = ranked[0]
+      // Valid intended polylines have nonzero length. This also preserves the
+      // prior fallback for a degenerate diagnostic-only input.
+      let nearest = ranked.first ?? (key: 0, value: PlannedPathProjection(distance: .infinity, alongDistance: 0))
+      squaredResidual += nearest.value.distance * nearest.value.distance
       if ranked.count > 1,
-        ranked[1].projection.distance - nearest.projection.distance <= ambiguityTolerance
-      {
+        ranked[1].value.distance - nearest.value.distance <= ambiguityTolerance {
         ambiguous += 1
         continue
       }
-      grouped[nearest.index].append(
-        PlannedAssociatedInkPixel(
-          point: point,
-          alongDistance: nearest.projection.alongDistance
-        ))
+      grouped[nearest.key].append(PlannedAssociatedInkPixel(point: observedPoint,
+        alongDistance: nearest.value.alongDistance))
     }
     budget.recordCheckpoint()
-    try await plannedDrawingCancellationCheckpoint(
-      .associationChunk,
+    try await plannedDrawingCancellationCheckpoint(.associationChunk,
       computation: baseComputation.addingAssociationComputation(
-        evaluationCount: evaluationCount,
-        checkpointCount: budget.count,
-        maximumEvaluationCountBetweenChecks:
-          budget.maximumEvaluationCountBetweenCheckpoints
-      ),
-      handler: checkpointHandler
-    )
+        evaluationCount: evaluationCount, checkpointCount: budget.count,
+        maximumEvaluationCountBetweenChecks: budget.maximumEvaluationCountBetweenCheckpoints),
+      handler: checkpointHandler)
     return CancellablePlannedInkAssociationEvaluation(
-      association: PlannedInkAssociation(
-        byPolyline: grouped,
-        ambiguousPixelCount: ambiguous
-      ),
+      association: PlannedInkAssociation(byPolyline: grouped, ambiguousPixelCount: ambiguous),
+      evaluationCount: evaluationCount, cancellationCheckpointCount: budget.count,
+      maximumEvaluationCountBetweenCancellationChecks: budget.maximumEvaluationCountBetweenCheckpoints,
+      matchingSquaredResidual: squaredResidual,
+      matchingTranslationX: matchingTranslationX, matchingTranslationY: matchingTranslationY)
+  }
+
+  /// A common ink displacement seeds correspondence only. Search stays inside
+  /// the already-observed region; actual ink coordinates and background frame
+  /// alignment retain their separate meanings. Every candidate query and final
+  /// pixel query consumes the same existing association budget.
+  static func cancellableCorrespondenceAssociation(
+    _ ink: [InkPixel], with intended: [Polyline<CameraPixelSpace>], region: PixelRect,
+    observationShiftX: Int, observationShiftY: Int, ambiguityTolerance: Double,
+    maximumEvaluationCount: Int,
+    baseComputation: PlannedDrawingObservationComputationDiagnostics,
+    checkpointHandler: PlannedDrawingObservationCheckpointHandler?
+  ) async throws -> CancellablePlannedInkAssociationEvaluation {
+    let index = try PlannedAssociationIndex(intended)
+    let root = index.nodes[index.root]
+    func candidates(minimum: Double, maximum: Double, low: Int, high: Int) -> [Int] {
+      let first = min(0, Int(ceil(Double(low) - minimum)))
+      let last = max(0, Int(floor(Double(high) - maximum)))
+      // Ordinary requests have an eight-pixel margin. Larger diagnostic ROIs
+      // keep a bounded seed lattice rather than expanding computational work.
+      let step = max(1, Int(ceil(Double(last - first) / 16)))
+      return Set(Array(stride(from: first, through: last, by: step)) + [0, last]).sorted()
+    }
+    let xs = candidates(minimum: root.minX, maximum: root.maxX,
+      low: region.x + observationShiftX, high: region.x + region.width - 1 + observationShiftX)
+    let ys = candidates(minimum: root.minY, maximum: root.maxY,
+      low: region.y + observationShiftY, high: region.y + region.height - 1 + observationShiftY)
+    let sampleCount = min(64, ink.count)
+    let samples = (0..<sampleCount).map { ink[$0 * ink.count / sampleCount] }
+    var total = baseComputation
+    var evaluationCount = 0, checkpoints = 0, maximumBetweenChecks = 0
+    var bestResidual = Double.infinity
+    var finalists: [(x: Int, y: Int)] = []
+    for y in ys {
+      for x in xs {
+        let value = try await cancellableAssociation(samples, with: intended,
+          observationShiftX: observationShiftX, observationShiftY: observationShiftY,
+          ambiguityTolerance: ambiguityTolerance,
+          maximumEvaluationCount: maximumEvaluationCount - evaluationCount,
+          baseComputation: total, checkpointHandler: checkpointHandler,
+          matchingTranslationX: x, matchingTranslationY: y, index: index)
+        evaluationCount += value.evaluationCount
+        checkpoints += value.cancellationCheckpointCount
+        maximumBetweenChecks = max(maximumBetweenChecks, value.maximumEvaluationCountBetweenCancellationChecks)
+        total = total.addingAssociationComputation(evaluationCount: value.evaluationCount,
+          checkpointCount: value.cancellationCheckpointCount,
+          maximumEvaluationCountBetweenChecks: value.maximumEvaluationCountBetweenCancellationChecks)
+        if value.matchingSquaredResidual < bestResidual {
+          bestResidual = value.matchingSquaredResidual
+          finalists = [(x, y)]
+        } else if value.matchingSquaredResidual == bestResidual {
+          finalists.append((x, y))
+        }
+      }
+    }
+    // A seed lattice may alias repeated traces. Only tied best seeds receive
+    // full-pixel comparison; deterministic tie-breaking follows actual scores.
+    // If that work cannot fit the existing budget, return its typed failure.
+    var selected: CancellablePlannedInkAssociationEvaluation?
+    for finalist in finalists {
+      let value = try await cancellableAssociation(ink, with: intended,
+        observationShiftX: observationShiftX, observationShiftY: observationShiftY,
+        ambiguityTolerance: ambiguityTolerance,
+        maximumEvaluationCount: maximumEvaluationCount - evaluationCount,
+        baseComputation: total, checkpointHandler: checkpointHandler,
+        matchingTranslationX: finalist.x, matchingTranslationY: finalist.y, index: index)
+      evaluationCount += value.evaluationCount
+      checkpoints += value.cancellationCheckpointCount
+      maximumBetweenChecks = max(maximumBetweenChecks, value.maximumEvaluationCountBetweenCancellationChecks)
+      total = total.addingAssociationComputation(evaluationCount: value.evaluationCount,
+        checkpointCount: value.cancellationCheckpointCount,
+        maximumEvaluationCountBetweenChecks: value.maximumEvaluationCountBetweenCancellationChecks)
+      func rank(_ item: CancellablePlannedInkAssociationEvaluation) -> (Double, Int, Int, Int, Int) {
+        let x = item.matchingTranslationX, y = item.matchingTranslationY
+        return (item.matchingSquaredResidual, max(abs(x), abs(y)), abs(x) + abs(y), y, x)
+      }
+      if selected == nil || rank(value) < rank(selected!) { selected = value }
+    }
+    guard let final = selected else { throw PlannedAssociationError.evaluationBudgetExceeded }
+    return CancellablePlannedInkAssociationEvaluation(association: final.association,
       evaluationCount: evaluationCount,
-      cancellationCheckpointCount: budget.count,
-      maximumEvaluationCountBetweenCancellationChecks:
-        budget.maximumEvaluationCountBetweenCheckpoints
-    )
+      cancellationCheckpointCount: checkpoints,
+      maximumEvaluationCountBetweenCancellationChecks: maximumBetweenChecks,
+      matchingSquaredResidual: final.matchingSquaredResidual,
+      matchingTranslationX: final.matchingTranslationX, matchingTranslationY: final.matchingTranslationY)
   }
 
   static func nearestProjection(

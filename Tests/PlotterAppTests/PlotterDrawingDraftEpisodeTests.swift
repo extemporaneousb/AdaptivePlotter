@@ -10,6 +10,30 @@ import Testing
 @Suite("Drawing Studio draft episode", .serialized)
 @MainActor
 struct PlotterDrawingDraftEpisodeTests {
+  @Test("automatic fit keeps upright when it wins or the orientations tie", arguments: [false, true])
+  func uprightAndTieFit(square: Bool) async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let opened = try await open(runtime, facts: fixture.facts())
+    let style = try #require(opened.program?.strokes.first?.style)
+    let bounds = fixture.drawableRegion.effectiveBounds
+    let isWide = bounds.maxX - bounds.minX > bounds.maxY - bounds.minY
+    let width = square || isWide ? 100.0 : 20.0
+    let height = square || !isWide ? 100.0 : 20.0
+    let program = try DrawingProgram(id: ProgramID(), fieldExtent: Size2(width: width, height: height),
+      strokes: [LogicalStroke(id: StrokeID(), path: Polyline(points: [
+        Point2(x: 0, y: 0), Point2(x: width, y: 0), Point2(x: width, y: height),
+        Point2(x: 0, y: height), Point2(x: 0, y: 0)]), style: style, ordering: 0)],
+      source: DrawingSourceProvenance(kind: "portrait-fit-test", sourceIdentifier: square ? "tie" : "upright"))
+    let selected = try applied(await runtime.submit(.init(projection: opened.projection,
+      intent: .selectProgram(program)), facts: fixture.facts()))
+    let fitted = try applied(await runtime.submit(.init(projection: selected.projection,
+      intent: .fitInDrawableRegion), facts: fixture.facts()))
+    #expect(fitted.rotationDegrees == 0)
+    #expect(fitted.uniformScale == fitted.allowedScale.upperBound)
+    #expect(try #require(fitted.plan).strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
+  }
+
   @Test("panel visibility survives preview advancement without admitting stale draft edits")
   func panelVisibilitySurvivesPreviewAdvancement() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
@@ -17,9 +41,9 @@ struct PlotterDrawingDraftEpisodeTests {
     let initial = await runtime.synchronize(fixture.facts())
     let next = try replacingFrame(fixture.frame, id: "open-preview", sequenceDelta: 1)
     let opened = try applied(await runtime.submit(
-      PlotterDrawingDraftSubmission(projection: initial.projection, intent: .open),
+      PlotterDrawingDraftSubmission(projection: initial.projection, intent: .showTarget),
       facts: fixture.facts(displayedFrame: next)))
-    #expect(opened.isOpen)
+    #expect(opened.isTargetVisible)
     let latest = try replacingFrame(fixture.frame, id: "close-preview", sequenceDelta: 2)
     let latestFacts = fixture.facts(displayedFrame: latest)
     let edit = await runtime.submit(
@@ -27,22 +51,92 @@ struct PlotterDrawingDraftEpisodeTests {
       facts: latestFacts)
     #expect(try refusal(edit).reason == .staleProjection)
     let closed = try applied(await runtime.submit(
-      PlotterDrawingDraftSubmission(projection: opened.projection, intent: .close),
+      PlotterDrawingDraftSubmission(projection: opened.projection, intent: .hideTarget),
       facts: latestFacts))
-    #expect(!closed.isOpen)
+    #expect(!closed.isTargetVisible)
     let stale = await runtime.submit(
-      PlotterDrawingDraftSubmission(projection: initial.projection, intent: .open),
+      PlotterDrawingDraftSubmission(projection: initial.projection, intent: .showTarget),
       facts: latestFacts)
-    #expect(try refusal(stale).reason == .staleProjection)
+    #expect(try applied(stale).isTargetVisible)
+    #expect(stale.snapshot.projection.draftRevision == initial.projection.draftRevision)
   }
 
-  @Test("authoring survives new pixels but rejects changed camera and run authority")
+  @Test("cancelled draft edits leave a held paper save promptly without cancelling its owner")
+  func cancelledQueuedEditDoesNotWaitForPersistence() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let persistence = DraftPaperPersistenceProbe(blocksSave: true)
+    let runtime = PlotterDrawingDraftRuntime(paperPersistence: persistence,
+      clock: DraftRuntimeClock(now: fixture.frame.frame.captureNanoseconds + 100))
+    let facts = fixture.facts(environment: .live)
+    let opened = try await open(runtime, facts: facts)
+    let owner = Task { await runtime.submit(.init(projection: opened.projection,
+      intent: .assertPaperCoverage), facts: facts) }
+    await persistence.waitUntilSaveStarted()
+    let completion = DraftSubmissionInterleavingProbe()
+    let waiter = Task {
+      let result = await runtime.submit(.init(projection: opened.projection,
+        intent: .setRotationDegrees(15)), facts: facts)
+      await completion.markCompleted()
+      return result
+    }
+    do { try await waitUntilAsync { await runtime.pendingMutationCount == 1 } }
+    catch { await persistence.releaseSave(); _ = await owner.value; _ = await waiter.value; throw error }
+    waiter.cancel()
+    do { try await waitUntilAsync { await completion.completed } }
+    catch { await persistence.releaseSave(); _ = await owner.value; throw error }
+    #expect(try refusal(await waiter.value).reason == .cancelled)
+    #expect(await runtime.pendingMutationCount == 0)
+    #expect(await persistence.storedObservation == nil)
+    await persistence.releaseSave()
+    let saved = try applied(await owner.value)
+    let edited = try applied(await runtime.submit(.init(projection: saved.projection,
+      intent: .setRotationDegrees(15)), facts: facts))
+    #expect(edited.rotationDegrees == 15)
+    #expect(edited.paperCoverageObservation == saved.paperCoverageObservation)
+  }
+
+  @Test("automatic portrait fit chooses the larger contained orientation and survives camera restart")
+  func portraitFitAndCameraRestart() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime(clock: DraftRuntimeClock(now: fixture.frame.frame.captureNanoseconds + 100))
+    let opened = try await open(runtime, facts: fixture.facts())
+    let style = try #require(opened.program?.strokes.first?.style)
+    let bounds = fixture.drawableRegion.effectiveBounds
+    let isWide = bounds.maxX - bounds.minX >= bounds.maxY - bounds.minY
+    let width = isWide ? 20.0 : 100.0, height = isWide ? 100.0 : 20.0
+    let program = try DrawingProgram(id: ProgramID(), fieldExtent: Size2(width: width, height: height),
+      strokes: [LogicalStroke(id: StrokeID(), path: Polyline(points: [Point2(x: 0, y: 0),
+        Point2(x: width, y: height)]), style: style, ordering: 0)],
+      source: DrawingSourceProvenance(kind: "portrait-fit-test", sourceIdentifier: "opposite-aspect"))
+    let selected = try applied(await runtime.submit(.init(projection: opened.projection,
+      intent: .selectProgram(program)), facts: fixture.facts()))
+    let fitted = try applied(await runtime.submit(.init(projection: selected.projection,
+      intent: .fitInDrawableRegion), facts: fixture.facts()))
+    #expect(fitted.rotationDegrees == 90)
+    #expect(fitted.uniformScale == fitted.allowedScale.upperBound)
+    #expect(try #require(fitted.plan).strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
+    let asserted = try applied(await runtime.submit(.init(projection: fitted.projection,
+      intent: .assertPaperCoverage), facts: fixture.facts()))
+    let restartedFrame = try replacingFrame(fixture.frame, id: "new-capture-session",
+      sequenceDelta: 10, cameraConfigurationID: CameraConfigurationID())
+    let resumed = await runtime.synchronize(fixture.facts(displayedFrame: restartedFrame))
+    #expect(resumed.paperCoverageIsCurrent)
+    #expect(resumed.paperCoverageObservation == asserted.paperCoverageObservation)
+    #expect(resumed.plan?.revisionID == asserted.plan?.revisionID)
+    #expect(resumed.preview?.displayedFrame == restartedFrame)
+    #expect(resumed.paperCoverageDisplay == nil)
+    let newPaper = await runtime.synchronize(fixture.facts(paper: PaperRevisionContext(
+      instance: PaperInstanceRevision(), contactPlane: fixture.paper.contactPlane)))
+    #expect(!newPaper.paperCoverageIsCurrent)
+  }
+
+  @Test("ordinary authoring uses current facts across Learning and camera publication while retained runs keep their authority")
   func authoringSurvivesPreviewOnlyChanges() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let next = try replacingFrame(fixture.frame, id: "authoring-preview", sequenceDelta: 1)
     for intent: PlotterDrawingDraftIntent in [
       .selectCatalogItem(.circle), .setUniformScale(0.5), .setRotationDegrees(10),
-      .setEvidenceRole(.training), .centerInDrawableRegion,
+      .setRotationDegrees(15), .centerInDrawableRegion,
     ] {
       let runtime = PlotterDrawingDraftRuntime()
       let opened = try await open(runtime, facts: fixture.facts())
@@ -53,17 +147,22 @@ struct PlotterDrawingDraftEpisodeTests {
 
     let changedCamera = try replacingFrame(fixture.frame, id: "changed-camera",
       sequenceDelta: 2, cameraConfigurationID: CameraConfigurationID())
-    for facts in [
-      fixture.facts(displayedFrame: changedCamera),
-      fixture.facts(runInProgress: true),
-    ] {
+    for facts in [fixture.facts(displayedFrame: changedCamera), fixture.facts(learningComplete: false)] {
       let runtime = PlotterDrawingDraftRuntime()
       let opened = try await open(runtime, facts: fixture.facts())
-      let result = await runtime.submit(
+      let result = try applied(await runtime.submit(
         PlotterDrawingDraftSubmission(projection: opened.projection, intent: .setUniformScale(0.5)),
-        facts: facts)
-      #expect(try refusal(result).reason == .staleProjection)
+        facts: facts))
+      #expect(result.uniformScale == 0.5)
+      #expect(result.projection.externalFacts == facts.revisions)
     }
+    let runtime = PlotterDrawingDraftRuntime()
+    let opened = try await open(runtime, facts: fixture.facts())
+    let running = await runtime.submit(
+      PlotterDrawingDraftSubmission(projection: opened.projection, intent: .setUniformScale(0.5)),
+      facts: fixture.facts(runInProgress: true))
+    #expect(try refusal(running).reason == .retainedRunOwnsMutation)
+    #expect(running.snapshot.uniformScale == opened.uniformScale)
   }
 
   @Test("large drawing geometry is derived once across preview and status changes")
@@ -126,7 +225,7 @@ struct PlotterDrawingDraftEpisodeTests {
     _ = await workspace.currentDrawingRunFacts(for: .simulated)
     let item = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     let initial = workspace.testPlotterUIProjection(selectedItemID: item, includesLearningPath: true)
-    let openRequest = try #require(initial.semantic.request(for: PlotterAppUIActionID.drawingOpen))
+    let openRequest = try #require(initial.semantic.request(for: PlotterAppUIActionID.drawingDraft(.showTarget)))
     #expect(await workspace.submitPlotterUIRequest(openRequest) == .accepted(requestID: openRequest.id))
     let base = try #require(workspace.drawingDraftSnapshot.program)
     let program = try DrawingProgram(id: ProgramID(), fieldExtent: Size2(width: 1003, height: 100),
@@ -208,37 +307,35 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(snapshot.program?.contentHash != program.contentHash)
   }
 
-  @Test("authoring opens before Learning completion while active runs retain their controls")
-  func openClosePrerequisitesAndRemedies() async throws {
+  @Test("target visibility is independent of Learning and active drawing identity")
+  func targetVisibilityDoesNotMutateDrawingAuthority() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let runtime = PlotterDrawingDraftRuntime()
     let incompleteFacts = fixture.facts(learningComplete: false)
     let initial = await runtime.synchronize(incompleteFacts)
     let opened = try applied(await runtime.submit(
-      PlotterDrawingDraftSubmission(projection: initial.projection, intent: .open),
+      PlotterDrawingDraftSubmission(projection: initial.projection, intent: .showTarget),
       facts: incompleteFacts
     ))
-    #expect(opened.isOpen)
+    #expect(opened.isTargetVisible)
     let readyFacts = fixture.facts()
 
     let busyFacts = fixture.facts(runInProgress: true)
     let busy = await runtime.synchronize(busyFacts)
     let refusedClose = await runtime.submit(
-      PlotterDrawingDraftSubmission(projection: busy.projection, intent: .close),
+      PlotterDrawingDraftSubmission(projection: busy.projection, intent: .hideTarget),
       facts: busyFacts
     )
-    let runRefusal = try refusal(refusedClose)
-    #expect(runRefusal.owner.rawValue == "PlotterDrawingRunAuthority")
-    #expect(runRefusal.reason == .retainedRunOwnsMutation)
-    #expect(runRefusal.remedy == "Wait for the current drawing run and evidence capture to settle.")
-    #expect(refusedClose.snapshot.isOpen)
+    #expect(!((try applied(refusedClose)).isTargetVisible))
+    #expect(refusedClose.snapshot.projection.draftRevision == busy.projection.draftRevision)
+    #expect(refusedClose.snapshot.plan?.revisionID == busy.plan?.revisionID)
 
     let readyAgain = await runtime.synchronize(readyFacts)
     let closed = try applied(await runtime.submit(
-      PlotterDrawingDraftSubmission(projection: readyAgain.projection, intent: .close),
+      PlotterDrawingDraftSubmission(projection: readyAgain.projection, intent: .hideTarget),
       facts: readyFacts
     ))
-    #expect(!closed.isOpen)
+    #expect(!closed.isTargetVisible)
 
     let refusedEdit = await runtime.submit(
       PlotterDrawingDraftSubmission(
@@ -247,10 +344,9 @@ struct PlotterDrawingDraftEpisodeTests {
       ),
       facts: readyFacts
     )
-    let closedRefusal = try refusal(refusedEdit)
-    #expect(closedRefusal.owner.rawValue == "PlotterDrawingDraftRuntime")
-    #expect(closedRefusal.reason == .studioClosed)
-    #expect(closedRefusal.remedy == "Open Drawing Studio before changing its draft.")
+    let hiddenEdit = try applied(refusedEdit)
+    #expect(hiddenEdit.selectedCatalogItemID == .circle)
+    #expect(!hiddenEdit.isTargetVisible)
   }
 
   @Test("request identity and both draft and external fact revisions reject stale submissions")
@@ -274,7 +370,7 @@ struct PlotterDrawingDraftEpisodeTests {
       PlotterDrawingDraftSubmission(
         requestID: staleRequestID,
         projection: staleProjection,
-        intent: .setEvidenceRole(.training)
+        intent: .setRotationDegrees(15)
       ),
       facts: facts
     )
@@ -342,25 +438,13 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(selected.plan?.sourceProgramContentHash == selected.program?.contentHash)
   }
 
-  @Test("evidence roles are typed metadata and invalid transform parameters do not mutate")
-  func evidenceRoleAndParameterValidation() async throws {
+  @Test("ordinary drawing needs no pre-run role choice and invalid transforms do not mutate")
+  func ordinaryRoleAndParameterValidation() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let runtime = PlotterDrawingDraftRuntime()
     let facts = fixture.facts()
-    var snapshot = try await open(runtime, facts: facts)
-    let planID = try #require(snapshot.plan?.revisionID)
-
-    for role in BorderValidationEvidenceRole.allCases {
-      snapshot = try applied(await runtime.submit(
-        PlotterDrawingDraftSubmission(
-          projection: snapshot.projection,
-          intent: .setEvidenceRole(role)
-        ),
-        facts: facts
-      ))
-      #expect(snapshot.evidenceRole == role)
-      #expect(snapshot.plan?.revisionID == planID)
-    }
+    let snapshot = try await open(runtime, facts: facts)
+    #expect(snapshot.evidenceRole == .ordinaryDrawing)
 
     let revisionBeforeInvalid = snapshot.projection.draftRevision
     let placementBeforeInvalid = snapshot.placementID
@@ -575,11 +659,11 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(retained == draftPlan)
     #expect(after.projection == before.projection)
     #expect(after.placementID == before.placementID)
-    #expect(!after.isOpen)
+    #expect(!after.isTargetVisible)
     #expect(after.lastSubmissionRefusal == nil)
   }
 
-  @Test("preview is exact-frame bound and outside tip applicability remains diagnostic only")
+  @Test("target persists on compatible frames and outside tip applicability remains diagnostic only")
   func previewExactFrameAndDiagnosticApplicability() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let runtime = PlotterDrawingDraftRuntime()
@@ -630,7 +714,7 @@ struct PlotterDrawingDraftEpisodeTests {
     )
     let newer = try replacingFrame(fixture.frame, id: "preview-newer", sequenceDelta: 1)
     #expect(presentationPreview.matches(fixture.frame))
-    #expect(!presentationPreview.matches(newer))
+    #expect(presentationPreview.matches(newer))
   }
 
   @Test("nominal paper save completes before the accepted snapshot is published")
@@ -702,7 +786,7 @@ struct PlotterDrawingDraftEpisodeTests {
       let result = await runtime.submit(
         PlotterDrawingDraftSubmission(
           projection: opened.projection,
-          intent: .setEvidenceRole(.training)
+          intent: .setRotationDegrees(15)
         ),
         facts: facts
       )
@@ -838,7 +922,7 @@ struct PlotterDrawingDraftEpisodeTests {
       cameraConfigurationID: CameraConfigurationID()
     )
     #expect(
-      !(await runtime.synchronize(fixture.facts(displayedFrame: newConfigurationFrame)))
+      (await runtime.synchronize(fixture.facts(displayedFrame: newConfigurationFrame)))
         .paperCoverageIsCurrent
     )
   }
@@ -917,7 +1001,6 @@ struct PlotterDrawingDraftEpisodeTests {
     var snapshot = try await open(draftRuntime, facts: facts)
     let intents: [PlotterDrawingDraftIntent] = [
       .selectCatalogItem(.triangle),
-      .setEvidenceRole(.ordinaryDrawing),
       .setUniformScale(0.03),
       .setRotationDegrees(15),
       .centerInDrawableRegion,
@@ -985,7 +1068,7 @@ private func open(
 ) async throws -> PlotterDrawingDraftSnapshot {
   let current = await runtime.synchronize(facts)
   return try applied(await runtime.submit(
-    PlotterDrawingDraftSubmission(projection: current.projection, intent: .open),
+    PlotterDrawingDraftSubmission(projection: current.projection, intent: .showTarget),
     facts: facts
   ))
 }

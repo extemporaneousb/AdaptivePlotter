@@ -181,6 +181,42 @@ struct PlotterControllerSessionEpisodeTests {
     #expect(await lower.fixture.passiveProbeCallCount == 0)
   }
 
+  @Test("physical review exports queried status while the lower snapshot remains stale")
+  @MainActor
+  func physicalReviewUsesQueryEvidenceInsteadOfSnapshotTime() async throws {
+    let initial = try LowerMachineSessionFixture(log: EventLog())
+    let cached = await initial.snapshot()
+    let lower = try lowerSession(retainedSnapshot: cached)
+    try await lower.fixture.setPosition(x: 7, y: 9)
+    let runtime = PlotterControllerSessionRuntime(lowerSession: lower.port,
+      simulatedSession: SimulatedLearningRuntime(),
+      serialDeviceDiscovery: PlotterFixedSerialDeviceDiscoveryAdapter(devices: [lower.descriptor]))
+    let currentFacts = facts(reference: reference(revision: 4), selected: lower.descriptor,
+      devices: [lower.descriptor], machineSnapshot: cached)
+    let receipt = try await RunningAppPreviewPerformanceGate.physicalControllerObservation(
+      projection: PlotterControllerSessionRules.project(currentFacts),
+      sink: PhysicalReviewControllerQuerySink(runtime: runtime, facts: currentFacts))
+    #expect(await lower.fixture.passiveProbeCallCount == 1)
+    let stillCached = await lower.port.snapshot()
+    #expect(stillCached?.machine.position == cached.machine.position)
+    #expect(receipt.status.machinePosition == (try MachinePosition(x: 7, y: 9)))
+    #expect(receipt.status.machinePosition != stillCached?.machine.position)
+    let exchange = try #require(receipt.probe.exchanges.first { $0.query == .status })
+    #expect(receipt.statusExchangeCommandID == exchange.commandID)
+    #expect(receipt.status == exchange.latestStatusReport)
+    // Original query timestamps survive export; no Date() can relabel a cached
+    // snapshot as a new controller measurement.
+    #expect(receipt.probe.startedAt.monotonicNanoseconds == 1)
+    #expect(receipt.probe.completedAt.monotonicNanoseconds == 2)
+    let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(receipt)) as? [String: Any])
+    let statusJSON = try #require(json["status"] as? [String: Any])
+    let exportedStatus = try JSONDecoder().decode(ControllerStatusReport.self,
+      from: JSONSerialization.data(withJSONObject: statusJSON))
+    #expect(exportedStatus.machinePosition == receipt.status.machinePosition)
+    #expect(json["exportedAt"] == nil)
+    await runtime.shutdown()
+  }
+
   private func reference(revision: UInt64) -> PlotterControllerSessionReference {
     PlotterControllerSessionReference(revision: revision, capabilityID: UUID())
   }
@@ -214,7 +250,7 @@ struct PlotterControllerSessionEpisodeTests {
     )
   }
 
-  private func lowerSession() throws -> (
+  private func lowerSession(retainedSnapshot: RunInterpreterSnapshot? = nil) throws -> (
     descriptor: MachineLinkDescriptor,
     fixture: LowerMachineSessionFixture,
     effects: ControllerSessionEffectRecorder,
@@ -230,6 +266,7 @@ struct PlotterControllerSessionEpisodeTests {
       },
       snapshot: {
         await effects.recordSnapshot()
+        if let retainedSnapshot { return retainedSnapshot }
         return await fixture.snapshot()
       },
       requestPassiveProbe: {
@@ -252,6 +289,15 @@ struct PlotterControllerSessionEpisodeTests {
       disconnect: { await effects.recordDisconnect() }
     )
     return (descriptor, fixture, effects, port)
+  }
+}
+
+private struct PhysicalReviewControllerQuerySink: PlotterControllerSessionIntentSink {
+  let runtime: PlotterControllerSessionRuntime
+  let facts: PlotterControllerSessionFacts
+
+  func submitControllerSessionRequest(_ request: PlotterControllerSessionRequest) async -> PlotterControllerSessionDisposition {
+    await runtime.submit(request, facts: facts)
   }
 }
 

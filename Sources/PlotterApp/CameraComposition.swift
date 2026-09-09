@@ -657,7 +657,10 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
   private func pauseAutomaticInspection() async {
     let pipelineIsRunning = await analysisPipeline.snapshot().state != .stopped
     let frameTask = automaticInspectionFrameTask
-    guard frameTask != nil || pipelineIsRunning else { return }
+    guard frameTask != nil || pipelineIsRunning else {
+      await analysisPipeline.stop()
+      return
+    }
     automaticPauseCallCount &+= 1
     if frameTask != nil {
       automaticFrameSubscriptionCancellationCount &+= 1

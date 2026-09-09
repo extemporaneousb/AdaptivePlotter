@@ -171,7 +171,8 @@ public struct DrawingCoverageAssessment: Hashable, Sendable {
     var attempted: Set<Int> = []
     var blocker: String?
     var frames: Set<FrameID> = []
-    if (try? registration.drawingEvidenceContentHash()) != experiment.prior.registrationContentHash {
+    guard let registrationHash = try? registration.drawingEvidenceContentHash(),
+      registrationHash == experiment.prior.registrationContentHash else {
       return Self(trainingCount: 0, holdoutCount: 0, attemptedIndices: [], nextTrial: nil,
         candidate: nil, comparison: nil, blocker: "Exact registration evidence changed.")
     }
@@ -210,7 +211,7 @@ public struct DrawingCoverageAssessment: Hashable, Sendable {
           }
         }
         let sample = try measuredSample(record: record, trial: trial,
-                                        experiment: experiment, registration: registration)
+          experiment: experiment, registration: registration, registrationHash: registrationHash)
         if trial.role == .training { training.append(sample) } else { holdouts.append(sample) }
       } catch {
         blocker = "\(trial.label): \(error). Retain the record and use a new sheet for a new experiment."
@@ -259,34 +260,21 @@ public struct DrawingCoverageAssessment: Hashable, Sendable {
 
   private static func measuredSample(record: DrawingRunEvidenceRecord, trial: DrawingCoverageTrial,
                                      experiment: DrawingCoverageExperiment,
-                                     registration: TipCameraRegistration) throws -> CrossTrackResidualSample {
+                                     registration: TipCameraRegistration,
+                                     registrationHash: PlotterModel.Digest) throws -> CrossTrackResidualSample {
     func reject(_ detail: String) throws -> Never { throw PlotterModelError.invalidValue(detail) }
-    guard record.role == trial.role, record.evidenceDisposition == .attributable,
-      record.requestFrontier == .admitted, record.executionDisposition == .completed,
-      record.executionFrontiers.plannedStrokeCount == 1,
-      record.executionFrontiers.commandedStrokeCount == 1,
-      record.executionFrontiers.controllerCompletedStrokeCount == 1,
-      record.executionFrontiers.inkVerifiedStrokeCount == 1,
+    let (plan, observed) = try record.attributableResidualGeometry(
+      using: registration, registrationContentHash: registrationHash)
+    guard record.role == trial.role, plan.strokes.count == 1,
       record.tipCalibration == experiment.tip, record.paper == experiment.paper,
       record.planningProvenance == experiment.prior,
-      let plan = record.plan.executionPlan,
       plan.placement == experiment.placement, plan.drawableRegion == experiment.region,
-      plan.provenance == experiment.prior,
-      case .observed(let observed) = record.observation, observed.residual != nil,
-      observed.frames.source == experiment.tip.applicability.opticalConfiguration.source,
-      observed.frames.baseline.width == experiment.tip.applicability.opticalConfiguration.width,
-      observed.frames.baseline.height == experiment.tip.applicability.opticalConfiguration.height,
-      observed.frames.baseline.pixelFormat == experiment.tip.applicability.opticalConfiguration.pixelFormat,
-      observed.intendedInk.count == 1, observed.observedInk.count == 1,
-      registration.acceptedRevisionID == experiment.tip.acceptedRevisionID,
-      registration.applicability == experiment.tip.applicability
+      observed.residual != nil
     else { try reject("Trial is not attributable under the sealed role, geometry and provenance") }
     let program = try experiment.program(for: trial)
     let expected = try experiment.placement.applying(to: program.strokes[0].path)
-    let intended = try registration.cameraFromMachine.applying(to: expected)
     guard record.program.contentHash == program.contentHash, record.program.programID == program.id,
-      plan.sourceProgramContentHash == program.contentHash, plan.strokes.count == 1,
-      plan.strokes[0].path == expected, observed.intendedInk[0] == intended else {
+      plan.strokes[0].path == expected else {
       try reject("Exact planned and observed-request geometry does not match the sealed trial")
     }
     let inverse = try registration.cameraFromMachine.inverted()

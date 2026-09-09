@@ -8,6 +8,88 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Workbench and portrait correction, 2026-09-09
+
+Task `task-26f65c0e4e7b4a3b9d445b26c59c86f0` implements five persisted dockable
+panels, one selected camera in Video, quiet controls, retained portrait
+preparation, upright/sideways fitting, complete saved Learning restoration,
+canonical Draw readiness, and retrospective ordinary-run analysis.
+[The execution plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#workbench-and-portrait-completion-correction-2026-09-08)
+owns the sole acceptance matrix.
+
+**Software accepted and tested app delivered.** Full `make strict-check` run 31
+exited zero. [Independent critic 9](/Users/bullard/Projects/AdaptivePlotter/.build/workbench-portrait-task-26f65c0-evidence/adaptiveplotter-task-26f65c0-independent-critic9-report.md)
+found no remaining blocking software issues. Native camera/UI and physical
+acceptance remain unverified because the desktop is locked. This record does
+not claim Git landing or attended Learning/drawing success.
+
+| Evidence | Executed result and limit |
+| --- | --- |
+| [Strict run 31](/Users/bullard/Projects/AdaptivePlotter/.build/workbench-portrait-task-26f65c0-evidence/adaptiveplotter-task-26f65c0-strict-31.log), [terminal receipt](/Users/bullard/Projects/AdaptivePlotter/.build/workbench-portrait-task-26f65c0-evidence/adaptiveplotter-task-26f65c0-strict-31-result.json) | **997 Swift functions passed, five opt-in skips, zero failures**, 82.031 s. Strict release compilation passed in 104.99 s and incremental debug compilation in 2.64 s. Signing, launcher, bundle, shell/architecture documentation, 13 pilot, nine metrics, 39 capsule, repository and final diff checks passed. |
+| [Independent critic 9](/Users/bullard/Projects/AdaptivePlotter/.build/workbench-portrait-task-26f65c0-evidence/adaptiveplotter-task-26f65c0-independent-critic9-report.md) | Immutable 276-file review found no blocking software issue and closed the camera-role ordering finding. Held-source tests preserve newer role requests, exact publication and maximum one active capture. The Task-enqueue boundary has static proof, not a claimed deterministic reproduction. |
+| [Delivery receipt](/Users/bullard/Projects/AdaptivePlotter/.build/workbench-portrait-task-26f65c0-evidence/adaptiveplotter-task-26f65c0-final-delivery-31.json) | At 11:10:17 UTC, the exact tested bundle replaced canonical app20 through verified staging. All bundle files and strict signatures matched. The prior app was retained; the launcher was already byte-identical. No app launch or native/hardware action occurred. |
+| [Final inventory](/Users/bullard/Projects/AdaptivePlotter/.build/workbench-portrait-task-26f65c0-evidence/adaptiveplotter-task-26f65c0-pre-delivery-inventory-31.json) | At 11:06:55 UTC, the desktop still reported locked with `loginwindow` foreground; no AdaptivePlotter process or plotter serial owner was present. Learning/archive bytes and modification times matched the retained baseline. Delivery rechecked process ownership and unchanged store hashes. |
+
+The tested [source manifest](/Users/bullard/Projects/AdaptivePlotter/.build/workbench-portrait-task-26f65c0-evidence/adaptiveplotter-task-26f65c0-candidate-31.manifest)
+contains 274 entries, SHA-256
+`8ab08f6a66084dfc4bebbdc702c71a801107cc4a49b8c5ebd174b46d40d6cc93`.
+The 14-entry [build/document manifest](/Users/bullard/Projects/AdaptivePlotter/.build/workbench-portrait-task-26f65c0-evidence/adaptiveplotter-task-26f65c0-candidate-31-build-doc-inputs.manifest)
+has SHA-256 `5f6004acdcf9e6259c8a63446dac09a0f9f8f9fe52d343fe82cd4df1ad799b39`.
+Both had no drift during strict31. Final progress updates include prose and two
+current-architecture expectations in `Scripts/check_episode_contract.py`; their
+documentation/diff validation is separate from strict31. Production Sources/Tests
+and app build/launcher inputs remain unchanged, as does the delivered binary.
+The five skips are the 1080p kernel cost matrix, supplied reference photo,
+minimum-width native Learning rendering, noisy native Canvas and dense native
+Action Surface rendering. They are not passing native evidence.
+
+The delivered [AdaptivePlotter app](/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter.app)
+has executable SHA-256
+`95feb954cad2512872039459edd93597ae0c72d43203df46fb49bb647a3244a0`,
+UUID `F3E60893-F5A2-3B3F-860F-064F4898D55C`, and local-development signature
+CDHash `69a5fa38e5719bfa47ae7eba57e36d5d1c816592`.
+The delivery receipt retains exact bundle/launcher identities and backup paths.
+
+Software proof includes immediate production Show/fit/adjust/Draw with matching
+program/plan identities, all accepted saved milestones with Unknown/Down Pen
+pose, canonical refusal/remedy, 120 ambient and 30 post-drawing acknowledged
+frames with unchanged semantic/root/draft counts, and held cancellation,
+publication and shutdown settlement. Held-Draw Stop acknowledges before lower
+release and publishes one exact terminal; it is software ingress proof, not a
+native click or actual-controller Stop.
+
+Synthetic raster/archive/residual tests pass the +0.60/−0.40 mm contour case
+within 0.1 mm tolerance and all 191 finite-width hatch paths under the unchanged
+five-million observation budget. Alias, shifted-ROI, cancellation and crosshatch
+cases also pass. Iteration-limit, rank-loss and competing-basin gaps are explicit
+coverage limits, not demonstrated defects. These synthetic observations do not
+establish physical ink accuracy. The [retained evidence index](/Users/bullard/Projects/AdaptivePlotter/.build/workbench-portrait-task-26f65c0-evidence/INDEX.md)
+links earlier diagnostics;
+run-11/12 contour timings used a smaller displacement and cannot support an
+unchanged-workload speed comparison.
+
+**Unverified native and physical work:** Native20/22 reached zero controls or
+inputs. The normal macOS lock began at 00:10:16 PDT, before those attempts and
+native14–16; the latter failures cannot be attributed exclusively to SwiftPM
+hosting. Normal unlock has been requested, with no successful retry recorded.
+No lock or permission bypass was attempted. Actual acceptance still requires:
+
+- All 15 panel/dock combinations at 1000/1600 points, visible canvas/body controls,
+  native scrolling/resize/hide/On-Off/Stop, and six workbench images.
+- The 20-switch, 90-second learned camera workload with actual analysis,
+  quiet-text and native latency receipts.
+- Fresh controller/camera/Pen/paper observations, inkless native jog/Stop, and two
+  distinct physical portraits with exact frame pairs and ordinary residual records.
+
+The retained archive has no eligible real ordinary/training record for the
+retrospective native prerequisite; holdouts remain unchanged and cannot be
+relabeled. The physical scenario preserves app/evidence on failure and never
+redraws automatically. Gate schemas, software fixtures and controller-query
+receipts cannot stand in for observed motion, pen contact, paper or ink.
+
+Historical evidence below remains unchanged and does not describe the new
+panel/camera contract or current observer where behavior differs.
+
 ## Canvas geometry deadband and trigger audit, 2026-09-08
 
 Blackdog task `task-a942cd2f248b4cd29c9e2dfeef29109e` follows the redraw-isolation

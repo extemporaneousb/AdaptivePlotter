@@ -5,39 +5,47 @@ import UniformTypeIdentifiers
 
 struct PortraitStudioView: View {
   @Bindable var model: PortraitStudioModel
-  let plotterCameraID: CameraDeviceID?
   let strokeStyle: PlotterModel.StrokeStyle
-  let useProgram: (DrawingProgram) async -> String?
-  @Environment(\.dismiss) private var dismiss
+  let showOnPlotter: (DrawingProgram) async -> String?
+  var selectCamera: () async -> String? = { nil }
   @State private var importing = false
   @State private var submissionError: String?
   @State private var isSubmitting = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      HStack {
-        Text("Portrait").font(.title2.bold())
-        Spacer()
-        Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+    VStack(alignment: .leading, spacing: 12) {
+      ViewThatFits(in: .horizontal) {
+        HStack(alignment: .top, spacing: 16) {
+          sourcePanel.frame(minWidth: 240)
+          drawingPanel.frame(minWidth: 260)
+        }
+        VStack(alignment: .leading, spacing: 16) {
+          sourcePanel
+          drawingPanel
+        }
       }
-      HStack(alignment: .top, spacing: 20) {
-        sourcePanel
-        drawingPanel
+      if let error = submissionError {
+        Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
       }
+      Button("Show on Plotter Video") {
+        guard let program = model.program else { return }
+        WorkbenchRequestTelemetry.nativeActionHandled("portrait.showOnPlotter")
+        isSubmitting = true
+        submissionError = nil
+        Task {
+          submissionError = await showOnPlotter(program)
+          isSubmitting = false
+        }
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(model.program == nil || model.isProcessing || isSubmitting)
+      .accessibilityIdentifier("portrait.showOnPlotter")
+      .accessibilityValue(isSubmitting ? "Preparing plotter preview" : submissionError ?? "Ready")
+      if isSubmitting { ProgressView("Preparing plotter preview").controlSize(.small) }
     }
-    .padding(20)
-    .frame(width: 760, height: 610)
-    .task { await model.discover(excluding: plotterCameraID) }
     .onChange(of: model.pose) { _, _ in model.render(strokeStyle: strokeStyle) }
     .onChange(of: model.style) { _, _ in model.render(strokeStyle: strokeStyle) }
     .onChange(of: model.options) { _, _ in model.analysisOptionsChanged(strokeStyle: strokeStyle) }
-    .onChange(of: plotterCameraID) { _, _ in
-      Task {
-        if model.selectedDeviceID == plotterCameraID { await model.stopCamera() }
-        await model.discover(excluding: plotterCameraID)
-      }
-    }
-    .onDisappear { Task { await model.stopCamera() } }
     .fileImporter(isPresented: $importing, allowedContentTypes: [.image]) { result in
       switch result {
       case .success(let url): Task { await model.importPhoto(url, strokeStyle: strokeStyle) }
@@ -47,95 +55,67 @@ struct PortraitStudioView: View {
   }
 
   private var sourcePanel: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: 10) {
       Picker("View", selection: $model.pose) {
         ForEach(PortraitPose.allCases) { pose in
           Text(pose.rawValue + (model.photos[pose] == nil ? "" : " ✓")).tag(pose)
         }
       }.pickerStyle(.segmented)
-      Group {
-        if !model.cameraIsRunning, let data = model.photos[model.pose] {
-          PortraitPhotoPreview(data: data)
-        } else {
-          PortraitCameraPreview(model: model.preview)
-        }
-      }
-      .frame(height: 180)
       HStack {
         Picker("Camera", selection: $model.selectedDeviceID) {
           Text("Choose camera").tag(Optional<CameraDeviceID>.none)
-          ForEach(model.devices) { device in
-            Text(device.name).tag(Optional(device.id))
-          }
-        }.labelsHidden().disabled(model.cameraIsRunning || model.cameraIsStarting)
-        Button(model.cameraIsRunning ? "Stop Camera" : "Start Camera") {
-          Task {
-            if model.cameraIsRunning { await model.stopCamera() }
-            else { await model.startCamera() }
-          }
-        }.disabled(model.cameraIsStarting || (!model.cameraIsRunning && model.selectedDeviceID == nil))
+          ForEach(model.devices) { Text($0.name).tag(Optional($0.id)) }
+        }.labelsHidden().disabled(model.cameraIsStarting)
+        Button("Use Camera") {
+          Task { submissionError = await selectCamera() }
+        }.disabled(model.cameraIsStarting || model.selectedDeviceID == nil)
       }
       HStack {
-        Button("Capture \(model.pose.rawValue)") {
-          Task { await model.capture(strokeStyle: strokeStyle) }
-        }.disabled(!model.cameraIsRunning)
+        Button("Capture") { Task { await model.capture(strokeStyle: strokeStyle) } }
+          .disabled(!model.cameraIsRunning)
+          .accessibilityIdentifier("portrait.capture")
         Button("Choose Photo…") { importing = true }
-      }
-      if let status = model.cameraStatus {
-        Text(status).font(.caption).foregroundStyle(.secondary)
-      }
-      if model.cameraIsRunning, let data = model.photos[model.pose] {
-        PortraitPhotoPreview(data: data).frame(height: 90)
+          .accessibilityIdentifier("portrait.choosePhoto")
       }
       Toggle("Crop to face", isOn: $model.options.cropToFace)
       Toggle("Remove background", isOn: $model.options.removeBackground)
-      Text("Left, front, and right are separate captures. Select a view to compare its drawing styles.")
-        .font(.caption).foregroundStyle(.secondary)
-    }.frame(width: 300)
+      if let status = model.cameraStatus {
+        Text(status).font(.caption).foregroundStyle(.orange)
+      }
+    }
   }
 
   private var drawingPanel: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Picker("Style", selection: $model.style) {
+    VStack(alignment: .leading, spacing: 10) {
+      Picker("Style", selection: Binding(get: { model.style }, set: {
+        WorkbenchRequestTelemetry.nativeActionHandled("portrait.style")
+        model.style = $0
+      })) {
         ForEach(PortraitStyle.allCases) { Text($0.rawValue).tag($0) }
-      }.pickerStyle(.segmented)
+      }
+      .accessibilityIdentifier("portrait.style")
       PortraitProgramPreview(program: model.program)
-        .frame(minHeight: 280)
+        .frame(minHeight: 190, idealHeight: 250)
         .overlay { if model.isProcessing { ProgressView() } }
       Text(model.summary).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-      if let submissionError { Text(submissionError).font(.caption).foregroundStyle(.red) }
-      HStack {
-        Spacer()
-        Button("Use Portrait") {
-          guard let program = model.program else { return }
-          isSubmitting = true
-          Task {
-            submissionError = await useProgram(program)
-            isSubmitting = false
-            if submissionError == nil { dismiss() }
-          }
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(model.program == nil || model.isProcessing || isSubmitting)
-      }
-    }.frame(minWidth: 360)
+    }
   }
-
 }
 
-/// Only this child reads camera frames; preview delivery never enters the
-/// application projection, Learning, Drawing Draft, or the vectorizer.
-private struct PortraitCameraPreview: View {
+/// Only the shared Video panel mounts this leaf. The portrait controls never
+/// observe advancing camera frames and cannot start or stop capture themselves.
+struct PortraitCameraPreview: View {
   let model: PortraitCameraPreviewModel
   @StateObject private var cache = FramePresentationImageCache()
   var body: some View {
-    ZStack {
-      Rectangle().fill(.quaternary)
-      if let frame = model.frame, let image = cache.image(from: frame.frame) {
-        Image(decorative: image, scale: 1).resizable().scaledToFit()
+    GeometryReader { proxy in
+      if let displayed = model.frame, let image = cache.image(from: displayed.frame),
+        let transform = CameraPixelToViewTransform(frameWidth: displayed.frame.width,
+          frameHeight: displayed.frame.height, viewWidth: proxy.size.width, viewHeight: proxy.size.height) {
+        CameraFrameLayerView(image: image, imageRect: transform.imageRect)
       } else {
         ContentUnavailableView("Portrait Camera", systemImage: "person.crop.rectangle",
-                               description: Text("Start a camera or choose a photo."))
+          description: Text("Choose a camera in Portrait Studio or import a photo."))
       }
     }.clipped()
   }
@@ -168,19 +148,5 @@ private struct PortraitStrokeShape: Shape {
       }
     }
     return path
-  }
-}
-
-private struct PortraitPhotoPreview: View {
-  let data: Data
-  @State private var image: CGImage?
-  var body: some View {
-    HStack {
-      if let image { Image(decorative: image, scale: 1).resizable().scaledToFit() }
-      Text("Captured photo").font(.caption).foregroundStyle(.secondary)
-    }
-    .task(id: data) {
-      image = try? await Task.detached { try PortraitImageAnalyzer.image(from: data) }.value
-    }
   }
 }

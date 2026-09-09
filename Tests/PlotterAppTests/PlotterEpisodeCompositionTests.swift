@@ -389,10 +389,10 @@ struct PlotterEpisodeCompositionTests {
     #expect(initial.observationConfiguration.frameMode == .live)
     #expect(updated.controllerSession.environment == .simulated)
     #expect(updated.observationConfiguration.frameMode == .simulated)
-    #expect(
-      updated.observationConfiguration.simulatorEvidenceLabel
-        == "SIMULATED — NOT PHYSICAL EVIDENCE"
-    )
+    #expect(updated.actionSurface.displayedFrame?.source == .simulated)
+    let controllerSlot = WorkbenchControllerSlotPresentation(mode: updated.controllerSession.environment)
+    #expect(controllerSlot.title == "Learning Simulator")
+    #expect(!controllerSlot.isSerialSelectionEnabled)
 
     guard case .refused(let refusal) = await application.submitPlotterUIRequest(staleRequest) else {
       Issue.record("An action from an immutable stale projection must not mutate state.")

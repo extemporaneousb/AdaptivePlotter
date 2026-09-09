@@ -47,6 +47,21 @@ private struct LocalAppLauncherLogicTests {
                 == .activate(exact),
             "exact existing instance is reused with stable PID"
         )
+        expect(
+            runningApplicationDecision(records: [exact], expectedIdentity: expected, requiredExistingPID: 21)
+                == .activate(exact),
+            "PID-only activation retains the exact registered bundle and process"
+        )
+        expect(
+            runningApplicationDecision(records: [], expectedIdentity: expected, requiredExistingPID: 21)
+                == .missingExisting(21),
+            "missing PID-only target cannot choose a launch fallback"
+        )
+        expect(
+            runningApplicationDecision(records: [exact], expectedIdentity: expected, requiredExistingPID: 99)
+                == .refuse([exact]),
+            "PID-only activation cannot substitute another exact-bundle process"
+        )
 
         let wrongPath = RunningApplicationRecord(
             pid: 22,
@@ -61,6 +76,11 @@ private struct LocalAppLauncherLogicTests {
             runningApplicationDecision(records: [wrongPath], expectedIdentity: expected)
                 == .refuse([wrongPath]),
             "same identifier at wrong path is refused"
+        )
+        expect(
+            runningApplicationDecision(records: [wrongPath], expectedIdentity: expected, requiredExistingPID: 22)
+                == .refuse([wrongPath]),
+            "matching PID cannot bypass bundle and executable identity"
         )
         expect(
             runningApplicationDecision(records: [exact, application(pid: 23, identity: expected)], expectedIdentity: expected)
@@ -134,6 +154,20 @@ private struct LocalAppLauncherLogicTests {
             "validate-only invocation"
         )
         expect(launcherInvocation(arguments: []) == nil, "missing path rejected")
+        expect(launcherInvocation(arguments: ["--activate-existing-pid", "42", path])
+            == LauncherInvocation(validateOnly: false, mode: .normal, bundlePath: path, existingPID: 42),
+            "PID-only activation invocation")
+        for invalidPID in ["0", "-1", "2147483648", "abc", ""] {
+            expect(launcherInvocation(arguments: ["--activate-existing-pid", invalidPID, path]) == nil,
+                "invalid existing PID rejected: \(invalidPID)")
+        }
+        for invalid in [
+            ["--activate-existing-pid", "42"],
+            ["--activate-existing-pid", "42", "--simulated"],
+            ["--activate-existing-pid", "42", path, "--simulated"],
+            ["--simulated", "--activate-existing-pid", "42", path],
+            ["--validate-only", "--activate-existing-pid", "42", path],
+        ] { expect(launcherInvocation(arguments: invalid) == nil, "PID-only activation cannot mix launch modes or omit a path") }
         expect(
             launcherInvocation(arguments: ["--simulated"]) == nil,
             "simulated option without path rejected"

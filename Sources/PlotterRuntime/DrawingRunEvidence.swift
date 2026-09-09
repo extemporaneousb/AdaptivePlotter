@@ -318,13 +318,19 @@ public struct DrawingObservedInkEvidence: Codable, Hashable, Sendable {
   public let observedInk: [Polyline<CameraPixelSpace>]
   public let residual: DrawingResidualEvidence?
   public let algorithmRevisions: Set<AlgorithmRevisionEvidence>
+  /// Extraction/association facts, independent of sampled residual geometry.
+  /// Nil means this producer or a legacy archive did not record the count.
+  public let detectedPixelCount: Int?
+  public let ambiguousPixelCount: Int?
 
   public init(
     frames: DrawingObservationFramePair,
     intendedInk: [Polyline<CameraPixelSpace>],
     observedInk: [Polyline<CameraPixelSpace>],
     residual: DrawingResidualEvidence?,
-    algorithmRevisions: Set<AlgorithmRevisionEvidence>
+    algorithmRevisions: Set<AlgorithmRevisionEvidence>,
+    detectedPixelCount: Int? = nil,
+    ambiguousPixelCount: Int? = nil
   ) throws {
     guard !intendedInk.isEmpty, !observedInk.isEmpty, !algorithmRevisions.isEmpty else {
       throw DrawingRunEvidenceError.invalidObservation
@@ -334,10 +340,13 @@ public struct DrawingObservedInkEvidence: Codable, Hashable, Sendable {
     self.observedInk = observedInk
     self.residual = residual
     self.algorithmRevisions = algorithmRevisions
+    self.detectedPixelCount = detectedPixelCount
+    self.ambiguousPixelCount = ambiguousPixelCount
   }
 
   private enum CodingKeys: String, CodingKey {
     case frames, intendedInk, observedInk, residual, algorithmRevisions
+    case detectedPixelCount, ambiguousPixelCount
   }
 
   public init(from decoder: any Decoder) throws {
@@ -356,7 +365,9 @@ public struct DrawingObservedInkEvidence: Codable, Hashable, Sendable {
       algorithmRevisions: values.decode(
         Set<AlgorithmRevisionEvidence>.self,
         forKey: .algorithmRevisions
-      )
+      ),
+      detectedPixelCount: values.decodeIfPresent(Int.self, forKey: .detectedPixelCount),
+      ambiguousPixelCount: values.decodeIfPresent(Int.self, forKey: .ambiguousPixelCount)
     )
   }
 }
@@ -621,6 +632,55 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
       role: role,
       disposition: evidenceDisposition
     )
+  }
+
+  /// Shared retrospective/experiment evidence compatibility. Storage preserves
+  /// mismatches; only interpretation as calibrated residuals uses this check.
+  /// The caller computes the current immutable registration hash once per batch.
+  func attributableResidualGeometry(
+    using registration: TipCameraRegistration, registrationContentHash: Digest
+  ) throws -> (plan: ExecutionPlanRevision, observation: DrawingObservedInkEvidence) {
+    guard executionDisposition == .completed, evidenceDisposition == .attributable,
+      requestFrontier == .admitted, let geometry = plan.executionPlan,
+      case .observed(let observed) = observation,
+      Int(executionFrontiers.plannedStrokeCount) == geometry.strokes.count,
+      executionFrontiers.commandedStrokeCount == executionFrontiers.plannedStrokeCount,
+      executionFrontiers.controllerCompletedStrokeCount == executionFrontiers.plannedStrokeCount,
+      executionFrontiers.inkVerifiedStrokeCount == executionFrontiers.plannedStrokeCount,
+      observed.intendedInk.count == geometry.strokes.count,
+      observed.observedInk.count == geometry.strokes.count else {
+      throw PlotterModelError.invalidValue("The archived run lacks completed attributable paths")
+    }
+    guard registration.acceptedRevisionID == tipCalibration.acceptedRevisionID,
+      registration.applicability == tipCalibration.applicability,
+      registration.estimatorRevision == tipCalibration.estimatorRevision,
+      tipCalibration.registrationEvidenceSHA256 == registrationContentHash.description,
+      planningProvenance.registrationContentHash == registrationContentHash,
+      planningProvenance.registrationRevisionID.rawValue == registration.acceptedRevisionID.rawValue,
+      paper.contactPlane == registration.applicability.paperContactPlane else {
+      throw PlotterModelError.invalidValue("The archived registration differs from the current accepted calibration")
+    }
+    let optics = registration.applicability.opticalConfiguration
+    guard observed.frames.source == optics.source,
+      observed.frames.baseline.width == optics.width,
+      observed.frames.baseline.height == optics.height,
+      observed.frames.baseline.pixelFormat == optics.pixelFormat else {
+      throw PlotterModelError.invalidValue("The observation camera source or image geometry differs from its calibration")
+    }
+    guard geometry.provenance == planningProvenance,
+      geometry.sourceProgramID == program.programID,
+      geometry.sourceProgramContentHash == program.contentHash,
+      try DrawingPlacementEvidenceReference(placementID: placement.placementID,
+        placement: geometry.placement) == placement else {
+      throw PlotterModelError.invalidValue("The archived program, placement or planning provenance differs from its immutable plan")
+    }
+    for index in geometry.strokes.indices {
+      guard try registration.cameraFromMachine.applying(to: geometry.strokes[index].path)
+        == observed.intendedInk[index] else {
+        throw PlotterModelError.invalidValue("The observation's intended path differs from its immutable plan")
+      }
+    }
+    return (geometry, observed)
   }
 
   private enum CodingKeys: String, CodingKey {

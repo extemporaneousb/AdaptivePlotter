@@ -30,7 +30,10 @@ struct PlannedDrawingObservationTests {
       computation.inkEvaluatedPixelCount
         == fixture.request.region.width * fixture.request.region.height
     )
-    #expect(computation.associationEvaluationCount == observation.observedPixelCount * 2)
+    // The final pass visits one leaf and two segments per pixel. The bounded
+    // correspondence-reference search is additional counted work.
+    #expect(computation.associationEvaluationCount > observation.observedPixelCount * 3)
+    #expect(computation.associationEvaluationCount <= fixture.request.maximumAssociationEvaluationCount)
     #expect(computation.cancellationCheckpointCount > 0)
     #expect(
       computation.maximumEvaluationCountBetweenCancellationChecks

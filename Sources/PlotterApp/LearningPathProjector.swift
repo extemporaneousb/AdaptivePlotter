@@ -745,7 +745,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
   private func drawingTrialInstruction(_ drawing: PlotterLearningPresentationFacts.DrawingFacts) -> String {
     if let assessment = drawing.assessment {
       return "Learning complete. " + assessment.title + ". The result is retained automatically."
-        + (assessment == .drawingCompleted ? " \(drawing.inkStatus)" : " Open Drawing Studio from View to continue.")
+        + (assessment == .drawingCompleted ? " \(drawing.inkStatus)" : " Choose Portrait Studio or Active Learning from Panels to continue.")
     }
     switch drawing.phase {
     case .failed(let detail), .rejected(let detail), .possibleInk(let detail), .cancelled(let detail):

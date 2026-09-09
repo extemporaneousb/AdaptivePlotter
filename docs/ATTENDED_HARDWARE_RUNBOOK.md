@@ -9,6 +9,53 @@ one real plotter, camera, pen, and paper. Product meaning is defined by
 Record results in [Current Evidence](CURRENT_EVIDENCE.md) without upgrading a
 claim beyond what was directly observed.
 
+## Software native workbench check
+
+Before physical work, the existing signed-app gate can exercise production
+window controls with simulated startup and no real capture or controller effects.
+The desktop must be unlocked and visible for native input. On 2026-09-09 the
+console explicitly reported locked since 00:10:16 PDT; native 20 and 22 reached
+no controls, and macOS rejected native 22 activation despite exact regular-app
+identity. Unlock through the normal macOS login UI before retrying; do not change
+activation policies, permissions or lock behavior to force this gate. Launcher
+logic passes and an inactive-window bitmap are not native interaction proof.
+
+The gate script immediately asks the existing launcher to activate only its
+exact spawned PID, preserving arguments and prohibiting a new-instance fallback.
+It does not await the physical review marker before activation because Connect
+is a native action preceding that marker. Build the existing launcher before
+invoking the script directly (`make preview-performance-gate` includes it):
+
+```sh
+sh Scripts/check_running_app_preview_performance.sh .build/AdaptivePlotter.app /tmp/adaptiveplotter-native-workbench.json native-workbench
+```
+
+The `adaptiveplotter.native-workbench.v1` report requires all five panels in all
+three docks at 1000 and 1600 points, full body/header native hit visibility through
+every containing clip, native menu/hide/scroll/resize/On-Off receipts, and six
+retained workbench bitmaps. Video proof targets the actual canvas, including
+panel ancestry. Nested scrolling requires before/after bounds of the identified
+overflowing inner clip caused by its correlated native wheel; programmatic
+reveal and outer-only scrolling do not satisfy it. Resize chooses a feasible
+direction at the production minimum. Their software contracts pass full strict
+run 31 (997 Swift functions passed, five opt-in skips, zero failures), and
+independent critic 9 found no blocking software issue. The exact signed run-31
+bundle is delivered at the canonical path; it has not been launched. At
+11:06:55 UTC on 2026-09-09, the desktop still explicitly reported locked.
+Actual interaction, the 20-switch/90-second learned camera workload and the
+physical sequence remain unverified. Use the exact delivered identity and
+receipts in [Current Evidence](CURRENT_EVIDENCE.md) after normal GUI unlock;
+software gate success does not satisfy these remaining checks.
+The pending learned-camera acceptance run sets
+`PREVIEW_PERFORMANCE_DURATION_SECONDS=90`; the general gate's default and minimum
+remain 60 seconds.
+The harness preserves user layout and accepted artifacts.
+Its logs/captures remain beside the selected evidence path on failure. These
+checks use the real AppKit event loop; bitmap-only SwiftPM tests cannot replace
+them. The separate held-Draw software Stop test and the physical inkless native
+jog/Stop below prove different boundaries. No native input into a held synthetic
+Drawing Run or physical ink is claimed by this scenario.
+
 ## Attendance and stop rules
 
 Do not begin unless one operator can see the mechanism and paper continuously
@@ -228,40 +275,72 @@ zero verified ink strokes. If possible ink or an uncertain controller outcome
 occurs, confirm the automatic chain stops. Any offered recovery may return Pen
 Up and observe the existing stroke, but it must not redraw it.
 
-## 6. Drawing Studio — first physical plan
+## 6. Portrait Studio — two distinct physical plans
 
-1. Open **Drawing Studio** and confirm the accepted Drawing Boundary outline and
-   predicted current tip point are correctly overlaid on live video.
-2. Replace the disposable sheet if necessary using **New Sheet — Same Contact
-   Plane**. Place it fully over the outline and press **Assert Sheet Covers
-   Outline**. Confirm the top paper status names this as an operator assertion,
-   not measured paper edges, without changing the accepted pen-tip calibration.
-3. Select a square first. Place it near the drawable-region center, resize and
-   rotate it, and confirm the projected target follows the video click while
-   remaining entirely inside the outline. Move it partly outside and verify Run
-   is refused before moving the plotter.
-4. Return it inside, use **Ordinary drawing**, and record the displayed program
-   and execution-plan hashes. Confirm Pen Up, Idle, Motion, paper, and controller
-   eligibility are current before pressing **Run Drawing**.
-5. Observe one owner perform Pen-Up travel, Pen Down, all square segments, Pen
-   Up, and logical-stroke checkpoint completion. Confirm **Stop** remains bound
-   to that exact plan and no competing Run replaces it.
-6. On completion, confirm the carriage is at the same observation pose used for
-   the local baseline, a newer exact post frame is captured, and intended,
-   observed, and residual overlays are retained for review.
-7. Inspect the immutable run record: ordinary role, program/placement/plan and
-   calibration/paper provenance, request/execution frontiers, controller
-   disposition, and observation outcome. Restart the app and confirm the
-   prior execution-plan path appears in the saved-training preview. After
-   choosing **Use Saved Learning**, confirm attributable Stage 2 validation and
-   Drawing Studio availability return without motion replay.
-8. Repeat with one tessellated curve and one multi-stroke catalog item only if
-   the square is clean. Stop on any uncertain mark; do not resend or redraw.
+1. Show **Guided Learning**, **Video**, **Motion**, and **Portrait Studio** from
+   the panel menu. Each panel may remain visible in Left, Bottom, or Right.
+   Apply **Use Saved Learning** and verify the complete accepted checkpoint,
+   including Border completion. Selecting Portrait preparation uses the face
+   camera in the shared Video panel; **Show on Plotter Video** selects the
+   plotter camera while retaining the portrait controls.
+2. Inspect the fresh plotter frame, controller position, accepted region, and
+   actual contact plane. An existing sheet assertion does not detect paper
+   edges. Only assert **Sheet Covers Target** after inspecting the sheet.
+3. With Pen Up, perform one inward 2 mm X jog at 60 mm/min and press global
+   **Stop**. Record the exact active manual capability, native input handler
+   receipt, controller cancellation/Idle settlement, and final position
+   separately. The synthetic held Drawing Run test proves prompt typed software
+   Stop acceptance before deliberately held lower work settles; it supplies no
+   native input or actual-controller Stop evidence.
+4. Import the face reference in Portrait Studio, choose the portrait style,
+   and use **Show on Plotter Video**. Fit uses the better 0° or 90° orientation.
+   Adjust scale/placement so the first portrait occupies one half of the region.
+   Inspect the complete immutable plan and exact plotter frame before **Draw**.
+   No pre-run Learning/evidence-role selector is required.
+5. Click **Draw** once. Keep global **Stop** reachable. Record its actual plan
+   identity and capability, Pen Up normalization/travel, pen actuation, execution
+   frontiers, controller settlement, baseline/post frame identities, and terminal
+   observation. A transmitted command or completed controller path alone does
+   not establish attributable ink.
+6. Export the first immutable record and its exact baseline/post pixel buffers
+   before **New Drawing** releases the owner's in-memory frames. Inspect the
+   terminal result and paper. A possible-ink, ambiguous, incomplete-publication,
+   or rejected observation ends this sequence without replay.
+7. Only after the first result is understood, create a second distinct plan in
+   the other half of the same region, with no overlap including line width.
+   Review its frame and plan, then click **Draw** once. Retain the second exact
+   record/frame pair. Keep both ordinary records immutable; they may be selected
+   later in **Active Learning > Analyze for Learning**. Never relabel holdouts.
 
-This section validates direct placed drawing, not adaptive fitting. Training and
-holdout roles are data declarations only until the future active-selection,
-candidate-comparison, and readiness protocols are implemented and physically
-validated.
+The explicit harness scenario composes these existing controls and owners:
+
+```sh
+PORTRAIT_REFERENCE_PHOTO=/absolute/path/to/face.png \
+PHYSICAL_CONTROLLER=/dev/cu.exact-controller \
+Scripts/check_running_app_preview_performance.sh \
+  .build/AdaptivePlotter.app /absolute/path/to/physical-evidence.json physical-portrait
+```
+
+This is an opt-in physical scenario; default `preview` and `learned-portrait`
+remain motion-free. The signed app publishes a report and a review marker before
+its inkless trial and before each portrait. Inspect `factsPath`, adjacent review
+PNG, full plan, prior record/frame exports, and actual paper/mechanism. Under the
+already granted operator authorization, the validator advances only that stage
+by writing the marker's exact `continuation` JSON object to `continuationPath`.
+The token includes a fresh session/nonce, executable SHA, stage, and plan SHA;
+stale or mismatched tokens are refused. This marker stages the harness only;
+the native click still uses current ordinary UI admission and owner checks.
+
+The per-stage timeout is `PREVIEW_PERFORMANCE_DURATION_SECONDS` (default 600,
+maximum 600). Timeout, refusal, success, shell interruption, and failure all retain
+the app and artifact directory; none automatically redraws, resets paper/Learning,
+or kills a controller-owning process. On failure inspect the active owner and
+use its existing Stop if needed. The scenario stops before the second Draw when
+the first terminal is not successful and attributable. Exported `.pixels` plus
+frame JSON preserve exact source bytes/provenance; PNG is a visual derivative.
+These are bounded copies of existing snapshots/archive records, not another
+recorder or source of truth. Native CGEvents, controller evidence, software
+attribution, and independently observed physical ink/attendance remain separate.
 
 ## Automatic retention and diagnostics
 

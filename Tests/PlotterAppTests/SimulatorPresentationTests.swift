@@ -14,43 +14,39 @@ func simulatedOverlayStatusIsCausalAndExact() async throws {
   await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
 
   let frame = try #require(workspace.displayedFrame)
-  let cap = workspace.overlayCardPresentation(for: .penCap)
-  let armature = workspace.overlayCardPresentation(for: .armatureEnvelope)
+  let cap = workspace.overlayStatus(for: .penCap)
+  let armature = workspace.overlayStatus(for: .armatureEnvelope)
 
-  #expect(cap.isOn)
-  #expect(cap.status.state == .available)
+  #expect(workspace.overlayPreferenceState.enabled.contains(.penCap))
+  #expect(cap.state == .available)
   #expect(
-    cap.statusText
+    cap.message
       == OverlayStatusGrammar.simulatedPenCapAvailable(frame: frame.frame.sequence)
   )
-  #expect(cap.status.provenance?.matches(frame) == true)
-  #expect(cap.accessibilityValue.contains(cap.statusText))
-  #expect(cap.helpText.contains(cap.statusText))
-  #expect(cap.statusText.contains("pixel count and confidence are not applicable"))
-  #expect(!cap.statusText.contains("Found —"))
+  #expect(cap.provenance?.matches(frame) == true)
+  #expect(cap.message.contains("pixel count and confidence are not applicable"))
+  #expect(!cap.message.contains("Found —"))
 
-  #expect(armature.isOn)
-  #expect(armature.status.state == .available)
+  #expect(workspace.overlayPreferenceState.enabled.contains(.armatureEnvelope))
+  #expect(armature.state == .available)
   #expect(
-    armature.statusText
+    armature.message
       == OverlayStatusGrammar.simulatedArmatureAvailable(frame: frame.frame.sequence)
   )
-  #expect(armature.status.provenance?.matches(frame) == true)
-  #expect(armature.accessibilityValue.contains(armature.statusText))
-  #expect(armature.helpText.contains(armature.statusText))
-  #expect(!armature.statusText.contains("independently detected"))
+  #expect(armature.provenance?.matches(frame) == true)
+  #expect(!armature.message.contains("independently detected"))
 
   let surface = workspace.testActionSurfacePresentation
   #expect(surface.analyzedOverlayFrame?.matches(frame) == true)
   #expect(surface.overlays.map(\.provenance.kind) == [.penCap, .armatureEstimate])
 
   await submitObservationConfigurationForTest(workspace, .setOverlay(.penCap, enabled: false))
-  #expect(workspace.overlayCardPresentation(for: .penCap).status.state == .off)
-  #expect(workspace.overlayCardPresentation(for: .armatureEnvelope).status == armature.status)
+  #expect(workspace.overlayStatus(for: .penCap).state == .off)
+  #expect(workspace.overlayStatus(for: .armatureEnvelope) == armature)
   #expect(workspace.testActionSurfacePresentation.overlays.map(\.provenance.kind) == [.armatureEstimate])
 
   await submitObservationConfigurationForTest(workspace, .setOverlay(.penCap, enabled: true))
-  #expect(workspace.overlayCardPresentation(for: .penCap).statusText == cap.statusText)
+  #expect(workspace.overlayStatus(for: .penCap).message == cap.message)
   #expect(workspace.testActionSurfacePresentation.analyzedOverlayFrame?.matches(frame) == true)
   await workspace.shutdown()
 }

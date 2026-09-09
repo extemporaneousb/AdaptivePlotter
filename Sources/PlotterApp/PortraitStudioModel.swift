@@ -3,6 +3,15 @@ import Observation
 import PlotterModel
 import PlotterRuntime
 
+struct PortraitRenderDiagnostics: Equatable, Sendable {
+  var requestedWorkCount = 0
+  var cancellationCount = 0
+  var startedWorkerCount = 0
+  var settledWorkerCount = 0
+  var activeWorkerCount = 0
+  var maximumConcurrentWorkerCount = 0
+}
+
 @Observable @MainActor
 final class PortraitCameraPreviewModel {
   var frame: DisplayedFrame?
@@ -26,10 +35,30 @@ final class PortraitStudioModel {
   @ObservationIgnored private var cameraGeneration: UInt64 = 0
   @ObservationIgnored private let camera: CameraCapture
   @ObservationIgnored private var frameTask: Task<Void, Never>?
-  @ObservationIgnored private var renderTask: Task<Void, Never>?
+  @ObservationIgnored private var workTask: Task<Void, Never>?
+  @ObservationIgnored private var renderWorker: Task<PortraitRenderResult, Error>?
+  @ObservationIgnored private let renderer: any PortraitRendering
+  @ObservationIgnored private let photoAcquirer: any PortraitPhotoAcquiring
+  @ObservationIgnored private var acquisitionWorker: Task<Data, Error>?
+  @ObservationIgnored private var pendingAcquisition: PhotoAcquisition?
+  @ObservationIgnored private var acquisitionRevision: UInt64 = 0
+  @ObservationIgnored private(set) var acquisitionDiagnostics = PortraitRenderDiagnostics()
+  @ObservationIgnored private var pendingRender: (revision: UInt64, request: PortraitRenderRequest)?
+  @ObservationIgnored private var renderRevision: UInt64 = 0
+  @ObservationIgnored private var isShutdown = false
+  @ObservationIgnored private(set) var renderDiagnostics = PortraitRenderDiagnostics()
+  @ObservationIgnored private(set) var workDiagnostics = PortraitRenderDiagnostics()
   @ObservationIgnored private var rasters: [PortraitPose: PortraitRaster] = [:]
 
-  init(camera: CameraCapture = CameraCapture()) { self.camera = camera }
+  init(
+    camera: CameraCapture = CameraCapture(),
+    renderer: any PortraitRendering = PortraitImageAnalyzer(),
+    photoAcquirer: any PortraitPhotoAcquiring = PortraitImageAnalyzer()
+  ) {
+    self.camera = camera
+    self.renderer = renderer
+    self.photoAcquirer = photoAcquirer
+  }
 
   func discover(excluding plotterDeviceID: CameraDeviceID?) async {
     await camera.discoverDevices()
@@ -40,7 +69,11 @@ final class PortraitStudioModel {
   }
 
   func startCamera() async {
-    guard let selectedDeviceID else { return }
+    guard !isShutdown else { return }
+    guard let selectedDeviceID else {
+      cameraStatus = "No portrait camera is available. Connect a face camera and retry Portrait Studio, or import a photo."
+      return
+    }
     let generation = cameraGeneration &+ 1
     await stopCamera()
     guard generation == cameraGeneration else { return }
@@ -56,7 +89,7 @@ final class PortraitStudioModel {
       let snapshot = await camera.snapshot()
       guard generation == cameraGeneration else { return }
       cameraIsRunning = snapshot.state == .running
-      cameraStatus = snapshot.error.map { String(describing: $0) }
+      cameraStatus = snapshot.error?.actionableDescription
       if cameraIsRunning {
         frameTask = Task { [weak self] in
           for await frame in frames {
@@ -66,52 +99,126 @@ final class PortraitStudioModel {
         }
       }
     } catch {
-      if generation == cameraGeneration { cameraStatus = String(describing: error) }
+      if generation == cameraGeneration {
+        cameraStatus = (error as? CameraCaptureError)?.actionableDescription ?? error.localizedDescription
+      }
     }
   }
 
   func stopCamera() async {
     cameraGeneration &+= 1
-    frameTask?.cancel()
+    let frames = frameTask
+    frames?.cancel()
     frameTask = nil
     preview.frame = nil
     cameraIsRunning = false
     cameraIsStarting = false
     await camera.stop()
+    await frames?.value
   }
 
   func capture(strokeStyle: StrokeStyle) async {
-    let capturedPose = pose
-    do {
-      guard let frame = try await camera.materializeLatestFrame(policy: .returnOnly) else {
-        cameraStatus = "Waiting for a camera frame."
-        return
-      }
-      let data = try await Task.detached(priority: .userInitiated) {
-        guard let image = FrameImageFactory.image(from: frame.frame) else {
-          throw PortraitDrawingError.unreadableImage
-        }
-        return try PortraitImageAnalyzer.encodedImage(image)
-      }.value
-      setPhoto(data, for: capturedPose, strokeStyle: strokeStyle)
-    } catch { cameraStatus = error.localizedDescription }
+    await acquirePhoto(file: nil, strokeStyle: strokeStyle)
   }
 
   func importPhoto(_ url: URL, strokeStyle: StrokeStyle) async {
-    let capturedPose = pose
-    let accessed = url.startAccessingSecurityScopedResource()
-    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-    do {
-      let data = try await Task.detached(priority: .userInitiated) {
-        // Decode orientation and retain only a bounded image in this editor.
-        let input = try Data(contentsOf: url)
-        return try PortraitImageAnalyzer.encodedImage(PortraitImageAnalyzer.image(from: input))
-      }.value
-      setPhoto(data, for: capturedPose, strokeStyle: strokeStyle)
-    } catch { summary = error.localizedDescription }
+    await acquirePhoto(file: url, strokeStyle: strokeStyle)
+  }
+
+  private struct PhotoAcquisition: Sendable {
+    let revision: UInt64
+    let file: URL?
+    let pose: PortraitPose
+    let strokeStyle: StrokeStyle
+  }
+
+  private func acquirePhoto(file: URL?, strokeStyle: StrokeStyle) async {
+    guard !isShutdown else { return }
+    acquisitionRevision &+= 1
+    acquisitionDiagnostics.requestedWorkCount += 1
+    acquisitionWorker?.cancel()
+    renderRevision &+= 1
+    renderWorker?.cancel()
+    pendingRender = nil
+    pendingAcquisition = PhotoAcquisition(revision: acquisitionRevision, file: file, pose: pose, strokeStyle: strokeStyle)
+    startWorkIfNeeded()
+    await workTask?.value
+  }
+
+  private func startWorkIfNeeded() {
+    if workTask == nil { workTask = Task { await drainWork() } }
+  }
+
+  private func drainWork() async {
+    defer { workTask = nil }
+    while !isShutdown && (pendingAcquisition != nil || pendingRender != nil) {
+      await drainAcquisitions()
+      await drainRenders()
+    }
+  }
+
+  private func workerStarted() {
+    workDiagnostics.startedWorkerCount += 1
+    workDiagnostics.activeWorkerCount += 1
+    workDiagnostics.maximumConcurrentWorkerCount = max(
+      workDiagnostics.maximumConcurrentWorkerCount, workDiagnostics.activeWorkerCount)
+  }
+
+  private func workerSettled() {
+    workDiagnostics.activeWorkerCount -= 1
+    workDiagnostics.settledWorkerCount += 1
+  }
+
+  private func drainAcquisitions() async {
+    defer { acquisitionWorker = nil }
+    while let request = pendingAcquisition, !isShutdown {
+      pendingAcquisition = nil
+      let camera = camera, acquirer = photoAcquirer
+      let worker = Task.detached(priority: .userInitiated) {
+        let input: PortraitPhotoInput
+        if let file = request.file {
+          input = .file(file)
+        } else {
+          guard let frame = try await camera.materializeLatestFrame(policy: .returnOnly) else {
+            throw PortraitDrawingError.noCameraFrame
+          }
+          input = .frame(frame.frame)
+        }
+        try Task.checkCancellation()
+        return try await acquirer.acquire(input)
+      }
+      acquisitionWorker = worker
+      workerStarted()
+      acquisitionDiagnostics.startedWorkerCount += 1
+      acquisitionDiagnostics.activeWorkerCount += 1
+      acquisitionDiagnostics.maximumConcurrentWorkerCount = max(
+        acquisitionDiagnostics.maximumConcurrentWorkerCount, acquisitionDiagnostics.activeWorkerCount)
+      defer {
+        workerSettled()
+        acquisitionDiagnostics.activeWorkerCount -= 1
+        acquisitionDiagnostics.settledWorkerCount += 1
+      }
+      do {
+        let data = try await worker.value
+        guard request.revision == acquisitionRevision, !isShutdown else { continue }
+        installPhoto(data, for: request.pose, strokeStyle: request.strokeStyle)
+      } catch {
+        guard request.revision == acquisitionRevision, !isShutdown, !(error is CancellationError) else { continue }
+        if request.file == nil { cameraStatus = error.localizedDescription }
+        else { summary = error.localizedDescription }
+      }
+    }
   }
 
   func setPhoto(_ data: Data, for pose: PortraitPose, strokeStyle: StrokeStyle) {
+    guard !isShutdown else { return }
+    acquisitionRevision &+= 1
+    acquisitionWorker?.cancel()
+    pendingAcquisition = nil
+    installPhoto(data, for: pose, strokeStyle: strokeStyle)
+  }
+
+  private func installPhoto(_ data: Data, for pose: PortraitPose, strokeStyle: StrokeStyle) {
     photos[pose] = data
     rasters[pose] = nil
     if pose == self.pose { render(strokeStyle: strokeStyle) }
@@ -123,37 +230,80 @@ final class PortraitStudioModel {
   }
 
   func render(strokeStyle: StrokeStyle) {
-    renderTask?.cancel()
+    guard !isShutdown else { return }
+    renderRevision &+= 1
+    renderWorker?.cancel()
+    pendingRender = nil
     program = nil
     guard let data = photos[pose] else {
       isProcessing = false
       summary = "Capture the \(pose.rawValue.lowercased()) view or choose a photo."
       return
     }
-    let pose = pose, style = style, options = options, cached = rasters[pose]
     isProcessing = true
     summary = "Preparing \(style.rawValue.lowercased()) portrait…"
-    renderTask = Task {
+    pendingRender = (renderRevision, .init(
+      data: data, pose: pose, style: style, options: options,
+      cachedRaster: rasters[pose], strokeStyle: strokeStyle))
+    startWorkIfNeeded()
+  }
+
+  private func drainRenders() async {
+    defer { renderWorker = nil }
+    while let pending = pendingRender, pendingAcquisition == nil, !isShutdown {
+      pendingRender = nil
+      let renderer = renderer
       let worker = Task.detached(priority: .userInitiated) {
-        let raster = try cached ?? PortraitImageAnalyzer.analyze(data: data, options: options)
         try Task.checkCancellation()
-        let program = try PortraitVectorizer.program(from: raster, pose: pose, style: style, strokeStyle: strokeStyle)
-        return (raster, program)
+        return try await renderer.render(pending.request)
+      }
+      renderWorker = worker
+      workerStarted()
+      renderDiagnostics.startedWorkerCount += 1
+      renderDiagnostics.activeWorkerCount += 1
+      renderDiagnostics.maximumConcurrentWorkerCount = max(
+        renderDiagnostics.maximumConcurrentWorkerCount, renderDiagnostics.activeWorkerCount)
+      defer {
+        workerSettled()
+        renderDiagnostics.activeWorkerCount -= 1
+        renderDiagnostics.settledWorkerCount += 1
       }
       do {
-        let (raster, result) = try await withTaskCancellationHandler {
-          try await worker.value
-        } onCancel: { worker.cancel() }
-        guard !Task.isCancelled else { return }
-        rasters[pose] = raster
-        program = result
-        summary = "\(raster.analysisSummary) · \(result.strokes.count) strokes"
+        let result = try await worker.value
+        guard pending.revision == renderRevision, !isShutdown else { continue }
+        rasters[pending.request.pose] = result.raster
+        program = result.program
+        summary = "\(result.raster.analysisSummary) · \(result.program.strokes.count) strokes"
         isProcessing = false
       } catch {
-        guard !Task.isCancelled else { return }
-        summary = error.localizedDescription
+        guard pending.revision == renderRevision, !isShutdown else { continue }
+        if !(error is CancellationError) { summary = error.localizedDescription }
         isProcessing = false
       }
     }
+  }
+
+  /// Stop expensive work without discarding captured photos or the last
+  /// completed draft. Replacement work waits for the current worker to settle.
+  func cancelRendering() async {
+    acquisitionDiagnostics.cancellationCount += 1
+    acquisitionRevision &+= 1
+    pendingAcquisition = nil
+    acquisitionWorker?.cancel()
+    renderRevision &+= 1
+    pendingRender = nil
+    isProcessing = false
+    renderWorker?.cancel()
+    await workTask?.value
+  }
+
+  func awaitRendering() async { await workTask?.value }
+
+  func cameraDiagnostics() async -> CameraCaptureSnapshot { await camera.snapshot() }
+
+  func shutdown() async {
+    isShutdown = true
+    await cancelRendering()
+    await stopCamera()
   }
 }

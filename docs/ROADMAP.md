@@ -9,6 +9,17 @@ dependencies are owned exclusively by
 [Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md);
 this roadmap does not restate or reorder them.
 
+The active product correction is the execution plan's
+[workbench and portrait completion correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#workbench-and-portrait-completion-correction-2026-09-08):
+restore accepted Learning correctly, deliver five dockable panels with quiet
+controls and one selected camera, complete portrait placement/Draw and
+retrospective residual use, and prove liveness under the actual workload. Its
+single progress/acceptance matrix governs this work. Source changes and focused
+fixtures are integrated in the task candidate; serial validation, the sustained
+native workload, independent critic assessment, and physical proof remain
+pending. The remaining experimental
+model work below must not be confused with an ordinary portrait drawing mode.
+
 ## 0. Episode architecture migration
 
 Execute the plan's named packages in ledger order. The execution-plan ledger and
@@ -149,7 +160,7 @@ implemented. Do not restore the deleted
 speculative online dataset, policy/reward scaffolding, model-mismatch overlay,
 or dormant navigation route as a compatibility surface.
 
-Remaining portrait work is attended two-camera and ink-quality evaluation across
+Remaining portrait work is attended exclusive camera switching and ink-quality evaluation across
 front and profile faces, richer styles (facets, stipple, feature landmarks), and
 multi-view composition or reconstruction. The delivered portrait producer uses
 the existing DrawingProgram placement, planning, execution, and evidence path.

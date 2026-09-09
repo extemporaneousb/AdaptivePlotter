@@ -37,8 +37,9 @@ struct WorkbenchInteractionRenderingTests {
         actionStrip: strip), currentActionStrip: strip, contextualStop: nil,
       resetSurface: base.resetSurface, menu: base.menu)
     let view = LearningPathView(selection: .constant(.init(current: item)), projection: projection,
+      learningMode: workspace.testLearningModePresentation,
       currentLearningPathItemID: item, plotterUIProjection: semantic,
-      plotterUIIntentSink: workspace, close: {})
+      plotterUIIntentSink: workspace)
     _ = NSApplication.shared
     for (scheme, name) in [(ColorScheme.light, "light"), (.dark, "dark")] {
       let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme)

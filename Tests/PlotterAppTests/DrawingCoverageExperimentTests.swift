@@ -64,7 +64,7 @@ struct DrawingCoverageExperimentTests {
     let runtime = PlotterDrawingDraftRuntime()
     var records: [DrawingRunEvidenceRecord] = []
     var snapshot = await runtime.synchronize(facts(f, records: records))
-    snapshot = try await submit(.open, runtime, snapshot, facts(f, records: records))
+    snapshot = try await submit(.showTarget, runtime, snapshot, facts(f, records: records))
     snapshot = try await submit(.prepareCoverageExperiment, runtime, snapshot, facts(f, records: records))
     let e = try #require(snapshot.coverageExperiment)
     var selected: Set<Int> = []
@@ -96,7 +96,7 @@ struct DrawingCoverageExperimentTests {
     let reopened = PlotterDrawingDraftRuntime()
     let restoredFacts = facts(f, records: restored.records)
     var restoredSnapshot = await reopened.synchronize(restoredFacts)
-    restoredSnapshot = try await submit(.open, reopened, restoredSnapshot, restoredFacts)
+    restoredSnapshot = try await submit(.showTarget, reopened, restoredSnapshot, restoredFacts)
     restoredSnapshot = try await submit(.prepareCoverageExperiment, reopened, restoredSnapshot, restoredFacts)
     #expect(restoredSnapshot.coverageExperiment == e)
     #expect(restoredSnapshot.coverageAssessment == result)
@@ -136,7 +136,7 @@ struct DrawingCoverageExperimentTests {
     let current = facts(f, records: [failed])
     let runtime = PlotterDrawingDraftRuntime()
     var snapshot = await runtime.synchronize(current)
-    snapshot = try await submit(.open, runtime, snapshot, current)
+    snapshot = try await submit(.showTarget, runtime, snapshot, current)
     let result = await runtime.submit(.init(projection: snapshot.projection, intent: .prepareCoverageExperiment), facts: current)
     guard case .refused = result.disposition else { Issue.record("Failed experiment resumed"); return }
     let synchronized = await runtime.synchronize(current)
@@ -150,7 +150,7 @@ struct DrawingCoverageExperimentTests {
     let runtime = PlotterDrawingDraftRuntime()
     let unavailable = facts(f, records: [], archiveAvailable: false)
     var snapshot = await runtime.synchronize(unavailable)
-    snapshot = try await submit(.open, runtime, snapshot, unavailable)
+    snapshot = try await submit(.showTarget, runtime, snapshot, unavailable)
     let result = await runtime.submit(.init(projection: snapshot.projection, intent: .prepareCoverageExperiment),
                                      facts: unavailable)
     if case .refused(let refusal) = result.disposition {
@@ -187,10 +187,10 @@ struct DrawingCoverageExperimentTests {
     let runtime = PlotterDrawingDraftRuntime()
     let initialFacts = facts(f, records: [])
     var snapshot = await runtime.synchronize(initialFacts)
-    snapshot = try await submit(.open, runtime, snapshot, initialFacts)
+    snapshot = try await submit(.showTarget, runtime, snapshot, initialFacts)
     snapshot = try await submit(.prepareCoverageExperiment, runtime, snapshot, initialFacts)
     let program = snapshot.program
-    for intent in [PlotterDrawingDraftIntent.setEvidenceRole(.reservedHoldout), .setUniformScale(0.2),
+    for intent in [PlotterDrawingDraftIntent.fitInDrawableRegion, .setUniformScale(0.2),
                    .setRotationDegrees(90), .selectCatalogItem(.circle)] {
       let result = await runtime.submit(.init(projection: snapshot.projection, intent: intent), facts: initialFacts)
       guard case .refused(let refusal) = result.disposition else { Issue.record("Sealed edit accepted"); continue }
@@ -223,11 +223,13 @@ struct DrawingCoverageExperimentTests {
       try #require(app.testPlotterUIProjection(selectedItemID: item, includesLearningPath: true)
         .semantic.request(matching: .drawingDraft(intent)))
     }
-    let open = try request(.open)
-    #expect(await app.submitPlotterUIRequest(open) == .accepted(requestID: open.id))
+    #expect(!app.drawingTargetIsVisible)
     let before = await harness.simulator.persistentInk()
     let prepare = try request(.prepareCoverageExperiment)
     #expect(await app.submitPlotterUIRequest(prepare) == .accepted(requestID: prepare.id))
+    #expect(app.drawingTargetIsVisible)
+    #expect(app.testPlotterUIProjection(selectedItemID: item, includesLearningPath: true)
+      .actionSurface.drawingStudioCanvas?.targetPreview != nil)
     #expect(app.drawingStudioPresentation.coverageExperiment != nil)
     #expect(app.drawingDraftSnapshot.preview?.status == .ready)
     #expect(app.drawingStudioPresentation.coverageAssessment?.trainingCount == 0)

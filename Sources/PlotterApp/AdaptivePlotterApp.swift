@@ -208,865 +208,32 @@ private enum SpeechComposition {
   static let runtime = PlotterSpeechEffectRuntime(announcer: NativeSpeechAnnouncer())
 }
 
-struct VideoSettingsOperatorActionDisposition: Equatable {
-  let layout: WorkbenchLayoutState
-  let shouldRefreshDiagnostics: Bool
-}
-
-func videoSettingsOperatorActionDisposition(
-  from layout: WorkbenchLayoutState,
-  action: VideoSettingsVisibilityAction,
-  availableWindowWidth: CGFloat,
-  policy: VideoSettingsVisibilityPolicy
-) -> VideoSettingsOperatorActionDisposition? {
-  guard
-    let nextLayout = policy.transition(
-      from: layout,
-      action: action,
-      availableWindowWidth: availableWindowWidth
-    )
-  else { return nil }
-  return VideoSettingsOperatorActionDisposition(
-    layout: nextLayout,
-    shouldRefreshDiagnostics:
-      !layout.videoSettingsIsPresented && nextLayout.videoSettingsIsPresented
-  )
-}
-
-struct PlotterApplicationRuntimeView: View {
-  @Bindable var application: PlotterApplicationRuntime
-  @State private var selection = LearningPathSelectionState(
-    current: .humanGuidedDiscovery(.penInteraction)
-  )
-  @State private var layout = WorkbenchLayoutState()
-  @State private var actionSurfaceViewport = ActionSurfaceViewportState()
-  @State private var manualMotionDraft = ManualMotionDraft()
-  @State private var debugSnapshot: WorkbenchDebugSnapshot?
-  @State private var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
-  @State private var pendingPointSelection: PlotterPointSelectionSubmission?
-  private let videoSettingsPolicy = VideoSettingsVisibilityPolicy()
-
-  var body: some View {
-    let ui = application.plotterUIProjection(
-      selectedItemID: selection.selected,
-      manualDraft: manualMotionDraft,
-      includesLearningPath: true,
-      pendingDrawingPlacement: pendingDrawingPlacement,
-      pendingPointSelection: pendingPointSelection,
-      observationViewport: actionSurfaceViewport
-    )
-    let learningMode = ui.learningMode
-    let learningProjection = ui.learningPath
-    let motionCollapseUnavailableReason = ui.manualMotion.stopAction == nil
-      ? nil : "Stop the active manual jog before hiding its Stop control."
-
-    GeometryReader { proxy in
-      let videoSettings = videoSettingsPolicy.presentation(
-        layout: layout,
-        availableWindowWidth: proxy.size.width
-      )
-      VStack(spacing: 0) {
-          WorkbenchPaneControls(
-            visibility: layout.panes,
-            videoSettings: videoSettings,
-            motionCollapseUnavailableReason: motionCollapseUnavailableReason,
-            learningIsEnabled: learningMode.isEnabled,
-            learningActionTitle: learningMode.actionTitle,
-            learningModeRemedy: learningMode.remedy,
-            learningRecordingDiagnostic: learningMode.recordingDiagnostic,
-            drawingStudioIsPresented: ui.drawingStudioIsPresented,
-            drawingStudioChangeUnavailableReason: ui.drawingStudioPanelChangeUnavailableReason,
-            showDiagnostics: { debugSnapshot = WorkbenchDebugSnapshot(application: application, projection: ui.semantic) },
-            plotterUIProjection: ui.semantic,
-            plotterUIIntentSink: application,
-            togglePane: { pane in
-              layout = layout.toggling(pane)
-            },
-            performVideoSettingsAction: { action in
-              performVideoSettingsAction(
-                action,
-                availableWindowWidth: proxy.size.width,
-                projection: ui.semantic
-              )
-            }
-          )
-
-      WorkbenchComputationStatus(application: application)
-      Divider()
-      HSplitView {
-        VStack(spacing: 0) {
-
-          VSplitView {
-            PreviewingActionSurface(
-              application: application,
-              preview: application.actionSurfacePreview,
-              viewport: $actionSurfaceViewport,
-              plotterUIProjection: ui.semantic,
-              plotterUIIntentSink: application,
-              pendingDrawingPlacement: $pendingDrawingPlacement,
-              pendingPointSelection: $pendingPointSelection
-            )
-            .frame(
-              minWidth: LearningWorkbenchLayoutPolicy.minimumActionSurfaceWidth,
-              minHeight: LearningWorkbenchLayoutPolicy.minimumActionSurfaceHeight
-            )
-
-            if layout.panes.motionIsPresented {
-              ScrollView {
-                MotionPanel(
-                  draft: $manualMotionDraft,
-                  presentation: ui.manualMotion,
-                  controllerSession: ui.controllerSession,
-                  learningIsEnabled: ui.learningIsEnabled,
-                  plotterUIProjection: ui.semantic,
-                  plotterUIIntentSink: application,
-                  close: { layout = layout.toggling(.motion) },
-                  closeUnavailableReason: motionCollapseUnavailableReason
-                )
-                .padding(10)
-              }
-              .frame(minHeight: 220, idealHeight: 260, maxHeight: 360)
-              .background(Color(nsColor: .controlBackgroundColor))
-            }
-          }
-        }
-        .frame(
-          minWidth: LearningWorkbenchLayoutPolicy.minimumActionSurfaceWidth,
-          maxWidth: .infinity,
-          maxHeight: .infinity
-        )
-
-        if ui.drawingStudioIsPresented {
-          VStack(spacing: 0) {
-            HStack {
-              Text("Drawing Studio").font(.headline)
-              Spacer()
-              Button {
-                submitPlotterUIAction(PlotterAppUIActionID.drawingClose, in: ui.semantic)
-              } label: {
-                Image(systemName: "xmark")
-              }
-              .buttonStyle(.plain)
-              .disabled(ui.drawingStudioPanelChangeUnavailableReason != nil)
-              .help(
-                ui.drawingStudioPanelChangeUnavailableReason
-                  ?? "Close Drawing Studio"
-              )
-            }
-            .padding(12)
-
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-              Text(ui.workbenchCapability.paper.title)
-                .font(.subheadline.bold())
-              Text(ui.workbenchCapability.paper.detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-              HStack {
-                Button("Assert Sheet Covers Outline") {
-                  submitPlotterUIAction(
-                    PlotterAppUIActionID.drawingDraft(.assertPaperCoverage),
-                    in: ui.semantic
-                  )
-                }
-                .operatorButton(.affirmative)
-                .disabled(ui.paperManagementUnavailableReason != nil)
-                Menu("Paper Management") {
-                  Button("New Sheet — Same Contact Plane") {
-                    submitPlotterUIAction(PlotterAppUIActionID.paperNewSheet, in: ui.semantic)
-                  }
-                  Button("Contact Plane Changed") {
-                    submitPlotterUIAction(PlotterAppUIActionID.paperContactPlane, in: ui.semantic)
-                  }
-                }
-                .disabled(ui.paperManagementUnavailableReason != nil)
-              }
-              .help(
-                ui.paperManagementUnavailableReason
-                  ?? "Confirm or deliberately change the current physical paper context."
-              )
-            }
-            .padding(12)
-            Divider()
-            ScrollView {
-              DrawingStudioView(
-                presentation: ui.drawingStudio,
-                plotterUIProjection: ui.semantic,
-                plotterUIIntentSink: application,
-                plotterCameraID: application.selectedCameraID,
-                portraitStrokeStyle: application.drawingDraftSnapshot.program?.strokes.first?.style,
-                usePortrait: usePortraitProgram
-              )
-            }
-          }
-          .frame(minWidth: 340, idealWidth: 390, maxWidth: 500)
-          .background(Color(nsColor: .controlBackgroundColor))
-        }
-
-        if layout.panes.learningPathIsPresented,
-          let learningProjection
-        {
-          LearningPathView(
-            selection: $selection,
-            projection: learningProjection,
-            currentLearningPathItemID: ui.currentLearningPathItemID,
-            plotterUIProjection: ui.semantic,
-            plotterUIIntentSink: application,
-            close: { layout = layout.toggling(.learningPath) }
-          )
-          .frame(minWidth: 340, idealWidth: 390, maxWidth: 480)
-        }
-      }
-      Divider()
-      WorkbenchVoiceView(
-        context: learningProjection.map { learning in
-          let current = selection.selected == ui.currentLearningPathItemID
-            ? learning : application.learningPathProjection(selectedItemID: ui.currentLearningPathItemID)
-          return WorkbenchVoiceContext(
-            presentation: current.selectedAction, projection: ui.semantic,
-            actionStrip: learning.currentActionStrip)
-        },
-        speech: application.speechEffectRuntime,
-        sink: application
-      )
-      .padding(.horizontal, 12)
-      .padding(.vertical, 6)
-      }
-      .onChange(of: proxy.size.width) { _, width in
-        layout = layout.collapsingVideoSettingsIfNeeded(
-          availableContentWidth: width,
-          policy: videoSettingsPolicy
-        )
-      }
-    }
-    .inspector(
-      isPresented: Binding(
-        get: { layout.videoSettingsIsPresented },
-        set: { isPresented in
-          if !isPresented { layout = layout.hidingVideoSettings() }
-        }
-      )
-    ) {
-      VideoSettingsPanel(
-        plotterUIProjection: ui.semantic,
-        plotterUIIntentSink: application,
-        application: application,
-        preview: application.actionSurfacePreview,
-        viewport: $actionSurfaceViewport,
-        close: { layout = layout.hidingVideoSettings() }
-      )
-      .inspectorColumnWidth(
-        min: OverlayCardLayoutPolicy.minimumInspectorWidth,
-        ideal: OverlayCardLayoutPolicy.idealInspectorWidth,
-        max: OverlayCardLayoutPolicy.maximumInspectorWidth
-      )
-    }
-    .onChange(of: ui.currentLearningPathItemID, initial: true) { _, itemID in
-      selection.updateCurrent(itemID)
-    }
-    .toolbar {
-      WorkbenchToolbar(
-        controllerSession: ui.controllerSession,
-        application: application,
-        motionRequestStatus: ui.motionRequestStatus,
-        plotterUIProjection: ui.semantic,
-        plotterUIIntentSink: application,
-        capabilityPresentation: ui.workbenchCapability
-      )
-    }
-    .toolbarRole(.editor)
-    .sheet(item: $debugSnapshot) { WorkbenchDiagnosticsView(snapshot: $0) }
-    .task {
-      await application.performApplicationStartup(AdaptivePlotterLaunchPolicy.current)
-      await RunningAppPreviewPerformanceGate.runIfRequested(application: application)
-    }
-  }
-
-  private func usePortraitProgram(_ program: DrawingProgram) async -> String? {
-    let projection = application.plotterUIProjection(
-      selectedItemID: selection.selected, manualDraft: manualMotionDraft,
-      includesLearningPath: true,
-      pendingDrawingProgram: program, pendingDrawingPlacement: pendingDrawingPlacement,
-      pendingPointSelection: pendingPointSelection, observationViewport: actionSurfaceViewport)
-    guard let request = projection.semantic.request(matching: .drawingDraft(.selectProgram(program))) else {
-      return projection.drawingStudio.runState.detail
-    }
-    if case .refused(let refusal) = await application.submitPlotterUIRequest(request) {
-      return refusal.remedy
-    }
-    return nil
-  }
-
-  private func submitPlotterUIAction(
-    _ actionID: PlotterUIActionID,
-    in projection: PlotterUIProjection
-  ) {
-    Task { _ = await application.submitProjectedAction(actionID, in: projection) }
-  }
-
-  private func performVideoSettingsAction(
-    _ action: VideoSettingsVisibilityAction,
-    availableWindowWidth: CGFloat,
-    projection: PlotterUIProjection
-  ) {
-    guard
-      let disposition = videoSettingsOperatorActionDisposition(
-        from: layout,
-        action: action,
-        availableWindowWidth: availableWindowWidth,
-        policy: videoSettingsPolicy
-      )
-    else { return }
-    layout = disposition.layout
-    guard disposition.shouldRefreshDiagnostics else { return }
-    submitPlotterUIAction(PlotterAppUIActionID.observationDiagnostics, in: projection)
-  }
-}
-
-private struct WorkbenchPaneControls: View {
-  @State private var requestRefusal: String?
-  let visibility: WorkbenchPaneVisibility
-  let videoSettings: VideoSettingsPresentation
-  let motionCollapseUnavailableReason: String?
-  let learningIsEnabled: Bool
-  let learningActionTitle: String
-  let learningModeRemedy: String?
-  let learningRecordingDiagnostic: String?
-  let drawingStudioIsPresented: Bool
-  let drawingStudioChangeUnavailableReason: String?
-  let showDiagnostics: () -> Void
-  let plotterUIProjection: PlotterUIProjection
-  let plotterUIIntentSink: any PlotterUIIntentSink
-  let togglePane: (WorkbenchPane) -> Void
-  let performVideoSettingsAction: (VideoSettingsVisibilityAction) -> Void
-
-  var body: some View {
-    let learningRequest = plotterUIProjection.request(
-      matching: .learning(.setEnabled(!learningIsEnabled))
-    )
-    HStack(spacing: 8) {
-      Button {
-        submit(PlotterAppUIActionID.learningMode)
-      } label: {
-        Label(
-          learningActionTitle,
-          systemImage: "book"
-        )
-      }
-      .operatorButton(isEnabled: learningModeRemedy == nil && learningRequest != nil)
-      .controlSize(.small)
-      .help(
-        learningModeRemedy
-          ?? "Learning is ergonomic workflow guidance; turning it off preserves learned evidence and leaves direct machine controls available."
-      )
-      if let learningModeRemedy {
-        Label(learningModeRemedy, systemImage: "exclamationmark.triangle.fill")
-          .font(.caption2)
-          .foregroundStyle(.orange)
-          .lineLimit(1)
-          .help(learningModeRemedy)
-      }
-      if let requestRefusal {
-        Label(requestRefusal, systemImage: "exclamationmark.triangle.fill")
-          .font(.caption2)
-          .foregroundStyle(.orange)
-          .lineLimit(2)
-          .help(requestRefusal)
-      }
-      if let learningRecordingDiagnostic {
-        Label(learningRecordingDiagnostic, systemImage: "externaldrive.badge.exclamationmark")
-          .font(.caption2)
-          .foregroundStyle(.orange)
-          .lineLimit(1)
-          .help(learningRecordingDiagnostic)
-      }
-      ForEach(plotterUIProjection.actions.filter(\.isLearningStop)) { action in
-        OperatorRequestButton(
-          title: "Stop", role: .stop,
-          request: plotterUIProjection.request(for: action.id),
-          unavailableReason: action.unavailableReason,
-          sink: plotterUIIntentSink
-        )
-        .keyboardShortcut(.cancelAction)
-        .help(action.title)
-      }
-      Spacer(minLength: 12)
-      OperatorRequestButton(
-        title: drawingStudioIsPresented ? "Close Drawing Studio" : "Drawing Studio",
-        role: .neutral,
-        request: plotterUIProjection.request(for: drawingStudioIsPresented
-          ? PlotterAppUIActionID.drawingClose : PlotterAppUIActionID.drawingOpen),
-        unavailableReason: drawingStudioChangeUnavailableReason,
-        sink: plotterUIIntentSink
-      )
-      .controlSize(.small)
-      .help("Create a portrait or choose a vector drawing. Calibration is required for placement and running.")
-      Menu {
-        paneToggle(.learningPath, panel: .learningPath)
-        paneToggle(.motion, panel: .motion, unavailableReason: motionCollapseUnavailableReason)
-        Toggle(WorkbenchPanel.videoSettings.title, isOn: Binding(
-          get: { videoSettings.isPresented },
-          set: { _ in performVideoSettingsAction(videoSettings.action) }
-        ))
-        .disabled(!videoSettings.isActionEnabled)
-        .help(videoSettings.unavailableReasonText ?? "Camera configuration and measured overlays")
-        Toggle("Drawing Studio", isOn: Binding(
-          get: { drawingStudioIsPresented },
-          set: { presented in
-            submit(presented ? PlotterAppUIActionID.drawingOpen : PlotterAppUIActionID.drawingClose)
-          }
-        ))
-        .disabled(drawingStudioChangeUnavailableReason != nil)
-        Divider()
-        Button("Diagnostics…", action: showDiagnostics)
-          .keyboardShortcut("d", modifiers: [.command, .shift])
-      } label: {
-        Label("View", systemImage: "rectangle.split.3x1")
-      }
-      .menuStyle(.borderlessButton)
-      .fixedSize()
-    }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 6)
-    .background(Color(nsColor: .controlBackgroundColor))
-  }
-
-  @ViewBuilder
-  private func paneToggle(
-    _ pane: WorkbenchPane,
-    panel: WorkbenchPanel,
-    unavailableReason: String? = nil
-  ) -> some View {
-    Toggle(panel.title, isOn: Binding(
-      get: { visibility.isPresented(pane) },
-      set: { _ in togglePane(pane) }
-    ))
-    .disabled(unavailableReason != nil && visibility.isPresented(pane))
-    .help(unavailableReason ?? panel.title)
-  }
-
-  private func submit(_ actionID: PlotterUIActionID) {
-    Task { @MainActor in
-      guard let disposition = await plotterUIIntentSink.submitProjectedAction(
-        actionID,
-        in: plotterUIProjection
-      ) else {
-        requestRefusal = "Refresh the current action before retrying."
-        return
-      }
-      if case .refused(let refusal) = disposition {
-        requestRefusal = refusal.remedy
-      } else {
-        requestRefusal = nil
-      }
-    }
-  }
-
-
-}
-
-private struct VideoSettingsPanel: View {
-  let plotterUIProjection: PlotterUIProjection
-  let plotterUIIntentSink: any PlotterUIIntentSink
-  let application: PlotterApplicationRuntime
-  let preview: ActionSurfacePreviewModel
-  @Binding var viewport: ActionSurfaceViewportState
-  let close: () -> Void
-
-  var body: some View {
-    let _ = preview.presentationRevision
-    VStack(spacing: 10) {
-      HStack {
-        Text("Video Settings")
-          .font(.headline)
-        Spacer()
-        PanelCloseButton(panel: .videoSettings, close: close)
-      }
-
-      ScrollView {
-        VideoSettingsContents(
-          projection: application.observationConfigurationProjection,
-          plotterUIProjection: plotterUIProjection,
-          plotterUIIntentSink: plotterUIIntentSink,
-          application: application,
-          preview: preview,
-          actionSurfacePresentation: application.actionSurfacePresentation,
-          viewport: $viewport
-        )
-      }
-    }
-    .padding(10)
-  }
-}
-
-private enum VideoSourceChoice: Hashable {
-  case simulated
-  case live(CameraDeviceID)
-}
-
-private struct VideoSettingsContents: View {
-  let projection: PlotterObservationConfigurationProjection
-  let plotterUIProjection: PlotterUIProjection
-  let plotterUIIntentSink: any PlotterUIIntentSink
-  let application: PlotterApplicationRuntime
-  let preview: ActionSurfacePreviewModel
-  let actionSurfacePresentation: ActionSurfacePresentation
-  @Binding var viewport: ActionSurfaceViewportState
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      SectionPanel(title: "CAMERA") {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-          Text("Camera")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          Picker("Camera", selection: sourceSelection) {
-            Text("Simulator").tag(Optional(VideoSourceChoice.simulated))
-            ForEach(projection.cameraDevices) { device in
-              Text(device.name).tag(Optional(VideoSourceChoice.live(device.id)))
-            }
-          }
-          .labelsHidden()
-          .frame(maxWidth: .infinity)
-          .disabled(projection.sourceChangeUnavailableReason != nil)
-          .help(projection.sourceChangeUnavailableReason ?? "Choose the video source")
-
-          Button {
-            submit(PlotterAppUIActionID.observationRefresh)
-          } label: {
-            Label("Refresh", systemImage: "arrow.clockwise")
-          }
-          .operatorButton(isEnabled: projection.calibrationBusyReason == nil)
-          .help(projection.calibrationBusyReason ?? "Refresh camera choices")
-        }
-
-        if projection.frameMode == .simulated {
-          Text(projection.simulatorEvidenceLabel)
-            .font(.caption.monospaced().bold())
-            .foregroundStyle(.blue)
-          Text(projection.simulatorSummary)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        } else if projection.cameraDevices.isEmpty {
-          Text("No discovered camera.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-
-      }
-
-      analysisViewportControls
-      overlayControls
-
-      SectionPanel(title: "STATUS") {
-        fact("State", projection.cameraStateText)
-        fact("Capture path", projection.captureThroughputText)
-        fact("Analysis path", projection.visionThroughputText)
-        if let error = projection.cameraError {
-          Text(error)
-            .font(.caption.monospaced())
-            .foregroundStyle(.orange)
-            .textSelection(.enabled)
-        }
-        if let error = projection.visionError {
-          Text(error)
-            .font(.caption.monospaced())
-            .foregroundStyle(.orange)
-            .textSelection(.enabled)
-        }
-
-      }
-    }
-  }
-
-  private var analysisViewportControls: some View {
-    let displayedFrame = actionSurfacePresentation
-      .resolvingAmbientPreviewFrame(preview.displayedFrame)
-      .displayedFrame
-    let previewProjection = application.videoPreviewProjection(
-      displayedFrame: actionSurfacePresentation.usesAmbientPreviewFrame ? displayedFrame : nil,
-      observationViewport: viewport
-    )
-    let regionRequest = previewProjection.request(for: PlotterAppUIActionID.observationRegion)
-    let region = displayedFrame.flatMap {
-      viewport.selectedRegion(frameWidth: $0.frame.width, frameHeight: $0.frame.height)
-    }
-    let regionIsLocked =
-      displayedFrame.map {
-        projection.regionLock?.matches($0) == true
-      } ?? false
-
-    return SectionPanel(title: "ANALYSIS VIEWPORT") {
-      Picker(
-        "Frames per second",
-        selection: Binding(
-          get: { projection.cadence },
-          set: { cadence in
-            submit(PlotterAppUIActionID.observationCadence(cadence))
-          }
-        )
-      ) {
-        ForEach(VisionAnalysisCadence.allCases, id: \.self) { cadence in
-          Text(cadence.displayValue).tag(cadence)
-        }
-      }
-      .disabled(projection.frameMode != .live)
-
-      Slider(value: $viewport.zoom, in: 0...1) {
-        Text("Zoom")
-      } minimumValueLabel: {
-        Text("Full")
-      } maximumValueLabel: {
-        Text("Near")
-      }
-      .disabled(displayedFrame == nil || regionIsLocked)
-      .help("Zoom the displayed camera pixels, then drag the video to position the region.")
-
-      fact("Region", region.map(Self.regionText) ?? "No current frame")
-
-      Toggle(
-        "Lock analysis region",
-        isOn: Binding(
-          get: { regionIsLocked },
-          set: { _ in
-            guard regionRequest != nil else { return }
-            submit(PlotterAppUIActionID.observationRegion, in: previewProjection)
-          }
-        )
-      )
-      .disabled(
-        displayedFrame == nil || region == nil
-          || regionRequest == nil
-      )
-
-      Text(
-        regionIsLocked
-          ? "Only this camera-pixel region is included in scene analysis. Unlock it before zooming or dragging."
-          : "Zoom, then drag the video to position the region. Locking copies that camera-pixel rectangle into the analysis policy; it does not crop or rewrite the exact frame."
-      )
-      .font(.caption2)
-      .foregroundStyle(.secondary)
-    }
-  }
-
-  private var overlayControls: some View {
-    return SectionPanel(title: "OVERLAYS") {
-      VStack(alignment: .leading, spacing: 10) {
-        ForEach(projection.overlayCards, id: \.overlay) { presentation in
-          overlayCard(presentation, projection: projection)
-        }
-      }
-
-      if let selection = projection.penCapAppearance {
-        HStack(spacing: 8) {
-          Circle()
-            .fill(selection.color.swiftUIColor)
-            .frame(width: 14, height: 14)
-            .overlay(Circle().stroke(.primary.opacity(0.35), lineWidth: 1))
-          Text("Learned pen-cap color #\(selection.color.hexRGB)")
-            .font(.caption.monospaced())
-        }
-        Text(
-          "Frame \(selection.frameID.rawValue) · config \(selection.cameraConfigurationID.rawValue) · click \(String(format: "%.1f", selection.clickPoint.x)), \(String(format: "%.1f", selection.clickPoint.y)) px · \(selection.usableSampleCount)/\(selection.totalSampleCount) usable · \(selection.algorithmRevision)"
-        )
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-        .lineLimit(nil)
-        .fixedSize(horizontal: false, vertical: true)
-        .textSelection(.enabled)
-      } else {
-        Text("Not learned — use Identify Pen Cap")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.secondary)
-      }
-
-      Text(
-        "Pen-cap and inferred armature-envelope selections directly run bounded scene analysis after Identify Pen Cap learns a color. No separate Analyze or Resume action is required."
-      )
-      .font(.caption2)
-      .foregroundStyle(.secondary)
-    }
-  }
-
-  private func overlayCard(
-    _ presentation: OverlayCardPresentation,
-    projection: PlotterObservationConfigurationProjection
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 9) {
-      HStack(alignment: .center, spacing: 10) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(presentation.title)
-            .font(.callout.weight(.semibold))
-          Text("Persistent scene preference")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
-        Spacer(minLength: 8)
-        Text(presentation.selectionText)
-          .font(.caption.monospaced().bold())
-          .foregroundStyle(presentation.isOn ? Color.green : Color.red)
-        Toggle(
-          presentation.title,
-          isOn: Binding(
-            get: { projection.enabledOverlays.contains(presentation.overlay) },
-            set: { enabled in
-              submit(PlotterAppUIActionID.observationOverlay(
-                presentation.overlay.rawValue,
-                enabled: enabled
-              ))
-            }
-          )
-        )
-        .labelsHidden()
-        .toggleStyle(.switch)
-        .accessibilityLabel("\(presentation.title) overlay preference")
-        .accessibilityValue(presentation.selectionText)
-        .accessibilityHint("Changes only the persistent scene-overlay preference.")
-      }
-
-      VStack(alignment: .leading, spacing: 4) {
-        Text("STATUS")
-          .font(.caption2.monospaced().bold())
-          .foregroundStyle(.secondary)
-        Text(presentation.statusText)
-          .font(.caption)
-          .foregroundStyle(overlayStatusColor(presentation.colorToken))
-          .lineLimit(nil)
-          .fixedSize(horizontal: false, vertical: true)
-          .textSelection(.enabled)
-      }
-
-      overlayFact("ROI", presentation.roiText)
-      overlayFact("Cadence", presentation.cadenceText)
-      overlayFact("Analyzed frame", presentation.frameText)
-      overlayFact("Result age", presentation.resultAgeText)
-    }
-    .padding(10)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-    .accessibilityElement(children: .contain)
-    .accessibilityLabel(presentation.accessibilityLabel)
-    .accessibilityValue(presentation.accessibilityValue)
-    .help(presentation.helpText)
-  }
-
-  private func overlayFact(_ label: String, _ value: String) -> some View {
-    VStack(alignment: .leading, spacing: 1) {
-      Text(label.uppercased())
-        .font(.caption2.monospaced().bold())
-        .foregroundStyle(.secondary)
-      Text(value)
-        .font(.caption2)
-        .lineLimit(nil)
-        .fixedSize(horizontal: false, vertical: true)
-        .textSelection(.enabled)
-    }
-  }
-
-  private func overlayStatusColor(_ token: OverlayStatusColorToken) -> Color {
-    switch token {
-    case .affirmativeGreen: .green
-    case .negativeRed: .red
-    case .neutralGray: Color(red: 0.46, green: 0.48, blue: 0.51)
-    case .unavailableDarkGray: Color(red: 0.20, green: 0.21, blue: 0.23)
-    }
-  }
-
-  private var sourceSelection: Binding<VideoSourceChoice?> {
-    return Binding(
-      get: {
-        switch projection.frameMode {
-        case .simulated: return VideoSourceChoice.simulated
-        case .live: return projection.selectedCameraID.map(VideoSourceChoice.live)
-        }
-      },
-      set: { selection in
-        guard let selection else { return }
-        switch selection {
-        case .simulated:
-          submit(PlotterAppUIActionID.observationSimulated)
-        case .live(let id):
-          submit(PlotterAppUIActionID.observationCamera(id.rawValue))
-        }
-      }
-    )
-  }
-
-  private func submit(_ actionID: PlotterUIActionID) {
-    Task {
-      _ = await plotterUIIntentSink.submitProjectedAction(actionID, in: plotterUIProjection)
-    }
-  }
-
-  private func submit(_ actionID: PlotterUIActionID, in projection: PlotterUIProjection) {
-    Task {
-      _ = await plotterUIIntentSink.submitProjectedAction(actionID, in: projection)
-    }
-  }
-
-  private static func regionText(_ region: PixelRect) -> String {
-    "x \(region.x), y \(region.y), \(region.width) × \(region.height) px"
-  }
-
-  private func fact(_ label: String, _ value: String) -> some View {
-    HStack(alignment: .firstTextBaseline) {
-      Text(label).font(.caption2).foregroundStyle(.secondary)
-      Spacer()
-      Text(value)
-        .font(.caption.monospaced())
-        .multilineTextAlignment(.trailing)
-        .textSelection(.enabled)
-    }
-  }
-}
-
-extension PenCapColor {
-  fileprivate var swiftUIColor: Color {
-    Color(
-      red: Double(red) / 255,
-      green: Double(green) / 255,
-      blue: Double(blue) / 255
-    )
-  }
-
-}
-
-private struct MotionPanel: View {
+struct MotionPanel: View {
   @Binding var draft: ManualMotionDraft
   let presentation: ManualMotionPresentation
   let controllerSession: PlotterControllerSessionProjection
   let learningIsEnabled: Bool
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
-  let close: () -> Void
-  let closeUnavailableReason: String?
-
   var body: some View {
     let session = controllerSession
-    SectionPanel(
-      title: "MANUAL RELATIVE MOTION",
-      panel: .motion,
-      close: close,
-      closeUnavailableReason: closeUnavailableReason
-    ) {
-      Text(
-        "Manual steps remain finite, bounded requests. Pen Up routes to carriage travel; Pen Down routes to a bounded drawing stroke. End-stops, alarms, one-operation serialization, commanded pen state, and ambiguous outcomes are checked directly."
-      )
-      .font(.caption2)
-      .foregroundStyle(.secondary)
-
+    let primaryUnavailableReason = presentation.attentionReason
+      ?? presentation.jogControlsUnavailableReason
+      ?? presentation.penUpUnavailableReason
+      ?? presentation.penDownUnavailableReason
+    VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 8) {
         numericField(
           ManualMotionPresentation.xDistanceLabel,
-          text: $draft.xDistanceMM
+          text: $draft.xDistanceMM, identifier: "motion.xDistance"
         )
         numericField(
           ManualMotionPresentation.yDistanceLabel,
-          text: $draft.yDistanceMM
+          text: $draft.yDistanceMM, identifier: "motion.yDistance"
         )
         numericField(
           ManualMotionPresentation.feedLabel,
-          text: $draft.feedMMPerMinute
+          text: $draft.feedMMPerMinute, identifier: "motion.feed"
         )
       }
 
@@ -1130,22 +297,26 @@ private struct MotionPanel: View {
       HStack(alignment: .top, spacing: 6) {
         OperatorRequestButton(
           title: "Pen Up", request: plotterUIProjection.request(for: PlotterAppUIActionID.manualPenUp),
-          unavailableReason: presentation.penUpUnavailableReason, sink: plotterUIIntentSink)
+          unavailableReason: presentation.penUpUnavailableReason, sink: plotterUIIntentSink,
+          nativeActionIdentifier: "motion.penUp",
+          showsUnavailableReason: presentation.penUpUnavailableReason != primaryUnavailableReason)
+          .accessibilityIdentifier("motion.penUp")
         OperatorRequestButton(
           title: "Pen Down", request: plotterUIProjection.request(for: PlotterAppUIActionID.manualPenDown),
-          unavailableReason: presentation.penDownUnavailableReason, sink: plotterUIIntentSink)
+          unavailableReason: presentation.penDownUnavailableReason, sink: plotterUIIntentSink,
+          showsUnavailableReason: presentation.penDownUnavailableReason != primaryUnavailableReason
+            && presentation.penDownUnavailableReason != presentation.penUpUnavailableReason)
+          .accessibilityIdentifier("motion.penDown")
       }
 
       Text(presentation.penStateText)
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
-      Text("Commanded state is controller evidence only; the camera cannot observe pen height.")
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-
       fact("Controller link", session.controllerConnectionText)
       fact("Controller", session.controllerStateText)
-      fact("Controller alert", session.controllerAttentionText ?? "none reported")
+      if let alert = presentation.controllerAlertText(session.controllerAttentionText) {
+        fact("Controller alert", alert)
+      }
       fact("Limit inputs", session.controllerLimitInputsText)
       fact("Alarm unlock", session.controllerAlarmUnlockReadinessText)
       if let alarm = session.controllerAlarmEvidenceText {
@@ -1154,11 +325,6 @@ private struct MotionPanel: View {
             .font(.caption.monospaced())
             .foregroundStyle(.orange)
             .textSelection(.enabled)
-          Text(
-            "Clear Alarm is armed only when a sampled controller status reports Alarm with no X/Y/Z limit input asserted. The action checks those inputs again immediately before unlock. It does not home, recover position, enable Motion, or prove that movement is safe."
-          )
-          .font(.caption2)
-          .foregroundStyle(.secondary)
           Button {
             submit(PlotterAppUIActionID.controllerClearAlarm)
           } label: {
@@ -1187,13 +353,8 @@ private struct MotionPanel: View {
       fact("Last outcome", session.lastMotionOutcomeText)
       fact("Last pen", session.lastPenOutcomeText)
 
-      if let reason = presentation.jogControlsUnavailableReason {
+      if let reason = primaryUnavailableReason, reason != presentation.attentionReason {
         Text(reason)
-          .font(.caption)
-          .foregroundStyle(.orange)
-      }
-      if let reason = presentation.penDownUnavailableReason {
-        Text("Pen down: \(reason)")
           .font(.caption)
           .foregroundStyle(.orange)
       }
@@ -1208,6 +369,7 @@ private struct MotionPanel: View {
     direction: JogDirection
   ) -> some View {
     Button {
+      WorkbenchRequestTelemetry.nativeActionHandled(actionID(for: direction).rawValue)
       submit(actionID(for: direction))
     } label: {
       Label(label, systemImage: systemImage)
@@ -1218,6 +380,7 @@ private struct MotionPanel: View {
     )
     .help(jogAccessibilityLabel(direction))
     .accessibilityLabel(jogAccessibilityLabel(direction))
+    .accessibilityIdentifier(actionID(for: direction).rawValue)
   }
 
   private func submit(_ actionID: PlotterUIActionID) {
@@ -1244,10 +407,14 @@ private struct MotionPanel: View {
     }
   }
 
-  private func numericField(_ label: String, text: Binding<String>) -> some View {
+  private func numericField(_ label: String, text: Binding<String>, identifier: String) -> some View {
     VStack(alignment: .leading, spacing: 2) {
       Text(label).font(.caption2).foregroundStyle(.secondary)
-      TextField(label, text: text)
+      TextField(label, text: Binding(get: { text.wrappedValue }, set: {
+        WorkbenchRequestTelemetry.nativeActionHandled(identifier)
+        text.wrappedValue = $0
+      }))
+        .accessibilityIdentifier(identifier)
         .textFieldStyle(.roundedBorder)
         .font(.caption.monospaced())
     }
@@ -1261,69 +428,6 @@ private struct MotionPanel: View {
         .font(.caption.monospaced())
         .multilineTextAlignment(.trailing)
         .textSelection(.enabled)
-    }
-  }
-}
-
-struct PanelCloseButton: View {
-  let panel: WorkbenchPanel
-  let close: () -> Void
-  var unavailableReason: String? = nil
-
-  var body: some View {
-    let title = panel.actionTitle(isPresented: true)
-    Button(action: close) {
-      Image(systemName: "xmark")
-    }
-    .operatorButton(isEnabled: unavailableReason == nil)
-    .controlSize(.small)
-    .accessibilityLabel(title)
-    .help(unavailableReason ?? title)
-  }
-}
-
-private struct SectionPanel<Content: View>: View {
-  let title: String
-  let panel: WorkbenchPanel?
-  let close: (() -> Void)?
-  let closeUnavailableReason: String?
-  @ViewBuilder let content: Content
-
-  init(
-    title: String,
-    panel: WorkbenchPanel? = nil,
-    close: (() -> Void)? = nil,
-    closeUnavailableReason: String? = nil,
-    @ViewBuilder content: () -> Content
-  ) {
-    self.title = title
-    self.panel = panel
-    self.close = close
-    self.closeUnavailableReason = closeUnavailableReason
-    self.content = content()
-  }
-
-  var body: some View {
-    GroupBox {
-      VStack(alignment: .leading, spacing: 8) {
-        content
-      }
-      .frame(maxWidth: .infinity, alignment: .topLeading)
-      .padding(.top, 2)
-    } label: {
-      HStack(spacing: 8) {
-        Text(title.capitalized)
-          .font(.headline)
-        if let panel, let close {
-          Spacer(minLength: 8)
-          PanelCloseButton(
-            panel: panel,
-            close: close,
-            unavailableReason: closeUnavailableReason
-          )
-        }
-      }
-      .frame(maxWidth: .infinity)
     }
   }
 }

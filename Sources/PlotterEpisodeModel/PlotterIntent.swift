@@ -341,8 +341,12 @@ public struct PlotterObservationFrameIdentity: Hashable, Sendable {
     self.captureNanoseconds = captureNanoseconds; self.cameraConfigurationID = cameraConfigurationID
   }
 }
+public enum WorkbenchCameraRole: String, CaseIterable, Codable, Hashable, Sendable {
+  case plotter, portrait
+}
 public enum PlotterObservationOperatorIntent: Hashable, Sendable {
   case refresh, stopLiveSource, restartLiveSource, requestDiagnostics
+  case selectCameraRole(WorkbenchCameraRole)
   case selectSource(PlotterObservationConfigurationSource, cameraID: String?)
   case setCadence(framesPerSecond: Double)
   case setRegion(PlotterObservationRegion?, displayedFrame: PlotterObservationFrameIdentity)

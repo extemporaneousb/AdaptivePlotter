@@ -2,6 +2,7 @@ import Foundation
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
+import PlotterUI
 import Testing
 
 @testable import PlotterApp
@@ -10,6 +11,62 @@ import Testing
 @Suite("Drawing Studio run episode", .serialized)
 @MainActor
 struct PlotterDrawingRunEpisodeTests {
+  @Test("retained draft preflight refreshes dependency failures and remedies after recovery")
+  func retainedDraftReadinessFollowsCurrentDependencies() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let harness = await drawingRunHarness(fixture: fixture)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    #expect(ready.readiness == .ready)
+    for facts in [fixture.facts(learningComplete: false), fixture.facts(paperCurrent: false)] {
+      await harness.facts.replace(facts)
+      let unavailable = await harness.runtime.synchronize(environment: .live)
+      #expect(unavailable.planIdentity == ready.planIdentity)
+      let result = await harness.runtime.submit(.init(projection: unavailable.projection, intent: .start))
+      let refusal = try drawingRunRefusal(result)
+      #expect(result.snapshot.projection.runRevision == unavailable.projection.runRevision)
+      if case .unavailable(let issue) = unavailable.readiness {
+        #expect(issue.reason == refusal.reason)
+        #expect(issue.remedy == refusal.remedy)
+        #expect(issue.detail == refusal.detail)
+      } else { Issue.record("Changed dependency retained stale Ready") }
+      await harness.facts.replace(fixture.facts())
+      #expect((await harness.runtime.synchronize(environment: .live)).readiness == .ready)
+    }
+    #expect(await harness.events.values.isEmpty)
+  }
+
+  @Test("canonical preflight admits Unknown and Down, then settles Up before any travel",
+    arguments: [PenState.unknown, .down])
+  func restoredPenStateNormalizesBeforeTravel(_ penState: PenState) async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let gate = DrawingRunHoldGate()
+    let harness = await drawingRunHarness(fixture: fixture, normalizationGate: gate)
+    await harness.interpreter.setPenState(penState)
+    // The usual fixture is already at the observation point and correctly
+    // requires no travel. Start elsewhere to exercise normalization before XY.
+    await harness.interpreter.setPosition(try MachinePosition(
+      x: fixture.finalPosition.point.x + 5, y: fixture.finalPosition.point.y))
+    let initialFacts = fixture.facts()
+    await harness.facts.replace(PlotterDrawingRunExternalFacts(environment: .live,
+      interactiveLearningIsComplete: true, plan: fixture.plan, paperCoverageIsCurrent: true,
+      displayedFrame: fixture.previewFrame, interpreter: await harness.interpreter.snapshot(),
+      penActuationProfile: initialFacts.penActuationProfile))
+    let ready = await harness.runtime.synchronize(environment: .live)
+    #expect(ready.readiness == .ready)
+    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    await gate.waitUntilHeld()
+    #expect(await harness.events.values == ["normalize"])
+    let active = await harness.runtime.snapshot(environment: .live)
+    if case .unavailable(let issue) = active.readiness { #expect(issue.reason == .activeRunOwnsWorkflow) }
+    else { Issue.record("Active run retained stale Ready admission") }
+    await gate.release()
+    let result = await run.value
+    #expect(result.snapshot.terminal?.disposition == .succeeded)
+    let events = await harness.events.values
+    #expect(Array(events.prefix(2)) == ["normalize", "travel"])
+    if case .unavailable(let issue) = result.snapshot.readiness { #expect(issue.reason == .terminalRequiresNewRunHandoff) }
+    else { Issue.record("Terminal run retained stale Ready admission") }
+  }
   @Test("authored plans do not bypass Learning or paper prerequisites")
   func authoringDoesNotAuthorizeRun() async throws {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
@@ -21,6 +78,11 @@ struct PlotterDrawingRunEpisodeTests {
         PlotterDrawingRunSubmission(projection: current.projection, intent: .start))
       let refusal = try drawingRunRefusal(result)
       #expect(refusal.reason == (learningComplete ? .paperCoverageNotCurrent : .learningIncomplete))
+      if case .unavailable(let issue) = current.readiness {
+        #expect(issue.reason == refusal.reason)
+        #expect(issue.remedy == refusal.remedy)
+        #expect(issue.detail == refusal.detail)
+      } else { Issue.record("UI preflight differed from runtime refusal") }
       #expect(await harness.events.values.isEmpty)
       #expect(await harness.interpreter.planRequests.isEmpty)
       #expect(await harness.camera.requests.isEmpty)
@@ -361,6 +423,17 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(await harness.interpreter.stopIntents.isEmpty)
 
     let exactStop = try #require(active.stopCapabilityID)
+    let stopIntent = PlotterDrawingRunIntent.stop(exactStop)
+    let action = PlotterUIAction(id: PlotterAppUIActionID.drawingRun(stopIntent),
+      title: "Stop Drawing", intent: .drawingRun(stopIntent))
+    let projection = PlotterUIProjection(revision: .init(rawValue: 1), runtimeRevisions: [],
+      actions: [action], learning: nil, incidentPackage: .unavailable(reason: "held runtime fixture"),
+      diagnostics: [], visitedCandidateCount: 1)
+    var layout = WorkbenchLayoutState()
+    layout.setPresented(.motion, false)
+    layout.setPresented(.portraitStudio, false)
+    let visibleStop = try #require(WorkbenchStopPresentation.actions(in: projection).first)
+    #expect(projection.request(for: visibleStop.id)?.intent == .drawingRun(stopIntent))
     let stopped = await harness.runtime.submit(PlotterDrawingRunSubmission(
       projection: wrongStop.snapshot.projection,
       intent: .stop(exactStop)
@@ -386,6 +459,7 @@ struct PlotterDrawingRunEpisodeTests {
       intent: .beginNewRun(runID)
     ))
     #expect(handedOff.disposition == .applied)
+    #expect(handedOff.snapshot.readiness == .synchronizing)
     let samePlan = await harness.runtime.submit(PlotterDrawingRunSubmission(
       projection: handedOff.snapshot.projection,
       intent: .start

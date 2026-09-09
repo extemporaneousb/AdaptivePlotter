@@ -262,7 +262,6 @@ struct LearningPathPresentationTests {
     #expect(source.contains("presentation.penAdjustment"))
     #expect(source.contains("presentation.directionSelection"))
     #expect(source.contains("submitPlotterUIRequest(request)"))
-    #expect(source.contains("PanelCloseButton"))
     #expect(source.contains("projection.menu.resetAllPlan"))
   }
 

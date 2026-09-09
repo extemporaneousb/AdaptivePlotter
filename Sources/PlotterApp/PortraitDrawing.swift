@@ -23,11 +23,12 @@ struct PortraitRaster: Sendable {
 }
 
 enum PortraitDrawingError: LocalizedError {
-  case unreadableImage, noLines
+  case unreadableImage, noLines, noCameraFrame
   var errorDescription: String? {
     switch self {
     case .unreadableImage: "The image could not be decoded."
     case .noLines: "This style produced no lines. Try another style or turn off background removal."
+    case .noCameraFrame: "Waiting for a portrait camera frame. Retry Capture after the face video appears."
     }
   }
 }
@@ -37,18 +38,20 @@ enum PortraitVectorizer {
     from raster: PortraitRaster, pose: PortraitPose, style: PortraitStyle,
     levels: Int = 6, strokeStyle: StrokeStyle
   ) throws -> DrawingProgram {
+    try Task.checkCancellation()
     let paths: [[CGPoint]]
     switch style {
-    case .contours: paths = contours(raster, levels: levels)
-    case .hatch: paths = hatching(raster, crosshatch: false)
-    case .crosshatch: paths = hatching(raster, crosshatch: true)
+    case .contours: paths = try contours(raster, levels: levels)
+    case .hatch: paths = try hatching(raster, crosshatch: false)
+    case .crosshatch: paths = try hatching(raster, crosshatch: true)
     }
     guard !paths.isEmpty else { throw PortraitDrawingError.noLines }
     let provenance = "portrait-v1|\(raster.provenance)|pose=\(pose.rawValue)|style=\(style.rawValue)|levels=\(levels)"
     let extent = try Size2<FieldSpace>(
       width: 100 * Double(raster.width - 1) / Double(raster.height - 1), height: 100)
     let strokes = try paths.enumerated().map { index, path in
-      LogicalStroke(
+      try Task.checkCancellation()
+      return LogicalStroke(
         id: StrokeID(stableID("\(provenance)|stroke=\(index)")),
         path: try Polyline(points: path.map { point in
           // Raster +Y is down; drawing-local FieldSpace +Y is up.
@@ -71,7 +74,7 @@ enum PortraitVectorizer {
 
   /// Marching squares joins shared grid edges by identity, avoiding gaps from
   /// rounded coordinates and preserving closed curves as uninterrupted strokes.
-  private static func contours(_ raster: PortraitRaster, levels: Int) -> [[CGPoint]] {
+  private static func contours(_ raster: PortraitRaster, levels: Int) throws -> [[CGPoint]] {
     let w = raster.width, h = raster.height
     var paths: [[CGPoint]] = []
     for levelIndex in 1...max(1, levels) {
@@ -79,6 +82,7 @@ enum PortraitVectorizer {
       var points: [Int: CGPoint] = [:]
       var links: [Int: [Int]] = [:]
       for y in 0..<(h - 1) {
+        try Task.checkCancellation()
         for x in 0..<(w - 1) {
           let values = [raster.luminance[y*w+x], raster.luminance[y*w+x+1],
                         raster.luminance[(y+1)*w+x+1], raster.luminance[(y+1)*w+x]]
@@ -118,6 +122,7 @@ enum PortraitVectorizer {
         return aEnd != bEnd ? aEnd : a < b
       }
       for start in starts where !visited.contains(start) {
+        try Task.checkCancellation()
         var path: [CGPoint] = [], current = start, previous: Int?
         repeat {
           visited.insert(current)
@@ -131,7 +136,7 @@ enum PortraitVectorizer {
           }
         } while !visited.contains(current)
         let length = zip(path, path.dropFirst()).reduce(0.0) { $0 + hypot($1.1.x-$1.0.x, $1.1.y-$1.0.y) }
-        if length >= 3 { paths.append(simplify(path, tolerance: 0.35)) }
+        if length >= 3 { paths.append(try simplify(path, tolerance: 0.35)) }
       }
     }
     return paths
@@ -139,12 +144,13 @@ enum PortraitVectorizer {
 
   /// Continuous tonal scanlines reduce pen lifts compared with the legacy
   /// per-cell hatch marks. A darker orthogonal pass supplies crosshatching.
-  private static func hatching(_ raster: PortraitRaster, crosshatch: Bool) -> [[CGPoint]] {
+  private static func hatching(_ raster: PortraitRaster, crosshatch: Bool) throws -> [[CGPoint]] {
     var paths: [[CGPoint]] = []
     for vertical in crosshatch ? [false, true] : [false] {
       let rows = vertical ? raster.width : raster.height
       let columns = vertical ? raster.height : raster.width
       for row in stride(from: 1, to: rows - 1, by: 2) {
+        try Task.checkCancellation()
         let threshold = vertical ? 0.30 : [0.35, 0.55, 0.75][(row / 2) % 3]
         var start: Int?
         for column in 0...columns {
@@ -169,7 +175,8 @@ enum PortraitVectorizer {
     return paths
   }
 
-  private static func simplify(_ points: [CGPoint], tolerance: Double) -> [CGPoint] {
+  private static func simplify(_ points: [CGPoint], tolerance: Double) throws -> [CGPoint] {
+    try Task.checkCancellation()
     guard points.count > 2, let a = points.first, let b = points.last else { return points }
     let dx = b.x-a.x, dy = b.y-a.y, squaredLength = dx*dx+dy*dy
     var farthest = 0, maximum = 0.0
@@ -180,7 +187,7 @@ enum PortraitVectorizer {
       if distance > maximum { maximum = distance; farthest = i }
     }
     guard maximum > tolerance else { return [a, b] }
-    return Array(simplify(Array(points[...farthest]), tolerance: tolerance).dropLast())
+    return try Array(simplify(Array(points[...farthest]), tolerance: tolerance).dropLast())
       + simplify(Array(points[farthest...]), tolerance: tolerance)
   }
 }

@@ -105,11 +105,24 @@ if rg -n 'Interactive learning complete|accepted model' \
     fail "obsolete or vague current operator terminology remains"
 fi
 
-rg -Fq 'source at DOC-01 violates that contract' README.md ||
-    fail "README hides the current outside-applicability evidence defect"
-rg -Fq 'Current source at DOC-01 violates that contract' \
-    docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md ||
-    fail "operator protocol hides the current outside-applicability evidence defect"
+for path in README.md docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md; do
+    applicability_contract=$(tr '\n' ' ' < "$path" | tr -s '[:space:]' ' ')
+    for phrase in \
+        'An outside-applicability plan can execute but invokes no Vision' \
+        'zero verified strokes as non-attributable'; do
+        printf '%s\n' "$applicability_contract" | rg -Fq "$phrase" ||
+            fail "$path omits the current outside-applicability evidence boundary: $phrase"
+    done
+    for historical_fix in DOC-01 FIX-01; do
+        rg -Fq "$historical_fix" "$path" ||
+            fail "$path omits the historical applicability correction $historical_fix"
+    done
+    if printf '%s\n' "$applicability_contract" | rg -Fq 'source at DOC-01 violates that contract'; then
+        fail "$path presents the corrected DOC-01 applicability defect as current"
+    fi
+done
+rg -Fq 'projectionOutsideTipApplicability' docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md ||
+    fail "operator protocol omits the exact outside-applicability non-attribution reason"
 
 if rg -n 'The current source contains exactly two post-Boundary|The current implementation exposes exactly two persistent global controls|The visible Learning Path ends at the one-Go 4\.1' docs/CURRENT_EVIDENCE.md; then
     fail "historical Current Evidence still claims obsolete behavior is current"

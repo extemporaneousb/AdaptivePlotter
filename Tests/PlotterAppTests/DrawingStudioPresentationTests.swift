@@ -9,22 +9,6 @@ import Testing
 
 @Suite("Drawing Studio presentation")
 struct DrawingStudioPresentationTests {
-  @Test("catalog presentation derives from the deterministic Model catalog")
-  func catalogProjection() throws {
-    let presentation = try studioPresentation(
-      runState: .ready(detail: "Plan admitted."),
-      editingIsEnabled: true
-    )
-
-    #expect(presentation.catalog.map(\.id) == DrawingCatalogEntryID.allCases)
-    #expect(presentation.selectedCatalogItem?.title == "Circle")
-    #expect(
-      presentation.catalog.first { $0.id == .circle }?.detail
-        .contains("deterministic curve tessellation") == true
-    )
-    #expect(presentation.evidenceRole == .ordinaryDrawing)
-  }
-
   @Test("run and Stop controls preserve the exact typed owner capability")
   func executionControls() throws {
     let ready = try studioPresentation(
@@ -53,21 +37,23 @@ struct DrawingStudioPresentationTests {
     #expect(presentation.controls.isEmpty)
   }
 
-  @Test("runtime-derived target values render only on their exact frame")
-  func previewExactFrameBoundary() throws {
+  @Test("planned targets persist across compatible frames while changed cameras invalidate them")
+  func previewCameraCompatibility() throws {
     let exact = try drawingStudioTestFrame(sequence: 1)
     let stale = try drawingStudioTestFrame(sequence: 2)
     let canvas = try studioCanvas(frame: exact)
 
     #expect(canvas.targetPreview(for: exact) != nil)
-    #expect(canvas.targetPreview(for: stale) == nil)
+    #expect(canvas.targetPreview(for: stale) == canvas.targetPreview(for: exact))
+    let otherCamera = DisplayedFrame(source: .live(CameraDeviceID(rawValue: "other-camera")), frame: stale.frame)
+    #expect(canvas.targetPreview(for: otherCamera) == nil)
     let surface = ActionSurfacePresentation(displayedFrame: exact, overlays: [], drawingStudioCanvas: canvas)
     let exactContent = ActionSurfaceOverlayContent(presentation: surface)
     #expect(exactContent.targetPreview != nil)
     let advancedContent = ActionSurfaceOverlayContent(
       presentation: surface.resolvingAmbientPreviewFrame(stale))
-    #expect(advancedContent.targetPreview == nil)
-    #expect(advancedContent != exactContent)
+    #expect(advancedContent.targetPreview == exactContent.targetPreview)
+    #expect(advancedContent == exactContent)
     #expect(
       ActionSurfacePresentation(
         displayedFrame: exact,
@@ -128,11 +114,6 @@ struct DrawingStudioPresentationTests {
   ) throws -> DrawingStudioPresentation {
     let frame = try drawingStudioTestFrame(sequence: 1)
     return DrawingStudioPresentation(
-      catalog: DrawingProgramCatalog.entries.map {
-        DrawingStudioCatalogItemPresentation(catalogEntry: $0)
-      },
-      selectedCatalogItemID: .circle,
-      evidenceRole: .ordinaryDrawing,
       canvas: try studioCanvas(frame: frame),
       editingIsEnabled: editingIsEnabled,
       runProjection: PlotterDrawingRunProjectionReference(

@@ -5,6 +5,16 @@ Status: current operating protocol for Learning Path 1.1 through visible 2.1
 This document owns the exact actor, action, evidence, dependency, and recovery
 sequence. Durable semantics remain in [Product Contract](PRODUCT_CONTRACT.md).
 
+The accepted [workbench and portrait completion correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#workbench-and-portrait-completion-correction-2026-09-08)
+passed full strict run 31: 997 Swift functions passed, five opt-in skips, zero
+failures; release, signing, launcher, bundle and documentation checks passed.
+Independent critic 9 found no blocking software issue, and the exact tested app
+was delivered without launching. The execution-plan matrix owns remaining native
+and physical acceptance. Attempts reached no controls while the GUI was locked;
+actual camera workload and physical workflow remain unverified. Current Evidence
+records the exact software/delivery receipts and does not claim Git landing or
+attended Learning completion.
+
 ## Common actor contract
 
 Every interactive step exposes:
@@ -362,7 +372,10 @@ For an unchanged physical setup:
 
 When the saved package and drawing archive contain a completed Drawing Border
 result for that calibration, applying Saved Learning restores **Learning
-complete**, the filled graduation cap, and Drawing Studio run eligibility. Tip
+complete** and the filled graduation cap. Current Pen Unknown or Down does not
+reopen cap identification or accepted Pen calibration; Draw's existing Pen Up
+normalization must settle before travel. Controller, Motion, paper, camera and
+plan currentness remain separate execution prerequisites. Tip
 checkpoint revalidation retains the original accepted calibration lineage, so
 its existing Border result can survive subsequent save/load cycles without
 another Border draw.
@@ -410,10 +423,11 @@ exercises or approval gates:
    renders the predicted Drawing Border in cyan before any motion. The Drawing
    Border remains exactly 10 mm inside the accepted Drawing Boundary. Planning
    uses the accepted Drawing Boundary as its spatial envelope; the Drawing
-   Border is not an admission boundary. Current source still expands that
-   envelope axis-wise by the unrelated 0.5 mm settlement value. That known
-   defect is assigned to `FIX-00`; no run admitted only by the expansion proves
-   Boundary-contained planning.
+   Border is not an admission boundary. `DrawingRegionContainmentPolicy` uses
+   closed accepted-Boundary bounds with only its 1e-9 mm numerical epsilon.
+   Controller-pose settlement uses its separate Euclidean policy and cannot
+   enlarge the drawing region. Completed `FIX-00` removed the former shared
+   0.5 mm expansion.
 2. **Capture local baseline.** With Pen Up and the controller Idle, capture one
    exact fresh frame and record the current MPos as this validation's reveal pose.
 3. **Move to Drawing Border start.** Move Pen Up under one stoppable owner. Completion
@@ -453,28 +467,32 @@ Studio running becomes available; its authoring controls are always accessible.
 Trial completion and observation quality are
 separate facts; completion does not assert general adaptive-drawing readiness.
 
-## Drawing Studio — place, run, and observe
+## Portrait Studio — prepare, place, draw, and observe
 
-1. Open **Drawing Studio** from the workbench button or **View**, including before
-   Learning completion. Choose a catalog drawing or **Create Portrait…**, then
-   **Use Portrait** to retain its vectors. Complete Exercise 2.1 before running.
+1. Reveal **Portrait Studio** from **Panels**, including before Learning
+   completion. Selecting its title chooses face capture in the shared **Video**
+   panel and settles plotter capture/analysis. Choose a camera and Capture, or
+   Choose Photo, then select pose, crop/background options and drawing style.
+   **Show on Plotter Video** retains those controls and images, switches the same
+   Video panel to the plotter, installs the program, and fits upright or sideways
+   according to the larger valid uniform scale. Complete Exercise 2.1 before drawing.
    Use **Review Comparison** to return to the pinned exact post-frame or
    **Resume Live Preview** before placement.
 2. Confirm the accepted Drawing Boundary outline is visible. Place the current
-   physical sheet over it and choose **Assert Sheet Covers Outline**. The assertion
+   physical sheet over it and choose **Sheet Covers Target**. The assertion
    cites the current paper instance, contact plane, source, exact frame, and
    camera configuration. It does not change calibration.
-3. Select a deterministic built-in program: line, polyline, rectangle, square,
-   triangle, regular polygon, circle, ellipse, star, pyramid, or elephant.
-   Curves use bounded deterministic tessellation.
+3. Review the retained portrait target. **Fit to Drawing Area** recomputes the
+   upright/sideways fit; the generated polylines and plan remain deterministic.
+   Active Learning separately supplies sealed coverage-experiment programs.
 4. Click the video to place its center, then set uniform scale and rotation.
    The workspace creates a new immutable placement and content-addressed plan on
    each change. A stroke outside the accepted Drawing Boundary refuses planning; no
    clipping or machine request occurs.
-5. Review the projected target on the exact current frame. Before Run, select
-   its fixed evidence role: ordinary drawing, training, reserved holdout, or
-   evaluation holdout. Do not change the role after seeing the outcome.
-6. Press **Run Drawing** only when LIVE controller admission, Motion, current
+5. Review the target on advancing compatible plotter frames. Ordinary portrait
+   drawing has no pre-run learning-role selector. Active Learning assigns its
+   predeclared experimental roles internally.
+6. Press **Draw** only when LIVE controller admission, Motion, current
    paper coverage, and the exact plan are all current. The app redundantly
    commands and settles Pen Up before observation-position travel; prior Pen
    command knowledge is not trusted. It then selects the plan's final point as
@@ -482,22 +500,25 @@ separate facts; completion does not assert general adaptive-drawing readiness.
 7. One `RunInterpreter` owner redundantly normalizes Pen Up again, performs plan travel, lower, each finite segment,
    raise, and the logical-stroke checkpoint sequence. **Stop** is capability-
    bound to that owner. Competing plans are refused without replacing active
-   progress.
+   progress. The command-bar Stop remains reachable when Motion, Portrait Studio,
+   or any other panel is hidden or redocked; unavailable requests show their remedy.
 8. On controller-completed execution, require final MPos at the observation
    location, capture a strictly newer post frame, associate new ink against all
    planned polylines, and retain intended, observed, and residual overlays on
    that exact frame. The target contract makes projection outside the current
    tip-registration applicability diagnostic-only and the camera/ink result
    non-attributable unless a newer validated applicability revision covers it.
-   Current source at DOC-01 violates that contract: it can reuse extrapolated
-   projection for run geometry and classify a later Vision success attributable.
-   Until `FIX-01` lands, any run using outside-applicability projection is known
-   invalid as attributable evidence and is excluded from later fitting even if
-   the current application labels it attributable.
+   An outside-applicability plan can execute but invokes no Vision and records
+   zero verified strokes as non-attributable, retaining the exact
+   `projectionOutsideTipApplicability` reason. Completed `FIX-01` corrected the
+   extrapolation defect documented at `DOC-01`; it is not a current evidence path.
 9. Append the terminal record even when execution is refused, cancelled,
    ambiguous, possible-ink, or Vision-unclear. Never resend or redraw after a
-   terminal result. Only attributable predeclared training records are eligible
-   for later fitting; reserved/evaluation holdouts remain sealed evaluation.
+   terminal result. In **Active Learning**, select retained attributable ordinary
+   or training drawings and choose **Analyze for Learning**. This fits only
+   identifiable constant X/Y translation from stroke normals, shows the result
+   or insufficiency reason, and neither changes the archived role nor applies
+   a model. Reserved/evaluation holdouts remain sealed evaluation.
 
 **New Sheet — Same Contact Plane** retains the accepted map and validation but
 rotates sheet identity and requires a new coverage assertion. **Contact Plane

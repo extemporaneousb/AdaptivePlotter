@@ -5,53 +5,6 @@ import PlotterRuntime
 import PlotterUI
 import SwiftUI
 
-struct DrawingStudioCatalogItemPresentation: Hashable, Identifiable, Sendable {
-  let id: DrawingCatalogEntryID
-  let title: String
-  let detail: String
-  let systemImage: String
-
-  init(
-    id: DrawingCatalogEntryID,
-    title: String,
-    detail: String,
-    systemImage: String
-  ) {
-    self.id = id
-    self.title = title
-    self.detail = detail
-    self.systemImage = systemImage
-  }
-
-  init(catalogEntry: DrawingProgramCatalogEntry) {
-    id = catalogEntry.id
-    title = catalogEntry.displayName
-    detail = String(
-      format: "Built-in vector program · %.0f × %.0f field units%@",
-      catalogEntry.fieldExtent.width,
-      catalogEntry.fieldExtent.height,
-      catalogEntry.supportsCurveTessellation ? " · deterministic curve tessellation" : ""
-    )
-    systemImage = Self.systemImage(for: catalogEntry.id)
-  }
-
-  private static func systemImage(for id: DrawingCatalogEntryID) -> String {
-    switch id {
-    case .line: "line.diagonal"
-    case .polyline: "scribble"
-    case .rectangle: "rectangle"
-    case .square: "square"
-    case .triangle: "triangle"
-    case .regularPolygon: "hexagon"
-    case .circle: "circle"
-    case .ellipse: "oval"
-    case .star: "star"
-    case .pyramid: "pyramid"
-    case .elephant: "pawprint"
-    }
-  }
-}
-
 struct DrawingStudioPlacementPresentation: Hashable, Sendable {
   let centerCameraPixel: Point2<CameraPixelSpace>?
   let uniformScale: Double
@@ -94,7 +47,7 @@ enum DrawingStudioTargetPreviewStatus: Hashable, Sendable {
   }
 }
 
-/// Planned target geometry projected onto one exact displayed frame. The same
+/// Planned target geometry projected through compatible camera optics. The same
 /// program hash must be carried into execution by the coordinator; this view
 /// has no promotion or motion authority.
 struct DrawingStudioTargetPreview: Hashable, Sendable {
@@ -106,7 +59,13 @@ struct DrawingStudioTargetPreview: Hashable, Sendable {
   let status: DrawingStudioTargetPreviewStatus
 
   func matches(_ displayedFrame: DisplayedFrame) -> Bool {
-    provenance.matches(displayedFrame)
+    // Predicted artwork is independent of the observation frame's pixels.
+    // Exact clicks and measured ink keep their separate exact-frame matching.
+    provenance.source == displayedFrame.source
+      && provenance.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID
+      && provenance.width == displayedFrame.frame.width
+      && provenance.height == displayedFrame.frame.height
+      && provenance.pixelFormat == displayedFrame.frame.pixelFormat
   }
 }
 
@@ -185,9 +144,6 @@ struct DrawingStudioControl: Hashable, Identifiable, Sendable {
 }
 
 struct DrawingStudioPresentation: Hashable, Sendable {
-  let catalog: [DrawingStudioCatalogItemPresentation]
-  let selectedCatalogItemID: DrawingCatalogEntryID?
-  let evidenceRole: BorderValidationEvidenceRole
   let canvas: DrawingStudioCanvasPresentation
   let editingIsEnabled: Bool
   let runProjection: PlotterDrawingRunProjectionReference?
@@ -196,6 +152,8 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   let coverageAssessment: DrawingCoverageAssessment?
   let coverageUnavailableReason: String?
   let coverageSelectedTrial: Int?
+  let residualRecords: [DrawingResidualRecordSummary]
+  let residualAnalysis: DrawingRetrospectiveResidualAnalysis?
 
   var authoringIsEnabled: Bool { authoringUnavailableReason == nil }
   var authoringUnavailableReason: String? {
@@ -220,9 +178,6 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   }
 
   init(
-    catalog: [DrawingStudioCatalogItemPresentation],
-    selectedCatalogItemID: DrawingCatalogEntryID?,
-    evidenceRole: BorderValidationEvidenceRole,
     canvas: DrawingStudioCanvasPresentation,
     editingIsEnabled: Bool,
     runProjection: PlotterDrawingRunProjectionReference?,
@@ -230,11 +185,10 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     coverageExperiment: DrawingCoverageExperiment? = nil,
     coverageAssessment: DrawingCoverageAssessment? = nil,
     coverageUnavailableReason: String? = nil,
-    coverageSelectedTrial: Int? = nil
+    coverageSelectedTrial: Int? = nil,
+    residualRecords: [DrawingResidualRecordSummary] = [],
+    residualAnalysis: DrawingRetrospectiveResidualAnalysis? = nil
   ) {
-    self.catalog = catalog
-    self.selectedCatalogItemID = selectedCatalogItemID
-    self.evidenceRole = evidenceRole
     self.canvas = DrawingStudioCanvasPresentation(
       draftProjection: canvas.draftProjection,
       placement: DrawingStudioPlacementPresentation(
@@ -253,11 +207,8 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     self.coverageAssessment = coverageAssessment
     self.coverageUnavailableReason = coverageUnavailableReason
     self.coverageSelectedTrial = coverageSelectedTrial
-  }
-
-  var selectedCatalogItem: DrawingStudioCatalogItemPresentation? {
-    guard let selectedCatalogItemID else { return nil }
-    return catalog.first { $0.id == selectedCatalogItemID }
+    self.residualRecords = residualRecords
+    self.residualAnalysis = residualAnalysis
   }
 
   var controls: [DrawingStudioControl] {
@@ -344,11 +295,7 @@ struct DrawingStudioView: View {
   let presentation: DrawingStudioPresentation
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
-  var plotterCameraID: CameraDeviceID? = nil
-  var portraitStrokeStyle: PlotterModel.StrokeStyle? = nil
-  var usePortrait: (DrawingProgram) async -> String? = { _ in "Portrait input is unavailable." }
-  @State private var portrait = PortraitStudioModel()
-  @State private var portraitIsPresented = false
+  var panel: WorkbenchPanel = .activeLearning
   @State private var requestRefusal: String?
   @State private var draftFeedback = OperatorRequestFeedback()
   @State private var scaleDraft: Double?
@@ -358,24 +305,10 @@ struct DrawingStudioView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      VStack(alignment: .leading, spacing: 3) {
-        Text("Drawing Studio")
-          .font(.title3.bold())
-        Text(
-          presentation.coverageExperiment == nil
-            ? "Choose a drawing or create a portrait, place its target, then run the reviewed plan."
-            : "Review the proposed coverage line, then run its exact plan."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
-      }
-
-      if let startedAt = draftFeedback.startedAt {
+      if draftFeedback.isPending {
         HStack {
           ProgressView().controlSize(.small)
           Text("Updating drawing")
-          OperatorRequestElapsedTime(startedAt: startedAt)
         }
       }
       if let requestRefusal {
@@ -385,44 +318,59 @@ struct DrawingStudioView: View {
           .textSelection(.enabled)
       }
 
-      if presentation.coverageExperiment == nil {
-        HStack {
-          Button { portraitIsPresented = true } label: {
-            Label("Create Portrait…", systemImage: "person.crop.rectangle")
-          }
-          .disabled(!presentation.authoringIsEnabled || portraitStrokeStyle == nil)
-          if presentation.selectedCatalogItemID == nil {
-            Text("Portrait selected").font(.caption).foregroundStyle(.secondary)
-          }
-        }
+      if panel == .activeLearning {
+        coverageExperiment.disabled(draftFeedback.isPending)
+        retrospectiveLearning.disabled(draftFeedback.isPending)
       }
-      coverageExperiment.disabled(draftFeedback.isPending)
-      if presentation.coverageExperiment == nil {
-        catalog.disabled(draftFeedback.isPending)
-        if let selected = presentation.selectedCatalogItem {
-          Text(selected.detail)
-            .font(.caption)
-            .foregroundStyle(.secondary)
+      if panel == .portraitStudio || presentation.coverageExperiment != nil {
+        if presentation.coverageExperiment == nil {
+          placement.disabled(draftFeedback.isPending)
         }
-        evidenceRole.disabled(draftFeedback.isPending)
-        placement.disabled(draftFeedback.isPending)
+        runStatus
+        controls
       }
-      runStatus
-      controls
     }
-    .padding(12)
     .accessibilityElement(children: .contain)
-    .sheet(isPresented: $portraitIsPresented) {
-      if let portraitStrokeStyle {
-        PortraitStudioView(model: portrait, plotterCameraID: plotterCameraID,
-                           strokeStyle: portraitStrokeStyle, useProgram: usePortrait)
+  }
+
+  private var retrospectiveLearning: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Learn from Drawings").font(.headline)
+      if presentation.residualRecords.isEmpty {
+        Text("Completed drawings will appear here for residual analysis.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      ForEach(presentation.residualRecords, id: \.recordID) { record in
+        Toggle(isOn: Binding(get: { record.isSelected }, set: {
+          WorkbenchRequestTelemetry.nativeActionHandled("learning.record.\(record.recordID.rawValue.uuidString)")
+          submitDraft(.selectResidualRecord(record.recordID, selected: $0))
+        })) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(record.title)
+            Text(record.detail).font(.caption).foregroundStyle(.secondary)
+          }
+        }
+        .accessibilityIdentifier("learning.record.\(record.recordID.rawValue.uuidString)")
+      }
+      if !presentation.residualRecords.isEmpty {
+        Button("Analyze for Learning") {
+          WorkbenchRequestTelemetry.nativeActionHandled("learning.analyzeDrawings")
+          submitDraft(.analyzeSelectedResiduals)
+        }
+          .disabled(draftRequest(.analyzeSelectedResiduals) == nil)
+          .accessibilityIdentifier("learning.analyzeDrawings")
+      }
+      if let analysis = presentation.residualAnalysis {
+        Text(analysis.summary).font(.caption).textSelection(.enabled)
+          .accessibilityIdentifier("learning.residualResult")
+          .accessibilityValue(analysis.summary)
       }
     }
   }
 
   private var coverageExperiment: some View {
     VStack(alignment: .leading, spacing: 6) {
-      Text("Active Learning").font(.headline)
+      Text("Coverage Exercises").font(.headline)
       if let experiment = presentation.coverageExperiment {
         if experiment.tip.applicability.opticalConfiguration.source == .simulated {
           Text("SIMULATED — NOT PHYSICAL EVIDENCE").font(.caption.bold()).foregroundStyle(.orange)
@@ -479,6 +427,8 @@ struct DrawingStudioView: View {
         Button(control.title) { submitDraft(control.intent) }
           .disabled(control.unavailableReason != nil || draftRequest(control.intent) == nil)
           .help(control.unavailableReason ?? control.title)
+          .accessibilityIdentifier(control.intent == .prepareCoverageExperiment ? "learning.coverage.prepare"
+            : control.intent == .nextCoverageTrial ? "learning.coverage.next" : "learning.coverage.leave")
       }
       if presentation.coverageExperiment != nil {
         Text("Review and Run each proposed line. After its evidence settles, use New Drawing, then Next Experiment Trial. Stop ends the current trial; an inconclusive trial halts the experiment.")
@@ -486,56 +436,6 @@ struct DrawingStudioView: View {
       }
     }
     .fixedSize(horizontal: false, vertical: true)
-  }
-
-  private var catalog: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text("Drawing program").font(.headline)
-      ScrollView(.horizontal) {
-        HStack(spacing: 8) {
-          ForEach(presentation.catalog) { item in
-            Button {
-              submitDraft(.selectCatalogItem(item.id))
-            } label: {
-              VStack(spacing: 5) {
-                Image(systemName: item.systemImage)
-                  .font(.title2)
-                Text(item.title)
-                  .font(.caption)
-                  .lineLimit(1)
-              }
-              .frame(minWidth: 76, minHeight: 58)
-            }
-            .buttonStyle(.bordered)
-            .tint(item.id == presentation.selectedCatalogItemID ? .accentColor : .secondary)
-            .disabled(
-              !presentation.authoringIsEnabled
-                || draftRequest(.selectCatalogItem(item.id)) == nil
-            )
-            .accessibilityHint(item.detail)
-          }
-        }
-      }
-    }
-  }
-
-  private var evidenceRole: some View {
-    Picker(
-      "Evidence role",
-      selection: Binding(
-        get: { presentation.evidenceRole },
-        set: { submitDraft(.setEvidenceRole($0)) }
-      )
-    ) {
-      ForEach(BorderValidationEvidenceRole.allCases, id: \.rawValue) { role in
-        Text(Self.evidenceRoleLabel(role)).tag(role)
-      }
-    }
-    .disabled(
-      !presentation.authoringIsEnabled
-        || draftRequest(.setEvidenceRole(presentation.evidenceRole)) == nil
-    )
-    .help("Choose before execution; a holdout cannot become training evidence after inspection.")
   }
 
   private var placement: some View {
@@ -549,6 +449,7 @@ struct DrawingStudioView: View {
           value: Binding(
             get: { scaleDraft ?? presentation.canvas.placement.uniformScale },
             set: {
+              WorkbenchRequestTelemetry.nativeActionHandled("drawing.scale")
               let allowed = presentation.canvas.placement.allowedScale
               scaleDraft = min(allowed.upperBound,
                 max(allowed.lowerBound, ($0 * 100).rounded() / 100))
@@ -561,6 +462,7 @@ struct DrawingStudioView: View {
             if !editing { commitScale() }
           }
         )
+        .accessibilityIdentifier("drawing.scale")
         Text(String(format: "%.2f×", scaleDraft ?? presentation.canvas.placement.uniformScale))
           .monospacedDigit()
           .frame(width: 52, alignment: .trailing)
@@ -575,6 +477,7 @@ struct DrawingStudioView: View {
           value: Binding(
             get: { rotationDraft ?? presentation.canvas.placement.rotationDegrees },
             set: {
+              WorkbenchRequestTelemetry.nativeActionHandled("drawing.rotation")
               rotationDraft = $0.rounded()
               if !rotationIsEditing { commitRotation() }
             }
@@ -585,6 +488,7 @@ struct DrawingStudioView: View {
             if !editing { commitRotation() }
           }
         )
+        .accessibilityIdentifier("drawing.rotation")
         Text(String(format: "%.1f°", rotationDraft ?? presentation.canvas.placement.rotationDegrees))
           .monospacedDigit()
           .frame(width: 58, alignment: .trailing)
@@ -604,7 +508,16 @@ struct DrawingStudioView: View {
       .disabled(
         !presentation.authoringIsEnabled || draftRequest(.centerInDrawableRegion) == nil
       )
+      Button("Fit to Drawing Area") {
+        WorkbenchRequestTelemetry.nativeActionHandled("drawing.fit")
+        submitDraft(.fitInDrawableRegion)
+      }
+        .disabled(draftRequest(.fitInDrawableRegion) == nil)
+        .accessibilityIdentifier("drawing.fit")
     }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("drawing.placement")
+    .accessibilityValue("\(presentation.canvas.placement.locationText); scale \(presentation.canvas.placement.uniformScale); rotation \(presentation.canvas.placement.rotationDegrees) degrees")
   }
 
   private var runStatus: some View {
@@ -613,28 +526,27 @@ struct DrawingStudioView: View {
       Text(presentation.runState.detail)
         .font(.caption)
         .foregroundStyle(.secondary)
-      if let preview = presentation.canvas.targetPreview {
-        Text("Program \(preview.programContentHash) · \(preview.status.label)")
-          .font(.caption2.monospaced())
-          .foregroundStyle(preview.status == .ready ? .cyan : .orange)
-        if let detail = preview.status.detail {
-          Text(detail).font(.caption2).foregroundStyle(.orange)
-        }
-      }
     }
   }
 
   private var controls: some View {
     HStack(spacing: 8) {
+      if case .unavailable(let reason) = presentation.runState {
+        OperatorRequestButton(title: "Draw", role: .affirmative, request: nil,
+          unavailableReason: reason, sink: plotterUIIntentSink, showsUnavailableReason: false)
+          .accessibilityIdentifier("drawing.draw")
+      }
       ForEach(presentation.controls) { control in
         let intent = PlotterUIIntent.drawingRun(control.intent)
         let request = plotterUIProjection.request(matching: intent)
         OperatorRequestButton(
-          title: control.title, role: control.role,
+          title: control.intent == .start ? "Draw" : control.title, role: control.role,
           request: control.isEnabled ? request : nil,
           unavailableReason: request == nil ? "Refresh the current Drawing Studio control." : nil,
-          sink: plotterUIIntentSink
+          sink: plotterUIIntentSink,
+          nativeActionIdentifier: control.intent == .start ? "drawing.draw" : nil
         )
+        .accessibilityIdentifier(control.intent == .start ? "drawing.draw" : "drawing.\(control.title)")
       }
     }
   }
@@ -677,12 +589,4 @@ struct DrawingStudioView: View {
     }
   }
 
-  private static func evidenceRoleLabel(_ role: BorderValidationEvidenceRole) -> String {
-    switch role {
-    case .ordinaryDrawing: "Ordinary drawing"
-    case .training: "Training"
-    case .reservedHoldout: "Reserved holdout"
-    case .evaluationHoldout: "Evaluation holdout"
-    }
-  }
 }

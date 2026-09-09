@@ -44,9 +44,9 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
   public let coverageRecordIDs: [DrawingEvidenceRecordID]
   public let drawingArchiveIsAvailable: Bool
 
-  /// Authoring does not interpret pixels. Preserve every semantic identity and
-  /// camera configuration while allowing a newer frame from the same stream.
-  fileprivate func matchesAuthoring(_ other: Self) -> Bool {
+  /// A sealed experiment selection consumes the current archive and physical
+  /// context. A newer frame from the same stream does not change that selection.
+  fileprivate func matchesExperimentSelection(_ other: Self) -> Bool {
     guard displayedFrame?.source == other.displayedFrame?.source,
       displayedFrame?.cameraConfigurationID == other.displayedFrame?.cameraConfigurationID,
       displayedFrame?.width == other.displayedFrame?.width,
@@ -168,14 +168,9 @@ public struct PlotterDrawingDraftSubmission: Hashable, Sendable {
   }
 }
 
-@MainActor
-public protocol PlotterDrawingDraftIntentSink: AnyObject {
-  func submitDrawingDraft(_ submission: PlotterDrawingDraftSubmission)
-}
-
 public enum PlotterDrawingDraftRefusalReason: Hashable, Sendable {
   case staleProjection
-  case studioClosed
+  case cancelled
   case retainedRunOwnsMutation
   case terminalRunRequiresHandoff
   case exactFrameMismatch
@@ -240,7 +235,7 @@ public struct PlotterDrawingDraftPaperCoverageDisplay: Hashable, Sendable {
 
 public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
   public let projection: PlotterDrawingDraftProjectionReference
-  public let isOpen: Bool
+  public let isTargetVisible: Bool
   public let catalog: [DrawingProgramCatalogEntry]
   public let selectedCatalogItemID: DrawingCatalogEntryID?
   public let evidenceRole: BorderValidationEvidenceRole
@@ -261,6 +256,8 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
   public let coverageExperiment: DrawingCoverageExperiment?
   public let coverageAssessment: DrawingCoverageAssessment?
   public let coverageUnavailableReason: String?
+  public let residualRecords: [DrawingResidualRecordSummary]
+  public let residualAnalysis: DrawingRetrospectiveResidualAnalysis?
 
   public static func initial(
     environment: PlotterEnvironment,
@@ -285,7 +282,7 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
         draftRevision: PlotterDrawingDraftRevision(rawValue: 0),
         externalFacts: facts
       ),
-      isOpen: false,
+      isTargetVisible: false,
       catalog: DrawingProgramCatalog.entries,
       selectedCatalogItemID: .square,
       evidenceRole: .ordinaryDrawing,
@@ -303,7 +300,8 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
       paperCoverageIsCurrent: false,
       paperCoverageDisplay: nil,
       lastSubmissionRefusal: nil,
-      coverageExperiment: nil, coverageAssessment: nil, coverageUnavailableReason: nil
+      coverageExperiment: nil, coverageAssessment: nil, coverageUnavailableReason: nil,
+      residualRecords: [], residualAnalysis: nil
     )
   }
 }
@@ -337,16 +335,8 @@ public enum PlotterDrawingPlanningAdapter {
     drawableRegion: DrawableMachineRegion,
     registration: TipCameraRegistration
   ) -> PlotterDrawingDraftPlanBuild {
-    let maximum = max(
-      0.02,
-      min(
-        (drawableRegion.effectiveBounds.maxX - drawableRegion.effectiveBounds.minX)
-          / program.fieldExtent.width,
-        (drawableRegion.effectiveBounds.maxY - drawableRegion.effectiveBounds.minY)
-          / program.fieldExtent.height
-      ) * 0.9
-    )
-    let allowedScale = 0.02...maximum
+    let allowedScale = scaleRange(extent: program.fieldExtent,
+      rotationDegrees: rotationDegrees, region: drawableRegion)
     do {
       let center: Point2<MachineSpace>
       if let machineCenter {
@@ -390,6 +380,20 @@ public enum PlotterDrawingPlanningAdapter {
     }
   }
 
+  /// The same rotated field bounds drive the slider and automatic fit.
+  public static func scaleRange(
+    extent: Size2<FieldSpace>, rotationDegrees: Double, region: DrawableMachineRegion
+  ) -> ClosedRange<Double> {
+    let angle = rotationDegrees * .pi / 180
+    let c = abs(cos(angle)), s = abs(sin(angle))
+    let width = extent.width * c + extent.height * s
+    let height = extent.width * s + extent.height * c
+    let bounds = region.effectiveBounds
+    let maximum = min((bounds.maxX - bounds.minX) / width,
+      (bounds.maxY - bounds.minY) / height) * 0.9
+    return min(0.02, maximum)...maximum
+  }
+
   package static func planRetainedDrawingBorder(
     program: DrawingProgram,
     placement: DrawingPlacement,
@@ -422,7 +426,7 @@ public enum PlotterDrawingPlanningAdapter {
 public actor PlotterDrawingDraftRuntime {
   private struct SourceState: Sendable {
     var revision = PlotterDrawingDraftRevision(rawValue: 0)
-    var isOpen = false
+    var isTargetVisible = false
     var selectedCatalogItemID: DrawingCatalogEntryID = .square
     var suppliedProgram: DrawingProgram?
     var evidenceRole: BorderValidationEvidenceRole = .ordinaryDrawing
@@ -440,6 +444,8 @@ public actor PlotterDrawingDraftRuntime {
     var coverageAssessment: DrawingCoverageAssessment?
     var coverageRecordIDs: [DrawingEvidenceRecordID]?
     var coverageUnavailableReason: String?
+    var selectedResidualRecordIDs: Set<DrawingEvidenceRecordID> = []
+    var residualAnalysis: DrawingRetrospectiveResidualAnalysis?
     var derivationKey: DerivationKey?
     var previewDerivationIsAvailable = false
   }
@@ -497,7 +503,12 @@ public actor PlotterDrawingDraftRuntime {
   /// from publication. Ownership stays with the current turn until it commits
   /// or refuses, and queued callers resume in arrival order.
   private var mutationBoundaryIsOccupied = false
-  private var mutationBoundaryWaiters: [CheckedContinuation<Void, Never>] = []
+  private struct MutationWaiter {
+    let id: UUID
+    let continuation: CheckedContinuation<Bool, Never>
+  }
+  private var mutationBoundaryWaiters: [MutationWaiter] = []
+  package var pendingMutationCount: Int { mutationBoundaryWaiters.count }
 
   public init(
     paperPersistence: any PlotterDrawingDraftPaperPersistence =
@@ -511,8 +522,9 @@ public actor PlotterDrawingDraftRuntime {
   public func synchronize(
     _ facts: PlotterDrawingDraftExternalFacts
   ) async -> PlotterDrawingDraftSnapshot {
-    await acquireMutationBoundary()
+    guard await acquireMutationBoundary() else { return retainedSnapshot(facts: facts) }
     defer { releaseMutationBoundary() }
+    guard !Task.isCancelled else { return retainedSnapshot(facts: facts) }
     return await synchronizeWithinMutationBoundary(facts)
   }
 
@@ -532,24 +544,28 @@ public actor PlotterDrawingDraftRuntime {
     _ submission: PlotterDrawingDraftSubmission,
     facts: PlotterDrawingDraftExternalFacts
   ) async -> PlotterDrawingDraftSubmissionResult {
-    await acquireMutationBoundary()
+    guard await acquireMutationBoundary() else { return cancelled(submission, facts: facts) }
     defer { releaseMutationBoundary() }
+    guard !Task.isCancelled else { return cancelled(submission, facts: facts) }
     let current = await synchronizeWithinMutationBoundary(facts)
+    guard !Task.isCancelled else { return cancelled(submission, facts: facts) }
     let environment = facts.revisions.environment
     var state = states[environment] ?? SourceState()
     let projectionMatches: Bool
     switch submission.intent {
-    case .open, .close:
-      // Panel visibility grants no drawing or evidence authority. Eligibility
-      // below uses current facts even while completion is being published.
-      projectionMatches = submission.projection.environment == current.projection.environment
-        && submission.projection.draftRevision == current.projection.draftRevision
     case .placeAtCameraPoint, .assertPaperCoverage:
       projectionMatches = submission.projection == current.projection
-    default:
+    case .prepareCoverageExperiment, .nextCoverageTrial:
       projectionMatches = submission.projection.environment == current.projection.environment
         && submission.projection.draftRevision == current.projection.draftRevision
-        && submission.projection.externalFacts.matchesAuthoring(current.projection.externalFacts)
+        && submission.projection.externalFacts.matchesExperimentSelection(current.projection.externalFacts)
+    default:
+      // Artwork and absolute authoring choices do not interpret an earlier
+      // camera observation or consume Learning/archive evidence. Rebuild them
+      // against current facts even while those facts finish publication after
+      // Apply Saved. Concurrent author edits still require their exact revision.
+      projectionMatches = submission.projection.environment == current.projection.environment
+        && submission.projection.draftRevision == current.projection.draftRevision
     }
     guard projectionMatches else {
       return refuse(
@@ -562,17 +578,40 @@ public actor PlotterDrawingDraftRuntime {
       )
     }
 
-    if submission.intent != .open {
-      guard state.isOpen else {
-        return refuse(
-          submission,
-          state: &state,
-          facts: facts,
-          owner: Authority.draft,
-          reason: .studioClosed,
-          remedy: "Open Drawing Studio before changing its draft."
-        )
+
+    // Archive analysis is orthogonal to the current drawing. It does not
+    // change the draft revision, placement, or any immutable run record.
+    switch submission.intent {
+    case .showTarget:
+      state.isTargetVisible = true
+    case .hideTarget:
+      state.isTargetVisible = false
+    case .selectResidualRecord(let id, let selected):
+      if facts.coverageRecords.contains(where: { $0.recordID == id }) {
+        if selected { state.selectedResidualRecordIDs.insert(id) }
+        else { state.selectedResidualRecordIDs.remove(id) }
+        state.residualAnalysis = nil
       }
+    case .analyzeSelectedResiduals:
+      let records = facts.coverageRecords.filter { state.selectedResidualRecordIDs.contains($0.recordID) }
+      state.residualAnalysis = DrawingRetrospectiveResidualAnalysis.evaluate(
+        records: records, registration: facts.registration)
+    default: break
+    }
+    if submission.intent == .showTarget || submission.intent == .hideTarget {
+      state.lastSubmissionRefusal = nil
+      states[environment] = state
+      return .init(disposition: .applied, snapshot: snapshot(state: state, facts: facts))
+    }
+    if case .selectResidualRecord = submission.intent {
+      state.lastSubmissionRefusal = nil
+      states[environment] = state
+      return .init(disposition: .applied, snapshot: snapshot(state: state, facts: facts))
+    }
+    if submission.intent == .analyzeSelectedResiduals {
+      state.lastSubmissionRefusal = nil
+      states[environment] = state
+      return .init(disposition: .applied, snapshot: snapshot(state: state, facts: facts))
     }
 
     guard !facts.revisions.runInProgress else {
@@ -586,8 +625,8 @@ public actor PlotterDrawingDraftRuntime {
       )
     }
     if facts.revisions.terminalRequiresNewPlan,
-      submission.intent != .open,
-      submission.intent != .close
+      submission.intent != .showTarget,
+      submission.intent != .hideTarget
     {
       return refuse(
         submission,
@@ -601,7 +640,7 @@ public actor PlotterDrawingDraftRuntime {
 
     if state.coverageExperiment != nil {
       switch submission.intent {
-      case .open, .close, .beginNewPlan, .assertPaperCoverage,
+      case .showTarget, .hideTarget, .beginNewPlan, .assertPaperCoverage,
         .nextCoverageTrial, .leaveCoverageExperiment, .prepareCoverageExperiment: break
       default:
         return refuse(submission, state: &state, facts: facts, owner: Authority.draft,
@@ -658,6 +697,7 @@ public actor PlotterDrawingDraftRuntime {
         if let blocker = assessment.blocker { throw PlotterModelError.invalidValue(blocker) }
         if let trial = assessment.nextTrial ?? experiment.trials.last(where: { assessment.attemptedIndices.contains($0.index) }) {
           state.suppliedProgram = try experiment.program(for: trial)
+          state.isTargetVisible = true
           state.evidenceRole = trial.role
           state.machineCenter = experiment.center
           state.uniformScale = 1
@@ -684,20 +724,18 @@ public actor PlotterDrawingDraftRuntime {
       state.uniformScale = 0.25
       state.machineCenter = nil
       state.placementID = UUID()
-    case .open:
-      state.isOpen = true
-    case .close:
-      state.isOpen = false
+    case .showTarget, .hideTarget:
+      break // Applied above without changing execution identity.
     case .selectCatalogItem(let id):
       state.selectedCatalogItemID = id
       state.suppliedProgram = nil
       state.placementID = UUID()
     case .selectProgram(let program):
+      state.isTargetVisible = true
       state.suppliedProgram = program
+      state.evidenceRole = .ordinaryDrawing
       state.uniformScale = min(state.uniformScale, allowedScale(state: state, facts: facts).upperBound)
       state.placementID = UUID()
-    case .setEvidenceRole(let role):
-      state.evidenceRole = role
     case .placeAtCameraPoint(let placement):
       guard placement.frame == facts.revisions.displayedFrame else {
         return refuse(
@@ -750,6 +788,22 @@ public actor PlotterDrawingDraftRuntime {
         )
       }
       state.rotationDegrees = Self.normalizedDegrees(degrees)
+      state.placementID = UUID()
+    case .fitInDrawableRegion:
+      guard let region = facts.revisions.drawableRegion,
+        let program = state.suppliedProgram ?? state.program else {
+        return refuse(submission, state: &state, facts: facts, owner: Authority.region,
+          reason: .drawableRegionUnavailable, remedy: "Restore the Drawing Boundary before fitting the target.")
+      }
+      let upright = PlotterDrawingPlanningAdapter.scaleRange(
+        extent: program.fieldExtent, rotationDegrees: 0, region: region).upperBound
+      let sideways = PlotterDrawingPlanningAdapter.scaleRange(
+        extent: program.fieldExtent, rotationDegrees: 90, region: region).upperBound
+      state.rotationDegrees = sideways > upright + 1e-9 ? 90 : 0
+      state.uniformScale = max(upright, sideways)
+      let bounds = region.effectiveBounds
+      state.machineCenter = try? Point2(x: (bounds.minX + bounds.maxX) / 2,
+        y: (bounds.minY + bounds.maxY) / 2)
       state.placementID = UUID()
     case .centerInDrawableRegion:
       guard let bounds = facts.revisions.drawableRegion?.effectiveBounds,
@@ -804,7 +858,9 @@ public actor PlotterDrawingDraftRuntime {
           observedAt: RuntimeTimestamp(
             monotonicNanoseconds: max(clock.nowNanoseconds(), frame.frame.captureNanoseconds)
           ),
-          algorithmRevision: "operator-attested-drawing-boundary-diagnostic-projection-v3"
+          algorithmRevision: "operator-attested-drawing-boundary-diagnostic-projection-v3",
+          opticalConfiguration: facts.revisions.opticalConfiguration,
+          drawableRegion: facts.revisions.drawableRegion
         )
         if environment == .live {
           try await paperPersistence.save(observation)
@@ -820,6 +876,8 @@ public actor PlotterDrawingDraftRuntime {
           remedy: "Resolve paper-coverage persistence and assert the current sheet again."
         )
       }
+    case .selectResidualRecord, .analyzeSelectedResiduals:
+      break // Handled above without changing execution identity.
     }
 
     state.revision = PlotterDrawingDraftRevision(rawValue: state.revision.rawValue &+ 1)
@@ -835,7 +893,10 @@ public actor PlotterDrawingDraftRuntime {
   package func clearPaperCoverageForRetainedPaperLifecycle(
     facts: PlotterDrawingDraftExternalFacts
   ) async -> PlotterDrawingDraftSubmissionResult {
-    await acquireMutationBoundary()
+    guard await acquireMutationBoundary() else {
+      let current = retainedSnapshot(facts: facts)
+      return cancelled(.init(projection: current.projection, intent: .assertPaperCoverage), facts: facts)
+    }
     defer { releaseMutationBoundary() }
     let current = await synchronizeWithinMutationBoundary(facts)
     let request = PlotterDrawingDraftSubmission(
@@ -876,12 +937,40 @@ public actor PlotterDrawingDraftRuntime {
     states[.live] = live
   }
 
-  private func acquireMutationBoundary() async {
+  private func retainedSnapshot(facts: PlotterDrawingDraftExternalFacts) -> PlotterDrawingDraftSnapshot {
+    let environment = facts.revisions.environment
+    return snapshot(state: states[environment] ?? SourceState(), facts: latestFacts[environment] ?? facts)
+  }
+
+  private func cancelled(_ submission: PlotterDrawingDraftSubmission,
+                         facts: PlotterDrawingDraftExternalFacts) -> PlotterDrawingDraftSubmissionResult {
+    let current = retainedSnapshot(facts: facts)
+    return .init(disposition: .refused(.init(requestID: submission.requestID,
+      comparedDraftRevision: current.projection.draftRevision,
+      comparedExternalFacts: current.projection.externalFacts, owner: Authority.draft,
+      reason: .cancelled, remedy: "The cancelled draft edit was not applied.")), snapshot: current)
+  }
+
+  private func acquireMutationBoundary() async -> Bool {
+    guard !Task.isCancelled else { return false }
     guard mutationBoundaryIsOccupied else {
       mutationBoundaryIsOccupied = true
-      return
+      return true
     }
-    await withCheckedContinuation { mutationBoundaryWaiters.append($0) }
+    let id = UUID()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        if Task.isCancelled { continuation.resume(returning: false) }
+        else { mutationBoundaryWaiters.append(.init(id: id, continuation: continuation)) }
+      }
+    } onCancel: {
+      Task { await self.cancelMutationWaiter(id) }
+    }
+  }
+
+  private func cancelMutationWaiter(_ id: UUID) {
+    guard let index = mutationBoundaryWaiters.firstIndex(where: { $0.id == id }) else { return }
+    mutationBoundaryWaiters.remove(at: index).continuation.resume(returning: false)
   }
 
   private func releaseMutationBoundary() {
@@ -889,7 +978,7 @@ public actor PlotterDrawingDraftRuntime {
       mutationBoundaryIsOccupied = false
       return
     }
-    mutationBoundaryWaiters.removeFirst().resume()
+    mutationBoundaryWaiters.removeFirst().continuation.resume(returning: true)
   }
 
   private func rebuild(
@@ -1128,7 +1217,9 @@ public actor PlotterDrawingDraftRuntime {
           paper: facts.revisions.paper,
           source: frame.source,
           frameID: coverage.frame.frameID,
-          cameraConfigurationID: frame.frame.cameraConfigurationID
+          cameraConfigurationID: frame.frame.cameraConfigurationID,
+          opticalConfiguration: facts.revisions.opticalConfiguration,
+          drawableRegion: facts.revisions.drawableRegion
         )
       ) == .valid
     } else {
@@ -1163,7 +1254,7 @@ public actor PlotterDrawingDraftRuntime {
         draftRevision: state.revision,
         externalFacts: facts.revisions
       ),
-      isOpen: state.isOpen,
+      isTargetVisible: state.isTargetVisible,
       catalog: DrawingProgramCatalog.entries,
       selectedCatalogItemID: state.suppliedProgram == nil ? state.selectedCatalogItemID : nil,
       evidenceRole: state.evidenceRole,
@@ -1183,7 +1274,11 @@ public actor PlotterDrawingDraftRuntime {
       lastSubmissionRefusal: state.lastSubmissionRefusal,
       coverageExperiment: state.coverageExperiment,
       coverageAssessment: state.coverageAssessment,
-      coverageUnavailableReason: state.coverageUnavailableReason
+      coverageUnavailableReason: state.coverageUnavailableReason,
+      residualRecords: facts.coverageRecords.reversed().map {
+        DrawingResidualRecordSummary(record: $0, isSelected: state.selectedResidualRecordIDs.contains($0.recordID))
+      },
+      residualAnalysis: state.residualAnalysis
     )
   }
 
@@ -1195,14 +1290,8 @@ public actor PlotterDrawingDraftRuntime {
     guard let region = facts.revisions.drawableRegion else { return 0.02...1 }
     let extent = state.suppliedProgram?.fieldExtent
       ?? DrawingProgramCatalog.entry(for: state.selectedCatalogItemID).fieldExtent
-    let maximum = max(
-      0.02,
-      min(
-        (region.effectiveBounds.maxX - region.effectiveBounds.minX) / extent.width,
-        (region.effectiveBounds.maxY - region.effectiveBounds.minY) / extent.height
-      ) * 0.9
-    )
-    return 0.02...maximum
+    return PlotterDrawingPlanningAdapter.scaleRange(extent: extent,
+      rotationDegrees: state.rotationDegrees, region: region)
   }
 
   private func issue(

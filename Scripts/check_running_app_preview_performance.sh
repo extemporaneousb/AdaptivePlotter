@@ -6,11 +6,15 @@ bundle=${1:-"$project_root/.build/AdaptivePlotter.app"}
 evidence=${2:-"$project_root/.build/evidence/preview-performance.json"}
 scenario=${3:-preview}
 case "$scenario" in
-    preview) drawing_studio=NO ;;
-    drawing-studio) drawing_studio=YES ;;
+    preview) default_duration=12 ;;
+    learned-portrait) default_duration=60 ;;
+    physical-portrait) default_duration=600 ;;
+    native-workbench) default_duration=180 ;;
     *) echo "unknown preview performance scenario: $scenario" >&2; exit 1 ;;
 esac
+measurement_seconds=${PREVIEW_PERFORMANCE_DURATION_SECONDS:-$default_duration}
 executable="$bundle/Contents/MacOS/AdaptivePlotter"
+launcher="$project_root/.build/AdaptivePlotterLauncher"
 python="$project_root/.VE/bin/python"
 
 cpu_median_limit=75
@@ -19,7 +23,7 @@ interaction_p95_milliseconds_limit=100
 interaction_max_milliseconds_limit=250
 minimum_preview_frames=60
 minimum_cpu_samples=8
-minimum_interaction_samples=80
+minimum_interaction_samples=10
 
 if [ ! -x "$executable" ]; then
     echo "signed AdaptivePlotter app executable is missing: $executable" >&2
@@ -27,6 +31,10 @@ if [ ! -x "$executable" ]; then
 fi
 if [ ! -x "$python" ]; then
     echo "repo-local Python is missing: $python" >&2
+    exit 1
+fi
+if [ ! -x "$launcher" ]; then
+    echo "existing AdaptivePlotter launcher is missing: $launcher; build the launcher before the native input gate" >&2
     exit 1
 fi
 sh "$project_root/Scripts/validate_local_app_bundle.sh" "$bundle" >/dev/null
@@ -39,33 +47,183 @@ if /usr/bin/pgrep -x AdaptivePlotter >/dev/null 2>&1; then
 fi
 
 mkdir -p "$(dirname "$evidence")"
-temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/adaptiveplotter-preview-performance.XXXXXX")
+if [ "$scenario" = native-workbench ]; then
+    temporary_root=$(mktemp -d "${evidence%.json}.native.XXXXXX")
+elif [ "$scenario" = physical-portrait ]; then
+    : "${PORTRAIT_REFERENCE_PHOTO:?physical-portrait requires an explicit portrait photo}"
+    : "${PHYSICAL_CONTROLLER:?physical-portrait requires an exact controller identifier or BSD path}"
+    temporary_root=$(mktemp -d "${evidence%.json}.physical.XXXXXX")
+else
+    temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/adaptiveplotter-preview-performance.XXXXXX")
+fi
 runtime_report="$temporary_root/runtime.json"
 measurement_ready="$temporary_root/measurement-ready"
 cpu_samples="$temporary_root/cpu.txt"
 application_log="$temporary_root/application.log"
+latency_failure="$measurement_ready.latency-failure"
+process_sample="${evidence%.json}.sample.txt"
+sample_taken=NO
 application_pid=
 
 cleanup() {
+    if [ "$scenario" = physical-portrait ]; then
+        echo "Physical scenario app PID ${application_pid:-not launched} and artifacts retained: $temporary_root" >&2
+        return
+    fi
     if [ -n "$application_pid" ] && /bin/kill -0 "$application_pid" 2>/dev/null; then
         /bin/kill -TERM "$application_pid" 2>/dev/null || true
         wait "$application_pid" 2>/dev/null || true
     fi
-    rm -rf "$temporary_root"
+    if [ "$scenario" = native-workbench ]; then
+        echo "Native workbench artifacts retained: $temporary_root" >&2
+    else
+        rm -rf "$temporary_root"
+    fi
 }
 trap cleanup EXIT HUP INT TERM
 
-"$executable" \
+set -- "$executable" \
     -NSQuitAlwaysKeepsWindows NO \
     -AdaptivePlotterPreviewPerformanceGate YES \
     -AdaptivePlotterPreviewPerformanceReport "$runtime_report" \
     -AdaptivePlotterPreviewPerformanceReadyMarker "$measurement_ready" \
-    -AdaptivePlotterPreviewPerformanceDrawingStudio "$drawing_studio" \
-    >"$application_log" 2>&1 &
+    -AdaptivePlotterPreviewPerformanceScenario "$scenario" \
+    -AdaptivePlotterPreviewPerformanceDuration "$measurement_seconds"
+if [ -n "${PORTRAIT_REFERENCE_PHOTO:-}" ]; then
+    set -- "$@" -AdaptivePlotterPreviewPerformancePortraitPhoto "$PORTRAIT_REFERENCE_PHOTO"
+fi
+if [ "$scenario" = physical-portrait ]; then
+    set -- "$@" -AdaptivePlotterPhysicalController "$PHYSICAL_CONTROLLER"
+fi
+if [ "$scenario" = physical-portrait ]; then
+    /usr/bin/nohup "$@" >"$application_log" 2>&1 </dev/null &
+else
+    "$@" >"$application_log" 2>&1 &
+fi
 application_pid=$!
 
+# Every declared scenario drives native controls (preview includes Hide Motion).
+# Registration/activation uses the existing launcher and exact spawned PID. Do
+# not wait for measurement/review markers: physical preparation clicks Connect
+# before its first review marker, so such a wait would create a cycle.
+case "$scenario" in
+    preview|learned-portrait|physical-portrait|native-workbench)
+        if ! "$launcher" --activate-existing-pid "$application_pid" "$bundle" >"$temporary_root/activation.log" 2>&1; then
+            cat "$temporary_root/activation.log" >&2
+            echo "The exact gate process could not be activated; no fallback application was launched" >&2
+            exit 1
+        fi
+        ;;
+esac
+
+if [ "$scenario" = native-workbench ]; then
+    native_limit=$("$python" -c 'import math,sys; print(math.ceil(float(sys.argv[1])))' "$measurement_seconds")
+    native_polls=0
+    while [ ! -f "$runtime_report" ] && [ "$native_polls" -lt "$native_limit" ]; do
+        if ! /bin/kill -0 "$application_pid" 2>/dev/null; then
+            echo "Native workbench app exited without a report; artifacts retained: $temporary_root" >&2
+            exit 1
+        fi
+        sleep 1
+        native_polls=$((native_polls + 1))
+    done
+    if [ ! -f "$runtime_report" ]; then
+        /usr/bin/sample "$application_pid" 2 -file "$process_sample" >/dev/null 2>&1 || true
+        echo "Native workbench did not complete; report/log/captures retained: $temporary_root" >&2
+        exit 1
+    fi
+    cp "$runtime_report" "$evidence"
+    "$python" - "$evidence" <<'NATIVE_PY'
+import json, pathlib, sys
+report = json.loads(pathlib.Path(sys.argv[1]).read_text())
+panels = ['guidedLearning', 'video', 'motion', 'activeLearning', 'portraitStudio']
+docks = ['left', 'bottom', 'right']
+expected = {(panel, dock, width) for panel in panels for dock in docks for width in (1000, 1600)}
+actual = {(item.get('panel'), item.get('dock'), item.get('width')) for item in report.get('placements', [])}
+images = report.get('bitmaps', [])
+required = ['learning.mode', 'workbench.scroll', 'workbench.scroll.inner', 'workbench.resize']
+required += ['workbench.hide.' + panel for panel in panels]
+required += ['workbench.move.' + panel + '.' + dock for panel in panels for dock in docks]
+counts = report.get('nativeCounts', {})
+def required_count(key):
+    if key == 'learning.mode':
+        return 2
+    return 6 if key.startswith(('workbench.hide.', 'workbench.scroll')) or key == 'workbench.resize' else 1
+valid_counts = all(counts.get(key, {}).get('posted', 0) >= required_count(key) and
+                   len({counts[key].get(field, -1) for field in ('posted', 'dispatched', 'handled', 'acknowledged')}) == 1
+                   for key in required)
+body_ids = {'guidedLearning': 'learning.exerciseActions', 'video': 'workbench.video.canvas',
+            'motion': 'motion.penDown', 'activeLearning': 'learning.coverage.prepare', 'portraitStudio': 'drawing.draw'}
+valid_bodies = all(item.get('body', {}).get('identifier') == body_ids.get(item.get('panel'))
+                   and item['body'].get('panelIdentifier') == 'workbench.panel.' + item.get('panel', '')
+                   and item['body'].get('fitsEveryContainingClip') is True
+                   and item.get('header', {}).get('fitsEveryContainingClip') is True
+                   for item in report.get('placements', []))
+inner_contexts = {sample['scrollEvidence'].get('context') for sample in report.get('inputs', [])
+                  if sample.get('targetIdentifier') == 'workbench.scroll.inner'
+                  and sample.get('scrollEvidence', {}).get('controlIdentifier') == 'drawing.draw'
+                  and sample['scrollEvidence'].get('clipIdentity')
+                  and sample['scrollEvidence'].get('outerClipIdentities')
+                  and sample['scrollEvidence']['clipIdentity'] not in sample['scrollEvidence']['outerClipIdentities']
+                  and sample['scrollEvidence'].get('beforeBounds') != sample['scrollEvidence'].get('afterBounds')}
+passed = (report.get('schema') == 'adaptiveplotter.native-workbench.v1'
+          and not report.get('failures') and actual == expected and valid_counts and valid_bodies
+          and inner_contexts == {dock + '.' + str(width) for dock in docks for width in (1000, 1600)}
+          and len(images) == 6 and all(pathlib.Path(path).is_file() for path in images)
+          and report.get('applicationWasActive') is True
+          and report.get('stopWasVisible') is True
+          and report.get('acceptedArtifactsUnchanged') is True
+          and report.get('windowPreferencesUnchanged') is True
+          and set(report.get('learningStates', [])) == {False, True})
+print('Native workbench ' + ('passed' if passed else 'failed')
+      + '; actual application input with simulated startup, no physical or native-held-Draw Stop claim.')
+for failure in report.get('failures', []):
+    print(failure)
+raise SystemExit(0 if passed else 1)
+NATIVE_PY
+    exit $?
+fi
+
+if [ "$scenario" = physical-portrait ]; then
+    printf '%s\n' "$application_pid" >"$temporary_root/application.pid"
+    printf 'Physical scenario running; no automatic continuation.\nPID: %s\nReport: %s\nReview: %s\nLog: %s\n' \
+        "$application_pid" "$runtime_report" "$measurement_ready" "$application_log"
+    # Three review stages and two draws each have their own bounded runtime
+    # deadline. A shell timeout never kills a controller-owning process.
+    physical_limit=$("$python" -c 'import math,sys; print(math.ceil(float(sys.argv[1])) * 5 + 180)' "$measurement_seconds")
+    physical_polls=0
+    while [ ! -f "$measurement_ready.finished" ] && [ "$physical_polls" -lt "$physical_limit" ]; do
+        if ! /bin/kill -0 "$application_pid" 2>/dev/null; then
+            echo "Physical app exited unexpectedly; retained artifacts require review; do not repeat Draw" >&2
+            exit 1
+        fi
+        sleep 1
+        physical_polls=$((physical_polls + 1))
+    done
+    if [ ! -f "$measurement_ready.finished" ] || [ ! -f "$runtime_report" ]; then
+        echo "Physical scenario did not finish; app, active owners, and artifacts retained for Stop/review" >&2
+        exit 1
+    fi
+    cp "$runtime_report" "$evidence"
+    "$python" - "$evidence" <<'PHYSICAL_PY'
+import json, pathlib, sys
+report = json.loads(pathlib.Path(sys.argv[1]).read_text())
+passed = (report.get("schema") == "adaptiveplotter.physical-portrait.v1"
+          and report.get("state") == "completed"
+          and not report.get("failures")
+          and report.get("manualStopSettled") is True
+          and len(set(report.get("planHashes", []))) == 2
+          and len(set(report.get("recordIDs", []))) == 2
+          and len(report.get("drawingStopCapabilities", [])) == 2)
+print("Physical native/controller/archive scenario " + ("completed" if passed else "failed")
+      + "; human attendance and independent ink inspection are separate. App retained.")
+raise SystemExit(0 if passed else 1)
+PHYSICAL_PY
+    exit $?
+fi
+
 ready_polls=0
-while [ ! -f "$measurement_ready" ] && [ "$ready_polls" -lt 100 ]; do
+while [ ! -f "$measurement_ready" ] && [ "$ready_polls" -lt 720 ]; do
     if ! /bin/kill -0 "$application_pid" 2>/dev/null; then
         echo "AdaptivePlotter exited before the preview measurement began" >&2
         sed -n '1,200p' "$application_log" >&2
@@ -75,21 +233,33 @@ while [ ! -f "$measurement_ready" ] && [ "$ready_polls" -lt 100 ]; do
     ready_polls=$((ready_polls + 1))
 done
 if [ ! -f "$measurement_ready" ]; then
-    echo "AdaptivePlotter did not reach the preview measurement window within 25 seconds" >&2
+    /usr/bin/sample "$application_pid" 2 -file "$process_sample" >/dev/null 2>&1 || true
+    echo "AdaptivePlotter did not reach the workload measurement window within 180 seconds" >&2
     sed -n '1,200p' "$application_log" >&2
     exit 1
 fi
 
 sample_count=0
-while /bin/kill -0 "$application_pid" 2>/dev/null && [ "$sample_count" -lt 12 ]; do
+: >"$cpu_samples"
+sample_limit=$("$python" -c 'import math,sys; print(math.ceil(float(sys.argv[1])) + 15)' "$measurement_seconds")
+while /bin/kill -0 "$application_pid" 2>/dev/null && [ ! -f "$runtime_report" ] \
+    && [ "$sample_count" -lt "$sample_limit" ]; do
     sample=$(/bin/ps -p "$application_pid" -o %cpu= | /usr/bin/tr -d ' ' || true)
     case "$sample" in
         ''|*[!0-9.]*) ;;
         *) printf '%s\n' "$sample" >>"$cpu_samples" ;;
     esac
+    if [ "$sample_taken" = NO ] && [ -f "$latency_failure" ]; then
+        /usr/bin/sample "$application_pid" 2 -file "$process_sample" >/dev/null 2>&1 || true
+        sample_taken=YES
+    fi
     sample_count=$((sample_count + 1))
     sleep 1
 done
+if [ ! -f "$runtime_report" ] && /bin/kill -0 "$application_pid" 2>/dev/null \
+    && [ "$sample_taken" = NO ]; then
+    /usr/bin/sample "$application_pid" 2 -file "$process_sample" >/dev/null 2>&1 || true
+fi
 
 report_polls=0
 while [ ! -f "$runtime_report" ] && /bin/kill -0 "$application_pid" 2>/dev/null \
@@ -155,7 +325,7 @@ cpu = [
     for value in pathlib.Path(cpu_path).read_text(encoding="utf-8").splitlines()
     if value.strip()
 ]
-latencies = [float(value) for value in runtime["interactionLatencyMilliseconds"]]
+latencies = [float(value["visibleAcknowledgmentLatencyMilliseconds"]) for value in runtime["nativeInputSamples"]]
 
 thresholds = {
     "cpuMedianPercentMaximum": float(cpu_median_limit),
@@ -172,6 +342,13 @@ measurements = {
     "cpuMedianPercent": statistics.median(cpu) if cpu else None,
     "cpuP95Percent": percentile(cpu, 0.95) if cpu else None,
     "interactionLatencyMilliseconds": latencies,
+    "nativeInputProvenance": runtime["nativeInputProvenance"],
+    "nativeInputSamples": runtime["nativeInputSamples"],
+    "nativeInputCounts": runtime["nativeInputCounts"],
+    "mainActorSchedulingLatencyMilliseconds": runtime["mainActorSchedulingLatencyMilliseconds"],
+    "submittedNativeInputCount": runtime["submittedNativeInputCount"],
+    "deliveredNativeInputCount": runtime["deliveredNativeInputCount"],
+    "acknowledgedNativeInputCount": runtime["acknowledgedNativeInputCount"],
     "interactionMedianMilliseconds": statistics.median(latencies) if latencies else None,
     "interactionP95Milliseconds": percentile(latencies, 0.95) if latencies else None,
     "interactionMaximumMilliseconds": max(latencies) if latencies else None,
@@ -189,11 +366,38 @@ measurements = {
     "overlayPresentationRevisionDelta": runtime["overlayPresentationRevisionDelta"],
     "overlayCanvasDrawCountDelta": runtime["overlayCanvasDrawCountDelta"],
     "overlayCanvasBuildCountDelta": runtime["overlayCanvasBuildCountDelta"],
-    "drawingStudioWasOpen": runtime["drawingStudioWasOpen"],
+    "targetWasVisible": runtime["targetWasVisible"],
     "drawingPlanWasAvailable": runtime["drawingPlanWasAvailable"],
     "automaticAnalysisWasRunning": runtime["automaticAnalysisWasRunning"],
+    "appliedCheckpointID": runtime.get("appliedCheckpointID"),
+    "completeAcceptedLearningWasRetained": runtime["completeAcceptedLearningWasRetained"],
+    "acceptedBorderRecordID": runtime.get("acceptedBorderRecordID"),
+    "quietAnalysisWindows": runtime["quietAnalysisWindows"],
+    "retrospectiveRecordIDs": runtime["retrospectiveRecordIDs"],
+    "retrospectiveConstraintCount": runtime["retrospectiveConstraintCount"],
+    "portraitMaximumConcurrentExpensiveJobs": runtime["portraitMaximumConcurrentExpensiveJobs"],
+    "passivePanelObservationProvenance": runtime["passivePanelObservationProvenance"],
+    "portraitProgramHash": runtime.get("portraitProgramHash"),
+    "portraitStrokeCount": runtime["portraitStrokeCount"],
+    "portraitInputSource": runtime.get("portraitInputSource"),
+    "completedCameraSwitchCount": runtime["completedCameraSwitchCount"],
+    "cameraSwitchDurationsMilliseconds": runtime["cameraSwitchDurationsMilliseconds"],
+    "cameraSwitchReceipts": runtime["cameraSwitchReceipts"],
+    "suspendedPlotterAnalyzedFrameDelta": runtime["suspendedPlotterAnalyzedFrameDelta"],
+    "measuredAnalysisFrameDelta": runtime["measuredAnalysisFrameDelta"],
+    "portraitMaximumConcurrentWorkers": runtime["portraitMaximumConcurrentWorkers"],
+    "portraitSettledWorkers": runtime["portraitSettledWorkers"],
+    "passivePanelTextChanged": runtime["passivePanelTextChanged"],
+    "passivePanelsObserved": runtime["passivePanelsObserved"],
+    "stopWasPresent": runtime["stopWasPresent"],
+    "workloadFailures": runtime["failures"],
 }
 checks = {
+    "runtimeSchema": runtime["schema"] == "adaptiveplotter.running-app-preview-runtime.v2",
+    "requestedScenario": runtime["scenario"] == scenario,
+    "completeRequiredWorkload": not runtime["failures"],
+    "nativeInputsDeliveredAndAcknowledged": runtime["submittedNativeInputCount"]
+    == runtime["deliveredNativeInputCount"] == runtime["acknowledgedNativeInputCount"] == len(latencies),
     "buildConfigurationMatchesBundle": runtime["buildConfiguration"] == bundle_configuration,
     "cpuSampleCount": len(cpu) >= thresholds["minimumCPUSampleCount"],
     "cpuMedian": bool(cpu)
@@ -222,10 +426,9 @@ checks = {
         "drawingDraftSynchronizationCountDelta"
     ]
     == 0,
-    "requestedStudioIsOpen": scenario != "drawing-studio" or runtime["drawingStudioWasOpen"],
 }
 evidence = {
-    "schema": "adaptiveplotter.preview-performance-gate.v1",
+    "schema": "adaptiveplotter.preview-performance-gate.v2",
     "route": "signed-app-preferred-camera",
     "scenario": scenario,
     "thresholds": thresholds,

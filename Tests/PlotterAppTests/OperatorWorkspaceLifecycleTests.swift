@@ -179,15 +179,15 @@ struct PlotterApplicationRuntimeLifecycleTests {
       workspace.testWorkbenchCapabilityPresentation.learning == .interactiveLearningComplete
     )
     #expect(workspace.frameMode == .simulated)
-    #expect(!workspace.drawingDraftSnapshot.isOpen)
+    #expect(!workspace.drawingDraftSnapshot.isTargetVisible)
     #expect(!workspace.paperCoverageIsCurrent)
     #expect(workspace.activeExerciseAttemptID == nil)
     #expect(workspace.currentExerciseActionStripPresentation == nil)
     let reviewUI = workspace.testPlotterUIProjection(selectedItemID: owner, includesLearningPath: true)
-    let openStudio = try #require(reviewUI.semantic.request(matching: .drawingDraft(.open)))
+    let openStudio = try #require(reviewUI.semantic.request(matching: .drawingDraft(.showTarget)))
     let disposition = await workspace.submitPlotterUIRequest(openStudio)
     #expect(disposition == .accepted(requestID: openStudio.id))
-    let studioIsPresented = workspace.drawingStudioIsPresented
+    let studioIsPresented = workspace.drawingTargetIsVisible
     let comparisonIsPinned = workspace.completedDrawingComparisonReviewIsPinned
     #expect(studioIsPresented)
     #expect(!comparisonIsPinned)

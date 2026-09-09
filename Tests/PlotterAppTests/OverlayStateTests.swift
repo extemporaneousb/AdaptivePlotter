@@ -8,114 +8,10 @@ import Testing
 @Suite("Overlay ownership and state")
 @MainActor
 struct OverlayStateTests {
-  @Test("exactly two global controls use one-column layout at every supported inspector width")
-  func exactGlobalControlsAndResponsiveLayout() {
+  @Test("exactly two operator overlay preferences are retained without result cards")
+  func exactGlobalControls() {
     #expect(UserSceneOverlay.allCases == [.penCap, .armatureEnvelope])
     #expect(UserSceneOverlay.allCases.map(\.title) == ["Pen cap", "Armature envelope"])
-    for width in OverlayCardLayoutPolicy.supportedInspectorWidths {
-      #expect(OverlayCardLayoutPolicy.columnCount(availableWidth: width) == 1)
-      #expect(
-        OverlayCardLayoutPolicy.contentWidth(availableWidth: width)
-          >= OverlayCardLayoutPolicy.minimumCardWidth
-      )
-    }
-  }
-
-  @Test("every run state has deterministic text color and accessibility presentation")
-  func exhaustiveStatusPresentation() {
-    let messages: [OverlayRunState: String] = [
-      .off: "Off",
-      .waiting: OverlayStatusGrammar.waiting,
-      .analyzing: OverlayStatusGrammar.analyzing(frame: 41),
-      .available: OverlayStatusGrammar.found(pixelCount: 120, confidence: 0.91, frame: 40),
-      .unavailable: OverlayStatusGrammar.notFound,
-      .ambiguous: OverlayStatusGrammar.ambiguous(candidateSizes: [120, 118]),
-      .failed: "Failed — camera bytes were unavailable",
-      .suspended: OverlayStatusGrammar.suspended,
-      .stale: OverlayStatusGrammar.stale,
-    ]
-    let colors: [OverlayRunState: OverlayStatusColorToken] = [
-      .off: .unavailableDarkGray,
-      .waiting: .neutralGray,
-      .analyzing: .neutralGray,
-      .available: .affirmativeGreen,
-      .unavailable: .negativeRed,
-      .ambiguous: .negativeRed,
-      .failed: .negativeRed,
-      .suspended: .neutralGray,
-      .stale: .negativeRed,
-    ]
-
-    #expect(Set(messages.keys) == Set(OverlayRunState.allCases))
-    for state in OverlayRunState.allCases {
-      let card = OverlayCardPresentation(
-        overlay: .penCap,
-        isOn: state != .off,
-        status: OverlayLayerStatus(state: state, message: messages[state]!, provenance: nil),
-        roiText: "Full frame · unlocked/default analysis",
-        cadenceText: "2 frames per second",
-        nowNanoseconds: 100
-      )
-      #expect(card.statusText == messages[state])
-      #expect(card.colorToken == colors[state])
-      #expect(card.accessibilityLabel == "Pen cap scene overlay")
-      #expect(card.accessibilityValue.contains(messages[state]!))
-      #expect(card.accessibilityValue.contains("No exact analyzed frame"))
-    }
-  }
-
-  @Test("long failures remain complete multiline content and status does not mutate selection")
-  func longFailureAndSelectionIndependence() {
-    let longReason =
-      "Failed — the newest exact camera frame could not be decoded after the camera configuration changed; select a current source and wait for a new exact frame before retrying."
-    let preference = OverlayPreferenceState.loaded([.penCap])
-    let card = OverlayCardPresentation(
-      overlay: .penCap,
-      isOn: preference.enabled.contains(.penCap),
-      status: OverlayLayerStatus(state: .failed, message: longReason, provenance: nil),
-      roiText: "Full frame · unlocked/default analysis",
-      cadenceText: "2 frames per second",
-      nowNanoseconds: 100
-    )
-
-    #expect(card.supportsMultilineText)
-    #expect(card.statusText == longReason)
-    #expect(card.helpText.contains(longReason))
-    #expect(card.isOn)
-    #expect(preference.enabled == [.penCap])
-    #expect(preference.lastMutationSource == .persistenceLoad)
-  }
-
-  @Test("overlay cards expose exact-frame ROI cadence and result age")
-  func exactFrameCardMetadata() throws {
-    let frame = try displayedFrame(
-      id: "card-frame",
-      source: .live(CameraDeviceID(rawValue: "camera")),
-      configuration: CameraConfigurationID(),
-      sequence: 27,
-      captureNanoseconds: 1_000_000_000
-    )
-    let provenance = ExactFrameOverlayProvenance(frame)
-    let status = OverlayLayerStatus(
-      state: .available,
-      message: OverlayStatusGrammar.found(pixelCount: 86, confidence: 0.92, frame: 27),
-      provenance: provenance
-    )
-    let card = OverlayCardPresentation(
-      overlay: .penCap,
-      isOn: true,
-      status: status,
-      roiText: "x 12, y 18, 120 × 90 px",
-      cadenceText: "2 frames per second",
-      nowNanoseconds: 2_500_000_000
-    )
-
-    #expect(card.frameText == "Frame 27 · card-frame")
-    #expect(card.resultAgeText == "1.50 s")
-    #expect(card.accessibilityValue.contains("x 12, y 18, 120 × 90 px"))
-    #expect(card.accessibilityValue.contains("2 frames per second"))
-    #expect(card.accessibilityValue.contains("Frame 27 · card-frame"))
-    #expect(card.accessibilityValue.contains("1.50 s"))
   }
 
   @Test("frozen armature language never claims independent segmentation")
@@ -241,7 +137,7 @@ struct OverlayStateTests {
     #expect(channels.simulation == simulation)
   }
 
-  @Test("stale geometry is hidden while stale status remains visible")
+  @Test("stale geometry is hidden while its typed diagnostic status is retained")
   func staleGeometryIsNonRenderable() throws {
     let configuration = CameraConfigurationID()
     let analyzed = try displayedFrame(

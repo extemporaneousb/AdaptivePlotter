@@ -13,7 +13,7 @@ and verified status to [Current Evidence](CURRENT_EVIDENCE.md).
 ## Product boundary
 
 AdaptivePlotter is one native, signed macOS application operating one local
-plotter with one camera. It owns the short controller-camera-draw-observe loop
+plotter with one selected camera at a time. It owns the short controller-camera-draw-observe loop
 directly.
 
 In scope:
@@ -26,7 +26,7 @@ In scope:
 - sparse operator-selected contact evidence and an atomic accepted pen-tip calibration;
 - one attributable observed drawing trial;
 - direct placement, preview, execution, and observation of bounded vector drawing programs;
-- append-only drawing-run evidence with predeclared ordinary/training/holdout roles;
+- append-only drawing-run evidence with immutable acquisition roles and later residual selection;
 - causal simulator parity without physical authority.
 
 Out of scope:
@@ -82,14 +82,14 @@ and ordinary Swift tests may remain debug builds. Timing of image kernels in a
 debug build must not be presented as optimized application performance.
 
 Ordinary preview publication is a video-local presentation event. It may
-invalidate the Action Surface and Video Settings viewport controls, but it must
+invalidate only the shared Video camera/overlay leaf, but it must
 not invalidate the aggregate semantic UI projection, Learning or sibling
 panels, or Drawing Draft. Frozen point-selection and pinned comparison frames
 remain exact evidence rather than ambient preview. Saved-Learning optical
 comparison runs once per typed checkpoint/camera-configuration identity and
 may publish UI state only when its comparison state changes. The signed-app
 performance gate must demonstrate advancing LIVE preview, zero ambient semantic
-and Drawing-Draft deltas, bounded MainActor interaction latency, and the
+and Drawing-Draft deltas, bounded native event-to-handler-to-visible-acknowledgment latency, and the
 declared CPU ceilings.
 
 Camera diagnostic counters alone do not invalidate the workbench. An overlay-
@@ -105,9 +105,36 @@ Only analysis phase/error changes publish semantic revisions. Reading camera
 freshness is pure and cannot schedule draft planning. A local toolbar clock
 refreshes the one-second delivery check; a running session with late frames is
 labeled **Camera delayed**, without interpreting scene vibration as camera loss.
-The signed-app gate supports `PREVIEW_PERFORMANCE_SCENARIO=drawing-studio` and
-records whether Studio, a drawing plan, and automatic analysis were actually
-present, so an empty Studio benchmark cannot claim a learned-workload result.
+The signed-app gate supports `PREVIEW_PERFORMANCE_SCENARIO=learned-portrait`.
+It must require complete accepted Learning including the retained Drawing Border
+outcome, a dense portrait/plan, sustained active analysis and a session of at
+least 60 seconds. Relevant native control inputs must run during camera/render
+activity, including at least 20 settled source switches. Per-control submitted,
+delivered, handled and visibly acknowledged input counts are separate facts.
+An empty panel, incomplete accepted prefix, accessibility-tree membership alone,
+or one analysis completion cannot satisfy this workload. MainActor scheduling
+probes remain diagnostics and are not click responsiveness evidence.
+
+The separate native workbench scenario must inspect the actual Video canvas
+inside its panel and containing clips at every declared placement and width.
+Settings visibility cannot replace that proof. A nested-scroll claim requires
+movement of an identified overflowing inner clip caused by its correlated native
+wheel event; programmatic reveal remains setup only. Resize input must have a
+feasible endpoint under the actual window minimum and screen geometry. This
+scenario uses simulated startup, so its native event receipts confer no real
+camera, controller, motion or ink evidence.
+
+The separate explicitly selected `physical-portrait` harness composes existing
+native controls and owners under prior operator authorization. Its review
+markers are bound to the exact run, candidate, stage and plan, and only stage
+the test; ordinary action admission remains authoritative. A physical review
+requiring fresh MPos must use the existing controller query owner and retain
+its exchange provenance. Export timestamps cannot make cached controller facts
+new observations. It retains the first
+record and exact frame pair before a second nonoverlapping plan, never redraws
+a possible-ink result automatically, and leaves the app and artifacts available
+on timeout or failure. Contract tests for this harness do not establish physical
+motion, camera, ink, or attended Learning evidence.
 
 The operator may lock the current presentation viewport as a generic scene-
 analysis region. The lock constrains which camera pixels requested pen-cap
@@ -444,8 +471,8 @@ settlement.
 The implemented curriculum ends at the single visible **2.1 Draw and Validate
 the Drawing Border** exercise. Its six phases are runtime activity, not six
 operator approvals or selectable Learning Path rows. Its exact comparison
-remains reviewable after completion. Drawing Studio is a direct workbench
-capability unlocked by that attributable validation; it is not another
+remains reviewable after completion. Direct drawing is a workbench
+capability unlocked by that completed trial and recorded observation outcome; it is not another
 Learning Path row and does not imply adaptive-model readiness.
 
 Every accepted LIVE exercise is also a durable prefix checkpoint. Restart does
@@ -471,7 +498,10 @@ before actuating the pen.
 The operator may turn Learning off when no Learning attempt owns work. This
 hides Learning navigation and prevents new Learning actions without clearing
 accepted artifacts, disconnecting the controller, disabling Motion, stopping
-the camera, or blocking direct manual controls. The sole active-work exception
+the camera, or blocking direct manual controls. Guided Learning retains its
+current On/Off state and the existing projected mode action while navigation is
+hidden, so Turn Learning On remains reachable. This is independent of portrait
+acquisition, drawing, and later residual selection. The sole active-work exception
 is EA-04 point selection: Learning Off may itself typed-cancel only the exact
 point-selection/pen-cap continuation owner bound by both its selection ID and
 exercise-attempt token. It awaits that same owner to settlement and re-evaluates
@@ -1177,6 +1207,16 @@ complete package can replace it atomically. The operator owns this decision.
 Binary replacement, process restart, and capture-session restart perform no cap
 capture, click, mark, paper replacement, or Learning Path replay.
 
+Accepted Learning completion depends on the retained accepted artifacts and
+outcomes, not the current Pen pose. A compatible complete checkpoint restores
+the same completed milestones as finishing those exercises in this process.
+Unknown or down Pen pose is an execution-readiness fact: use the existing Pen Up
+operation and learned profile, without reopening Pen Interaction or requesting
+another cap click. Actual incompatible controller, optical, tool, or contact-plane
+dependencies retain their precise existing remedy. The implementation correction
+and its proof are tracked in the execution plan's
+[workbench and portrait completion correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#workbench-and-portrait-completion-correction-2026-09-08).
+
 Checkpoint revalidation can issue a new tip-registration revision while retaining
 the original accepted calibration lineage. An existing Drawing Border record
 continues to cite the revision it actually evaluated. Both completion restoration
@@ -1227,7 +1267,16 @@ Planned-drawing observation measures departure from the prediction. A detected
 pixel's distance from the planned path must contribute to the measurement, not
 veto the entire observation through a maximum correspondence distance. The
 observer compares newly darkened pixels in the recorded region with the nearest
-planned path and retains the sampled geometry and residual. This remains a
+planned path and retains the sampled geometry and residual. A common translated
+reference may resolve correspondence within the observed region; it must never
+replace measured coordinates or be confused with background camera alignment.
+Search and final association share the same work budget. Pixels tied between
+paths are excluded individually; every planned path must still supply enough
+unique support for a sampled centerline. Isolated crossings do not veto otherwise
+supported paths. Duplicate or underresolved paths remain rejected with zero
+verified strokes and no retrospective fitting contribution. The original
+association work budget counts actual search and projection work; optimization
+must preserve exhaustive distance/tie semantics and cancellation bounds. This remains a
 before/after difference measurement, not proof that every edge is visible or
 that every changed pixel is ink. Rejections retain the detected pixel count when
 extraction ran; zero detected pixels and inability to form a sampled path are
@@ -1251,12 +1300,36 @@ comparison, shape evaluation, and typed readiness work defined in the Roadmap.
 
 ## Direct Drawing Studio boundary
 
+The accepted workbench correction defines five independently visible panels:
+**Guided Learning**, **Video**, **Motion**, **Active Learning**, and **Portrait
+Studio**. Each panel, including the actual Video canvas, can be docked left,
+bottom, or right; multiple panels can share a region with usable resizing and
+scrolling. Placement and visibility persist. Defaults are Guided Learning left,
+Video right, and Motion bottom. Video Settings is an accessory of Video. Active
+Learning and Portrait Studio are regular sibling panels; portrait preparation
+does not open a separate window or sheet. Stop stays reachable from the command
+bar regardless of panel visibility. The Panels menu and workflow-panel titles
+select their camera role explicitly; Video also provides a Plotter/Portrait
+selector. Hiding and redocking never restart capture or change the drawing
+target. Implementation and verification progress belong to the execution-plan
+correction and Current Evidence.
+
+Only the selected camera captures and analyzes. Portrait preparation selects the
+face camera in the shared Video panel and suspends plotter acquisition/analysis.
+**Show on Plotter Video** retains portrait controls, images, and program, settles
+face capture, and returns that Video panel to the plotter camera. Restarting the
+same physical plotter optics preserves accepted Learning; ephemeral capture
+identity is not optical change. Video processing must not update panel text or
+layout. Changing frame counts, ages, measurement summaries, and detector chatter
+belong in existing on-demand Diagnostics; stable operator prompts, real operation
+transitions, and actionable errors remain visible.
+
 One completed Exercise 2.1 trial establishes **Learning complete**, fills the
 graduation cap, and permits direct bounded drawing with the accepted pen-tip
 calibration; it does not establish **Adaptive drawing ready**. Paper readiness
 remains a separate operator assertion and is never inferred from that calibration.
 
-Drawing Studio and Create Portrait are available before Learning completion.
+Portrait authoring and Active Learning navigation are available before Learning completion.
 Authoring retains an immutable program without requiring a registration or
 Drawing Boundary; placement and planning still require those current artifacts,
 and physical running retains its existing Learning, paper, and motion admission.
@@ -1266,17 +1339,22 @@ handoff or prevent authoring. Actual retained terminals and possible-ink state
 continue to require their existing handoff.
 
 Drawing Studio draft edits are revision-bound requests, not direct workspace
-mutations. Open, close, catalog selection, evidence role, exact-frame placement,
-scale, rotation, centering, new-plan, and paper assertion are typed
-`PlotterDrawingDraftIntent` values submitted against the immutable draft and
-external-fact revisions shown to the operator. Open and close bind the current
-draft revision and environment and check current eligibility, without requiring
-old camera or Learning facts to remain unchanged for panel visibility.
-Authoring tolerates frame advancement within the same source, configuration, and pixel layout;
-exact-frame placement and paper assertion still require the displayed frame's
-complete identity. A stale draft; changed Learning, registration, region, paper,
-camera configuration, or run fact; closed studio; active run; or retained
-terminal receives an exact owner/reason/remedy refusal. The UI renders the
+mutations. Target show/hide, catalog selection, exact-frame placement,
+scale, rotation, centering, fitting, new-plan, paper assertion, retained-record
+selection, and retrospective analysis are typed
+`PlotterDrawingDraftIntent` values. Ordinary authored choices bind the environment
+and authored draft revision; the owner derives their plan against current facts,
+including facts whose publication follows Apply Saved. Target visibility belongs to the
+draft presentation and does not alter execution identity. Panel visibility is
+separate window state and never submits target show/hide.
+Exact-frame placement and paper assertion require the complete projected draft
+and external-fact identity, including the displayed frame. Experiment selection
+also binds its relevant Learning, geometry, and evidence facts. A stale authored
+revision or environment refuses the edit; fresh Learning, registration, region,
+paper, camera or run facts are not by themselves a stale-authoring refusal.
+Those current facts still determine whether a plan can be derived, whether an
+active run permits editing, and whether a retained terminal requires its existing
+handoff. Refusals retain the exact owner/reason/remedy. The UI renders the
 returned immutable snapshot; it does not decide admission or rebuild a plan.
 
 Draft derivation reuses unchanged program, placement, registration, region,
@@ -1290,7 +1368,7 @@ native tick marks or planning every pointer movement.
 
 The built-in catalog and portrait authoring are deterministic `DrawingProgram`
 producers, not precomputed machine commands. Portrait authoring accepts a photo
-or one exact frame from an independently owned optional camera. Left, front, and
+or one exact frame from the selected optional face camera. Left, front, and
 right are labeled individual captures; selecting a pose and Contour, Hatch, or
 Crosshatch produces ordered FieldSpace polylines. Face localization supplies a
 padded crop and Vision person segmentation can remove background. A missing
@@ -1298,16 +1376,52 @@ face or person mask retains the image, with a visible analysis explanation;
 these detectors do not gate drawing creation. This is person/background masking,
 not segmentation of individual facial parts or reconstruction of a 3D head.
 
-The portrait editor retains its captures in memory while Drawing Studio remains
-open. It does not add them to the Learning package or automatically persist raw
-photos. Use Portrait installs the immutable generated program through the same
-draft intent owner as catalog selection. It does not start motion. Placement,
+The portrait editor retains its captures and authored draft in memory across
+panel navigation. It does not add them to the Learning package or automatically
+persist raw photos. Show on Plotter Video installs the immutable generated
+program through the same draft intent owner as catalog selection. It does not start motion. Placement,
 execution, Stop, and observation use the existing drawing path. Program source
 provenance identifies the image/raster digests, crop, pose, and style; completed
 runs retain it alongside their reconstructable execution plan in the existing
-drawing evidence archive. Preview
-frames and image analysis stay local to portrait authoring; the observation
-camera, accepted calibration, and Learning state are unchanged by capture.
+drawing evidence archive. Preview frames and image analysis stay local to the
+selected camera and portrait authoring. Camera selection changes capture
+lifecycle without changing accepted calibration or Learning completion when the
+physical plotter optics are unchanged. Expensive portrait work observes
+cancellation and coalesces superseded edits. Source changes settle the active
+worker; hiding or moving the panel retains the captures and draft. Application
+shutdown cancels and joins remaining work.
+
+Initial placement and Fit compare upright and 90-degree candidates and select
+the larger valid uniform fit, preferring upright on ties. The same fitting
+calculation supplies scale limits; manual placement remains available. Planned
+geometry remains visible across advancing compatible frames and changes with
+program, placement, registration, Drawing Boundary, or optics. Measured ink and
+exact-frame point selections keep their exact identity requirements. The displayed
+target and executed plan share one program, placement, and plan identity.
+
+Draw availability and the refusal/remedy presented beside it derive from the
+existing Drawing Run owner. A second UI implementation of run admission must
+not claim readiness when that owner will refuse. Accepted Guided Learning remains
+the existing prerequisite for physical drawing; this correction adds no new
+guard, interlock, or confirmation step.
+
+Portrait drawing has one acquisition/execution/evidence path and no operator
+choice between training and ordinary drawing before the run. Each archived run
+retains the intended plan, execution outcome, baseline/post observations,
+residuals or exact measurement rejection, and provenance. Later analysis can
+select retained ordinary and portrait runs and reference their immutable records
+through existing evidence/model owners; it
+does not repeat acquisition or mutate the original run. Active Learning assigns
+its predeclared experimental roles internally. A model may use only identifiable,
+attributable residual components, and must report unsupported components. An
+ordinary record used retrospectively for fitting cannot become untouched
+holdout evidence. No second archive, recorder, dataset authority, or automatic
+model application is introduced. The current retrospective analysis fits only
+a constant machine-space X/Y translation from attributable stroke-normal
+constraints when the selected geometry spans both axes. It reports fit and
+prior RMS; tangent, spatial and direction-dependent corrections are unestimated.
+Reserved and evaluation holdouts cannot be selected as fitting evidence through
+this ordinary-drawing path. The candidate does not change the active model.
 
 Placement is one immutable field-to-machine
 transform. `DrawingPlanner` clips nothing: every planned stroke must fit inside
@@ -1315,7 +1429,7 @@ the effective `DrawableMachineRegion`, or planning is refused. The resulting
 `ExecutionPlanRevision` is content-addressed and binds program, placement,
 region, calibration/model provenance, ordered strokes, and one checkpoint per
 logical stroke. The video preview projects that exact plan through the current
-tip registration on one matching frame. The plan records whether every projected
+tip registration on compatible current frames. The plan records whether every projected
 point is inside that registration's applicability. A plan may use extrapolation
 for diagnostic preview, but its camera/ink result is non-attributable unless all
 evidence points are applicable or a newly validated registration revision
@@ -1331,16 +1445,23 @@ Paper assertion persistence is nominal authority, not a presentation cache. In
 LIVE, save must succeed before an accepted assertion is published; failure
 leaves the prior assertion unchanged and returns an operator remedy. The paper
 polygon is displayable only on the exact accepted frame. Currentness is
-independent of display: a newer exact frame can remain current when paper,
-source, camera configuration, and contact plane are unchanged, while a change to
-any of those invalidates currentness. The diagnostic polygon never measures
-paper edges or establishes tip-map, camera/ink, or physical evidence.
+independent of display. For assertions with recorded optical and region context,
+newer frames and restarted capture remain current when paper, source, physical
+optics, recorded drawable region, and contact plane are unchanged. Changes to
+those facts invalidate currentness. Legacy assertions retain capture-configuration
+identity when optical context is unavailable. The diagnostic polygon never
+measures paper edges or establishes tip-map, camera/ink, or physical evidence.
 
 One `PlotterDrawingRunRuntime` authorizes the new-plan handoff after terminal
-review. Until an exact RunID handoff clears that boundary, draft mutation
-refuses. After handoff the draft publishes an immutable plan only; draft actions
-invoke no controller motion, Pen, Stop, camera, Vision, drawing-run archive, or
-other physical/evidence effect. SIMULATED draft and paper results remain
+review. Program, placement, paper assertion, and experiment edits refuse during
+an active run or while a retained terminal requires its exact RunID handoff.
+Target show/hide and retrospective record selection/analysis remain available;
+they change neither execution identity nor immutable archived records. After
+handoff, plan authoring publishes an immutable plan only. Draft actions invoke
+no controller motion, Pen, Stop, camera, Vision, or drawing-run archive write.
+Retrospective analysis reads existing immutable evidence through its retained
+owner; paper assertion uses its separate save-before-publication seam.
+SIMULATED draft and paper results remain
 **SIMULATED — NOT PHYSICAL EVIDENCE**.
 
 Run actions are typed `PlotterDrawingRunIntent` submissions against the displayed
@@ -1374,8 +1495,11 @@ failure cannot authorize resend or redraw. SIMULATED start is a typed
 nonphysical refusal and invokes zero LIVE controller, camera, Vision, or archive
 effects.
 
-Every immutable `DrawingRunEvidenceRecord` fixes its role before the outcome is
-known and cites request/execution frontiers, program/placement/plan hashes plus
+Every immutable `DrawingRunEvidenceRecord` fixes its acquisition role before the
+outcome is known: ordinary portrait drawing uses the ordinary role automatically,
+and Active Learning supplies its predeclared training/holdout role. Retrospective
+selection references an ordinary record without rewriting that original role or
+claiming it was a reserved holdout. The record cites request/execution frontiers, program/placement/plan hashes plus
 the complete immutable execution-plan geometry for new records,
 tip-calibration and paper provenance, terminal execution disposition, and exact
 observation outcome. The checksummed archive is append-only. Records can be
@@ -1482,7 +1606,7 @@ admit, Stop, cancel, settle, or reattribute an effect.
 
 ## Active coverage experiments and residual candidates
 
-Drawing Studio exposes **Prepare Coverage Experiment**, **Next Experiment Trial**,
+The Active Learning panel exposes **Prepare Coverage Experiment**, **Next Experiment Trial**,
 and **Leave Experiment** through the existing draft intent owner. Preparing or
 selecting a trial creates an immutable program and preview only. The operator
 reviews and runs each line through the existing Run/Stop owner, reviews its

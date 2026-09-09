@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 import PlotterModel
 
@@ -220,6 +221,7 @@ extension VisionWorker {
     baseComputation: PlannedDrawingObservationComputationDiagnostics,
     checkpointHandler: PlannedDrawingObservationCheckpointHandler?
   ) async throws -> PlannedIntegerFrameAlignmentEvaluation {
+    let components = PlannedAlignmentComponents(baseline: baseline, observation: observation)
     let coarseSampleStride = 2
     let maximumVerifiedCandidateCount = 3
     var evaluatedPixelCount = 0
@@ -255,7 +257,8 @@ extension VisionWorker {
           verifiedCandidateCount: 0,
           baseComputation: baseComputation,
           cancellationBudget: budget,
-          checkpointHandler: checkpointHandler
+          checkpointHandler: checkpointHandler,
+          components: components
         )
         budget = evaluation.cancellationBudget
         evaluatedPixelCount += evaluation.residual.pixelCount
@@ -315,7 +318,8 @@ extension VisionWorker {
         verifiedCandidateCount: verifiedCandidates.count,
         baseComputation: baseComputation,
         cancellationBudget: budget,
-        checkpointHandler: checkpointHandler
+        checkpointHandler: checkpointHandler,
+        components: components
       )
       budget = evaluation.cancellationBudget
       evaluatedPixelCount += evaluation.residual.pixelCount
@@ -361,6 +365,29 @@ extension VisionWorker {
     )
   }
 
+  /// Temporary numeric representation scoped to this exact frame comparison.
+  /// UInt8 values are represented exactly; no pixels or evidence are changed.
+  struct PlannedAlignmentComponents {
+    let baseline: [Float]
+    let observation: [Float]
+
+    init(baseline: StampedFrame, observation: StampedFrame) {
+      self.baseline = Self.convert(baseline.bytes)
+      self.observation = Self.convert(observation.bytes)
+    }
+
+    private static func convert(_ bytes: OwnedFrameBytes) -> [Float] {
+      var result = [Float](repeating: 0, count: bytes.count)
+      bytes.withUnsafeBytes { source in
+        result.withUnsafeMutableBufferPointer { destination in
+          vDSP_vfltu8(source.bindMemory(to: UInt8.self).baseAddress!, 1,
+            destination.baseAddress!, 1, vDSP_Length(bytes.count))
+        }
+      }
+      return result
+    }
+  }
+
   static func cancellableBackgroundMeanAbsoluteDifference(
     _ baseline: StampedFrame,
     _ observation: StampedFrame,
@@ -373,12 +400,23 @@ extension VisionWorker {
     verifiedCandidateCount: Int,
     baseComputation: PlannedDrawingObservationComputationDiagnostics,
     cancellationBudget initialBudget: CancellationCheckpointBudget,
-    checkpointHandler: PlannedDrawingObservationCheckpointHandler?
+    checkpointHandler: PlannedDrawingObservationCheckpointHandler?,
+    components providedComponents: PlannedAlignmentComponents? = nil
   ) async throws -> CancellableBackgroundResidualEvaluation {
     precondition(sampleStride > 0)
     var absoluteDifference = 0.0
     var pixelCount = 0
     var budget = initialBudget
+    let bytesPerPixel = baseline.pixelFormat.bytesPerPixel
+    let observedBytesPerPixel = observation.pixelFormat.bytesPerPixel
+    let components = providedComponents ?? PlannedAlignmentComponents(baseline: baseline, observation: observation)
+    // Each per-channel reduction contains at most 16,384 integer differences
+    // in 0...255. Every partial Float sum is therefore exact (< 2^24), even
+    // for unusually wide frames. Accumulate those exact sums in Double.
+    let chunkCapacity = min(baseline.width, 16_384)
+    var differences = [Float](repeating: 0, count: chunkCapacity)
+    let firstX = max(0, -observationShiftX)
+    let lastX = min(baseline.width, observation.width - observationShiftX)
     for y in stride(from: 0, to: baseline.height, by: sampleStride) {
       budget.recordCheckpoint()
       try await plannedDrawingCancellationCheckpoint(
@@ -393,31 +431,45 @@ extension VisionWorker {
         ),
         handler: checkpointHandler
       )
-      for x in stride(from: 0, to: baseline.width, by: sampleStride) {
-        let inRegion =
-          x >= region.x && x < region.x + region.width
-          && y >= region.y && y < region.y + region.height
-        guard !inRegion else { continue }
-        let observedX = x + observationShiftX
-        let observedY = y + observationShiftY
-        guard observedX >= 0, observedX < observation.width,
-          observedY >= 0, observedY < observation.height
-        else { continue }
-        budget.recordEvaluations(1)
-        let baseOffset = y * baseline.rowBytes + x * baseline.pixelFormat.bytesPerPixel
-        let observedOffset =
-          observedY * observation.rowBytes
-          + observedX * observation.pixelFormat.bytesPerPixel
-        for component in 0..<baseline.pixelFormat.bytesPerPixel {
-          absoluteDifference += abs(
-            Double(baseline.bytes[baseOffset + component])
-              - Double(observation.bytes[observedOffset + component])
-          )
+      let observedY = y + observationShiftY
+      guard observedY >= 0, observedY < observation.height, firstX < lastX else { continue }
+      // Row spans preserve the exact global sampling grid and exclusion mask.
+      // Pointers are borrowed synchronously and never survive an await.
+      components.baseline.withUnsafeBufferPointer { base in
+        components.observation.withUnsafeBufferPointer { observed in
+          differences.withUnsafeMutableBufferPointer { scratch in
+            func score(_ lower: Int, _ upper: Int) {
+              var x = ((lower + sampleStride - 1) / sampleStride) * sampleStride
+              while x < upper {
+                let count = min(chunkCapacity, (upper - 1 - x) / sampleStride + 1)
+                let baseOffset = y * baseline.rowBytes + x * bytesPerPixel
+                let observedOffset = observedY * observation.rowBytes + (x + observationShiftX) * observedBytesPerPixel
+                for component in 0..<bytesPerPixel {
+                  vDSP_vsub(observed.baseAddress! + observedOffset + component,
+                    vDSP_Stride(sampleStride * observedBytesPerPixel),
+                    base.baseAddress! + baseOffset + component,
+                    vDSP_Stride(sampleStride * bytesPerPixel),
+                    scratch.baseAddress!, 1, vDSP_Length(count))
+                  var sum: Float = 0
+                  vDSP_svemg(scratch.baseAddress!, 1, &sum, vDSP_Length(count))
+                  absoluteDifference += Double(sum)
+                }
+                pixelCount += count
+                budget.recordEvaluations(count)
+                x += count * sampleStride
+              }
+            }
+            if y >= region.y && y < region.y + region.height {
+              score(firstX, min(lastX, region.x))
+              score(max(firstX, region.x + region.width), lastX)
+            } else {
+              score(firstX, lastX)
+            }
+          }
         }
-        pixelCount += 1
       }
     }
-    let byteCount = pixelCount * baseline.pixelFormat.bytesPerPixel
+    let byteCount = pixelCount * bytesPerPixel
     return CancellableBackgroundResidualEvaluation(
       residual: BackgroundResidual(
         meanAbsoluteDifference: byteCount == 0 ? 0 : absoluteDifference / Double(byteCount),

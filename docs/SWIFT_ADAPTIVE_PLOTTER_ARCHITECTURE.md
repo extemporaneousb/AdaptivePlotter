@@ -12,6 +12,17 @@ and verified status in [Current Evidence](CURRENT_EVIDENCE.md). Planned episode
 packages and ownership transfers do not become part of this as-built document
 until their work package lands and its superseded path is removed.
 
+The accepted [workbench and portrait completion correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#workbench-and-portrait-completion-correction-2026-09-08)
+passed full strict run 31: 997 Swift functions passed, five opt-in skips, zero
+failures, with release/signing/launcher/bundle and documentation checks passing.
+Independent critic 9 found no remaining blocking software issue, and the exact
+tested signed app was delivered without launching. The descriptions below reflect
+the five panels, exclusive camera ownership, accepted-completion restoration,
+persistent target, canonical Draw readiness and retrospective analysis. Native
+attempts reached no controls in the locked GUI; actual camera workload and physical
+acceptance remain unverified. Current Evidence owns exact receipts and limits;
+software acceptance and delivery do not assert Git landing or attended success.
+
 ## Package topology
 
 ```text
@@ -99,7 +110,7 @@ PlotterApp -> EpisodeRuntime + PlotterEpisodeRuntime + PlotterUI + retained appl
   explicitly attributed retained simulator workflow commands for later semantic packages
   copied PlotterUICompilerInput facts and one immutable PlotterUIProjection
   pane/window/viewport and unsubmitted manual text retained as UI-local state
-  SwiftUI Learning Path, ActionSurface, Drawing Studio, Motion and Video Settings
+  SwiftUI Guided Learning, Video, Motion, Active Learning and Portrait Studio
   production checkpoint/evidence stores and semantic identity composition
 
 PlotterTestSupport
@@ -698,8 +709,8 @@ measurements; it never supplies motion or click authority.
 exclusive Vision leases. Reapplying identical cadence/features, analysis region,
 or cap color is a no-op; it does not restart the pipeline or its frame
 subscription. Semantic
-pipeline revisions are pushed to `PlotterApplicationRuntime`. Video Settings counters
-and lifecycle statistics are pull-only diagnostics and do not invalidate the
+pipeline revisions are pushed to `PlotterApplicationRuntime`. Lifecycle counters
+remain pull-only diagnostics, absent from Video Settings, and do not invalidate the
 Learning presentation. One caller-supplied exact workflow batch owns one lease
 from preview hold through automatic-analysis restoration, including failure or
 cancellation settlement.
@@ -723,12 +734,25 @@ residual workspace source-change refusal is a pre-submission conflict
 projection, not a second source/configuration owner. SwiftUI reads
 `observationConfigurationProjection` and submits only through
 `submitObservationConfiguration`. Stop, source selection/restart, cadence,
-region, overlay, and diagnostics remain explicit typed actions; none retries or
-redraws automatically.
+region, overlay, and diagnostics remain explicit typed actions. Typed
+`.selectCameraRole(WorkbenchCameraRole)` requests use this same owner: plotter
+automatic analysis and capture settle before face capture starts, and face
+capture settles before plotter capture resumes. Superseding requests coalesce
+through the existing runtime. The application retains one `PortraitStudioModel`
+for controls and captured images; no view starts or stops a camera. Returning to
+the same physical plotter optics preserves accepted Learning despite a new
+ephemeral capture configuration. Camera status describes the selected role,
+so intentional plotter suspension is not reported as plotter-camera failure.
 
 High-rate ordinary frames publish through the observation-ignored
-`ActionSurfacePreviewModel`. Only `PreviewingActionSurface` and the Video
-Settings region controls observe that model. The root workbench retains a
+`ActionSurfacePreviewModel`. Only the shared Video leaf's
+`PreviewingActionSurface` observes that model; its alternative
+`PortraitCameraPreview` observes the portrait preview owner. Video settings
+receive camera choices, cadence, overlay preferences and viewport values with no
+frame-bearing presentation or analysis-revision subscription. A region action
+samples exact current frame identity at dispatch. The retained dock-content
+closure carries the application reference and window bindings, not the complete
+frame-bearing aggregate projection. The root workbench retains a
 semantic Action Surface scaffold, but an ambient frame does not rebuild the
 aggregate `PlotterAppUIProjection`, Learning projection, sibling panels, or
 Drawing Draft. Frozen point selection and pinned comparison evidence bypass the
@@ -1169,12 +1193,17 @@ shadow. The EA-09 cutover checker enforces both exact App-wide zero literals and
 a behavior/topology rule that refuses renamed or split App decision mappers
 while allowing fact translation and cosmetic rendering.
 
-`WorkbenchLayoutState` owns window-local pane visibility and Video Settings
-presentation as one value. A permitted Show computes protected-pane collapse
-and commits the complete next layout in one synchronous main-actor assignment;
-there is no pending Show or `Task.yield()` phase. The same cached action-strip
-projection supplies Exercise-pane protection, so a pane containing the active
-Stop remains visible without performing another Learning projection.
+`WorkbenchLayoutState` stores independent placement and visibility for Guided
+Learning, Video, Motion, Active Learning, and Portrait Studio. `AppStorage`
+persists the layout; it owns no workflow or target visibility. `WorkbenchPanels`
+uses native split views inside finite scroll regions, allowing multiple panels
+in each of left, bottom and right. Guided Learning defaults left, Video right,
+Motion bottom. Panel titles and the Panels menu select the workflow's camera
+through projected requests; hiding or redocking only changes layout. The old
+protected-pane collapse policy, fixed central canvas, mixed Studio launcher and
+portrait sheet are deleted. The command bar renders existing Learning, manual
+motion and Drawing Run Stop requests independently of the owning panel, retaining
+their exact capabilities and visible refusal/remedy feedback.
 
 The LIVE and SIMULATED entries in
 `PlotterApplicationState.environmentStates` retain copied residual Learning
@@ -1712,13 +1741,38 @@ Planned observation uses alignment revision
 `bounded-subsampled-finalist-background-mad-v2`: it scores the complete bounded
 integer-shift envelope on a deterministic two-pixel lattice, then evaluates at
 most three finalists at full resolution. Coarse scores never become acceptance
-evidence. Alignment, new-ink extraction, and path association expose bounded
+evidence. The existing Vision worker prepares immutable component buffers once
+per frame pair and scores bounded row spans with Accelerate, preserving the
+global sampling lattice, exclusion region, format channels and exact arithmetic.
+Borrowed buffer pointers do not survive an await. An unpadded 1920×1080 BGRA
+pair requires approximately 63.3 MiB for these two Float arrays; their synchronous
+allocation/conversion precedes row cancellation checks. Existing checkpoint
+tests do not measure cancellation latency during that preparation. Alignment,
+new-ink extraction, and path association expose bounded
 cancellation checkpoints; cancellation returns typed `computationCancelled`,
 publishes no partial observation, and settles the one exclusive Vision lease.
 Successful evidence records exact work counters and algorithm revisions as
 diagnostics. Intended overlays retain planned provenance, observed ink retains
 measured provenance, and residuals retain diagnostic provenance on the exact
 post-frame.
+
+The same `VisionWorker` owns observer revision
+`translated-reference-unique-support-v4`. A bounded common translation chooses
+pixel/path correspondences within the observed ROI; it never translates or snaps
+the retained measured coordinates. Background frame alignment remains separate.
+The local spatial index prunes conservatively, then computes exact nearest-path
+distances and ties. Translation search and final association share the unchanged
+five-million bound, counting visited bounds and segment projections. Tied pixels
+are excluded individually; every planned path still requires sufficient unique
+support for its sampled centerline. Duplicates and genuinely unresolved geometry
+remain rejected with diagnostic counts and no partial fitted result.
+
+The full Swift suite in run 31 passes the required larger dense-contour accuracy through this owner.
+Tied coarse translation seeds receive full-pixel verification, search bounds use
+the shifted observation ROI, and cancellation propagates through rematching
+before publication. Their regressions also pass in that full suite. Current
+Evidence retains the exact scope; iteration-limit/rank-loss and competing-basin
+coverage remain incomplete.
 
 The intended Drawing Border, observed ink, and residual are contextual Stage 2 results,
 not global overlay preferences. The implemented curriculum ends at this one
@@ -1857,15 +1911,26 @@ prove attended controller, camera, motion, Pen, paper, click, or ink behavior.
 
 `PlotterDrawingDraftRuntime` is the single source-indexed draft owner. Each
 `PlotterDrawingDraftSubmission` binds a `PlotterDrawingDraftRequestID`, one
-immutable `PlotterDrawingDraftRevision`, the complete
-`PlotterDrawingDraftExternalFactRevisions`, and a typed
-`PlotterDrawingDraftIntent`. It refuses stale draft or fact projections before
-mutation and returns the exact request, compared revisions,
-`EpisodeAuthorityID`, `PlotterDrawingDraftRefusalReason`, and remedy. SwiftUI
-receives immutable `PlotterDrawingDraftSnapshot` values and submits only through
-`PlotterDrawingDraftIntentSink`; the deleted combined action enum, direct
-open/close/paper-confirm methods, local rebuild helper, and App-local mutable
-draft have no authority.
+immutable authored `PlotterDrawingDraftRevision`, environment, and typed
+`PlotterDrawingDraftIntent`. Ordinary authoring re-derives against current facts;
+fact publication after Apply Saved cannot itself make a fresh authored request
+stale. Exact-frame placement/paper assertion and experimental selection also
+bind their complete relevant projected external facts. The owner refuses stale
+authored/environment identity or the applicable exact-fact mismatch and returns
+the exact request, compared revisions, `EpisodeAuthorityID`,
+`PlotterDrawingDraftRefusalReason`, and remedy. SwiftUI renders presentations
+derived from immutable `PlotterDrawingDraftSnapshot` values and submits projected
+`PlotterUIRequest` values through `PlotterUIIntentSink.submitPlotterUIRequest`.
+App composition revalidates the exact projected request and dispatches a bound
+`PlotterDrawingDraftSubmission` to the existing `PlotterDrawingDraftRuntime`.
+The deleted combined action enum, direct open/close/paper-confirm methods, local
+rebuild helper, and App-local mutable draft have no authority.
+
+The draft's `.showTarget`/`.hideTarget` and `isTargetVisible` identify only the
+retained authoring overlay. They do not change execution revision and are not
+panel lifecycle commands. The cancelled-waiter path removes queued draft
+mutations promptly and resumes each continuation once, including when an older
+paper save remains suspended at its lower persistence boundary.
 
 `PlotterDrawingPlanningAdapter` is the sole upper-layer route into the retained
 lower pure `DrawingPlanner`. The draft route produces deterministic catalog,
@@ -1887,7 +1952,12 @@ and records a completed, non-attributable run with zero verified strokes. Only
 a separately accepted registration revision whose recorded rectangle contains
 the same plan can make it camera/ink evidence eligible.
 
-Preview binds the exact displayed frame, program content hash, and plan revision.
+Predicted preview binds compatible source, camera configuration, pixel layout,
+program content hash and plan revision. It remains visible as frame identity
+advances; measured overlays and operator clicks retain exact-frame requirements.
+`.fitInDrawableRegion` compares upright and 90-degree placements, chooses the
+larger valid uniform scale with upright tie-breaking, and centers the result.
+The same rotated extent calculation supplies the scale slider's bounds.
 Registration/configuration mismatch is unavailable; outside-region planning
 shows no clipped strokes; outside-applicability projection is diagnostic-only.
 None is camera/ink or physical evidence.
@@ -1901,8 +1971,10 @@ installing the assertion. The operator supplies paper-coverage authority; the
 displayed diagnostic Boundary polygon supplies no tip-map or camera/ink evidence
 authority. Its polygon is shown only on its exact frame. Currentness is a
 separate `PaperCoverageValidationContext` decision: newer same-context frames
-remain current, while paper, source, camera configuration, or contact-plane
-changes invalidate the assertion. It never expands the accepted Drawing
+and a restarted capture with matching recorded physical optics/region remain
+current. Paper, source, physical optics, region or contact-plane changes
+invalidate the assertion. Legacy assertions retain their stricter configuration
+check when optical context is unavailable. It never expands the accepted Drawing
 Boundary. SIMULATED assertions remain nonphysical.
 
 `DrawingCoverageExperiment` is an immutable versioned program producer. Its
@@ -1926,43 +1998,103 @@ and comparison results. These values have no model-application, controller,
 readiness, or new persistence authority. Automatic batch execution and corrected
 physical holdout evaluation remain unfinished product work.
 
-`PortraitStudioModel` owns optional portrait capture and the three labeled pose
-images inside Drawing Studio. Its separate `CameraCapture` excludes the selected
-observation device. Only `PortraitCameraPreview` reads the changing preview frame;
-these frames do not enter the root semantic projection. `PortraitImageAnalyzer`
+`PortraitStudioModel` retains optional portrait capture and the three labeled
+pose images across panel navigation. The existing observation runtime exclusively
+selects plotter or face capture; the UI never starts both sessions independently.
+Only the shared Video panel's `PortraitCameraPreview` reads the changing portrait
+preview frame; these frames do not enter the root semantic projection. `PortraitImageAnalyzer`
 runs bounded image decoding, face cropping, contrast normalization, and optional
 person masking on worker tasks. Style changes reuse the analyzed raster.
+One latest-request render drain cancels superseded work, retains it until actual
+settlement, then starts the latest pending request. Decoding/vectorization
+cooperatively checks cancellation. `PlotterSceneAnalysisPipeline` likewise retains
+its cancelled drain until completion before starting replacement Vision work.
 `PortraitVectorizer` generates deterministic joined tonal contours or continuous
 hatch/crosshatch polylines, preserving top-left image to lower-left FieldSpace
 orientation. It has no controller or Learning dependencies.
 
-Use Portrait supplies `.selectProgram(DrawingProgram)` to the existing draft
-runtime. The root projection binds this action to the program digest rather than
+Show on Plotter Video selects the plotter role, supplies
+`.selectProgram(DrawingProgram)` and `.fitInDrawableRegion` to the existing draft
+runtime, and leaves portrait controls visible. The root projection binds program
+selection to the program digest rather than
 serializing its points into an action identifier. The planning adapter now
 consumes a program directly, and catalog selection remains a program producer.
 The UI sink awaits draft installation and returns the retained owner's result.
-No portrait-specific run loop or evidence archive exists.
+Portrait authoring adds no run owner or evidence archive.
 
-Drawing Studio views consume immutable catalog, placement, target-preview,
-parameter, and run-state presentations. A video click carries its exact frame
+The Active Learning panel exposes archived ordinary/training records through
+`.selectResidualRecord` and `.analyzeSelectedResiduals`. The existing draft owner
+reads immutable `DrawingRunEvidenceStore` records, derives uniform per-stroke
+arc samples with exact record/plan/registration/frame references, and fits
+`DrawingTranslationResidualCandidate` from stroke normals only when they span
+two dimensions. The existing evaluator iteratively rematches path normals around
+the current XY estimate while signed residuals retain original measured points.
+The existing candidate owner keeps the 2 mm range, a 32-iteration limit and
+1e-6 mm convergence condition; an unconverged result supplies no candidate.
+This estimates constant X/Y translation and prior/fitted RMS;
+along-track, spatial and signed-direction components remain unestimated.
+Reserved/evaluation holdouts are excluded and never relabeled. The analysis
+does not alter an active plan, apply a model, claim independent validation, or
+create another archive or dataset owner.
+
+The explicit `physical-portrait` scenario is a test-only extension of the
+existing `RunningAppPreviewPerformanceGate`, using the existing
+`RunningAppNativeInputProbe` and public projected UI requests. It composes an
+inkless bounded jog/Stop and two separately reviewed ordinary portrait plans;
+no new controller, run, admission, or persistence owner is introduced. Scoped
+continuation markers stage the harness under existing operator authorization.
+The extension copies existing immutable snapshot frames and archive records
+before new-plan handoff and leaves the app/artifacts intact on every result.
+Review position comes from the existing controller-session `.requestPassiveProbe`
+result and its completed status exchange, including original probe timestamps
+and command identity. Export time and retained machine snapshots are labeled
+separately; copying a snapshot is never a fresh MPos observation.
+Native handler receipts, eventual controller settlement, software attribution,
+and independent physical/attendance observations remain distinct. The default
+preview and learned-portrait workloads perform no motion.
+
+The separate `native-workbench` scenario uses the same signed SwiftUI application
+and production root view with simulated startup. It owns the native placement,
+full body/header clip-hit, scroll/resize/hide, Learning On/Off and bitmap checks
+formerly attempted in a SwiftPM process without an AppKit event loop. Video
+proof inspects the actual canvas inside its panel and every containing clip.
+Native wheel receipts identify an overflowing inner clip, its outer ancestry
+and event-correlated before/after bounds; setup reveal remains diagnostic. The
+resize gesture chooses a feasible direction from actual minimum and screen
+geometry. Signed-app attempts reached no controls in the locked GUI, so these native requirements remain unverified.
+Its layout binding uses the existing gate-only window state and never writes user placement
+preferences. It introduces no test application, alternate runtime or controller
+port. The retained held-Draw Stop suite exercises typed software ingress only;
+actual-controller native Stop remains a distinct physical-scenario requirement.
+
+Drawing Studio views consume immutable placement, target-preview, parameter,
+and run-state presentations. The obsolete catalog chooser projection is removed;
+the runtime catalog remains an internal program producer. A video click carries its exact frame
 reference and is inverted through the current registration into a machine
-anchor; scale or rotation creates a new placement and replans. Draft mutation
-refuses while the immutable `PlotterDrawingRunSnapshot` reports an active owner
-or a terminal still requires its exact new-run handoff. Once an exact RunID
-handoff clears that terminal, `.beginNewPlan` changes only immutable draft
-identity. No draft action invokes machine motion, Stop, camera, Vision, run
-evidence, or another physical effect, and no view or workspace loop emits
-individual controller segments.
+anchor; scale or rotation creates a new placement and replans. Program,
+placement, paper assertion, and experiment edits refuse while the immutable
+`PlotterDrawingRunSnapshot` reports an active owner or a terminal still requires
+its exact new-run handoff. Target visibility and retrospective record
+selection/analysis remain available without changing execution identity or
+immutable archived records. Once an exact RunID handoff clears that terminal,
+`.beginNewPlan` changes only immutable draft identity. No draft action invokes
+machine motion, Stop, camera, Vision, or run-archive writes. Retrospective
+analysis consumes existing immutable evidence through the retained evaluator;
+paper assertion retains its nominal persistence seam. No view or workspace loop
+emits individual controller segments.
 
 `PlotterDrawingRunRuntime` is the single source-indexed EA-08B run owner. A
 `PlotterDrawingRunSubmission` binds one request ID, the immutable run revision,
 environment, exact `PlotterDrawingRunPlanIdentity`, and one typed intent: start,
 exact-capability Stop, exact-RunID review pin/unpin, new-run handoff, or exact
 publication recovery. Stale projections and changed plan/fact identity return
-typed owner/reason/remedy refusal. SwiftUI receives immutable
-`PlotterDrawingRunSnapshot` values and sends only through
-the async `PlotterDrawingRunIntentSink`; App composition awaits runtime
-submission directly and owns no stored submission or shutdown-join Task.
+typed owner/reason/remedy refusal. SwiftUI renders presentations derived from
+immutable `PlotterDrawingRunSnapshot` values and submits projected
+`PlotterUIRequest` values through `PlotterUIIntentSink.submitPlotterUIRequest`.
+App composition revalidates the exact projected request and dispatches a bound
+`PlotterDrawingRunSubmission` to the existing `PlotterDrawingRunRuntime`.
+App composition awaits runtime submission directly and owns no stored submission
+or shutdown-join Task.
 `PlotterDrawingRunRuntime.beginShutdown` closes admission, requests the exact
 `.shutdown` Stop when a run is active, and awaits that run's terminal
 publication before returning. The runtime therefore owns both admitted-run
@@ -1971,6 +2103,14 @@ camera, Vision, or evidence authority.
 
 The runtime refreshes complete facts and revalidates the exact EA-08A plan,
 paper, Learning, environment, and lower readiness around every effect boundary.
+`PlotterDrawingRunSnapshot.readiness` supplies the same owner predicates and
+human-readable remedy used by the UI and refusal path. A refusal after fresh
+lower facts change publishes the refreshed readiness and run revision, so the
+UI does not retain an obsolete Ready state. Accepted Pen calibration
+completion does not depend on current Pen pose. Unknown or Down pose can enter
+the existing idempotent normalization; actual settled Up is still required
+before observation-position travel. Loading accepted Learning does not replay
+Pen Interaction to manufacture a current pose.
 Its admitted LIVE chain normalizes Pen Up, performs supervised observation-pose
 travel when needed, captures the exact local baseline, delegates the immutable
 plan to `RunInterpreter`, verifies exact final MPos, captures a strictly newer

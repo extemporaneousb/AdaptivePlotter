@@ -28,6 +28,7 @@ struct RunningApplicationRecord: Equatable {
 
 enum RunningApplicationDecision: Equatable {
     case launch
+    case missingExisting(pid_t)
     case activate(RunningApplicationRecord)
     case refuse([RunningApplicationRecord])
 }
@@ -46,9 +47,14 @@ struct LauncherInvocation: Equatable {
     let validateOnly: Bool
     let mode: RequestedLaunchMode
     let bundlePath: String
+    var existingPID: pid_t? = nil
 }
 
 func launcherInvocation(arguments: [String]) -> LauncherInvocation? {
+    if arguments.count == 3, arguments[0] == "--activate-existing-pid" {
+        guard let pid = pid_t(arguments[1]), pid > 0, !arguments[2].hasPrefix("--") else { return nil }
+        return LauncherInvocation(validateOnly: false, mode: .normal, bundlePath: arguments[2], existingPID: pid)
+    }
     if arguments.count == 1 {
         guard !arguments[0].hasPrefix("--") else { return nil }
         return LauncherInvocation(
@@ -125,17 +131,21 @@ func rawAdaptivePlotterProcesses(
 
 func runningApplicationDecision(
     records: [RunningApplicationRecord],
-    expectedIdentity: ApplicationIdentity
+    expectedIdentity: ApplicationIdentity,
+    requiredExistingPID: pid_t? = nil
 ) -> RunningApplicationDecision {
     let candidates = records
         .filter { $0.bundleIdentifier == adaptivePlotterBundleIdentifier }
         .sorted { $0.pid < $1.pid }
-    guard !candidates.isEmpty else { return .launch }
+    guard !candidates.isEmpty else {
+        return requiredExistingPID.map(RunningApplicationDecision.missingExisting) ?? .launch
+    }
 
     let expectedBundle = canonicalPath(expectedIdentity.bundlePath)
     let expectedExecutable = canonicalPath(expectedIdentity.executablePath)
     if candidates.count == 1,
        let only = candidates.first,
+       requiredExistingPID == nil || only.pid == requiredExistingPID,
        only.bundlePath.map(canonicalPath) == expectedBundle,
        only.executablePath.map(canonicalPath) == expectedExecutable
     {
@@ -221,6 +231,7 @@ private enum LauncherError: LocalizedError {
     case applicationTerminated(pid: pid_t)
     case postLaunchIdentityConflict(expectedPID: pid_t)
     case simulatedModeRequiresNewInstance(pid: pid_t)
+    case existingApplicationUnavailable(pid: pid_t)
 
     var errorDescription: String? {
         switch self {
@@ -230,9 +241,11 @@ private enum LauncherError: LocalizedError {
                   AdaptivePlotterLauncher PATH_TO_ADAPTIVEPLOTTER_APP
                   AdaptivePlotterLauncher --simulated PATH_TO_ADAPTIVEPLOTTER_APP
                   AdaptivePlotterLauncher --validate-only PATH_TO_ADAPTIVEPLOTTER_APP
+                  AdaptivePlotterLauncher --activate-existing-pid PID PATH_TO_ADAPTIVEPLOTTER_APP
 
                 --simulated launches the signed app directly into causal SIMULATED mode without camera discovery or startup.
                 --validate-only validates bundle identity and cannot be combined with --simulated.
+                --activate-existing-pid activates only the exact existing PID and bundle; it never launches an application or changes its arguments.
                 """
         case .missingBundle(let url):
             return "AdaptivePlotter app bundle does not exist at \(url.path)"
@@ -283,6 +296,8 @@ private enum LauncherError: LocalizedError {
             return "AdaptivePlotter pid=\(expectedPID) launched, but the post-launch process snapshot did not contain exactly that bundled instance"
         case .simulatedModeRequiresNewInstance(let pid):
             return "refusing --simulated because AdaptivePlotter pid=\(pid) is already running; quit it first so the nonpersistent simulated startup argument can be applied"
+        case .existingApplicationUnavailable(let pid):
+            return "AdaptivePlotter pid=\(pid) did not register the exact expected application bundle; no application was launched"
         }
     }
 }
@@ -423,7 +438,8 @@ private enum LauncherCore {
     }
 
     static func inspectEnvironment(
-        expectedIdentity: ApplicationIdentity
+        expectedIdentity: ApplicationIdentity,
+        requiredExistingPID: pid_t? = nil
     ) throws -> NSRunningApplication? {
         let applications = expectedRunningApplications()
         let records = applications.map(snapshot)
@@ -433,9 +449,10 @@ private enum LauncherCore {
         )
         switch runningApplicationDecision(
             records: records,
-            expectedIdentity: expectedIdentity
+            expectedIdentity: expectedIdentity,
+            requiredExistingPID: requiredExistingPID
         ) {
-        case .launch:
+        case .launch, .missingExisting:
             guard raw.isEmpty else {
                 throw LauncherError.competingApplications(raw: raw, bundled: [])
             }
@@ -450,6 +467,20 @@ private enum LauncherCore {
         case .refuse(let bundled):
             throw LauncherError.competingApplications(raw: raw, bundled: bundled)
         }
+    }
+
+    /// Wait for LaunchServices to register the already-spawned process. This
+    /// route has no openApplication fallback and preserves its gate arguments.
+    static func existingApplication(pid: pid_t, expectedIdentity: ApplicationIdentity) throws -> NSRunningApplication {
+        let deadline = Date(timeIntervalSinceNow: adaptivePlotterLaunchTimeout)
+        while Date() < deadline {
+            guard Darwin.kill(pid, 0) == 0 else { throw LauncherError.applicationTerminated(pid: pid) }
+            if let application = try inspectEnvironment(expectedIdentity: expectedIdentity, requiredExistingPID: pid) {
+                return application
+            }
+            runLoopStep(deadline: deadline)
+        }
+        throw LauncherError.existingApplicationUnavailable(pid: pid)
     }
 
     static func open(
@@ -614,11 +645,13 @@ private enum LauncherCore {
 @MainActor
 private struct AdaptivePlotterLauncher {
     static func main() {
+        var requestedExistingPID: pid_t?
         do {
             let arguments = Array(CommandLine.arguments.dropFirst())
             guard let invocation = launcherInvocation(arguments: arguments) else {
                 throw LauncherError.usage
             }
+            requestedExistingPID = invocation.existingPID
 
             let bundle = try LauncherCore.validatedBundle(path: invocation.bundlePath)
             if invocation.validateOnly {
@@ -626,12 +659,12 @@ private struct AdaptivePlotterLauncher {
                 return
             }
 
-            let existing = try LauncherCore.inspectEnvironment(
-                expectedIdentity: bundle.identity
-            )
             let application: NSRunningApplication
             let outcome: LaunchOutcome
-            if let existing {
+            if let pid = invocation.existingPID {
+                application = try LauncherCore.existingApplication(pid: pid, expectedIdentity: bundle.identity)
+                outcome = .activatedExisting
+            } else if let existing = try LauncherCore.inspectEnvironment(expectedIdentity: bundle.identity) {
                 guard invocation.mode == .normal else {
                     throw LauncherError.simulatedModeRequiresNewInstance(
                         pid: existing.processIdentifier
@@ -673,6 +706,16 @@ private struct AdaptivePlotterLauncher {
                 )
             }
         } catch {
+            if let pid = requestedExistingPID {
+                let state: String
+                if let application = NSRunningApplication(processIdentifier: pid) {
+                    let record = LauncherCore.snapshot(application)
+                    state = "pid=\(pid) identifier=\(record.bundleIdentifier ?? "<missing>") bundle=\(record.bundlePath ?? "<missing>") executable=\(record.executablePath ?? "<missing>") finishedLaunching=\(record.isFinishedLaunching) activationPolicy=\(record.activationPolicyRawValue) active=\(record.isActive)"
+                } else {
+                    state = "pid=\(pid) has no NSRunningApplication registration"
+                }
+                FileHandle.standardError.write(Data("Existing application activation state: \(state)\n".utf8))
+            }
             let message = (error as? LocalizedError)?.errorDescription
                 ?? error.localizedDescription
             FileHandle.standardError.write(

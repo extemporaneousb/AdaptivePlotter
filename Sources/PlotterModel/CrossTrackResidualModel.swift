@@ -1,5 +1,67 @@
 import Foundation
 
+/// A signed normal displacement measured against one declared planned path.
+/// Tangential correspondence is intentionally not inferred from camera ink.
+public struct DrawingNormalResidualSample: Hashable, Sendable {
+  public let plannedPoint: Point2<MachineSpace>
+  public let normalX: Double
+  public let normalY: Double
+  public let errorMM: Double
+
+  public init(plannedPoint: Point2<MachineSpace>, normalX: Double, normalY: Double,
+              errorMM: Double) throws {
+    guard normalX.isFinite, normalY.isFinite, errorMM.isFinite,
+      abs(hypot(normalX, normalY) - 1) < 1e-9 else {
+      throw PlotterModelError.invalidValue("invalid oriented residual")
+    }
+    self.plannedPoint = plannedPoint
+    self.normalX = normalX
+    self.normalY = normalY
+    self.errorMM = errorMM
+  }
+}
+
+/// An exploratory constant XY error fitted from actual path normals. This is a
+/// model value, not accepted calibration or execution authority. The sealed
+/// spatial/direction experiment model below retains its separate semantics.
+public struct DrawingTranslationResidualCandidate: Hashable, Sendable {
+  public let xMM: Double
+  public let yMM: Double
+  public let priorRMSMM: Double
+  public let fittedRMSMM: Double
+  public let sampleCount: Int
+
+  public init(samples: [DrawingNormalResidualSample]) throws {
+    guard samples.count >= 3 else { throw RegistrationError.insufficientPoints }
+    var xx = 0.0, xy = 0.0, yy = 0.0, bx = 0.0, by = 0.0
+    for sample in samples {
+      xx += sample.normalX * sample.normalX
+      xy += sample.normalX * sample.normalY
+      yy += sample.normalY * sample.normalY
+      bx += sample.normalX * sample.errorMM
+      by += sample.normalY * sample.errorMM
+    }
+    let determinant = xx * yy - xy * xy
+    guard determinant > 1e-6 * pow(xx + yy, 2) else {
+      throw RegistrationError.degenerateGeometry
+    }
+    let x = (bx * yy - by * xy) / determinant
+    let y = (by * xx - bx * xy) / determinant
+    guard x.isFinite, y.isFinite,
+      hypot(x, y) <= CrossTrackResidualCandidate.maximumCorrectionMM else {
+      throw PlotterModelError.invalidValue("translation candidate exceeds 2 mm modelling range")
+    }
+    xMM = x
+    yMM = y
+    sampleCount = samples.count
+    priorRMSMM = sqrt(samples.reduce(0) { $0 + $1.errorMM * $1.errorMM } / Double(samples.count))
+    fittedRMSMM = sqrt(samples.reduce(0) {
+      let error = $1.errorMM - $1.normalX * x - $1.normalY * y
+      return $0 + error * error
+    } / Double(samples.count))
+  }
+}
+
 public enum DrawingTrialDirection: Int, Codable, CaseIterable, Hashable, Sendable {
   case positiveX, negativeX, positiveY, negativeY
 

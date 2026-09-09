@@ -5,10 +5,23 @@ by clicking it. **Connect** and **Enable Motion** belong to the workbench
 toolbar. They are external prerequisites, not Learning Path stages, exercises,
 or transitions.
 
-Learning Path navigation and exercise controls share one panel. Closing it or
-unchecking View → Learning Path only hides that panel; it leaves Learning and
-its current operation unchanged. The persistent command bar retains the exact
-current Stop. Voice is window-local and remains available with the panel hidden.
+The [workbench and portrait completion correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#workbench-and-portrait-completion-correction-2026-09-08)
+passed full strict run 31, including saved-Learning restoration and held-Draw
+Stop/publication: 997 Swift functions passed, five opt-in skips, zero failures.
+Independent critic 9 found no blocking software issue, and the tested signed app
+was delivered without launching. Native On/Off and Stop remain unverified because
+signed-app attempts reached no controls in the locked GUI. The transitions below
+retain their existing owners; docking and current Pen pose do not reset accepted
+milestones. Current Evidence separates software acceptance and delivery from
+native input, physical observation and Git landing.
+
+Learning Path navigation and exercise controls share Guided Learning. Its Hide
+button changes only visibility; its position menu places it left, bottom or
+right. The Panels menu reveals it, and selecting its title chooses plotter video
+even when Portrait Studio is also visible. These changes leave Learning and its
+current operation unchanged. The persistent command bar retains exact current
+Learning, Motion, and Drawing Run Stop requests even with every panel hidden.
+Voice is window-local and remains available with Guided Learning hidden.
 Buttons show press, pending, and result feedback. Stop uses its own symbol and
 styling; ordinary choices do not encode Yes/No as green/red. Servo dragging
 commits once on release, with Confirm visibly unavailable during settlement.
@@ -194,10 +207,12 @@ Dependency behavior is intentionally asymmetric:
 - Exact Stop or root shutdown that displaces a published Pen Confirm yields a
   superseded confirmation: no accepted Pen evidence is recorded and no
   discovery successor appears.
-- **View** contains checked noun labels for Learning Path, Motion,
-  Video Settings, and Drawing Studio. Drawing Studio authoring is always available;
-  physical Run retains its calibration, paper, and motion prerequisites. Diagnostics is a secondary
-  item in the same menu, not a state-saving step.
+- **Panels** reveals Guided Learning, Video, Motion, Active Learning, and Portrait
+  Studio, with independent left/bottom/right placement and visibility. Video
+  contains the actual shared camera canvas and its settings accessory. Portrait
+  authoring and Active Learning are available before Learning completion;
+  physical Draw retains its calibration, paper and motion prerequisites.
+  Diagnostics is a separate command-bar action, not a state-saving step.
 - **Diagnostics** displays current workflow phases, drawing outcomes, retained
   terminal details, actions/refusals, source, and runtime/UI revisions. Copy
   Diagnostics is available for troubleshooting. Learning checkpoints and Border

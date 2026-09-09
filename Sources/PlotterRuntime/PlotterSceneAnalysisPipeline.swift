@@ -280,13 +280,18 @@ public actor PlotterSceneAnalysisPipeline {
   }
 
   public func stop() async {
-    guard state != .stopped else { return }
+    let drain = drainTask
+    guard state != .stopped else {
+      await drain?.value
+      return
+    }
     let analysisWasActive = cancelCurrentAnalysis()
     state = .stopped
     requestedFeatures = []
     configurationRevision &+= 1
     if analysisWasActive { await activityHandler(false) }
     publishSemanticSnapshot()
+    await drain?.value
   }
 
   public func submit(_ displayedFrame: DisplayedFrame) {
@@ -424,7 +429,7 @@ public actor PlotterSceneAnalysisPipeline {
       if shouldPublishSemanticChange { publishSemanticSnapshot() }
       if pendingFrame == nil { break }
     }
-    guard taskGeneration == generation else { return }
+    activeFrameSequence = nil
     drainTask = nil
     if pendingFrame != nil { scheduleDrainIfNeeded() }
   }
@@ -458,9 +463,7 @@ public actor PlotterSceneAnalysisPipeline {
     let analysisWasActive = activeFrameSequence != nil
     generation &+= 1
     drainTask?.cancel()
-    drainTask = nil
     pendingFrame = nil
-    activeFrameSequence = nil
     latestResult = nil
     lastError = nil
     lastAnalysisCompletionNanoseconds = nil

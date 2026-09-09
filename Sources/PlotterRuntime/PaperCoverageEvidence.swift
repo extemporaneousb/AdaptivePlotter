@@ -39,6 +39,8 @@ public struct PaperCoverageObservation: Codable, Hashable, Sendable {
   public let method: PaperCoverageObservationMethod
   public let observedAt: RuntimeTimestamp
   public let algorithmRevision: String
+  public let opticalConfiguration: CameraOpticalConfigurationIdentity?
+  public let drawableRegion: DrawableMachineRegion?
 
   public init(
     id: PaperCoverageObservationID = PaperCoverageObservationID(),
@@ -48,7 +50,9 @@ public struct PaperCoverageObservation: Codable, Hashable, Sendable {
     polygon: [Point2<CameraPixelSpace>],
     method: PaperCoverageObservationMethod,
     observedAt: RuntimeTimestamp,
-    algorithmRevision: String
+    algorithmRevision: String,
+    opticalConfiguration: CameraOpticalConfigurationIdentity? = nil,
+    drawableRegion: DrawableMachineRegion? = nil
   ) throws {
     guard Self.isSHA256(frame.frameSHA256), frame.width > 0, frame.height > 0,
       frame.rowBytes >= frame.width * frame.pixelFormat.bytesPerPixel,
@@ -74,10 +78,13 @@ public struct PaperCoverageObservation: Codable, Hashable, Sendable {
     self.method = method
     self.observedAt = observedAt
     self.algorithmRevision = algorithmRevision
+    self.opticalConfiguration = opticalConfiguration
+    self.drawableRegion = drawableRegion
   }
 
   private enum CodingKeys: String, CodingKey {
     case id, paper, source, frame, polygon, method, observedAt, algorithmRevision
+    case opticalConfiguration, drawableRegion
   }
 
   public init(from decoder: any Decoder) throws {
@@ -90,7 +97,9 @@ public struct PaperCoverageObservation: Codable, Hashable, Sendable {
       polygon: values.decode([Point2<CameraPixelSpace>].self, forKey: .polygon),
       method: values.decode(PaperCoverageObservationMethod.self, forKey: .method),
       observedAt: values.decode(RuntimeTimestamp.self, forKey: .observedAt),
-      algorithmRevision: values.decode(String.self, forKey: .algorithmRevision)
+      algorithmRevision: values.decode(String.self, forKey: .algorithmRevision),
+      opticalConfiguration: values.decodeIfPresent(CameraOpticalConfigurationIdentity.self, forKey: .opticalConfiguration),
+      drawableRegion: values.decodeIfPresent(DrawableMachineRegion.self, forKey: .drawableRegion)
     )
   }
 
@@ -113,17 +122,23 @@ public struct PaperCoverageValidationContext: Codable, Hashable, Sendable {
   public let source: FrameSourceIdentity
   public let frameID: FrameID
   public let cameraConfigurationID: CameraConfigurationID
+  public let opticalConfiguration: CameraOpticalConfigurationIdentity?
+  public let drawableRegion: DrawableMachineRegion?
 
   public init(
     paper: PaperRevisionContext,
     source: FrameSourceIdentity,
     frameID: FrameID,
-    cameraConfigurationID: CameraConfigurationID
+    cameraConfigurationID: CameraConfigurationID,
+    opticalConfiguration: CameraOpticalConfigurationIdentity? = nil,
+    drawableRegion: DrawableMachineRegion? = nil
   ) {
     self.paper = paper
     self.source = source
     self.frameID = frameID
     self.cameraConfigurationID = cameraConfigurationID
+    self.opticalConfiguration = opticalConfiguration
+    self.drawableRegion = drawableRegion
   }
 }
 
@@ -133,6 +148,8 @@ public enum PaperCoverageValidationRejection: String, Codable, Hashable, Sendabl
   case sourceMismatch
   case frameMismatch
   case cameraConfigurationMismatch
+  case opticalConfigurationMismatch
+  case drawingRegionMismatch
 }
 
 public enum PaperCoverageValidationResult: Codable, Hashable, Sendable {
@@ -151,8 +168,13 @@ extension PaperCoverageObservation {
     }
     if source != context.source { rejections.append(.sourceMismatch) }
     if frame.frameID != context.frameID { rejections.append(.frameMismatch) }
-    if frame.cameraConfigurationID != context.cameraConfigurationID {
+    if let opticalConfiguration, let current = context.opticalConfiguration {
+      if opticalConfiguration != current { rejections.append(.opticalConfigurationMismatch) }
+    } else if frame.cameraConfigurationID != context.cameraConfigurationID {
       rejections.append(.cameraConfigurationMismatch)
+    }
+    if let drawableRegion, drawableRegion != context.drawableRegion {
+      rejections.append(.drawingRegionMismatch)
     }
     return rejections.isEmpty ? .valid : .rejected(rejections)
   }

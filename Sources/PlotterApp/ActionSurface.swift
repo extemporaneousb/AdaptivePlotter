@@ -801,24 +801,6 @@ struct ActionSurface: View {
         }
         .padding(8)
       }
-      .overlay(alignment: .topTrailing) {
-        if let frame = presentation.displayedFrame?.frame {
-          VStack(alignment: .trailing, spacing: 3) {
-            Text("DISPLAYED FRAME \(frame.sequence) · \(frame.width)×\(frame.height)")
-            if let analyzed = overlayContent.analyzedOverlayFrame {
-              Text(analyzed.frameID == frame.id
-                ? "OVERLAYS · FRAME \(analyzed.frameSequence)"
-                : "DISPLAYED MEASUREMENT · FRAME \(analyzed.frameSequence)")
-            }
-          }
-          .font(.caption2.monospaced())
-          .foregroundStyle(.white)
-          .multilineTextAlignment(.trailing)
-          .padding(6)
-          .background(.black.opacity(0.65))
-          .padding(8)
-        }
-      }
       .overlay(alignment: .bottomLeading) {
         if let prompt = presentation.tipPresentation.interactionPrompt {
         Text(prompt)

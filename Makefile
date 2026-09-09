@@ -47,7 +47,7 @@ validate-app: app validate-launcher
 	@sh Scripts/validate_local_app_bundle.sh .build/AdaptivePlotter.app
 	@sh Scripts/test_local_app_bundle_validation.sh .build/AdaptivePlotter.app
 
-preview-performance-gate: app
+preview-performance-gate: app launcher
 	@sh Scripts/check_running_app_preview_performance.sh \
 		"$(CURDIR)/.build/AdaptivePlotter.app" \
 		"$(PREVIEW_PERFORMANCE_EVIDENCE)" "$(or $(PREVIEW_PERFORMANCE_SCENARIO),preview)"

@@ -26,6 +26,130 @@ the kernel has survived the three representative Plotter slices, the pilot
 gate, and a complete Learning Path migration. A separate SDK remains a later
 packaging decision requiring a genuinely distinct second client.
 
+## Workbench and portrait completion correction, 2026-09-08
+
+The accepted product correction is tracked in Blackdog task
+`task-26f65c0e4e7b4a3b9d445b26c59c86f0`. This section is its sole implementation
+plan and progress matrix. It does not reopen, replace, or claim completion of
+the historical episode migration packages below. **Full strict run 31 passed:
+997 Swift functions passed, five opt-in checks skipped, zero failures; release,
+signing, launcher, bundle, documentation, repository and diff checks passed.
+Independent critic 9 found no remaining blocking software issues.** The software
+implementation is accepted; actual native and physical checks remain unverified
+because the desktop is locked. Final documentation and delivery receipts are
+recorded separately from Git landing.
+[Current Evidence](CURRENT_EVIDENCE.md) records exact candidates and distinguishes
+software proof from performed native/physical validation and landing.
+
+The workbench has five independently visible panels: **Guided Learning**,
+**Video**, **Motion**, **Active Learning**, and **Portrait Studio**. Every panel,
+including the actual Video canvas, can occupy the left, bottom, or right region;
+regions support multiple panels with usable resizing and scrolling. Placement
+and visibility persist. Defaults are Guided Learning left, Video right, and
+Motion bottom. The Panels menu exposes all five; Video Settings is a concise
+accessory inside Video, not a sixth workflow panel. Active Learning and Portrait
+Studio are sibling panels, with no modal portrait sheet or permanent central-only
+camera. Stop remains in the command bar independently of panel visibility.
+Selecting an already-visible Guided Learning or Active Learning title selects
+the plotter camera; selecting Portrait Studio selects the face camera. Video
+also offers an explicit Plotter/Portrait selector. Hiding or moving any panel
+changes window preferences only, without restarting capture or hiding the target.
+Guided Learning retains the existing Learning On/Off action and current state
+even when Off hides exercise navigation. This neither changes accepted artifacts
+nor adds a portrait acquisition or drawing-mode choice.
+
+Opening portrait preparation selects the face camera in the shared Video panel
+and stops plotter capture and automatic analysis. **Show on Plotter Video** keeps
+Portrait Studio controls and the authored program, settles face capture, and
+selects plotter capture in that same Video panel. Source transitions preserve
+accepted Learning when the returning plotter camera has unchanged physical
+optics; capture-session identity must not stand in for optical identity.
+
+Full strict run 31 passed all 997 executed Swift functions. The retained
+synchronization chain joins nested publication,
+shutdown cannot create successor work, and exact returned Run terminal/progress
+state survives buffered older publications. The post-drawing 30-frame test keeps
+all zero-churn assertions: its diagnostic future-frame failures were corrected
+with one shared pure-read fixture timeline, without changing production freshness.
+Large-displacement contour, finite-width hatch, alias/ROI/cancellation and
+retrospective archive regressions pass. Source-start admission captures its role
+identity before Task creation, joins the existing transition drain, and cannot
+overwrite a newer role choice. Held interleaving tests prove exact publication
+and maximum one active capture. Remaining iterative-fit coverage limits and
+physical-ink accuracy remain separate.
+
+Native 20 reached a real finished-launching app but no active/key/main window
+or usable controls. Native 22 verified the exact regular app PID, but macOS
+rejected activation. Neither posted native input or produced the six acceptance
+bitmaps. Launcher logic/no-launch checks passed; activation did not. At 02:37
+PDT, the console explicitly reported locked since 00:10:16 PDT, with loginwindow
+owning foreground and secure input; the 11:06:55 UTC inventory still found it
+locked. The user has been asked to unlock normally;
+no permission or lock bypass is planned. The lock also predates native 14–16,
+so their empty AX/activation failures cannot be attributed solely to SwiftPM
+hosting, although the missing AppKit event loop is independently a code fact.
+
+Actual checks remain in the existing signed-app native-workbench scenario with
+simulated startup: all 15 placements at both widths, actual canvas/body clipping,
+identified inner-wheel movement, feasible resize/hide/On-Off and six bitmaps.
+Native-gate contract regressions pass through run 31; actual input coverage remains empty.
+Software held-Draw Stop and physical inkless native jog/Stop are distinct proofs;
+no native click into a synthetic held Draw owner is claimed. Fresh compatible
+ordinary archive evidence is still needed; holdouts cannot be relabeled. Exact
+artifacts and limits are retained in [Current Evidence](CURRENT_EVIDENCE.md).
+
+| Item | Required result and retained owners | Completion proof, including obsolete-test replacement | Progress |
+| --- | --- | --- | --- |
+| Saved Learning restoration | Restore the completed milestones and retained Border outcome from the accepted checkpoint. Separate current Pen pose and controller readiness from accepted training; unknown/down pose uses the existing Pen Up path without cap identification or Learning replay. Retain checkpoint, artifact/reset, Pen, and Drawing Run owners. | Production-route checkpoint reloads with unknown and down pose; all accepted milestones remain complete, exact incompatible dependencies retain their real remedy, and execution readiness resolves without restarting Exercise 1.1. Replace fixtures whose default Up pose hid this defect. | Software accepted in run 31: complete saved Unknown/Down restoration and retained milestones pass. Native On/Off and physical readiness remain unverified |
+| Quiet video and controls | Keep frames and analysis in the existing video leaf. Remove frame counters, changing measurement/status/age text, overlay diagnostic cards, and control subscriptions to analysis revisions; retain stable questions, actual operation transitions, and one actionable error. Pass small settings/viewport values to controls rather than frame-bearing presentations. | Advancing active-analysis traffic changes no sibling-panel text or layout and performs no frame-buffer equality in control updates. Retain exact geometry/evidence tests; replace tests requiring diagnostic captions or frame counters to change on every frame. | Software accepted in run 31: active-analysis, 120-frame ambient and post-drawing 30-frame zero-churn cases pass, including publication/shutdown and remedy deduplication. Signed active-camera text, equality-cost and latency proof remain unverified |
+| Five dockable panels | Use the existing window-local layout owner for all five panels, arbitrary left/bottom/right placement, multiple panels per region, persisted visibility/placement, resize/scroll, and the specified defaults. Replace mixed Drawing Studio navigation and the portrait sheet. | Exhaustive placement/visibility restoration across five panels and three regions, plus native resize/navigation/scroll and Stop reachability. Delete tests that require protected-pane collapse, a fixed central Video, the old menu, or modal portrait presentation. | Software accepted in run 31: persisted placement/visibility for all five panels and all three docks passes. Actual canvas/body clipping at both widths, scrolling/resize/hide/On-Off and six bitmaps remain unverified; native 20/22 reached no controls while locked |
+| One selected camera | Retain existing capture and observation owners; stop and settle the old capture/analysis before starting the selected source. Preserve portrait captures and draft across navigation; returning unchanged plotter optics retains Learning. | Deterministically held stop/start and rapid source changes prove no simultaneous capture, no stale source publication, reusable capture after cancellation, and unchanged accepted Learning. Replace the portrait test that asserts plotter capture continues. | Software accepted in run 31: held lifecycle and source-admission interleavings preserve newer choices, exact publication, reusable capture, accepted Learning and maximum one active capture. Critic 9 closed the ordering finding. Actual-device switching remains unverified |
+| Persistent portrait placement and Draw | Use the existing DrawingProgram, draft/planning adapter, and Drawing Run chain. Show on Plotter Video installs the retained program and fits both upright and 90-degree candidates, choosing the larger valid uniform fit with upright tie-breaking. Share fit/scale calculations; preserve manual adjustment. Persist predicted plan geometry across compatible advancing frames while measured overlays/clicks stay exact. Render availability and refusal/remedy from the existing run owner. | Portrait import/capture through projection-bound Show, fit, adjust, and Draw binds one program/placement/plan identity. Test both aspect ratios and ties, continued target visibility, changed authority, and every actual run-unavailability remedy. Replace tests that hide predicted geometry solely because the video advanced or duplicate run admission in UI. | Software accepted in run 31: production immediate Show/fit/adjust/Draw, exact identities, changed-readiness refusal and compatible-frame target persistence pass. Native and physical routes remain unverified |
+| Retrospective residual use | Remove the ordinary portrait training/drawing selector. Every run retains its intended/executed/observed/residual or rejection facts through the existing archive. Later analysis references those immutable records; Active Learning assigns experimental roles internally. Reuse existing model-fitting/evidence owners and state which arbitrary-portrait residuals are identifiable. | Same portrait acquisition and run path regardless of later analysis intent; archived provenance and rejection remain inspectable. Exercise supported retrospective fitting from archived ordinary runs and clearly separate unsupported residual components. Replace tests demanding a pre-run ordinary portrait role choice. Data used for fitting cannot later be counted as untouched holdout evidence. | Software accepted in run 31: immutable ordinary archive selection/analysis, large contour accuracy, finite-width hatch and rejection/cancellation cases pass. Iteration/rank/competing-basin coverage limits remain explicit. Native record selection and actual eligible ordinary evidence remain unverified |
+| Cancellation and liveness | Coalesce and cancel portrait work through its existing model, bound worker concurrency, observe cancellation in expensive stages, and settle work on source change/shutdown without tying lifetime to panel visibility. Make the existing draft mutation queue remove cancelled waiters and settle each continuation once across held persistence. No second task owner, recorder, or state authority. | Hold image analysis/vectorization, capture startup/stop, persistence, and controller settlement at real await boundaries while editing, switching, cancelling, dismissing, and invoking Stop; prove responsive acknowledgment, bounded work, current results only, exactly-once settlement, and subsequent reuse. Distinguish software held-Draw ingress/settlement from native functional controls and actual-controller native Stop; record the lack of native input into the held synthetic Draw owner explicitly. Replace sleep-based or helper-completed fixtures that bypass these paths. | Software accepted in run 31: retained worker, queue, nested publication, shutdown and source admission tests pass. Exact held-Draw acknowledgment precedes lower release and terminal publication settles once. Native Stop under actual load remains unverified; no native-held-Draw claim |
+| Integrated workload, critic, and physical proof | Validate the exact signed candidate with accepted training, active plotter analysis, a dense portrait, actual visible controls, repeated camera switches, and drawing/evidence review. Coordinator assigns work and owns integration/landing; an independent critic assesses every item and residual before final completion. | Require workload prerequisites, event-to-handler-to-visible-ack timing, zero analysis-driven panel text changes, at least 20 source switches, and a sustained session. Capture a process sample on latency failure. Run affected serial software gates and exact-candidate physical workflow where observable; separately record controller, camera, clicks, motion, Pen/paper, and actual ink. Critic findings are corrected and rechecked. | Full strict run 31 passed and critic 9 found no blocking software issues. Software gate/schema requirements are accepted. Actual native placements, six images, On/Off/Stop, 20-switch/90-second camera workload and two physical portraits with ordinary residual evidence remain unverified in the locked GUI; launcher logic is not activation proof |
+
+Implementation proceeds from restored Learning and quiet layout to exclusive
+camera selection, complete placement/Draw, retrospective evidence use, and
+integrated liveness verification. Disjoint source/test leases may run in parallel;
+shared composition files and documentation have one writer at a time. Workers
+must report changed ownership, removed obsolete paths/tests, exact commands and
+results, artifact identities, and remaining limitations. Green focused tests do
+not substitute for the integrated workload or independent completion assessment.
+Every changed behavior requires an audit of its existing tests: remove or replace
+all assertions and fixtures enforcing the superseded behavior, while retaining
+unrelated valid physical-authority and evidence tests. Retrospective use includes
+a working operator selection of retained ordinary/portrait runs and analysis of
+their identifiable residual components; naming unsupported model components
+does not excuse leaving that visible selection path unimplemented.
+The coordinator integrates and reassigns corrections until the matrix is
+supported by evidence, then lands through Blackdog's recorded target branch.
+
+The signed-app probe must fail a scenario with missing accepted training,
+analysis, portrait/plan, or source-switch workload instead of passing an empty
+Studio. UI acknowledgment targets remain p95 at most 100 ms and maximum 250 ms;
+measure native event delivery, handler entry, and visible acknowledgment
+separately from long operation completion. MainActor scheduling latency alone
+does not establish click responsiveness. Release builds remain useful packaging,
+not evidence that the code-level churn or liveness defects are corrected.
+
+Physical acceptance uses the exact signed candidate: load the existing accepted
+training, establish operational readiness, prepare a portrait, show the target on
+the plotter, draw and inspect ink/residuals, then complete a distinct nonoverlapping
+second run. The explicit physical harness composes ordinary owners and native
+controls, stages exact candidate/run/plan inspection, preserves the first record
+and exact frame pair before changing plans, and retains the app/evidence on
+every outcome. Its continuation marker is test staging, not a new application
+admission or operator-approval rule. Exercise
+Guided Learning and Stop under camera load separately while preserving the
+existing durable checkpoint until a replacement is accepted. The user has
+authorized machine testing in this task; software, simulation, controller
+completion, or a live camera alone cannot be labeled observed physical ink or
+complete attended Learning. Unobservable or unperformed portions remain explicit
+residual work. No new interlock, admission rule, or operator confirmation step is
+part of this correction; preserve the existing physical/evidence owners and fix
+their defects, duplicated decisions, obsolete UI, and liveness failures.
+
 ## Vocabulary authority
 
 [Episode Architecture Vocabulary](EPISODE_ARCHITECTURE_VOCABULARY.md) is the

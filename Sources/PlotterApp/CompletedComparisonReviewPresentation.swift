@@ -139,11 +139,12 @@ struct CompletedComparisonReviewControls: View {
           presentation.drawingDraftProjection != nil
         {
           OperatorRequestButton(
-            title: "Open Drawing Studio", role: .affirmative,
-            request: plotterUIProjection.request(matching: .drawingDraft(.open)),
+            title: "Show Drawing Target", role: .affirmative,
+            request: plotterUIProjection.request(matching: .drawingDraft(.showTarget)),
             unavailableReason: nil, sink: plotterUIIntentSink
           )
           .controlSize(.small)
+          .accessibilityIdentifier("drawing.showTarget")
         }
       }
     }

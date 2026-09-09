@@ -314,7 +314,7 @@ struct PlotterLearningUIAuthorityTests {
         PlotterUIActionCandidate(
           id: PlotterUIActionID(rawValue: "drawing.open"),
           title: "Open Drawing Studio",
-          intent: .drawingDraft(.open)
+          intent: .drawingDraft(.showTarget)
         ),
       ],
       incidentPackage: .unavailable(reason: "No complete exact source is bound.")
@@ -475,7 +475,7 @@ struct PlotterLearningUIAuthorityTests {
       id: PlotterUIRequestID(rawValue: UUID()),
       uiRevision: projected.semantic.revision,
       runtimeRevisions: projected.semantic.runtimeRevisions,
-      actionID: PlotterAppUIActionID.drawingOpen,
+      actionID: PlotterAppUIActionID.drawingDraft(.showTarget),
       intent: .learning(.setEnabled(target))
     )
     #expect(
@@ -607,7 +607,7 @@ struct PlotterLearningUIAuthorityTests {
       PlotterAppUIActionID.manualYPositive,
       PlotterAppUIActionID.manualPenUp,
       PlotterAppUIActionID.manualPenDown,
-      PlotterAppUIActionID.drawingOpen,
+      PlotterAppUIActionID.drawingDraft(.showTarget),
       PlotterAppUIActionID.incidentPackage,
     ]
     for id in fixedIDs {
@@ -692,7 +692,7 @@ struct PlotterLearningUIAuthorityTests {
     let fixture = makeProductionWorkspace()
     let before = fixture.projection()
     var layout = WorkbenchLayoutState()
-    layout = layout.toggling(.motion)
+    layout.setPresented(.motion, true)
     var selection = LearningPathSelectionState(
       current: .humanGuidedDiscovery(.penInteraction)
     )
@@ -701,7 +701,7 @@ struct PlotterLearningUIAuthorityTests {
     draft.xDistanceMM = "not submitted"
     let locallyRecompiled = fixture.projection(manualDraft: draft)
 
-    #expect(layout.panes.motionIsPresented == true)
+    #expect(layout.isPresented(.motion) == true)
     #expect(selection.isReviewingAnotherItem)
     #expect(draft.xDistanceMM == "not submitted")
     #expect(locallyRecompiled.semantic.revision != before.semantic.revision)
@@ -785,7 +785,7 @@ struct PlotterLearningUIAuthorityTests {
     let action = PlotterUIActionCandidate(
       id: PlotterUIActionID(rawValue: "drawing.open"),
       title: "Open Drawing Studio",
-      intent: .drawingDraft(.open)
+      intent: .drawingDraft(.showTarget)
     )
     let first = compiler.compile(PlotterUICompilerInput(
       revision: PlotterUIRevision(rawValue: 1),

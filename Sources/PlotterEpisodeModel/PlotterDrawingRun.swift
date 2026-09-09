@@ -164,24 +164,50 @@ public enum PlotterDrawingRunRemedy: Hashable, Sendable {
   case restoreEvidenceArchive
 }
 
+/// The run owner's current admission result, also used by the Draw control.
+/// It is a projection of existing requirements, not independent UI authority.
+public enum PlotterDrawingRunReadiness: Hashable, Sendable {
+  case synchronizing
+  case ready
+  case unavailable(PlotterDrawingRunReadinessIssue)
+}
+
+public struct PlotterDrawingRunReadinessIssue: Hashable, Sendable {
+  public let owner: EpisodeAuthorityID
+  public let reason: PlotterDrawingRunRefusalReason
+  public let remedy: PlotterDrawingRunRemedy
+  public let detail: String
+
+  public init(owner: EpisodeAuthorityID, reason: PlotterDrawingRunRefusalReason,
+              remedy: PlotterDrawingRunRemedy, detail: String) {
+    self.owner = owner
+    self.reason = reason
+    self.remedy = remedy
+    self.detail = detail
+  }
+}
+
 public struct PlotterDrawingRunRefusal: Hashable, Sendable {
   public let requestID: PlotterDrawingRunRequestID
   public let projection: PlotterDrawingRunProjectionReference
   public let owner: EpisodeAuthorityID
   public let reason: PlotterDrawingRunRefusalReason
   public let remedy: PlotterDrawingRunRemedy
+  public let detail: String?
 
   public init(
     requestID: PlotterDrawingRunRequestID,
     projection: PlotterDrawingRunProjectionReference,
     owner: EpisodeAuthorityID,
     reason: PlotterDrawingRunRefusalReason,
-    remedy: PlotterDrawingRunRemedy
+    remedy: PlotterDrawingRunRemedy,
+    detail: String? = nil
   ) {
     self.requestID = requestID
     self.projection = projection
     self.owner = owner
     self.reason = reason
     self.remedy = remedy
+    self.detail = detail
   }
 }

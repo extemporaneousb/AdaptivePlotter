@@ -39,8 +39,7 @@ struct PlotterAppUIProjection: Sendable {
   let learningIsEnabled: Bool
   let manualMotion: ManualMotionPresentation
   let drawingStudio: DrawingStudioPresentation
-  let drawingStudioIsPresented: Bool
-  let drawingStudioPanelChangeUnavailableReason: String?
+  let drawingTargetIsVisible: Bool
   let drawingDraftProjection: PlotterDrawingDraftProjectionReference
   let workbenchCapability: WorkbenchCapabilityPresentation
   let incidentPackage: PlotterUIIncidentPackageState
@@ -61,8 +60,6 @@ enum PlotterAppUIActionID {
   static let manualStop = PlotterUIActionID(rawValue: "manual.stop")
   static let manualRecovery = PlotterUIActionID(rawValue: "manual.publication.recover")
   static let manualEvidence = PlotterUIActionID(rawValue: "manual.evidence.resolve")
-  static let drawingOpen = PlotterUIActionID(rawValue: "drawing.draft.open")
-  static let drawingClose = PlotterUIActionID(rawValue: "drawing.draft.close")
   static let incidentPackage = PlotterUIActionID(rawValue: "incident.package.request")
   static let controllerRefresh = PlotterUIActionID(rawValue: "application.controller.refresh")
   static let controllerConnection = PlotterUIActionID(rawValue: "application.controller.connection")
@@ -81,6 +78,10 @@ enum PlotterAppUIActionID {
 
   static func observationCamera(_ identifier: String) -> PlotterUIActionID {
     PlotterUIActionID(rawValue: "application.observation.camera.\(identifier)")
+  }
+
+  static func observationCameraRole(_ role: WorkbenchCameraRole) -> PlotterUIActionID {
+    PlotterUIActionID(rawValue: "application.observation.camera-role.\(role.rawValue)")
   }
 
   static func observationCadence(_ cadence: VisionAnalysisCadence) -> PlotterUIActionID {
@@ -448,6 +449,15 @@ struct ManualMotionPresentation: Hashable, Sendable {
   var publicationPendingReason: String? { publicationRecovery?.remedy }
   var evidencePendingReason: String? { evidenceDisposition?.remedy }
   var attentionReason: String? { publicationPendingReason ?? evidencePendingReason }
+
+  func controllerAlertText(_ reportedAttention: String?) -> String? {
+    guard let reportedAttention else { return "none reported" }
+    guard reportedAttention != publicationPendingReason,
+      reportedAttention != evidencePendingReason
+    else { return nil }
+    return reportedAttention
+  }
+
   var jogControlsUnavailableReason: String? {
     if stopAction != nil {
       return jogUnavailableReason ?? "Stop the active manual jog before starting another."

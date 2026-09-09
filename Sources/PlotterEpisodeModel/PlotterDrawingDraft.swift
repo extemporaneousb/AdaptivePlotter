@@ -2,20 +2,22 @@ import Foundation
 import PlotterModel
 
 public enum PlotterDrawingDraftIntent: Hashable, Sendable {
-  case open
-  case close
+  case showTarget
+  case hideTarget
   case selectCatalogItem(DrawingCatalogEntryID)
   case selectProgram(DrawingProgram)
-  case setEvidenceRole(BorderValidationEvidenceRole)
   case placeAtCameraPoint(PlotterDrawingDraftCameraPlacement)
   case setUniformScale(Double)
   case setRotationDegrees(Double)
   case centerInDrawableRegion
+  case fitInDrawableRegion
   case beginNewPlan
   case assertPaperCoverage
   case prepareCoverageExperiment
   case nextCoverageTrial
   case leaveCoverageExperiment
+  case selectResidualRecord(DrawingEvidenceRecordID, selected: Bool)
+  case analyzeSelectedResiduals
 }
 
 public struct PlotterDrawingDraftCameraPlacement: Hashable, Sendable {
