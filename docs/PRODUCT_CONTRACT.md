@@ -105,6 +105,10 @@ Only analysis phase/error changes publish semantic revisions. Reading camera
 freshness is pure and cannot schedule draft planning. A local toolbar clock
 refreshes the one-second delivery check; a running session with late frames is
 labeled **Camera delayed**, without interpreting scene vibration as camera loss.
+Fresh delivery compares against the camera state last projected to controls;
+expiry of the previous frame alone does not invent another semantic transition.
+An older frame from the same camera configuration cannot replace newer live
+camera authority, matching the video leaf's existing monotonic presentation.
 The signed-app gate supports `PREVIEW_PERFORMANCE_SCENARIO=learned-portrait`.
 It must require complete accepted Learning including the retained Drawing Border
 outcome, a dense portrait/plan, sustained active analysis and a session of at
@@ -1349,7 +1353,11 @@ draft presentation and does not alter execution identity. Panel visibility is
 separate window state and never submits target show/hide.
 Exact-frame placement and paper assertion require the complete projected draft
 and external-fact identity, including the displayed frame. Experiment selection
-also binds its relevant Learning, geometry, and evidence facts. A stale authored
+also binds its relevant Learning, geometry, and evidence facts. The sheet control
+prepares that exact reference when the operator clicks, because ambient analysis
+does not refresh the cached controls. A context change during preparation still
+refuses confirmation. Sheet confirmation and run status precede portrait
+preparation controls when the plotter camera is selected. A stale authored
 revision or environment refuses the edit; fresh Learning, registration, region,
 paper, camera or run facts are not by themselves a stale-authoring refusal.
 Those current facts still determine whether a plan can be derived, whether an

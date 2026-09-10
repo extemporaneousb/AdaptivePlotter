@@ -93,6 +93,71 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     await workspace.shutdown()
   }
 
+  @Test("fresh preview recovery does not republish an unobserved stale state or regress to an older frame")
+  func delayedPreviewKeepsPublishedControlsStable() async throws {
+    let clock = ComputationTestClock()
+    let log = EventLog()
+    let camera = try TestObservationCameraSession()
+    let frames = TestPreviewFrameUpdateSource()
+    let workspace = plotterApplicationRuntime(
+      machine: try LowerMachineSessionFixture(log: log),
+      observationSessionOverride: resolvedObservationSession(camera, frameUpdates: { frames.updates() }),
+      residualEffectPort: TestApplicationResidualEffectPort(
+        discoverDevices: { [] }, readNanoseconds: { clock.read() }), log: log)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    try await waitForExecutorTurns { frames.subscriptionCount == 1 }
+    let initialFrame = try #require(camera.snapshot.latestFrame)
+    let open = try #require(workspace.testPlotterUIProjection(includesLearningPath: true)
+      .semantic.request(for: PlotterAppUIActionID.drawingDraft(.showTarget)))
+    #expect(await workspace.submitPlotterUIRequest(open) == .accepted(requestID: open.id))
+    await workspace.drawingDraftSynchronizationTask?.value
+    #expect(workspace.testPlotterUIProjection(includesLearningPath: true)
+      .observationConfiguration.cameraIsLive)
+    let baseline = workspace.previewIsolationDiagnostics
+
+    for index in 1...8 {
+      let timestamp = UInt64(index) * 2_000_000_000 + 100
+      clock.set(timestamp)
+      // The previous frame has expired, but no UI has published that stale
+      // state. Recovering with a fresh frame must keep the already-live UI.
+      frames.inject(DisplayedFrame(source: initialFrame.source, frame: try frame(
+        id: "delayed-preview-\(index)", sequence: UInt64(index + 1), capture: timestamp,
+        configurationID: initialFrame.frame.cameraConfigurationID)))
+      try await waitUntil { workspace.latestLiveCameraFrame?.frame.captureNanoseconds == timestamp }
+      #expect(workspace.testPlotterUIProjection(includesLearningPath: true)
+        .observationConfiguration.cameraIsLive)
+      // A late replay of the lifecycle frame must not make the semantic
+      // camera stale while the video leaf correctly keeps the newer image.
+      frames.inject(initialFrame)
+    }
+    let finalTimestamp: UInt64 = 16_000_000_101
+    clock.set(finalTimestamp)
+    frames.inject(DisplayedFrame(source: initialFrame.source, frame: try frame(
+      id: "delayed-preview-final", sequence: 10, capture: finalTimestamp,
+      configurationID: initialFrame.frame.cameraConfigurationID)))
+    try await waitUntil { workspace.latestLiveCameraFrame?.frame.captureNanoseconds == finalTimestamp }
+    _ = workspace.testPlotterUIProjection(includesLearningPath: true)
+    let after = workspace.previewIsolationDiagnostics
+    #expect(after.semanticPresentationRevision == baseline.semanticPresentationRevision)
+    #expect(after.drawingDraftSynchronizationCount == baseline.drawingDraftSynchronizationCount)
+    #expect(after.plotterUIProjectionBuildCount == baseline.plotterUIProjectionBuildCount)
+
+    // Expiry remains enforced on reads. Once actually published as stale,
+    // recovery must invalidate that disabled UI exactly once.
+    clock.set(finalTimestamp + 2_000_000_000)
+    #expect(!workspace.testPlotterUIProjection(includesLearningPath: true)
+      .observationConfiguration.cameraIsLive)
+    let staleRevision = workspace.semanticPresentationRevision
+    frames.inject(DisplayedFrame(source: initialFrame.source, frame: try frame(
+      id: "published-stale-recovery", sequence: 11, capture: clock.read(),
+      configurationID: initialFrame.frame.cameraConfigurationID)))
+    try await waitUntil { workspace.latestLiveCameraFrame?.frame.sequence == 11 }
+    #expect(workspace.testPlotterUIProjection(includesLearningPath: true)
+      .observationConfiguration.cameraIsLive)
+    #expect(workspace.semanticPresentationRevision == staleRevision + 1)
+    await workspace.shutdown()
+  }
+
   @Test("analysis results update video without invalidating the open Studio root")
   func analysisResultsStayVideoLocal() async throws {
     let log = EventLog()

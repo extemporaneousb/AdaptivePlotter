@@ -58,14 +58,21 @@ struct WorkbenchDebugSnapshot: Codable, Identifiable {
       Action(id: $0.id.rawValue, title: $0.title, intent: String(describing: $0.intent),
              unavailableReason: $0.unavailableReason)
     }
-    diagnostics = projection.diagnostics.map(\.summary)
-      + [application.cameraError, application.visionError, application.explorationError,
-         application.drawingEvidenceError].compactMap { $0 }
-      + application.borderValidationSnapshot.terminalHistory.map(\.detail)
-      + ["Drawing Border phase: \(application.borderValidationSnapshot.phase)",
-         "Drawing Border step: \(application.borderValidationSnapshot.step.title)",
-         "Drawing outcome: \(String(describing: application.borderValidationSnapshot.drawingOutcome))",
-         application.borderValidationSnapshot.inkStatus]
+    var details = projection.diagnostics.map(\.summary)
+    details += [application.cameraError, application.visionError, application.explorationError,
+      application.drawingEvidenceError].compactMap { $0 }
+    let border = application.borderValidationSnapshot
+    details += border.terminalHistory.map(\.detail)
+    details += ["Drawing Border phase: \(border.phase)",
+      "Drawing Border step: \(border.step.title)",
+      "Drawing outcome: \(String(describing: border.drawingOutcome))", border.inkStatus]
+    let drawing = application.drawingStudioPresentation.runState
+    details.append("Drawing run: \(drawing.title). \(drawing.detail)")
+    for refusal in [application.drawingDraftSnapshot.planningRefusal,
+                    application.drawingDraftSnapshot.lastSubmissionRefusal] {
+      if let refusal { details.append("Drawing Draft: \(refusal.reason). \(refusal.remedy)") }
+    }
+    diagnostics = details
     limitations = [
       "Snapshot of current owners and the existing bounded Learning record (up to 128 retained transitions).",
       "Feature journals retain their own identities; no unrelated journals are merged.",

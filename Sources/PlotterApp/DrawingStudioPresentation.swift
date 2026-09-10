@@ -323,11 +323,11 @@ struct DrawingStudioView: View {
         retrospectiveLearning.disabled(draftFeedback.isPending)
       }
       if panel == .portraitStudio || presentation.coverageExperiment != nil {
+        runStatus
+        controls
         if presentation.coverageExperiment == nil {
           placement.disabled(draftFeedback.isPending)
         }
-        runStatus
-        controls
       }
     }
     .accessibilityElement(children: .contain)

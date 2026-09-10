@@ -8,6 +8,54 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Camera freshness churn and portrait sheet confirmation, 2026-09-10
+
+Live PID `14435` owned the canonical release bundle and plotter serial session.
+The visible Draw refusal was **Confirm that the current sheet covers the drawing
+area**; Drawing Border was accepted with an inconclusive background-residual
+Vision comparison. No portrait Draw request had been submitted. With Diagnostics
+closed, CPU exceeded one core and a two-second sample spent 1023 of 1367 main-thread
+samples in AttributeGraph updates. The sample reached camera-frame receipt's
+freshness-triggered semantic invalidation and full workbench projection rebuilds.
+The diagnostic inputs are retained in `/tmp/adaptiveplotter-14435-main-20260910.sample.txt`,
+`/tmp/adaptiveplotter-current-diagnostics-20260910.json`, and
+`/tmp/adaptiveplotter-draw-controls-settled-20260910.png`.
+
+The correction compares camera delivery with the last projected freshness state,
+rejects older same-configuration frames, and preserves the one-second freshness
+predicate. Explicit sheet confirmation prepares the current exact Draft reference
+at the click; a context change during preparation still refuses it. Sheet and run
+controls precede portrait preparation, and existing Diagnostics now includes the
+Drawing Run refusal and Draft planning/submission refusals.
+
+The new delayed-frame regression first failed with ten extra semantic/Draft
+synchronizations and nine full UI rebuilds. It passes with zero extra counts,
+while explicitly displayed stale-camera recovery still updates controls. A
+production-composition regression also first failed when sheet confirmation
+followed a newer exact analysis frame. It now retains that frame in the paper
+assertion, reaches Draw readiness and exercises the existing held drawing and
+retrospective evidence path. **48 focused tests passed**, covering computation
+isolation, Draft admission, Drawing Studio presentation, production drawing
+composition and diagnostic snapshots. Logs are `/tmp/adaptiveplotter-debug-focused.log`,
+`/tmp/adaptiveplotter-debug-regression-before.log`, and
+`/tmp/adaptiveplotter-debug-paper-analysis-before.log`. Documentation and diff
+checks passed. These are software regressions; the live session has not been
+restarted and no physical drawing, paper assertion, or motion was performed by
+this debugging task. Updated signed-app performance and attended drawing remain
+unverified until the current session can be restarted without discarding its
+unsaved portrait captures.
+
+The strict-concurrency, warnings-as-errors release build and stable local signing
+passed. The byte-matched, signature-verified candidate is staged at
+`.build/AdaptivePlotter-f9cea8b9.app` in the canonical checkout (executable SHA-256
+`51516738da95e1ac99b7fcd96d7cad2b585ea07c6ef7552458fd2ad8a508491d`).
+`make preview-performance-gate` stopped at its existing already-running-app
+precondition, before measurement. This is **skipped native performance evidence**,
+not a passing gate or a failed performance measurement. The release, gate, and
+delivery receipts are `/tmp/adaptiveplotter-debug-release.log`,
+`/tmp/adaptiveplotter-debug-preview-gate.log`, and
+`/tmp/adaptiveplotter-debug-delivery-20260910.json`.
+
 ## Workbench and portrait correction, 2026-09-09
 
 Task `task-26f65c0e4e7b4a3b9d445b26c59c86f0` implements five persisted dockable

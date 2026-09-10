@@ -4987,6 +4987,23 @@ final class PlotterApplicationRuntime:
       await resolveManualMotionEvidence(using: action)
     case .drawingDraft(let intent)
       where request.actionID == PlotterAppUIActionID.drawingDraft(intent):
+      if intent == .assertPaperCoverage {
+        // Ambient analysis does not recompile the controls. Bind this explicit
+        // operator assertion to the exact frame available at the click, then
+        // retain Draft's full-reference admission through the submission.
+        let referenceAtClick = drawingDraftSnapshot.projection
+        let factsAtClick = drawingDraftExternalFacts
+        let prepared = await drawingDraftRuntime.synchronize(factsAtClick)
+        guard prepared.projection.environment == referenceAtClick.environment,
+          prepared.projection.draftRevision == referenceAtClick.draftRevision,
+          factsAtClick.revisions == drawingDraftExternalFacts.revisions else {
+          return plotterUIRefusal(
+            request, reason: .retainedOwnerRefused, currentUIRevision: currentUIRevision,
+            currentRuntimeRevisions: currentRuntimeRevisions,
+            remedy: "The drawing context changed while preparing sheet confirmation. Review the current target and retry.")
+        }
+        installDrawingDraftSnapshot(prepared)
+      }
       await performDrawingDraftSubmission(PlotterDrawingDraftSubmission(
         projection: drawingDraftSnapshot.projection,
         intent: intent
@@ -10704,9 +10721,20 @@ final class PlotterApplicationRuntime:
       workbenchCameraRole == .plotter, !cameraRoleIsTransitioning else { return }
     if let generation, !applicationEffectCanCommit(generation) { return }
     guard case .live(let deviceID) = frame.source, deviceID == selectedCameraID else { return }
+    if let latestLiveCameraFrame,
+      latestLiveCameraFrame.source == frame.source,
+      latestLiveCameraFrame.frame.cameraConfigurationID == frame.frame.cameraConfigurationID,
+      frame.frame.captureNanoseconds < latestLiveCameraFrame.frame.captureNanoseconds {
+      return
+    }
     publishActionSurfacePreview(frame)
     let hadLiveFrame = latestLiveCameraFrame != nil
-    let cameraWasLive = cameraIsLive
+    // Compare with the state actually projected to controls. Re-evaluating
+    // the previous frame's age here invents a stale -> live transition on
+    // every delayed delivery, even while controls still show Live. That
+    // feedback rebuilds the whole workbench and delays the next frame again.
+    // Freshness reads and effect admission still enforce the existing limit.
+    let cameraWasLive = rootProjectionCache?.inputs.cameraIsLive ?? cameraIsLive
     latestLiveCameraFrame = frame
     if hadLiveFrame, cameraWasLive != cameraIsLive {
       markSemanticPresentationChanged()

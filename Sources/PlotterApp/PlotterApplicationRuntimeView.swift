@@ -144,27 +144,29 @@ struct PlotterApplicationRuntimeView: View {
     case .portraitStudio:
       ScrollView {
         VStack(alignment: .leading, spacing: 12) {
-          PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
-            showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) })
           if application.workbenchCameraRole == .plotter {
-            paperControls(ui)
+            paperControls(ui, showsExplanation: false)
             DrawingStudioView(presentation: ui.drawingStudio, plotterUIProjection: ui.semantic,
               plotterUIIntentSink: application, panel: .portraitStudio)
           }
+          PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
+            showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) })
         }.padding(12)
       }
     }
   }
 
-  private func paperControls(_ ui: PlotterAppUIProjection) -> some View {
+  private func paperControls(_ ui: PlotterAppUIProjection, showsExplanation: Bool = true) -> some View {
     VStack(alignment: .leading, spacing: 6) {
-      if !application.paperCoverageIsCurrent {
+      if showsExplanation && !application.paperCoverageIsCurrent {
         Text(ui.workbenchCapability.paper.detail).font(.caption).foregroundStyle(.secondary)
       }
       HStack {
         OperatorRequestButton(title: application.paperCoverageIsCurrent ? "Sheet Confirmed" : "Sheet Covers Target",
           request: ui.semantic.request(for: PlotterAppUIActionID.drawingDraft(.assertPaperCoverage)),
           unavailableReason: ui.paperManagementUnavailableReason, sink: application)
+          .accessibilityIdentifier("drawing.confirmSheet")
+          .help("Confirm that this sheet covers the outlined Drawing Boundary.")
         Menu("Paper") {
           Button("New Sheet — Same Contact Plane") {
             Task { panelError = await submit(PlotterAppUIActionID.paperNewSheet) }

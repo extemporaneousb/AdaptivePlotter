@@ -35,7 +35,32 @@ struct DrawingWorkbenchCompositionTests {
     try await f.submit(.setUniformScale(floor(fitScale * 80) / 100))
     try await f.submit(.setRotationDegrees(0))
     try await f.submit(.centerInDrawableRegion)
+    // Start the analysis phase, then deliver another exact analysis frame
+    // without a semantic transition to refresh the cached Draft for us.
+    f.camera.analysis.inject(revision: 1_000)
+    try await waitUntil { app.visionAnalysisSnapshot.revision == 1_000 }
+    await app.drawingDraftSynchronizationTask?.value
+    let paperFrame = try await f.camera.publishNextFrame()
+    f.camera.analysis.inject(revision: 1_001, result: PlotterSceneAnalysisResult(
+      displayedFrame: paperFrame,
+      measurement: PlotterSceneMeasurement(
+        frameID: paperFrame.frame.id, frameSHA256: paperFrame.frame.contentSHA256,
+        cameraConfigurationID: paperFrame.frame.cameraConfigurationID,
+        penCap: .notRequested, armatureEnvelope: .notRequested, overlays: [],
+        algorithmRevision: "paper-assertion-test", diagnosticSHA256: paperFrame.frame.contentSHA256,
+        computation: SceneVisionComputationDiagnostics(requestedFeatures: [], expandedFeatures: [],
+          executionCounts: [:], inspectedPixelCounts: [:])),
+      analysisDurationNanoseconds: 1, completedNanoseconds: f.clock.read()))
+    try await waitUntil { app.visionAnalysisSnapshot.revision == 1_001 }
+    #expect(app.drawingDraftExternalFacts.revisions.displayedFrame
+      != app.drawingDraftSnapshot.projection.externalFacts.displayedFrame)
+    let blocked = app.testPlotterUIProjection()
+    let blockedDiagnostics = WorkbenchDebugSnapshot(application: app, projection: blocked.semantic)
+    #expect(blockedDiagnostics.diagnostics.contains {
+      $0.contains("Drawing run:") && $0.contains("Confirm that the current sheet covers the drawing area.")
+    })
     try await f.submit(.assertPaperCoverage)
+    #expect(app.drawingDraftSnapshot.paperCoverageObservation?.frame.frameID == paperFrame.frame.id)
     try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }
     let retainedPlan = try #require(app.drawingDraftSnapshot.plan)
     let ready = app.testPlotterUIProjection()
@@ -326,6 +351,7 @@ struct DrawingWorkbenchApplicationFixture {
 actor AcceptedDrawingCameraSession: PlotterObservationCameraSessionPort {
   nonisolated let device: CameraDevice
   nonisolated let previewFrames = TestPreviewFrameUpdateSource()
+  nonisolated let analysis = TestAnalysisUpdateSource()
   private var frame: DisplayedFrame
   private let clock: ComputationTestClock
   private let fallback: any PlotterObservationCameraSessionPort
@@ -376,7 +402,7 @@ actor AcceptedDrawingCameraSession: PlotterObservationCameraSessionPort {
   func setAutomaticInspection(_ cadence: VisionAnalysisCadence?, requestedFeatures: SceneFeatureSet) async -> PlotterSceneAnalysisSnapshot {
     await fallback.setAutomaticInspection(cadence, requestedFeatures: requestedFeatures)
   }
-  func analysisUpdates() -> AsyncStream<PlotterSceneAnalysisSnapshot> { AsyncStream { $0.finish() } }
+  func analysisUpdates() -> AsyncStream<PlotterSceneAnalysisSnapshot> { analysis.updates() }
   func visionDiagnostics() async -> CameraSourceSessionVisionDiagnostics { await fallback.visionDiagnostics() }
   func observePlannedDrawingInk(_ request: PlannedDrawingObservationRequest) async -> PlannedDrawingObservationOutcome {
     await vision.observePlannedDrawingInk(request)
