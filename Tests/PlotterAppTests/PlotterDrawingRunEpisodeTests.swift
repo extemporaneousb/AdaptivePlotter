@@ -90,8 +90,8 @@ struct PlotterDrawingRunEpisodeTests {
     }
   }
 
-  @Test("portrait follows ordinary execution observation and evidence persistence")
-  func portraitExecution() async throws {
+  @Test("portrait follows ordinary execution observation and evidence persistence", arguments: [false, true])
+  func portraitExecution(drawBorder: Bool) async throws {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
     let program = try PortraitVectorizer.program(
       from: portraitTestRaster(), pose: .front, style: .hatch,
@@ -102,9 +102,10 @@ struct PlotterDrawingRunEpisodeTests {
         x: (fixture.registration.applicabilityRectangle.minX + fixture.registration.applicabilityRectangle.maxX)/2,
         y: (fixture.registration.applicabilityRectangle.minY + fixture.registration.applicabilityRectangle.maxY)/2),
       uniformScale: 0.02, rotationDegrees: 0,
-      drawableRegion: fixture.drawableRegion, registration: fixture.registration)
+      drawableRegion: fixture.drawableRegion, registration: fixture.registration,
+      drawBorder: drawBorder, drawingBorderBounds: fixture.registration.applicabilityRectangle)
     let plan = PlotterDrawingRunPlan(
-      draftRevision: PlotterDrawingDraftRevision(rawValue: 2), program: program,
+      draftRevision: PlotterDrawingDraftRevision(rawValue: 2), program: try #require(built.program),
       placementID: UUID(), plan: try #require(built.plan), evidenceRole: .ordinaryDrawing,
       paperCoverage: fixture.plan.paperCoverage, registration: fixture.registration)
     let harness = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: plan))
@@ -117,11 +118,11 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(try #require(await harness.interpreter.planRequests.first).plan == plan.plan)
     let terminal = try #require(result.snapshot.terminal)
     #expect(terminal.disposition == .succeeded)
-    #expect(terminal.record.program.contentHash == program.contentHash)
-    #expect(terminal.record.program.source == program.source)
+    #expect(terminal.record.program.contentHash == plan.program.contentHash)
+    #expect(terminal.record.program.source == plan.program.source)
     let decoded = try JSONDecoder().decode(DrawingProgramEvidenceReference.self, from: JSONEncoder().encode(terminal.record.program))
-    #expect(decoded.source == program.source)
-    #expect(terminal.record.plan.executionPlan?.strokes.count == program.strokes.count)
+    #expect(decoded.source == plan.program.source)
+    #expect(terminal.record.plan.executionPlan?.strokes.count == program.strokes.count + (drawBorder ? 1 : 0))
     guard case .persisted = result.snapshot.evidencePersistence else {
       Issue.record("Portrait run evidence was not persisted by the ordinary evidence owner.")
       return
@@ -390,6 +391,44 @@ struct PlotterDrawingRunEpisodeTests {
       result.snapshot.terminal?.record.observation
         == .notAttempted(.projectionOutsideTipApplicability)
     )
+  }
+
+  @Test("optional border is cancelled and retained as possible ink by the ordinary run owner")
+  func optionalBorderCancellationAndEvidence() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let program = fixture.plan.program
+    let built = PlotterDrawingPlanningAdapter.buildDraft(program: program, machineCenter: nil,
+      uniformScale: 0.02, rotationDegrees: 0, drawableRegion: fixture.drawableRegion,
+      registration: fixture.registration, drawBorder: true,
+      drawingBorderBounds: fixture.registration.applicabilityRectangle)
+    let plan = PlotterDrawingRunPlan(draftRevision: .init(rawValue: 2),
+      program: try #require(built.program), placementID: UUID(), plan: try #require(built.plan),
+      evidenceRole: .ordinaryDrawing, paperCoverage: fixture.plan.paperCoverage,
+      registration: fixture.registration)
+    let gate = DrawingRunPlanGate()
+    let harness = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: plan), planGate: gate)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    await gate.waitUntilStarted()
+    let active = await harness.runtime.snapshot(environment: .live)
+    let stop = try #require(active.stopCapabilityID)
+    _ = await harness.runtime.submit(.init(projection: active.projection, intent: .stop(stop)))
+    let result = await run.value
+    #expect(result.snapshot.terminal?.disposition == .cancelled)
+    #expect(await harness.interpreter.stopIntents == [.operatorStop])
+    #expect(try #require(await harness.interpreter.planRequests.first).plan == plan.plan)
+    let record = try #require(result.snapshot.terminal?.record)
+    #expect(record.program.contentHash == plan.program.contentHash)
+    #expect(record.plan.executionPlan?.strokes.count == program.strokes.count + 1)
+    guard case .planMayContainInk(_, let identity) = result.snapshot.noRedraw else {
+      Issue.record("The optional border must share its drawing's possible-ink identity.")
+      return
+    }
+    #expect(identity == plan.identity)
+    guard case .persisted = result.snapshot.evidencePersistence else {
+      Issue.record("Cancelled drawing with optional border did not persist its evidence.")
+      return
+    }
   }
 
   @Test("one active start owns exact Stop and the possible-ink no-redraw boundary")

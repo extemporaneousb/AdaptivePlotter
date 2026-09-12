@@ -1,3 +1,4 @@
+import CryptoKit
 import EpisodeCore
 import Foundation
 import PlotterEpisodeModel
@@ -36,6 +37,7 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
   public let registrationRevisionID: LearningArtifactRevisionID?
   public let opticalConfiguration: CameraOpticalConfigurationIdentity?
   public let drawableRegion: DrawableMachineRegion?
+  public let drawingBorderBounds: AxisAlignedBounds<MachineSpace>?
   public let toolAssemblyRevision: ToolAssemblyRevision
   public let paper: PaperRevisionContext
   public let displayedFrame: PlotterExactFrameReference?
@@ -62,7 +64,7 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
       drawableRegion: drawableRegion, toolAssemblyRevision: toolAssemblyRevision,
       paper: paper, displayedFrame: frame, runInProgress: runInProgress,
       terminalRequiresNewPlan: terminalRequiresNewPlan, coverageRecordIDs: coverageRecordIDs,
-      drawingArchiveIsAvailable: drawingArchiveIsAvailable)
+      drawingArchiveIsAvailable: drawingArchiveIsAvailable, drawingBorderBounds: drawingBorderBounds)
   }
 
   public init(
@@ -77,12 +79,14 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
     runInProgress: Bool,
     terminalRequiresNewPlan: Bool,
     coverageRecordIDs: [DrawingEvidenceRecordID] = [],
-    drawingArchiveIsAvailable: Bool = true
+    drawingArchiveIsAvailable: Bool = true,
+    drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil
   ) {
     self.environment = environment
     self.interactiveLearningIsComplete = interactiveLearningIsComplete
     self.registrationRevisionID = registrationRevisionID
     self.opticalConfiguration = opticalConfiguration
+    self.drawingBorderBounds = drawingBorderBounds
     self.drawableRegion = drawableRegion
     self.toolAssemblyRevision = toolAssemblyRevision
     self.paper = paper
@@ -113,7 +117,8 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
     runInProgress: Bool,
     terminalRequiresNewPlan: Bool,
     coverageRecords: [DrawingRunEvidenceRecord] = [],
-    drawingArchiveIsAvailable: Bool = true
+    drawingArchiveIsAvailable: Bool = true,
+    drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil
   ) {
     let exactFrameReference = displayedFrame?.plotterExactFrameReferenceIfMaterialized
     self.displayedFrame = exactFrameReference == nil ? nil : displayedFrame
@@ -131,7 +136,8 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
       runInProgress: runInProgress,
       terminalRequiresNewPlan: terminalRequiresNewPlan,
       coverageRecordIDs: coverageRecords.map(\.recordID),
-      drawingArchiveIsAvailable: drawingArchiveIsAvailable
+      drawingArchiveIsAvailable: drawingArchiveIsAvailable,
+      drawingBorderBounds: drawingBorderBounds
     )
   }
 }
@@ -236,6 +242,7 @@ public struct PlotterDrawingDraftPaperCoverageDisplay: Hashable, Sendable {
 public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
   public let projection: PlotterDrawingDraftProjectionReference
   public let isTargetVisible: Bool
+  public let drawBorder: Bool
   public let catalog: [DrawingProgramCatalogEntry]
   public let selectedCatalogItemID: DrawingCatalogEntryID?
   public let evidenceRole: BorderValidationEvidenceRole
@@ -283,6 +290,7 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
         externalFacts: facts
       ),
       isTargetVisible: false,
+      drawBorder: false,
       catalog: DrawingProgramCatalog.entries,
       selectedCatalogItemID: .square,
       evidenceRole: .ordinaryDrawing,
@@ -333,7 +341,9 @@ public enum PlotterDrawingPlanningAdapter {
     uniformScale: Double,
     rotationDegrees: Double,
     drawableRegion: DrawableMachineRegion,
-    registration: TipCameraRegistration
+    registration: TipCameraRegistration,
+    drawBorder: Bool = false,
+    drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil
   ) -> PlotterDrawingDraftPlanBuild {
     let allowedScale = scaleRange(extent: program.fieldExtent,
       rotationDegrees: rotationDegrees, region: drawableRegion)
@@ -356,14 +366,25 @@ public enum PlotterDrawingPlanningAdapter {
         uniformScale: uniformScale,
         rotationRadians: rotationDegrees * .pi / 180
       )
-      let plan = try DrawingPlanner.plan(
+      var plan = try DrawingPlanner.plan(
         program: program,
         placement: placement,
         drawableRegion: drawableRegion,
         provenance: try planningProvenance(for: registration)
       )
+      var executionProgram = program
+      if drawBorder {
+        guard let drawingBorderBounds else {
+          throw PlotterModelError.invalidValue("The calibrated Drawing Border is unavailable.")
+        }
+        let composed = try includingBorder(program: program, artworkPlan: plan,
+          bounds: drawingBorderBounds, region: drawableRegion)
+        executionProgram = composed.program
+        plan = try DrawingPlanner.plan(program: composed.program, placement: composed.placement,
+          drawableRegion: drawableRegion, provenance: planningProvenance(for: registration))
+      }
       return PlotterDrawingDraftPlanBuild(
-        program: program,
+        program: executionProgram,
         center: center,
         allowedScale: allowedScale,
         plan: plan,
@@ -378,6 +399,45 @@ public enum PlotterDrawingPlanningAdapter {
         failure: String(describing: error)
       )
     }
+  }
+
+  /// Compose a new ordinary program in machine-aligned local coordinates.
+  /// The accepted border geometry is supplied by its existing calibration owner;
+  /// the normal planner still checks every stroke and creates every checkpoint.
+  private static func includingBorder(
+    program: DrawingProgram, artworkPlan: ExecutionPlanRevision,
+    bounds: AxisAlignedBounds<MachineSpace>, region: DrawableMachineRegion
+  ) throws -> (program: DrawingProgram, placement: DrawingPlacement) {
+    let origin = region.effectiveBounds
+    func local(_ point: Point2<MachineSpace>) throws -> Point2<FieldSpace> {
+      try Point2(x: point.x - origin.minX, y: point.y - origin.minY)
+    }
+    var strokes = try artworkPlan.strokes.enumerated().map { index, stroke in
+      LogicalStroke(id: stroke.logicalStrokeID,
+        path: try Polyline(points: stroke.path.points.map(local)), style: stroke.style,
+        semanticRole: stroke.semanticRole, ordering: UInt32(index))
+    }
+    let points: [Point2<MachineSpace>] = try [
+      Point2(x: bounds.minX, y: bounds.minY), Point2(x: bounds.minX, y: bounds.maxY),
+      Point2(x: bounds.maxX, y: bounds.maxY), Point2(x: bounds.maxX, y: bounds.minY),
+      Point2(x: bounds.minX, y: bounds.minY),
+    ]
+    let boundsHash = try canonicalDigest(of: bounds)
+    let seed = "ordinary-drawing-border-v1|\(program.contentHash)|\(artworkPlan.contentHash)|\(boundsHash)"
+    let bytes = Array(SHA256.hash(data: Data(seed.utf8)).prefix(16))
+    let id = UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+      bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    guard let style = program.strokes.first?.style else {
+      throw PlotterModelError.invalidValue("The artwork has no pen style for its border.")
+    }
+    strokes.append(LogicalStroke(id: StrokeID(id), path: try Polyline(points: points.map(local)),
+      style: style, semanticRole: .drawing, ordering: UInt32(strokes.count)))
+    return (try DrawingProgram(id: ProgramID(id),
+      fieldExtent: Size2(width: origin.maxX - origin.minX, height: origin.maxY - origin.minY),
+      strokes: strokes, source: DrawingSourceProvenance(kind: program.source.kind,
+        sourceIdentifier: "\(program.source.sourceIdentifier)|draw-border-v1|artwork=\(program.contentHash)")),
+      try DrawingPlacement(fieldAnchor: Point2(x: 0, y: 0),
+        machineAnchor: Point2(x: origin.minX, y: origin.minY), uniformScale: 1))
   }
 
   /// The same rotated field bounds drive the slider and automatic fit.
@@ -427,6 +487,7 @@ public actor PlotterDrawingDraftRuntime {
   private struct SourceState: Sendable {
     var revision = PlotterDrawingDraftRevision(rawValue: 0)
     var isTargetVisible = false
+    var drawBorder = false
     var selectedCatalogItemID: DrawingCatalogEntryID = .square
     var suppliedProgram: DrawingProgram?
     var evidenceRole: BorderValidationEvidenceRole = .ordinaryDrawing
@@ -455,6 +516,8 @@ public actor PlotterDrawingDraftRuntime {
   private struct DerivationKey: Equatable {
     let catalog: DrawingCatalogEntryID
     let suppliedProgramHash: PlotterModel.Digest?
+    let drawBorder: Bool
+    let drawingBorderBounds: AxisAlignedBounds<MachineSpace>?
     let center: Point2<MachineSpace>?
     let scale: Double
     let rotation: Double
@@ -469,6 +532,8 @@ public actor PlotterDrawingDraftRuntime {
     init(state: SourceState, facts: PlotterDrawingDraftExternalFacts) {
       catalog = state.selectedCatalogItemID
       suppliedProgramHash = state.suppliedProgram?.contentHash
+      drawBorder = state.drawBorder
+      drawingBorderBounds = facts.revisions.drawingBorderBounds
       center = state.machineCenter
       scale = state.uniformScale
       rotation = state.rotationDegrees
@@ -726,6 +791,9 @@ public actor PlotterDrawingDraftRuntime {
       state.placementID = UUID()
     case .showTarget, .hideTarget:
       break // Applied above without changing execution identity.
+    case .setDrawBorder(let enabled):
+      state.drawBorder = enabled
+      state.placementID = UUID()
     case .selectCatalogItem(let id):
       state.selectedCatalogItemID = id
       state.suppliedProgram = nil
@@ -790,15 +858,16 @@ public actor PlotterDrawingDraftRuntime {
       state.rotationDegrees = Self.normalizedDegrees(degrees)
       state.placementID = UUID()
     case .fitInDrawableRegion:
-      guard let region = facts.revisions.drawableRegion,
-        let program = state.suppliedProgram ?? state.program else {
+      guard let region = facts.revisions.drawableRegion else {
         return refuse(submission, state: &state, facts: facts, owner: Authority.region,
           reason: .drawableRegionUnavailable, remedy: "Restore the Drawing Boundary before fitting the target.")
       }
+      let extent = state.suppliedProgram?.fieldExtent
+        ?? DrawingProgramCatalog.entry(for: state.selectedCatalogItemID).fieldExtent
       let upright = PlotterDrawingPlanningAdapter.scaleRange(
-        extent: program.fieldExtent, rotationDegrees: 0, region: region).upperBound
+        extent: extent, rotationDegrees: 0, region: region).upperBound
       let sideways = PlotterDrawingPlanningAdapter.scaleRange(
-        extent: program.fieldExtent, rotationDegrees: 90, region: region).upperBound
+        extent: extent, rotationDegrees: 90, region: region).upperBound
       state.rotationDegrees = sideways > upright + 1e-9 ? 90 : 0
       state.uniformScale = max(upright, sideways)
       let bounds = region.effectiveBounds
@@ -824,6 +893,7 @@ public actor PlotterDrawingDraftRuntime {
       state.machineCenter = center
       state.placementID = UUID()
     case .beginNewPlan:
+      state.drawBorder = false
       state.placementID = UUID()
     case .assertPaperCoverage:
       guard let frame = facts.displayedFrame,
@@ -1095,7 +1165,9 @@ public actor PlotterDrawingDraftRuntime {
       uniformScale: state.uniformScale,
       rotationDegrees: state.rotationDegrees,
       drawableRegion: region,
-      registration: registration
+      registration: registration,
+      drawBorder: state.drawBorder && state.coverageExperiment == nil,
+      drawingBorderBounds: facts.revisions.drawingBorderBounds
     )
     state.machineCenter = built.center ?? state.machineCenter
     state.program = built.program
@@ -1255,6 +1327,7 @@ public actor PlotterDrawingDraftRuntime {
         externalFacts: facts.revisions
       ),
       isTargetVisible: state.isTargetVisible,
+      drawBorder: state.drawBorder && state.coverageExperiment == nil,
       catalog: DrawingProgramCatalog.entries,
       selectedCatalogItemID: state.suppliedProgram == nil ? state.selectedCatalogItemID : nil,
       evidenceRole: state.evidenceRole,

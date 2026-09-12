@@ -13,6 +13,41 @@ or competing architecture plan is authority. Accepted conclusions must be
 integrated here and the source note deleted. Git history and Blackdog prompt
 artifacts are history, not current design.
 
+## Bounded paper, ordinary border, and Motion correction, 2026-09-12
+
+Task `task-cceb274a51cd443696f191f1233ab3e4` is the explicitly authorized
+corrective campaign against existing owners, not another migration wave or
+attended VAL-01 selection. Its scope separates same-plane paper transients from
+accepted calibration, restores compatible accepted data after active loss,
+adds optional ordinary-drawing border geometry through the canonical program,
+and isolates visible controller telemetry from broad semantic projection.
+Prior permanent-canvas/native-pane, debug build, Pen Up, comparison-close and
+Achtung behavior remain regression obligations. Voice stays parked.
+
+The durable behavior belongs to Product Contract, current ownership to
+Architecture, and actual integrated validation/assessment/delivery to
+[Current Evidence](CURRENT_EVIDENCE.md#bounded-paper-border-and-motion-correction-2026-09-12).
+No historical package completion or physical evidence is changed by this
+correction. The integrated focused 144-test, quick 1021-test and journey 10-test
+strict runs, signed debug validation, documentation contracts plus 13/9/39 Python
+tests and whitespace checks passed. The single full independent nonauthor
+assessment found one actionable P2 (F-01): failed typed Paper declarations lost
+their visible refusal despite correct rollback. The consolidated repair passed
+its seven-test strict Paper suite, including six failure/retry combinations.
+An existing computation test was adapted to join pending Draft-to-Run publication
+without reducing no-rebuild assertions; the whole 14-test diagnostics suite
+passed. Final repaired strict quick1021 and journey10 suites passed with the
+same five existing opt-in skips in quick. The final repaired signed-debug
+artifact passed strict bundle/signature validation and is separately staged;
+Current Evidence records its matching executable hash. Repaired documentation
+contracts and 13/9/39 Python tests and staged whitespace checks passed. The same
+nonauthor's sole bounded delta closed F-01 and found no residual P0/P1/P2/P3
+finding or introduced serious defect. The validated correction has no remaining
+implementation, validation or assessment blocker. Local Blackdog landing and
+finalization receipts are recorded by the coordinator in
+`task-cceb274a51cd443696f191f1233ab3e4` history and the final delivery report;
+this ledger does not assert a landing before that receipt exists.
+
 ## Permanent canvas and native control panes, 2026-09-12
 
 This user-approved product correction supersedes the layout and diagnostic
@@ -71,6 +106,12 @@ gate, and a complete Learning Path migration. A separate SDK remains a later
 packaging decision requiring a genuinely distinct second client.
 
 ## Workbench and portrait completion correction, 2026-09-08
+
+Historical correction ledger: the panel placement, canvas visibility, menu and
+native-gate descriptions in this section were superseded by the September 12
+permanent-canvas correction above. They document that earlier candidate and its
+validation limits; do not use its left/bottom/right workflow as current guidance.
+
 
 The accepted product correction is tracked in Blackdog task
 `task-26f65c0e4e7b4a3b9d445b26c59c86f0`. This section is its sole implementation

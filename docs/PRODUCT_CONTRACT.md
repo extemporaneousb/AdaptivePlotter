@@ -1202,6 +1202,32 @@ Changes apply as follows:
 - LIVE/SIMULATED source change: invalidate cross-source optical authority;
 - raw observations: retain as immutable history under every change.
 
+Same-plane replacement retains accepted pen settings, machine boundaries,
+machine/camera and tip calibration, and completed Learning. It clears only the
+previous sheet's coverage, transient captures/proposals, sheet-specific exclusions,
+and settled current-run state through the existing lifecycle. Persistence must
+complete before the new identity is published; failure leaves active and durable
+state coherent. A partial checkpoint-save failure restores the exact preceding
+checkpoint and paper context. Once durable replacement commits, shutdown joins
+its final owner handoff and projection rather than abandoning half-published
+state. Active execution or evidence publication refuses replacement.
+After durable new-sheet publication, the existing Drawing Run owner rebuilds
+its possible-ink plan index for the current paper. Records on the prior sheet
+remain immutable, and the same-sheet no-redraw rejection remains in force.
+Prior calibration and drawing records keep their original identities. Blank
+paper has no ink yet; that is not missing calibration. The compatible current
+camera immediately displays the calibrated outline. Confirming coverage binds
+the actual visible preview frame at the operator action. Only that explicit
+assertion seals the frame's content identity; passive video does no hashing.
+An older completed analysis cannot replace a newer exact selected frame.
+Draft and Run consume the coherent selected frame after confirmation.
+
+If a prior same-plane reset lost only active tip authority, **Use Saved Learning**
+can recover the compatible retained accepted package even after its startup
+choice was applied. Existing checkpoint identity, source, session, and dependency
+validation still decides applicability. Recovery neither replays drawing nor
+silently accepts a changed contact plane, tool, camera, or coordinate context.
+
 `AcceptedLearningPathCheckpoint` is the one atomic durable accepted-prefix
 envelope. It contains optional accepted pen calibration, machine-only Drawing
 Boundary and center artifacts, Exercise 1.3 machine/cap registration, the
@@ -1320,6 +1346,19 @@ comparison, shape evaluation, and typed readiness work defined in the Roadmap.
 
 ## Direct Drawing Studio boundary
 
+Ordinary drawings expose **Draw border**, defaulting off for each new drawing.
+Edits retain the current drawing's explicit choice; **New Drawing** or a new-sheet
+plan handoff resets it off. This draft choice controls physical ink only: accepted Learning and the displayed calibrated
+outline remain available regardless. The border is the existing calibrated
+Drawing Border (10 mm inside the accepted Boundary for current calibration),
+not a repeat of Exercise 2.1. When selected, it joins the artwork in one immutable
+`DrawingProgram` and plan. Its geometry participates in preview, identity,
+containment, checkpoints/progress, cancellation, possible-ink handling, and the
+ordinary drawing's evidence. Initial Learning validation keeps its original
+exercise and evidence meaning. A replacement sheet needs new coverage, not
+another Learning border exercise.
+
+
 The workbench keeps its video/portrait/simulation canvas permanently in the main
 window. The canvas has no close control or View-menu visibility command. Five
 optional control panes are Guided Learning, Video Settings, Motion, Active
@@ -1338,6 +1377,16 @@ Enable/Disable Motion actions, the diagnostic export tool, and the far-right
 red Achtung! control. Existing typed Stop requests and Escape routing are
 preserved; passive status badges and the separate command strip are removed.
 Voice remains unchanged and its input/output split is deferred in the Roadmap.
+
+Motion displays the existing controller owner's latest report in an isolated
+readout, refreshing while visible at about 5 Hz. Controller state, MPos, and limit
+inputs come from one report with its actual receipt time and sequence. Re-reading
+an unchanged sample does not refresh its age; a newly received identical report
+does. Values older than two seconds are labeled stale; missing and disconnected
+data are explicit. Commanded pen state and historical outcomes are labeled
+separately from reported values. Hiding Motion stops only its display refresh;
+controller monitoring, fault handling, and command availability continue. Opening
+it refreshes immediately, without a checkbox or independent serial reader.
 
 Video Settings contains source choice, zoom, overlays, analysis cadence,
 region controls, and Review Comparison for the retained Drawing Border result.

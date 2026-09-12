@@ -3,12 +3,51 @@ import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
+import PlotterUI
 import Testing
 
 @testable import PlotterApp
 
 @Suite("Drawing Studio presentation")
 struct DrawingStudioPresentationTests {
+  @Test("a failed Fit warning retires after calibration recovery before sheet coverage is confirmed")
+  @MainActor
+  func fitFeedbackResolvesBeforeRunReady() async throws {
+    let harness = makeCausalSimulatorAppFixture()
+    let app = harness.workspace
+    _ = await app.currentDrawingRunFacts(for: .simulated)
+    let initial = app.testPlotterUIProjection()
+    let fit = try #require(initial.semantic.request(matching: .drawingDraft(.fitInDrawableRegion)))
+    let submittedPresentation = app.drawingStudioPresentation
+    let result = await app.submitPlotterUIRequest(fit)
+    guard case .refused(let refusal) = result else {
+      Issue.record("Uncalibrated Fit must produce the actual production refusal.")
+      await app.shutdown()
+      return
+    }
+    let feedback = DrawingStudioRequestRefusal(refusal.remedy, presentation: submittedPresentation)
+    #expect(feedback.currentMessage(in: submittedPresentation) == refusal.remedy)
+    // A repeated projection without changed dependencies cannot dismiss a real failure.
+    #expect(feedback.currentMessage(in: app.drawingStudioPresentation) == refusal.remedy)
+    try await completeSimulatedPenInteractionPrerequisite(app)
+    try await installAcceptedBoundaryTestProjection(runtime: harness.boundaryRuntime,
+      workspace: app, environment: .simulated)
+    try await completeSimulatedTipCalibration(app, simulator: harness.simulator)
+    await app.performTestExerciseAction(.start, for: .borderValidation(.chooseDrawingBorderPlan))
+    _ = await app.currentDrawingRunFacts(for: .simulated)
+    #expect(app.tipCameraRegistration != nil)
+    #expect(!app.drawingDraftSnapshot.paperCoverageIsCurrent)
+    let recovered = app.drawingStudioPresentation
+    if case .ready = recovered.runState { Issue.record("Coverage must still block Draw.") }
+    #expect(feedback.currentMessage(in: recovered) == nil)
+    // A response arriving after recovery is still attributed to the request's
+    // original facts, so callback ordering cannot revive the resolved warning.
+    let lateResponse = DrawingStudioRequestRefusal(refusal.remedy, presentation: submittedPresentation)
+    #expect(lateResponse.currentMessage(in: recovered) == nil)
+    #expect(!recovered.runState.detail.isEmpty)
+    await app.shutdown()
+  }
+
   @Test("run and Stop controls preserve the exact typed owner capability")
   func executionControls() throws {
     let ready = try studioPresentation(

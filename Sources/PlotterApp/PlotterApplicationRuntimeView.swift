@@ -123,7 +123,9 @@ struct PlotterApplicationRuntimeView: View {
     case .motion:
       ScrollView {
         MotionPanel(draft: $manualMotionDraft, presentation: ui.manualMotion,
-          controllerSession: ui.controllerSession, learningIsEnabled: ui.learningIsEnabled,
+          controllerSession: ui.controllerSession,
+          motionSnapshotReader: { await application.latestMotionReadoutSnapshot() },
+          learningIsEnabled: ui.learningIsEnabled,
           plotterUIProjection: ui.semantic, plotterUIIntentSink: application).padding(10)
       }
     case .activeLearning:

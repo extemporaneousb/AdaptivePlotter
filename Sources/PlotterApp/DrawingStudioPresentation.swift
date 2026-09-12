@@ -145,6 +145,8 @@ struct DrawingStudioControl: Hashable, Identifiable, Sendable {
 
 struct DrawingStudioPresentation: Hashable, Sendable {
   let canvas: DrawingStudioCanvasPresentation
+  let paperReplacementStatus: String?
+  let drawBorder: Bool
   let editingIsEnabled: Bool
   let runProjection: PlotterDrawingRunProjectionReference?
   let runState: DrawingStudioRunState
@@ -187,7 +189,9 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     coverageUnavailableReason: String? = nil,
     coverageSelectedTrial: Int? = nil,
     residualRecords: [DrawingResidualRecordSummary] = [],
-    residualAnalysis: DrawingRetrospectiveResidualAnalysis? = nil
+    residualAnalysis: DrawingRetrospectiveResidualAnalysis? = nil,
+    drawBorder: Bool = false,
+    paperReplacementStatus: String? = nil
   ) {
     self.canvas = DrawingStudioCanvasPresentation(
       draftProjection: canvas.draftProjection,
@@ -200,6 +204,8 @@ struct DrawingStudioPresentation: Hashable, Sendable {
       ),
       targetPreview: canvas.targetPreview
     )
+    self.paperReplacementStatus = paperReplacementStatus
+    self.drawBorder = drawBorder
     self.editingIsEnabled = editingIsEnabled
     self.runProjection = runProjection
     self.runState = runState
@@ -288,6 +294,45 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   }
 }
 
+/// Local request feedback is attributable to the authoring context that failed.
+/// Camera frame traffic is intentionally absent: only changed authoring or
+/// dependency facts supersede the message, even before Draw becomes ready.
+/// A refusal may refine the displayed blocker text; that publication alone does
+/// not supersede its own feedback. Captured submission facts also prevent a
+/// delayed response from reviving feedback after its dependency was recovered.
+struct DrawingStudioRequestRefusal: Equatable {
+  let message: String
+  private let draftRevision: PlotterDrawingDraftRevision
+  private let environment: PlotterEnvironment
+  private let registration: LearningArtifactRevisionID?
+  private let region: DrawableMachineRegion?
+  private let paper: PaperRevisionContext
+  private let optics: CameraOpticalConfigurationIdentity?
+  private let runInProgress: Bool
+  private let terminalRequiresNewPlan: Bool
+  private let tool: ToolAssemblyRevision
+  private let learningIsComplete: Bool
+
+  init(_ message: String, presentation: DrawingStudioPresentation) {
+    self.message = message
+    let projection = presentation.canvas.draftProjection
+    draftRevision = projection.draftRevision
+    environment = projection.environment
+    registration = projection.externalFacts.registrationRevisionID
+    region = projection.externalFacts.drawableRegion
+    paper = projection.externalFacts.paper
+    optics = projection.externalFacts.opticalConfiguration
+    runInProgress = projection.externalFacts.runInProgress
+    terminalRequiresNewPlan = projection.externalFacts.terminalRequiresNewPlan
+    tool = projection.externalFacts.toolAssemblyRevision
+    learningIsComplete = projection.externalFacts.interactiveLearningIsComplete
+  }
+
+  func currentMessage(in presentation: DrawingStudioPresentation) -> String? {
+    self == Self(message, presentation: presentation) ? message : nil
+  }
+}
+
 /// Selection and transform shell for an already-projected drawing program.
 /// Every mutation is returned as a typed intent; the view owns no planner,
 /// controller, evidence store, or readiness decision.
@@ -296,7 +341,7 @@ struct DrawingStudioView: View {
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
   var panel: WorkbenchPanel = .activeLearning
-  @State private var requestRefusal: String?
+  @State private var requestRefusal: DrawingStudioRequestRefusal?
   @State private var draftFeedback = OperatorRequestFeedback()
   @State private var scaleDraft: Double?
   @State private var rotationDraft: Double?
@@ -311,8 +356,9 @@ struct DrawingStudioView: View {
           Text("Updating drawing")
         }
       }
-      if let requestRefusal {
-        Label(requestRefusal, systemImage: "exclamationmark.triangle.fill")
+      if let message = requestRefusal?.currentMessage(in: presentation),
+        message != presentation.runState.detail {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
           .font(.caption)
           .foregroundStyle(.orange)
           .textSelection(.enabled)
@@ -441,6 +487,13 @@ struct DrawingStudioView: View {
   private var placement: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Placement").font(.headline)
+      Toggle("Draw border", isOn: Binding(
+        get: { presentation.drawBorder },
+        set: { submitDraft(.setDrawBorder($0)) }))
+        .disabled(!presentation.authoringIsEnabled
+          || draftRequest(.setDrawBorder(!presentation.drawBorder)) == nil)
+        .accessibilityIdentifier("drawing.drawBorder")
+        .help("Ink the calibrated Drawing Border as part of this drawing. The outline stays visible when off.")
       Label(presentation.canvas.placement.locationText, systemImage: "hand.draw")
         .font(.caption)
       HStack {
@@ -522,8 +575,9 @@ struct DrawingStudioView: View {
 
   private var runStatus: some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text(presentation.runState.title).font(.headline)
-      Text(presentation.runState.detail)
+      Text(presentation.paperReplacementStatus == nil ? presentation.runState.title : "Sheet recorded")
+        .font(.headline)
+      Text(presentation.paperReplacementStatus ?? presentation.runState.detail)
         .font(.caption)
         .foregroundStyle(.secondary)
     }
@@ -573,7 +627,8 @@ struct DrawingStudioView: View {
 
   private func submit(_ intent: PlotterUIIntent) {
     guard let request = plotterUIProjection.request(matching: intent) else {
-      requestRefusal = "Refresh the current Drawing Studio control before retrying."
+      requestRefusal = DrawingStudioRequestRefusal(
+        "Refresh the current Drawing Studio control before retrying.", presentation: presentation)
       return
     }
     guard draftFeedback.begin() else { return }
@@ -582,7 +637,7 @@ struct DrawingStudioView: View {
       let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
       draftFeedback.finish(disposition)
       if case .refused(let refusal) = disposition {
-        requestRefusal = refusal.remedy
+        requestRefusal = DrawingStudioRequestRefusal(refusal.remedy, presentation: presentation)
       } else {
         requestRefusal = nil
       }

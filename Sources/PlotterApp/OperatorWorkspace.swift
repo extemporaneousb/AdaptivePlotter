@@ -1473,6 +1473,56 @@ final class PlotterApplicationRuntime:
   private var savedLearningState: PlotterArtifactResetSavedLearningState {
     frameMode == .live ? artifactResetRuntime.snapshot().savedLearning : .absent
   }
+  private var savedLearningApplicationCandidate: (
+    checkpoint: AcceptedLearningPathCheckpoint, opticalComparison: String
+  )? {
+    if let candidate = savedLearningState.candidate { return candidate }
+    guard tipCameraRegistration == nil,
+      let candidate = savedLearningState.applicationCandidate,
+      candidate.checkpoint.tipCalibration != nil,
+      savedLearningRecoveryUnavailableReason(candidate.checkpoint) == nil else { return nil }
+    return (candidate.checkpoint,
+      "Accepted calibration is absent from this session. Use Saved Learning to restore the compatible accepted package; no motion or retraining is required.")
+  }
+
+  private func savedLearningRecoveryUnavailableReason(
+    _ checkpoint: AcceptedLearningPathCheckpoint
+  ) -> String? {
+    let saved = checkpoint.semanticIdentity
+    let current = currentLearningPathSemanticIdentity
+    guard saved.machineGeometry == current.machineGeometry,
+      saved.toolAssembly == current.toolAssembly,
+      saved.penContactProfile == current.penContactProfile,
+      saved.paperContactPlane == current.paperContactPlane,
+      saved.cameraMountRevision == current.cameraMountRevision,
+      saved.cameraReframingRevision == current.cameraReframingRevision else {
+      return "Saved calibration does not match the current machine, tool, contact plane, or camera mounting. Restore the changed dependency before using this package."
+    }
+    guard let frame = displayedFrame,
+      let optical = try? exactTipCalibrationFrame(frame).opticalConfiguration,
+      checkpoint.tipCalibration?.registration.applicability.opticalConfiguration == optical else {
+      return "Show the compatible Plotter Video camera before restoring saved calibration."
+    }
+    guard checkpoint.machineArtifacts?.coordinateRevision == explorationCoordinateRevision,
+      checkpoint.machineCamera?.registration == machineCameraRegistration else {
+      return "Restore the matching machine boundary and camera Learning before restoring saved tip calibration."
+    }
+    guard let restored = try? checkpoint.restoredLearningGraph() else {
+      return "Saved Learning validation failed. Inspect the accepted package in diagnostics."
+    }
+    for revision in learningArtifactGraph.revisions where revision.state == .current {
+      switch revision.kind {
+      case .penInteraction, .boundarySideAggregate, .estimatedMachineCenter,
+        .centerArrival, .machineCameraRegistration:
+        guard restored.currentRevision(for: revision.kind)?.id == revision.id else {
+          return "Current accepted Learning changed after this package was saved. Restore the matching dependency before using saved tip calibration."
+        }
+      default: break
+      }
+    }
+    return nil
+  }
+
   var artifactResetEpisodeSnapshot: PlotterArtifactResetSnapshot {
     artifactResetRuntime.snapshot()
   }
@@ -2315,7 +2365,8 @@ final class PlotterApplicationRuntime:
         guard let snapshot = drawingRunSnapshot,
           case .available = snapshot.evidenceArchiveAvailability else { return false }
         return true
-      }()
+      }(),
+      drawingBorderBounds: currentDrawingBorderBounds
     )
   }
 
@@ -2439,8 +2490,50 @@ final class PlotterApplicationRuntime:
     }
   }
 
+  func latestMotionReadoutSnapshot() async -> MachineSnapshot? {
+    guard frameMode == .live else { return nil }
+    return await machineSession?.snapshot()?.machine
+  }
+
+  var paperReplacementStatus: String? {
+    guard !drawingRunIsActive, drawingRunSnapshot?.terminal == nil,
+      drawingEvidenceError == nil, explorationError == nil,
+      !drawingDraftSnapshot.paperCoverageIsCurrent,
+      let plan = artifactResetRuntime.snapshot().lastResetPlan,
+      let replacement = plan.paperReplacement,
+      replacement.current == currentPaperRevisionContext else { return nil }
+    if case .unavailable(let issue) = drawingRunSnapshot?.readiness,
+      ![.learningIncomplete, .paperCoverageNotCurrent, .exactPlanUnavailable].contains(issue.reason) {
+      return nil
+    }
+    if let registration = tipCameraRegistration {
+      guard let frame = displayedFrame,
+        (try? exactTipCalibrationFrame(frame).opticalConfiguration) == registration.applicability.opticalConfiguration else {
+        return "Show the compatible Plotter Video camera, then confirm sheet coverage. Calibration remains retained."
+      }
+      return "New sheet recorded. Calibration retained. Confirm sheet coverage."
+    }
+    if replacement.tipCalibrationApplicabilityChange != nil {
+      return "Contact plane changed. Repeat pen-tip calibration for this plane; machine boundaries and camera Learning are retained."
+    }
+    if savedLearningApplicationCandidate != nil {
+      return "New sheet recorded. Use Saved Learning to restore compatible calibration, then confirm sheet coverage."
+    }
+    if let checkpoint = savedLearningState.applicationCandidate?.checkpoint,
+      checkpoint.tipCalibration != nil {
+      return savedLearningRecoveryUnavailableReason(checkpoint)
+    }
+    return "Pen-tip calibration is unavailable for this sheet's contact plane. Complete pen-tip calibration using the retained machine and camera Learning."
+  }
+
+  private var paperReplacementInProgressReason: String? {
+    guard case .paperReplaced = artifactResetRuntime.snapshot().activeIntent else { return nil }
+    return "Wait for the current paper replacement transaction to finish."
+  }
+
   var paperManagementUnavailableReason: String? {
-    drawingRunIsActive
+    if let reason = paperReplacementInProgressReason { return reason }
+    return drawingRunIsActive
       ? "Paper identity cannot change while Drawing Run owns execution or evidence capture."
       : nil
   }
@@ -2470,7 +2563,9 @@ final class PlotterApplicationRuntime:
       coverageUnavailableReason: draft.coverageUnavailableReason,
       coverageSelectedTrial: DrawingCoverageTrialDescriptor.decode(draft.program?.source)?.trialIndex,
       residualRecords: draft.residualRecords,
-      residualAnalysis: draft.residualAnalysis
+      residualAnalysis: draft.residualAnalysis,
+      drawBorder: draft.drawBorder,
+      paperReplacementStatus: paperReplacementStatus
     )
   }
 
@@ -2640,7 +2735,7 @@ final class PlotterApplicationRuntime:
       interactiveLearningIsComplete: interactiveLearningIsComplete,
       plan: runPlan,
       paperCoverageIsCurrent: draft.paperCoverageIsCurrent,
-      displayedFrame: displayedFrame,
+      displayedFrame: capturedFacts.displayedFrame,
       interpreter: interpreter,
       penActuationProfile: currentPenActuationProfile
     )
@@ -2754,6 +2849,12 @@ final class PlotterApplicationRuntime:
     return try? drawableMachineRegion()
   }
 
+  private var currentDrawingBorderBounds: AxisAlignedBounds<MachineSpace>? {
+    guard let registration = tipCameraRegistration else { return nil }
+    return try? drawingBorderBounds(for: registration,
+      acceptedBoundary: try? SparseTipBatchMarkPlan.boundaryEnvelope(for: acceptedBoundaryAggregates))
+  }
+
   private func drawableMachineRegion() throws -> DrawableMachineRegion {
     try DrawableMachineRegion(
       bounds: SparseTipBatchMarkPlan.boundaryEnvelope(for: acceptedBoundaryAggregates)
@@ -2783,7 +2884,7 @@ final class PlotterApplicationRuntime:
   private func learnedDrawingOverlays(
     on displayedFrame: DisplayedFrame
   ) -> [CameraOverlayMeasurement] {
-    let savedCandidate = savedLearningState.candidate?.checkpoint
+    let savedCandidate = savedLearningApplicationCandidate?.checkpoint
     let context: (
       registration: TipCameraRegistration,
       acceptedBoundaryAggregates: [BoundaryDirection: BoundarySideAggregate],
@@ -3158,7 +3259,7 @@ final class PlotterApplicationRuntime:
       simulatedSnapshot: simulatedLearningSnapshot,
       machineError: machineError,
       admissionClosed: applicationAdmissionIsClosed,
-      controllerBusyReason: currentCameraCalibrationBusyReason,
+      controllerBusyReason: paperReplacementInProgressReason ?? currentCameraCalibrationBusyReason,
       discoveryBusyReason: discoveryBusyReason,
       foreignOperationInFlight: passiveProbeInProgress || jogRequestInProgress
         || retainedPenRequestInProgress || jogCancelRequestInProgress
@@ -3409,6 +3510,7 @@ final class PlotterApplicationRuntime:
   }
 
   private var observationSourceChangeUnavailableReason: String? {
+    if let reason = paperReplacementInProgressReason { return reason }
     if observationRuntime == nil {
       return "The retained observation runtime is unavailable."
     }
@@ -3987,6 +4089,11 @@ final class PlotterApplicationRuntime:
       submission.reference.capabilityID == controllerSessionID
     else { return "The observation projection changed; use the current action." }
     switch submission.intent {
+    case .selectSource, .selectCameraRole:
+      if let reason = observationSourceChangeUnavailableReason { return reason }
+    default: break
+    }
+    switch submission.intent {
     case .selectCameraRole(let role):
       if let reason = observationSourceChangeUnavailableReason { return reason }
       let result = await submitObservationIntent(.selectCameraRole(role))
@@ -4417,6 +4524,10 @@ final class PlotterApplicationRuntime:
         title: "Analyze for Learning", intent: .drawingDraft(analyzeIntent),
         unavailableReason: drawing.residualRecords.contains(where: \.isSelected) ? nil : "Select an archived drawing first.",
         owner: "PlotterDrawingDraftRuntime"))
+      let borderIntent = PlotterDrawingDraftIntent.setDrawBorder(!drawing.drawBorder)
+      candidates.append(uiCandidate(id: PlotterAppUIActionID.drawingDraft(borderIntent),
+        title: "Draw border", intent: .drawingDraft(borderIntent),
+        unavailableReason: drawing.authoringUnavailableReason, owner: "PlotterDrawingDraftRuntime"))
       let fitIntent = PlotterDrawingDraftIntent.fitInDrawableRegion
       candidates.append(uiCandidate(id: PlotterAppUIActionID.drawingDraft(fitIntent),
         title: "Fit Target", intent: .drawingDraft(fitIntent),
@@ -4965,6 +5076,17 @@ final class PlotterApplicationRuntime:
       )
     }
 
+    if case .paperReplaced = artifactResetRuntime.snapshot().activeIntent {
+      switch request.intent {
+      case .drawingRun(.start), .drawingDraft, .paper, .manualMotion,
+        .learningAction, .boundary, .pointSelection:
+        return plotterUIRefusal(request, reason: .unavailableAction,
+          currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
+          remedy: "Wait for the current paper replacement transaction to finish.")
+      default: break
+      }
+    }
+
     switch request.intent {
     case .learning(.setEnabled(let target)) where request.actionID == PlotterAppUIActionID.learningMode:
       await setLearningEnabledFromPlotterUI(target)
@@ -5000,6 +5122,15 @@ final class PlotterApplicationRuntime:
         // operator assertion to the exact frame available at the click, then
         // retain Draft's full-reference admission through the submission.
         let referenceAtClick = drawingDraftSnapshot.projection
+        guard let visibleFrame = actionSurfacePreview.displayedFrame else {
+          return plotterUIRefusal(request, reason: .retainedOwnerRefused,
+            currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
+            remedy: "Show the current Plotter Video frame before confirming sheet coverage.")
+        }
+        // Preview pixels are normally unsealed. Only this explicit evidence
+        // action materializes their identity; passive video does no hashing.
+        displayedFrame = DisplayedFrame(source: visibleFrame.source,
+          frame: visibleFrame.frame.materializingEvidenceContentHash())
         let factsAtClick = drawingDraftExternalFacts
         let prepared = await drawingDraftRuntime.synchronize(factsAtClick)
         guard prepared.projection.environment == referenceAtClick.environment,
@@ -5185,10 +5316,17 @@ final class PlotterApplicationRuntime:
           remedy: reason
         )
       }
-    case .paper(.newSheetOnCurrentPlane):
-      await recordNewPaperSheetOnCurrentPlane()
-    case .paper(.contactPlaneChanged):
-      await recordPaperContactPlaneChanged()
+    case .paper(let declaration):
+      let contactPlaneChanged: Bool = switch declaration {
+      case .newSheetOnCurrentPlane: false
+      case .contactPlaneChanged: true
+      }
+      if let remedy = await recordPaperReplacement(contactPlaneChanged: contactPlaneChanged) {
+        return plotterUIRefusal(
+          request, reason: .retainedOwnerRefused,
+          currentUIRevision: currentPlotterUIProjection?.revision ?? currentUIRevision,
+          currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(), remedy: remedy)
+      }
     case .requestIncidentPackage where request.actionID == PlotterAppUIActionID.incidentPackage:
       await requestIncidentPackageFromPlotterUI()
     default:
@@ -5608,7 +5746,7 @@ final class PlotterApplicationRuntime:
         return reason.map { (itemID, $0) }
       }
     )
-    let savedTrainingCandidate = savedLearningState.candidate.map { candidate in
+    let savedTrainingCandidate = savedLearningApplicationCandidate.map { candidate in
       PlotterLearningPresentationFacts.SavedTrainingFacts(
         checkpointID: candidate.checkpoint.checkpointID,
         artifactSummary: savedTrainingArtifactSummary(candidate.checkpoint),
@@ -5896,9 +6034,18 @@ final class PlotterApplicationRuntime:
   private func applySavedLearningEffect() async throws -> (
     AcceptedLearningPathCheckpoint, String
   ) {
-    guard case .awaitingOperatorDecision(let checkpoint, let opticalComparison) =
-      savedLearningState
-    else { throw LearningPathOperationError.requiredState("No Saved Learning decision is pending.") }
+    guard let candidate = savedLearningState.applicationCandidate else {
+      throw LearningPathOperationError.requiredState("No accepted Saved Learning package is available.")
+    }
+    let (checkpoint, opticalComparison) = candidate
+    if savedLearningState.candidate == nil {
+      guard tipCameraRegistration == nil else {
+        throw LearningPathOperationError.requiredState("Accepted calibration is already active.")
+      }
+      if let reason = savedLearningRecoveryUnavailableReason(checkpoint) {
+        throw LearningPathOperationError.requiredState(reason)
+      }
+    }
       let restoredGraph = try checkpoint.restoredLearningGraph()
       await penInteractionRuntime.restore(checkpoint.penInteraction, environment: .live)
       installPenInteractionSnapshot(
@@ -5953,7 +6100,7 @@ final class PlotterApplicationRuntime:
   }
 
   private func retainSavedLearningEffect() throws -> AcceptedLearningPathCheckpoint {
-    guard case .awaitingOperatorDecision(let checkpoint, _) = savedLearningState
+    guard let checkpoint = savedLearningState.applicationCandidate?.checkpoint
     else { throw LearningPathOperationError.requiredState("No Saved Learning decision is pending.") }
     acceptedArtifactCheckpointStatus = .retainedForLater(
       sideCount: checkpoint.machineArtifacts?.acceptedBoundaryAggregates.count ?? 0,
@@ -8410,16 +8557,25 @@ final class PlotterApplicationRuntime:
     await recordPaperReplacement(contactPlaneChanged: true)
   }
 
-  private func recordPaperReplacement(contactPlaneChanged: Bool) async {
+  /// Nil means this declaration applied; otherwise return its own actionable
+  /// failure to the existing UI refusal channel, independently of old warnings.
+  @discardableResult
+  private func recordPaperReplacement(contactPlaneChanged: Bool) async -> String? {
     do {
       let plan = try makePaperReplacementPlan(contactPlaneChanged: contactPlaneChanged)
-      let applied = await artifactResetRuntime.submit(.paperReplaced(plan), facts: artifactResetAdmissionFacts)
-      if !applied {
-        explorationError = artifactResetRuntime.snapshot().phase.detail
-          ?? "Paper replacement was not applied."
+      let intent = PlotterArtifactResetIntent.paperReplaced(plan)
+      guard await artifactResetRuntime.submit(intent, facts: artifactResetAdmissionFacts) else {
+        let remedy = artifactResetRuntime.snapshot().terminalHistory.last {
+          $0.intent == intent
+        }?.detail ?? "Paper replacement was not applied. Review the current paper transaction in Diagnostics and retry."
+        explorationError = remedy
+        return remedy
       }
+      return nil
     } catch {
-      explorationError = "Paper replacement was refused: \(actionableDescription(error))"
+      let remedy = "Paper replacement was refused: \(actionableDescription(error))"
+      explorationError = remedy
+      return remedy
     }
   }
 
@@ -8443,12 +8599,20 @@ final class PlotterApplicationRuntime:
     }
     return PlotterArtifactResetPlan(
       id: "paper-replaced-\(frameMode.rawValue)-\(UUID().uuidString)",
+      expectedCurrentRevisionIDs: Set(learningArtifactGraph.revisions.filter { $0.state == .current }.map(\.id)),
+      expectedAcceptedAttemptSequence: acceptedAttemptSequence,
       sourceIsSimulated: frameMode == .simulated,
       resetAll: false,
       removesDurableMachineCheckpoint: false,
       removesDurableTipCheckpoint: false,
       physicalInkMayRemain: true,
-      paperReplacement: transition
+      paperReplacement: transition,
+      previousAcceptedCheckpoint: {
+        guard frameMode == .live, let actions = activeStatePersistencePort,
+          case .loaded(let checkpoint) = actions.loadAcceptedLearningPathCheckpoint() else { return nil }
+        return checkpoint
+      }(),
+      expectedControllerSessionID: controllerSessionID
     )
   }
 
@@ -11371,7 +11535,15 @@ final class PlotterApplicationRuntime:
         await reconcileAutomaticVisionAnalysis()
       }
     }
-    displayedFrame = result.displayedFrame
+    if let current = displayedFrame,
+      current.source == result.displayedFrame.source,
+      current.frame.cameraConfigurationID == result.displayedFrame.frame.cameraConfigurationID,
+      current.frame.captureNanoseconds > result.displayedFrame.frame.captureNanoseconds {
+      // Keep the exact frame selected by a newer operator action. Scene
+      // measurements below still retain their own original frame identity.
+    } else {
+      displayedFrame = result.displayedFrame
+    }
     lastSceneMeasurement = result.measurement
     overlayResultChannels.publishScene(
       overlayChannelResult(
@@ -13026,13 +13198,13 @@ extension PlotterApplicationRuntime {
 
       case .applySavedLearning(_, let checkpoint, _, let environment):
         guard environment == .live,
-          savedLearningState.candidate?.checkpoint.checkpointID == checkpoint.checkpointID
+          savedLearningState.applicationCandidate?.checkpoint.checkpointID == checkpoint.checkpointID
         else { return .refused("The Saved Learning candidate changed before application.") }
         let applied = try await applySavedLearningEffect()
         return .completed(.savedLearningApplied(applied.0, opticalComparison: applied.1))
 
       case .retainSavedLearning(_, let checkpoint):
-        guard savedLearningState.candidate?.checkpoint.checkpointID == checkpoint.checkpointID else {
+        guard savedLearningState.applicationCandidate?.checkpoint.checkpointID == checkpoint.checkpointID else {
           return .refused("The Saved Learning candidate changed before retention.")
         }
         return .completed(.savedLearningRetained(try retainSavedLearningEffect()))
@@ -13079,7 +13251,10 @@ extension PlotterApplicationRuntime {
         guard paperReplacementIsFresh(plan) else {
           return .failed("Paper identity changed after durable replacement was committed.")
         }
-        let drawingSnapshot = await drawingRunRuntime.snapshot(environment: manualMotionEnvironment)
+        // Coverage removal changes the current plan identity. Obtain the
+        // owner's synchronized reference before its exact terminal handoff,
+        // including when shutdown has already stopped ambient projections.
+        let drawingSnapshot = await drawingRunRuntime.synchronize(environment: manualMotionEnvironment)
         guard !drawingRunIsActive else {
           return .failed("Drawing Run became active before paper replacement could be projected.")
         }
@@ -13091,7 +13266,9 @@ extension PlotterApplicationRuntime {
             )
           )
           guard case .applied = result.disposition else {
-            return .failed("Resolve Drawing Run evidence publication before changing paper identity.")
+            let detail = result.snapshot.lastRefusal.map(drawingRunRefusalDetail)
+              ?? "Resolve Drawing Run evidence publication before changing paper identity."
+            return .failed(detail)
           }
           installDrawingRunSnapshot(result.snapshot)
         }
@@ -13107,6 +13284,15 @@ extension PlotterApplicationRuntime {
         } else {
           return .failed("LIVE paper replacement is missing its immutable paper transition.")
         }
+        if case .available = drawingSnapshot.evidenceArchiveAvailability {
+          // The Run owner indexes possible ink by the complete paper identity.
+          // Rebuild that index from immutable records for the new sheet; merely
+          // clearing its terminal does not retire the old sheet's blocked plans.
+          let restored = await drawingRunRuntime.restoreNoRedrawTruth(
+            from: drawingEvidenceArchive, paper: currentPaperRevisionContext,
+            environment: manualMotionEnvironment)
+          installDrawingRunSnapshot(restored)
+        }
         if let owner = activeExerciseAttemptOwnerID,
           owner != .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
         {
@@ -13120,17 +13306,42 @@ extension PlotterApplicationRuntime {
           tipCameraRegistration = nil
           proposedTipCameraRegistration = nil
         }
-        resetTipCalibrationRuntimeForCurrentPaper()
-        let paperClear = await drawingDraftRuntime.clearPaperCoverageForRetainedPaperLifecycle(
-          facts: drawingDraftExternalFacts
-        )
-        installDrawingDraftSnapshot(paperClear.snapshot)
-        if case .refused(let refusal) = paperClear.disposition {
-          drawingEvidenceError = refusal.remedy
+        if contactPlaneChanged {
+          resetTipCalibrationRuntimeForCurrentPaper()
+          activeStageFourCheckpoint = nil
+        } else {
+          tipCalibrationRuntime.clearPaperTransients(currentPaperRevisionContext.instance)
         }
+        proposedTipCameraRegistration = nil
+        frozenPointSelectionFrame = nil
+        pendingToolContactEvidence = []
+        pendingToolContactClickFrame = nil
+        await cancelPointSelectionRequest()
+        let priorAssessment = borderValidationSnapshot.assessment
         clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
+        if !contactPlaneChanged, let priorAssessment {
+          _ = borderValidationRuntime.apply(.restoreAcceptedAssessment(priorAssessment))
+        }
+        if !plan.sourceIsSimulated, let actions = activeStatePersistencePort {
+          let checkpoint: AcceptedLearningPathCheckpoint?
+          if case .loaded(let loaded) = actions.loadAcceptedLearningPathCheckpoint() {
+            checkpoint = loaded
+          } else { checkpoint = nil }
+          artifactResetRuntime.installPaperReplacementCheckpoint(checkpoint, plan: plan)
+        }
         overlayResultChannels.clearWorkflow(source: frameMode, owner: .drawingStudio)
+        overlayResultChannels.clearWorkflow(source: frameMode, owner: .sparseTipCalibration)
         await synchronizeDrawingRunProjection()
+        await synchronizeDrawingDraft()
+        let newPlan = await drawingDraftRuntime.submit(
+          PlotterDrawingDraftSubmission(projection: drawingDraftSnapshot.projection, intent: .beginNewPlan),
+          facts: drawingDraftExternalFacts)
+        installDrawingDraftSnapshot(newPlan.snapshot)
+        guard case .applied = newPlan.disposition else {
+          return .failed("Paper was recorded, but the settled Drawing Run could not prepare its next plan. Review New Drawing.")
+        }
+        await synchronizeDrawingRunProjection()
+        learningAuthorityError = nil
         explorationError = nil
         return .completed(.inMemoryPaperReplacementApplied(plan))
 
@@ -13171,8 +13382,12 @@ extension PlotterApplicationRuntime {
         return .refused("Paper replacement source no longer matches the active workspace.")
       }
       guard !plan.sourceIsSimulated else {
-        // The simulated causal scene has no LIVE durable authority. Its paper
-        // fact is applied only by the final projection effect.
+        let cleared = await drawingDraftRuntime.clearPaperCoverageForRetainedPaperLifecycle(
+          facts: drawingDraftExternalFacts)
+        guard case .applied = cleared.disposition else {
+          return .failed("Sheet coverage cleanup did not settle; paper identity was retained.")
+        }
+        installDrawingDraftSnapshot(cleared.snapshot)
         return .completed(.paperReplacementPersisted(plan))
       }
       guard let transition = plan.paperReplacement,
@@ -13180,10 +13395,20 @@ extension PlotterApplicationRuntime {
       else {
         return .failed("LIVE paper replacement requires durable identity and checkpoint authority.")
       }
+      func restorePreviousPaperAuthority() throws {
+        try actions.persistPaperRevisionContext(transition.previous)
+        if let previous = plan.previousAcceptedCheckpoint {
+          try actions.saveAcceptedLearningPathCheckpoint(previous)
+        } else { try actions.clearAcceptedLearningPathCheckpoint() }
+      }
       do {
         try actions.persistPaperRevisionContext(transition.current)
       } catch {
-        return .failed("Paper identity durable write/read-back failed: \(actionableDescription(error))")
+        do { try restorePreviousPaperAuthority() }
+        catch {
+          return .failed("Paper identity durable write/read-back failed and rollback failed: \(actionableDescription(error))")
+        }
+        return .failed("Paper identity durable write/read-back failed; previous authority was restored: \(actionableDescription(error))")
       }
       do {
         if learningArtifactGraph.revisions.isEmpty {
@@ -13198,7 +13423,7 @@ extension PlotterApplicationRuntime {
         }
       } catch {
         do {
-          try actions.persistPaperRevisionContext(transition.previous)
+          try restorePreviousPaperAuthority()
         } catch {
           return .failed(
             "Canonical checkpoint save failed and paper identity rollback failed: \(actionableDescription(error))"
@@ -13206,6 +13431,17 @@ extension PlotterApplicationRuntime {
         }
         return .failed("Canonical checkpoint save failed; paper identity was rolled back: \(actionableDescription(error))")
       }
+      let cleared = await drawingDraftRuntime.clearPaperCoverageForRetainedPaperLifecycle(
+        facts: drawingDraftExternalFacts)
+      guard case .applied = cleared.disposition else {
+        do {
+          try restorePreviousPaperAuthority()
+        } catch {
+          return .failed("Sheet coverage cleanup failed and durable paper rollback failed: \(actionableDescription(error))")
+        }
+        return .failed("Sheet coverage persistence failed; paper identity and accepted Learning were rolled back. Retry New Sheet after resolving paper persistence.")
+      }
+      installDrawingDraftSnapshot(cleared.snapshot)
       return .completed(.paperReplacementPersisted(plan))
 
     case .persistReset(_, let runtimePlan):
@@ -13253,7 +13489,11 @@ extension PlotterApplicationRuntime {
   }
 
   private func paperReplacementIsFresh(_ plan: PlotterArtifactResetPlan) -> Bool {
-    guard plan.sourceIsSimulated == (frameMode == .simulated) else { return false }
+    guard plan.sourceIsSimulated == (frameMode == .simulated),
+      plan.expectedControllerSessionID == controllerSessionID,
+      plan.expectedAcceptedAttemptSequence == acceptedAttemptSequence,
+      plan.expectedCurrentRevisionIDs == Set(learningArtifactGraph.revisions.filter { $0.state == .current }.map(\.id))
+    else { return false }
     guard !plan.sourceIsSimulated else { return plan.paperReplacement == nil }
     guard let transition = plan.paperReplacement else { return false }
     return transition.previous == currentPaperRevisionContext

@@ -9,6 +9,168 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Bounded paper, border, and Motion correction, 2026-09-12
+
+Task `task-cceb274a51cd443696f191f1233ab3e4` implements the explicitly requested
+correction on the Blackdog task workspace based on `da92596`. The prior four
+corrections (`b08c136`, `9028087`, `dbe38f8`, `da92596`) are ancestors of this
+candidate; they were not reset or blindly reapplied.
+
+Production inspection identified an unconditional tip-runtime paper reset after
+the same-plane declaration. That cleared accepted registration/checkpoint even
+though the durable package and earlier successful Border record survived.
+The candidate separates sheet-transient cleanup from contact-plane invalidation,
+retains completed compatible Learning, and admits bounded reapplication of an
+already-applied saved package through existing validation. The user's reported
+first physical drawing remains a user report; inspecting retained records does
+not independently establish that physical outcome.
+
+Ordinary **Draw border** defaults off for each new drawing and uses the calibrated border owner;
+selected geometry joins one immutable program/plan and ordinary run evidence.
+Motion now reads the controller owner's actual receipt-stamped coherent report
+through a visible 5 Hz observable leaf. Re-reading cached data does not refresh
+its receipt. No new serial reader or UI query stream was introduced.
+
+The integrated correction also refreshes the existing Drawing Run no-redraw
+index for the newly committed paper through `restoreNoRedrawTruth`. Old records
+remain intact, and same-sheet rejection remains enforced. Coverage confirmation
+seals the actual visible frame only at the operator action, with no passive
+hashing. The final paper handoff synchronizes after coverage cleanup and remains
+joined through shutdown; partial checkpoint-save failure restores the exact
+predecessor.
+
+Integrated software validation on the candidate frozen for full assessment:
+
+- Focused strict Swift run: **144 tests passed**, 12.752 seconds tests,
+  14.307 seconds wall (`focused-final.log`).
+- `make quick-test SWIFT_FLAGS="-Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors"`:
+  **1021 tests passed**, 82.159 seconds tests, 92.616 seconds wall, with five
+  existing opt-in skips (`quick-strict-final.log`).
+- `make journey-test SWIFT_FLAGS="-Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors"`:
+  **10 tests passed**, 3.149 seconds tests, 4.315 seconds wall (`journey-strict.log`).
+- `make validate-app SWIFT_FLAGS="-Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors"`:
+  passed in 12.697 seconds wall. The log confirms debug compilation, stable-local
+  signing, launcher logic/validation and negative bundle validation (`signed-debug.log`).
+- `make -n app` and `make -n app APP_CONFIGURATION=release`: passed and selected
+  debug by default and explicit release respectively. These are configuration
+  checks, not release performance measurements.
+- `make docs-check`: final assessment-candidate contracts and **13, 9 and 39
+  Python tests passed**, 28.691 seconds wall (`docs-final-candidate.log`).
+  `git diff --check` also passed (`diff-final-candidate.log`).
+
+The exact focused command was:
+
+```sh
+swift test --filter 'SavedLearningCompletionTests|PlotterArtifactResetEpisodeTests|PlotterDrawingDraftEpisodeTests|PlotterDrawingRunEpisodeTests|DrawingStudioPresentationTests|MachineControllerTests|ControllerStatusReceiptTests|MotionReadoutTests' -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+```
+
+Commands, elapsed times and logs are retained in
+`/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/adaptive-correction-b5e22xdx/validation.jsonl`.
+Earlier runs did fail. Their unchanged logs retain compilation/fixture failures,
+feedback-context self-dismissal, coverage-frame mismatch, paper-handoff/no-redraw
+failures and Motion-isolation fixture synchronization issues. The final results
+above supersede those candidates; they do not rewrite those failures as passes.
+
+The signed debug candidate assessed before F-01 repair is separately staged at
+`/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter-correction-cceb274a.app`.
+Its executable SHA-256 is
+`6a73e6bc38bb35084ca45f0e6c1b976728a82e1b527284e3c5ff7fe13852496f`;
+the task and staged executables matched at that build. The staged bundle validator and deep,
+strict codesign verification passed with **AdaptivePlotter Local Development**.
+Metadata for that initial artifact is retained as `candidate-artifact-pre-repair.json` beside the validation logs.
+All four recorded user-state baseline hashes remain unchanged.
+
+One full independent assessment by a subagent who authored none of the changes
+reviewed the complete 51-item register, integrated diff, production owners,
+test/deletion classification, actual logs and candidate artifacts. It independently
+verified the frozen Git tree `5302ff142d4c843eee3d0d653593ef4edb0eeab5`, all 283
+source/build/test manifest entries, the staged executable hash/signature, unchanged
+user-state hashes, and absence of a running app.
+
+The assessment found **one actionable P2, F-01**, affecting D-01, D-02, E-03 and
+V-03: a failed typed Paper-menu transaction preserved/rolled back calibration
+correctly but returned `.accepted`, suppressing the existing visible refusal
+channel when Guided Learning was hidden. The bounded remedy is to return the
+operation-specific transaction result through the existing typed refusal path,
+preserving rollback and successful-retry clearing, with production typed-Paper
+failure/retry tests. There were no P0, P1, other P2 or P3 findings. The full report
+is retained as `assessment-full.md` beside the validation logs.
+
+The consolidated F-01 repair is implemented: the existing paper transaction
+returns its operation-specific result through the typed refusal channel.
+`swift test --filter SavedLearningCompletionTests -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors`
+passed **7 tests** in 15.516 seconds tests (`repair-paper-strict.log`), including
+metadata/checkpoint/coverage failure followed by successful retry for both
+same-plane and changed-plane declarations (six combinations).
+
+The first repaired full quick run still failed an existing computation-isolation
+test (`repair-quick-strict.log`): one extra semantic projection build, outside
+the passing Paper cases. Source inspection found that the test awaited Draft
+facts while its existing Draft-to-Run publication could still be pending.
+`OperatorWorkspaceComputationDiagnosticsTests.swift` now joins that existing
+synchronization before measuring. All no-rebuild assertions remain, and runtime
+revision equality is added. The failing log did not capture the specific
+publication token, so this is source-grounded diagnosis rather than proof of
+that exact historical token. The initial diagnostics filter selected **zero
+tests** due to a filename/type-name mismatch; its corrected narrow filter ran
+one passing test but did not close the full-run failure. The complete
+`PlotterApplicationRuntimeComputationDiagnosticsTests` strict filter then passed
+**14 tests** in 2.193 seconds tests (`repair-diagnostics-strict.log`).
+
+Final repaired broad validation passed with the same complete strict-concurrency
+and warnings-as-errors flags:
+
+- `make quick-test SWIFT_FLAGS="-Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors"`:
+  **1021 tests passed**, 80.716 seconds tests, 82.336 seconds wall, with the same
+  five opt-in skips (`repair-quick-strict-final.log`).
+- `make journey-test SWIFT_FLAGS="-Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors"`:
+  **10 tests passed**, 3.117 seconds tests, 4.288 seconds wall
+  (`repair-journey-strict.log`).
+
+F-01 implementation and the diagnostics test adaptation are covered by those
+repaired broad passes. The final repaired
+`make validate-app SWIFT_FLAGS="-Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors"`
+passed in **11.645 seconds wall**. The final signed debug bundle is separately
+staged at
+`/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter-correction-cceb274a-final.app`.
+Its executable SHA-256 is
+`760750e2ad5046fe3b59d67a7e8009366f47bb725707774ad4ecb821b713ce55`.
+Task/staged bytes match; deep/strict stable-local signature and bundle validation
+passed. The 283 source/build/test manifest inputs are unchanged from the repaired
+freeze. `candidate-artifact.json` records the final artifact, while
+`candidate-artifact-pre-repair.json` preserves the initial one. All four user-state
+hashes remain unchanged, no app was launched, and none is running.
+
+The same independent nonauthor completed the sole bounded delta verification
+against repaired tree `1415c4e7e586554d577cb3dc542ce9a2171e10bf`.
+**F-01 (P2) is closed.** The delta verified operation-specific typed refusal,
+all six failure/retry combinations, preserved atomicity and successful-retry
+clearing, and the justified diagnostics synchronization adaptation. It found no
+residual P0/P1/P2/P3 finding or newly introduced serious defect. It independently
+rechecked all 283 input hashes, final staged executable/signature, four unchanged
+user-state hashes and absence of a running app. The report is retained as
+`assessment-delta.md`; this completed one full assessment, one consolidated repair
+and one same-assessor delta, without another full review cycle.
+
+`make docs-check` on the repaired candidate passed contracts and **13/9/39
+Python tests** in 28.830 seconds (`repair-docs-final.log`); staged
+`git diff --cached --check` also passed. There are no remaining implementation,
+validation or assessment blockers. The coordinator's local Blackdog landing,
+finalization and clean-target verification receipts belong to
+`task-cceb274a51cd443696f191f1233ab3e4` history and the final delivery report;
+this validated-correction entry does not assert that landing already occurred.
+Pre-repair passes/hash remain historical evidence for that earlier candidate.
+Earlier sections below remain historical validation for their own candidates.
+
+No AdaptivePlotter process was running at the campaign baseline. No user app was
+launched, stopped, restarted, or replaced, and user calibration/preferences/
+captures were not edited. Native input, sustained preview performance and
+attended camera/pen/paper/ink validation are not established by this campaign's
+software work. The signed debug candidate is staged separately; staging does not
+mean the user is running the corrected build. Voice behavior is unchanged,
+including the separately documented workflow speech path for “Drawing the
+four-edge Drawing Border.”
+
 ## Closable retained comparison review, 2026-09-12
 
 Task `task-fac81af1e0674ca2bcf00ef65eff23bc` removes the permanent

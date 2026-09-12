@@ -205,7 +205,8 @@ identities and revisions, semantic optical/machine/tool/paper identities, and
 accepted revision. A diagnostic cap-to-tip pixel difference at one pose is not
 a durable camera-independent tool vector.
 
-The machine-only checkpoint remains separate. `AcceptedTipCalibrationCheckpoint`
+`AcceptedLearningPathCheckpoint` is the atomic accepted-prefix envelope, including
+its machine and `AcceptedTipCalibrationCheckpoint` components. Tip authority
 is composed back into current authority after a matching read-only controller-
 context probe and a current frame with the same camera device and semantic
 optics. An ordinary binary replacement, process restart, or capture-session
@@ -255,8 +256,8 @@ drawing archive. Failed or ambiguous trials stop selection. Candidates remain
 diagnostic; automatic batch execution, corrected physical holdouts, and explicit
 model acceptance are still required before adaptive drawing readiness.
 
-**Drawing Studio** is always visible in the workbench and in **View**. Open it
-before calibration to select a vector drawing or use **Create Portrait…** to
+The main canvas is permanent. Open **Portrait Studio** through **View**
+before calibration to prepare a drawing or use its photo controls to
 import a face photo or capture from a separate camera. **Use Portrait** retains
 the generated program while calibration is unavailable; its plan is built when
 a current pen-tip registration and Drawing Boundary become available.
@@ -274,8 +275,13 @@ The accepted Drawing Boundary projects as the persistent drawable outline.
 Paper is a separate operator fact:
 **Confirm Paper Coverage** binds the current sheet and exact frame to the
 outlined region before Run can become eligible. **New Sheet — Same Contact
-Plane** preserves learned geometry but requires a fresh coverage confirmation;
-**Contact Plane Changed** invalidates the pen-tip calibration.
+Plane** preserves accepted calibration and completed Learning but requires fresh
+exact-frame coverage confirmation. Select **Draw border** (initially off) only
+when this ordinary drawing should ink the calibrated border; its outline remains
+visible either way. **Contact Plane Changed** invalidates dependent tip calibration
+while retaining unrelated valid machine/camera Learning. If only active
+calibration was lost, **Use Saved Learning** can reapply a compatible retained
+package after its initial startup application.
 
 `DrawingPlanner` refuses any transformed stroke outside the accepted Drawing Boundary
 and emits an immutable content-addressed execution-plan revision with one
@@ -300,11 +306,14 @@ future declared coverage/model-comparison/holdout requirements.
 
 ## Workbench and evidence
 
-One singleton window contains the Learning Path, always-mounted camera/action
-surface, Motion region, optional Drawing Studio, and optional Video Settings.
-View contains noun-labeled checked panel toggles. Learning can be hidden during
-an exercise because its Stop also remains in the session toolbar. A manual jog
-still retains its Motion-panel Stop control.
+One singleton window contains the permanent video/portrait/simulation canvas.
+Native **View** Show/Hide commands control Guided Learning, Video Settings,
+Motion, Active Learning and Portrait Studio. Panes fill right, left, lower-right,
+then lower-left; a fifth replaces the oldest. Native dividers resize them.
+The far-right red **Achtung!** retains current typed Stop requests with all
+panes hidden. Motion displays coherent controller reports at about 5 Hz while
+visible, labels stale/disconnected values, and separates commanded pen state
+from reported values and historical outcomes.
 
 Video Settings combines camera selection, adjacent Refresh, scene-analysis
 frames per second, viewport zoom/drag/region lock, and exactly two readable

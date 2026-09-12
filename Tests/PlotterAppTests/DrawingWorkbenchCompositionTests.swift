@@ -302,7 +302,9 @@ struct DrawingWorkbenchApplicationFixture {
   let planGate: DrawingRunPlanGate
   let runRuntime: PlotterDrawingRunRuntime
 
-  static func make(releasePlanOnStop: Bool = true) async throws -> Self {
+  static func make(releasePlanOnStop: Bool = true,
+    paperPersistence: any PlotterDrawingDraftPaperPersistence = PlotterDrawingDraftTransientPaperPersistence()
+  ) async throws -> Self {
     let accepted = try await CompleteAcceptedLearningFixture.make()
     let stores = CompleteAcceptedLearningStores()
     try await stores.save(accepted)
@@ -324,7 +326,9 @@ struct DrawingWorkbenchApplicationFixture {
         if releasePlanOnStop { await planGate.release(.cancelled) }
         return .transmitted
       },
-      statePersistencePort: stores.persistence, drawingEvidencePort: stores.evidencePort,
+      statePersistencePort: stores.persistence,
+      drawingDraftRuntime: nominalDrawingDraftRuntime(paperPersistence: paperPersistence),
+      drawingEvidencePort: stores.evidencePort,
       tipCalibrationSemanticIdentities: accepted.identities,
       residualEffectPort: TestApplicationResidualEffectPort(
         discoverDevices: { [machine.descriptor] }, readNanoseconds: { clock.read() }),

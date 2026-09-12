@@ -212,6 +212,16 @@ Dependency behavior is intentionally asymmetric:
   Learning and Portrait Studio, with Command-Option-1 through Command-Option-5.
   The central canvas remains mounted with all controls closed. Control visibility
   does not change physical Draw prerequisites, the active camera or Learning.
+- **New Sheet — Same Contact Plane** preserves completed Learning/calibration,
+  clears prior-sheet transients after persistence, and requires current exact-frame
+  **Confirm sheet coverage**. **Contact Plane Changed** invalidates the dependent
+  tip calibration. Compatible **Use Saved Learning** recovery remains available
+  after its original startup application when only active calibration was lost.
+- **Draw border** is an ordinary draft option, initially off. It changes the
+  drawing program and preview, not the Learning state or calibrated outline.
+  It is unavailable while a run or retained terminal owns editing.
+- Motion's report readout refreshes automatically only while visible; hiding it
+  leaves controller monitoring and current Stop/action authority running.
 - **Diagnostics** writes a bounded snapshot of existing workflow phases, drawing
   outcomes, terminal details, actions/refusals, source and revisions to a file in
   the background. Completion provides file access and failures remain visible.

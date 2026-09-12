@@ -98,6 +98,27 @@ struct PlotterArtifactResetEpisodeTests {
     #expect(await port.calls.map(kind) == [.settle])
   }
 
+  @Test("shutdown joins committed paper replacement through its final projection")
+  func shutdownCompletesCommittedPaperProjection() async {
+    let plan = makePlan()
+    let port = ArtifactResetPortFixture(responses: [
+      .completed(.paperReplacementSettled(plan)),
+      .completed(.inMemoryPaperReplacementApplied(plan)),
+    ], persistenceResponses: [.completed(.paperReplacementPersisted(plan))],
+      suspendsFirstPersistence: true)
+    let runtime = await PlotterArtifactResetRuntime(effectPort: port, persistencePort: port)
+    let submission = Task { await runtime.submit(.paperReplaced(plan), facts: .init(environment: .live)) }
+    await port.waitForPersistenceCallCount(1)
+    let shutdown = Task { await runtime.shutdown() }
+    while !(await runtime.snapshot()).admissionClosed { await Task.yield() }
+    await port.releaseSuspendedPersistence()
+    await shutdown.value
+    #expect(await submission.value)
+    #expect((await runtime.snapshot()).phase == .completed)
+    #expect((await runtime.snapshot()).lastResetPlan == plan)
+    #expect(await port.calls.map(kind) == [.settlePaper, .applyPaper])
+  }
+
   @Test("reset orders durable work before in-memory projection")
   func resetDurableBeforeProjection() async {
     let plan = makePlan()

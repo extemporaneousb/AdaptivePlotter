@@ -46,6 +46,14 @@ public enum PlotterArtifactResetSavedLearningState: Hashable, Sendable {
     return (checkpoint, comparison)
   }
 
+  /// Applying an already accepted package is a bounded recovery operation;
+  /// the effect owner must revalidate its current dependencies before mutation.
+  public var applicationCandidate: (checkpoint: AcceptedLearningPathCheckpoint, opticalComparison: String)? {
+    if let candidate { return candidate }
+    guard case .applied(let checkpoint, let comparison) = self else { return nil }
+    return (checkpoint, comparison)
+  }
+
   public var appliedCheckpoint: AcceptedLearningPathCheckpoint? {
     guard case .applied(let checkpoint, _) = self else { return nil }
     return checkpoint
@@ -67,6 +75,9 @@ public struct PlotterArtifactResetPlan: Hashable, Sendable {
   /// current identity and the operator-declared replacement identity before
   /// the persistence transaction starts.
   public let paperReplacement: PaperReplacementTransition?
+  /// Exact durable predecessor retained only for transaction rollback.
+  public let previousAcceptedCheckpoint: AcceptedLearningPathCheckpoint?
+  public let expectedControllerSessionID: UUID?
 
   public init(
     id: String,
@@ -79,7 +90,9 @@ public struct PlotterArtifactResetPlan: Hashable, Sendable {
     removesDurableMachineCheckpoint: Bool,
     removesDurableTipCheckpoint: Bool,
     physicalInkMayRemain: Bool,
-    paperReplacement: PaperReplacementTransition? = nil
+    paperReplacement: PaperReplacementTransition? = nil,
+    previousAcceptedCheckpoint: AcceptedLearningPathCheckpoint? = nil,
+    expectedControllerSessionID: UUID? = nil
   ) {
     self.id = id
     self.anchorStepID = anchorStepID
@@ -92,6 +105,8 @@ public struct PlotterArtifactResetPlan: Hashable, Sendable {
     self.removesDurableTipCheckpoint = removesDurableTipCheckpoint
     self.physicalInkMayRemain = physicalInkMayRemain
     self.paperReplacement = paperReplacement
+    self.previousAcceptedCheckpoint = previousAcceptedCheckpoint
+    self.expectedControllerSessionID = expectedControllerSessionID
   }
 }
 
@@ -325,6 +340,18 @@ public final class PlotterArtifactResetRuntime {
     savedLearning = state
   }
 
+  /// Publish the checkpoint already durably committed by the admitted paper
+  /// transaction. No outside caller can replace authority during another task.
+  public func installPaperReplacementCheckpoint(
+    _ checkpoint: AcceptedLearningPathCheckpoint?, plan: PlotterArtifactResetPlan
+  ) {
+    guard activeIntent == .paperReplaced(plan),
+      case .applyingInMemoryPaperReplacement = phase else { return }
+    savedLearning = checkpoint.map {
+      .applied($0, opticalComparison: "Retained accepted Learning across paper replacement.")
+    } ?? .absent
+  }
+
   public func admissionRefusal(
     for intent: PlotterArtifactResetIntent,
     facts: PlotterArtifactResetAdmissionFacts
@@ -387,7 +414,7 @@ public final class PlotterArtifactResetRuntime {
         intent: intent
       )
     case .applySavedLearning:
-      guard let candidate = savedLearning.candidate else {
+      guard let candidate = savedLearning.applicationCandidate else {
         refuse(intent, "No Saved Learning candidate is awaiting an operator decision.")
         return false
       }
@@ -403,7 +430,7 @@ public final class PlotterArtifactResetRuntime {
         environment: facts.environment
       ), intent: intent)
     case .retainSavedLearning:
-      guard let candidate = savedLearning.candidate else {
+      guard let candidate = savedLearning.applicationCandidate else {
         refuse(intent, "No Saved Learning candidate is awaiting an operator decision.")
         return false
       }
@@ -478,7 +505,10 @@ public final class PlotterArtifactResetRuntime {
     let task = Task { [effectPort] in result = await effectPort.execute(request) }
     activeTask = task
     await task.value
-    guard !admissionClosed else {
+    let committedPaperProjection: Bool
+    if case .applyInMemoryPaperReplacement = request { committedPaperProjection = true }
+    else { committedPaperProjection = false }
+    guard !admissionClosed || committedPaperProjection else {
       phase = .cancelled("Artifact/reset admission closed.")
       recordTerminal(intent: intent, detail: "Artifact/reset admission closed.")
       return false
@@ -511,7 +541,10 @@ public final class PlotterArtifactResetRuntime {
     let task = Task { [persistencePort] in result = await persistencePort.persist(request) }
     activeTask = task
     await task.value
-    guard !admissionClosed else {
+    let committedPaper: Bool
+    if case .completed(.paperReplacementPersisted) = result { committedPaper = true }
+    else { committedPaper = false }
+    guard !admissionClosed || committedPaper else {
       phase = .cancelled("Artifact/reset admission closed.")
       recordTerminal(intent: intent, detail: "Artifact/reset admission closed.")
       return false

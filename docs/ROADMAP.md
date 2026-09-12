@@ -24,7 +24,7 @@ recognition and contextual prompting; workflow speech has a separate runtime.
 A future change should provide independent Voice Input and Speech Output controls,
 with output mute cancelling active/queued speech and suppressing all announcement
 sources. Leave voice behavior, preferences, recognition and synthesis unchanged
-in the permanent-canvas/control-pane work.
+in the bounded paper/border/Motion correction campaign as well.
 
 The operator also reported silence until "Drawing the four-edge Drawing Border."
 Code inspection confirms that Drawing Border execution calls
@@ -64,8 +64,11 @@ Exercise 1.2 Drawing Boundary and inset Drawing Border overlays, one shared froz
 arbitrary-order human center clicks, deterministic global association, the
 all-corner affine-first commit on click four, one predicted Drawing Border preview before
 motion, one complete Exercise 2.1 Drawing Border validation, retained exact comparison
-review, new-sheet coverage confirmation, and one simple physical Drawing Studio
-plan with post-run planned-versus-observed review. Record failures without
+review, two consecutive ordinary drawings across same-plane sheet replacement,
+with Draw border off and on, exact new-sheet coverage confirmation, and retained
+calibration/completion/outline. Check visible Motion values during both manual
+and automatic paths, stale/disconnected labeling, hide/reopen, and current
+blocker recovery. Record post-run planned-versus-observed review and failures without
 redrawing ambiguous locations.
 
 This is the highest-priority gap. Automated and simulated evidence cannot close

@@ -228,12 +228,16 @@ restoration.
   saved-tip revalidation/rebase path without new contact marks.
 - New sheet on the same unchanged support/stock/contact plane: choose **New
   Sheet — Same Contact Plane**. Confirm the paper instance changes, tip authority
-  remains current, prior sheet coverage is cleared, and a new coverage assertion
-  is required before drawing. Do not use this branch after changing stock
+  and completed Learning remain current, the calibrated outline is visible,
+  prior sheet coverage is cleared, and a new exact-frame coverage assertion
+  is required before drawing. Choose Draw border separately for the new ordinary
+  drawing; it must not repeat Learning. Retain both drawing records under their
+  original sheet identities. Do not use this branch after changing stock
   thickness, support, fixture, or contact height.
 - Changed support, stock thickness, contact height, or contact plane: choose
-  **Contact Plane Changed**. Confirm tip authority is invalidated, rebuild
-  current machine-camera authority if required, then run a complete new
+  **Contact Plane Changed**. Confirm tip authority is invalidated while unrelated
+  valid machine boundaries and camera Learning remain. Rebuild camera authority
+  only if its own dependency changed, then run a complete new
   four-circle Exercise 1.4 calibration, then review and accept the new calibration.
 
 If any semantic identity is uncertain, do not revalidate. Clear the durable tip
@@ -277,11 +281,12 @@ Up and observe the existing stroke, but it must not redraw it.
 
 ## 6. Portrait Studio — two distinct physical plans
 
-1. Show **Guided Learning**, **Video**, **Motion**, and **Portrait Studio** from
-   the panel menu. Each panel may remain visible in Left, Bottom, or Right.
+1. Show **Guided Learning**, **Video Settings**, **Motion**, and **Portrait Studio**
+   from native **View** Show/Hide commands. Panes fill right, left, lower-right,
+   lower-left around the permanent canvas; native dividers resize them.
    Apply **Use Saved Learning** and verify the complete accepted checkpoint,
    including Border completion. Selecting Portrait preparation uses the face
-   camera in the shared Video panel; **Show on Plotter Video** selects the
+   camera in the permanent canvas; **Show on Plotter Video** selects the
    plotter camera while retaining the portrait controls.
 2. Inspect the fresh plotter frame, controller position, accepted region, and
    actual contact plane. An existing sheet assertion does not detect paper
@@ -306,11 +311,18 @@ Up and observe the existing stroke, but it must not redraw it.
    before **New Drawing** releases the owner's in-memory frames. Inspect the
    terminal result and paper. A possible-ink, ambiguous, incomplete-publication,
    or rejected observation ends this sequence without replay.
-7. Only after the first result is understood, create a second distinct plan in
-   the other half of the same region, with no overlap including line width.
-   Review its frame and plan, then click **Draw** once. Retain the second exact
-   record/frame pair. Keep both ordinary records immutable; they may be selected
-   later in **Active Learning > Analyze for Learning**. Never relabel holdouts.
+7. Only after the first result and publication are understood, replace the sheet
+   on the same unchanged support/stock/contact plane and record **New Sheet —
+   Same Contact Plane**. Confirm the new instance, retained calibration/completed
+   Learning, current outline, and cleared coverage. Confirm coverage against the
+   current exact frame, inspect the second plan, and click **Draw** once. Repeat
+   this two-sheet sequence with **Draw border** off and on; retain each program
+   identity, border inclusion, Stop/cancellation outcome where exercised, and
+   both immutable record/frame pairs. Verify Motion changes during manual and
+   automatic motion and marks stale/disconnected data without needing a checkbox.
+   Hide/reopen Motion and confirm the report returns without affecting the run.
+   These records may later be selected in **Active Learning > Analyze for
+   Learning**; never relabel holdouts.
 
 The explicit harness scenario composes these existing controls and owners:
 

@@ -1655,6 +1655,54 @@ Exercise 1.4 graph. Stage 2 Drawing Border plans and local baselines consume the
 tip revision; later frame/post-frame/ink/residual nodes retain that dependency
 transitively.
 
+### Paper replacement and ordinary border ownership
+
+`PlotterArtifactResetRuntime` preserves durable-before-memory paper publication.
+`PlotterApplicationRuntime.applyInMemoryPaperReplacement` separates per-sheet
+cleanup from contact-plane invalidation. `PlotterTipCalibrationRuntime` retains
+accepted registration/checkpoint on same-plane replacement while retiring
+paper-transient calibration work. Changed-plane replacement invalidates the tip
+dependency and preserves unrelated accepted machine/camera data. The ordinary
+Drawing Run owner synchronizes after coverage cleanup before performing its
+exact terminal/new-plan handoff; committed paper publication remains joined
+through shutdown. A partial checkpoint-write failure restores the exact prior
+checkpoint and paper context. After the durable paper change, the existing
+`PlotterDrawingRunRuntime.restoreNoRedrawTruth` rebuilds the blocked-plan index
+from the retained archive for the new current paper. It neither removes old
+records nor weakens the same-sheet rejection. Previous records are immutable. Compatible saved-package recovery reuses accepted-checkpoint
+validation even when the startup decision is already applied.
+
+At `.assertPaperCoverage` ingress, the application takes the frame actually
+visible in `actionSurfacePreview`, materializes its evidence content hash once,
+and synchronizes Draft with those exact click-time facts. The existing draft
+revision and complete external-facts comparison still rejects concurrent
+context changes. Passive frame publication does not materialize content hashes.
+Late analysis results cannot replace a newer selected exact frame; the current
+Drawing Run facts use the coherent frame chosen by Draft, preserving the same
+frame through coverage admission and downstream readiness.
+
+The application's existing `drawingBorderBounds(for:acceptedBoundary:)` geometry
+owner supplies `drawingBorderBounds` to `PlotterDrawingDraftExternalFacts`.
+The draft's `.setDrawBorder(Bool)` choice and that geometry participate in the
+revision/derivation identity. `PlotterDrawingPlanningAdapter` composes the placed
+artwork and requested closed border into one machine-aligned local
+`DrawingProgram`, then submits it to `DrawingPlanner`. The resulting single plan
+feeds preview, `PlotterDrawingRunRuntime`, checkpoints, Stop, possible ink, and
+ordinary evidence. Original artwork remains the editable source for Fit/Center;
+the Learning border owner is unchanged. Every canonical `.beginNewPlan`
+handoff resets **Draw border** off, including a successful new-sheet handoff;
+other edits of the same draft preserve its explicit choice.
+
+`MachineController` retains each status report with receipt timestamp and sequence
+in `MachineSnapshot.latestStatusSample`. `MotionReadoutModel` reads the existing
+session snapshot every 200 ms only while its leaf view exists; it does not assign
+`PlotterApplicationRuntime.machineSnapshot` or invalidate Learning/Drawing
+projections. `MotionReadoutPresentation` formats coherent report fields, ages the
+actual receipt against a two-second stale threshold, and separates commanded pen
+and historical outcomes. Panel teardown cancels presentation work and rejects
+late reads. The controller owner retains acquisition, operation arbitration,
+monitoring, and faults independently of view visibility.
+
 ## Chronology and possible ink
 
 Live Pen Down and Pen Up timestamps are taken only after the corresponding

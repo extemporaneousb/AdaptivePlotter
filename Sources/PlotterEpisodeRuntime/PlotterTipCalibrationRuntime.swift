@@ -279,7 +279,9 @@ public final class PlotterTipCalibrationRuntime {
     phase = expectedSelection.map { .awaitingCompletedPointSelection($0) } ?? .idle
   }
 
-  public func resetForPaper(_ paperInstance: PaperInstanceRevision) {
+  /// Clear only work tied to a replaced sheet. Accepted calibration is a
+  /// contact-plane dependency and survives this transition.
+  public func clearPaperTransients(_ paperInstance: PaperInstanceRevision) {
     activeTask?.cancel()
     activeTask = nil
     activeOperationID = nil
@@ -287,8 +289,6 @@ public final class PlotterTipCalibrationRuntime {
     expectedSelection = nil
     completedSelection = nil
     retainedDomainEvidence = nil
-    acceptedRegistration = nil
-    recoverableCheckpoint = nil
     blacklistedLocations = blacklistedLocations.filter { $0.paperInstance == paperInstance }
     if let location = blacklistedLocations.first {
       phase = .possibleInkBlacklisted(
@@ -296,8 +296,15 @@ public final class PlotterTipCalibrationRuntime {
         "Possible ink already excludes this exact machine position on the current paper."
       )
     } else {
-      phase = .idle
+      phase = acceptedRegistration == nil ? .idle : .accepted
     }
+  }
+
+  /// Used for actual calibration dependency invalidation and explicit resets.
+  public func resetForPaper(_ paperInstance: PaperInstanceRevision) {
+    acceptedRegistration = nil
+    recoverableCheckpoint = nil
+    clearPaperTransients(paperInstance)
   }
 
   @discardableResult

@@ -7,6 +7,7 @@ public enum PlotterDrawingDraftIntent: Hashable, Sendable {
   case selectCatalogItem(DrawingCatalogEntryID)
   case selectProgram(DrawingProgram)
   case placeAtCameraPoint(PlotterDrawingDraftCameraPlacement)
+  case setDrawBorder(Bool)
   case setUniformScale(Double)
   case setRotationDegrees(Double)
   case centerInDrawableRegion

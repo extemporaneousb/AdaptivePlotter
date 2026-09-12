@@ -10,6 +10,89 @@ import Testing
 @Suite("Drawing Studio draft episode", .serialized)
 @MainActor
 struct PlotterDrawingDraftEpisodeTests {
+  @Test("optional border shares plan identity, preview and containment while calibration stays independent")
+  func optionalBorderIsCanonicalOrdinaryGeometry() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let facts = fixture.facts()
+    let opened = try await open(runtime, facts: facts)
+    #expect(!opened.drawBorder)
+    let original = try #require(opened.plan)
+    let bordered = try applied(await runtime.submit(.init(projection: opened.projection,
+      intent: .setDrawBorder(true)), facts: facts))
+    let plan = try #require(bordered.plan)
+    #expect(bordered.drawBorder)
+    #expect(bordered.evidenceRole == .ordinaryDrawing)
+    #expect(plan.revisionID != original.revisionID)
+    #expect(bordered.program?.contentHash != opened.program?.contentHash)
+    #expect(plan.sourceProgramContentHash == bordered.program?.contentHash)
+    #expect(plan.strokes.count == original.strokes.count + 1)
+    #expect(plan.checkpoints.count == plan.strokes.count)
+    #expect(Array(plan.strokes.dropLast()).map(\.path) == original.strokes.map(\.path))
+    #expect(plan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
+    #expect(bordered.preview?.strokes.count == plan.strokes.count)
+    let border = try #require(plan.strokes.last)
+    #expect(border.path.points.first == border.path.points.last)
+    #expect(border.semanticRole == .drawing)
+    let fitted = try applied(await runtime.submit(.init(projection: bordered.projection,
+      intent: .fitInDrawableRegion), facts: facts))
+    #expect(fitted.plan?.strokes.last?.path == border.path)
+    let restored = try applied(await runtime.submit(.init(projection: fitted.projection,
+      intent: .setDrawBorder(false)), facts: facts))
+    #expect(restored.program == opened.program)
+    #expect(restored.plan?.strokes.count == original.strokes.count)
+    #expect(restored.projection.externalFacts.registrationRevisionID == opened.projection.externalFacts.registrationRevisionID)
+  }
+
+  @Test("a new drawing defaults border off while edits preserve its explicit choice")
+  func newDrawingDefaultsBorderOff() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let facts = fixture.facts()
+    let opened = try await open(runtime, facts: facts)
+    let selected = try applied(await runtime.submit(.init(projection: opened.projection,
+      intent: .setDrawBorder(true)), facts: facts))
+    let edited = try applied(await runtime.submit(.init(projection: selected.projection,
+      intent: .centerInDrawableRegion), facts: facts))
+    #expect(edited.drawBorder)
+    let next = try applied(await runtime.submit(.init(projection: edited.projection,
+      intent: .beginNewPlan), facts: facts))
+    #expect(!next.drawBorder)
+    #expect(next.placementID != edited.placementID)
+    #expect(next.program == opened.program)
+    #expect(next.plan?.strokes.count == opened.plan?.strokes.count)
+    #expect(next.projection.externalFacts.registrationRevisionID == opened.projection.externalFacts.registrationRevisionID)
+  }
+
+  @Test("border selection cannot mutate active or retained terminal drawings", arguments: [false, true])
+  func optionalBorderRespectsRunOwnership(terminal: Bool) async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let opened = try await open(runtime, facts: fixture.facts())
+    let facts = fixture.facts(runInProgress: !terminal, terminalRequiresNewPlan: terminal)
+    let result = await runtime.submit(.init(projection: opened.projection,
+      intent: .setDrawBorder(true)), facts: facts)
+    #expect(try refusal(result).reason == (terminal ? .terminalRunRequiresHandoff : .retainedRunOwnsMutation))
+    #expect(!result.snapshot.drawBorder)
+    #expect(result.snapshot.plan?.revisionID == opened.plan?.revisionID)
+  }
+
+  @Test("a border outside the contained region cannot bypass planning")
+  func optionalBorderContainmentFailure() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let program = try DrawingProgramCatalog.program(for: .circle,
+      style: StrokeStyle(nominalLineWidth: 0.4,
+        penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue)))
+    let bounds = fixture.drawableRegion.effectiveBounds
+    let built = PlotterDrawingPlanningAdapter.buildDraft(program: program, machineCenter: nil,
+      uniformScale: 0.02, rotationDegrees: 0, drawableRegion: fixture.drawableRegion,
+      registration: fixture.registration, drawBorder: true,
+      drawingBorderBounds: try AxisAlignedBounds(minX: bounds.minX - 1, minY: bounds.minY,
+        maxX: bounds.maxX, maxY: bounds.maxY))
+    #expect(built.plan == nil)
+    #expect(built.failure != nil)
+  }
+
   @Test("automatic fit keeps upright when it wins or the orientations tie", arguments: [false, true])
   func uprightAndTieFit(square: Bool) async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
@@ -1156,7 +1239,8 @@ private struct DrawingDraftAuthorityFixture: Sendable {
       toolAssemblyRevision: self.registration.applicability.toolAssembly,
       paper: paper,
       runInProgress: runInProgress,
-      terminalRequiresNewPlan: terminalRequiresNewPlan
+      terminalRequiresNewPlan: terminalRequiresNewPlan,
+      drawingBorderBounds: registration?.applicabilityRectangle
     )
   }
 }

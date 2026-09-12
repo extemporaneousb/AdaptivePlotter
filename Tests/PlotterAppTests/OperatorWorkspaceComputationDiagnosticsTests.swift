@@ -769,8 +769,12 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
           == revision - 9
       }
       if revision == 10 {
-        // The first result changes stopped -> running. Finish that semantic
-        // publication before measuring subsequent overlay-only revisions.
+        // The first result changes stopped -> running. Draft facts can already
+        // match while the retained synchronization still awaits Run's final
+        // publication. Join that task and its predecessors before measuring
+        // subsequent overlay-only revisions.
+        let synchronization = try #require(workspace.drawingDraftSynchronizationTask)
+        await synchronization.value
         try await waitUntil {
           workspace.drawingDraftSnapshot.projection.externalFacts
             == workspace.drawingDraftExternalFacts.revisions
@@ -780,6 +784,7 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       let buildCount = workspace.computationDiagnosticsForTesting.plotterUIProjectionBuildCount
       if let previousProjection, let previousBuildCount {
         #expect(projection.semantic.revision == previousProjection.semantic.revision)
+        #expect(projection.semantic.runtimeRevisions == previousProjection.semantic.runtimeRevisions)
         #expect(projection.semantic.actions == previousProjection.semantic.actions)
         #expect(buildCount == previousBuildCount)
       }

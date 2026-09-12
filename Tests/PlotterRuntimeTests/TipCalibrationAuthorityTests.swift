@@ -352,7 +352,7 @@ struct TipCalibrationAuthorityTests {
       for: .paperContactPlaneChanged(PaperContactPlaneRevision())
     ) {
     } else {
-      Issue.record("paper replacement must quarantine contact calibration")
+      Issue.record("contact-plane change must quarantine contact calibration")
     }
     if case .invalidate = try registration.applicabilityDecision(for: .unknownOpticalChange) {
     } else {
@@ -506,7 +506,7 @@ struct TipCalibrationAuthorityTests {
     )
     if case .quarantined = loaded.revalidate(with: paperEvidence) {
     } else {
-      Issue.record("paper replacement must require a fresh complete Exercise 1.4 calibration")
+      Issue.record("contact-plane change must require a fresh complete Exercise 1.4 calibration")
     }
 
     let staleEvidence = try fixture.revalidationEvidence(

@@ -2337,3 +2337,128 @@ private struct Fixture {
     return Fixture(directory: directory, ledger: ledger, runID: runID, clock: clock)
   }
 }
+
+@Suite("Controller status receipt telemetry")
+struct ControllerStatusReceiptTests {
+  @Test("identical received reports advance sequence but rereading never refreshes receipt")
+  func identicalReportsKeepActualReceipt() async throws {
+    let clock = DeterministicRuntimeClock()
+    let exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 10)
+    let link = SimulatedGRBLLink(exchanges: exchanges + exchanges, clock: clock)
+    let controller = MachineController(link: link, clock: clock, queryTimeoutNanoseconds: 1_000)
+    let firstProbe = await controller.runPassiveProbe()
+    let first = try #require(await controller.snapshot().latestStatusSample)
+    let statusReceipt = try #require(firstProbe.exchanges.first { $0.query == .status }?
+      .rawIO.last { $0.direction == .receive })
+    #expect(first.receivedAt == statusReceipt.timestamp)
+    let writes = link.completedWriteCount
+    clock.advance(nanoseconds: 5_000_000_000)
+    for _ in 0..<20 { #expect(await controller.snapshot().latestStatusSample == first) }
+    #expect(link.completedWriteCount == writes)
+    _ = await controller.runPassiveProbe()
+    let second = try #require(await controller.snapshot().latestStatusSample)
+    #expect(second.report == first.report)
+    #expect(second.sequence == first.sequence + 1)
+    #expect(second.receivedAt.monotonicNanoseconds > first.receivedAt.monotonicNanoseconds)
+    await controller.disconnect()
+    #expect(await controller.snapshot().latestStatusSample == nil)
+  }
+
+  @Test("manual jog and automatic drawing expose changing reports before operation settlement",
+    arguments: [false, true])
+  func inFlightReportsAreAvailable(automatic: Bool) async throws {
+    let clock = DeterministicRuntimeClock()
+    let jogRequest = try jog(dx: 1, dy: 0, feed: 60)
+    let strokeRequest = try stroke(dx: 1, dy: 0, feed: 60)
+    let bytes = automatic ? MachineController.encodeDrawingStroke(strokeRequest)
+      : MachineController.encodeRelativeJog(jogRequest)
+    let idle = "<Idle|MPos:0.000,0.000,0.000>"
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 0)
+    exchanges[2] = statusExchange(idle)
+    exchanges[3] = drawingControllerConfigurationExchange()
+    exchanges.append(statusExchange(idle))
+    exchanges.append(contentsOf: successfulPenCommands(automatic ? .lower : .raise))
+    exchanges.append(statusExchange(idle))
+    exchanges.append(SimulatedCommandExchange(expectedWrite: bytes,
+      reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]))
+    exchanges.append(statusExchange("<Jog|MPos:0.200,0.000,0.000>"))
+    exchanges.append(statusExchange("<Idle|MPos:1.000,0.000,0.000>"))
+    let base = SimulatedGRBLLink(exchanges: exchanges, clock: clock)
+    let gate = MachineReadGate()
+    let link = TelemetrySecondStatusGateLink(base: base, motionBytes: bytes, gate: gate)
+    let controller = MachineController(link: link, clock: clock, queryTimeoutNanoseconds: 1_000,
+      statusPollIntervalNanoseconds: 1, completionGraceNanoseconds: 1_000)
+    _ = await controller.runPassiveProbe()
+    #expect(await controller.activateMotionGuard() == .activated)
+    _ = await controller.requestPenActuation(automatic ? .lower : .raise, profile: .initialDefaults)
+    let before = try #require(await controller.snapshot().latestStatusSample)
+    let operation = Task {
+      if automatic { _ = await controller.requestDrawingStroke(strokeRequest) }
+      else { _ = await controller.requestRelativeJog(jogRequest) }
+    }
+    await gate.waitUntilBlockedRead()
+    let moving = await controller.snapshot()
+    let sample = try #require(moving.latestStatusSample)
+    #expect(moving.operationInFlight)
+    #expect(sample.report.controllerState == .jog)
+    #expect(sample.report.machinePosition == (try MachinePosition(x: 0.2, y: 0)))
+    #expect(sample.sequence == before.sequence + 2)
+    let writes = base.completedWriteCount
+    for _ in 0..<20 { #expect(await controller.snapshot().latestStatusSample == sample) }
+    #expect(base.completedWriteCount == writes)
+    await gate.release()
+    await operation.value
+    let final = await controller.snapshot()
+    #expect(!final.operationInFlight)
+    #expect(final.latestStatusSample?.report.machinePosition == (try MachinePosition(x: 1, y: 0)))
+    #expect(final.latestStatusSample?.sequence == sample.sequence + 1)
+    if automatic { #expect(final.lastDrawingStrokeOutcome != nil) }
+    else { #expect(final.lastMotionOutcome != nil) }
+  }
+}
+
+private actor TelemetryStatusGateState {
+  private var motionWritten = false
+  private var queries = 0
+  private var blockNextRead = false
+  func write(_ bytes: Data, motionBytes: Data) {
+    if bytes == motionBytes { motionWritten = true }
+    else if motionWritten, bytes == PassiveQuery.status.wireBytes {
+      queries += 1
+      blockNextRead = queries == 2
+    }
+  }
+  func shouldBlock() -> Bool {
+    let result = blockNextRead
+    blockNextRead = false
+    return result
+  }
+}
+
+private final class TelemetrySecondStatusGateLink: MachineLink, @unchecked Sendable {
+  let descriptor: MachineLinkDescriptor
+  private let base: any MachineLink
+  private let motionBytes: Data
+  private let gate: MachineReadGate
+  private let state = TelemetryStatusGateState()
+  init(base: any MachineLink, motionBytes: Data, gate: MachineReadGate) {
+    self.base = base
+    descriptor = base.descriptor
+    self.motionBytes = motionBytes
+    self.gate = gate
+  }
+  func open() async throws -> MachineLinkOpenReceipt { try await base.open() }
+  func close() async throws { try await base.close() }
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt {
+    try await base.discardPendingInput()
+  }
+  func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt {
+    let receipt = try await base.write(bytes)
+    await state.write(bytes, motionBytes: motionBytes)
+    return receipt
+  }
+  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> MachineLinkReadReceipt {
+    if await state.shouldBlock() { await gate.block() }
+    return try await base.read(maximumBytes: maximumBytes, timeoutNanoseconds: timeoutNanoseconds)
+  }
+}

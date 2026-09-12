@@ -12,8 +12,23 @@ public enum MachineConnectionState: String, Codable, Hashable, Sendable {
   case blocked
 }
 
+/// One received controller status line. Reading this value never changes its age.
+/// This is controller telemetry, not physical pen, paper, or ink evidence.
+public struct ControllerStatusSample: Codable, Hashable, Sendable {
+  public let report: ControllerStatusReport
+  public let receivedAt: RuntimeTimestamp
+  public let sequence: UInt64
+
+  public init(report: ControllerStatusReport, receivedAt: RuntimeTimestamp, sequence: UInt64) {
+    self.report = report
+    self.receivedAt = receivedAt
+    self.sequence = sequence
+  }
+}
+
 public struct MachineSnapshot: Codable, Hashable, Sendable {
   public let connection: MachineConnectionState
+  public let latestStatusSample: ControllerStatusSample?
   public let link: MachineLinkDescriptor
   public let lastProbe: PassiveProbeResult?
   public let blockers: [MachineBlocker]
@@ -51,9 +66,11 @@ public struct MachineSnapshot: Codable, Hashable, Sendable {
     lastAlarmClearOutcome: ControllerAlarmClearOutcome? = nil,
     jogCancellationInFlight: Bool = false,
     lastJogCancelOutcome: JogCancelOutcome? = nil,
-    controllerAxisFeedLimits: ControllerAxisFeedLimits? = nil
+    controllerAxisFeedLimits: ControllerAxisFeedLimits? = nil,
+    latestStatusSample: ControllerStatusSample? = nil
   ) {
     self.connection = connection
+    self.latestStatusSample = latestStatusSample
     self.link = link
     self.lastProbe = lastProbe
     self.blockers = blockers
@@ -184,6 +201,8 @@ public actor MachineController {
   private let completionGraceNanoseconds: UInt64
 
   private var connection: MachineConnectionState = .disconnected
+  private var latestStatusSample: ControllerStatusSample?
+  private var statusReceiptSequence: UInt64 = 0
   private var lastProbe: PassiveProbeResult?
   private var blockers: [MachineBlocker] = []
   private var controllerState: ControllerState?
@@ -300,7 +319,8 @@ public actor MachineController {
       lastAlarmClearOutcome: lastAlarmClearOutcome,
       jogCancellationInFlight: jogCancellationProgress != nil,
       lastJogCancelOutcome: lastJogCancelOutcome,
-      controllerAxisFeedLimits: controllerAxisFeedLimits
+      controllerAxisFeedLimits: controllerAxisFeedLimits,
+      latestStatusSample: latestStatusSample
     )
   }
 
@@ -675,8 +695,7 @@ public actor MachineController {
 
     let admissionDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
     switch await requestMotionStatus(deadline: admissionDeadline) {
-    case .status(let report):
-      apply(report)
+    case .status:
       if let refusal = validateFreshControllerStatus() {
         await closeAndInvalidateKnowledge()
         return finishMotion(request: request, outcome: .refused(refusal))
@@ -742,7 +761,6 @@ public actor MachineController {
       let statusResult = await requestMotionStatus(deadline: deadline)
       switch statusResult {
       case .status(let report):
-        apply(report)
         switch report.controllerState {
         case .idle:
           if jogCancellationProgress == .transmitting {
@@ -858,8 +876,7 @@ public actor MachineController {
 
     let admissionDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
     switch await requestMotionStatus(deadline: admissionDeadline) {
-    case .status(let report):
-      apply(report)
+    case .status:
       if let refusal = validateFreshControllerStatus() {
         await closeAndInvalidateKnowledge()
         return finishDrawingStroke(
@@ -940,7 +957,6 @@ public actor MachineController {
     while clock.nowNanoseconds() < deadline {
       switch await requestMotionStatus(deadline: deadline) {
       case .status(let report):
-        apply(report)
         switch report.controllerState {
         case .idle:
           if jogCancellationProgress == .transmitting {
@@ -1076,8 +1092,7 @@ public actor MachineController {
 
     let admissionDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
     switch await requestMotionStatus(deadline: admissionDeadline) {
-    case .status(let report):
-      apply(report)
+    case .status:
       if let refusal = validateFreshPenStatus(command) {
         await closeAndInvalidateKnowledge()
         return finishPen(command: command, profile: profile, outcome: .refused(refusal))
@@ -1695,8 +1710,11 @@ public actor MachineController {
         let data = receipt.bytes
         receivedBytes += data.count
         receivedChunks += 1
+        let receivedAt = RuntimeTimestamp(
+          monotonicNanoseconds: receipt.receivedAtMonotonicNanoseconds
+        )
         recordRawIOBestEffort(
-          RawMachineIO(direction: .receive, bytes: data, timestamp: timestamp())
+          RawMachineIO(direction: .receive, bytes: data, timestamp: receivedAt)
         )
         for line in parser.consume(data) {
           switch line.kind {
@@ -1708,7 +1726,7 @@ public actor MachineController {
             applyAlarm(line.text)
             return .ambiguous(.controllerAlarm(line.text))
           case .status(let report):
-            apply(report)
+            apply(report, receivedAt: receivedAt)
           case .unknown:
             return .ambiguous(.malformedReply(line.text))
           case .greeting:
@@ -1781,8 +1799,11 @@ public actor MachineController {
         }
         receivedBytes += data.count
         receivedChunks += 1
+        let receivedAt = RuntimeTimestamp(
+          monotonicNanoseconds: receipt.receivedAtMonotonicNanoseconds
+        )
         recordRawIOBestEffort(
-          RawMachineIO(direction: .receive, bytes: data, timestamp: timestamp())
+          RawMachineIO(direction: .receive, bytes: data, timestamp: receivedAt)
         )
         for line in parser.consume(data) {
           switch line.kind {
@@ -1790,6 +1811,7 @@ public actor MachineController {
             guard report.controllerState.isRecognized else {
               return .ambiguous(.malformedReply(line.text))
             }
+            apply(report, receivedAt: receivedAt)
             return .status(report)
           case .alarm:
             applyAlarm(line.text)
@@ -2045,7 +2067,11 @@ public actor MachineController {
     return outcome
   }
 
-  private func apply(_ report: ControllerStatusReport) {
+  private func apply(_ report: ControllerStatusReport, receivedAt: RuntimeTimestamp) {
+    statusReceiptSequence &+= 1
+    latestStatusSample = ControllerStatusSample(
+      report: report, receivedAt: receivedAt, sequence: statusReceiptSequence
+    )
     controllerState = report.controllerState
     position = report.machinePosition
     pins = report.controllerPins
@@ -2056,12 +2082,14 @@ public actor MachineController {
   }
 
   private func applyAlarm(_ text: String) {
+    latestStatusSample = nil
     controllerState = .alarm
     penState = .unknown
     motionGuardState = .inactive
   }
 
   private func applyControllerReset() {
+    latestStatusSample = nil
     penState = .unknown
     motionGuardState = .inactive
   }
@@ -2081,6 +2109,7 @@ public actor MachineController {
   }
 
   private func invalidateConnectionKnowledge() {
+    latestStatusSample = nil
     connection = .disconnected
     controllerState = nil
     position = nil
@@ -2144,7 +2173,7 @@ public actor MachineController {
         let received = RawMachineIO(
           direction: .receive,
           bytes: receivedBytes,
-          timestamp: timestamp()
+          timestamp: RuntimeTimestamp(monotonicNanoseconds: receipt.receivedAtMonotonicNanoseconds)
         )
         rawIO.append(received)
         recordRawIOBestEffort(received)
@@ -2152,7 +2181,7 @@ public actor MachineController {
         let newLines = parser.consume(receivedBytes)
         for line in newLines {
           parsed.append(line)
-          if case .status(let report) = line.kind { apply(report) }
+          if case .status(let report) = line.kind { apply(report, receivedAt: received.timestamp) }
           if case .greeting = line.kind { applyControllerReset() }
           switch validator.consume(line) {
           case .continueReading:

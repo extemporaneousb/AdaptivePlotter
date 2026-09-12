@@ -213,6 +213,7 @@ struct MotionPanel: View {
   @Binding var draft: ManualMotionDraft
   let presentation: ManualMotionPresentation
   let controllerSession: PlotterControllerSessionProjection
+  let motionSnapshotReader: MotionReadoutModel.SnapshotReader
   let learningIsEnabled: Bool
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
@@ -310,15 +311,20 @@ struct MotionPanel: View {
           .accessibilityIdentifier("motion.penDown")
       }
 
-      Text(presentation.penStateText)
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(.secondary)
-      fact("Controller link", session.controllerConnectionText)
-      fact("Controller", session.controllerStateText)
+      if session.environment == .live {
+        MotionReadout(reader: motionSnapshotReader)
+      } else {
+        Text(presentation.penStateText)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.secondary)
+        fact("Controller link", session.controllerConnectionText)
+        fact("Controller", session.controllerStateText)
+        fact("MPos", session.machinePositionText)
+        fact("Limit inputs", session.controllerLimitInputsText)
+      }
       if let alert = presentation.controllerAlertText(session.controllerAttentionText) {
         fact("Controller alert", alert)
       }
-      fact("Limit inputs", session.controllerLimitInputsText)
       fact("Alarm unlock", session.controllerAlarmUnlockReadinessText)
       if let alarm = session.controllerAlarmEvidenceText {
         VStack(alignment: .leading, spacing: 5) {
@@ -349,10 +355,9 @@ struct MotionPanel: View {
       fact("Motion request", presentation.jogControlsUnavailableReason == nil ? "request eligible" : "unavailable")
       fact("Manual mode", presentation.modeText)
       fact("Learning", learningIsEnabled ? "on" : "off — manual operation")
-      fact("MPos", session.machinePositionText)
       fact("Operation", session.currentOperationText)
-      fact("Last outcome", session.lastMotionOutcomeText)
-      fact("Last pen", session.lastPenOutcomeText)
+      fact("Previous outcome", session.lastMotionOutcomeText)
+      fact("Previous pen outcome", session.lastPenOutcomeText)
 
       if let reason = primaryUnavailableReason, reason != presentation.attentionReason {
         Text(reason)

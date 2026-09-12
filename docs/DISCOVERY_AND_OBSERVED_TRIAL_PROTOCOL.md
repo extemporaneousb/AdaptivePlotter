@@ -398,20 +398,42 @@ affected suffix.
 
 After a new sheet on the explicitly unchanged contact plane:
 
-1. Rotate only `PaperInstanceRevision` and clear sheet-specific paper coverage,
-   possible-ink locations, and retained drawing review state.
-2. Retain current tip authority and the attributable Drawing Border validation lineage.
-3. Place the new sheet over the calibrated outline and explicitly assert that
-   it covers the outline before drawing. This is an operator assertion; paper
-   edges are not measured.
+1. Wait for the current run and evidence publication to settle; then record
+   **New Sheet — Same Contact Plane**. Persistence precedes publication of the
+   new paper instance. A failed or partially completed checkpoint save restores
+   the exact predecessor. Once committed, final coverage/run handoff and
+   projection settle even if shutdown begins.
+2. Expect “New sheet recorded. Calibration retained.” Accepted pen settings,
+   boundaries, camera/tip calibration and completed Learning remain current.
+   Prior records retain their original sheet and calibration identities;
+   sheet coverage, transient proposals/captures and sheet exclusions clear.
+   The existing no-redraw owner indexes the new current sheet; a previous
+   sheet's completed plan does not prohibit the next sheet, and same-sheet
+   possible ink still prohibits replay.
+3. Inspect the calibrated outline on the current compatible camera view, then
+   **Confirm sheet coverage**. The action seals the frame actually visible on
+   the canvas and binds that exact frame to coverage; passive video does no
+   hashing. A late older analysis cannot substitute another frame. Draft and
+   Run retain a coherent selected frame. This asserts coverage and does not
+   measure paper edges or require existing ink.
+4. Choose **Draw border** if this ordinary drawing should ink the calibrated
+   border. Each new drawing defaults off; edits of that drawing retain the
+   explicit choice. It shares the drawing's plan/Stop/evidence and does
+   not repeat the Learning exercise. Inspect the target and click **Draw**.
+
+If accepted data survives but active calibration was lost by an earlier reset,
+use **Use Saved Learning** to reapply the compatible package through current
+accepted-checkpoint validation. The startup choice need not still be pending.
+Do not use that route to conceal an incompatible physical dependency.
 
 After a changed support, stock thickness, contact height, or contact plane:
 
-1. Rotate `PaperInstanceRevision` and `PaperContactPlaneRevision` and invalidate
-   current tip authority.
-2. Rebuild and accept current Exercise 1.3 authority.
-3. Run the complete Exercise 1.4 four-circle calibration on the new plane; review and
-   explicitly accept its new tip registration.
+1. Record **Contact Plane Changed**, rotating both paper identities and
+   invalidating dependent tip calibration.
+2. Retain accepted machine boundaries and machine/camera Learning while their
+   own dependencies remain valid; revalidate only an actually changed dependency.
+3. Run the complete Exercise 1.4 four-circle calibration on the new plane;
+   review and explicitly accept its new tip registration before drawing.
 
 Any mismatch or ambiguous contact leaves authority unavailable. It never falls
 back to automatic redraw or silent checkpoint promotion.
