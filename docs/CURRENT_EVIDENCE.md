@@ -9,6 +9,32 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Closable retained comparison review, 2026-09-12
+
+Task `task-fac81af1e0674ca2bcf00ef65eff23bc` removes the permanent
+"Comparison frame … is retained" canvas notification. The comparison box now
+appears only during exact-frame review, and its **×** submits the existing
+return-to-live request. Closing removes the box and restores live preview.
+**Review Comparison** remains available in Video Settings to reopen the retained
+frame; no separate dismissal store or evidence mutation was introduced.
+
+The focused strict-concurrency, warnings-as-errors Swift run passed **59 tests**.
+The production lifecycle regression closes and reopens through projected UI
+requests, verifies the same exact frame and comparison data remain available,
+and checks that Learning revisions and simulator position do not change on
+close. Presentation state, semantic control parity, ambient preview isolation
+and overlay tolerance checks also passed. Documentation and whitespace checks
+passed. The default debug app build and strict stable-signature checks passed,
+including validation of the staged copy.
+
+The candidate is staged at `.build/AdaptivePlotter-comparison-fac81af1.app`
+in the canonical checkout; executable SHA-256 is
+`b7b0e6b6f75ff3b05a659ce0d5466d0e2b658b2aa5fec891a0184207d9ebaf46`.
+Logs are retained under `.build/evidence/comparison-close-20260912/`.
+This build includes the earlier Saved Learning Pen Up and Achtung title fixes.
+The user's active app was not replaced or restarted. Native input, sustained
+preview performance and attended physical behavior were not tested in this task.
+
 ## Saved Learning circle-action Pen Up admission, 2026-09-12
 
 Task `task-a544918a8a2f4b36a97b7231fe1f865c` removes the redundant current-Pen-Up

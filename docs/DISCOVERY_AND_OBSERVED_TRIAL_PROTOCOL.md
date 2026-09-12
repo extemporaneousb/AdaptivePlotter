@@ -484,8 +484,10 @@ separate facts; completion does not assert general adaptive-drawing readiness.
    **Show on Plotter Video** retains those controls and images, switches the same
    Video panel to the plotter, installs the program, and fits upright or sideways
    according to the larger valid uniform scale. Complete Exercise 2.1 before drawing.
-   Use **Review Comparison** to return to the pinned exact post-frame or
-   **Resume Live Preview** before placement.
+   Use **Review Comparison** in **Video Settings** to return to the pinned exact
+   post-frame. Close its canvas box with **×**, or use **Resume Live Preview** in
+   Video Settings before placement. Closing retains the comparison and removes
+   the box entirely; it does not leave another Review notification on the canvas.
 2. Confirm the accepted Drawing Boundary outline is visible. Place the current
    physical sheet over it and choose **Sheet Covers Target**. The assertion
    cites the current paper instance, contact plane, source, exact frame, and

@@ -157,10 +157,12 @@ struct PlotterApplicationRuntimeLifecycleTests {
     #expect(workspace.currentExerciseActionStripPresentation == nil)
     #expect(workspace.completedDrawingComparisonReviewIsAvailable)
     #expect(!workspace.completedDrawingComparisonReviewIsPinned)
+    #expect(!workspace.testActionSurfacePresentation.completedComparisonReview.isPresentedOnCanvas)
     #expect(workspace.workbenchCapabilityPresentation.learning == .interactiveLearningComplete)
     await workspace.reviewCompletedDrawingComparison()
     #expect(workspace.completedDrawingComparisonReviewIsPinned)
     let completedSurface = workspace.testActionSurfacePresentation
+    #expect(completedSurface.completedComparisonReview.isPresentedOnCanvas)
     #expect(
       completedSurface.displayedFrame?.frame.id
         == workspace.borderValidationSnapshot.postFrame?.frame.id)
@@ -171,10 +173,32 @@ struct PlotterApplicationRuntimeLifecycleTests {
         .residual,
       ]))
 
-    workspace.resumeLivePreviewAfterDrawingComparison()
+    let comparisonBeforeClose = workspace.borderValidationSnapshot
+    let learningBeforeClose = Set(workspace.learningArtifactGraph.revisions)
+    let simulatorBeforeClose = await harness.simulator.snapshot()
+    let closeUI = workspace.testPlotterUIProjection(selectedItemID: owner, includesLearningPath: true)
+    let close = try #require(closeUI.semantic.request(matching: .retainedComparisonReview(.resumeLivePreview)))
+    #expect(await workspace.submitPlotterUIRequest(close) == .accepted(requestID: close.id))
     #expect(!workspace.completedDrawingComparisonReviewIsPinned)
-    await workspace.reviewCompletedDrawingComparison()
+    let closedSurface = workspace.testActionSurfacePresentation
+    #expect(!closedSurface.completedComparisonReview.isPresentedOnCanvas)
+    #expect(closedSurface.usesAmbientPreviewFrame)
+    #expect(workspace.completedDrawingComparisonReviewIsAvailable)
+    #expect(workspace.borderValidationSnapshot.postFrame == comparisonBeforeClose.postFrame)
+    #expect(workspace.borderValidationSnapshot.inkObservation == comparisonBeforeClose.inkObservation)
+    #expect(workspace.borderValidationSnapshot.drawingOutcome == comparisonBeforeClose.drawingOutcome)
+    #expect(workspace.borderValidationSnapshot.assessment == comparisonBeforeClose.assessment)
+    #expect(Set(workspace.learningArtifactGraph.revisions) == learningBeforeClose)
+    #expect((await harness.simulator.snapshot()).mpos == simulatorBeforeClose.mpos)
+
+    // Video Settings uses this same retained action after the canvas box closes.
+    let reopenUI = workspace.testPlotterUIProjection(selectedItemID: owner, includesLearningPath: true)
+    let reopen = try #require(reopenUI.semantic.request(matching: .retainedComparisonReview(.reviewExactFrame)))
+    #expect(await workspace.submitPlotterUIRequest(reopen) == .accepted(requestID: reopen.id))
+    try await waitUntil { workspace.completedDrawingComparisonReviewIsPinned }
     #expect(workspace.completedDrawingComparisonReviewIsPinned)
+    #expect(workspace.testActionSurfacePresentation.completedComparisonReview.isPresentedOnCanvas)
+    #expect(workspace.testActionSurfacePresentation.displayedFrame == comparisonBeforeClose.postFrame)
     #expect(
       workspace.testWorkbenchCapabilityPresentation.learning == .interactiveLearningComplete
     )

@@ -22,6 +22,8 @@ struct CompletedComparisonReviewPresentationTests {
         == .availableForReview(frameSequence: frame.frame.sequence)
     )
     #expect(presentation.controls.map(\.intent) == [.reviewComparison])
+    #expect(!presentation.isPresentedOnCanvas)
+    #expect(!CompletedComparisonReviewPresentation.unavailable.isPresentedOnCanvas)
   }
 
   @Test("reviewing never substitutes another exact frame")
@@ -45,6 +47,7 @@ struct CompletedComparisonReviewPresentationTests {
         )
     )
     #expect(presentation.controls.map(\.intent) == [.resumeLivePreview])
+    #expect(presentation.isPresentedOnCanvas)
   }
 
   @Test("Drawing Studio entry carries an immutable draft projection")

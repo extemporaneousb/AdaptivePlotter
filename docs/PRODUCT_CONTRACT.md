@@ -1339,8 +1339,12 @@ red Achtung! control. Existing typed Stop requests and Escape routing are
 preserved; passive status badges and the separate command strip are removed.
 Voice remains unchanged and its input/output split is deferred in the Roadmap.
 
-Video Settings contains source choice, zoom, overlays, analysis cadence and
-region controls. Showing or hiding control panes does not select a camera;
+Video Settings contains source choice, zoom, overlays, analysis cadence,
+region controls, and Review Comparison for the retained Drawing Border result.
+The comparison box appears on the canvas only during exact-frame review. Its
+close control resumes live preview and removes the box; it does not discard the
+comparison, accepted Learning, or drawing evidence. Video Settings can reopen
+the same retained frame. Showing or hiding control panes does not select a camera;
 explicit camera controls and workflow-title actions retain projected requests.
 The permanent canvas uses the existing frame/overlay leaf and portrait renderer.
 With no available image it displays an identified simulator preview, without

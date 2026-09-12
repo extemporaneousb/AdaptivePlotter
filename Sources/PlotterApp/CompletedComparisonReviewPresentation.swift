@@ -63,6 +63,11 @@ struct CompletedComparisonReviewPresentation: Hashable, Sendable {
 
   static let unavailable = Self(state: .unavailable, drawingDraftProjection: nil)
 
+  var isPresentedOnCanvas: Bool {
+    if case .reviewingExactFrame = state { return true }
+    return false
+  }
+
   func displayStatus(
     for displayedFrame: DisplayedFrame?
   ) -> CompletedComparisonReviewDisplayStatus {
@@ -117,37 +122,36 @@ struct CompletedComparisonReviewControls: View {
   var body: some View {
     let status = presentation.displayStatus(for: displayedFrame)
     VStack(alignment: .trailing, spacing: 7) {
-      Text(status.message)
-        .font(.caption.monospaced())
-        .foregroundStyle(statusColor(status))
-        .multilineTextAlignment(.trailing)
-        .fixedSize(horizontal: false, vertical: true)
-      HStack(spacing: 7) {
-        ForEach(presentation.controls) { control in
-          let retainedIntent: PlotterUIRetainedComparisonIntent =
-            control.intent == .reviewComparison ? .reviewExactFrame : .resumeLivePreview
-          let intent = PlotterUIIntent.retainedComparisonReview(retainedIntent)
-          let request = plotterUIProjection.request(matching: intent)
-          OperatorRequestButton(
-            title: control.title, role: control.role, request: request,
-            unavailableReason: request == nil ? "Refresh the completed comparison." : nil,
-            sink: plotterUIIntentSink
-          )
-          .controlSize(.small)
-        }
-        if case .reviewingExactFrame = presentation.state,
-          presentation.drawingDraftProjection != nil
-        {
-          OperatorRequestButton(
-            title: "Show Drawing Target", role: .affirmative,
-            request: plotterUIProjection.request(matching: .drawingDraft(.showTarget)),
-            unavailableReason: nil, sink: plotterUIIntentSink
-          )
-          .controlSize(.small)
-          .accessibilityIdentifier("drawing.showTarget")
-        }
+      HStack(alignment: .top, spacing: 8) {
+        Text(status.message)
+          .font(.caption.monospaced())
+          .foregroundStyle(statusColor(status))
+          .multilineTextAlignment(.trailing)
+          .fixedSize(horizontal: false, vertical: true)
+        OperatorRequestButton(
+          title: "×", request: plotterUIProjection.request(
+            matching: .retainedComparisonReview(.resumeLivePreview)),
+          unavailableReason: nil, sink: plotterUIIntentSink,
+          nativeActionIdentifier: "comparison.close"
+        )
+        .controlSize(.small)
+        .accessibilityLabel("Close comparison")
+        .accessibilityIdentifier("comparison.close")
+        .help("Close comparison and resume live preview")
+      }
+      if case .reviewingExactFrame = presentation.state,
+        presentation.drawingDraftProjection != nil
+      {
+        OperatorRequestButton(
+          title: "Show Drawing Target", role: .affirmative,
+          request: plotterUIProjection.request(matching: .drawingDraft(.showTarget)),
+          unavailableReason: nil, sink: plotterUIIntentSink
+        )
+        .controlSize(.small)
+        .accessibilityIdentifier("drawing.showTarget")
       }
     }
+    .frame(maxWidth: 380)
     .padding(8)
     .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 7))
     .accessibilityElement(children: .contain)

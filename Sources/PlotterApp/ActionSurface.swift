@@ -812,7 +812,7 @@ struct ActionSurface: View {
         }
       }
       .overlay(alignment: .bottomTrailing) {
-        if !presentation.completedComparisonReview.controls.isEmpty {
+        if presentation.completedComparisonReview.isPresentedOnCanvas {
           CompletedComparisonReviewControls(
             presentation: presentation.completedComparisonReview,
             displayedFrame: presentation.displayedFrame,

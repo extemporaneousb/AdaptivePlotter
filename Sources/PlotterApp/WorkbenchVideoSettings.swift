@@ -76,6 +76,16 @@ struct WorkbenchVideoSettings: View {
           Button(projection.regionLock == nil ? "Lock Region" : "Unlock Region", action: submitRegion)
             .disabled(!application.displayedFrameAvailable)
         }
+        ForEach(application.completedComparisonReviewPresentation.controls) { control in
+          let intent: PlotterUIRetainedComparisonIntent = control.intent == .reviewComparison
+            ? .reviewExactFrame : .resumeLivePreview
+          OperatorRequestButton(
+            title: control.title, role: control.role,
+            request: semantic.request(matching: .retainedComparisonReview(intent)),
+            unavailableReason: nil, sink: application
+          )
+          .accessibilityIdentifier("workbench.video.comparison")
+        }
       } else {
         Text("Choose the portrait camera and capture a face in Portrait Studio.")
           .font(.caption).foregroundStyle(.secondary)
