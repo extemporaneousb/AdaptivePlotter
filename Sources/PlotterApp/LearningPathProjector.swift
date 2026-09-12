@@ -860,7 +860,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
     case .calibrateCameraAndVisibleCap:
       [.text("Run five exact cap measurements at C, X−, Y+, X+, and Y−; fit the first three, check the final two independently, then accept or reject the camera calibration.")]
     case .calibratePenContactFromSparseMarks:
-      [.text("Draw four 2 mm-radius calibration circles with their centers 10 mm inside the accepted Drawing Boundary and Pen Up between circles. After the final Pen-Up reveal, click all four centers on the unchanged frame and review the proposed pen-tip calibration.")]
+      [.text("The app raises the pen before moving, then draws four 2 mm-radius calibration circles with their centers 10 mm inside the accepted Drawing Boundary and Pen Up between circles. After the final Pen-Up reveal, click all four centers on the unchanged frame and review the proposed pen-tip calibration.")]
     }
   }
 

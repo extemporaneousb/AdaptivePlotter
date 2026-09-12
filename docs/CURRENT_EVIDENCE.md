@@ -9,6 +9,43 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Saved Learning circle-action Pen Up admission, 2026-09-12
+
+Task `task-a544918a8a2f4b36a97b7231fe1f865c` removes the redundant current-Pen-Up
+availability condition from **Draw Four Calibration Circles**. The existing
+stoppable batch already commands and settles Pen Up before its first travel.
+An applied Saved Learning prefix through camera calibration can now start that
+batch with current Pen Unknown or Down. Connection, Motion authorization,
+controller readiness, camera, pose applicability and calibration prerequisites
+remain in force. Capture-only checkpoint revalidation and camera calibration
+retain their prior pen-pose checks. Applying Saved Learning itself issues no
+motion or pen command. The instruction names the automatic raise, and the
+toolbar's visible Stop title is now **Achtung!**, preserving its typed request,
+Escape routing and accessible Stop description.
+
+The focused strict Swift run passed four test functions, including parameterized
+saved-prefix restoration with Unknown/Down pen states and settled/refused initial
+raises. A held lower pen command admits no travel or strokes. Successful
+settlement precedes the first travel; Stop during that approach leaves no ink.
+A refused raise performs no travel. The retained Motion and LIVE-camera blockers,
+complete saved-Learning restoration and existing four-circle outcome/recomputation
+regression also passed. The full strict-concurrency, warnings-as-errors
+`make quick-test` run passed its **1001-test suite** in 95.637 seconds with five
+existing opt-in skips. Documentation and whitespace checks passed. The default
+debug app build and stable local signature validation passed.
+
+The verified candidate is staged at `.build/AdaptivePlotter-penup-a544918a.app`
+in the canonical checkout; executable SHA-256 is
+`907f1c53c602bc0bf93f2643a6ff1020e89a780f6cb2f701105858638999297f`.
+Logs are retained under `.build/evidence/saved-learning-penup-20260912/`.
+The user's active app was not replaced or restarted. All new motion verification
+used software fixtures; no attended hardware or native-input gate was run.
+
+The reported late "Drawing the four-edge Drawing Border." announcement was
+traced to an unconditional workflow speech call, separate from the window Voice
+toggle. Its source is recorded in the Roadmap's parked voice issue. Voice code
+was not changed and the reported toggle state/audio sequence was not verified.
+
 ## Debug local app build default, 2026-09-12
 
 Task `task-be6862cec7fb424b821476305412f401` changes both the Makefile app

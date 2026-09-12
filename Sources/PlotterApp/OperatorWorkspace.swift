@@ -5571,6 +5571,11 @@ final class PlotterApplicationRuntime:
         return .sparseTipBatch(id)
       }
     }()
+    let savedCheckpointMatchesPaper =
+      recoverableTipCalibrationCheckpoint.map {
+        $0.registration.applicability.paperContactPlane.rawValue
+          == explorationPaperContactPlaneRevision
+      } ?? false
     let itemStartReasons = Dictionary(
       uniqueKeysWithValues: LearningPathItemID.learningExerciseOrder.compactMap {
         itemID -> (LearningPathItemID, String)? in
@@ -5584,9 +5589,15 @@ final class PlotterApplicationRuntime:
           reason = boundarySnapshot?.projection.lastRefusal.map {
             "Boundary refused: \($0.reason). Remedy: \($0.remedy)."
           }
-        case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
-          .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
+        case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
           reason = learningExerciseMotionUnavailableReason(requiresCamera: true)
+        case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
+          // Marking owns an initial settled Pen Up; capture-only checkpoint
+          // revalidation still requires the current pen to already be up.
+          reason = learningExerciseMotionUnavailableReason(
+            requiresCamera: true,
+            normalizesPenUp: !savedCheckpointMatchesPaper
+          )
         case .borderValidation(let step):
           reason = borderValidationActionUnavailableReason(
             for: step == .chooseDrawingBorderPlan ? borderValidation.step : step
@@ -5597,11 +5608,6 @@ final class PlotterApplicationRuntime:
         return reason.map { (itemID, $0) }
       }
     )
-    let savedCheckpointMatchesPaper =
-      recoverableTipCalibrationCheckpoint.map {
-        $0.registration.applicability.paperContactPlane.rawValue
-          == explorationPaperContactPlaneRevision
-      } ?? false
     let savedTrainingCandidate = savedLearningState.candidate.map { candidate in
       PlotterLearningPresentationFacts.SavedTrainingFacts(
         checkpointID: candidate.checkpoint.checkpointID,
@@ -8543,7 +8549,8 @@ final class PlotterApplicationRuntime:
   }
 
   private func learningExerciseMotionUnavailableReason(
-    requiresCamera: Bool
+    requiresCamera: Bool,
+    normalizesPenUp: Bool = false
   ) -> String? {
     if let reason = learningConnectionAndMotionUnavailableReason { return reason }
     if frameMode == .simulated {
@@ -8556,7 +8563,9 @@ final class PlotterApplicationRuntime:
       return nil
     }
     if let reason = retainedPoseApplicabilityRefusal { return reason }
-    if let reason = controllerCarriageTravelUnavailableReason { return reason }
+    if let reason = normalizesPenUp
+      ? retainedCarriageSafetyRefusal : controllerCarriageTravelUnavailableReason
+    { return reason }
     if requiresCamera, !cameraIsLive { return "A current LIVE camera frame is required." }
     return nil
   }

@@ -26,6 +26,15 @@ with output mute cancelling active/queued speech and suppressing all announcemen
 sources. Leave voice behavior, preferences, recognition and synthesis unchanged
 in the permanent-canvas/control-pane work.
 
+The operator also reported silence until "Drawing the four-edge Drawing Border."
+Code inspection confirms that Drawing Border execution calls
+`PlotterApplicationRuntime.performSpeechEffect` in `OperatorWorkspace.swift`
+directly, without the window-local
+`WorkbenchVoiceController.isEnabled` gate. Four-circle pen normalization uses
+the lower pen-command path and does not announce that command. Include both
+paths when implementing the independent output control; the reported toggle
+state and attended audio behavior have not been verified.
+
 ## 0. Episode architecture migration
 
 Execute the plan's named packages in ledger order. The execution-plan ledger and

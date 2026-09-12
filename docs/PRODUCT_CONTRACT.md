@@ -1038,7 +1038,12 @@ the actual minimum/maximum-axis corner.
 
 The Exercise 1.4 batch first commands and settles one idempotent Pen Up, then retains
 that batch-scoped Pen-Up authorization for approach, circle-start, inter-circle,
-and reveal travel. At every mark it retains the circle's pre-mark exact frame,
+and reveal travel. The action may start with current Pen Unknown or Down, including
+after Use Saved Learning; it does not require a separate manual Pen Up. A failed
+initial raise permits no travel. Connection, explicit Motion authorization,
+controller readiness, camera and accepted-calibration prerequisites still apply.
+Camera calibration and capture-only checkpoint revalidation retain their existing
+settled-Pen-Up prerequisite. At every mark it retains the circle's pre-mark exact frame,
 cap, controller, and settled-position evidence; lowers and settles using the
 current Exercise 1.1 profile; draws one closed 2 mm-radius circle as 16 finite
 typed chords at the canonical 500 mm/min app-owned XY feed, reduced only by the
@@ -1330,7 +1335,7 @@ move icon, automatic workflow reset, or closable Video panel.
 
 The session toolbar owns controller selection, amber Connect/Disconnect and
 Enable/Disable Motion actions, the diagnostic export tool, and the far-right
-red Achtung! Stop control. Existing typed Stop requests and Escape routing are
+red Achtung! control. Existing typed Stop requests and Escape routing are
 preserved; passive status badges and the separate command strip are removed.
 Voice remains unchanged and its input/output split is deferred in the Roadmap.
 

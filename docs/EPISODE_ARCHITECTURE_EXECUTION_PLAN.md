@@ -34,7 +34,7 @@ move icon, automatic workflow reset, or closable Video panel.
 
 The session toolbar owns controller selection, amber Connect/Disconnect and
 Enable/Disable Motion actions, the diagnostic export tool, and the far-right
-red Achtung! Stop control. Existing typed Stop requests and Escape routing are
+red Achtung! control. Existing typed Stop requests and Escape routing are
 preserved; passive status badges and the separate command strip are removed.
 Voice remains unchanged and its input/output split is deferred in the Roadmap.
 

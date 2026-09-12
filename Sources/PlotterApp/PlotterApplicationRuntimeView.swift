@@ -228,14 +228,16 @@ struct WorkbenchStopControls: View {
   var body: some View {
     let actions = WorkbenchStopPresentation.actions(in: projection)
     if actions.isEmpty {
-      Button("Achtung! Stop", systemImage: "stop.fill") {}.operatorButton(.stop, isEnabled: false)
+      Button("Achtung!", systemImage: "stop.fill") {}.operatorButton(.stop, isEnabled: false)
+        .accessibilityLabel("Stop")
         .accessibilityIdentifier("workbench.stop")
     } else {
       ForEach(actions) { action in
-        OperatorRequestButton(title: "Achtung! Stop", role: .stop, request: projection.request(for: action.id),
+        OperatorRequestButton(title: "Achtung!", role: .stop, request: projection.request(for: action.id),
           unavailableReason: action.unavailableReason, sink: sink, nativeActionIdentifier: "workbench.stop")
           .keyboardShortcut(.cancelAction)
           .help(action.title)
+          .accessibilityLabel(action.title)
           .accessibilityIdentifier("workbench.stop")
       }
     }

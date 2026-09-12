@@ -270,7 +270,9 @@ and camera-holdout authority.
 
 1. Press **Draw Four Calibration Circles** once. One exercise attempt and one existing
    stoppable operation own the complete batch and expose the contextual Stop.
-2. Command and settle Pen Up once before the first travel. Retain that
+2. The app commands and settles Pen Up once before the first travel. No separate
+   manual Pen Up is required, including after applying Saved Learning with an
+   Unknown or Down current pen pose. Failed settlement prevents travel. Retain that
    batch-scoped Pen-Up authorization through approach, circle-start,
    inter-circle, and reveal travel; do not issue another raise solely to begin
    travel while the authorization remains current. At each canonical position,
