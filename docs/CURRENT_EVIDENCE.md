@@ -9,6 +9,59 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Default-build Motion reader warning, 2026-09-12
+
+Task `task-c996a0e8390246288358802d786158d8` follows the operator's compiler-warning
+report. A cold default build with Swift 6.1.2 in Swift language mode 5 reproduced
+one unique warning, emitted four times, at `AdaptivePlotterApp.swift:315`:
+converting the stored Motion reader to a MainActor/Sendable async closure may
+introduce data races. The build completed in 278.65 seconds. Both stored reader
+aliases already carried their concurrency annotations; the diagnostic arose at
+the SwiftUI ViewBuilder forwarding boundary, not from a missing property annotation.
+
+The preceding campaign's strict-concurrency/warnings-as-errors logs contain no
+warning and remain valid evidence for that compiler configuration. They did not
+establish warning-free compilation in the default mode, which this cold build
+now demonstrates still warned. Logs and diagnosis are retained in the directory
+pointed to by `/tmp/adaptive-warnings-current`.
+
+The correction adds one explicit `@MainActor` annotation to `MotionPanel`,
+preserving the existing annotated reader and behavior without a forwarding
+adapter. A bounded SwiftUI reproduction confirms the original default mode
+warns, original complete-strict mode is clean, and explicit actor isolation
+makes default mode clean (`paper-warning-repair.md` and its probe logs).
+The clean production default-mode command
+`swift build -Xswiftc -warnings-as-errors` passed with **zero warnings** in
+257.075 seconds wall (255.36 seconds compiler).
+The first strict quick run compiled without warnings but stalled in the existing
+production Stop/held-Confirm test. The coordinator interrupted it after 390.168
+seconds; no test assertion was reported, and this is a nonpass. A sample showed
+the owned helper idle; it does not establish the cause or attribute the stall to
+the annotation. Without source/test changes, focused strict Motion readout,
+status-receipt and Pen Interaction coverage passed **25 tests** in 1.592 seconds,
+including held Confirm in 0.174 seconds. The full same-candidate strict quick
+rerun then passed **1021 tests** in 110.866 seconds tests / 112.724 seconds wall,
+with five existing opt-in skips. No source or test changed between these runs.
+The interrupted attempt remains unexplained: read-only triage found that the
+stalled test does not instantiate MotionPanel, but did not prove its exact
+blocked await. No test repair or causal link to the annotation is claimed.
+Strict signed-debug `make validate-app` passed in 14.672 seconds. The separately
+staged bundle is
+`/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter-warning-c996a0e8.app`,
+with executable SHA-256
+`f252e4b5743fc21aae65bef9d9846d9f31c612b8f463f2e62bb52a571b0937f1`.
+Stable-local deep/strict signature and task/staged byte identity verified;
+`artifact.json` and the 283-input `source-manifest.json` retain its provenance.
+Bounded independent review passed with no findings (`assessment.md`), verifying
+the source boundary, default/strict results, all 283 inputs, executable hash and
+deep/strict signature. The earlier interrupted quick run remains an unexplained
+test-run limitation, not something the annotation is claimed to fix.
+The user's app remains running as PID 60994 with its binary unchanged, and all
+four saved-state hashes are unchanged. The candidate was not launched; native
+input, performance and physical operation were not tested. Local landing and
+finalization receipts belong to this task's history and the final delivery
+report; this entry does not preclaim landing.
+
 ## Bounded paper, border, and Motion correction, 2026-09-12
 
 Task `task-cceb274a51cd443696f191f1233ab3e4` implements the explicitly requested

@@ -209,6 +209,7 @@ private enum SpeechComposition {
   static let runtime = PlotterSpeechEffectRuntime(announcer: NativeSpeechAnnouncer())
 }
 
+@MainActor
 struct MotionPanel: View {
   @Binding var draft: ManualMotionDraft
   let presentation: ManualMotionPresentation
