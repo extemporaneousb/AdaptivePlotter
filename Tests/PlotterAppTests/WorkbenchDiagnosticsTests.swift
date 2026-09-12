@@ -54,6 +54,64 @@ struct WorkbenchDiagnosticsTests {
     #expect(snapshot.limitations.contains { $0.contains("camera pixels") })
     await workspace.shutdown()
   }
+  @Test("background export writes the captured identity once and reports file failures")
+  func backgroundFileExport() async throws {
+    let application = makeCausalSimulatorAppFixture().workspace
+    let capture = WorkbenchDiagnosticCapture(application: application,
+      projection: application.testPlotterUIProjection(includesLearningPath: true).semantic)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let exporter = WorkbenchDiagnosticExporter(directory: directory)
+    exporter.export(capture)
+    #expect(exporter.isExporting)
+    exporter.export(capture) // Repeated clicks while writing cannot enqueue more work.
+    try await awaitExport(exporter)
+    let url = try #require(exporter.savedURL)
+    #expect(url.deletingLastPathComponent().path == directory.path)
+    let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+    let snapshot = try decoder.decode(WorkbenchDebugSnapshot.self, from: Data(contentsOf: url))
+    #expect(snapshot.id == capture.id)
+    #expect(snapshot.uiRevision == capture.projection.revision.rawValue)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 1)
+    let failure = WorkbenchDiagnosticExporter(directory: url)
+    failure.export(capture) // An existing file cannot be used as a directory.
+    try await awaitExport(failure)
+    #expect(failure.savedURL == nil)
+    #expect(failure.status?.contains("failed") == true)
+    await application.shutdown()
+  }
+
+  @Test("a held file writer leaves the main actor and pane controls responsive")
+  func heldFileWriterDoesNotBlockUI() async throws {
+    let application = makeCausalSimulatorAppFixture().workspace
+    let capture = WorkbenchDiagnosticCapture(application: application,
+      projection: application.testPlotterUIProjection(includesLearningPath: true).semantic)
+    let gate = DiagnosticWriteGate()
+    let exporter = WorkbenchDiagnosticExporter(write: { _, directory in
+      await gate.wait()
+      return directory.appendingPathComponent("held.json")
+    })
+    exporter.export(capture)
+    await gate.waitUntilEntered()
+    #expect(exporter.isExporting)
+    var layout = WorkbenchLayoutState(presented: [])
+    for panel in WorkbenchPanel.allCases { layout.setPresented(panel, true) }
+    #expect(layout.isPresented(.portraitStudio))
+    #expect(application.semanticPresentationRevision == capture.semanticRevision)
+    await gate.release()
+    try await awaitExport(exporter)
+    #expect(exporter.savedURL?.lastPathComponent == "held.json")
+    await application.shutdown()
+  }
+
+  private func awaitExport(_ exporter: WorkbenchDiagnosticExporter) async throws {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while exporter.isExporting {
+      guard ContinuousClock.now < deadline else { throw DiagnosticWaitFailure() }
+      try await Task.sleep(for: .milliseconds(5))
+    }
+  }
+
 }
 
 private enum JSONValue: Decodable, Equatable {
@@ -63,4 +121,20 @@ private enum JSONValue: Decodable, Equatable {
     if let text = try? value.decode(String.self) { self = .string(text) }
     else { self = .other }
   }
+}
+
+private struct DiagnosticWaitFailure: Error {}
+private actor DiagnosticWriteGate {
+  var continuation: CheckedContinuation<Void, Never>?
+  var entered = false
+  func wait() async {
+    await withCheckedContinuation { continuation in
+      self.continuation = continuation
+      entered = true
+    }
+  }
+  func waitUntilEntered() async {
+    while !entered { await Task.yield() }
+  }
+  func release() { continuation?.resume(); continuation = nil }
 }

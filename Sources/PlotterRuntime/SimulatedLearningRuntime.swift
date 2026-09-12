@@ -1203,9 +1203,16 @@ public actor SimulatedLearningRuntime {
     return SimulatedLearningResponse(result: result)
   }
 
+  /// Presentation-only image. It neither consumes injected faults nor advances
+  /// causal frame identity or publishes evidence into the simulator session.
+  public func previewSceneFrame() -> Result<SimulatedLearningSceneFrame, SimulatedLearningRefusal> {
+    renderSceneFrame(annotationContext: SimulatedLearningAnnotationContext(), isPreview: true)
+  }
+
   private func renderSceneFrame(
     renderedPosition: SimulatedLearningMPos? = nil,
-    annotationContext: SimulatedLearningAnnotationContext
+    annotationContext: SimulatedLearningAnnotationContext,
+    isPreview: Bool = false
   ) -> Result<SimulatedLearningSceneFrame, SimulatedLearningRefusal> {
     let renderedPosition = renderedPosition ?? mpos
     let transform = worldToCameraTransform
@@ -1249,7 +1256,7 @@ public actor SimulatedLearningRuntime {
           green: 150
         ))
       }
-      if removeFirstFault(matching: {
+      if !isPreview, removeFirstFault(matching: {
         if case .excessiveBackgroundResidual = $0 { return true }
         return false
       }) != nil {
@@ -1269,8 +1276,10 @@ public actor SimulatedLearningRuntime {
         initialSequence: frameSequence
       )
       let displayed = try source.render(strokes: strokes, captureNanoseconds: frameTimestamp)
-      frameSequence &+= 1
-      frameTimestamp &+= 1
+      if !isPreview {
+        frameSequence &+= 1
+        frameTimestamp &+= 1
+      }
       let annotations = try makeAnnotations(
         displayedFrame: displayed,
         renderedPosition: renderedPosition,

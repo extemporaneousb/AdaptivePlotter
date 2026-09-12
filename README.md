@@ -45,7 +45,7 @@ The camera occupies the main workspace. One **Learning Path** panel contains
 an Exercise picker, the selected prompt, and current exercise controls. Its X
 and the checked **View → Learning Path** menu item change visibility only;
 Learning activation is a separate control. Stop remains in the persistent
-command bar and Voice stays in the window when the panel is hidden.
+session toolbar and Voice stays in the window when the panel is hidden.
 
 **Voice** reads questions and recognizes contextual answers and movement.
 When Stop is the only offered response, advisory playback yields to microphone
@@ -303,7 +303,7 @@ future declared coverage/model-comparison/holdout requirements.
 One singleton window contains the Learning Path, always-mounted camera/action
 surface, Motion region, optional Drawing Studio, and optional Video Settings.
 View contains noun-labeled checked panel toggles. Learning can be hidden during
-an exercise because its Stop also remains in the command bar. A manual jog
+an exercise because its Stop also remains in the session toolbar. A manual jog
 still retains its Motion-panel Stop control.
 
 Video Settings combines camera selection, adjacent Refresh, scene-analysis

@@ -9,16 +9,22 @@ dependencies are owned exclusively by
 [Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md);
 this roadmap does not restate or reorder them.
 
-The active product correction is the execution plan's
-[workbench and portrait completion correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#workbench-and-portrait-completion-correction-2026-09-08):
-restore accepted Learning correctly, deliver five dockable panels with quiet
-controls and one selected camera, complete portrait placement/Draw and
-retrospective residual use, and prove liveness under the actual workload. Its
-single progress/acceptance matrix governs this work. Source changes and focused
-fixtures are integrated in the task candidate; serial validation, the sustained
-native workload, independent critic assessment, and physical proof remain
-pending. The remaining experimental
-model work below must not be confused with an ordinary portrait drawing mode.
+The current presentation correction is the execution plan's
+[permanent canvas and native control panes](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#permanent-canvas-and-native-control-panes-2026-09-12).
+It supersedes the layout and diagnostic portions of the
+[workbench and portrait correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#workbench-and-portrait-completion-correction-2026-09-08).
+Current Evidence records software verification separately from the remaining
+native interaction, sustained workload, and attended physical requirements.
+The experimental model work below is separate from ordinary portrait drawing.
+
+## Parking lot: voice input and speech output
+
+Deferred by the operator on September 12, 2026. The current Voice switch controls
+recognition and contextual prompting; workflow speech has a separate runtime.
+A future change should provide independent Voice Input and Speech Output controls,
+with output mute cancelling active/queued speech and suppressing all announcement
+sources. Leave voice behavior, preferences, recognition and synthesis unchanged
+in the permanent-canvas/control-pane work.
 
 ## 0. Episode architecture migration
 

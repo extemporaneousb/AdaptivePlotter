@@ -157,7 +157,7 @@ struct PlotterApplicationRuntimeLifecycleTests {
     #expect(workspace.currentExerciseActionStripPresentation == nil)
     #expect(workspace.completedDrawingComparisonReviewIsAvailable)
     #expect(!workspace.completedDrawingComparisonReviewIsPinned)
-    #expect(workspace.workbenchCapabilityPresentation.learning.systemImage == "graduationcap.fill")
+    #expect(workspace.workbenchCapabilityPresentation.learning == .interactiveLearningComplete)
     await workspace.reviewCompletedDrawingComparison()
     #expect(workspace.completedDrawingComparisonReviewIsPinned)
     let completedSurface = workspace.testActionSurfacePresentation

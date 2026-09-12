@@ -74,7 +74,7 @@ struct RunningAppPreviewPerformanceGateTests {
     #expect(!missingWidth.verificationFailures.isEmpty)
     var headerOnly = complete
     let first = headerOnly.placements[0]
-    headerOnly.placements[0] = .init(panel: first.panel, dock: first.dock, width: first.width,
+    headerOnly.placements[0] = .init(panel: first.panel, slot: first.slot, width: first.width,
       header: first.header, body: first.header)
     #expect(headerOnly.verificationFailures.contains { $0.contains("substitutes a header") })
     var noNestedScroll = complete
@@ -84,12 +84,12 @@ struct RunningAppPreviewPerformanceGateTests {
       var sample = sample
       if sample.targetIdentifier == "workbench.scroll.inner", let evidence = sample.scrollEvidence {
         sample.scrollEvidence = .init(context: evidence.context, controlIdentifier: evidence.controlIdentifier,
-          clipIdentity: "outer", outerClipIdentities: [], beforeBounds: evidence.beforeBounds,
+          clipIdentity: "", outerClipIdentities: [], beforeBounds: evidence.beforeBounds,
           afterBounds: evidence.afterBounds, documentBounds: evidence.documentBounds)
       }
       return sample
     }
-    #expect(noNestedScroll.verificationFailures.contains { $0.contains("Nested body") })
+    #expect(noNestedScroll.verificationFailures.contains { $0.contains("Control-body") })
     var unchangedInner = complete
     unchangedInner.inputs = complete.inputs.map { sample in
       var sample = sample
@@ -100,22 +100,22 @@ struct RunningAppPreviewPerformanceGateTests {
       }
       return sample
     }
-    #expect(unchangedInner.verificationFailures.contains { $0.contains("Nested body") })
-    let videoIndex = try #require(complete.placements.firstIndex { $0.panel == .video })
+    #expect(unchangedInner.verificationFailures.contains { $0.contains("Control-body") })
+    let videoIndex = try #require(complete.placements.firstIndex { $0.panel == .videoSettings })
     let video = complete.placements[videoIndex]
     var settingsOnly = complete
-    settingsOnly.placements[videoIndex] = .init(panel: .video, dock: video.dock, width: video.width,
+    settingsOnly.placements[videoIndex] = .init(panel: .videoSettings, slot: video.slot, width: video.width,
       header: video.header, body: .init(identifier: "workbench.video.settings", frame: video.body.frame,
-        containingClipCount: 1, scrolledClipCount: 0, panelIdentifier: "workbench.panel.video", fitsEveryContainingClip: true))
+        containingClipCount: 1, scrolledClipCount: 0, panelIdentifier: "workbench.panel.videoSettings", fitsEveryContainingClip: true))
     #expect(settingsOnly.verificationFailures.contains { $0.contains("substitutes a header") })
     var clippedCanvas = complete
     var clippedBody = video.body
     clippedBody.fitsEveryContainingClip = false
-    clippedCanvas.placements[videoIndex] = .init(panel: .video, dock: video.dock, width: video.width,
+    clippedCanvas.placements[videoIndex] = .init(panel: .videoSettings, slot: video.slot, width: video.width,
       header: video.header, body: clippedBody)
     #expect(clippedCanvas.verificationFailures.contains { $0.contains("substitutes a header") })
     var duplicateImages = complete
-    duplicateImages.bitmaps = Array(repeating: "same.png", count: 6)
+    duplicateImages.bitmaps = Array(repeating: "same.png", count: 8)
     #expect(!duplicateImages.verificationFailures.isEmpty)
     var wrongEvent = complete
     wrongEvent.inputs[0].handledEventIdentity = 9_999
@@ -130,7 +130,7 @@ struct RunningAppPreviewPerformanceGateTests {
     onlyOn.learningStates = [true, true]
     #expect(!onlyOn.verificationFailures.isEmpty)
     let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(complete)) as? [String: Any])
-    #expect(json["schema"] as? String == "adaptiveplotter.native-workbench.v1")
+    #expect(json["schema"] as? String == "adaptiveplotter.native-workbench.v2")
     #expect((json["provenance"] as? String)?.contains("simulated startup") == true)
   }
 
@@ -168,9 +168,9 @@ struct RunningAppPreviewPerformanceGateTests {
   private func completeNativeWorkbenchReport() -> NativeWorkbenchReport {
     var result = NativeWorkbenchReport()
     for panel in WorkbenchPanel.allCases {
-      for dock in WorkbenchDock.allCases {
+      for slot in WorkbenchSlot.allCases {
         for width in [1_000, 1_600] {
-          result.placements.append(.init(panel: panel, dock: dock, width: width,
+          result.placements.append(.init(panel: panel, slot: slot, width: width,
             header: .init(identifier: "workbench.hide.\(panel.rawValue)",
               frame: CGRect(x: 20, y: 20, width: 30, height: 30), containingClipCount: 1, scrolledClipCount: 0,
               panelIdentifier: "workbench.panel.\(panel.rawValue)", fitsEveryContainingClip: true),
@@ -180,15 +180,16 @@ struct RunningAppPreviewPerformanceGateTests {
         }
       }
     }
-    result.bitmaps = (0..<6).map { "layout-\($0).png" }
+    result.bitmaps = (0..<8).map { "layout-\($0).png" }
     result.learningStates = [false, true]
     result.acceptedArtifactsUnchanged = true
     result.windowPreferencesUnchanged = true
     result.applicationWasActive = true
     result.stopWasVisible = true
+    result.canvasOnlyWidths = [1_000, 1_600]
+    result.viewMenuWasPresent = true
     for id in NativeWorkbenchReport.requiredControlIdentifiers {
-      let count = id == "learning.mode" ? 2
-        : (id.hasPrefix("workbench.hide.") || id.hasPrefix("workbench.scroll") || id == "workbench.resize") ? 6 : 1
+      let count = id == "learning.mode" ? 2 : 8
       result.nativeCounts[id] = .init(posted: count, dispatched: count, handled: count, acknowledged: count)
       for index in 0..<count {
         let identity = Int64(result.inputs.count + 1)
@@ -197,7 +198,7 @@ struct RunningAppPreviewPerformanceGateTests {
           handledEventIdentity: identity, dispatchEntryUptimeSeconds: 10.01, handlerUptimeSeconds: 10.02,
           handlerLatencyMilliseconds: 20, visibleAcknowledgmentLatencyMilliseconds: 30)
         if id == "workbench.scroll.inner" {
-          let contexts = WorkbenchDock.allCases.flatMap { dock in [1_000, 1_600].map { "\(dock.rawValue).\($0)" } }
+          let contexts = WorkbenchSlot.allCases.flatMap { slot in [1_000, 1_600].map { "\(slot.rawValue).\($0)" } }
           sample.scrollEvidence = .init(context: contexts[index], controlIdentifier: "drawing.draw",
             clipIdentity: "inner-\(index)", outerClipIdentities: ["outer-\(index)"],
             beforeBounds: CGRect(x: 0, y: 400, width: 300, height: 200),
@@ -337,7 +338,7 @@ struct RunningAppPreviewPerformanceGateTests {
     report.appliedCheckpointID = UUID().uuidString
     report.completeAcceptedLearningWasRetained = true
     report.acceptedBorderRecordID = UUID().uuidString
-    report.quietAnalysisWindows = Array(repeating: .init(durationSeconds: 2, completedFrames: 3), count: 6)
+    report.quietAnalysisWindows = Array(repeating: .init(durationSeconds: 2, completedFrames: 3), count: 8)
     report.retrospectiveRecordIDs = [UUID().uuidString]
     report.retrospectiveConstraintCount = 200
     report.portraitMaximumConcurrentExpensiveJobs = 1

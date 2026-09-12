@@ -4,6 +4,7 @@ import PlotterModel
 import PlotterRuntime
 import PlotterUI
 import SwiftUI
+import AppKit
 
 struct PlotterApplicationRuntimeView: View {
   @Bindable var application: PlotterApplicationRuntime
@@ -11,8 +12,9 @@ struct PlotterApplicationRuntimeView: View {
   @State private var gateLayout: WorkbenchLayoutState?
   @State private var selection = LearningPathSelectionState(current: .humanGuidedDiscovery(.penInteraction))
   @State private var actionSurfaceViewport = ActionSurfaceViewportState()
+  @State private var canvasShowsPortraitPhoto = false
   @State private var manualMotionDraft = ManualMotionDraft()
-  @State private var debugSnapshot: WorkbenchDebugSnapshot?
+  @State private var diagnosticExporter = WorkbenchDiagnosticExporter()
   @State private var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
   @State private var pendingPointSelection: PlotterPointSelectionSubmission?
   @State private var panelError: String?
@@ -33,7 +35,6 @@ struct PlotterApplicationRuntimeView: View {
   var body: some View {
     let ui = currentProjection()
     VStack(spacing: 0) {
-      commandBar(ui)
       if let panelError {
         HStack {
           Text(panelError).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
@@ -42,7 +43,26 @@ struct PlotterApplicationRuntimeView: View {
         }.padding(.horizontal, 10).padding(.vertical, 4)
       }
       Divider()
-      WorkbenchPanels(layout: layout, select: reveal, content: panelContent)
+      if let status = diagnosticExporter.status {
+        HStack {
+          Text(status).font(.caption).textSelection(.enabled).lineLimit(2)
+          if let url = diagnosticExporter.savedURL {
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+          }
+          Spacer()
+          if !diagnosticExporter.isExporting {
+            Button("Dismiss") { diagnosticExporter.dismissStatus() }.buttonStyle(.borderless)
+          }
+        }.padding(.horizontal, 10).padding(.vertical, 4)
+      }
+      WorkbenchPanels(layout: layout, select: { panel in Task { await preparePanel(panel) } },
+        autosavePrefix: RunningAppPreviewPerformanceGate.isRequested ? nil : "AdaptivePlotter.workbench.v2",
+        content: panelContent) {
+        WorkbenchCameraCanvas(application: application, semantic: ui.semantic,
+          showsPortraitPhoto: canvasShowsPortraitPhoto,
+          viewport: $actionSurfaceViewport, pendingDrawingPlacement: $pendingDrawingPlacement,
+          pendingPointSelection: $pendingPointSelection)
+      }
       Divider()
       WorkbenchVoiceView(
         context: ui.learningPath.map { learning in
@@ -55,62 +75,35 @@ struct PlotterApplicationRuntimeView: View {
     }
     .onChange(of: ui.currentLearningPathItemID, initial: true) { _, item in selection.updateCurrent(item) }
     .toolbar {
-      WorkbenchToolbar(controllerSession: ui.controllerSession, application: application,
-        motionRequestStatus: ui.motionRequestStatus, plotterUIProjection: ui.semantic,
-        plotterUIIntentSink: application, capabilityPresentation: ui.workbenchCapability)
+      WorkbenchToolbar(controllerSession: ui.controllerSession, plotterUIProjection: ui.semantic,
+        plotterUIIntentSink: application, diagnosticsAreExporting: diagnosticExporter.isExporting,
+        exportDiagnostics: exportDiagnostics)
     }
     .toolbarRole(.editor)
-    .sheet(item: $debugSnapshot) { WorkbenchDiagnosticsView(snapshot: $0) }
+    .focusedSceneValue(\.workbenchMenu, WorkbenchMenuContext(layout: layout.wrappedValue,
+      toggle: togglePanel, restore: { layout.wrappedValue = WorkbenchLayoutState() }))
     .task {
       let launch = RunningAppPreviewPerformanceGate.usesSimulatedWorkbench
         ? AdaptivePlotterLaunchPolicy(arguments: [AdaptivePlotterLaunchPolicy.simulatedArgument, "YES"])
         : AdaptivePlotterLaunchPolicy.current
       await application.performApplicationStartup(launch)
       if RunningAppPreviewPerformanceGate.isRequested {
-        var initial = WorkbenchLayoutState()
-        for panel in WorkbenchPanel.allCases { initial.setPresented(panel, true) }
-        initial.move(.activeLearning, to: .left)
-        initial.move(.portraitStudio, to: .left)
-        gateLayout = initial
-      } else if layout.wrappedValue.isPresented(.portraitStudio) {
-        await preparePanel(.portraitStudio)
-      } else if layout.wrappedValue.isPresented(.activeLearning) {
-        await preparePanel(.activeLearning)
+        gateLayout = WorkbenchLayoutState(presented: [.guidedLearning, .motion, .activeLearning, .portraitStudio])
       }
       await RunningAppPreviewPerformanceGate.runIfRequested(application: application,
         revealPanel: { panel in layout.wrappedValue.setPresented(panel, true) }, workbenchLayout: layout)
     }
   }
 
-  private func commandBar(_ ui: PlotterAppUIProjection) -> some View {
-    HStack(spacing: 12) {
-      WorkbenchStopControls(projection: ui.semantic, sink: application)
-      Spacer()
-      Menu {
-        ForEach(WorkbenchPanel.allCases) { panel in
-          Button(panel.title) { reveal(panel) }
-            .accessibilityIdentifier("workbench.show.\(panel.rawValue)")
-        }
-        Divider()
-        ForEach(WorkbenchPanel.allCases) { panel in
-          Menu("\(panel.title) Position") {
-            ForEach(WorkbenchDock.allCases) { dock in
-              Button(dock.title) { layout.wrappedValue.move(panel, to: dock) }
-            }
-            if layout.wrappedValue.isPresented(panel) {
-              Button("Hide") { layout.wrappedValue.setPresented(panel, false) }
-            }
-          }
-        }
-      } label: { Label("Panels", systemImage: "rectangle.split.3x1") }
-      .accessibilityIdentifier("workbench.panels")
-      Button {
-        debugSnapshot = WorkbenchDebugSnapshot(application: application, projection: currentProjection().semantic)
-      } label: { Image(systemName: "wrench.and.screwdriver") }
-      .accessibilityLabel("Diagnostics")
-      .keyboardShortcut("d", modifiers: [.command, .shift])
-    }
-    .padding(.horizontal, 10).padding(.vertical, 6)
+  private func exportDiagnostics() {
+    diagnosticExporter.export(WorkbenchDiagnosticCapture(application: application,
+      projection: currentProjection().semantic))
+  }
+
+  private func togglePanel(_ panel: WorkbenchPanel) {
+    WorkbenchRequestTelemetry.nativeActionHandled("workbench.toggle.\(panel.rawValue)")
+    if layout.wrappedValue.isPresented(panel) { layout.wrappedValue.setPresented(panel, false) }
+    else { reveal(panel) }
   }
 
   @ViewBuilder private func panelContent(_ panel: WorkbenchPanel) -> some View {
@@ -123,10 +116,10 @@ struct PlotterApplicationRuntimeView: View {
       LearningPathView(selection: $selection, projection: ui.learningPath, learningMode: ui.learningMode,
         currentLearningPathItemID: ui.currentLearningPathItemID, plotterUIProjection: ui.semantic,
         plotterUIIntentSink: application)
-    case .video:
-      WorkbenchVideoPanel(application: application, projection: ui.observationConfiguration,
+    case .videoSettings:
+      WorkbenchVideoSettings(application: application, projection: ui.observationConfiguration,
         semantic: ui.semantic, viewport: $actionSurfaceViewport,
-        pendingDrawingPlacement: $pendingDrawingPlacement, pendingPointSelection: $pendingPointSelection)
+        cameraSelected: { canvasShowsPortraitPhoto = false })
     case .motion:
       ScrollView {
         MotionPanel(draft: $manualMotionDraft, presentation: ui.manualMotion,
@@ -150,7 +143,8 @@ struct PlotterApplicationRuntimeView: View {
               plotterUIIntentSink: application, panel: .portraitStudio)
           }
           PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
-            showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) })
+            showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) },
+            showPhoto: { canvasShowsPortraitPhoto = true })
         }.padding(12)
       }
     }
@@ -181,7 +175,7 @@ struct PlotterApplicationRuntimeView: View {
 
   private func reveal(_ panel: WorkbenchPanel) {
     layout.wrappedValue.setPresented(panel, true)
-    Task { await preparePanel(panel) }
+    if panel == .portraitStudio { Task { await application.portraitStudio.discover(excluding: application.observationConfigurationProjection.selectedCameraID) } }
   }
 
   private func preparePanel(_ panel: WorkbenchPanel) async {
@@ -189,16 +183,16 @@ struct PlotterApplicationRuntimeView: View {
     switch panel {
     case .guidedLearning, .activeLearning: panelError = await selectCamera(.plotter)
     case .portraitStudio: panelError = await selectCamera(.portrait)
-    case .motion, .video: break
+    case .motion, .videoSettings: break
     }
   }
 
   private func selectCamera(_ role: WorkbenchCameraRole) async -> String? {
-    await submit(PlotterAppUIActionID.observationCameraRole(role))
+    canvasShowsPortraitPhoto = false
+    return await submit(PlotterAppUIActionID.observationCameraRole(role))
   }
 
   private func usePortraitProgram(_ program: DrawingProgram) async -> String? {
-    layout.wrappedValue.setPresented(.video, true)
     if let error = await selectCamera(.plotter) { return error }
     if let error = await submit(PlotterAppUIActionID.drawingDraft(.selectProgram(program)), program: program) {
       return error
@@ -234,11 +228,11 @@ struct WorkbenchStopControls: View {
   var body: some View {
     let actions = WorkbenchStopPresentation.actions(in: projection)
     if actions.isEmpty {
-      Button("Stop", systemImage: "stop.fill") {}.operatorButton(.stop, isEnabled: false)
+      Button("Achtung! Stop", systemImage: "stop.fill") {}.operatorButton(.stop, isEnabled: false)
         .accessibilityIdentifier("workbench.stop")
     } else {
       ForEach(actions) { action in
-        OperatorRequestButton(title: "Stop", role: .stop, request: projection.request(for: action.id),
+        OperatorRequestButton(title: "Achtung! Stop", role: .stop, request: projection.request(for: action.id),
           unavailableReason: action.unavailableReason, sink: sink, nativeActionIdentifier: "workbench.stop")
           .keyboardShortcut(.cancelAction)
           .help(action.title)

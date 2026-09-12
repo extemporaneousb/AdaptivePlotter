@@ -67,51 +67,51 @@ struct LearningWorkbenchLayoutTests {
     await workspace.shutdown()
   }
 
-  @Test("five independent panels have the requested initial docks")
-  func panelInventory() {
-    #expect(WorkbenchPanel.allCases.map(\.title) == ["Guided Learning", "Video", "Motion", "Active Learning", "Portrait Studio"])
-    let layout = WorkbenchLayoutState()
-    #expect(layout.panels(in: .left) == [.guidedLearning])
-    #expect(layout.panels(in: .right) == [.video])
-    #expect(layout.panels(in: .bottom) == [.motion])
-    #expect(!layout.isPresented(.activeLearning))
-    #expect(!layout.isPresented(.portraitStudio))
+  @Test("controls fill right left lower-right lower-left and replace the oldest")
+  func slotAllocationAndReplacement() throws {
+    let panels = WorkbenchPanel.allCases
+    #expect(panels.map(\.title) == ["Guided Learning", "Video Settings", "Motion", "Active Learning", "Portrait Studio"])
+    // Each control can be the first, last, or displaced one.
+    for offset in panels.indices {
+      let order = Array(panels[offset...] + panels[..<offset])
+      var layout = WorkbenchLayoutState(presented: [])
+      for (index, panel) in order.prefix(4).enumerated() {
+        layout.setPresented(panel, true)
+        #expect(layout.slot(of: panel) == WorkbenchSlot.allCases[index])
+      }
+      #expect(layout.panels(in: .right) == [order[0], order[2]])
+      #expect(layout.panels(in: .left) == [order[1], order[3]])
+      layout.setPresented(order[0], true) // Revealing does not change age or position.
+      layout.setPresented(order[4], true)
+      #expect(!layout.isPresented(order[0]))
+      #expect(layout.slot(of: order[4]) == .right)
+      #expect(WorkbenchLayoutState.restored(from: layout.encoded) == layout)
+    }
   }
 
-  @Test("each of five panels moves independently into every dock and survives persistence")
-  func independentDockingAndPersistence() throws {
-    for panel in WorkbenchPanel.allCases {
-      for dock in WorkbenchDock.allCases {
-        var layout = WorkbenchLayoutState()
-        let before = layout
-        layout.setPresented(panel, true)
-        layout.move(panel, to: dock)
-        #expect(layout.panels(in: dock).contains(panel))
-        for other in WorkbenchPanel.allCases where other != panel {
-          #expect(layout.placement(of: other) == before.placement(of: other))
-        }
-        #expect(WorkbenchLayoutState.restored(from: layout.encoded) == layout)
-        layout.setPresented(panel, false)
-        #expect(!layout.panels(in: dock).contains(panel))
-        let restored = WorkbenchLayoutState.restored(from: layout.encoded)
-        #expect(!restored.isPresented(panel))
-        #expect(restored.placement(of: panel).position == dock)
-      }
-    }
+  @Test("closing leaves sibling slots intact and reopening fills the first vacancy")
+  func closeAndReopen() {
+    var layout = WorkbenchLayoutState(presented: [.motion, .guidedLearning, .videoSettings, .portraitStudio])
+    layout.setPresented(.motion, false)
+    #expect(layout.panels(in: .right) == [.videoSettings])
+    #expect(layout.slot(of: .videoSettings) == .rightBottom)
+    layout.setPresented(.activeLearning, true)
+    #expect(layout.slot(of: .activeLearning) == .right)
+    #expect(layout.panels(in: .right) == [.activeLearning, .videoSettings])
+    for panel in WorkbenchPanel.allCases { layout.setPresented(panel, false) }
+    #expect(!layout.hasVisiblePanels)
+    #expect(WorkbenchLayoutState.restored(from: layout.encoded) == layout)
+  }
+
+  @Test("legacy Video visibility cannot hide the canvas or create a settings pane")
+  func migratesLegacyLayout() {
+    let legacy = Data(#"{"placements":["video",{"position":"bottom","isPresented":false},"guidedLearning",{"position":"left","isPresented":false},"motion",{"position":"bottom","isPresented":true},"portraitStudio",{"position":"right","isPresented":true}]}"#.utf8)
+    let layout = WorkbenchLayoutState.restored(from: legacy)
+    #expect(layout.slot(of: .motion) == .right)
+    #expect(layout.slot(of: .portraitStudio) == .left)
+    #expect(!layout.isPresented(.videoSettings))
+    #expect(!layout.isPresented(.guidedLearning))
     #expect(WorkbenchLayoutState.restored(from: Data("broken".utf8)) == WorkbenchLayoutState())
-  }
-
-  @Test("all panels can occupy one region without displacing or hiding a sibling")
-  func sharedDock() {
-    for dock in WorkbenchDock.allCases {
-      var layout = WorkbenchLayoutState()
-      for panel in WorkbenchPanel.allCases {
-        layout.setPresented(panel, true)
-        layout.move(panel, to: dock)
-      }
-      #expect(layout.panels(in: dock) == WorkbenchPanel.allCases)
-      for other in WorkbenchDock.allCases where other != dock { #expect(layout.panels(in: other).isEmpty) }
-    }
   }
 
   @Test("exercise actions preserve readable button widths")
@@ -121,7 +121,7 @@ struct LearningWorkbenchLayoutTests {
     #expect(ExerciseActionLayoutPolicy.maximumColumnCount(availableWidth: .infinity) == 1)
   }
 
-  @Test("hiding and moving panels preserve Learning, the draft, and exact action requests")
+  @Test("hiding and replacing panels preserve Learning, the draft, and exact action requests")
   @MainActor
   func hidingPanelPreservesOwners() async throws {
     let workspace = makeCausalSimulatorAppFixture().workspace
@@ -129,7 +129,7 @@ struct LearningWorkbenchLayoutTests {
     let draft = workspace.drawingDraftSnapshot
     var layout = WorkbenchLayoutState()
     for panel in WorkbenchPanel.allCases {
-      layout.move(panel, to: .bottom)
+      layout.setPresented(panel, true)
       layout.setPresented(panel, false)
     }
     let after = workspace.testPlotterUIProjection(includesLearningPath: true)

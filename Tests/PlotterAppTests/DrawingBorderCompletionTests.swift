@@ -32,7 +32,7 @@ struct DrawingBorderCompletionTests {
     #expect(workspace.activeExerciseAttemptID == nil)
     #expect(workspace.currentExerciseActionStripPresentation == nil)
     #expect(workspace.workbenchCapabilityPresentation.learning == .interactiveLearningComplete)
-    #expect(workspace.workbenchCapabilityPresentation.learning.systemImage == "graduationcap.fill")
+    #expect(workspace.workbenchCapabilityPresentation.learning == .interactiveLearningComplete)
     #expect(await harness.simulator.persistentInk().count > beforeInk)
     #expect(!workspace.learningArtifactGraph.revisions.contains {
       if case .comparison = $0.kind { return $0.state == .current }

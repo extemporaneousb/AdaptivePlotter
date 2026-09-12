@@ -128,7 +128,7 @@ extension RunningAppPreviewPerformanceGate {
       try physicalWrite(report, to: configuration.reportURL)
       probe.install()
       defer { probe.uninstall() }
-      revealPanel(.guidedLearning); revealPanel(.portraitStudio); revealPanel(.motion); revealPanel(.video)
+      revealPanel(.guidedLearning); revealPanel(.portraitStudio); revealPanel(.motion); revealPanel(.videoSettings)
 
       guard application.controllerSessionProjection.environment == .live else {
         throw WorkbenchNativeInputError.unavailable("Physical scenario requires the live environment.")
@@ -248,7 +248,7 @@ extension RunningAppPreviewPerformanceGate {
       }
       report.nativeInputSamples.append(try await probe.click("portrait.showOnPlotter") {
         RunningAppNativeInputProbe.controlValue("portrait.showOnPlotter")?.contains("Preparing") == true
-          || RunningAppNativeInputProbe.controlValue("workbench.camera.plotter")?.contains("Selected") == true
+          || application.workbenchCameraRole == .plotter
       })
       try await awaitWorkload("Show on Plotter Video did not settle with the imported portrait plan.") {
         application.workbenchCameraRole == .plotter && !application.cameraRoleIsTransitioning

@@ -369,11 +369,15 @@ byte count and SHA-256, typed refusal/remedy, explicit
 nor exported by this presentation service.
 
 The no-source canonical archive action is absent from the workbench. The
-**Diagnostics** sheet instead copies current runtime/UI revisions, available
-requests and their refusals, camera/Vision errors, and the existing bounded
-Learning record on demand, including Border phase, outcome, and retained
-terminal details. View > Diagnostics offers Copy Diagnostics for support and
-explicitly lists omitted raw recordings and in-flight or older transitions.
+**Diagnostics** toolbar tool captures current runtime/UI revisions, requests and
+refusals, camera/Vision errors, and the existing bounded Learning record on demand,
+including Border phase, outcome, and retained terminal details. Only the immutable
+capture occurs on MainActor. Transition formatting, JSON encoding and atomic file
+writing run on a background worker. Files go to
+`~/Library/Logs/AdaptivePlotter/Diagnostics/` with timestamp and request identity;
+completion exposes the file location and errors remain visible. Repeated clicks
+while writing do not enqueue another export. No large JSON sheet is rendered.
+The file explicitly lists omitted raw recordings and in-flight or older transitions.
 Learning checkpoints and completed Border outcomes are retained automatically;
 there is no operator Save Snapshot step.
 It creates no event stream, journal, evidence authority, or new Learning guard.
@@ -1310,32 +1314,46 @@ comparison, shape evaluation, and typed readiness work defined in the Roadmap.
 
 ## Direct Drawing Studio boundary
 
-The accepted workbench correction defines five independently visible panels:
-**Guided Learning**, **Video**, **Motion**, **Active Learning**, and **Portrait
-Studio**. Each panel, including the actual Video canvas, can be docked left,
-bottom, or right; multiple panels can share a region with usable resizing and
-scrolling. Placement and visibility persist. Defaults are Guided Learning left,
-Video right, and Motion bottom. Video Settings is an accessory of Video. Active
-Learning and Portrait Studio are regular sibling panels; portrait preparation
-does not open a separate window or sheet. Stop stays reachable from the command
-bar regardless of panel visibility. The Panels menu and workflow-panel titles
-select their camera role explicitly; Video also provides a Plotter/Portrait
-selector. Hiding and redocking never restart capture or change the drawing
-target. Implementation and verification progress belong to the execution-plan
-correction and Current Evidence.
+The workbench keeps its video/portrait/simulation canvas permanently in the main
+window. The canvas has no close control or View-menu visibility command. Five
+optional control panes are Guided Learning, Video Settings, Motion, Active
+Learning, and Portrait Studio. Native View-menu Show/Hide commands and
+Command-Option-1 through Command-Option-5 control their visibility. Opening fills
+right, left, lower-right, then lower-left. A side with one pane uses its full
+height; two panes share that side through a native draggable divider. Closing a
+pane preserves sibling slots; an empty side returns its space to the canvas.
+A fifth opening replaces the oldest visible pane while retaining its workflow
+state. Layout preferences migrate from the former dock model, and native split
+views save divider sizes. There is no full-width bottom area, position menu,
+move icon, automatic workflow reset, or closable Video panel.
 
-Only the selected camera captures and analyzes. Portrait preparation selects the
-face camera in the shared Video panel and suspends plotter acquisition/analysis.
+The session toolbar owns controller selection, amber Connect/Disconnect and
+Enable/Disable Motion actions, the diagnostic export tool, and the far-right
+red Achtung! Stop control. Existing typed Stop requests and Escape routing are
+preserved; passive status badges and the separate command strip are removed.
+Voice remains unchanged and its input/output split is deferred in the Roadmap.
+
+Video Settings contains source choice, zoom, overlays, analysis cadence and
+region controls. Showing or hiding control panes does not select a camera;
+explicit camera controls and workflow-title actions retain projected requests.
+The permanent canvas uses the existing frame/overlay leaf and portrait renderer.
+With no available image it displays an identified simulator preview, without
+switching execution environment, consuming simulator faults, publishing an
+observation, or altering Learning. Explicit frozen evidence and available
+portrait photos remain displayable. These presentation changes never establish
+camera or physical ink evidence.
+
+Only the selected camera captures and analyzes. Explicit portrait camera selection displays the
+face camera in the permanent canvas and suspends plotter acquisition/analysis.
 **Show on Plotter Video** retains portrait controls, images, and program, settles
-face capture, and returns that Video panel to the plotter camera. Restarting the
+face capture, and returns the canvas to the plotter camera. Restarting the
 same physical plotter optics preserves accepted Learning; ephemeral capture
 identity is not optical change. Video processing must not update panel text or
 layout. Changing frame counts, ages, measurement summaries, and detector chatter
 belong in existing on-demand Diagnostics; stable operator prompts, real operation
 transitions, and actionable errors remain visible.
 
-One completed Exercise 2.1 trial establishes **Learning complete**, fills the
-graduation cap, and permits direct bounded drawing with the accepted pen-tip
+One completed Exercise 2.1 trial establishes **Learning complete** and permits direct bounded drawing with the accepted pen-tip
 calibration; it does not establish **Adaptive drawing ready**. Paper readiness
 remains a separate operator assertion and is never inferred from that calibration.
 

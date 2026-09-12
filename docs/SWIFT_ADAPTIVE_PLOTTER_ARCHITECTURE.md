@@ -1193,17 +1193,24 @@ shadow. The EA-09 cutover checker enforces both exact App-wide zero literals and
 a behavior/topology rule that refuses renamed or split App decision mappers
 while allowing fact translation and cosmetic rendering.
 
-`WorkbenchLayoutState` stores independent placement and visibility for Guided
-Learning, Video, Motion, Active Learning, and Portrait Studio. `AppStorage`
-persists the layout; it owns no workflow or target visibility. `WorkbenchPanels`
-uses native split views inside finite scroll regions, allowing multiple panels
-in each of left, bottom and right. Guided Learning defaults left, Video right,
-Motion bottom. Panel titles and the Panels menu select the workflow's camera
-through projected requests; hiding or redocking only changes layout. The old
-protected-pane collapse policy, fixed central canvas, mixed Studio launcher and
-portrait sheet are deleted. The command bar renders existing Learning, manual
-motion and Drawing Run Stop requests independently of the owning panel, retaining
-their exact capabilities and visible refusal/remedy feedback.
+`WorkbenchLayoutState` owns four control slots and their opening order, persisted
+through `AppStorage`. Controls fill right, left, lower-right, lower-left; a fifth
+replaces the oldest visible control. `WorkbenchPanels` mounts the canvas outside
+this membership model. `WorkbenchNativeSplit` wraps native `NSSplitView` instances only
+for native dividers, minimum sizes, and autosaved dimensions; it retains hosting
+views across sibling changes. SwiftUI remains the sole visibility owner.
+`WorkbenchCommands` binds native View-menu commands to the focused window's
+layout. Video Settings replaces the old closable Video panel. Native toolbar
+Stop dispatches existing Learning, manual motion and Drawing Run capabilities.
+
+`WorkbenchDiagnosticCapture` copies bounded immutable existing facts on MainActor;
+`WorkbenchDiagnosticFileWriter` formats transitions, encodes JSON and writes
+atomically on a detached utility task. `WorkbenchDiagnosticExporter` owns only
+one export's UI progress/result. It creates no journal or operational authority.
+`WorkbenchCameraCanvas` owns the local freshness read and camera/portrait/fallback
+presentation. `SimulatedLearningRuntime.previewSceneFrame()` uses the existing
+renderer without consuming faults or changing causal frame state; its returned
+image never enters live observation or execution state.
 
 The LIVE and SIMULATED entries in
 `PlotterApplicationState.environmentStates` retain copied residual Learning
@@ -2005,7 +2012,7 @@ physical holdout evaluation remain unfinished product work.
 `PortraitStudioModel` retains optional portrait capture and the three labeled
 pose images across panel navigation. The existing observation runtime exclusively
 selects plotter or face capture; the UI never starts both sessions independently.
-Only the shared Video panel's `PortraitCameraPreview` reads the changing portrait
+Only the permanent canvas's `PortraitCameraPreview` reads the changing portrait
 preview frame; these frames do not enter the root semantic projection. `PortraitImageAnalyzer`
 runs bounded image decoding, face cropping, contrast normalization, and optional
 person masking on worker tasks. Style changes reuse the analyzed raster.
@@ -2057,18 +2064,19 @@ Native handler receipts, eventual controller settlement, software attribution,
 and independent physical/attendance observations remain distinct. The default
 preview and learned-portrait workloads perform no motion.
 
-The separate `native-workbench` scenario uses the same signed SwiftUI application
-and production root view with simulated startup. It owns the native placement,
-full body/header clip-hit, scroll/resize/hide, Learning On/Off and bitmap checks
-formerly attempted in a SwiftPM process without an AppKit event loop. Video
-proof inspects the actual canvas inside its panel and every containing clip.
-Native wheel receipts identify an overflowing inner clip, its outer ancestry
-and event-correlated before/after bounds; setup reveal remains diagnostic. The
-resize gesture chooses a feasible direction from actual minimum and screen
-geometry. Signed-app attempts reached no controls in the locked GUI, so these native requirements remain unverified.
-Its layout binding uses the existing gate-only window state and never writes user placement
-preferences. It introduces no test application, alternate runtime or controller
-port. The retained held-Draw Stop suite exercises typed software ingress only;
+The `native-workbench` v2 scenario uses the same signed SwiftUI application
+and production root view with simulated startup. It checks native View-menu
+opening and header closing for every control in all four slots at 1000 and 1600
+points, body/header clipping, native body scrolling, resizing, Learning On/Off,
+and eight bitmaps. It also checks that closing all controls leaves the canvas
+visible across the window. Native wheel receipts identify the actual overflowing
+clip and event-correlated before/after bounds; setup reveal remains diagnostic.
+The resize gesture chooses a feasible direction from actual minimum and screen
+geometry. Its layout binding uses gate-only window state and disables divider
+autosaving, preserving user window preferences. Offscreen native geometry and
+persistence tests are separate from this event-driven application gate. Executed
+results and environment blockers belong to Current Evidence. The gate introduces
+no test application, alternate runtime or controller port. The retained held-Draw Stop suite exercises typed software ingress only;
 actual-controller native Stop remains a distinct physical-scenario requirement.
 
 Drawing Studio views consume immutable placement, target-preview, parameter,

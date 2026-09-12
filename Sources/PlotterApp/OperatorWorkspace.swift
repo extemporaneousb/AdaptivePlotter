@@ -2171,6 +2171,12 @@ final class PlotterApplicationRuntime:
     return deviceID
   }
 
+  /// A passive fallback only; never install it as an observation or select the
+  /// simulated execution environment when the real camera becomes unavailable.
+  func canvasSimulationPreview() async -> DisplayedFrame? {
+    try? await simulatedLearningRuntime.previewSceneFrame().get().displayedFrame
+  }
+
   var actionSurfacePresentation: ActionSurfacePresentation {
     let revision = actionSurfacePresentationRevision
     if let cached = actionSurfacePresentationCache, cached.revision == revision {

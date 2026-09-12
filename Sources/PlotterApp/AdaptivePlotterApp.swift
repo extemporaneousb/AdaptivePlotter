@@ -172,7 +172,8 @@ struct AdaptivePlotterApp: App {
           minHeight: AdaptivePlotterScenePolicy.minimumWindowHeight
         )
     }
-    .windowToolbarStyle(.unifiedCompact)
+    .windowToolbarStyle(.unified)
+    .commands { WorkbenchCommands() }
   }
 }
 

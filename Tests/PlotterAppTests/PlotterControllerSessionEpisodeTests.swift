@@ -93,7 +93,7 @@ struct PlotterControllerSessionEpisodeTests {
     #expect(projected.connectionAction == .disconnect)
     #expect(
       WorkbenchConnectionActionPresentation(action: projected.connectionAction)
-        .role.chrome(isEnabled: true) == .neutralEnabled
+        .title == "Disconnect"
     )
   }
 

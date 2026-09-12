@@ -5,14 +5,14 @@ import SwiftUI
 
 struct NativeWorkbenchPlacementProof: Codable, Equatable, Sendable {
   let panel: WorkbenchPanel
-  let dock: WorkbenchDock
+  let slot: WorkbenchSlot
   let width: Int
   let header: WorkbenchNativeControlVisibility
   let body: WorkbenchNativeControlVisibility
 }
 
 struct NativeWorkbenchReport: Encodable {
-  let schema = "adaptiveplotter.native-workbench.v1"
+  let schema = "adaptiveplotter.native-workbench.v2"
   let provenance = "Actual signed SwiftUI App/Window and CGEvent input; simulated startup; no real camera, controller, motion or ink. Held Drawing Stop is separate software evidence."
   var failures: [String] = []
   var placements: [NativeWorkbenchPlacementProof] = []
@@ -24,11 +24,13 @@ struct NativeWorkbenchReport: Encodable {
   var windowPreferencesUnchanged = false
   var applicationWasActive = false
   var stopWasVisible = false
+  var canvasOnlyWidths: [Int] = []
+  var viewMenuWasPresent = false
 
   static func bodyControlIdentifier(for panel: WorkbenchPanel) -> String {
     switch panel {
     case .guidedLearning: "learning.exerciseActions"
-    case .video: "workbench.video.canvas"
+    case .videoSettings: "workbench.video.cameraRole"
     case .motion: "motion.penDown"
     case .activeLearning: "learning.coverage.prepare"
     case .portraitStudio: "drawing.draw"
@@ -36,23 +38,21 @@ struct NativeWorkbenchReport: Encodable {
   }
 
   static var requiredControlIdentifiers: [String] {
-    ["workbench.scroll", "workbench.scroll.inner", "workbench.resize", "learning.mode"]
+    ["workbench.scroll.inner", "workbench.resize", "learning.mode"]
       + WorkbenchPanel.allCases.map { "workbench.hide.\($0.rawValue)" }
-      + WorkbenchPanel.allCases.flatMap { panel in
-        WorkbenchDock.allCases.map { "workbench.move.\(panel.rawValue).\($0.rawValue)" }
-      }
+      + WorkbenchPanel.allCases.map { "workbench.toggle.\($0.rawValue)" }
   }
 
   var verificationFailures: [String] {
     var result = failures
     let expected = Set(WorkbenchPanel.allCases.flatMap { panel in
-      WorkbenchDock.allCases.flatMap { dock in [1_000, 1_600].map { "\(panel.rawValue).\(dock.rawValue).\($0)" } }
+      WorkbenchSlot.allCases.flatMap { slot in [1_000, 1_600].map { "\(panel.rawValue).\(slot.rawValue).\($0)" } }
     })
     if placements.count != expected.count
-      || Set(placements.map { "\($0.panel.rawValue).\($0.dock.rawValue).\($0.width)" }) != expected {
-      result.append("All 15 panel/dock combinations at both widths lack complete header/body hit proofs.")
+      || Set(placements.map { "\($0.panel.rawValue).\($0.slot.rawValue).\($0.width)" }) != expected {
+      result.append("All 20 control/slot combinations at both widths lack complete header/body hit proofs.")
     }
-    if bitmaps.count != 6 || Set(bitmaps).count != 6 { result.append("The six actual workbench layout bitmaps were not retained.") }
+    if bitmaps.count != 8 || Set(bitmaps).count != 8 { result.append("The eight actual workbench layout bitmaps were not retained.") }
     if placements.contains(where: {
       $0.header.identifier != "workbench.hide.\($0.panel.rawValue)"
         || $0.body.identifier != Self.bodyControlIdentifier(for: $0.panel)
@@ -61,22 +61,21 @@ struct NativeWorkbenchReport: Encodable {
         || $0.body.panelIdentifier != "workbench.panel.\($0.panel.rawValue)"
         || !$0.body.fitsEveryContainingClip || !$0.header.fitsEveryContainingClip
     }) { result.append("A placement substitutes a header, missing body, or empty hit target for its actual panel controls.") }
-    let expectedInnerContexts = Set(WorkbenchDock.allCases.flatMap { dock in [1_000, 1_600].map { "\(dock.rawValue).\($0)" } })
+    let expectedInnerContexts = Set(WorkbenchSlot.allCases.flatMap { slot in [1_000, 1_600].map { "\(slot.rawValue).\($0)" } })
     let measuredInnerContexts = Set(inputs.compactMap { sample -> String? in
       guard sample.targetIdentifier == "workbench.scroll.inner",
         let evidence = sample.scrollEvidence, evidence.controlIdentifier == "drawing.draw",
-        evidence.provesInnerWheelMovement else { return nil }
+        !evidence.clipIdentity.isEmpty, evidence.beforeBounds != evidence.afterBounds else { return nil }
       return evidence.context
     })
     if measuredInnerContexts != expectedInnerContexts {
-      result.append("Nested body native wheel movement lacks identified inner-clip receipts at every dock/width; programmatic reveal is diagnostic only.")
+      result.append("Control-body native wheel movement lacks identified clip receipts at every slot/width; programmatic reveal is diagnostic only.")
     }
     if learningStates.count != 2 || Set(learningStates) != [false, true] {
       result.append("Native Learning On/Off round trip was not demonstrated.")
     }
     for id in Self.requiredControlIdentifiers {
-      let minimum = id == "learning.mode" ? 2
-        : (id.hasPrefix("workbench.hide.") || id.hasPrefix("workbench.scroll") || id == "workbench.resize") ? 6 : 1
+      let minimum = id == "learning.mode" ? 2 : 8
       guard let count = nativeCounts[id], count.posted >= minimum,
         count.posted == count.dispatched, count.posted == count.handled,
         count.posted == count.acknowledged else {
@@ -101,6 +100,9 @@ struct NativeWorkbenchReport: Encodable {
     }) { result.append("Native input lacks exact event correlation or ordered handler/visible acknowledgment.") }
     if Set(inputs.map(\.postedEventIdentity)).count != inputs.count {
       result.append("A native event identity was reused for multiple actions.")
+    }
+    if Set(canvasOnlyWidths) != [1_000, 1_600] || !viewMenuWasPresent {
+      result.append("The permanent canvas with all controls closed or native View menu was not proved.")
     }
     if !applicationWasActive || !stopWasVisible { result.append("Actual app readiness or global Stop visibility was not proved.") }
     if !acceptedArtifactsUnchanged || !windowPreferencesUnchanged { result.append("Accepted artifacts or persisted window preferences changed.") }
@@ -135,60 +137,62 @@ extension RunningAppPreviewPerformanceGate {
       guard let window else { throw WorkbenchNativeInputError.unavailable("The production workbench window is absent.") }
       try await awaitWorkload("The signed application did not become active with a key/main workbench and native controls.") {
         NSApp.isActive && NSRunningApplication.current.isFinishedLaunching && window.isKeyWindow
-          && window.isMainWindow && RunningAppNativeInputProbe.controlFrame("workbench.hide.video") != nil
+          && window.isMainWindow && RunningAppNativeInputProbe.controlFrame("workbench.video.canvas") != nil
       }
       report.applicationWasActive = true
       probe.install()
-      for dock in WorkbenchDock.allCases {
-        // Reset only. All measured placement changes below use native menus.
-        var start = originalLayout
-        for panel in WorkbenchPanel.allCases {
-          start.setPresented(panel, true)
-          start.move(panel, to: dock == .left ? .right : .left)
-        }
-        layout.wrappedValue = start
-        for panel in WorkbenchPanel.allCases {
-          let item = "workbench.move.\(panel.rawValue).\(dock.rawValue)"
-          let index = WorkbenchDock.allCases.firstIndex(of: dock)!
-          report.inputs.append(try await probe.click("workbench.position.\(panel.rawValue)", handlerIdentifier: item,
-            menuKeyCodes: [115] + Array(repeating: 125, count: index) + [36]) {
-              layout.wrappedValue.placement(of: panel).position == dock
-                && RunningAppNativeInputProbe.controlIsInside("workbench.panel.\(panel.rawValue)", container: "workbench.dock.\(dock.rawValue)")
-            })
-        }
+      report.viewMenuWasPresent = NSApp.mainMenu?.items.contains { item in
+        item.title == "View" && item.submenu?.items.contains { $0.title.contains("Video Settings") } == true
+      } == true
+      for slot in WorkbenchSlot.allCases {
         for width in [1_000, 1_600] {
           window.setContentSize(NSSize(width: CGFloat(width), height: 700))
           window.center()
-          try await awaitWorkload("Workbench did not lay out at \(width) points.") {
-            window.contentView?.layoutSubtreeIfNeeded()
-            return abs((window.contentView?.bounds.width ?? 0) - CGFloat(width)) < 1
-              && RunningAppNativeInputProbe.controlFrame("workbench.hide.portraitStudio") != nil
-          }
-          report.inputs.append(try await probe.scrollWorkbench())
+          let slotIndex = WorkbenchSlot.allCases.firstIndex(of: slot)!
           for panel in WorkbenchPanel.allCases {
-            let bodyID = NativeWorkbenchReport.bodyControlIdentifier(for: panel)
+            // Only setup uses direct state. The final pane is opened through
+            // its real View-menu key equivalent and closed with its native x.
+            let fillers = Array(WorkbenchPanel.allCases.filter { $0 != panel }.prefix(slotIndex))
+            layout.wrappedValue = WorkbenchLayoutState(presented: fillers)
+            report.inputs.append(try await probe.togglePane(panel) {
+              layout.wrappedValue.slot(of: panel) == slot
+                && RunningAppNativeInputProbe.controlIsInside("workbench.panel.\(panel.rawValue)",
+                  container: "workbench.dock.\(slot.dock.rawValue)")
+            })
             let panelID = "workbench.panel.\(panel.rawValue)"
-            let body = try RunningAppNativeInputProbe.inspectControl(bodyID, in: window, panelIdentifier: panelID)
-            let header = try RunningAppNativeInputProbe.inspectControl("workbench.hide.\(panel.rawValue)", in: window, panelIdentifier: panelID)
+            let body = try RunningAppNativeInputProbe.inspectControl(
+              NativeWorkbenchReport.bodyControlIdentifier(for: panel), in: window, panelIdentifier: panelID)
+            let header = try RunningAppNativeInputProbe.inspectControl("workbench.hide.\(panel.rawValue)",
+              in: window, panelIdentifier: panelID)
+            report.placements.append(.init(panel: panel, slot: slot, width: width, header: header, body: body))
+            if panel == .portraitStudio {
+              report.inputs.append(try await probe.scrollWorkbench(innerControl: "drawing.draw",
+                context: "\(slot.rawValue).\(width)"))
+              let image = directory.appendingPathComponent("slot-\(slot.rawValue)-\(width).png")
+              try captureNativeWorkbench(window, to: image)
+              report.bitmaps.append(image.path)
+              report.inputs.append(try await probe.resizeWorkbench())
+              window.setContentSize(NSSize(width: CGFloat(width), height: 700))
+            }
             report.inputs.append(try await probe.click("workbench.hide.\(panel.rawValue)") {
               !layout.wrappedValue.isPresented(panel)
-                && RunningAppNativeInputProbe.controlFrame("workbench.panel.\(panel.rawValue)") == nil
+                && RunningAppNativeInputProbe.controlFrame(panelID) == nil
             })
-            guard WorkbenchPanel.allCases.filter({ $0 != panel }).allSatisfy({ layout.wrappedValue.isPresented($0) }) else {
-              throw WorkbenchNativeInputError.unavailable("Hiding \(panel.title) hid a sibling panel.")
-            }
-            report.placements.append(.init(panel: panel, dock: dock, width: width, header: header, body: body))
-            layout.wrappedValue.setPresented(panel, true)
-            try await awaitWorkload("The revealed \(panel.title) panel did not render.") {
-              RunningAppNativeInputProbe.controlFrame("workbench.hide.\(panel.rawValue)") != nil
+            guard fillers.allSatisfy({ layout.wrappedValue.isPresented($0) }) else {
+              throw WorkbenchNativeInputError.unavailable("Closing a control hid a sibling.")
             }
           }
-          report.inputs.append(try await probe.scrollWorkbench(innerControl: "drawing.draw", context: "\(dock.rawValue).\(width)"))
-          report.inputs.append(try await probe.resizeWorkbench())
-          let image = directory.appendingPathComponent("dock-\(dock.rawValue)-\(width).png")
-          try captureNativeWorkbench(window, to: image)
-          report.bitmaps.append(image.path)
         }
+      }
+      for width in [1_000, 1_600] {
+        layout.wrappedValue = WorkbenchLayoutState(presented: [])
+        window.setContentSize(NSSize(width: CGFloat(width), height: 700))
+        try await awaitWorkload("Closing all controls hid or narrowed the canvas.") {
+          window.contentView?.layoutSubtreeIfNeeded()
+          guard let canvas = RunningAppNativeInputProbe.controlFrame("workbench.video.canvas") else { return false }
+          return canvas.width >= CGFloat(width) - 4
+        }
+        report.canvasOnlyWidths.append(width)
       }
       layout.wrappedValue = originalLayout
       layout.wrappedValue.setPresented(.guidedLearning, true)

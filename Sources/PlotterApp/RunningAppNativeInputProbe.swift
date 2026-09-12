@@ -169,6 +169,36 @@ final class RunningAppNativeInputProbe {
     return try await acknowledge(posted: posted, identifier: receiptIdentifier, window: window, acknowledgment: acknowledgment)
   }
 
+  /// Native key equivalents invoke the actual View-menu commands. No direct
+  /// layout mutation or programmatic NSMenuItem action counts as native input.
+  func togglePane(_ panel: WorkbenchPanel, acknowledgment: () -> Bool) async throws -> WorkbenchNativeInputSample {
+    guard CGPreflightPostEventAccess(), let window = NSApp.mainWindow,
+      let index = WorkbenchPanel.allCases.firstIndex(of: panel) else {
+      throw WorkbenchNativeInputError.unavailable("Native View-menu input is unavailable.")
+    }
+    let keyCodes: [UInt16] = [18, 19, 20, 21, 23] // 1 ... 5
+    let identifier = "workbench.toggle.\(panel.rawValue)"
+    handledEvent = nil
+    dispatchEntry = nil
+    pendingIdentifier = identifier
+    let identity = beginEvent()
+    defer { pendingIdentifier = nil; pendingEvent = nil }
+    let keyCode = keyCodes[index]
+    let posted = try await Task.detached(priority: .userInitiated) {
+      let posted = ProcessInfo.processInfo.systemUptime
+      for isDown in [true, false] {
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: isDown) else {
+          throw WorkbenchNativeInputError.unavailable("Could not construct native View-menu shortcut.")
+        }
+        event.flags = [.maskCommand, .maskAlternate]
+        event.setIntegerValueField(.eventSourceUserData, value: identity)
+        event.postToPid(ProcessInfo.processInfo.processIdentifier)
+      }
+      return posted
+    }.value
+    return try await acknowledge(posted: posted, identifier: identifier, window: window, acknowledgment: acknowledgment)
+  }
+
   private func recordHandler(_ identifier: String, eventTimestamp: Double?) {
     guard identifier == pendingIdentifier, handledEvent == nil,
       let identity = NSApp.currentEvent?.cgEvent?.getIntegerValueField(.eventSourceUserData),

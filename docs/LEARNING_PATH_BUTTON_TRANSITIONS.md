@@ -15,12 +15,13 @@ retain their existing owners; docking and current Pen pose do not reset accepted
 milestones. Current Evidence separates software acceptance and delivery from
 native input, physical observation and Git landing.
 
-Learning Path navigation and exercise controls share Guided Learning. Its Hide
-button changes only visibility; its position menu places it left, bottom or
-right. The Panels menu reveals it, and selecting its title chooses plotter video
-even when Portrait Studio is also visible. These changes leave Learning and its
-current operation unchanged. The persistent command bar retains exact current
-Learning, Motion, and Drawing Run Stop requests even with every panel hidden.
+Learning Path navigation and exercise controls share Guided Learning. Native
+View-menu Show/Hide commands and each pane's close button change control
+visibility only. Four slots fill right, left, lower-right, lower-left around a
+permanent central canvas. Reopening uses the first vacant slot; a fifth opening
+replaces the oldest visible control without discarding workflow state. Selecting
+a workflow title explicitly selects its camera role. The session toolbar retains
+exact Learning, Motion and Drawing Run Stop requests even with every control hidden.
 Voice is window-local and remains available with Guided Learning hidden.
 Buttons show press, pending, and result feedback. Stop uses its own symbol and
 styling; ordinary choices do not encode Yes/No as green/red. Servo dragging
@@ -207,16 +208,14 @@ Dependency behavior is intentionally asymmetric:
 - Exact Stop or root shutdown that displaces a published Pen Confirm yields a
   superseded confirmation: no accepted Pen evidence is recorded and no
   discovery successor appears.
-- **Panels** reveals Guided Learning, Video, Motion, Active Learning, and Portrait
-  Studio, with independent left/bottom/right placement and visibility. Video
-  contains the actual shared camera canvas and its settings accessory. Portrait
-  authoring and Active Learning are available before Learning completion;
-  physical Draw retains its calibration, paper and motion prerequisites.
-  Diagnostics is a separate command-bar action, not a state-saving step.
-- **Diagnostics** displays current workflow phases, drawing outcomes, retained
-  terminal details, actions/refusals, source, and runtime/UI revisions. Copy
-  Diagnostics is available for troubleshooting. Learning checkpoints and Border
-  outcomes are retained automatically; there is no Save Snapshot action.
+- **View** exposes Show/Hide Guided Learning, Video Settings, Motion, Active
+  Learning and Portrait Studio, with Command-Option-1 through Command-Option-5.
+  The central canvas remains mounted with all controls closed. Control visibility
+  does not change physical Draw prerequisites, the active camera or Learning.
+- **Diagnostics** writes a bounded snapshot of existing workflow phases, drawing
+  outcomes, terminal details, actions/refusals, source and revisions to a file in
+  the background. Completion provides file access and failures remain visible.
+  Learning checkpoints and Border outcomes are retained automatically.
 - **Voice** reads the selected current exercise prompt and listens for its
   available actions using natural yes/no responses, contextual “move” and axis
   variants, and Stop. Stop dispatches on the first matching partial transcript.

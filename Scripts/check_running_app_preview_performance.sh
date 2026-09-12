@@ -136,44 +136,42 @@ if [ "$scenario" = native-workbench ]; then
     "$python" - "$evidence" <<'NATIVE_PY'
 import json, pathlib, sys
 report = json.loads(pathlib.Path(sys.argv[1]).read_text())
-panels = ['guidedLearning', 'video', 'motion', 'activeLearning', 'portraitStudio']
-docks = ['left', 'bottom', 'right']
-expected = {(panel, dock, width) for panel in panels for dock in docks for width in (1000, 1600)}
-actual = {(item.get('panel'), item.get('dock'), item.get('width')) for item in report.get('placements', [])}
+panels = ['guidedLearning', 'videoSettings', 'motion', 'activeLearning', 'portraitStudio']
+slots = ['right', 'left', 'rightBottom', 'leftBottom']
+expected = {(panel, slot, width) for panel in panels for slot in slots for width in (1000, 1600)}
+actual = {(item.get('panel'), item.get('slot'), item.get('width')) for item in report.get('placements', [])}
 images = report.get('bitmaps', [])
-required = ['learning.mode', 'workbench.scroll', 'workbench.scroll.inner', 'workbench.resize']
+required = ['learning.mode', 'workbench.scroll.inner', 'workbench.resize']
 required += ['workbench.hide.' + panel for panel in panels]
-required += ['workbench.move.' + panel + '.' + dock for panel in panels for dock in docks]
+required += ['workbench.toggle.' + panel for panel in panels]
 counts = report.get('nativeCounts', {})
 def required_count(key):
-    if key == 'learning.mode':
-        return 2
-    return 6 if key.startswith(('workbench.hide.', 'workbench.scroll')) or key == 'workbench.resize' else 1
+    return 2 if key == 'learning.mode' else 8
 valid_counts = all(counts.get(key, {}).get('posted', 0) >= required_count(key) and
                    len({counts[key].get(field, -1) for field in ('posted', 'dispatched', 'handled', 'acknowledged')}) == 1
                    for key in required)
-body_ids = {'guidedLearning': 'learning.exerciseActions', 'video': 'workbench.video.canvas',
+body_ids = {'guidedLearning': 'learning.exerciseActions', 'videoSettings': 'workbench.video.cameraRole',
             'motion': 'motion.penDown', 'activeLearning': 'learning.coverage.prepare', 'portraitStudio': 'drawing.draw'}
 valid_bodies = all(item.get('body', {}).get('identifier') == body_ids.get(item.get('panel'))
                    and item['body'].get('panelIdentifier') == 'workbench.panel.' + item.get('panel', '')
                    and item['body'].get('fitsEveryContainingClip') is True
                    and item.get('header', {}).get('fitsEveryContainingClip') is True
                    for item in report.get('placements', []))
-inner_contexts = {sample['scrollEvidence'].get('context') for sample in report.get('inputs', [])
+scroll_contexts = {sample['scrollEvidence'].get('context') for sample in report.get('inputs', [])
                   if sample.get('targetIdentifier') == 'workbench.scroll.inner'
                   and sample.get('scrollEvidence', {}).get('controlIdentifier') == 'drawing.draw'
                   and sample['scrollEvidence'].get('clipIdentity')
-                  and sample['scrollEvidence'].get('outerClipIdentities')
-                  and sample['scrollEvidence']['clipIdentity'] not in sample['scrollEvidence']['outerClipIdentities']
                   and sample['scrollEvidence'].get('beforeBounds') != sample['scrollEvidence'].get('afterBounds')}
-passed = (report.get('schema') == 'adaptiveplotter.native-workbench.v1'
+passed = (report.get('schema') == 'adaptiveplotter.native-workbench.v2'
           and not report.get('failures') and actual == expected and valid_counts and valid_bodies
-          and inner_contexts == {dock + '.' + str(width) for dock in docks for width in (1000, 1600)}
-          and len(images) == 6 and all(pathlib.Path(path).is_file() for path in images)
+          and scroll_contexts == {slot + '.' + str(width) for slot in slots for width in (1000, 1600)}
+          and len(images) == 8 and len(set(images)) == 8 and all(pathlib.Path(path).is_file() for path in images)
           and report.get('applicationWasActive') is True
           and report.get('stopWasVisible') is True
           and report.get('acceptedArtifactsUnchanged') is True
           and report.get('windowPreferencesUnchanged') is True
+          and report.get('viewMenuWasPresent') is True
+          and set(report.get('canvasOnlyWidths', [])) == {1000, 1600}
           and set(report.get('learningStates', [])) == {False, True})
 print('Native workbench ' + ('passed' if passed else 'failed')
       + '; actual application input with simulated startup, no physical or native-held-Draw Stop claim.')

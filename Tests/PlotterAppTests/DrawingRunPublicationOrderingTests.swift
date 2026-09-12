@@ -188,6 +188,9 @@ func verifyDrawingRunPublicationOrdering(
     #expect(application.drawingRunSnapshot == publishedTerminal)
   }
 
+  // Sample the other environment before capturing the publication under test.
+  // Awaiting afterward permits a legitimate newer LIVE publication to arrive.
+  let simulated = await runtime.snapshot(environment: .simulated)
   let next = await runtime.submit(.init(projection: settled.projection,
     intent: .beginNewRun(terminalRunID)))
   #expect(next.disposition == .applied)
@@ -201,7 +204,6 @@ func verifyDrawingRunPublicationOrdering(
 
   // SIM has its own revision sequence. Returning to LIVE must retain the
   // consumed LIVE revision even though the displayed snapshot was replaced.
-  let simulated = await runtime.snapshot(environment: .simulated)
   application.frameMode = .simulated
   application.installDrawingRunSnapshot(simulated)
   #expect(application.drawingRunSnapshot == simulated)

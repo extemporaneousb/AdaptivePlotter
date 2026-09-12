@@ -18,7 +18,6 @@ struct WorkbenchStopCompositionTests {
     for action in stopActions() {
       var layout = WorkbenchLayoutState()
       for panel in WorkbenchPanel.allCases {
-        layout.move(panel, to: .bottom)
         layout.setPresented(panel, false)
       }
       let projection = stopProjection(action)

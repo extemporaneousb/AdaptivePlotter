@@ -4,54 +4,33 @@ import PlotterRuntime
 import PlotterUI
 import SwiftUI
 
-struct WorkbenchVideoPanel: View {
+struct WorkbenchVideoSettings: View {
   let application: PlotterApplicationRuntime
   let projection: PlotterObservationConfigurationProjection
   let semantic: PlotterUIProjection
   @Binding var viewport: ActionSurfaceViewportState
-  @Binding var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
-  @Binding var pendingPointSelection: PlotterPointSelectionSubmission?
-  @AppStorage("AdaptivePlotter.videoSettingsPresented") private var settingsArePresented = false
+  var cameraSelected: () -> Void = {}
   @State private var requestError: String?
 
   var body: some View {
-    VStack(spacing: 0) {
-      HStack {
-        HStack(spacing: 4) {
-          ForEach([WorkbenchCameraRole.plotter, .portrait], id: \.self) { role in
-            Button(role == .plotter ? "Plotter" : "Portrait") {
-              WorkbenchRequestTelemetry.nativeActionHandled("workbench.camera.\(role.rawValue)")
-              submit(PlotterAppUIActionID.observationCameraRole(role))
-            }
-            .buttonStyle(.bordered)
-            .tint(application.workbenchCameraRole == role ? .accentColor : .secondary)
-            .accessibilityIdentifier("workbench.camera.\(role.rawValue)")
-            .accessibilityValue(application.workbenchCameraRole == role
-              ? application.cameraRoleIsTransitioning ? "Switching" : "Selected" : "Not selected")
-          }
+    ScrollView {
+      VStack(alignment: .leading, spacing: 12) {
+        Picker("Camera", selection: Binding(get: { application.workbenchCameraRole }, set: { role in
+          cameraSelected()
+          WorkbenchRequestTelemetry.nativeActionHandled("workbench.camera.\(role.rawValue)")
+          submit(PlotterAppUIActionID.observationCameraRole(role))
+        })) {
+          Text("Plotter").tag(WorkbenchCameraRole.plotter)
+          Text("Portrait").tag(WorkbenchCameraRole.portrait)
         }
         .accessibilityIdentifier("workbench.video.cameraRole")
         if application.cameraRoleIsTransitioning { ProgressView().controlSize(.small) }
-        Spacer()
-        Button { settingsArePresented.toggle() } label: { Image(systemName: "slider.horizontal.3") }
-          .buttonStyle(.borderless)
-          .accessibilityLabel("Video Settings")
-          .accessibilityIdentifier("workbench.video.settings")
-      }.padding(8)
-      if let error = requestError ?? application.cameraRoleError ?? selectedSourceError {
-        Text(error).font(.caption).foregroundStyle(.orange)
-          .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
-          .textSelection(.enabled)
-          .accessibilityIdentifier("workbench.video.error")
-      }
-      if settingsArePresented {
-        settings.padding(10)
-        Divider()
-      }
-      WorkbenchCameraCanvas(application: application, semantic: semantic, viewport: $viewport,
-        pendingDrawingPlacement: $pendingDrawingPlacement, pendingPointSelection: $pendingPointSelection)
-        .frame(minWidth: 280, maxWidth: .infinity, minHeight: 180, maxHeight: .infinity)
-        .accessibilityIdentifier("workbench.video.canvas")
+        if let error = requestError ?? application.cameraRoleError ?? selectedSourceError {
+          Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+            .accessibilityIdentifier("workbench.video.error")
+        }
+        settings
+      }.padding(10)
     }
   }
 
@@ -64,6 +43,10 @@ struct WorkbenchVideoPanel: View {
 
   private var settings: some View {
     VStack(alignment: .leading, spacing: 10) {
+      Text("Zoom")
+      Slider(value: $viewport.zoom, in: 0...1)
+        .disabled(application.workbenchCameraRole == .plotter && projection.regionLock != nil)
+        .accessibilityIdentifier("workbench.video.zoom")
       if application.workbenchCameraRole == .plotter {
         HStack {
           Picker("Source", selection: Binding(
@@ -77,7 +60,7 @@ struct WorkbenchVideoPanel: View {
           Button { submit(PlotterAppUIActionID.observationRefresh) } label: { Image(systemName: "arrow.clockwise") }
             .accessibilityLabel("Refresh cameras")
         }
-        HStack {
+        VStack(alignment: .leading, spacing: 8) {
           ForEach(UserSceneOverlay.allCases, id: \.self) { overlay in
             Toggle(overlay.title, isOn: Binding(
               get: { projection.enabledOverlays.contains(overlay) },
@@ -89,9 +72,7 @@ struct WorkbenchVideoPanel: View {
         })) {
           ForEach(VisionAnalysisCadence.allCases, id: \.self) { Text("\($0.displayValue) fps").tag($0) }
         }.disabled(projection.frameMode != .live)
-        HStack {
-          Text("Zoom")
-          Slider(value: $viewport.zoom, in: 0...1).disabled(projection.regionLock != nil)
+        VStack(alignment: .leading, spacing: 8) {
           Button(projection.regionLock == nil ? "Lock Region" : "Unlock Region", action: submitRegion)
             .disabled(!application.displayedFrameAvailable)
         }
@@ -127,25 +108,6 @@ struct WorkbenchVideoPanel: View {
         return
       }
       if case .refused(let refusal) = await application.submitPlotterUIRequest(request) { requestError = refusal.remedy }
-    }
-  }
-}
-
-/// This leaf alone observes camera pixels. Both sources occupy the same Video
-/// panel and use the same native image layer; controls never receive frame bytes.
-private struct WorkbenchCameraCanvas: View {
-  let application: PlotterApplicationRuntime
-  let semantic: PlotterUIProjection
-  @Binding var viewport: ActionSurfaceViewportState
-  @Binding var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
-  @Binding var pendingPointSelection: PlotterPointSelectionSubmission?
-  var body: some View {
-    if application.workbenchCameraRole == .portrait {
-      PortraitCameraPreview(model: application.portraitStudio.preview)
-    } else {
-      PreviewingActionSurface(application: application, preview: application.actionSurfacePreview,
-        viewport: $viewport, plotterUIProjection: semantic, plotterUIIntentSink: application,
-        pendingDrawingPlacement: $pendingDrawingPlacement, pendingPointSelection: $pendingPointSelection)
     }
   }
 }

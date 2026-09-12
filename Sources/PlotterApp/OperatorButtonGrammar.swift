@@ -26,7 +26,7 @@ enum OperatorButtonChrome: Hashable, Sendable {
 
   fileprivate var backgroundColor: Color {
     switch self {
-    case .stop: .orange
+    case .stop: .red
     case .neutralEnabled: Color(nsColor: .controlColor)
     case .disabled: Color(nsColor: .controlBackgroundColor)
     }
@@ -35,7 +35,7 @@ enum OperatorButtonChrome: Hashable, Sendable {
   fileprivate var foregroundColor: Color {
     switch self {
     case .disabled: .secondary
-    case .stop: .black
+    case .stop: .white
     case .neutralEnabled: .primary
     }
   }

@@ -9,6 +9,68 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Permanent canvas and native control panes, 2026-09-12
+
+Task `task-274de148854247b3b90195212b3f47ee` implements the
+[approved presentation correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#permanent-canvas-and-native-control-panes-2026-09-12),
+integrated with `63890f6`'s observed-cap correction. The main canvas remains
+mounted independently of control visibility. Native View commands fill right,
+left, lower-right, lower-left; the fifth control replaces the oldest. Native
+split views preserve the canvas host, resize columns and paired controls, enforce
+minimum dimensions and restore saved divider positions. Badges, move menus and
+the separate command strip are removed. The toolbar contains amber connection
+and motion actions, diagnostic export, and the existing typed Stop in red.
+Video Settings contains source/zoom/overlay controls. Imported/captured portraits
+can occupy the main canvas; absent camera imagery uses an identified return-only
+simulator preview without publishing evidence or changing execution environment.
+Voice code and preferences are unchanged; the independent input/output controls
+are parked in the Roadmap.
+
+The strict-concurrency, warnings-as-errors `make quick-test` run passed its
+**999-test suite** in 80.577 seconds. Five pre-existing opt-in rendering, supplied
+photo and cost-matrix tests were skipped by their environment conditions. The
+suite includes native offscreen geometry at 1000/1600 points, canvas-host identity
+through every opening/closing, saved-divider restoration before initial window
+sizing, native divider constraints, legacy preference migration, oldest-control
+replacement, passive simulator state preservation, background diagnostic success
+and failure, held-writer MainActor responsiveness, typed Stop and voice tests.
+These native geometry tests inspect actual AppKit views; they do not establish
+CGEvent menu/close/drag interaction or physical operation. The focused native
+geometry/computation rerun passed 16 tests. Existing ambient-preview and analysis
+isolation regressions passed in the full suite.
+
+The first broad run exposed saved-divider initialization overwriting the saved
+position; the corrected initial-size regression now passes. That run also hit
+one extra projection build in the existing held-Pen-Up analysis-traffic test;
+its semantic revision/actions remained equal. The test passed unchanged in the
+focused and final broad reruns. The Drawing Run ordering fixture now reads the
+other environment before capturing its LIVE publication, removing an await that
+could admit a newer LIVE publication during a synchronous replay assertion.
+Production Drawing Run publication and Stop admission are unchanged.
+
+Diagnostics copies the same bounded existing-owner snapshot and writes formatted
+JSON off MainActor to `~/Library/Logs/AdaptivePlotter/Diagnostics/`. No new event
+stream, recorder, motion authority or learning requirement is introduced.
+Documentation and whitespace checks passed. Evidence logs are retained under
+`.build/evidence/native-workbench-20260912/` in the canonical checkout.
+
+The release build completed with strict concurrency and warnings-as-errors,
+and stable local signing verified. The byte-matched signed candidate is staged
+at `.build/AdaptivePlotter-workbench-274de148.app` in the canonical checkout;
+its executable SHA-256 is
+`f84d049bcfde9ba8414f77d67aae33c970b444baa68d0adeadaf683003db2bde`.
+Final release attempts of `make preview-performance-gate` (PID 36453) and
+`native-workbench` (PID 36512) both stopped at exact-process activation before
+measurement. They are **skipped native/performance evidence**, not passing gates
+or failed performance measurements. Their full logs and native attempt artifacts
+are retained with the release and software-check logs in the evidence directory.
+
+The debug signed-app `native-workbench` attempt stopped before measurement:
+macOS rejected activation of the exact spawned PID while the desktop was locked.
+A separate diagnostic render attempt also failed the active/key/main-window
+precondition. Neither is passing native interaction evidence. No attended camera,
+controller, motion, pen, paper, click or ink validation was performed.
+
 ## Observed cap acquisition and calibration failure feedback, 2026-09-11
 
 Live PID `24991` completed one calibration circle on each of three Exercise 1.4

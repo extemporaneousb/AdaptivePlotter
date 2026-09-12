@@ -174,7 +174,7 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
 
   static let requiredPortraitControls = ["workbench.camera.portrait", "workbench.camera.plotter",
     "portrait.style", "portrait.showOnPlotter", "drawing.scale", "drawing.rotation", "drawing.fit",
-    "workbench.move.motion.left", "workbench.move.motion.bottom", "workbench.scroll", "workbench.resize", "learning.analyzeDrawings"]
+    "workbench.toggle.motion", "workbench.scroll", "workbench.resize", "learning.analyzeDrawings"]
 }
 
 struct PlotterAnalysisPerformanceWindow: Codable, Equatable, Sendable {
@@ -518,8 +518,11 @@ enum RunningAppPreviewPerformanceGate {
     let role: WorkbenchCameraRole = workload.switchDurations.count.isMultiple(of: 2) ? .portrait : .plotter
     let started = ContinuousClock.now
     let id = "workbench.camera.\(role.rawValue)"
-    let before = RunningAppNativeInputProbe.controlValue(id)
-    samples.append(try await probe.click(id) { RunningAppNativeInputProbe.controlValue(id) != before })
+    revealPanel(.videoSettings)
+    samples.append(try await probe.click("workbench.video.cameraRole", handlerIdentifier: id,
+      menuKeyCodes: [115] + (role == .portrait ? [125] : []) + [36]) {
+        application.workbenchCameraRole == role || application.cameraRoleIsTransitioning
+      })
     // This second native event is delivered while the camera owner's async
     // stop/start may still be in flight. Switch duration is measured separately.
     samples.append(try await probe.hideMotion(reveal: revealPanel))
@@ -600,16 +603,11 @@ enum RunningAppPreviewPerformanceGate {
         RunningAppNativeInputProbe.controlValue("drawing.placement") != before
       })
     }
-    // Existing position menus receive native mouse/key events. Their typed
-    // menu-item handlers and changed on-screen panel geometry acknowledge them.
-    for dock in [WorkbenchDock.left, .bottom] {
-      let before = RunningAppNativeInputProbe.controlFrame("workbench.panel.motion")
-      let item = "workbench.move.motion.\(dock.rawValue)"
-      let index = WorkbenchDock.allCases.firstIndex(of: dock)!
-      samples.append(try await probe.click("workbench.position.motion", handlerIdentifier: item,
-        menuKeyCodes: [115] + Array(repeating: 125, count: index) + [36]) {
-          RunningAppNativeInputProbe.controlFrame("workbench.panel.motion") != before
-        })
+    for _ in 0..<2 {
+      let wasVisible = RunningAppNativeInputProbe.controlFrame("workbench.panel.motion") != nil
+      samples.append(try await probe.togglePane(.motion) {
+        (RunningAppNativeInputProbe.controlFrame("workbench.panel.motion") != nil) != wasVisible
+      })
     }
     samples.append(try await probe.scrollWorkbench())
     samples.append(try await probe.resizeWorkbench())

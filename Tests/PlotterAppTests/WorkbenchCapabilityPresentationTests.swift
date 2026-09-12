@@ -6,8 +6,6 @@ import Testing
 struct WorkbenchCapabilityPresentationTests {
   @Test("learning capability vocabulary states exactly what has been established")
   func capabilityVocabulary() {
-    #expect(WorkbenchLearningCapabilityState.mapReady.systemImage == "graduationcap")
-    #expect(WorkbenchLearningCapabilityState.interactiveLearningComplete.systemImage == "graduationcap.fill")
     #expect(
       WorkbenchLearningCapabilityState.allCases.map(\.title) == [
         "Pen-tip calibration required",
@@ -39,10 +37,8 @@ struct WorkbenchCapabilityPresentationTests {
     )
 
     #expect(required.paper.title == "Paper setup required")
-    #expect(required.paper.colorToken == .needsAttention)
     #expect(required.accessibilityValue.contains("No current paper-coverage observation"))
     #expect(current.paper.title == "Paper current")
-    #expect(current.paper.colorToken == .available)
     #expect(current.learning == .learningNeeded)
   }
 }

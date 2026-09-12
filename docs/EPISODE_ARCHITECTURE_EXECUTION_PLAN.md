@@ -13,6 +13,50 @@ or competing architecture plan is authority. Accepted conclusions must be
 integrated here and the source note deleted. Git history and Blackdog prompt
 artifacts are history, not current design.
 
+## Permanent canvas and native control panes, 2026-09-12
+
+This user-approved product correction supersedes the layout and diagnostic
+presentation portions of the September 8 workbench correction below. It does
+not reopen historical episode migration packages or change their evidence.
+
+The workbench keeps its video/portrait/simulation canvas permanently in the main
+window. The canvas has no close control or View-menu visibility command. Five
+optional control panes are Guided Learning, Video Settings, Motion, Active
+Learning, and Portrait Studio. Native View-menu Show/Hide commands and
+Command-Option-1 through Command-Option-5 control their visibility. Opening fills
+right, left, lower-right, then lower-left. A side with one pane uses its full
+height; two panes share that side through a native draggable divider. Closing a
+pane preserves sibling slots; an empty side returns its space to the canvas.
+A fifth opening replaces the oldest visible pane while retaining its workflow
+state. Layout preferences migrate from the former dock model, and native split
+views save divider sizes. There is no full-width bottom area, position menu,
+move icon, automatic workflow reset, or closable Video panel.
+
+The session toolbar owns controller selection, amber Connect/Disconnect and
+Enable/Disable Motion actions, the diagnostic export tool, and the far-right
+red Achtung! Stop control. Existing typed Stop requests and Escape routing are
+preserved; passive status badges and the separate command strip are removed.
+Voice remains unchanged and its input/output split is deferred in the Roadmap.
+
+Video Settings contains source choice, zoom, overlays, analysis cadence and
+region controls. Showing or hiding control panes does not select a camera;
+explicit camera controls and workflow-title actions retain projected requests.
+The permanent canvas uses the existing frame/overlay leaf and portrait renderer.
+With no available image it displays an identified simulator preview, without
+switching execution environment, consuming simulator faults, publishing an
+observation, or altering Learning. Explicit frozen evidence and available
+portrait photos remain displayable. These presentation changes never establish
+camera or physical ink evidence.
+
+Diagnostics becomes a toolbar-triggered background JSON file export of the same
+bounded current-owner snapshot. Acceptance requires slot order/close/replacement
+and migration tests, exact Stop preservation, return-only simulator fallback,
+export completion/failure/responsiveness, native View commands and permanent
+canvas visibility at 1000/1600-point widths, and unchanged preview isolation.
+The native-workbench v2 scenario checks all 20 control/slot combinations at both
+widths, eight bitmaps, actual body scrolling and menu/close/resize input. Runtime
+and native evidence remain separate; Current Evidence records executed results.
+
 ## Decision
 
 Keep one AdaptivePlotter application and the existing controller, camera,

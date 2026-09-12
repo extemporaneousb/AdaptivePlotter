@@ -8,6 +8,7 @@ struct PortraitStudioView: View {
   let strokeStyle: PlotterModel.StrokeStyle
   let showOnPlotter: (DrawingProgram) async -> String?
   var selectCamera: () async -> String? = { nil }
+  var showPhoto: () -> Void = {}
   @State private var importing = false
   @State private var submissionError: String?
   @State private var isSubmitting = false
@@ -43,6 +44,7 @@ struct PortraitStudioView: View {
       .accessibilityValue(isSubmitting ? "Preparing plotter preview" : submissionError ?? "Ready")
       if isSubmitting { ProgressView("Preparing plotter preview").controlSize(.small) }
     }
+    .onChange(of: model.photos[model.pose]) { _, photo in if photo != nil { showPhoto() } }
     .onChange(of: model.pose) { _, _ in model.render(strokeStyle: strokeStyle) }
     .onChange(of: model.style) { _, _ in model.render(strokeStyle: strokeStyle) }
     .onChange(of: model.options) { _, _ in model.analysisOptionsChanged(strokeStyle: strokeStyle) }
@@ -77,6 +79,7 @@ struct PortraitStudioView: View {
         Button("Choose Photo…") { importing = true }
           .accessibilityIdentifier("portrait.choosePhoto")
       }
+      Button("Show Photo", action: showPhoto).disabled(model.photos[model.pose] == nil)
       Toggle("Crop to face", isOn: $model.options.cropToFace)
       Toggle("Remove background", isOn: $model.options.removeBackground)
       if let status = model.cameraStatus {
@@ -102,17 +105,18 @@ struct PortraitStudioView: View {
   }
 }
 
-/// Only the shared Video panel mounts this leaf. The portrait controls never
+/// Only the permanent canvas mounts this leaf. The portrait controls never
 /// observe advancing camera frames and cannot start or stop capture themselves.
 struct PortraitCameraPreview: View {
   let model: PortraitCameraPreviewModel
+  var zoom: Double = 0
   @StateObject private var cache = FramePresentationImageCache()
   var body: some View {
     GeometryReader { proxy in
       if let displayed = model.frame, let image = cache.image(from: displayed.frame),
         let transform = CameraPixelToViewTransform(frameWidth: displayed.frame.width,
           frameHeight: displayed.frame.height, viewWidth: proxy.size.width, viewHeight: proxy.size.height) {
-        CameraFrameLayerView(image: image, imageRect: transform.imageRect)
+        CameraFrameLayerView(image: image, imageRect: transform.imageRect).scaleEffect(1 + zoom * 3)
       } else {
         ContentUnavailableView("Portrait Camera", systemImage: "person.crop.rectangle",
           description: Text("Choose a camera in Portrait Studio or import a photo."))

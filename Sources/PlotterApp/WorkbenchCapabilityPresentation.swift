@@ -1,5 +1,3 @@
-import SwiftUI
-
 /// A product-capability statement copied from the current artifact owners.
 ///
 /// This value is presentation only. Its cases deliberately do not form an
@@ -36,21 +34,6 @@ enum WorkbenchLearningCapabilityState: CaseIterable, Hashable, Sendable {
       "The current drawing-readiness assessment is accepted for its declared scope."
     }
   }
-
-  var colorToken: WorkbenchCapabilityColorToken {
-    switch self {
-    case .learningNeeded, .savedMapNeedsRevalidation: .needsAttention
-    case .mapReady, .interactiveLearningComplete: .available
-    case .adaptiveDrawingReady: .ready
-    }
-  }
-
-  var systemImage: String {
-    switch self {
-    case .interactiveLearningComplete, .adaptiveDrawingReady: "graduationcap.fill"
-    case .learningNeeded, .savedMapNeedsRevalidation, .mapReady: "graduationcap"
-    }
-  }
 }
 
 /// Paper status is independent from learned model status. A current map never
@@ -72,18 +55,6 @@ enum WorkbenchPaperSetupState: Hashable, Sendable {
     }
   }
 
-  var colorToken: WorkbenchCapabilityColorToken {
-    switch self {
-    case .setupRequired: .needsAttention
-    case .current: .available
-    }
-  }
-}
-
-enum WorkbenchCapabilityColorToken: Hashable, Sendable {
-  case needsAttention
-  case available
-  case ready
 }
 
 struct WorkbenchCapabilityPresentation: Hashable, Sendable {
@@ -92,53 +63,5 @@ struct WorkbenchCapabilityPresentation: Hashable, Sendable {
 
   var accessibilityValue: String {
     "\(learning.title). \(learning.detail) \(paper.title). \(paper.detail)"
-  }
-}
-
-/// Compact toolbar rendering for already-derived capability and paper facts.
-/// It receives no workspace or runtime owner.
-struct WorkbenchCapabilityIndicator: View {
-  let presentation: WorkbenchCapabilityPresentation
-
-  var body: some View {
-    HStack(spacing: 10) {
-      status(
-        title: presentation.learning.title,
-        detail: presentation.learning.detail,
-        colorToken: presentation.learning.colorToken,
-        systemImage: presentation.learning.systemImage
-      )
-      Divider().frame(height: 18)
-      status(
-        title: presentation.paper.title,
-        detail: presentation.paper.detail,
-        colorToken: presentation.paper.colorToken,
-        systemImage: "doc.fill"
-      )
-    }
-    .fixedSize()
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel("Drawing capability")
-    .accessibilityValue(presentation.accessibilityValue)
-  }
-
-  private func status(
-    title: String,
-    detail: String,
-    colorToken: WorkbenchCapabilityColorToken,
-    systemImage: String
-  ) -> some View {
-    Label(title, systemImage: systemImage)
-      .font(.caption)
-      .foregroundStyle(color(for: colorToken))
-      .help(detail)
-  }
-
-  private func color(for token: WorkbenchCapabilityColorToken) -> Color {
-    switch token {
-    case .needsAttention: .orange
-    case .available: .green
-    case .ready: .cyan
-    }
   }
 }

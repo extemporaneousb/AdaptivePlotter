@@ -4,66 +4,6 @@ import Testing
 
 @Suite("Native workbench toolbar")
 struct WorkbenchTopBarLayoutTests {
-  @Test("toolbar owns camera plotter and motion indicators")
-  func connectionIndicatorsAreFocused() {
-    #expect(WorkbenchConnectionIndicator.allCases == [.camera, .plotter, .motionGuard])
-    #expect(WorkbenchConnectionIndicator.camera.title == "Camera")
-    #expect(WorkbenchConnectionIndicator.plotter.title == "Plotter")
-    #expect(WorkbenchConnectionIndicator.motionGuard.title == "Motion")
-  }
-
-  @Test("connection labels never imply a false positive")
-  func connectionLabelsTrackTheirBooleanEvidence() {
-    #expect(WorkbenchConnectionIndicator.camera.label(isActive: true) == "Camera Live")
-    #expect(WorkbenchConnectionIndicator.camera.label(isActive: false) == "Camera Off")
-    #expect(WorkbenchConnectionIndicator.plotter.label(isActive: true) == "Plotter Connected")
-    #expect(
-      WorkbenchConnectionIndicator.plotter.label(isActive: false) == "Plotter Disconnected"
-    )
-    #expect(
-      WorkbenchConnectionIndicator.motionGuard.label(isActive: true) == "Motion Enabled"
-    )
-    #expect(
-      WorkbenchConnectionIndicator.motionGuard.label(isActive: false) == "Motion Disabled"
-    )
-  }
-
-  @Test("persistent status attention uses an actionable warning symbol")
-  func statusSymbolReflectsAttention() {
-    #expect(
-      WorkbenchTopBarStatusStyle.systemImage(needsAttention: true)
-        == "exclamationmark.triangle.fill"
-    )
-    #expect(
-      WorkbenchTopBarStatusStyle.systemImage(needsAttention: false)
-        == "info.circle"
-    )
-  }
-
-  @Test("enabled authorization is not rewritten by transient request state")
-  func motionAuthorizationRemainsTruthfulWhileBusy() {
-    let authorizationLabel = WorkbenchConnectionIndicator.motionGuard.label(isActive: true)
-    let requestState = MotionRequestStatusPresentation.busy(
-      "The current controller operation is settling."
-    )
-
-    #expect(authorizationLabel == "Motion Enabled")
-    #expect(requestState.label == "Busy")
-    #expect(requestState.detail == "The current controller operation is settling.")
-  }
-
-  @Test("request faults project Needs Attention separately from authorization")
-  func requestAttentionIsSeparate() {
-    let authorizationLabel = WorkbenchConnectionIndicator.motionGuard.label(isActive: true)
-    let requestState = MotionRequestStatusPresentation.needsAttention(
-      "Controller Alarm blocks a carriage request."
-    )
-
-    #expect(authorizationLabel == "Motion Enabled")
-    #expect(requestState.label == "Needs Attention")
-    #expect(requestState.detail == "Controller Alarm blocks a carriage request.")
-  }
-
   @Test("simulated mode keeps the controller slot without serial selection")
   func simulatedControllerSlotPreservesToolbarOrder() {
     let live = WorkbenchControllerSlotPresentation(mode: .live)
@@ -75,15 +15,13 @@ struct WorkbenchTopBarLayoutTests {
     #expect(!simulated.isSerialSelectionEnabled)
   }
 
-  @Test("motion authorization action uses the connection control color grammar")
+  @Test("motion authorization labels follow authorization")
   func motionAuthorizationActionTracksAuthorization() {
     let enable = WorkbenchMotionAuthorizationActionPresentation(isAuthorized: false)
     let disable = WorkbenchMotionAuthorizationActionPresentation(isAuthorized: true)
 
     #expect(enable.title == "Enable Motion")
-    #expect(enable.role.chrome(isEnabled: true) == .neutralEnabled)
     #expect(disable.title == "Disable Motion")
-    #expect(disable.role.chrome(isEnabled: true) == .neutralEnabled)
   }
 
   @Test("disabled Motion exposes its full reason as visible toolbar text")
@@ -97,15 +35,12 @@ struct WorkbenchTopBarLayoutTests {
     #expect(WorkbenchMotionUnavailablePresentation("") == nil)
   }
 
-  @Test("Connect is green and every semantic Disconnect action is red")
+  @Test("connection labels retain their exact semantic action")
   func controllerConnectionActionOwnsItsColor() {
     let connect = WorkbenchConnectionActionPresentation(action: .connect)
     let disconnect = WorkbenchConnectionActionPresentation(action: .disconnect)
 
     #expect(connect.title == "Connect")
-    #expect(connect.role.chrome(isEnabled: true) == .neutralEnabled)
     #expect(disconnect.title == "Disconnect")
-    #expect(disconnect.role.chrome(isEnabled: true) == .neutralEnabled)
-    #expect(disconnect.role.chrome(isEnabled: false) == .disabled)
   }
 }
