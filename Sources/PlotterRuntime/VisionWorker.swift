@@ -98,15 +98,12 @@ public struct PenCapColor: Codable, Hashable, Sendable {
   public static let green = PenCapColor(red: 45, green: 185, blue: 105)
 }
 
-/// Image-space scene priors from the current fixed C920 view. These regions
-/// narrow distractors; they do not define machine coordinates or a mm scale.
+/// Image-space search hints and inferred armature geometry. A predicted cap
+/// center changes scan order only; observed components determine the result.
 public struct PlotterSceneVisionPriors: Hashable, Sendable {
   public let capSearchRegion: PixelRect
   public let penCapColor: PenCapColor
-  public let minimumCapPixels: Int
-  public let maximumCapPixels: Int
-  public let minimumAcceptedCapConfidence: Double
-  public let ambiguousCandidatePixelRatio: Double
+  public let searchCenter: Point2<CameraPixelSpace>?
   public let armatureHalfWidthFraction: Double
   public let armatureTopMarginFraction: Double
   public let armatureHeightFraction: Double
@@ -115,20 +112,13 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
   public init(
     capSearchRegion: PixelRect,
     penCapColor: PenCapColor = .green,
-    minimumCapPixels: Int,
-    maximumCapPixels: Int,
-    minimumAcceptedCapConfidence: Double = 0.20,
-    ambiguousCandidatePixelRatio: Double = 0.85,
+    searchCenter: Point2<CameraPixelSpace>? = nil,
     armatureHalfWidthFraction: Double = 0.055,
     armatureTopMarginFraction: Double = 0.025,
     armatureHeightFraction: Double = 0.56,
     algorithmRevision: String = "plotter-scene-v1"
   ) throws {
-    guard minimumCapPixels > 0, maximumCapPixels >= minimumCapPixels,
-      minimumAcceptedCapConfidence.isFinite,
-      minimumAcceptedCapConfidence > 0, minimumAcceptedCapConfidence <= 1,
-      ambiguousCandidatePixelRatio.isFinite,
-      ambiguousCandidatePixelRatio > 0, ambiguousCandidatePixelRatio <= 1,
+    guard
       armatureHalfWidthFraction.isFinite,
       armatureHalfWidthFraction > 0, armatureHalfWidthFraction < 0.5,
       armatureTopMarginFraction.isFinite,
@@ -139,21 +129,19 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     else { throw FrameError.invalidVisionPolicy }
     self.capSearchRegion = capSearchRegion
     self.penCapColor = penCapColor
-    self.minimumCapPixels = minimumCapPixels
-    self.maximumCapPixels = maximumCapPixels
-    self.minimumAcceptedCapConfidence = minimumAcceptedCapConfidence
-    self.ambiguousCandidatePixelRatio = ambiguousCandidatePixelRatio
+    self.searchCenter = searchCenter
     self.armatureHalfWidthFraction = armatureHalfWidthFraction
     self.armatureTopMarginFraction = armatureTopMarginFraction
     self.armatureHeightFraction = armatureHeightFraction
     self.algorithmRevision = algorithmRevision
   }
 
-  public static func c920StartupDefaults(
+  public static func sceneDefaults(
     frameWidth: Int,
     frameHeight: Int,
     analysisRegion: PixelRect? = nil,
-    penCapColor: PenCapColor = .green
+    penCapColor: PenCapColor = .green,
+    searchCenter: Point2<CameraPixelSpace>? = nil
   ) throws -> Self {
     guard frameWidth > 0, frameHeight > 0 else { throw FrameError.invalidDimensions }
     let fullFrame = PixelRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
@@ -163,46 +151,15 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
       region.x + region.width <= frameWidth,
       region.y + region.height <= frameHeight
     else { throw FrameError.invalidRegion }
-    let fullFrameArea = frameWidth * frameHeight
     let algorithmRevision =
       canonicalRegion.map {
-        "c920-startup-scene-v3:cap-\(penCapColor.hexRGB):region-\($0.x)-\($0.y)-\($0.width)-\($0.height)"
-      } ?? "c920-startup-scene-v3:cap-\(penCapColor.hexRGB):full-frame"
-    let capSearchRegion =
-      canonicalRegion == nil
-      ? scaledRegion(x: 0.24, y: 0.14, width: 0.66, height: 0.54, within: region)
-      : region
+        "observed-cap-components-v4:cap-\(penCapColor.hexRGB):region-\($0.x)-\($0.y)-\($0.width)-\($0.height)"
+      } ?? "observed-cap-components-v4:cap-\(penCapColor.hexRGB):full-frame"
     return try Self(
-      capSearchRegion: capSearchRegion,
+      capSearchRegion: region,
       penCapColor: penCapColor,
-      minimumCapPixels: max(24, fullFrameArea / 40_000),
-      maximumCapPixels: max(48, fullFrameArea / 200),
+      searchCenter: searchCenter,
       algorithmRevision: algorithmRevision
-    )
-  }
-
-  private static func scaledRegion(
-    x: Double,
-    y: Double,
-    width: Double,
-    height: Double,
-    within region: PixelRect
-  ) -> PixelRect {
-    let originX = region.x + Int((Double(region.width) * x).rounded(.down))
-    let originY = region.y + Int((Double(region.height) * y).rounded(.down))
-    let maxX = min(
-      region.x + region.width,
-      region.x + Int((Double(region.width) * (x + width)).rounded(.up))
-    )
-    let maxY = min(
-      region.y + region.height,
-      region.y + Int((Double(region.height) * (y + height)).rounded(.up))
-    )
-    return PixelRect(
-      x: originX,
-      y: originY,
-      width: max(1, maxX - originX),
-      height: max(1, maxY - originY)
     )
   }
 }
@@ -214,36 +171,14 @@ public struct PenCapMeasurement: Hashable, Sendable {
   public let confidence: Double
 }
 
-public enum PenCapCandidateRejectionReason: Hashable, Sendable {
-  case belowMinimumPixels(actual: Int, minimum: Int)
-  case aboveMaximumPixels(actual: Int, maximum: Int)
-  case aspectRatioOutside(actual: Double, minimum: Double, maximum: Double)
-  case fillFractionBelow(actual: Double, minimum: Double)
-  case confidenceBelow(actual: Double, minimum: Double)
-
-  public var actionableDescription: String {
-    switch self {
-    case .belowMinimumPixels(let actual, let minimum):
-      "\(actual) pixels is below minimum \(minimum)"
-    case .aboveMaximumPixels(let actual, let maximum):
-      "\(actual) pixels exceeds maximum \(maximum)"
-    case .aspectRatioOutside(let actual, let minimum, let maximum):
-      String(format: "aspect %.2f is outside %.2f...%.2f", actual, minimum, maximum)
-    case .fillFractionBelow(let actual, let minimum):
-      String(format: "fill %.2f is below %.2f", actual, minimum)
-    case .confidenceBelow(let actual, let minimum):
-      String(format: "confidence %.2f is below %.2f", actual, minimum)
-    }
-  }
-}
-
 public struct PenCapCandidateDiagnostic: Hashable, Sendable {
   public let pixelCount: Int
   public let boundingBox: PixelRect
+  public let colorSimilarity: Double
+  public let supportScore: Double
   public let aspectRatio: Double
   public let fillFraction: Double
   public let confidence: Double
-  public let rejectionReasons: [PenCapCandidateRejectionReason]
 }
 
 public struct PenCapDiagnostics: Hashable, Sendable {
@@ -257,7 +192,6 @@ public enum PenCapDetectionResult: Hashable, Sendable {
   case notRequested
   case found(PenCapMeasurement, diagnostics: PenCapDiagnostics)
   case notFound(PenCapDiagnostics)
-  case candidatesRejected(PenCapDiagnostics)
   case ambiguous(candidatePixelCounts: [Int], diagnostics: PenCapDiagnostics)
   case failed(String)
 
@@ -271,9 +205,6 @@ public enum PenCapDetectionResult: Hashable, Sendable {
     case .notRequested: "not requested"
     case .found: "found"
     case .notFound: "no pixels passed the selected pen-cap color thresholds"
-    case .candidatesRejected(let diagnostics):
-      diagnostics.candidates.flatMap(\.rejectionReasons).first?.actionableDescription
-        ?? "all components were rejected"
     case .ambiguous(let counts, _):
       "candidate sizes \(counts.map(String.init).joined(separator: ", ")); refusing to choose"
     case .failed(let reason): reason
@@ -387,6 +318,11 @@ public actor VisionWorker {
     let maxY: Int
     let centroidX: Double
     let centroidY: Double
+    let colorSimilarity: Double
+
+    // Color agreement dominates raw area; additional pixels contribute with
+    // diminishing weight. This is ranking, never a score acceptance threshold.
+    var supportScore: Double { sqrt(Double(pixelCount)) * colorSimilarity * colorSimilarity }
   }
 
   public init() {}
@@ -396,18 +332,20 @@ public actor VisionWorker {
     requestedFeatures: SceneFeatureSet,
     priors suppliedPriors: PlotterSceneVisionPriors? = nil,
     analysisRegion: PixelRect? = nil,
-    penCapColor: PenCapColor = .green
+    penCapColor: PenCapColor = .green,
+    searchCenter: Point2<CameraPixelSpace>? = nil
   ) throws -> PlotterSceneMeasurement {
     let frame = frame.materializingContentHash(for: .analysis)
     let frameSHA256 = frame.contentSHA256
     let expandedFeatures = requestedFeatures.expandingDependencies
     let priors =
       try suppliedPriors
-      ?? PlotterSceneVisionPriors.c920StartupDefaults(
+      ?? PlotterSceneVisionPriors.sceneDefaults(
         frameWidth: frame.width,
         frameHeight: frame.height,
         analysisRegion: analysisRegion,
-        penCapColor: penCapColor
+        penCapColor: penCapColor,
+        searchCenter: searchCenter
       )
     try validate(priors.capSearchRegion, in: frame)
 
@@ -609,37 +547,16 @@ public actor VisionWorker {
       priors: priors
     )
     let thresholdPixelCount = components.reduce(0) { $0 + $1.pixelCount }
+    let totalSupport = components.reduce(0.0) { $0 + $1.supportScore }
     let inspectedPixelCount = priors.capSearchRegion.width * priors.capSearchRegion.height
     let candidates = components.map { component -> PenCapCandidateDiagnostic in
       let width = component.maxX - component.minX + 1
       let height = component.maxY - component.minY + 1
       let aspect = Double(width) / Double(height)
       let fill = Double(component.pixelCount) / Double(width * height)
-      let sizeScore = min(1, Double(component.pixelCount) / Double(priors.minimumCapPixels * 4))
-      let fillScore = min(1, fill / 0.5)
-      let confidence = sizeScore * fillScore
-      var reasons: [PenCapCandidateRejectionReason] = []
-      if component.pixelCount < priors.minimumCapPixels {
-        reasons.append(
-          .belowMinimumPixels(actual: component.pixelCount, minimum: priors.minimumCapPixels)
-        )
-      }
-      if component.pixelCount > priors.maximumCapPixels {
-        reasons.append(
-          .aboveMaximumPixels(actual: component.pixelCount, maximum: priors.maximumCapPixels)
-        )
-      }
-      if aspect < 0.25 || aspect > 4 {
-        reasons.append(.aspectRatioOutside(actual: aspect, minimum: 0.25, maximum: 4))
-      }
-      if fill < 0.20 {
-        reasons.append(.fillFractionBelow(actual: fill, minimum: 0.20))
-      }
-      if confidence < priors.minimumAcceptedCapConfidence {
-        reasons.append(
-          .confidenceBelow(actual: confidence, minimum: priors.minimumAcceptedCapConfidence)
-        )
-      }
+      // Relative color support and fill describe the observation; neither is
+      // an acceptance gate. No frame-area, aspect, or learned-position cutoff.
+      let confidence = component.supportScore / totalSupport * fill
       return PenCapCandidateDiagnostic(
         pixelCount: component.pixelCount,
         boundingBox: PixelRect(
@@ -648,10 +565,11 @@ public actor VisionWorker {
           width: width,
           height: height
         ),
+        colorSimilarity: component.colorSimilarity,
+        supportScore: component.supportScore,
         aspectRatio: aspect,
         fillFraction: fill,
-        confidence: confidence,
-        rejectionReasons: reasons
+        confidence: confidence
       )
     }.sorted(by: candidatePrecedes)
     let diagnostics = PenCapDiagnostics(
@@ -661,15 +579,12 @@ public actor VisionWorker {
       candidates: candidates
     )
     guard thresholdPixelCount > 0 else { return .notFound(diagnostics) }
-    let eligible = candidates.filter(\.rejectionReasons.isEmpty)
-    guard let leading = eligible.first else { return .candidatesRejected(diagnostics) }
-    if eligible.count > 1 {
-      let second = eligible[1]
-      if Double(second.pixelCount) / Double(leading.pixelCount)
-        >= priors.ambiguousCandidatePixelRatio
-      {
+    guard let leading = candidates.first else { return .notFound(diagnostics) }
+    if candidates.count > 1 {
+      let second = candidates[1]
+      if second.supportScore == leading.supportScore {
         return .ambiguous(
-          candidatePixelCounts: eligible.map(\.pixelCount),
+          candidatePixelCounts: candidates.map(\.pixelCount),
           diagnostics: diagnostics
         )
       }
@@ -694,7 +609,7 @@ public actor VisionWorker {
     _ lhs: PenCapCandidateDiagnostic,
     _ rhs: PenCapCandidateDiagnostic
   ) -> Bool {
-    if lhs.pixelCount != rhs.pixelCount { return lhs.pixelCount > rhs.pixelCount }
+    if lhs.supportScore != rhs.supportScore { return lhs.supportScore > rhs.supportScore }
     if lhs.boundingBox.y != rhs.boundingBox.y { return lhs.boundingBox.y < rhs.boundingBox.y }
     if lhs.boundingBox.x != rhs.boundingBox.x { return lhs.boundingBox.x < rhs.boundingBox.x }
     if lhs.boundingBox.height != rhs.boundingBox.height {
@@ -735,23 +650,29 @@ public actor VisionWorker {
     let count = region.width * region.height
     let selectedColor = Self.hsv(red: priors.penCapColor.red,
       green: priors.penCapColor.green, blue: priors.penCapColor.blue)
+    // Expand outwards from the hint, covering every pixel in the search domain.
+    // A bad or off-image prediction cannot hide a component or break a tie.
+    let columns = Self.centerOutIndices(count: region.width,
+      center: priors.searchCenter.map { $0.x - Double(region.x) })
+    let rows = Self.centerOutIndices(count: region.height,
+      center: priors.searchCenter.map { $0.y - Double(region.y) })
     let matching = try frame.bytes.withUnsafeBytes { bytes in
-      var matching = [Bool](repeating: false, count: count)
-      for localY in 0..<region.height {
+      var matching = [Float](repeating: 0, count: count)
+      for localY in rows {
         try Task.checkCancellation()
-        for localX in 0..<region.width {
+        for localX in columns {
           let (red, green, blue) = Self.rgb(
             frame: frame,
             bytes: bytes,
             x: region.x + localX,
             y: region.y + localY
           )
-          matching[localY * region.width + localX] = Self.matchesPenCapColor(
+          matching[localY * region.width + localX] = Float(Self.penCapColorSupport(
             red: red,
             green: green,
             blue: blue,
             selected: selectedColor
-          )
+          ))
         }
       }
       return matching
@@ -759,12 +680,13 @@ public actor VisionWorker {
 
     var visited = [Bool](repeating: false, count: count)
     var components: [PixelComponent] = []
-    for seed in 0..<count where matching[seed] && !visited[seed] {
+    for seed in 0..<count where matching[seed] > 0 && !visited[seed] {
       try Task.checkCancellation()
       var queue = [seed]
       var cursor = 0
       visited[seed] = true
       var pixelCount = 0
+      var colorSupport = 0.0
       var xSum = 0.0
       var ySum = 0.0
       var minX = Int.max
@@ -780,6 +702,7 @@ public actor VisionWorker {
         let x = region.x + localX
         let y = region.y + localY
         pixelCount += 1
+        colorSupport += Double(matching[index])
         xSum += Double(x)
         ySum += Double(y)
         minX = min(minX, x)
@@ -795,7 +718,7 @@ public actor VisionWorker {
               nextY >= 0, nextY < region.height
             else { continue }
             let next = nextY * region.width + nextX
-            guard matching[next], !visited[next] else { continue }
+            guard matching[next] > 0, !visited[next] else { continue }
             visited[next] = true
             queue.append(next)
           }
@@ -809,31 +732,53 @@ public actor VisionWorker {
           maxX: maxX,
           maxY: maxY,
           centroidX: xSum / Double(pixelCount),
-          centroidY: ySum / Double(pixelCount)
+          centroidY: ySum / Double(pixelCount),
+          colorSimilarity: colorSupport / Double(pixelCount)
         ))
     }
     return components
   }
 
 
-  private static func matchesPenCapColor(
+  private static func centerOutIndices(count: Int, center: Double?) -> [Int] {
+    guard let center else { return Array(0..<count) }
+    let start = Int(min(Double(count - 1), max(0, center)).rounded())
+    var indices = [start]
+    indices.reserveCapacity(count)
+    for distance in 1..<count {
+      if start - distance >= 0 { indices.append(start - distance) }
+      if start + distance < count { indices.append(start + distance) }
+    }
+    return indices
+  }
+
+  private static func penCapColorSupport(
     red: UInt8,
     green: UInt8,
     blue: UInt8,
     selected: (hueDegrees: Double, saturation: Double, value: Double)
-  ) -> Bool {
+  ) -> Double {
     let pixel = hsv(red: red, green: green, blue: blue)
-
     if selected.saturation < 0.15 {
-      return pixel.saturation <= 0.22
-        && abs(pixel.value - selected.value) <= 0.18
+      guard pixel.saturation <= 0.22,
+        abs(pixel.value - selected.value) <= 0.18 else { return 0 }
+      return (1 - abs(pixel.saturation - selected.saturation))
+        * (1 - abs(pixel.value - selected.value))
     }
 
     let directHueDistance = abs(pixel.hueDegrees - selected.hueDegrees)
     let hueDistance = min(directHueDistance, 360 - directHueDistance)
-    return pixel.value >= 0.18
-      && pixel.saturation >= max(0.18, selected.saturation * 0.35)
-      && hueDistance <= 28
+    guard pixel.value >= 0.18,
+      pixel.saturation >= max(0.18, selected.saturation * 0.35),
+      hueDistance <= 28 else { return 0 }
+    // Retain the existing color segmentation, then compare actual color to the
+    // identified cap. A broad pale reflection has less chromatic support than
+    // the saturated cap even when its raw component area is larger.
+    let saturationSimilarity = min(pixel.saturation, selected.saturation)
+      / max(pixel.saturation, selected.saturation)
+    let hueSimilarity = (1 + cos(hueDistance * .pi / 180)) / 2
+    let valueSimilarity = 1 - abs(pixel.value - selected.value)
+    return saturationSimilarity * hueSimilarity * valueSimilarity
   }
 
   private static func hsv(

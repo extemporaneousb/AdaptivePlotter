@@ -1560,11 +1560,15 @@ For each LIVE correspondence, `PlotterApplicationRuntime.captureStableWorkflowCa
 acquires exactly three strictly newer exact `inspectWorkflowScene` results after
 a preliminary frame boundary. `FixedCameraOpticalSettlingPolicy` requires one
 source/configuration, exact measurement/frame identity, an accepted unambiguous
-cap in every frame, and maximum pairwise component-centroid spread of at most 2 px.
+cap in every frame. Maximum pairwise component-centroid spread is retained as a
+diagnostic, without a rejection threshold. Whole-frame component scanning starts
+near the optional prediction, but neither prediction error nor fixed size/shape
+thresholds can discard an observed component. Connected components are ranked by squared observed color similarity times square-root
+pixel support; equal leading support remains ambiguous.
 It returns the newest third inspection unchanged; no centroid, bounds, or
 confidence is averaged. The preliminary frame is freshness control, not accepted
 cap evidence. All three strictly newer samples are materialized `.returnOnly`
-inside one exclusive `CameraSourceSession` lease. Only the selected newest stable
+inside one exclusive `CameraSourceSession` lease. Only the selected newest
 sample is explicitly published, once; failure or cancellation publishes none,
 settles that same lease, and restores the requested automatic-analysis stream.
 SIMULATED causal geometry is source-separated nonphysical evidence and cannot

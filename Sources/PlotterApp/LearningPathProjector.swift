@@ -721,6 +721,14 @@ extension PlotterLearningDetailedPresentationNormalizer {
         actionStrip: actionStrip
       )
     case .humanGuidedDiscovery(let step):
+      if step == .calibratePenContactFromSparseMarks,
+        case .possibleInkBlacklisted(_, let reason) = snapshot.sparseCalibration.phase {
+        return OperatorActionPresentation(
+          itemID: itemID,
+          instructions: [.text("Calibration stopped: \(reason) Ink may already exist from this attempt. Resolve the cause, then replace the marked sheet and use Record Paper Replacement before starting a new batch.")],
+          actionStrip: actionStrip
+        )
+      }
       let transaction = discoveryTransaction(for: step, snapshot: snapshot)
       let activeStep = transaction?.currentStep
       return OperatorActionPresentation(

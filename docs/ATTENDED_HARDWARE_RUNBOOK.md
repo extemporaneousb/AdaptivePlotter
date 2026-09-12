@@ -137,8 +137,8 @@ the requested side or center.
 4. Observe Pen-Up travel through `C`, `X−`, `Y+`, `X+`, and `Y−`.
 5. At each pose, confirm the carriage settles before inspection. Confirm the app
    accepts exactly three strictly newer source/configuration-compatible LIVE
-   frames, each with one unambiguous cap candidate; refuses more than 2 px
-   maximum pairwise cap-centroid spread; and retains only the newest third exact
+   frames, each with one unambiguous cap candidate; records maximum pairwise
+   cap-centroid spread without rejecting a numerical magnitude; and retains only the newest third exact
    frame and measurement without averaging. The preliminary freshness frame is
    not accepted evidence. The cap landmark is the visible cap bottom-center, not
    the hidden tip.

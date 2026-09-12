@@ -72,11 +72,18 @@ struct TipCalibrationAuthorityTests {
   func toolContactObservationCapResidualIsDiagnostic() throws {
     let observation = try TipAuthorityFixture().observation(
       position: .positiveX,
-      capPredictionOffsetAtMark: 100
+      capPredictionOffsetAtMark: 100,
+      capPredictionOffsetAtReveal: 100
     )
 
     #expect(observation.disposition == .accepted)
     #expect(observation.capMapResidualPixels == 100)
+    #expect(observation.revealEvidence.capMapResidualPixels == 100)
+    #expect(observation.revealEvidence.capEstimate.point.x == 322)
+    let roundTrip = try JSONDecoder().decode(
+      ToolContactObservation.self, from: JSONEncoder().encode(observation)
+    )
+    #expect(roundTrip == observation)
   }
 
   @Test("Accepted contact evidence requires settled motion, cap checks, lower, and raise")
@@ -764,6 +771,7 @@ struct TipAuthorityFixture {
     markGeometryCenterResidualMM: Double = 0,
     revealPositionResidualMM: Double = 0.01,
     capPredictionOffsetAtMark: Double = 2,
+    capPredictionOffsetAtReveal: Double = 1,
     paper: PaperContactPlaneRevision? = nil,
     exactClickFrame: ExactTipCalibrationFrame? = nil,
     timeOffset: UInt64 = 0
@@ -835,8 +843,9 @@ struct TipAuthorityFixture {
         controllerContextEvidence: controllerEvidence,
         frame: post,
         capEstimate: postCap,
-        capMapPrediction: Point2(x: postCap.point.x + 1, y: postCap.point.y),
-        maximumCapMapResidualPixels: 2
+        capMapPrediction: Point2(
+          x: postCap.point.x + capPredictionOffsetAtReveal, y: postCap.point.y
+        )
       ),
       click: ToolContactClickEvidence(
         point: click,

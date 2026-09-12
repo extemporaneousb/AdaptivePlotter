@@ -489,7 +489,8 @@ public struct ToolContactMarkGeometryEvidence: Codable, Hashable, Sendable {
 }
 
 /// Settled Pen-Up reveal evidence captured before the operator selects a mark.
-/// It proves both controller arrival and a fresh cap-map check at the reveal pose.
+/// It proves controller arrival and retains the fresh observed cap at the reveal
+/// pose. Map disagreement is diagnostic and cannot reject calibration evidence.
 public struct ToolContactRevealEvidence: Codable, Hashable, Sendable {
   public let intendedPosition: MachinePosition
   public let actualSettledPosition: MachinePosition
@@ -499,7 +500,6 @@ public struct ToolContactRevealEvidence: Codable, Hashable, Sendable {
   public let capEstimate: ToolCapAnchorEstimate
   public let capMapPrediction: Point2<CameraPixelSpace>
   public let capMapResidualPixels: Double
-  public let maximumCapMapResidualPixels: Double
 
   public init(
     intendedPosition: MachinePosition,
@@ -508,8 +508,7 @@ public struct ToolContactRevealEvidence: Codable, Hashable, Sendable {
     controllerContextEvidence: ControllerContextEvidenceReference,
     frame: ExactTipCalibrationFrame,
     capEstimate: ToolCapAnchorEstimate,
-    capMapPrediction: Point2<CameraPixelSpace>,
-    maximumCapMapResidualPixels: Double
+    capMapPrediction: Point2<CameraPixelSpace>
   ) throws {
     let positionResidual = MachinePositionAcceptancePolicy.residualMM(
       actualSettledPosition,
@@ -517,8 +516,6 @@ public struct ToolContactRevealEvidence: Codable, Hashable, Sendable {
     )
     let capResidual = capMapPrediction.distance(to: capEstimate.point)
     guard MachinePositionAcceptancePolicy.accepts(residualMM: positionResidual),
-      maximumCapMapResidualPixels.isFinite, maximumCapMapResidualPixels >= 0,
-      capResidual <= maximumCapMapResidualPixels,
       settledAt.monotonicNanoseconds <= frame.captureNanoseconds,
       capEstimate.source == frame.source,
       capEstimate.frameID == frame.frameID,
@@ -532,7 +529,6 @@ public struct ToolContactRevealEvidence: Codable, Hashable, Sendable {
     self.capEstimate = capEstimate
     self.capMapPrediction = capMapPrediction
     capMapResidualPixels = capResidual
-    self.maximumCapMapResidualPixels = maximumCapMapResidualPixels
   }
 }
 

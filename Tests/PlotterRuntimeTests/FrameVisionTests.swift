@@ -91,11 +91,11 @@ struct FrameVisionTests {
   @Test("full-frame region canonicalizes to unlocked priors and crop preserves cap scale")
   func sceneRegionPolicy() throws {
     let fullFrame = PixelRect(x: 0, y: 0, width: 640, height: 480)
-    let unlocked = try PlotterSceneVisionPriors.c920StartupDefaults(
+    let unlocked = try PlotterSceneVisionPriors.sceneDefaults(
       frameWidth: 640,
       frameHeight: 480
     )
-    let lockedFullFrame = try PlotterSceneVisionPriors.c920StartupDefaults(
+    let lockedFullFrame = try PlotterSceneVisionPriors.sceneDefaults(
       frameWidth: 640,
       frameHeight: 480,
       analysisRegion: fullFrame
@@ -103,14 +103,13 @@ struct FrameVisionTests {
     #expect(unlocked == lockedFullFrame)
 
     let region = PixelRect(x: 120, y: 80, width: 320, height: 240)
-    let cropped = try PlotterSceneVisionPriors.c920StartupDefaults(
+    let cropped = try PlotterSceneVisionPriors.sceneDefaults(
       frameWidth: 640,
       frameHeight: 480,
       analysisRegion: region
     )
     #expect(cropped.capSearchRegion == region)
-    #expect(cropped.minimumCapPixels == unlocked.minimumCapPixels)
-    #expect(cropped.maximumCapPixels == unlocked.maximumCapPixels)
+    #expect(unlocked.capSearchRegion == fullFrame)
     #expect(region.width * region.height < unlocked.capSearchRegion.width * unlocked.capSearchRegion.height)
   }
 
@@ -119,8 +118,6 @@ struct FrameVisionTests {
     let frame = try greenSceneFrame(rectangles: [(45, 32, 6, 10)])
     let priors = try PlotterSceneVisionPriors(
       capSearchRegion: PixelRect(x: 0, y: 20, width: 100, height: 50),
-      minimumCapPixels: 20,
-      maximumCapPixels: 200,
       algorithmRevision: "synthetic-plotter-scene-v1"
     )
     let worker = VisionWorker()
@@ -193,76 +190,97 @@ struct FrameVisionTests {
     print("SCENE_VISION_COST " + String(decoding: data, as: UTF8.self))
   }
 
-  @Test("cap diagnostics distinguish no pixels rejected components and ambiguous leaders")
+  @Test("cap shape and size are observations, while equal leaders remain ambiguous")
   func capDiagnostics() async throws {
     let worker = VisionWorker()
-    let priors = try PlotterSceneVisionPriors(
-      capSearchRegion: PixelRect(x: 0, y: 0, width: 120, height: 80),
-      minimumCapPixels: 20,
-      maximumCapPixels: 200,
-      algorithmRevision: "cap-diagnostics-v1"
-    )
     let none = try await worker.inspectPlotterScene(
-      in: greenSceneFrame(rectangles: []), requestedFeatures: [.penCap], priors: priors)
-    guard case .notFound(let noneDiagnostics) = none.penCap else {
-      Issue.record("Expected no-threshold-pixel result")
+      in: greenSceneFrame(rectangles: []), requestedFeatures: [.penCap])
+    guard case .notFound(let diagnostics) = none.penCap else {
+      Issue.record("Expected no matching pixels")
       return
     }
-    #expect(noneDiagnostics.thresholdPixelCount == 0)
+    #expect(diagnostics.thresholdPixelCount == 0)
 
-    let rejected = try await worker.inspectPlotterScene(
-      in: greenSceneFrame(rectangles: [(20, 20, 2, 2)]),
-      requestedFeatures: [.penCap],
-      priors: priors
-    )
-    guard case .candidatesRejected(let rejectedDiagnostics) = rejected.penCap else {
-      Issue.record("Expected rejected candidate result")
-      return
+    // Below the old minimum, above the old maximum, and an unusual aspect
+    // must all remain visible to the calibration consumer.
+    for rectangle in [(20, 20, 2, 2), (20, 20, 30, 30), (20, 20, 30, 1)] {
+      let result = try await worker.inspectPlotterScene(
+        in: greenSceneFrame(rectangles: [rectangle]), requestedFeatures: [.penCap])
+      #expect(result.penCap.measurement?.pixelCount == rectangle.2 * rectangle.3)
     }
-    #expect(rejectedDiagnostics.componentCount == 1)
-    #expect(
-      rejectedDiagnostics.candidates[0].rejectionReasons.contains {
-        if case .belowMinimumPixels = $0 { true } else { false }
-      })
+    let sparse = (0..<10).flatMap { [(20 + $0, 20 + $0), (29 - $0, 20 + $0)] }
+    let irregular = try await worker.inspectPlotterScene(
+      in: greenSceneFrame(rectangles: [], greenPoints: sparse), requestedFeatures: [.penCap])
+    #expect(irregular.penCap.measurement?.pixelCount == 20)
 
     let ambiguous = try await worker.inspectPlotterScene(
       in: greenSceneFrame(rectangles: [(20, 20, 6, 5), (60, 20, 6, 5)]),
-      requestedFeatures: [.penCap],
-      priors: priors
-    )
+      requestedFeatures: [.penCap], searchCenter: try Point2(x: 22, y: 22))
     guard case .ambiguous(let counts, _) = ambiguous.penCap else {
-      Issue.record("Expected equal leaders to be refused")
+      Issue.record("A prediction must not break an observational tie")
       return
     }
     #expect(counts == [30, 30])
-
     let nearEqual = try await worker.inspectPlotterScene(
       in: greenSceneFrame(rectangles: [(20, 20, 6, 5), (60, 20, 9, 3)]),
-      requestedFeatures: [.penCap],
-      priors: priors
-    )
-    guard case .ambiguous(let nearEqualCounts, _) = nearEqual.penCap else {
-      Issue.record("Expected near-equal leaders to be refused")
-      return
-    }
-    #expect(nearEqualCounts == [30, 27])
+      requestedFeatures: [.penCap])
+    #expect(nearEqual.penCap.measurement?.pixelCount == 30)
+  }
 
-    let sparseConnectedPoints = (0..<10).flatMap { offset in
-      [(20 + offset, 20 + offset), (29 - offset, 20 + offset)]
+  @Test("1080p corner cap outside old crop survives inaccurate and off-frame predictions")
+  func observedCornerCapOverridesPrediction() async throws {
+    let frame = try greenSceneFrame(width: 1920, height: 1080,
+      rectangles: [(1550, 115, 8, 12), (960, 540, 2, 2)])
+    let worker = VisionWorker()
+    let expected = try Point2<CameraPixelSpace>(x: 1553.5, y: 120.5)
+    for hint in [nil, try Point2<CameraPixelSpace>(x: 1554, y: 135),
+      try Point2(x: 960, y: 540), try Point2(x: -10_000, y: 100_000)] {
+      let result = try await worker.inspectPlotterScene(
+        in: frame, requestedFeatures: [.penCap, .armatureEnvelope], searchCenter: hint)
+      #expect(result.penCap.measurement?.centroid == expected)
+      #expect(result.penCap.measurement?.pixelCount == 96)
+      #expect(result.frameID == frame.id)
+      #expect(result.frameSHA256 == frame.contentSHA256)
+      #expect(result.computation.inspectedPixelCounts[.penCap] == 1920 * 1080)
     }
-    let lowConfidence = try await worker.inspectPlotterScene(
-      in: greenSceneFrame(rectangles: [], greenPoints: sparseConnectedPoints),
-      requestedFeatures: [.penCap],
-      priors: priors
-    )
-    guard case .candidatesRejected(let lowConfidenceDiagnostics) = lowConfidence.penCap else {
-      Issue.record("Expected low-confidence candidate to be refused")
-      return
+  }
+
+  @Test("identified cap color outranks a larger pale reflection near the prediction")
+  func capColorOutranksLargeReflection() async throws {
+    let width = 200, height = 120
+    var pixels = [UInt8](repeating: 230, count: width * height * 4)
+    for index in stride(from: 3, to: pixels.count, by: 4) { pixels[index] = 255 }
+    for y in 10..<40 {
+      for x in 140..<160 {
+        setBGRA(&pixels, width: width, x: x, y: y, red: 0, green: 255, blue: 135)
+      }
     }
-    #expect(
-      lowConfidenceDiagnostics.candidates[0].rejectionReasons.contains {
-        if case .confidenceBelow = $0 { true } else { false }
-      })
+    for y in 60..<110 {
+      for x in 20..<60 {
+        setBGRA(&pixels, width: width, x: x, y: y, red: 175, green: 230, blue: 210)
+      }
+    }
+    let frame = try StampedFrame(sequence: 1, captureNanoseconds: 1,
+      cameraConfigurationID: CameraConfigurationID(), width: width, height: height,
+      rowBytes: width * 4, pixelFormat: .bgra8, bytes: OwnedFrameBytes(pixels))
+    let result = try await VisionWorker().inspectPlotterScene(in: frame,
+      requestedFeatures: [.penCap], penCapColor: PenCapColor(red: 0x56, green: 0xE5, blue: 0xB5),
+      searchCenter: try Point2(x: 40, y: 80))
+    #expect(result.penCap.measurement?.pixelCount == 600)
+    #expect(result.penCap.measurement?.centroid == (try Point2(x: 149.5, y: 24.5)))
+    guard case .found(_, let diagnostics) = result.penCap else { return }
+    #expect(diagnostics.candidates.count == 2)
+    #expect(diagnostics.candidates[1].pixelCount == 2000)
+  }
+
+  @Test("a cap below the old 51-pixel cutoff is still measured at an image edge")
+  func smallEdgeCapHasNoImageAreaGate() async throws {
+    let frame = try greenSceneFrame(width: 1920, height: 1080,
+      rectangles: [(0, 0, 4, 4)])
+    let result = try await VisionWorker().inspectPlotterScene(
+      in: frame, requestedFeatures: [.penCap])
+    #expect(result.penCap.measurement?.pixelCount == 16)
+    #expect(result.penCap.measurement?.centroid == (try Point2(x: 1.5, y: 1.5)))
   }
 
   @Test("cropping reduces inspected pixels without changing object eligibility")

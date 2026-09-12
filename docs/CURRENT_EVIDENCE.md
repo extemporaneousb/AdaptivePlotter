@@ -8,6 +8,92 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+
+## Observed cap acquisition and calibration failure feedback, 2026-09-11
+
+Live PID `24991` completed one calibration circle on each of three Exercise 1.4
+attempts, then reached controller Idle and failed pen-cap measurement with
+37, 17, and 4 component pixels against a fixed 51-pixel minimum. The minimum
+was `1920 * 1080 / 40000`; the fixed C920 search crop began at image Y=151.
+The accepted camera map predicted the second-corner cap anchor near Y=135.
+That prediction was diagnostic; it did not select the old crop. No controller
+alarm/error appeared in the inspected session. The Learning panel showed its
+generic drawing instructions and Record Paper Replacement, hiding the original
+failure reason. The live session database is
+`~/Library/Application Support/AdaptivePlotter/MachineSessions/session-6580acfb-4f9c-496f-949d-319789848d78.sqlite`.
+
+The correction searches the whole frame unless the operator explicitly locks a
+generic scene region. Exact workflow acquisition ignores that generic lock. An
+optional model prediction centers scan order and cannot exclude pixels, select
+a candidate, or veto a measured location. Components are ranked by squared mean
+similarity to the identified cap color times square-root pixel support. Fixed
+component area, aspect, fill, confidence, near-equality-ratio, and inter-frame
+centroid-spread rejection gates were removed. The final reveal also no longer
+rejects fresh observations against the old 8-pixel map-residual limit. Residual,
+spread, and component properties remain diagnostics. Revalidation before reuse
+of a saved calibration remains separate from collecting new observations. Exact source/configuration/frame identity, fresh controller
+settlement, cancellation, explicit motion authorization, and possible-ink
+no-redraw behavior remain enforced. The sparse-tip failure prompt now preserves
+the runtime's actual reason and explains marked-sheet recovery.
+
+The captured window image `/tmp/adaptiveplotter-live-region-20260911.png` exposed
+why largest-component selection alone was insufficient: an 8035-pixel pale
+reflection beat the actual 2091-pixel cap. With color-support ranking, the cap
+at window-image centroid `(2193.589, 768.371)` wins with score 18.483 versus
+12.166 for the reflection. No prediction and an off-image `(-10000, -10000)`
+prediction return identical measured cap geometry. This is offline window-image
+replay, not exact camera evidence or attended physical validation. The result
+is `/tmp/adaptiveplotter-cap-replay-verified.log`.
+
+The detector serial quick suite reports **997 tests passed** in 136.842 seconds;
+five opt-in tests were skipped. Regression coverage includes the cap outside
+the old 1080p crop, a 16-pixel edge cap, wrong/off-image predictions, a larger
+pale distractor, observed centroid variation, exact provenance/configuration
+refusal, camera-lease cancellation, and failure copy with paper recovery.
+The log is `/tmp/adaptiveplotter-cap-quick-serial.log`. The preceding parallel
+run exposed an obsolete two-pixel-rejection expectation and a portrait-renderer
+five-second setup timeout under load; the expectation was corrected and the
+serial run passed without changing portrait behavior. Documentation and diff
+checks passed. Final-reveal regression, release performance, and signed-app
+evidence follow separately. Two subsequent serial runs exposed the existing
+manual-motion publication test reading an asynchronously delivered workspace
+snapshot before publication. Its assertion now waits for that snapshot;
+production manual-motion behavior was not changed. Those logs are
+`/tmp/adaptiveplotter-cap-quick-serial-final.log` and
+`/tmp/adaptiveplotter-cap-quick-serial-confirmed.log`.
+
+The strict-concurrency, warnings-as-errors release detector benchmark passed.
+At 1920 by 1080, full-frame cap detection measured a 17.993 ms median and
+18.244 ms maximum over eight iterations; cap plus armature measured 17.922 ms
+median. This synthetic kernel measurement excludes content hashing, camera
+delivery, UI rendering, and physical acquisition. The detector source was
+unchanged by the subsequent final-reveal correction. The log is
+`/tmp/adaptiveplotter-cap-release-cost.log`.
+
+Final focused validation passed **56 tests** in 8.339 seconds, including
+full-frame detection, exact camera acquisition, Learning failure presentation,
+100-pixel mark and reveal prediction residuals, and Workbench Stop. The log is
+`/tmp/adaptiveplotter-cap-targeted-final.log`. The final full serial run reported
+997 tests with one Drawing Run publication-ordering failure in
+`verifyDrawingRunPublicationOrdering` after a simulated/live switch; that test
+passed in the focused rerun without a production change. This intermittent
+full-suite failure remains recorded rather than claiming a clean final suite.
+Its log is `/tmp/adaptiveplotter-cap-quick-serial-verified.log`.
+
+The final strict-concurrency, warnings-as-errors release app build passed in
+264.80 seconds and stable local signing verified. The signed executable SHA-256
+is `e74273c92fb426f60fd6148a994fbe5f0cde95436d90543ba4877933c8e19ca0`.
+A byte-matched candidate is staged at
+`.build/candidates/cap-acquisition-20260912/AdaptivePlotter.app` in the canonical
+checkout. Source hashes and copied logs are retained under
+`.build/evidence/cap-acquisition-20260912/`. The first native preview attempt
+found another native-workbench gate already running. After it exited, the
+preview attempt launched its own exact process but macOS rejected activation;
+no native performance measurements were produced. The log is
+`/tmp/adaptiveplotter-cap-preview-final.log`. Attended camera/controller/cap/ink
+calibration and resulting drawing-region alignment remain unverified; this task
+issued no physical motion, pen, paper, or calibration commands.
+
 ## Camera freshness churn and portrait sheet confirmation, 2026-09-10
 
 Live PID `14435` owned the canonical release bundle and plotter serial session.

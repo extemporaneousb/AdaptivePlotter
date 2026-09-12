@@ -222,10 +222,12 @@ The ordered positions and roles are:
    frame boundary, then acquire exactly three strictly newer exact inspection
    frames with one unchanged source and camera configuration. The preliminary
    boundary frame is not accepted cap evidence. Every inspection frame must
-   yield one accepted unambiguous cap candidate; zero-threshold-pixel,
-   rejected-component, ambiguous, and failed results refuse the sample. Refuse
-   the sample when maximum pairwise cap-component centroid spread exceeds 2 px.
-   When all three are stable, retain only the newest third frame and its measured
+   yield one observed unambiguous cap candidate. Search the whole frame, centered
+   on a predicted cap position when available; a wrong prediction never excludes
+   pixels or rejects an observed position. Zero color-matching pixels, equally
+   supported leading components, and acquisition failures remain explicit.
+   Component size/shape and maximum pairwise centroid spread are diagnostics,
+   without numerical rejection thresholds. Retain only the newest third frame and its measured
    centroid, bounds, confidence, bottom-center anchor, and estimator provenance
    as authoritative evidence. Do not average geometry across the three frames.
 4. Use a consistent final approach. Travel between already selected positions
@@ -300,6 +302,10 @@ and camera-holdout authority.
    optical identity, and one strictly newer exact frame. Atomically supersede
    the old request; do not move, actuate the Pen, redraw, retry automatically,
    or fabricate another cap estimate. Preserve the original reveal evidence.
+
+When calibration stops after possible ink, the Learning prompt names the original
+failure and explains paper recovery. Paper replacement clears the marked-sheet
+restriction; it does not claim the original detection problem was fixed.
 
 If a chord, motion outcome, or Pen state after possible contact is stopped or
 ambiguous, blacklist the affected circle location on the current paper and

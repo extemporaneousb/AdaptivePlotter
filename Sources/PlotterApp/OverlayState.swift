@@ -126,9 +126,6 @@ enum OverlayStatusGrammar {
   }
   static let notFound =
     "Not found — no pixels passed the selected pen-cap color thresholds."
-  static func candidateRejected(count: Int, reason: String) -> String {
-    "Candidate rejected — \(count): \(reason)."
-  }
   static func ambiguous(candidateSizes: [Int]) -> String {
     "Ambiguous — \(candidateSizes.map(String.init).joined(separator: ", ")); refusing to choose."
   }

@@ -1730,7 +1730,7 @@ private final class TestObservationCameraSessionPort:
       samples.append(.init(inspection: inspection, cap: cap))
       boundary = inspection.displayedFrame.frame.captureNanoseconds
     }
-    return try FixedCameraOpticalSettlingPolicy.newestStableCapSample(samples)
+    return try FixedCameraOpticalSettlingPolicy.newestCompatibleCapSample(samples)
   }
   func setSceneAnalysisRegion(_ region: PixelRect?) async {
     fixture.setSceneAnalysisRegion(region)

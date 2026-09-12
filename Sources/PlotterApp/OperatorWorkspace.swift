@@ -15,16 +15,15 @@ private extension PlotterBoundaryDirection {
 }
 
 enum FixedCameraOpticalSettlingPolicy {
-  // The C920 mount can wobble by more than one integer pixel after carriage
-  // travel. Keep the search finite and accept at most two pixels of global
-  // translation; controller pose tolerance remains independently authoritative.
+  // Image-pair ink alignment has its own policy. Cap acquisition below keeps
+  // exact identities and observed spread, with no numerical spread veto.
+  // Controller settlement remains independently authoritative.
   static let alignmentSearchRadiusPixels = 3
   static let maximumAlignmentShiftPixels = 2
   static let requiredCentroidFrameCount = 3
-  static let maximumCentroidSpreadPixels: Double = 2
   static let maximumBackgroundMeanAbsoluteDifference: Double = 4
 
-  static func newestStableCapSample(
+  static func newestCompatibleCapSample(
     _ samples: [StableWorkflowCapInspection]
   ) throws -> StableWorkflowCapInspection {
     guard samples.count == requiredCentroidFrameCount else {
@@ -69,18 +68,12 @@ enum FixedCameraOpticalSettlingPolicy {
           left.cap.centroid.distance(to: $0.cap.centroid)
         }
       }.max() ?? 0
-    guard maximumSpread <= maximumCentroidSpreadPixels else {
-      throw LearningPathOperationError.requiredState(
-        String(
-          format:
-            "Pen-cap centroid did not settle across %d exact frames: %.2f px spread exceeds %.2f px.",
-          samples.count,
-          maximumSpread,
-          maximumCentroidSpreadPixels
-        )
-      )
-    }
-    return samples[samples.index(before: samples.endIndex)]
+    let newest = samples[samples.index(before: samples.endIndex)]
+    return StableWorkflowCapInspection(
+      inspection: newest.inspection,
+      cap: newest.cap,
+      centroidSpreadPixels: maximumSpread
+    )
   }
 }
 
@@ -452,10 +445,19 @@ struct LiveSceneInspection: Sendable {
 struct StableWorkflowCapInspection: Sendable {
   let inspection: LiveSceneInspection
   let cap: PenCapMeasurement
+  let centroidSpreadPixels: Double
+
+  init(inspection: LiveSceneInspection, cap: PenCapMeasurement,
+    centroidSpreadPixels: Double = 0) {
+    self.inspection = inspection
+    self.cap = cap
+    self.centroidSpreadPixels = centroidSpreadPixels
+  }
 }
 
 struct StableWorkflowCapCaptureRequest: Sendable {
   let newerThanNanoseconds: UInt64
+  var searchCenter: Point2<CameraPixelSpace>? = nil
 }
 
 protocol StableWorkflowCapCapturePort: Sendable {
@@ -6633,7 +6635,10 @@ final class PlotterApplicationRuntime:
     } else {
       let stable = try await captureStableWorkflowCap(
         newerThan: frame.frame.captureNanoseconds,
-        owner: .sparseTipCalibration
+        owner: .sparseTipCalibration,
+        searchCenter: try? machineCameraRegistration?.fit.cameraPoint(
+          from: expectedSettledPosition.point
+        )
       )
       let inspection = stable.inspection
       let cap = stable.cap
@@ -7319,8 +7324,7 @@ final class PlotterApplicationRuntime:
         controllerContextEvidence: controllerEvidence,
         frame: exactRevealFrame,
         capEstimate: revealCapture.capAnchor,
-        capMapPrediction: revealPrediction,
-        maximumCapMapResidualPixels: 8
+        capMapPrediction: revealPrediction
       )
       await recordWorkflowTelemetry(
         WorkflowTelemetryEvent(
@@ -10487,7 +10491,8 @@ final class PlotterApplicationRuntime:
 
   func captureStableWorkflowCap(
     newerThan initialBoundary: UInt64,
-    owner: ExactWorkflowVisionOwner = .cameraCalibration
+    owner: ExactWorkflowVisionOwner = .cameraCalibration,
+    searchCenter: Point2<CameraPixelSpace>? = nil
   ) async throws -> StableWorkflowCapInspection {
     try beginExactWorkflowVision(owner)
     defer { endExactWorkflowVision(owner) }
@@ -10500,7 +10505,9 @@ final class PlotterApplicationRuntime:
       throw LearningPathOperationError.freshFrameUnavailable
     }
     return try await observationRuntime.captureStableWorkflowCap(
-      StableWorkflowCapCaptureRequest(newerThanNanoseconds: initialBoundary)
+      StableWorkflowCapCaptureRequest(
+        newerThanNanoseconds: initialBoundary, searchCenter: searchCenter
+      )
     )
   }
 
@@ -11393,14 +11400,6 @@ final class PlotterApplicationRuntime:
         )
       case .notFound:
         (.unavailable, OverlayStatusGrammar.notFound)
-      case .candidatesRejected(let diagnostics):
-        (
-          .unavailable,
-          OverlayStatusGrammar.candidateRejected(
-            count: diagnostics.componentCount,
-            reason: measurement.penCap.diagnosticReason
-          )
-        )
       case .ambiguous(let counts, _):
         (.ambiguous, OverlayStatusGrammar.ambiguous(candidateSizes: counts))
       case .failed(let reason):

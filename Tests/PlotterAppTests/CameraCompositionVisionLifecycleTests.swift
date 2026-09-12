@@ -308,7 +308,9 @@ struct CameraCompositionVisionLifecycleTests {
     let before = await session.visionDiagnostics()
     let captureTask = Task {
       try await session.captureStableWorkflowCap(
-        StableWorkflowCapCaptureRequest(newerThanNanoseconds: 100)
+        StableWorkflowCapCaptureRequest(
+          newerThanNanoseconds: 100, searchCenter: try Point2(x: 10_000, y: -10_000)
+        )
       )
     }
     try await waitUntilStableCap("success lease became active") {
@@ -361,8 +363,8 @@ struct CameraCompositionVisionLifecycleTests {
     _ = await session.stop()
   }
 
-  @Test("stable cap failure and cancellation settle their one exclusive lifecycle")
-  func stableCapFailureAndCancellationSettle() async throws {
+  @Test("cap variation is diagnostic and cancellation settles its exclusive lifecycle")
+  func capVariationAndCancellationSettle() async throws {
     let device = CameraDevice(
       id: CameraDeviceID(rawValue: "stable-cap-settlement-camera"),
       name: "Stable Cap Settlement Camera"
@@ -401,17 +403,15 @@ struct CameraCompositionVisionLifecycleTests {
         await capture.diagnostics().returnOnlyExactRequestCount == UInt64(sample + 1)
       }
     }
-    do {
-      _ = try await unstable.value
-      Issue.record("Expected unstable cap evidence to fail")
-    } catch {
-      #expect(error.localizedDescription.contains("3.00 px spread exceeds 2.00 px"))
-    }
+    let observed = try await unstable.value
+    #expect(observed.centroidSpreadPixels == 3)
+    #expect(observed.cap.centroid.x == 9)
+    #expect(observed.inspection.displayedFrame.frame.captureNanoseconds == 400)
     var diagnostics = await session.visionDiagnostics()
     #expect(diagnostics.exclusiveLeaseBeginCount == 1)
     #expect(diagnostics.exclusiveLeaseEndCount == 1)
-    #expect(diagnostics.exclusiveLeaseFailureCount == 1)
-    #expect(diagnostics.capture.explicitExactPublicationCount == 0)
+    #expect(diagnostics.exclusiveLeaseSuccessCount == 1)
+    #expect(diagnostics.capture.explicitExactPublicationCount == 1)
     #expect(diagnostics.capture.previewPauseAcquisitionCount == 1)
     #expect(diagnostics.capture.previewPauseReleaseCount == 1)
     #expect(diagnostics.automaticResumeAfterExclusiveCount == 1)
@@ -433,7 +433,7 @@ struct CameraCompositionVisionLifecycleTests {
     #expect(diagnostics.exclusiveLeaseBeginCount == 2)
     #expect(diagnostics.exclusiveLeaseEndCount == 2)
     #expect(diagnostics.exclusiveLeaseCancellationCount == 1)
-    #expect(diagnostics.capture.explicitExactPublicationCount == 0)
+    #expect(diagnostics.capture.explicitExactPublicationCount == 1)
     #expect(diagnostics.capture.previewPauseAcquisitionCount == 2)
     #expect(diagnostics.capture.previewPauseReleaseCount == 2)
     #expect(diagnostics.automaticResumeAfterExclusiveCount == 2)

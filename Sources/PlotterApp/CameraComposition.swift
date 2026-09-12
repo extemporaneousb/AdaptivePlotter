@@ -233,13 +233,15 @@ struct CameraSourceSessionVisionLeaseScope: Sendable {
   func inspectWorkflowScene(
     newerThanNanoseconds boundary: UInt64 = 0,
     requestedFeatures: SceneFeatureSet,
-    analysisRegion: PixelRect?
+    analysisRegion: PixelRect?,
+    searchCenter: Point2<CameraPixelSpace>? = nil
   ) async throws -> LiveSceneInspection? {
     try await session.inspectWorkflowSceneHoldingLease(
       leaseID: leaseID,
       newerThanNanoseconds: boundary,
       requestedFeatures: requestedFeatures,
-      analysisRegion: analysisRegion
+      analysisRegion: analysisRegion,
+      searchCenter: searchCenter
     )
   }
 
@@ -302,7 +304,8 @@ struct CameraStableWorkflowCapLeaseOperation: CameraSourceSessionVisionLeaseOper
         let inspection = try await scope.inspectWorkflowScene(
           newerThanNanoseconds: boundary,
           requestedFeatures: [.penCap],
-          analysisRegion: nil
+          analysisRegion: nil,
+          searchCenter: request.searchCenter
         ),
         inspection.displayedFrame.frame.captureNanoseconds > boundary
       else {
@@ -318,7 +321,7 @@ struct CameraStableWorkflowCapLeaseOperation: CameraSourceSessionVisionLeaseOper
       try Task.checkCancellation()
     }
 
-    let selected = try FixedCameraOpticalSettlingPolicy.newestStableCapSample(samples)
+    let selected = try FixedCameraOpticalSettlingPolicy.newestCompatibleCapSample(samples)
     try Task.checkCancellation()
     _ = try await scope.publishValidatedFrame(selected.inspection.displayedFrame)
     return selected
@@ -532,7 +535,8 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     leaseID: UUID,
     newerThanNanoseconds boundary: UInt64,
     requestedFeatures: SceneFeatureSet,
-    analysisRegion: PixelRect?
+    analysisRegion: PixelRect?,
+    searchCenter: Point2<CameraPixelSpace>?
   ) async throws -> LiveSceneInspection? {
     guard activeVisionComputationLeaseIDs.contains(leaseID) else {
       throw CameraSourceSessionVisionLeaseError.inactiveLease
@@ -549,7 +553,8 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
       in: displayedFrame.frame,
       requestedFeatures: requestedFeatures,
       analysisRegion: analysisRegion,
-      penCapColor: penCapColor
+      penCapColor: penCapColor,
+      searchCenter: searchCenter
     )
     return LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
   }

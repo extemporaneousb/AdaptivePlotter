@@ -302,6 +302,25 @@ struct PlotterLearningPresentationCompilerTests {
     }
   }
 
+  @Test("possible ink shows the underlying failure beside paper recovery")
+  func possibleInkExplainsCause() throws {
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+    let location = BlacklistedToolContactLocation(
+      calibrationPosition: .negativeX, machinePosition: try MachinePosition(x: 12, y: 34),
+      markRadiusMM: 2, paperInstance: PaperInstanceRevision())
+    let reason = "Pen-cap measurement found two equally supported candidates."
+    let snapshot = postBoundarySnapshot(
+      sparse: .init(phase: .possibleInkBlacklisted(location, reason), blacklistedPositionCount: 1),
+      operations: .init(activeAttemptOwner: owner))
+    let projection = project(snapshot, selectedItemID: owner)
+    let instructions = projection.selectedAction.instructions.accessibilityText
+    #expect(instructions.contains(reason))
+    #expect(instructions.contains("Ink may already exist"))
+    #expect(instructions.contains("Resolve the cause"))
+    #expect(projection.currentActionStrip?.actions.map(\.title)
+      == ["Record Paper Replacement", "Cancel Attempt"])
+  }
+
   @Test("projected calibration and validation copy matches the four-corner frame workflow")
   func currentWorkflowCopy() {
     let drawingOwner = LearningPathItemID.borderValidation(.chooseDrawingBorderPlan)

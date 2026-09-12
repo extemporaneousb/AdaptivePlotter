@@ -393,6 +393,11 @@ extension PlotterApplicationRuntimeTests {
     ))
     let owner = Task { await workspace.submitManualMotionIntent(intent) }
     try await waitUntilAsync { await machine.relativeJogIsAwaitingSettlement }
+    // The machine actor can suspend before its operation snapshot reaches the
+    // workspace. Await that publication before asserting its effect identity.
+    try await waitUntil {
+      workspace.manualMotionEpisodeSnapshot?.activeOperation?.context.effectID != nil
+    }
     let originalEffectID = try #require(
       workspace.manualMotionEpisodeSnapshot?.activeOperation?.context.effectID
     )

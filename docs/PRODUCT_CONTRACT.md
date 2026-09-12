@@ -145,8 +145,15 @@ analysis region. The lock constrains which camera pixels requested pen-cap
 analysis may scan; an armature-envelope request expands its declared dependency
 to pen-cap analysis. Full-frame lock is canonicalized to unlocked/default
 analysis. The region does not crop or mutate the stamped frame, change exact-
-frame identity, alter whole-frame cap-size acceptance thresholds, or constrain
-specialized workflow measurements with their own typed regions. Changing camera
+frame identity or constrain specialized workflow measurements. Unlocked analysis
+and exact workflow cap acquisition scan the entire frame. A camera-map prediction
+only centers scan order; every pixel remains searchable and measured geometry
+always wins. Cap area, aspect, fill, confidence, and inter-frame centroid spread
+are diagnostics, not rejection gates. Components are ranked by squared mean
+similarity to the identified cap color times the square root of their pixel count. This balances chromatic agreement
+and support without letting a large pale reflection win on raw area alone.
+Equal leading support remains explicitly ambiguous. There is no minimum/maximum
+component area, near-equality ratio, or distance-from-prediction veto. Changing camera
 source or configuration clears the lock.
 
 Exactly two persistent global scene-overlay choices exist: **Pen cap** and
@@ -170,10 +177,9 @@ Analysis activity alone never removes matching completed geometry or replaces
 its completed typed status with a transient one.
 
 The visible run-state vocabulary is Off, Waiting, Analyzing, Found/Available,
-Not found/Unavailable, Candidate rejected, Ambiguous, Failed, Suspended, and
-Stale. Reasons must name zero threshold pixels, rejected component counts and
-leading rejection reason, ambiguous candidate sizes, source/frame mismatch, or
-the cap dependency that made the armature unavailable. Suspension names the
+Not found/Unavailable, Ambiguous, Failed, Suspended, and
+Stale. Reasons must name zero color-matching pixels, ambiguous candidate sizes,
+source/frame mismatch, or the cap dependency that made the armature unavailable. Suspension names the
 typed exact-workflow Vision owner of the exact frame while the selection remains
 On; supervised travel alone is not a Vision owner or preview hold. An available
 armature says it was inferred from the cap and not independently segmented.
@@ -1000,8 +1006,8 @@ acceptance atomically creates the current `MachineCameraRegistration`.
 
 Each LIVE cap anchor requires exactly three strictly newer compatible exact
 inspection frames after a preliminary freshness boundary. Every frame must
-contain one accepted unambiguous cap candidate, and maximum pairwise cap-centroid
-spread must be at most 2 px. The newest third exact frame and its measured
+contain one observed unambiguous cap candidate. Maximum pairwise cap-centroid
+spread is diagnostic and does not veto acquisition. The newest third exact frame and its measured
 centroid, bounds, and confidence are retained without averaging; the preliminary
 frame is not accepted cap evidence. SIMULATED causal geometry remains separate
 nonphysical evidence and cannot prove live optical stability.
@@ -1092,8 +1098,8 @@ commanded circular mark and asserted circle center. It retains:
   Down/Up actuation values, and Pen Down/Up outcomes/timestamps;
 - tool assembly, contact profile, and paper-plane revisions;
 - exact pre-mark frame and cap estimate;
-- the shared exact final-reveal frame, settled reveal pose, and cap-map
-  revalidation;
+- the shared exact final-reveal frame, settled reveal pose, observed cap, and
+  diagnostic cap-map residual; prediction error does not reject acquisition;
 - clicked camera point with role `assertedCenter`, pointing uncertainty,
   timestamp, presentation-transform revision, and its separately exact click
   frame when the operator replaced the reveal request; legacy observations

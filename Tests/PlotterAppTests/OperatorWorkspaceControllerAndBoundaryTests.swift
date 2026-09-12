@@ -354,7 +354,6 @@ extension PlotterApplicationRuntimeTests {
     #expect(FixedCameraOpticalSettlingPolicy.alignmentSearchRadiusPixels == 3)
     #expect(FixedCameraOpticalSettlingPolicy.maximumAlignmentShiftPixels == 2)
     #expect(FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount == 3)
-    #expect(FixedCameraOpticalSettlingPolicy.maximumCentroidSpreadPixels == 2)
     #expect(MachinePositionAcceptancePolicy.toleranceMM == 1.0)
   }
 
@@ -374,19 +373,17 @@ extension PlotterApplicationRuntimeTests {
     await workspace.shutdown()
   }
 
-  @Test("cap settlement refuses unstable multi-frame centroid evidence")
-  func capSettlementRefusesUnstableCentroids() async throws {
+  @Test("cap variation remains diagnostic and preserves the newest measured coordinates")
+  func capSettlementRetainsObservedVariation() async throws {
     let log = EventLog()
     let camera = try TestObservationCameraSession(capCentroidXOffsets: [0, 3, 1])
     let workspace = plotterApplicationRuntime(machine: try LowerMachineSessionFixture(log: log), camera: camera, log: log)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
-    do {
-      _ = try await workspace.captureStableWorkflowCap(newerThan: 50)
-      Issue.record("unstable centroid evidence was accepted")
-    } catch {
-      #expect(error.localizedDescription.contains("3.00 px spread exceeds 2.00 px"))
-    }
+    let observed = try await workspace.captureStableWorkflowCap(newerThan: 50)
+    #expect(observed.centroidSpreadPixels == 3)
+    #expect(observed.cap.centroid.x == 100)
+    #expect(observed.inspection.displayedFrame.frame.id == FrameID(rawValue: "fresh-53"))
     await workspace.shutdown()
   }
 
