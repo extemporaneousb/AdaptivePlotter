@@ -3,18 +3,18 @@
 .DEFAULT_GOAL := help
 
 SWIFT_FLAGS ?=
-APP_CONFIGURATION ?= release
+APP_CONFIGURATION ?= debug
 JOURNEY_TEST_FILTER := PlotterApplicationRuntimeSparseTipCalibrationTests/(fullFourCornerMarkAcceptance|checkpointRevalidationRestoresWithoutAnotherMark|stageFourConsumesExactTipRevision)|PlotterBoundaryEpisodeTests/(boundaryRepeatActionsAggregateAndReplaceAcceptedSet|boundaryAtomicFailurePreservesAcceptedAuthority)|PlotterApplicationRuntimeTests/(resetBoundaryForwardRetainsEarlierLearning|resetObservedTrialAtomically)|PlotterCausalEpisodeEnvironmentTests/(drawingCompletion|cooperativeBoundaryStopRaces|cooperativeBoundaryAtTruth)
 RESPONSIVENESS_TEST_FILTER := Plotter(PenInteraction|CameraCalibration|SpeechEffect|ControllerSession)EpisodeTests|PlotterEpisodeCompositionTests|PlotterApplicationRuntimeTests/resetAllKeepsCameraCalibrationReusable|OperatorWorkspaceAuthorityTests|OperatorWorkspaceSparseTipCalibrationTests|CameraCaptureTests|OverlayStateTests|WorkbenchTopBarLayoutTests|PlotterEpisodeUIActionabilityTests|PlotterLearningPresentationCompilerTests
 
 help:
 	@printf '%s\n' \
-		'Usage: make <target> [SWIFT_FLAGS="..."] [APP_CONFIGURATION=release|debug]' \
+		'Usage: make <target> [SWIFT_FLAGS="..."] [APP_CONFIGURATION=debug|release]' \
 		'' \
 		'Targets:' \
 		'  help               Show this help.' \
 		'  build              Compile the Swift package.' \
-		'  app                Build the optimized signed app (APP_CONFIGURATION=debug opts into a debug app).' \
+		'  app                Build the signed debug app (APP_CONFIGURATION=release enables optimization).' \
 		'  launcher           Build the single-instance application launcher.' \
 		'  run-app            Build and launch the supported local application.' \
 		'  run-app-simulated  Launch signed causal simulation without camera startup.' \

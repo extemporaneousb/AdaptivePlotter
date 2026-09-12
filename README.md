@@ -404,11 +404,13 @@ sequentially. `make test` runs the complete suite. `make check` adds signed app,
 launcher, repository-contract, and diff validation; `make strict-check` repeats
 that gate with complete Swift concurrency checking and warnings as errors.
 
-`make app` and `make run-app` build an optimized **release** executable by
-default. `make build` remains the fast developer build. Use
-`make app APP_CONFIGURATION=debug` when you explicitly need an unoptimized app.
-The bundle and preview-performance report record the build configuration;
-performance claims must identify it.
+`make app`, `make run-app`, and `make build` default to **debug** for faster
+development builds. Use `make app APP_CONFIGURATION=release` (or
+`make run-app APP_CONFIGURATION=release`) for an optimized app. Debug builds can
+run camera and Vision processing more slowly. Use
+`make preview-performance-gate APP_CONFIGURATION=release` when measuring optimized
+application performance. The bundle and preview-performance report record the
+build configuration; performance claims must identify it.
 
 For an isolated, synthetic 1080p detector comparison, run
 `ADAPTIVEPLOTTER_VISION_COST=1 swift test -c release --jobs 4 --filter FrameVisionTests/sceneKernelCost`

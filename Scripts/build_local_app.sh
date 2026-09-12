@@ -2,7 +2,7 @@
 set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-configuration=${1:-release}
+configuration=${1:-debug}
 case "$configuration" in
     release|debug) ;;
     *) echo "unsupported app build configuration: $configuration" >&2; exit 1 ;;

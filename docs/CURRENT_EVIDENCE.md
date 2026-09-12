@@ -9,6 +9,31 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Debug local app build default, 2026-09-12
+
+Task `task-be6862cec7fb424b821476305412f401` changes both the Makefile app
+configuration and the packaging script's no-argument fallback to `debug` at the
+operator's request. This supersedes the release default recorded on 2026-09-07.
+Explicit `APP_CONFIGURATION=release` remains available and is documented for
+optimized performance measurements. The native-workbench runbook now describes
+the landed v2 gate's four slots and permanent canvas.
+
+The clean default app build passed with complete strict concurrency and
+warnings-as-errors in 233.69 seconds. Recorded PlotterApp compiler arguments
+contain `-Onone` and `-DDEBUG`. The signed bundle passed validation, including
+after invoking the packaging script without a configuration argument. Default
+and explicit-release Makefile dry runs resolve to the expected compiler and
+packager arguments. Documentation, packaging shell syntax and whitespace checks
+passed. No Swift application source changed in this task; the preceding
+workbench suite remains the software evidence below. Native interaction,
+sustained preview performance and attended hardware were not reclassified.
+
+The verified debug candidate is retained in the canonical checkout at
+`.build/AdaptivePlotter-debug-be6862ce.app`; its executable SHA-256 is
+`7a169b374323da1de89a104f0eb8f6ee0ae74a4ce51090acbde8b2a91f03391a`.
+Build, documentation and default-packaging logs are retained under
+`.build/evidence/native-workbench-20260912/`.
+
 ## Permanent canvas and native control panes, 2026-09-12
 
 Task `task-274de148854247b3b90195212b3f47ee` implements the

@@ -24,24 +24,24 @@ The gate script immediately asks the existing launcher to activate only its
 exact spawned PID, preserving arguments and prohibiting a new-instance fallback.
 It does not await the physical review marker before activation because Connect
 is a native action preceding that marker. Build the existing launcher before
-invoking the script directly (`make preview-performance-gate` includes it):
+invoking the script directly. Use `make app launcher APP_CONFIGURATION=release`
+for an optimized bundle; `make preview-performance-gate APP_CONFIGURATION=release`
+includes both build steps and the preview measurement:
 
 ```sh
 sh Scripts/check_running_app_preview_performance.sh .build/AdaptivePlotter.app /tmp/adaptiveplotter-native-workbench.json native-workbench
 ```
 
-The `adaptiveplotter.native-workbench.v1` report requires all five panels in all
-three docks at 1000 and 1600 points, full body/header native hit visibility through
-every containing clip, native menu/hide/scroll/resize/On-Off receipts, and six
-retained workbench bitmaps. Video proof targets the actual canvas, including
-panel ancestry. Nested scrolling requires before/after bounds of the identified
+The `adaptiveplotter.native-workbench.v2` report requires all five controls in all
+four slots (right, left, lower-right, lower-left) at 1000 and 1600 points, full
+body/header native hit visibility through every containing clip, native View
+menu/hide/scroll/resize/On-Off receipts, and eight retained workbench bitmaps.
+The permanent canvas must also remain visible with every control closed at both
+widths. Nested scrolling requires before/after bounds of the identified
 overflowing inner clip caused by its correlated native wheel; programmatic
 reveal and outer-only scrolling do not satisfy it. Resize chooses a feasible
-direction at the production minimum. Their software contracts pass full strict
-run 31 (997 Swift functions passed, five opt-in skips, zero failures), and
-independent critic 9 found no blocking software issue. The exact signed run-31
-bundle is delivered at the canonical path; it has not been launched. At
-11:06:55 UTC on 2026-09-09, the desktop still explicitly reported locked.
+direction at the production minimum. Current software validation and the exact
+signed bundle identity are recorded in [Current Evidence](CURRENT_EVIDENCE.md).
 Actual interaction, the 20-switch/90-second learned camera workload and the
 physical sequence remain unverified. Use the exact delivered identity and
 receipts in [Current Evidence](CURRENT_EVIDENCE.md) after normal GUI unlock;
