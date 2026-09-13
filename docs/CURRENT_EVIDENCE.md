@@ -8,6 +8,57 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Trainable Drawing Studio planning, 2026-09-13
+
+Task `task-2cc60c7340414b9ebcbec83e275333ec` records the coordinator-ready
+[Trainable Drawing Studio campaign](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#trainable-drawing-studio-campaign-2026-09-13).
+Assessed source base: `69ba9df7b752516780d98c051bc966316f970f13`.
+This is planning-only work: the coordinator and three workers assessed current
+source, geometry, authoring/training choices, persistence, realization evidence,
+material measurement and UI integration. The canonical plan contains requirements,
+dependencies, worker ownership and separate software/native/attended gates. It
+does not implement or validate those future behaviors; all campaign tasks remain
+pending and current as-built product/architecture declarations are unchanged.
+
+The operator supplied a screenshot showing a sideways portrait planned overlay and
+visible ink, reporting material X-axis stretch. A local evidence copy is retained at
+`/Users/bullard/Projects/AdaptivePlotter/.build/trainable-studio-plan-2cc60c-evidence/user-reported-aspect-stretch.png`.
+SHA-256: `0c23d4a79a4a676c754d2e5a75b3234b7ee18b5328d37f83f6b8cb54d9cdeecb`.
+The screenshot is not bound to an exact original source, execution plan,
+calibration or running build. No root cause or calibrated physical distortion
+measurement is claimed from it. Uniform source/placement scaling does not establish
+the physical metric; the plan requires tracing the full transform chain and an
+independent attended check.
+
+The selected first learning approach is planned native style-scoped ordinal fitting
+and proposal/reranking over deterministic drawing and semantic-warp parameters.
+Actual training, checkpoint activation, changed production generation, grouped
+held-out evaluation and restart/rollback remain implementation requirements, not
+results of this assessment. Retention is planned only for shortlist, any 1–5
+rating, successful projection or physical attempt; generated/browsed candidates
+remain transient. Full source/analysis/presentation context, run media and measured
+material evidence have explicit future acceptance requirements.
+
+No application source, runtime, hardware, camera session, physical plan or active
+user app was changed or restarted by this planning task. No future implementation
+test, native interaction, learning-quality or attended physical pass is asserted.
+
+The initial frozen documentation candidate passed `make docs-check` and
+`git diff --check`. Independent review identified three targeted plan corrections:
+reuse the full placement already retained inside the execution plan, require
+continued scoped fitting after checkpoint reload with explicit update/retry
+semantics, and permit controlled native software checks under campaign execution
+authorization while preserving the live user session. Those corrections are now
+incorporated. The repaired candidate passed `make docs-check` and
+`git diff --check`; the independent critic verified all three repairs and reported
+no residual findings. Exact candidate hashes, validation logs and review closure
+are retained under
+`/Users/bullard/Projects/AdaptivePlotter/.build/trainable-studio-plan-2cc60c-evidence/`
+in `final-planning-validation.json`, `final-planning-docs-check.log` and
+`planning-review.md`. The coordinator's final receipt-only documentation check is
+recorded separately in `landing-planning-validation.json` and
+`landing-planning-docs-check.log` in that directory.
+These documentation checks do not validate any planned application behavior.
 
 ## Portrait style browsing and preference examples, 2026-09-12
 

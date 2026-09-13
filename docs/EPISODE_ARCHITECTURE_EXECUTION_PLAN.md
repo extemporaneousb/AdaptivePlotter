@@ -13,6 +13,430 @@ or competing architecture plan is authority. Accepted conclusions must be
 integrated here and the source note deleted. Git history and Blackdog prompt
 artifacts are history, not current design.
 
+## Trainable Drawing Studio campaign, 2026-09-13
+
+This is the canonical implementation plan for the operator's Drawing/Portrait
+Studio correction and trainable-style request. Planning task
+`task-2cc60c7340414b9ebcbec83e275333ec` assessed base
+`69ba9df7b752516780d98c051bc966316f970f13`. All implementation tasks below are
+**PENDING**. This named product corrective campaign does not select, reorder,
+complete, or reopen any historical episode migration package; do not invoke
+`run-multi-agent-wave` to select its work. Product Contract and Architecture remain
+as-built authorities until implementation actually changes them. Planning receipts
+and the supplied screenshot are recorded in
+[Current Evidence](CURRENT_EVIDENCE.md#trainable-drawing-studio-planning-2026-09-13).
+
+The coordinator owns the whole campaign: contract integration, worker assignment,
+submission review, validation, dependency closure, landing and final completeness.
+The priority is the actual proportion defect, followed by a production learner
+whose retained labeled examples change future generation. A checkbox, export-only
+ratings, hardcoded variations, or a collection of individually passing patches is
+not completion. Native interaction and attended realization have separate gates.
+
+### Assessed starting point and scope boundaries
+
+The operator reports material X-axis stretch and supplied a camera screenshot of a
+sideways portrait, planned overlay and visible ink. The screenshot is useful
+reported evidence, but it does not bind the exact source image, program, placement,
+plan, registration or running binary, and is not a calibrated physical measurement.
+Current source uses uniform vector/preview/placement scaling. That does not prove
+the controller coordinates form the expected physical Euclidean metric. The free
+affine machine-to-camera registration can include anisotropy and shear; its inverse
+alone cannot distinguish camera perspective from physical axis scale. Existing Fit
+also tries a 90-degree rotation to maximize occupancy. Keep rotation, fit and
+distortion separate in both diagnosis and authoring.
+
+The existing production seam remains source image -> analysis/vector producer ->
+`DrawingProgram` -> `PlotterDrawingDraftRuntime` -> placement/planning ->
+`PlotterDrawingRunRuntime` -> existing interpreter, camera and evidence owners.
+Do not add another planner, runner, camera capture owner, Learning authority, Draw
+lock, physical model promoter or run recorder. Style training owns aesthetic
+generation policy; it does not learn around a broken coordinate transform or grant
+machine readiness. Existing Stop, possible-ink/no-redraw, exact-frame confirmation,
+paper applicability and accepted Learning behavior remain regression obligations.
+
+Current Random samples five modes equally; three contain hatching (approximately
+60 percent). Big Head uses a face rectangle rather than semantic facial landmarks.
+Kept sketches and rated examples are session collections with silent oldest-item
+eviction. Ratings do not currently train any generator or ranker. Run evidence owns
+reconstructable execution plans, including full placement values; the top-level
+placement reference is a hash, while the source-program payload is missing.
+Ordinary raw baseline/result frames are not durably owned. Nominal 0.4 mm stroke
+width and preview sliders are not measured deposited-ink width.
+
+### Requirement register and traceability
+
+Each requirement below must have an artifact receipt and an integrated journey
+check. `G` identifiers name evidence gates defined below; task dependencies do not
+waive a requirement. Software evidence cannot substitute for native or attended
+evidence. Any unavailable result remains explicit in the campaign ledger.
+
+| Requirement | Required behavior | Task owners | Evidence |
+| --- | --- | --- | --- |
+| R01 | Trace exact source/crop/raster/vector/field/placement/controller/camera/display geometry and identify the first failing transform. | DS-01, DS-09 | G01, G09, G10 |
+| R02 | Preserve physical drawing proportions by default across every primitive and portrait producer; never independently fill X/Y. | DS-01 | G01, G10 |
+| R03 | Keep source crop metric distinct from raster sampling; cover minimum-eight/maximum-160 raster dimensions and extreme aspect ratios. | DS-01 | G01 |
+| R04 | Make rotation explicit; an optional unlocked stretch is versioned authored intent shared by preview, plan and ink, with hashes and invalidation. | DS-01, DS-08 | G01, G08, G10 |
+| R05 | Prove the physical coordinate metric independently of camera affine anisotropy/shear, or implement the missing calibrated metric through existing owners. | DS-01, DS-10 | G01, G10 |
+| R06 | Retain candidates only for shortlist, any 1–5 rating, successful projection acceptance or physical attempt; all other generation/navigation stays transient. | DS-02, DS-03, DS-08 | G02, G08, G09 |
+| R07 | One candidate owns exact source bytes, analyzed raster, masks/landmarks, crop, recipe/seed, vectors, producer/checkpoint revisions and provenance. | DS-02, DS-04, DS-07 | G02, G04, G07 |
+| R08 | Retain immutable label revisions, scope and lineage; a qualified child cannot implicitly retain full unqualified ancestors or browsing siblings. | DS-02, DS-03, DS-07 | G02, G03, G07 |
+| R09 | Durable assets survive restart and recent-photo eviction; atomic writes, visible pending/failure, corruption/recovery and explicit deletion are covered. | DS-02, DS-06 | G02, G06, G09 |
+| R10 | Never silently FIFO-evict qualified candidate/training/physical evidence; storage policy exposes retained size and unresolved persistence. | DS-02, DS-08 | G02, G08 |
+| R11 | Broad Random gives contours, tonal contours and clean-line work prominent, balanced exploration; hatching remains available deliberately. | DS-03 | G03, G08 |
+| R12 | More like this explores bounded local variations with source/crop/family/head fixed; parent/back/branch navigation recovers exact candidates. | DS-03, DS-08 | G03, G08, G09 |
+| R13 | Keep photo navigation separate from style navigation; favorites/shortlist, current edit and branches remain understandable. | DS-03, DS-08 | G03, G08 |
+| R14 | Big Head expands forehead height/width and supported eye/lateral/ear regions, tapers through nose, and protects mouth/chin recognition. | DS-04 | G04, G10 |
+| R15 | Warp in face-local coordinates with pose/landmark provenance, positive Jacobian, bounded displacement, no unintended clipping and explicit unsupported cases. | DS-04 | G04, G10 |
+| R16 | Train a named labeled style scope, including Big Head, using durable aesthetic ratings and explicit active/frozen parameter masks. | DS-02, DS-04, DS-07 | G02, G07, G09 |
+| R17 | Fit and continue fitting from compatible reloaded checkpoints with new/revised scoped labels and declared warm-start/full-refit semantics; persist child lineage, activate production proposals, compare and roll back. | DS-07, DS-08 | G07, G08, G09 |
+| R18 | Preserve comparable datasets and complete training manifests; group holdouts by source/session/ancestry before evaluation. | DS-02, DS-07 | G07, G10 |
+| R19 | Handle insufficient/degenerate labels, cancellation, nonfinite optimization and missing/corrupt checkpoints honestly; retain a usable prior. | DS-07 | G07, G09 |
+| R20 | Bind on-screen labels to exact presentation context and objective; distinguish physical-realization labels; retention events are not scores or implicit negatives. | DS-02, DS-07, DS-08 | G02, G07, G08 |
+| R21 | Each physical attempt links candidate, full source program and placement, immutable plan, reconstructable calibration, material/mount/paper/feed and outcome. | DS-02, DS-05, DS-06 | G02, G05, G06, G09 |
+| R22 | Persist intent and baseline before dispatch, then seal terminal evidence; retain partial, failed, cancelled and interrupted attempts without redraw. | DS-06 | G06, G09, G10 |
+| R23 | Own raw before/after images and derived comparisons with exact source/frame identities and asset integrity, not only hashes. | DS-06 | G06, G09, G10 |
+| R24 | Prefer one reachable pen-up pose clearing the drawing region; capture matched baseline/result views at that pose. | DS-06 | G06, G10 |
+| R25 | If necessary use bounded registered multi-pose coverage, originals, occlusion masks and per-pixel provenance; never invent unseen ink. | DS-06 | G06, G10 |
+| R26 | Stop/ambiguous motion never causes automatic photo repositioning; preserve available terminal frames and explicit missing-coverage reasons. | DS-06 | G06, G10 |
+| R27 | Separate replaceable material behavior from kinematics, while binding tool/mount/contact/paper/speed and calibration applicability. | DS-05 | G05, G09, G10 |
+| R28 | Estimate deposited width/distribution/direction from border segments and existing 2 mm-radius, 16-chord marks using calibrated local metric and uncertainty. | DS-05, DS-06 | G05, G10 |
+| R29 | Filled holes, overlapping ink, vertices/pooling, occlusion and inadequate resolution yield exclusions, bounds or unavailable estimates, not false precision. | DS-05 | G05, G10 |
+| R30 | Measured width affects hatch spacing, minimum gaps, detail feasibility and preview at actual accepted placement scale. | DS-01, DS-03, DS-05 | G01, G03, G05, G10 |
+| R31 | Geometry/material/scale/model changes create new candidate/plan revisions; rated, active and historic drawings remain immutable. | DS-01, DS-02, DS-05, DS-07 | G02, G05, G07, G09 |
+| R32 | Creative controls precede projection/placement/material setup, then paper and Draw at the bottom; existing useful controls remain. | DS-08 | G08, G09 |
+| R33 | Gallery recovers exact retained drawings and linked plotted-object images; explicit export can remain additional to automatic qualified retention. | DS-02, DS-06, DS-08 | G02, G06, G08, G09 |
+| R34 | Keep Stop/status accessible, keyboard/native navigation functional and high-rate camera/render state local with quiet training status. | DS-08, DS-09 | G08, G09, G10 |
+| R35 | Coordinator validates every worker and complete cross-feature journey, records exact build/artifact identity and closes all requirement gaps. | DS-09, DS-10 | G09, G10 |
+| R36 | Report software/native/attended results separately; insufficient held-out or physical evidence cannot be labeled total quality completion. | DS-07, DS-09, DS-10 | G07, G09, G10 |
+
+### Contract freeze before parallel implementation
+
+The coordinator integrates four shared contracts before workers edit consumers.
+C1 defines source metric, explicit rotation/stretch intent, immutable candidate ID,
+full program/placement payloads and content hashes. C2 defines retention reasons,
+content-addressed asset ownership, label revisions, lineage, style scope and deletion
+semantics. C3 defines material measurement/applicability and run-media references,
+observation plans, staged run intent and terminal evidence. C4 defines renderer/warp
+feature schemas, dataset snapshots and trainable checkpoints. These are contracts
+within existing feature owners, not a new event bus or second source of truth.
+
+Freeze concrete Swift type and serialization changes, producer/consumer ownership,
+legacy decoding, invalidation and migration tests before parallel leases. Full
+source and analysis assets must be owned where reproducibility needs them: a Vision
+version plus a photo cannot reproduce landmarks or masks by assertion. Preserve
+the exact analyzed raster, mask/landmarks and preprocessing transform used to render.
+
+### Dependency-ready implementation ledger
+
+This table is independent of the historical migration ledger below. Each row starts
+PENDING. The coordinator replaces states only with actual receipts and keeps
+software, native and attended fields independent; a dependency is accepted only
+for the evidence class needed by its consumer. Contract-only early work may be
+reviewed, but cannot complete the whole row.
+
+| Campaign task | Deliverable and dependency | Worker file/semantic lease | Overall | Software | Native | Attended |
+| --- | --- | --- | --- | --- | --- | --- |
+| DS-01 | First priority: diagnose/fix metric and proportions; freeze C1. No feature dependency. | Geometry worker: `Sources/PlotterModel/DrawingPlacement.swift`, `DrawingExecutionPlan.swift`, `DrawingProgram.swift`; `Sources/PlotterApp/PortraitDrawing.swift`, `PortraitImageAnalyzer.swift`; focused geometry tests. Draft runtime and overlay integration are coordinator-serialized leases. | PENDING | PENDING | PENDING | PENDING |
+| DS-02 | Candidate, label and owned asset persistence; freeze C2 after C1 identity contract. | Persistence worker: `PortraitSketchCollection.swift`, `PortraitPreferenceCollection.swift`, new adjacent typed store/asset files and focused persistence tests. `PortraitStudioModel.swift` integration is serialized. | PENDING | PENDING | PENDING | PENDING |
+| DS-03 | Balanced broad/local exploration and exact branch navigation; depends on DS-01/C1 and DS-02/C2. | Exploration worker: `PortraitStyleRecipe.swift`, `PortraitStyleBrowser.swift`, dedicated branch/proposal types and tests; exclusive sequential lease for `PortraitStudioModel.swift` and `PortraitDrawing.swift`. | PENDING | PENDING | PENDING | PENDING |
+| DS-04 | Semantic Big Head and retained pose analysis; depends on DS-01 and DS-02. | Warp worker: `PortraitHeadTransform.swift`, new adjacent landmark/warp types and tests; sequential leases for `PortraitImageAnalyzer.swift`, `PortraitDrawing.swift` and shared recipe schema. | PENDING | PENDING | PENDING | PENDING |
+| DS-05 | Effective material profile, measurement and final-scale feasibility; depends on DS-01/DS-02 and frozen C3. Consumes DS-06 media in integration. | Material worker: new `PlotterModel` material types, measurement beside the existing `PlotterRuntime` Vision worker and corresponding tests; coordinator integrates `DrawingProgram.swift`, `CurrentCameraCalibrationPlanning.swift`, tip evidence and renderer/draft consumers. | PENDING | PENDING | PENDING | PENDING |
+| DS-06 | Durable run images, recoverable attempts and observation coverage; depends on DS-01/DS-02 and frozen C3 material references. | Run-evidence worker: `Sources/PlotterRuntime/DrawingRunEvidence.swift`, `DrawingRunEvidenceStore.swift`, `PlannedDrawingObservation.swift`; `Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift`; `Sources/PlotterApp/DrawingRunEvidenceComposition.swift`; corresponding tests. | PENDING | PENDING | PENDING | PENDING |
+| DS-07 | Operational scoped preference fitting/proposals/checkpoints; depends on DS-02/DS-03/DS-04/DS-05 and frozen C4. | Training worker: new adjacent typed preference-training, dataset and checkpoint files/tests; coordinator leases shared recipe/model consumers after exploration integration. | PENDING | PENDING | PENDING | PENDING |
+| DS-08 | Integrated authoring/gallery/training/material/Draw layout; depends on DS-02/DS-03/DS-04/DS-05/DS-06/DS-07 APIs. | UI worker: `PlotterApplicationRuntimeView.swift`, `PortraitStudioView.swift`, `PortraitPreferenceControls.swift`, `PortraitRecentItemsView.swift`, `DrawingStudioPresentation.swift`, focused UI tests; coordinator owns semantic intent/projection integration. | PENDING | PENDING | PENDING | PENDING |
+| DS-09 | Full software/native journey, stable artifact, fresh requirements critic and integration repairs; depends on DS-01 through DS-08. | Coordinator plus fresh critic: cross-feature tests, exact build/provenance artifacts, current product/architecture/evidence docs; no concurrent full builds on a changing tree. | PENDING | PENDING | PENDING | PENDING |
+| DS-10 | Attended geometry, likeness, material and realized drawing closure; depends on DS-09 and explicit attended authorization. | Coordinator with operator: runbook/evidence receipts, independently measured geometry/material and source-grouped comparisons; corrective source work returns to its owning task. | PENDING | PENDING | PENDING | PENDING |
+
+At most three workers run alongside the coordinator. Parallelize only disjoint
+file and semantic leases: DS-01 investigation and DS-02 persistence can start after
+the identity contract; DS-04 and DS-06 can overlap once their dependencies settle.
+The task table is not permission for simultaneous edits of shared files.
+`OperatorWorkspace.swift`, shared models, runtime ports and schema migrations are
+coordinator-owned integration surfaces. No worker starts Blackdog lifecycle,
+creates its own task/worktree, lands, cleans up, starts hardware or replaces the app.
+
+### Geometry and physically meaningful placement
+
+DS-01 captures one reproducible fixture from original image through exact
+preprocessing transforms, sampled dimensions, vector points, field extent,
+placement, plan vertices, accepted model/registration and view transform. Record
+source/plan/build hashes. Test vertices, basis lengths/orthogonality and segment
+ratios; axis-aligned bounding boxes alone can hide rotation and shear. Preserve
+source crop metric even when integer raster dimensions are clamped or rounded.
+
+Exercise circles, squares, non-square rectangles, intended ellipses, tall/wide
+portraits and extreme aspect ratios, multiple drawing regions, rotation, fit, and
+border off/on. Default placement uses a similarity transform in a proved physical
+metric; unused region area is expected. Separate rotation choice from proportional
+fit. If unlocking proportions is supported, persist the explicit authored transform,
+show its state, revise hashes and invalidate the same downstream draft/plan; no
+preview-only stretch or unversioned axis multiplier is allowed.
+
+First reproduce a failing invariant and identify its owning stage before applying
+the correction. If controller units do not establish a physical metric, DS-01 must
+scope a calibrated metric through the existing model/registration authority, with
+independently measured orthogonal lengths/shape constraints and uncertainty. Do not
+blindly invert the camera affine, force the overlay to look proportional, or let
+style learning compensate. DS-10 must bind an actual calibration, exact plan and
+artifact to independently observed physical segment ratios and orthogonality.
+Camera projection may be oblique; the physical drawing must still meet the declared
+metric tolerance. Missing metric evidence leaves R05 and the defect open.
+
+### Retained candidates, labels and realized drawings
+
+DS-02 replaces session-only keep/rating collections with one durable candidate
+identity and explicit retention reasons. The four qualifying events are shortlist,
+any 1–5 rating, successful Show on Plotter acceptance and physical attempt. Completed
+renders, Random, More like this, slider updates and browsing do not qualify alone.
+Retain a source once and reference owned assets from candidates; never rely on a
+recent-photo entry that can disappear. A retained child's parent ID/hash and recipe
+metadata may describe ancestry without preserving full unqualified ancestors.
+
+Store immutable rating revisions and selected scope, not just the latest score.
+Each label pins what was shown: candidate, source/crop, preview/render revision,
+displayed drawing height/scale, marker-width estimate/material revision and
+prompt/objective/scope. Identical vectors displayed at different ink widths are
+different evaluation contexts. Prefer the shared actual-scale/material projection;
+nominal unmeasured profiles remain labeled estimated. Later material measurements
+must not silently reinterpret an old rating's presentation.
+Shortlist/projection/plot are retention events, not aesthetic labels. A 1/5 example
+is as durably retained as a 5/5 example. Explicit source/candidate deletion updates
+future eligible datasets; past manifests retain reproducible identities and honest
+tombstone/missing-asset status when payload deletion prevents rerunning them. Do not
+silently erase qualified records to satisfy former session count/byte limits.
+Background persistence publishes pending/saved/failed states without losing the
+current work. Crash-safe asset installation and index association must prevent
+references to unwritten blobs and recover or identify interrupted saves.
+
+DS-06 extends `DrawingRunEvidenceStore` and its port. Add the full source
+`DrawingProgram` payload and reuse the full `DrawingPlacement` already owned by
+the archived `ExecutionPlanRevision`/`DrawingExecutionPlan`; do not introduce a
+second placement owner. Preserve that exact plan and reconstructable
+calibration/model/registration payloads or durably owned assets, not only hashes.
+Associate candidate, material revision, mounting/contact, actuation, feed and paper
+with each attempt. Stage intent and baseline assets before ink dispatch, then seal
+the existing immutable terminal record. Restart classifies interrupted attempts
+honestly; it never authorizes replay. Preserve partial/failure/controller/observation
+outcomes and available raw terminal frames, even where comparison is unavailable.
+
+Current baseline positioning uses the last drawing endpoint so baseline and result
+share a pose. Replace it with an explicit observation plan, not a post-only jog.
+Prefer one reachable pen-up pose clearing the drawing region; baseline and result
+use that same pose. Verify visible coverage rather than claiming that choosing a
+pose guarantees it. If no single view covers the region, use bounded matched
+baseline/result views, registration transforms, per-view occlusion masks and a
+composite with per-pixel source provenance. Retain raw originals and derivation
+versions. Unseen regions remain unknown. Stop, unsafe/ambiguous motion or failed
+execution never triggers automatic repositioning for photography; preserve the
+available view and explicit missing-coverage reason.
+
+### Measured material behavior at actual drawing size
+
+DS-05 owns a versioned replaceable material profile, separate from machine
+kinematics but linked to existing tool assembly, mounting, contact plane, paper,
+speed, actuation and calibration applicability. Nominal width remains distinguishable
+from measured effective deposited width, its spread, directional dependence and
+uncertainty. Profile replacement must not manufacture unchanged physical tip pose.
+
+Measure isolated straight Drawing Border interiors and the existing 2 mm-radius,
+16-chord calibration marks. Use both ink edges, perpendicular to observed paths;
+exclude corners/vertices, pooling, crossings and occluded areas. For a resolved
+approximately uniform ring, half the outer-minus-inner diameter is a useful
+estimate, not an assumption that the commanded circle was realized exactly. Use
+the actual polygon/observed geometry and calibrated local metric/Jacobian. A single
+average pixels-per-mm conversion is inadequate for directional distortion. Filled
+centers, merged ink or insufficient image resolution yield bounds or unavailable
+estimates. Predeclare uncertainty and tolerance from camera/geometry resolution;
+do not infer physical width accuracy from an ideal-circle fixture alone.
+
+The profile must change production hatch spacing, clear gaps, retained detail and
+preview at the accepted placement scale. Re-evaluate final-size feasibility after
+placement changes. When geometry changes, produce a new candidate/plan revision
+with visible provenance; never silently rewrite a rated candidate, active plan or
+historic drawing. Validate with known-width synthetic images and independently
+measured physical widths under stated paper/contact/speed conditions.
+
+### Broad exploration, semantic Big Head and operational training
+
+DS-03 makes broad family sampling explicit and balanced, giving contour, tonal
+contour and clean-line recipes prominent representation and testing declared family
+weights. Hatching remains a deliberate available component. Local More like this
+keeps source/crop/family/head fixed and varies bounded relevant tone/line parameters;
+parent/back/branch navigation restores exact configurations. Its action alone does
+not retain candidates. Gallery shortlist and rating are intentional retention paths.
+
+DS-04 introduces versioned face-local landmark analysis and smooth semantic warp:
+taller/wider forehead, larger eyes and supported lateral/ear regions, a transition
+through the nose, and protected mouth/chin aspect and identity structure. Ear or
+forehead anatomy may require estimation beyond available landmarks; absent support
+must be explicit. Handle roll and frontal/three-quarter/profile support deliberately.
+Require finite bounded displacement, positive Jacobian/no foldovers, controlled
+edge behavior and no unintended clipping. Compare multi-pose likeness against the
+previous transform. Downstream placement preserves these intentional proportions.
+
+The first production learner is a native, style-scoped ordinal preference model
+and proposal/reranking policy over the deterministic renderer and semantic Big Head
+parameters. It learns algorithm configuration; it does not claim neural line
+extraction or diffusion RL. Parameter exploration has precedent in
+[Sequential Gallery](https://koyama.xyz/project/sequential_gallery/); ordinal
+preference learning has precedent in
+[Chu and Ghahramani](https://www.jmlr.org/papers/v6/chu05a.html). These references
+motivate the approach; the ordinal paper is not a claim that it implements our
+specific proposed logistic model.
+
+Initial model: `u(c) = theta^T phi(c)`, regularized ordinal-logistic negative
+log-likelihood for 1–5 labels with four ordered thresholds. Use a small normalized
+feature set of active recipe/warp parameters, source context and render descriptors,
+plus limited quadratic terms. Score a seeded bounded proposal pool with the fitted
+model, retain explicit diversity/exploration, and route selected recipes through
+the real producer. Proposal-parameter fitting may follow measured results inside
+DS-07; hardcoded local variation cannot substitute for a trained policy.
+
+A named training scope has stable ID/name, objective, allowed families, active
+parameter mask, frozen parameters and model lineage. Train Big Head holds source,
+crop and line style fixed while varying semantic warp. Ordinary More like this
+holds head geometry fixed. Show Train/Update Style, prior/current comparison,
+checkpoint activation and rollback. Checkpoint changes affect future generation,
+never an active physical plan. Screen aesthetic and physical-realization ratings
+are different typed objectives. Do not create pseudo-pairs across unrelated source
+images, infer negative scores from unselected variants, or convert retention signals
+into labels. Label scarcity is explicit prior/limited-evidence behavior.
+
+Freeze dataset snapshots with candidate IDs, exact label revisions, feature schema,
+analysis versions and split identities. Group holdouts by source plus capture
+session and branch ancestry; never split sibling variants randomly across train
+and test. Retain weights, ordered thresholds, normalization, optimizer/configuration,
+seed, dataset hash, parent checkpoint and renderer/warp lineage. Define numerical,
+degenerate-data and cancellation behavior; corrupted/missing checkpoints leave the
+prior usable. Rerating or deletion changes future datasets while past manifests
+retain exact identity and honest asset availability.
+
+DS-07 must demonstrate durable labels -> fitted checkpoint -> activation -> changed
+production generation -> held-out evaluation -> restart -> rollback. A synthetic
+known-preference dataset must change production sampled rankings with finite,
+deterministic weights. Real held-out loss/within-source ordering and human
+before/after likeness are separate evidence. Insufficient real data cannot produce
+a fabricated generalization pass or total quality-complete status.
+
+Continued fitting is required: reload a completed checkpoint, incorporate new or
+revised labels in the same scope, fit an updated frozen dataset and persist a child
+checkpoint with exact parent lineage. Declare whether initialization uses the
+parent's weights/thresholds as a warm start or a deterministic full refit, and
+whether optimizer state is restored or reset; retain those semantics in the update
+manifest. Validate loaded parent checkpoint, feature/normalization/renderer schemas
+and scope compatibility before update; incompatible inputs require explicit
+versioned migration or a declared compatible full refit, never silent reuse.
+Demonstrate
+activation, prior/current comparison and rollback after the update. Cancelled or
+interrupted updates leave the previous completed checkpoint active; retry starts
+from the declared completed checkpoint and dataset. Mid-iteration recovery is not
+required and must not be implied by restart support.
+
+A pretrained [Informative Drawings](https://carolineec.github.io/informative_drawings/)
+or [APDrawingGAN](https://github.com/yiranran/APDrawingGAN) producer is an optional
+later upgrade through the same `DrawingProgram` producer boundary, with vector
+conversion and physical evaluation. [Diffusion-DPO](https://arxiv.org/abs/2311.12908)
+concerns adapting a pretrained diffusion generator and does not describe this first
+native learner. Optional backbone work is not a reason to defer operational
+training, durable evidence or labeled Big Head scope in this campaign.
+
+### Studio composition and evidence gates
+
+DS-08 preserves useful controls in this order: capture/import and photo navigation;
+families/Random/More like this; adjustments and preview; shortlist/rating/gallery
+and training; projection/placement/material setup; paper; Draw at the bottom. Keep
+Stop and active status reachable. Gallery items recover exact candidate content,
+retention reasons, training scope and linked physical attempts/result images.
+Explain screen-sketch ratings separately from physical realization. Training status
+states whether a checkpoint is active, pending or limited by evidence without
+publishing camera-frame updates across operator controls.
+
+| Gate | Required retained acceptance evidence |
+| --- | --- |
+| G01 Geometry | Reproduced failing fixture, first-transform diagnosis, exact input/vertex/transform hashes, basis and segment-ratio assertions, all primitive/raster/rotation/border cases, serialize/hash/invalidation checks, and a predeclared physical-metric protocol. Checkbox-only and uniform-scale assertions do not pass. |
+| G02 Persistence | Restart/round-trip identity; each qualifying trigger and nonqualifying browse stress case; candidate deduplication with distinct label presentation contexts, any rating including 1, label history, unqualified ancestors, photo eviction, crash/partial-write/corruption/deletion and disk-failure behavior; owned payload integrity and no qualified FIFO loss. |
+| G03 Exploration | Deterministic broad-family distribution under declared weights; source/family/head invariants for local proposals; exact parent/back/branch recovery; immutable previous candidates; no retention from Random/More like this alone. |
+| G04 Big Head | Retained source/analysis/landmark/warp revisions; frontal/rolled/three-quarter/profile fixtures; feature-region displacement and protected lower-face ratios; bounded Jacobian/clipping tests; blind paired likeness review with unavailable poses explicit. |
+| G05 Materials | Known-width synthetic images, direction/blur/pooling/occlusion/filled-hole rejection or bounds, geometry-aware uncertainty; independent physical measurements; profile applicability and final-placement spacing/gap/detail/preview correspondence. |
+| G06 Realization | Exact candidate/program/placement/plan/calibration/media linkage; pre-dispatch staging and crash recovery; complete/partial/cancelled/failed cases; matched poses, source/frame integrity, raw/composite/mask provenance, unknown coverage, no motion after Stop and no automatic redraw. |
+| G07 Trainability | Frozen grouped dataset and numerical configuration; deterministic finite fit; synthetic preference changes real generation; real grouped holdout metrics and human comparison; compatible parent/schema reload then continued fitting with new/revised scoped labels, declared warm-start/full-refit and optimizer semantics, and child lineage; activate/compare/rollback; interrupted update preserves previous completed active checkpoint and retries from declared completed checkpoint/dataset; corruption/degenerate-data behavior and immutable historic manifests. |
+| G08 Native workflow | Actual native gallery, keyboard/source/style/branch navigation, rating scope, Train/Update/compare/activate/rollback, resize/scroll and bottom paper/Draw; persistence feedback and Stop reachable; high-rate preview remains local. Offscreen snapshots supplement rather than replace interaction evidence. |
+| G09 Integration | Stable-source focused and integrated suites, complete cross-feature journey, app/source/build hash binding, fresh independent full requirement assessment and repaired findings, truthful as-built docs/evidence, clean authoritative target and Blackdog receipts. |
+| G10 Attended closure | Authorized run binding source, plan, material, calibration and app; independently measured physical aspect/orthogonality and width; actual unobstructed/covered drawing images and realized-feature comparison; source-grouped human likeness/training comparisons and explicit failures/unknowns. |
+
+Before final evaluation, the coordinator freezes dataset/split IDs, test scenes,
+numeric tolerances and metrics, including physical ratio/angular/width uncertainty
+and held-out ordinal loss/within-source ordering. These must reflect calibrated
+camera/geometry resolution and independent measurement capability. Tolerances may
+not be loosened after failure to declare success. If the setup cannot resolve the
+declared physical tolerance, record insufficient evidence and improve measurement.
+
+### Coordinator execution and aggregate completion
+
+Executing this named campaign assigns the coordinator all DS rows, not just the
+first task. After each individual landing, continue into the next dependency-ready
+authorized software task without requiring the operator to reissue the remaining
+rows. Preserve this register, accepted receipts, leases and next actions across
+context compaction, worker retasks and coordinator resumption. Actual external or
+attended-authorization blockers stop only dependent work; advance independent
+authorized rows meanwhile. The present planning task completes by landing the plan
+and routed documentation; it does not execute or complete the PENDING DS rows.
+
+1. Recheck current target, relevant docs and Blackdog claims. Enter each logical
+   implementation landing through structured `task begin`, with exact request and
+   composed prompt replay artifacts. Use only its returned task workspace and
+   authoritative target. Follow every typed `next_action` exactly; never infer a
+   recovery/landing action, bypass an owner claim, or select unrelated migration work.
+2. Freeze C1–C4 contracts and issue bounded worker leases with requirement IDs,
+   files, base identity, expected artifacts, exclusions and acceptance evidence.
+   At most three workers overlap. Serialize shared schema/runtime/composition edits
+   and SwiftPM validation. Keep the coordinator's ledger current without promoting
+   pending native/physical evidence from software receipts.
+3. Require each submission to report requirement IDs, exact files/base/source
+   hashes, contract changes, actual validation commands/results/artifact paths and
+   open issues. Inspect its diff and consumer paths. Reject incomplete submissions
+   or unsupported claims and return them for repair; an agent's final message is not
+   acceptance. Resolve dependencies in the integrated tree, not just worker fixtures.
+4. Run narrow meaningful checks per slice, then stable integrated quick/journey,
+   strict concurrency/warnings-as-errors, app and documentation checks as applicable.
+   Use existing repo commands and retain their actual logs. Do not run independent
+   full builds per worker against changing sources. Run `git diff --check` at the
+   final candidate. Native/runtime checks must use the exact retained artifact.
+5. Assign one fresh nonauthor critic the entire R01–R36 register and stable candidate,
+   including production consumers, failure paths and the complete journey. Repair
+   actionable gaps and have that critic verify fixes until actually closed. No
+   arbitrary review cap, exhausted budget or collection of partial passes means done.
+6. Validate the complete journey: create -> branch -> rate in named scope -> train ->
+   activate changed generation -> restart/reload compatible checkpoint -> add/revise
+   scoped labels -> continue fitting with declared warm-start/full-refit and
+   optimizer semantics -> persist/activate child checkpoint -> compare and rollback
+   -> recover retained candidate
+   -> proportional projection -> measured material/final scale -> Draw -> durable raw
+   realization -> comparison linked back to candidate, checkpoint and scoped labels.
+   Verify old/rated/active drawings remain immutable at every step.
+7. Update Product Contract/Architecture only for delivered behavior and Current
+   Evidence only with actual receipts. Land and finalize through Blackdog as the
+   sole coordinator. Recheck authoritative target branch, source/build identity and
+   clean state; do not leave uncommitted work or silently unowned follow-ups.
+8. Arrange DS-10 with the operator at the attended gate. This planning task changes
+   no runtime/hardware state and does not restart the active app. Campaign execution
+   authorization permits controlled native software checks that preserve the live
+   user session and captures. Obtain explicit approval when a check requires
+   restarting/replacing that session, or when attended physical motion requires
+   authorization; do not add a separate approval gate to ordinary native software
+   checks. Automated/replay/controller evidence never proves camera alignment,
+   pen/paper contact, attended clicks or observed ink.
+
+Aggregate completion requires every R01–R36 mapping, every dependency and every
+applicable G01–G10 receipt to be reviewed, with no unresolved actionable defect.
+Report software delivered, native verified, learned-quality evidence and attended
+physical realization separately. An operational learner with insufficient real
+holdouts is operational but not quality-proven; software-ready geometry with no
+attended metric check does not close the reported physical stretch. Explicitly
+unavailable evidence remains pending, with an exact remaining action and owner;
+it cannot be relabeled complete to finish the campaign.
+
 ## Pen readiness beside position recovery, 2026-09-12
 
 Task `task-d431b9891cb949d28072588618977a00` is a bounded correction to explicit

@@ -9,13 +9,22 @@ dependencies are owned exclusively by
 [Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md);
 this roadmap does not restate or reorder them.
 
-The current presentation correction is the execution plan's
+The next named product correction is the execution plan's
+[Trainable Drawing Studio campaign](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#trainable-drawing-studio-campaign-2026-09-13).
+It prioritizes the reported physical aspect-ratio defect, qualified durable
+candidate/realization evidence, balanced local variation, semantic Big Head,
+measured material behavior and an operational style-scoped preference learner.
+Its coordinator task/dependency/acceptance register is canonical; all implementation
+rows are pending. It does not select or reorder historical migration packages.
+
+The preceding presentation correction is the execution plan's
 [permanent canvas and native control panes](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#permanent-canvas-and-native-control-panes-2026-09-12).
 It supersedes the layout and diagnostic portions of the
 [workbench and portrait correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#workbench-and-portrait-completion-correction-2026-09-08).
 Current Evidence records software verification separately from the remaining
 native interaction, sustained workload, and attended physical requirements.
-The experimental model work below is separate from ordinary portrait drawing.
+The physical model experiments below remain separate from the campaign's aesthetic
+style learner and ordinary portrait drawing.
 
 ## Parking lot: voice input and speech output
 
@@ -73,8 +82,9 @@ position-recovery Raise Pen retry in attended use; automated settlement cannot
 prove the physical pen lifted. Record post-run planned-versus-observed review and failures without
 redrawing ambiguous locations.
 
-This is the highest-priority gap. Automated and simulated evidence cannot close
-it. In particular, C920 reliability for click-learned arbitrary cap colors,
+This remains an attended release gap, alongside the campaign's first-priority
+physical proportion check. Automated and simulated evidence cannot close it.
+In particular, C920 reliability for click-learned arbitrary cap colors,
 cap-body click usability and sampling tolerance, the usefulness of the
 cap-inferred armature envelope, preview fluidity, and attended calibration remain
 unproven until this run is explicitly authorized and performed.
@@ -106,9 +116,14 @@ conversational reasoning and learned dialogue policies remain future work.
 ## 3. Durable exact-frame archive
 
 Current exact frames retain hashes and metadata but no content-addressed pixel
-locator. Add an opt-in bounded archive before claiming reprocessing across app
-sessions. Define retention, privacy, disk limits, corruption checks, and atomic
-association with the evidence graph.
+locator. The Trainable Drawing Studio campaign owns the next candidate/run-media
+integration through existing evidence authorities: retain only shortlisted, rated,
+successfully projected or physically attempted candidates, with exact raw/derived
+assets and recoverable run evidence. Ordinary browsing remains transient. Define
+disk visibility, corruption checks, atomic association and explicit deletion; do
+not silently evict qualified evidence under former session-cache limits. Wider
+camera archival remains separate work and cannot be inferred from this retention
+authorization.
 
 ## 4.2 Coverage Line Trials
 
@@ -184,16 +199,20 @@ implemented. Do not restore the deleted
 speculative online dataset, policy/reward scaffolding, model-mismatch overlay,
 or dormant navigation route as a compatibility surface.
 
-Remaining portrait work is attended burst-camera/screen-light evaluation and ink-quality
-comparison across marker widths, paper sizes, frontal and three-quarter views. The
-studio now offers individual burst frames, adjustable head framing, coarse vector
+Remaining portrait work is specified by the
+[Trainable Drawing Studio campaign](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#trainable-drawing-studio-campaign-2026-09-13),
+including physical proportions, durable qualified evidence, contour/local variation,
+semantic Big Head, material-aware rendering, scoped fitting and Studio layout.
+Attended burst-camera/screen-light evaluation and ink-quality comparison across
+marker widths, paper sizes, frontal and three-quarter views remain required. The
+current studio offers individual burst frames, adjustable head framing, coarse vector
 controls, angled hatch, centerline Sketch, deterministic face-anchored big-head geometry,
 independent frame/style browsing, seeded recipe history, and bounded exportable
 preference examples. It does not yet perform
 multi-view fusion, registered temporal averaging, facial-part parsing, learned
 caricature, or identity-aware automatic preference fitting.
 
-The next learned producer can be assessed against
+An optional later learned image producer can be assessed against
 [APDrawingGAN](https://github.com/yiranran/APDrawingGAN), which uses aligned faces,
 landmarks and masks, and
 [Informative Drawings](https://carolineec.github.io/informative_drawings/), which uses
@@ -215,12 +234,18 @@ an identity. [CariGANs](https://doi.org/10.1145/3272127.3275046) separates geome
 exaggeration from appearance; the current native implementation exposes those axes
 through deterministic face geometry and ink recipes. It does not claim a learned caricature.
 
-Grades capture generated candidates, not the artwork a supervised GAN should imitate.
-The immediate next evaluation can rank recipes within the same source image using
-exported ratings. Fine-tuning a generator from preferences requires a pretrained model,
-well-defined comparable candidates and separate evaluation: [Diffusion-DPO](https://arxiv.org/abs/2311.12908)
-uses paired preferences to adapt a pretrained diffusion model. The studio does not
-currently perform that fitting, upload examples, or adapt its output from scores.
+Grades currently capture generated candidates, not the artwork a supervised GAN
+should imitate; no fitting, upload or score-dependent generation currently runs.
+The campaign's first learner will fit a native scoped ordinal model over the
+existing deterministic renderer and semantic warp parameters, persist/activate
+checkpoints and change production proposals. Exact presentation context and label
+revisions, grouped holdouts, prior/current comparison and rollback are in scope;
+export-and-train-later is not completion. A pretrained generator is optional later
+work, not a prerequisite for learning recipe preferences. [Diffusion-DPO](https://arxiv.org/abs/2311.12908)
+uses paired preferences to adapt a pretrained diffusion model and is a distinct
+future approach. Screen aesthetic and physical realization objectives stay separate.
 
 No portrait feature should own calibration, controller commands, paper state,
-plan execution, model promotion, or Draw locks.
+plan execution, physical machine-model promotion, or Draw locks. Scoped aesthetic
+checkpoint activation belongs to the authoring producer and cannot change an
+active physical plan or confer machine readiness.
