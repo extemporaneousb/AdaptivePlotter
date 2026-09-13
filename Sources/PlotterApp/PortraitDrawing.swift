@@ -26,6 +26,7 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
   var hatchAngleDegrees = 0.0
   var headScale = 1.0
   var semanticHead: PortraitSemanticHeadParameters? = nil
+  var materialContext: PortraitMaterialContext? = nil
 
   var bounded: Self {
     var result = self
@@ -48,8 +49,8 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
     // Preserve source identity for the previous default geometry.
     let legacy = hatchAngleDegrees == 0 && headScale == 1 ? original
       : original + "|hatchAngle=\(hatchAngleDegrees)|headScale=\(headScale)"
-    guard let semanticHead else { return legacy }
-    return legacy + "|semanticHead=\(semanticHead.revision),\(semanticHead.foreheadWidth),\(semanticHead.foreheadHeight),\(semanticHead.eyeScale),\(semanticHead.lateralScale)"
+    let head = semanticHead.map { "|semanticHead=\($0.revision),\($0.foreheadWidth),\($0.foreheadHeight),\($0.eyeScale),\($0.lateralScale)" } ?? ""
+    return legacy + head + (materialContext.map { "|" + $0.provenance } ?? "")
   }
 
   private static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
@@ -234,7 +235,8 @@ enum PortraitVectorizer {
     else { throw PortraitDrawingError.unreadableImage }
     var configuration = vectorOptions
     if let levels { configuration.contourLevels = levels }
-    let options = configuration.bounded
+    var options = configuration.bounded
+    if let material = options.materialContext { options = try material.adapting(options, raster: raster) }
     let prepared = try preparedRaster(raster, options: options)
     let authoredPaths: [[CGPoint]]
     switch style {

@@ -100,6 +100,7 @@ struct PortraitRenderControls: View {
         var options = preset.options
         options.headScale = model.vectorOptions.headScale
         options.semanticHead = model.vectorOptions.semanticHead
+        options.materialContext = model.vectorOptions.materialContext
         model.vectorOptions = options
       }
         .accessibilityIdentifier("portrait.preset.\(preset.rawValue)")

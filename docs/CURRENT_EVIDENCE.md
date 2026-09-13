@@ -8,6 +8,77 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DS-05 material measurement and placed-scale adaptation, 2026-09-13
+
+Task `task-e8792f04a5ad4066bd8375db8831128d` began from clean primary `main`
+at `29a45a3e51d395b7112076502c040349a396e30e`, with recorded target `main`.
+The coordinator owns C3, production composition and candidate/draft integration;
+bounded workers delivered measurement, durable library/controls and placement
+feasibility, then exact-image inspection, archive validation and preview context.
+
+The material library owns immutable revisions and active selection in an atomic,
+checksummed Application Support store, including rejected/corrupt-save visibility,
+retry and deletion identity preservation. Material selection does not change
+machine geometry, accepted tool contact or controller authority. Applying a
+material creates a new exact-raster candidate at the actual placed height and
+preserves placement; material and scale changes expire its adaptation. Its profile,
+width qualification, measurement limitations and height are frozen in recipe and
+program provenance. Preview and screen ratings use those defaults, with explicit
+unmeasured overrides. Placement feasibility reports clear-gap/useful-length policy,
+short strokes and close parallel pairs with bounded work and incomplete status.
+
+The estimator measures two observed edges in controller coordinates, projecting
+inverse-mapped separation onto each actual path normal. It includes all affine
+covariance terms, residual, pixel and blur uncertainty. Drawing Border uses its
+existing matched-pose pair; calibration marks use a distinct one-image local-paper
+mode with no fabricated baseline or deposition attribution. The exact 2 mm-radius,
+16-chord geometry is retained. Occlusion, crossings, pooling, short segments,
+multiple/unresolved bands, contrast failure and inadequate resolution are explicit
+exclusions. Broad marks cannot yield isolated interiors on the short ring chords.
+
+Production inspection shows frozen actual images before an exact-frame visibility
+assertion. Original material/paper/feed/actuation conditions are operator-declared,
+not recovered from missing drawing requests. Sample centres remain in the accepted
+mark-centre hull. Edges may extend at most 2 mm for diagnostic affine inference;
+per-sample Euclidean extrapolation forces conditional bounded qualification and
+retains the unquantified out-of-domain model error. This does not expand motion
+or calibration authority. Sampling thresholds, scan cap and budget are retained.
+No independent physical-width accuracy is established. Raw image ownership remains
+DS-06 work; frame references alone are explicitly insufficient.
+
+The focused strict run passed 50 tests, including actual hull-edge Border geometry,
+sheared/directional widths, ring/filled-centre exclusions, cancellation, material
+storage/reload/failure/deletion, malformed evidence, exact candidate branching,
+actual-height adaptation, preview/rating context and literal legacy recipe hashes.
+Earlier compile receipts retain coordinator repairs for a private hash helper,
+Swift tuple inference, and equality assertions over intentionally non-Equatable
+archive values. Two archive round-trip failures exposed an incorrect validation
+assumption: the aligner's evaluated-pixel count sums candidate shifts, rather than
+unique image coverage. The validator now uses the declared bounded workload.
+
+The one-shot critic identified two P2 defects: the enclosing record digest also
+needed capture-session set normalization, and production shutdown bypassed the
+material flush. The coordinator repaired both without critic recheck. The added
+regressions verify measured-record hashing in separate processes (32578 and 32593
+retained the same digest), a deliberately held material write during production
+observation shutdown, and revision allocation after deletion. Successful projection
+retention now completes before the independent feasibility assessment.
+
+The repaired focused run passed 54 tests, including unchanged capture timing tests.
+The complete strict quick-test set passed all 1202 tests with five explicit skips
+when run serially (243.971 seconds). Two unrestricted parallel runs are retained:
+the first hit two existing capture entry deadlines, and the second passed those
+but hit the existing 250 ms Stop acknowledgement assertion at 427.719 ms. This is
+an unresolved full-suite-load timing limitation; no timeout was enlarged and no
+native responsiveness claim is made. All three assertions passed unchanged in
+the serial run. Native controls, independent deposited widths and attended physical
+behavior remain pending. No live application/session was replaced or restarted.
+
+Receipts: `.build/studio-ds05-e8792f-evidence/`, including frozen review patch,
+finding dispositions, failed and passed logs, process restart evidence and the
+signed-build release receipt. The strict signed debug app, launcher, and negative
+bundle validations passed. Documentation and whitespace receipts accompany release.
+
 ## DS-04 semantic Big Head, 2026-09-13
 
 Task `task-8037d07cff77461cae9104933de40a3a` began from clean primary `main`

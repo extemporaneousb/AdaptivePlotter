@@ -593,6 +593,7 @@ func boundaryEpisodeDirection(_ direction: BoundaryDirection) -> PlotterBoundary
 func makeCausalSimulatorAppFixture(
   initialMPos: SimulatedLearningMPos = .zero,
   observationSession: (any PlotterObservationCameraSessionPort)? = nil,
+  drawingMaterials: DrawingMaterialLibrary? = nil,
   statePersistencePort: (any PlotterApplicationStatePersistencePort)? = nil,
   residualEffectPort: (any PlotterApplicationResidualEffectPort)? = nil,
   tipCalibrationSemanticIdentities: TipCalibrationSemanticIdentityState = .ephemeral(),
@@ -647,6 +648,7 @@ func makeCausalSimulatorAppFixture(
   let workspace = PlotterApplicationRuntime(
       machineSession: nil,
       observationSession: resolvedObservationPort,
+      drawingMaterials: drawingMaterials,
       manualMotionComposition: manualMotionComposition,
       penInteractionRuntime: penInteractionRuntime,
       boundaryRuntime: boundaryComposition.runtime,

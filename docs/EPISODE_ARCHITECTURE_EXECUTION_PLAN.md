@@ -140,7 +140,7 @@ reviewed, but cannot complete the whole row.
 | DS-02 | Candidate, label and owned asset persistence; C2 available to dependent consumers. Physical-attempt production association remains DS-06. | Task `task-1eef1162fd8d4694b578aa756b79c61d`; [receipts](CURRENT_EVIDENCE.md#ds-02-durable-qualified-candidates-2026-09-13); bounded persistence, exact-analysis and UI leases. | PARTIAL: DS-06 association open | COMPLETE: C2 archive and three production qualifiers; 82 initial, 29 repair, 1118 quick; signed app; one-shot F1 repaired directly | PENDING | PENDING |
 | DS-03 | Balanced broad/local exploration and exact branch navigation; consumes C1/C2. | Task `task-d79ffc73deea418696794d53d641c57b`; disjoint policy, history and UI workers; coordinator candidate/model integration. | PARTIAL: native/quality open | COMPLETE: G03 software; 60 focused, 24 final integration, 1135 quick retry; signed app; one-shot ACCEPT | PENDING | PENDING |
 | DS-04 | Semantic Big Head and retained pose analysis; depends on DS-01 and DS-02. | Task `task-8037d07cff77461cae9104933de40a3a`; frozen semantic contract; disjoint transform and analysis workers; coordinator schemas/model/producer integration. | PARTIAL: native/likeness open | COMPLETE: G04 software; 25 final integration, 1155 quick; signed app; one-shot ACCEPT | PENDING | PENDING |
-| DS-05 | Effective material profile, measurement and final-scale feasibility; depends on DS-01/DS-02 and frozen C3. Consumes DS-06 media in integration. | Material worker: new `PlotterModel` material types, measurement beside the existing `PlotterRuntime` Vision worker and corresponding tests; coordinator integrates `DrawingProgram.swift`, `CurrentCameraCalibrationPlanning.swift`, tip evidence and renderer/draft consumers. | PENDING | PENDING | PENDING | PENDING |
+| DS-05 | Effective material profile, measurement and final-scale feasibility; depends on DS-01/DS-02 and frozen C3. Consumes DS-06 media in integration. | Task `task-e8792f04a5ad4066bd8375db8831128d`; coordinator C3 types/shared integration; disjoint measurement, library/UI and feasibility workers. | PARTIAL: DS-06 raw media and G10 physical widths open | COMPLETE: 50 initial focused, 54 repair focused, 1202 strict serial quick (5 skips), separate-process archive verification; one-shot F1/F2 repaired directly. Unrestricted parallel timing failures retained. Strict signed app/launcher/negative-bundle gates passed; documentation receipts accompany release. | PENDING | PENDING |
 | DS-06 | Durable run images, recoverable attempts and observation coverage; depends on DS-01/DS-02 and frozen C3 material references. | Run-evidence worker: `Sources/PlotterRuntime/DrawingRunEvidence.swift`, `DrawingRunEvidenceStore.swift`, `PlannedDrawingObservation.swift`; `Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift`; `Sources/PlotterApp/DrawingRunEvidenceComposition.swift`; corresponding tests. | PENDING | PENDING | PENDING | PENDING |
 | DS-07 | Operational scoped preference fitting/proposals/checkpoints; depends on DS-02/DS-03/DS-04/DS-05 and frozen C4. | Training worker: new adjacent typed preference-training, dataset and checkpoint files/tests; coordinator leases shared recipe/model consumers after exploration integration. | PENDING | PENDING | PENDING | PENDING |
 | DS-08 | Integrated authoring/gallery/training/material/Draw layout; depends on DS-02/DS-03/DS-04/DS-05/DS-06/DS-07 APIs. | UI worker: `PlotterApplicationRuntimeView.swift`, `PortraitStudioView.swift`, `PortraitPreferenceControls.swift`, `PortraitRecentItemsView.swift`, `DrawingStudioPresentation.swift`, focused UI tests; coordinator owns semantic intent/projection integration. | PENDING | PENDING | PENDING | PENDING |
@@ -339,6 +339,85 @@ No worker compiles during edits. Exact old candidates stay plotable; local branc
 from a legacy Big Head without semantic analysis is explicitly unavailable until
 an explicit new semantic-head generation, never silently reanalyzed. Ordinary local
 exploration freezes every semantic head parameter.
+
+### Live reports retained during DS-05 coordination
+
+The user relayed two production issues through diagnostic task
+`01a09ca0-b83a-7b83-890a-fc103eb54e08`; these remain separate repair items and do
+not authorize replacing the live session or controller actions. Boundary publication
+may merge fresh machine facts with the retained inactive accepted Learning package,
+failing `invalidMachineCameraRegistration` and trapping retry/reset. Evidence is
+retained at `/tmp/adaptiveplotter-boundary-reset-20260913-141958/` (SQLite backup,
+UI actions, saved package and screenshot). Stop was an operator request followed
+by jog cancellation/Idle, not an observed limit alarm. Later user-owned restart
+and Reset All Learning passed reset; the persistence bug remains unresolved.
+
+The authoritative Voice requirement is ONE unified switch: deselected means no
+listening and no speech, selected means both. Returning Pen Up/Down announcements
+are a reported regression against accepted behavior. The older ROADMAP split does
+not define current acceptance. Trace the previously working implementation and
+actual running binary; the introducing commit is unverified. A bounded repair
+must suppress/cancel every shared speech source while off without blocking
+advisory operation settlement. Neither report establishes a DS-01–DS-04 cause.
+
+### DS-05 frozen material contract (C3)
+
+`PlotterModel/DrawingMaterialProfile.swift` defines immutable ID/revision profiles,
+nominal versus controller-coordinate/independent/bounded/unavailable qualification,
+two-edge width distributions, direction summaries, uncertainty and exclusions.
+A conservative width is the retained upper bound plus stated uncertainty, or the
+explicit nominal fallback. `PlotterRuntime/DrawingMaterialContract.swift` binds
+profiles to full existing calibration applicability, registration hash/revision,
+paper stock, drawing feed and pen actuation. It retains exact frame references,
+full registration and actual path geometry in measurement reports. Replaceable
+material selection never manufactures a new accepted tool/mount/contact pose.
+
+`VisionWorker.measureDepositedWidth(_:)` consumes the frozen request: matched
+baseline/result samples, full registration, actual machine polylines, optional
+result-pixel occlusion mask, threshold, width bound and sample bound. It returns
+`DrawingMaterialMeasurement` with two observed edges, inverse-mapped perpendicular
+width, direction, uncertainty, exclusions and explicit limitations. No independent
+physical metric exists yet; this worker emits controller-coordinate estimates,
+bounds or unavailable results, never independently measured physical widths.
+Drawing Border and reconstructed exact 2 mm-radius/16-chord paths share this path;
+vertices, pooling, crossing/overlap, occlusion, blur and unresolved edges are excluded.
+Matched-source/pose/alignment failures are explicit refusals. Calibration pre-mark
+and reveal frames are not a same-pose pair: the separate existing-ink overload
+retains only the actual current image and local paper-contrast evidence. Unknown
+occlusion yields unavailable width. Production inspection freezes and displays
+actual images, then binds an explicit operator visibility attestation to their
+exact identities; it neither moves the plotter nor invents a baseline.
+The accepted hull passes through both mark centres and the Drawing Border. Sample
+centres must remain in that hull; observed edges may extend at most 2 mm beyond
+it for diagnostic width inference. Euclidean extrapolation distance is retained
+per sample; any extrapolation forces a conditional bounded result. Covariance is
+evaluated at actual edge locations, while out-of-domain model error remains
+unquantified. This policy never expands movement or calibration authority.
+Reports retain scan width, threshold, sample budget and edge-extrapolation policy.
+The ring scan cap is a declared search/refusal parameter derived from nominal
+width, capped at 1.5 mm; it is not evidence of the true deposited width. The
+0.780 mm chords and 1.5-width vertex margin cannot resolve isolated chord interiors
+at widths of about 0.260 mm or greater, so broader tools rely on straight Border
+segments. Existing-mark material/paper/feed/actuation conditions are explicitly
+operator-confirmed, not reconstructed from a missing original drawing request.
+
+
+`DrawingMaterialLibrary` is the one observable material settings/measurement owner;
+its atomic checksummed store preserves immutable records without FIFO eviction,
+active selection, visible load/save/error and retry. `DrawingMaterialControls`
+consumes that owner plus callbacks for current measurement and applying geometry.
+The coordinator owns those callbacks, live fact capture, candidate/render/draft
+changes and exact applicability. The library has no controller or camera port.
+
+`DrawingMaterialFeasibility.assess(program:placement:profile:)` reports actual
+controller-space width, minimum useful length/gap, bounded close-detail analysis
+and explicit incomplete analysis. Optional `PortraitMaterialContext` in recipes
+records profile revision, drawing height and derived line/detail limits; absent
+fields preserve old hashed encodings. Applying material generates a new candidate
+from the exact analyzed raster. Scale/material changes invalidate applicability of
+the prior adaptation; they do not mutate a rated candidate, active plan or history.
+DS-06 integrates raw run-media ownership and exact attempted-candidate association;
+DS-05 measurement references alone do not claim those raw assets are durable.
 
 ### Measured material behavior at actual drawing size
 

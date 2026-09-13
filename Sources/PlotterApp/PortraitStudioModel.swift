@@ -647,6 +647,31 @@ final class PortraitStudioModel {
     render(strokeStyle: strokeStyle, parent: parent, proposal: proposal.metadata, exactRaster: parent.raster)
   }
 
+  /// Applies an explicit profile at the accepted height to a new candidate.
+  /// Exact source/head analysis survives, and old/rated candidates stay immutable.
+  func applyMaterial(_ profile: DrawingMaterialProfileRevision, drawingHeightMM: Double) async -> String? {
+    guard let parent = selectedCandidate, let pose = parent.renderPose else {
+      return "Select a completed drawing before applying a material."
+    }
+    do {
+      let context = try PortraitMaterialContext(profile: profile, drawingHeightMM: drawingHeightMM)
+      let pen = try StrokeStyle(nominalLineWidth: profile.nominalWidthMM, penProfileID: PenProfileID(profile.id))
+      acquisitionRevision &+= 1; pendingAcquisition = nil; acquisitionWorker?.cancel(); finishCapture()
+      history.record(parent)
+      installCandidateSource(parent, pose: pose)
+      installRecipe(parent.recipe)
+      vectorOptions.materialContext = context
+      selectedRecipeID = nil
+      render(strokeStyle: pen, parent: parent, exactRaster: parent.raster)
+      await awaitRendering()
+      guard let result = completedCandidate, result.lineage.parentID == parent.id,
+        result.recipe.vectorOptions.materialContext == context else {
+        return isProcessing ? "Material rendering was superseded." : summary
+      }
+      return nil
+    } catch { return error.localizedDescription }
+  }
+
   func historyBack() { if let candidate = history.goBack() { restoreCandidate(candidate) } }
   func historyForward() { if let candidate = history.goForward() { restoreCandidate(candidate) } }
   func historyParent() {

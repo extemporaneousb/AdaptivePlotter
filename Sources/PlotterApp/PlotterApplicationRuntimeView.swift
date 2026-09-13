@@ -147,6 +147,37 @@ struct PlotterApplicationRuntimeView: View {
           PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
             showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) },
             showPhoto: { canvasShowsPortraitPhoto = true })
+          TextField("Paper stock for material measurement", text: $application.materialPaperStock)
+          Picker("Existing ink source", selection: $application.materialUsesBorderImages) {
+            Text("Drawing Border before/after").tag(true)
+            Text("Calibration marks in current plotter frame").tag(false)
+          }
+          DrawingMaterialControls(library: application.drawingMaterials,
+            currentApplicability: application.currentMaterialApplicability,
+            measurementStatus: application.materialMeasurementStatus,
+            canMeasureExistingInk: application.currentMaterialApplicability != nil,
+            canApply: application.drawingDraftSnapshot.plan != nil,
+            measure: { await application.prepareMaterialInspection() }, apply: applyPortraitMaterial)
+          .sheet(item: $application.materialInspection) { inspection in
+            DrawingMaterialInspectionView(inspection: inspection,
+              confirm: { await application.confirmMaterialInspection(inspection) },
+              cancel: { application.materialInspection = nil })
+          }
+          Button("Assess Material at Current Scale") {
+            Task { panelError = await application.assessCurrentMaterial() }
+          }.accessibilityIdentifier("drawing.material.assess")
+          if let status = application.materialFeasibilityStatus {
+            Text(status).font(.caption).foregroundStyle(.secondary)
+          }
+          if let context = application.portraitStudio.selectedCandidate?.recipe.vectorOptions.materialContext,
+            let program = application.drawingDraftSnapshot.program,
+            let plan = application.drawingDraftSnapshot.plan,
+            !context.matches(drawingHeightMM: program.fieldExtent.height * plan.placement.uniformScale,
+              profileKey: application.drawingMaterials.activeKey) {
+            Text("Material or drawing scale changed. Apply the current material to create a newly adapted candidate.")
+              .font(.caption).foregroundStyle(.secondary)
+          }
+
         }.padding(12)
       }
     }
@@ -203,6 +234,35 @@ struct PlotterApplicationRuntimeView: View {
       }
       return await submit(PlotterAppUIActionID.drawingDraft(.fitInDrawableRegion))
     }
+  }
+
+  private func applyPortraitMaterial(_ profile: DrawingMaterialProfileRevision) async -> String? {
+    guard let prior = application.portraitStudio.selectedCandidate,
+      let program = application.drawingDraftSnapshot.program,
+      program.contentHash == prior.program.contentHash,
+      let plan = application.drawingDraftSnapshot.plan
+    else { return "Project the selected portrait before adapting it to the current drawing scale." }
+    if profile.qualification != .nominal && profile.qualification != .unavailable,
+      application.drawingMaterials.activeRecord?.applicability != application.currentMaterialApplicability {
+      return "The measured material's calibration, paper or actuation has changed. Measure it again or select nominal settings."
+    }
+    if let error = await application.portraitStudio.applyMaterial(profile,
+      drawingHeightMM: program.fieldExtent.height * plan.placement.uniformScale) { return error }
+    guard application.drawingDraftSnapshot.plan?.contentHash == plan.contentHash,
+      application.drawingMaterials.activeKey == profile.key,
+      let candidate = application.portraitStudio.selectedCandidate
+    else { return "Drawing placement or material changed during adaptation. The generated candidate is retained; review it before projection." }
+    let projectionError = await application.portraitStudio.acceptProjection(candidate) {
+      if let error = await submit(PlotterAppUIActionID.drawingDraft(.selectProgram(candidate.program)), program: candidate.program) {
+        return error
+      }
+      guard application.drawingDraftSnapshot.plan?.placement == plan.placement else {
+        return "The adapted drawing could not retain its exact placement. Review its scale before drawing."
+      }
+      return nil
+    }
+    if let projectionError { return projectionError }
+    return await application.assessCurrentMaterial()
   }
 
   private func submit(_ action: PlotterUIActionID, program: DrawingProgram? = nil) async -> String? {

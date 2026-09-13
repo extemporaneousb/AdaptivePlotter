@@ -96,7 +96,7 @@ struct PortraitRecipeRandom {
 extension PortraitVectorOptions {
   enum CodingKeys: String, CodingKey {
     case contourLevels, minimumContourLength, simplificationTolerance, hatchSpacing
-    case tonalStrength, smoothing, sketchThreshold, hatchAngleDegrees, headScale, semanticHead
+    case tonalStrength, smoothing, sketchThreshold, hatchAngleDegrees, headScale, semanticHead, materialContext
   }
   init(from decoder: Decoder) throws {
     self.init()
@@ -111,6 +111,7 @@ extension PortraitVectorOptions {
     hatchAngleDegrees = try values.decodeIfPresent(Double.self, forKey: .hatchAngleDegrees) ?? hatchAngleDegrees
     headScale = try values.decodeIfPresent(Double.self, forKey: .headScale) ?? headScale
     semanticHead = try values.decodeIfPresent(PortraitSemanticHeadParameters.self, forKey: .semanticHead)
+    materialContext = try values.decodeIfPresent(PortraitMaterialContext.self, forKey: .materialContext)
   }
 }
 

@@ -1564,6 +1564,19 @@ final class PlotterApplicationRuntime:
   @ObservationIgnored private let machineSession: (any PlotterMachineSession)?
   @ObservationIgnored private let controllerSessionRuntime: PlotterControllerSessionRuntime
   @ObservationIgnored private let observationRuntime: PlotterObservationConfigurationRuntime?
+  let drawingMaterials: DrawingMaterialLibrary
+  var materialPaperStock = ""
+  var materialUsesBorderImages = true
+  var materialInspection: DrawingMaterialInspection?
+  var materialMeasurementStatus: String?
+  private var materialFeasibilityReceipt: (plan: Digest, profile: String, summary: String)?
+  var materialFeasibilityStatus: String? {
+    guard let receipt = materialFeasibilityReceipt else { return nil }
+    guard receipt.plan == drawingDraftSnapshot.plan?.contentHash, receipt.profile == drawingMaterials.activeKey else {
+      return "Drawing scale, geometry or material changed. Assess the current drawing again."
+    }
+    return receipt.summary
+  }
   let portraitStudio: PortraitStudioModel
   private var workbenchCameraSnapshot = PlotterWorkbenchCameraSnapshot()
   var workbenchCameraRole: WorkbenchCameraRole { workbenchCameraSnapshot.role }
@@ -1823,6 +1836,7 @@ final class PlotterApplicationRuntime:
     observationSession: (any PlotterObservationCameraSessionPort)? = nil,
     observationRecordingStore: EpisodeRecordingStore? = nil,
     portraitStudio: PortraitStudioModel? = nil,
+    drawingMaterials: DrawingMaterialLibrary? = nil,
     pointSelectionRuntime: PlotterPointSelectionRuntime = PlotterPointSelectionRuntime(),
     pointSelectionRecordingDiagnostic: String? = nil,
     manualMotionComposition: PlotterManualMotionRuntimeComposition? = nil,
@@ -1883,6 +1897,7 @@ final class PlotterApplicationRuntime:
     self.machineSession = machineSession
     let resolvedPortraitStudio = portraitStudio ?? PortraitStudioModel()
     self.portraitStudio = resolvedPortraitStudio
+    self.drawingMaterials = drawingMaterials ?? DrawingMaterialLibrary()
     if let observationSession {
       observationRuntime = PlotterObservationConfigurationRuntime(
         lower: observationSession,
@@ -2355,6 +2370,120 @@ final class PlotterApplicationRuntime:
 
   var paperCoverageIsCurrent: Bool {
     drawingDraftSnapshot.paperCoverageIsCurrent
+  }
+
+  var currentMaterialApplicability: DrawingMaterialApplicability? {
+    guard let registration = tipCameraRegistration,
+      let optical = drawingDraftSnapshot.projection.externalFacts.opticalConfiguration,
+      learningArtifactGraph.currentRevision(for: .tipCameraRegistration)?.id == registration.acceptedRevisionID,
+      registration.applicability == TipCalibrationApplicabilityContext(
+        opticalConfiguration: optical, machineGeometry: machineGeometryIdentity,
+        machineCoordinateFrame: MachineCoordinateFrameRevision(rawValue: explorationCoordinateRevision),
+        toolAssembly: toolAssemblyRevision, penContactProfile: penContactProfileRevision,
+        paperContactPlane: PaperContactPlaneRevision(rawValue: explorationPaperContactPlaneRevision))
+    else { return nil }
+    return try? DrawingMaterialApplicability(registration: registration, paperStock: materialPaperStock,
+      drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
+      penActuationProfile: currentPenActuationProfile)
+  }
+
+  /// Capture existing owned images only. Inspecting material never moves the
+  /// controller, switches cameras, or creates another calibration mark.
+  func prepareMaterialInspection() async -> String? {
+    guard let profile = drawingMaterials.activeRecord?.profile,
+      let registration = tipCameraRegistration, let applicability = currentMaterialApplicability
+    else { return "Select a material and enter paper stock with current pen-tip calibration and plotter camera." }
+    do {
+      if materialUsesBorderImages {
+        let snapshot = borderValidationSnapshot
+        guard let baseline = snapshot.localPreFrameBaseline, let post = snapshot.postFrame,
+          let pose = snapshot.revealPosition, let plan = snapshot.drawingBorderPlan,
+          snapshot.tipRegistrationRevisionID == registration.acceptedRevisionID,
+          snapshot.inkObservation != nil, snapshot.activeOperationID == nil
+        else { return "Completed Drawing Border images at the same observation pose are unavailable." }
+        materialInspection = DrawingMaterialInspection(profile: profile, applicability: applicability,
+          registration: registration, baseline: SamePoseFrameSample(displayedFrame: baseline, controllerPosition: pose),
+          result: SamePoseFrameSample(displayedFrame: post, controllerPosition: pose), paths: plan.strokes.map(\.path))
+      } else {
+        guard let frame = displayedFrame, let position = machineSnapshot?.machine.position,
+          machineSnapshot?.currentOperation == .idle,
+          SparseTipCircularMarkPlan.supportsRestoredGeometry(for: registration.estimatorRevision)
+        else { return "An existing plotter frame, idle controller position and supported calibration-mark geometry are required." }
+        let inverse = try registration.cameraFromMachine.inverted()
+        let paths = try registration.observationEvidence.map { observation in
+          // predictedPoint is the accepted fit evaluated at the commanded mark
+          // centre; observedPoint would incorrectly incorporate fitting residual.
+          let center = try inverse.applying(to: observation.predictedPoint)
+          return try Polyline<MachineSpace>(points: (0...SparseTipCircularMarkPlan.chordCount).map { index in
+            let angle = 2 * Double.pi * Double(index % SparseTipCircularMarkPlan.chordCount) / Double(SparseTipCircularMarkPlan.chordCount)
+            return try Point2(x: center.x + SparseTipCircularMarkPlan.radiusMM*cos(angle),
+              y: center.y + SparseTipCircularMarkPlan.radiusMM*sin(angle))
+          })
+        }
+        materialInspection = DrawingMaterialInspection(profile: profile, applicability: applicability,
+          registration: registration, baseline: nil,
+          result: SamePoseFrameSample(displayedFrame: frame, controllerPosition: position), paths: paths)
+      }
+      return nil
+    } catch { return error.localizedDescription }
+  }
+
+  func confirmMaterialInspection(_ inspected: DrawingMaterialInspection) async -> String? {
+    guard materialInspection?.id == inspected.id else { return "This image inspection has been replaced." }
+    do {
+      let visible = [Bool](repeating: false, count: inspected.result.frame.width * inspected.result.frame.height)
+      let evidence = DrawingMaterialVisibilityEvidence(
+        inspectedFrames: (inspected.baseline.map { [ExactFrameProvenance(frame: $0.frame)] } ?? [])
+          + [ExactFrameProvenance(frame: inspected.result.frame)], source: inspected.result.source, confirmedAt: Date())
+      let worker = VisionWorker()
+      let measurement: DrawingMaterialMeasurement
+      if let baseline = inspected.baseline {
+        measurement = try await worker.measureDepositedWidth(DrawingMaterialMeasurementRequest(
+          baseline: baseline, result: inspected.result, registration: inspected.registration,
+          intendedPaths: inspected.paths, occlusionMask: visible,
+          currentApplicability: inspected.applicability.calibration, visibilityEvidence: evidence))
+      } else {
+        measurement = try await worker.measureDepositedWidth(DrawingMaterialExistingInkMeasurementRequest(
+          result: inspected.result, registration: inspected.registration, intendedPaths: inspected.paths,
+          occlusionMask: visible, maximumWidthMM: min(1.5, max(0.25, inspected.profile.nominalWidthMM*3)),
+          currentApplicability: inspected.applicability.calibration, visibilityEvidence: evidence))
+      }
+      let prior = inspected.profile
+      guard let revision = drawingMaterials.nextRevision(for: prior.id) else {
+        return "This material has exhausted its revision range. Create a new material identity."
+      }
+      let profile = try DrawingMaterialProfileRevision(id: prior.id, revision: revision, name: prior.name,
+        nominalWidthMM: prior.nominalWidthMM, qualification: measurement.qualification,
+        depositedWidth: measurement.distribution, measurementEvidenceID: measurement.id,
+        measurementLimitations: measurement.limitations)
+      let record = try DrawingMaterialRecord(profile: profile, applicability: inspected.applicability, measurement: measurement,
+        conditionsOrigin: "operator-confirmed-existing-mark-conditions-v1")
+      if let error = drawingMaterials.add(record) { return error }
+      if currentMaterialApplicability == inspected.applicability, drawingMaterials.activeKey == prior.key {
+        if let error = drawingMaterials.activate(key: profile.key) { return error }
+      }
+      await drawingMaterials.flush()
+      materialMeasurementStatus = measurement.qualification == .unavailable
+        ? "Deposited width unavailable: " + measurement.limitations.joined(separator: " ")
+        : "Controller-coordinate width estimated from \(measurement.samples.count) samples. Independent physical accuracy and durable raw-image retention remain unverified."
+      if materialInspection?.id == inspected.id { materialInspection = nil }
+      return drawingMaterials.persistenceError
+    } catch { return error.localizedDescription }
+  }
+
+  func assessCurrentMaterial() async -> String? {
+    guard let profile = drawingMaterials.activeRecord?.profile,
+      let program = drawingDraftSnapshot.program, let plan = drawingDraftSnapshot.plan
+    else { return "Select a material and project a drawing first." }
+    do {
+      let report = try await Task.detached {
+        try DrawingMaterialFeasibility.assess(program: program, placement: plan.placement, profile: profile)
+      }.value
+      guard drawingDraftSnapshot.plan?.contentHash == plan.contentHash,
+        drawingMaterials.activeKey == profile.key else { return "Drawing scale or material changed during analysis; assess the current drawing again." }
+      materialFeasibilityReceipt = (plan.contentHash, profile.key, report.summary + " " + report.limitations.joined(separator: " "))
+      return nil
+    } catch { return error.localizedDescription }
   }
 
   var drawingStrokeStyle: StrokeStyle {
@@ -11230,6 +11359,7 @@ final class PlotterApplicationRuntime:
     } else {
       await portraitStudio.shutdown()
     }
+    await drawingMaterials.flush()
     // Persistence occurs only after admission is closed and every effect owner
     // has settled, while the source-indexed semantic state is still intact.
     persistAcceptedLearningPathCheckpoint()

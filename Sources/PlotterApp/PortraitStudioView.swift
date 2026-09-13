@@ -13,14 +13,15 @@ struct PortraitStudioView: View {
   @State private var submissionError: String?
   @State private var isSubmitting = false
   @State private var previewInkWidth: Double?
-  @State private var previewHeight = 100.0
+  @State private var previewHeight: Double?
 
   private var displayedProgram: DrawingProgram? { model.selectedCandidate?.program }
+  private var materialContext: PortraitMaterialContext? { model.selectedCandidate?.recipe.vectorOptions.materialContext }
+  private var effectivePreviewHeight: Double { previewHeight ?? materialContext?.drawingHeightMM ?? 100 }
+  private var effectivePreviewInkWidth: Double { previewInkWidth ?? materialContext?.profile.conservativeWidthMM ?? strokeStyle.nominalLineWidth }
   private var presentationContext: PortraitPresentationContext? {
-    try? PortraitPresentationContext(drawingHeightMM: previewHeight,
-      inkWidthMM: previewInkWidth ?? strokeStyle.nominalLineWidth,
-      inkWidthIsMeasured: false, objective: .screenAesthetic,
-      prompt: "Rate likeness and drawing quality as displayed")
+    PortraitPreviewPresentation.context(material: materialContext, nominalWidthMM: strokeStyle.nominalLineWidth,
+      widthOverrideMM: previewInkWidth, heightOverrideMM: previewHeight)
   }
 
   var body: some View {
@@ -40,17 +41,37 @@ struct PortraitStudioView: View {
       }
       PortraitExplorationControls(model: model)
       PortraitProgramPreview(program: displayedProgram,
-        inkWidth: previewInkWidth ?? strokeStyle.nominalLineWidth, drawingHeight: previewHeight)
+        inkWidth: effectivePreviewInkWidth, drawingHeight: effectivePreviewHeight)
         .frame(minHeight: 220, idealHeight: 300)
         .overlay { if model.isProcessing && model.sketches.selected == nil { ProgressView() } }
       DisclosureGroup("Marker preview") {
         VStack(alignment: .leading, spacing: 8) {
           PortraitAdjustmentSlider("Marker width", value: Binding(
-            get: { previewInkWidth ?? strokeStyle.nominalLineWidth }, set: { previewInkWidth = $0 }),
+            get: { effectivePreviewInkWidth }, set: { previewInkWidth = $0 }),
             range: 0.2...5, step: 0.1, unit: "mm")
-          PortraitAdjustmentSlider("Drawing height", value: $previewHeight,
+          PortraitAdjustmentSlider("Drawing height", value: Binding(
+            get: { effectivePreviewHeight }, set: { previewHeight = $0 }),
             range: 50...250, step: 5, unit: "mm")
-          Text("Ink estimate at this size. Set actual size with Fit to Drawing Area on the plotter video.")
+          if previewInkWidth != nil || previewHeight != nil {
+            Button("Use Drawing Preview Defaults") { previewInkWidth = nil; previewHeight = nil }
+              .accessibilityIdentifier("portrait.resetMaterialPreview")
+          }
+          if let materialContext {
+            Text("Preview defaults: \(materialContext.profile.name), revision \(materialContext.profile.revision), at its adapted drawing height.")
+              .font(.caption).foregroundStyle(.secondary)
+            if !materialContext.profile.measurementLimitations.isEmpty {
+              DisclosureGroup("Material measurement limits") {
+                ForEach(Array(materialContext.profile.measurementLimitations.enumerated()), id: \.offset) { _, limit in
+                  Text(limit).font(.caption2).foregroundStyle(.secondary)
+                }
+              }
+            }
+            if !materialContext.matches(drawingHeightMM: effectivePreviewHeight, profileKey: materialContext.profile.key) {
+              Text("This preview height differs from the material adaptation. Apply the material again at the new final drawing height to adapt detail spacing.")
+                .font(.caption).foregroundStyle(.secondary)
+            }
+          }
+          Text("Ink estimate at this size. Preview overrides affect the displayed rating context. Set actual size with Fit to Drawing Area on the plotter video.")
             .font(.caption).foregroundStyle(.secondary)
         }
       }
@@ -200,5 +221,20 @@ struct PortraitProgramPreview: View {
     .background(.white)
     .border(.quaternary)
     .accessibilityLabel("Portrait drawing preview")
+  }
+}
+
+/// Preview and label presentation share one resolution of explicit overrides.
+/// A width override is a visual estimate, even when its source material carries
+/// independently measured evidence.
+enum PortraitPreviewPresentation {
+  static func context(material: PortraitMaterialContext?, nominalWidthMM: Double,
+    widthOverrideMM: Double? = nil, heightOverrideMM: Double? = nil) -> PortraitPresentationContext? {
+    try? PortraitPresentationContext(
+      drawingHeightMM: heightOverrideMM ?? material?.drawingHeightMM ?? 100,
+      inkWidthMM: widthOverrideMM ?? material?.profile.conservativeWidthMM ?? nominalWidthMM,
+      inkWidthIsMeasured: widthOverrideMM == nil && material?.profile.independentlyMeasured == true,
+      materialRevision: material?.profile.key, objective: .screenAesthetic,
+      prompt: "Rate likeness and drawing quality as displayed")
   }
 }
