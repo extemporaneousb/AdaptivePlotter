@@ -54,19 +54,54 @@ struct PortraitRenderControls: View {
               .font(.caption).foregroundStyle(.secondary)
           }
           Toggle("Remove background", isOn: $model.options.removeBackground)
-          PortraitAdjustmentSlider("Head enlargement", value: $model.vectorOptions.headScale,
-            range: 1...1.6, step: 0.05, unit: "×")
-          Text("Expands around a detected face. No detected face leaves the shape unchanged.")
+          Toggle("Semantic Big Head", isOn: Binding(get: {
+            model.vectorOptions.semanticHead != nil
+          }, set: { enabled in
+            model.vectorOptions.semanticHead = enabled ? PortraitSemanticHeadParameters() : nil
+            model.vectorOptions.headScale = 1
+          })).accessibilityIdentifier("portrait.semanticHead")
+          if model.vectorOptions.semanticHead != nil {
+            PortraitAdjustmentSlider("Forehead width", value: semanticBinding(\.foreheadWidth),
+              range: 0...0.6, step: 0.02, unit: "")
+            PortraitAdjustmentSlider("Forehead height", value: semanticBinding(\.foreheadHeight),
+              range: 0...0.6, step: 0.02, unit: "")
+            PortraitAdjustmentSlider("Eye emphasis", value: semanticBinding(\.eyeScale),
+              range: 0...0.6, step: 0.02, unit: "")
+            PortraitAdjustmentSlider("Upper lateral width", value: semanticBinding(\.lateralScale),
+              range: 0...0.6, step: 0.02, unit: "")
+          }
+          Text("Uses recorded facial landmarks and pose; protects the mouth and chin. Forehead anchors are estimated. Ears are not detected. Unsupported analysis leaves the shape unchanged.")
             .font(.caption).foregroundStyle(.secondary)
+          if let manifest = model.selectedCandidate?.warpManifest {
+            Text(manifest.summary).font(.caption).foregroundStyle(.secondary)
+          }
+          if model.vectorOptions.semanticHead == nil && model.vectorOptions.headScale > 1 {
+            Text("Archived head transform. Enable Semantic Big Head to generate a new version.")
+              .font(.caption).foregroundStyle(.secondary)
+          }
         }.padding(.top, 6)
       }
     }
   }
 
+  private func semanticBinding(_ keyPath: WritableKeyPath<PortraitSemanticHeadParameters, Double>) -> Binding<Double> {
+    Binding(get: { (model.vectorOptions.semanticHead ?? PortraitSemanticHeadParameters())[keyPath: keyPath] },
+      set: { value in
+        var parameters = model.vectorOptions.semanticHead ?? PortraitSemanticHeadParameters()
+        parameters[keyPath: keyPath] = value
+        model.vectorOptions.semanticHead = parameters
+      })
+  }
+
   @ViewBuilder private var presets: some View {
     Text("Detail").font(.caption).foregroundStyle(.secondary)
     ForEach(PortraitVectorPreset.allCases, id: \.self) { preset in
-      Button(preset.rawValue) { model.vectorOptions = preset.options }
+      Button(preset.rawValue) {
+        var options = preset.options
+        options.headScale = model.vectorOptions.headScale
+        options.semanticHead = model.vectorOptions.semanticHead
+        model.vectorOptions = options
+      }
         .accessibilityIdentifier("portrait.preset.\(preset.rawValue)")
     }
   }

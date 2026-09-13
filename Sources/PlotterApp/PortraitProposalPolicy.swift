@@ -44,6 +44,11 @@ enum PortraitProposalPolicy {
       options.hatchAngleDegrees = [-60.0, -40, -20, 0, 20, 40, 60][random.index(7)]
     }
     options.headScale = bigHead ? random.value(1.2...1.6) : 1
+    if bigHead {
+      options.semanticHead = PortraitSemanticHeadParameters(foreheadWidth: random.value(0.15...0.4),
+        foreheadHeight: random.value(0.18...0.45), eyeScale: random.value(0.08...0.22),
+        lateralScale: random.value(0.08...0.22))
+    }
     let analysis = PortraitAnalysisOptions(cropToFace: true, removeBackground: true,
       faceCropMargin: bigHead ? random.value(0.55...0.8) : random.value(0.25...0.65))
     return proposal(seed: seed, kind: .broad, family: family, style: family.style,

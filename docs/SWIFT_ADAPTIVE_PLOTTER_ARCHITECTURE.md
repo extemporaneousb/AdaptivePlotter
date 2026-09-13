@@ -2160,9 +2160,10 @@ semantic projection does not receive this traffic.
 cropping, contrast normalization, and optional person masking on worker tasks.
 `PortraitAnalysisOptions` controls image analysis; separate `PortraitVectorOptions`
 controls contour length/levels/simplification, hatch spacing/angle, smoothing, tonal
-strength, sketch response threshold, and bounded face enlargement. Face localization
-is cached even for full-photo framing; the optional normalized face rectangle anchors
-geometry and missing-face inputs skip the warp with an explicit result summary. Vector edits reuse the analyzed raster. One latest-request
+strength, sketch response threshold, and bounded semantic head amplitudes. Exact face
+landmarks and pose are cached even for full-photo framing. The normalized face
+rectangle still drives crop framing; the semantic warp consumes retained parts and
+source metric. Missing analysis preserves base geometry with an explicit summary. Vector edits reuse the analyzed raster. One latest-request
 drain serializes acquisition and rendering, retains cancelled workers until actual
 settlement, and validates render revision plus selected photo identity before publication.
 Deleting a source cannot revive it through a late result. Decoding/vectorization
@@ -2171,14 +2172,27 @@ cooperatively checks cancellation.
 `PortraitVectorizer` generates joined tonal contours, continuous hatch/crosshatch
 polylines, or difference-of-Gaussians ink responses thinned into connected centerlines,
 optionally combined with hatch. Angled hatch clips scan lines to the raster. Big-head
-geometry uses monotone face-anchored warps with fixed canvas boundaries and subdivides
-long lines before bending. It preserves top-left image to lower-left FieldSpace
+geometry uses retained revision-3/76-point Vision landmarks and a source-metric
+orthonormal eye/nose basis. `PortraitHeadTransform` composes compact C2 vector-field
+steps with an analytic derivative norm bound of 0.2 per step; supports remain inside
+the crop and above the upper-lip protection plane. `PortraitHeadWarpManifest` owns
+analysis digest, basis, measured/estimated/unavailable anchors, requested/effective
+parameters, exact kernel coefficients/steps and conservative Jacobian/displacement
+bounds. Long lines subdivide before bending. Missing or unsupported analysis produces
+identity with a reason. The earlier bounding-box transform remains only for explicit
+legacy recipes and exact archived programs. It preserves top-left image to lower-left FieldSpace
 orientation. `PortraitAcquiredPhoto` carries the original oriented source pixel extent beside
 the bounded normalized image bytes through recent photos and render requests.
 New analyzed rasters retain the source crop extent in those original pixel
 coordinates independently of thumbnail and raster dimensions; the vectorizer maps
 raster pixel centers into that source metric before uniform field placement. The v3 producer identity
-includes that metric and all bounded authoring parameters. Legacy rasters without
+includes that metric and all bounded authoring parameters. Semantic programs use v4
+and bind the exact manifest digest. Raster schema 3 adds retained face analysis while
+decoded older rasters keep their original encoded version; absent optional semantic
+recipe/candidate fields preserve DS-02/DS-03 archive hashes. Candidate integrity checks
+bind recipe, raster, recomputed manifest and program provenance. Explicit semantic
+generation refreshes analysis absent from an older raster; local proposals reuse the
+exact parent analysis and freeze every head parameter. Legacy rasters without
 a source metric retain explicitly identified sample-lattice interpretation.
 `PortraitProgramPreview` draws round-capped strokes at estimated physical marker
 width for a selected preview height; those display values do not mutate geometry or

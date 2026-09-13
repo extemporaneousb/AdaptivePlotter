@@ -18,6 +18,7 @@ struct PortraitStyleRecipe: Identifiable, Codable, Hashable, Sendable {
                 change: (inout PortraitVectorOptions) -> Void = { _ in }) -> Self {
       var vectors = base
       vectors.headScale = headScale
+      if headScale > 1 { vectors.semanticHead = PortraitSemanticHeadParameters() }
       vectors.hatchAngleDegrees = angle
       change(&vectors)
       let analysis = PortraitAnalysisOptions(faceCropMargin: headScale > 1 ? 0.7 : 0.4)
@@ -95,7 +96,7 @@ struct PortraitRecipeRandom {
 extension PortraitVectorOptions {
   enum CodingKeys: String, CodingKey {
     case contourLevels, minimumContourLength, simplificationTolerance, hatchSpacing
-    case tonalStrength, smoothing, sketchThreshold, hatchAngleDegrees, headScale
+    case tonalStrength, smoothing, sketchThreshold, hatchAngleDegrees, headScale, semanticHead
   }
   init(from decoder: Decoder) throws {
     self.init()
@@ -109,6 +110,7 @@ extension PortraitVectorOptions {
     sketchThreshold = try values.decodeIfPresent(Double.self, forKey: .sketchThreshold) ?? sketchThreshold
     hatchAngleDegrees = try values.decodeIfPresent(Double.self, forKey: .hatchAngleDegrees) ?? hatchAngleDegrees
     headScale = try values.decodeIfPresent(Double.self, forKey: .headScale) ?? headScale
+    semanticHead = try values.decodeIfPresent(PortraitSemanticHeadParameters.self, forKey: .semanticHead)
   }
 }
 

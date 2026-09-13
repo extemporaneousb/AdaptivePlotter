@@ -334,20 +334,21 @@ private struct StoredCandidate: Codable {
   let checkpointID: String?
   let pose: PortraitPose?
   let proposal: PortraitProposalMetadata?
+  let warpManifest: PortraitHeadWarpManifest?
 
   init(_ value: PortraitCandidate) {
     id = value.id; sourceSHA256 = value.sourceSHA256; rasterSHA256 = value.rasterSHA256
     recipeSHA256 = value.recipeSHA256; sourcePixelExtent = value.sourcePixelExtent
     recipe = value.recipe; program = value.program; photoID = value.photoID
     captureSessionID = value.captureSessionID; createdAt = value.createdAt
-    lineage = value.lineage; producerRevision = value.producerRevision; checkpointID = value.checkpointID; pose = value.pose; proposal = value.proposal
+    lineage = value.lineage; producerRevision = value.producerRevision; checkpointID = value.checkpointID; pose = value.pose; proposal = value.proposal; warpManifest = value.warpManifest
   }
 
   func materialize(source: Data, raster: Data) throws -> PortraitCandidate {
     let candidate = try PortraitCandidate(sourceData: source, sourcePixelExtent: sourcePixelExtent,
       raster: JSONDecoder().decode(PortraitRaster.self, from: raster), recipe: recipe,
       program: program, photoID: photoID, captureSessionID: captureSessionID,
-      createdAt: createdAt, lineage: lineage, checkpointID: checkpointID, pose: pose, proposal: proposal)
+      createdAt: createdAt, lineage: lineage, checkpointID: checkpointID, pose: pose, proposal: proposal, warpManifest: warpManifest)
     guard candidate.id == id, candidate.sourceSHA256 == sourceSHA256,
       candidate.rasterSHA256 == rasterSHA256, candidate.recipeSHA256 == recipeSHA256,
       candidate.producerRevision == producerRevision else { throw PortraitCandidateError.integrityMismatch }

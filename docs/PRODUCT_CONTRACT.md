@@ -1513,16 +1513,22 @@ The selected photo produces Tonal contours, Hatch, Crosshatch, Sketch, or Sketch
 hatch. Sketch extracts difference-of-Gaussians responses, thins ink to centerlines,
 and joins them into vector paths. Fine, Balanced, and Broad marker presets and
 controls expose contour minimum length, simplification, tonal levels, hatch spacing,
-smoothing, tonal strength, sketch threshold, hatch angle, and head enlargement. Spatial settings use analyzed-image
+smoothing, tonal strength, sketch threshold, hatch angle, and semantic head controls. Spatial line settings use analyzed-image
 pixels; their paper footprint depends on final placement scale.
 
 Face localization supplies an adjustable padded crop so the head can occupy more
 of the drawing. Vision person segmentation can remove background. Missing face or
 person detections retain the image with a visible explanation; these detectors do
-not gate drawing creation. Big-head candidates apply a bounded geometric enlargement
-around the detected face while retaining the canvas boundary. No detected face means
-no warp, with a visible explanation. This is a deterministic caricature transform;
-it does not perform facial-part parsing, learned likeness generation, or 3D reconstruction.
+not gate drawing creation. Semantic Big Head uses retained facial landmarks and measured
+pose to expand forehead height/width, eyes and upper lateral regions in face-local
+coordinates. The nose transition tapers to an unchanged mouth and chin; compact
+support fixes the image boundary and bounds the Jacobian and displacement. Forehead
+anchors are explicitly estimated; ear landmarks are unavailable. Missing reliable
+parts/pose, profile above 60 degrees yaw, pitch above 30 degrees, or insufficient
+support preserves the base drawing with a visible reason. This deterministic
+caricature does not establish learned likeness or 3D reconstruction. Existing
+archived bounding-box head drawings stay exact; local branching from that older
+transform asks for explicit new semantic generation instead of silently changing it.
 
 The style recipe picker retains named choices, including deliberate hatch styles.
 Broad Random Style uses declared weights: contour, tonal contour and clean line

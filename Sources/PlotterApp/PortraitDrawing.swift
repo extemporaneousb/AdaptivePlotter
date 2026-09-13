@@ -25,6 +25,7 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
   var sketchThreshold = 0.012
   var hatchAngleDegrees = 0.0
   var headScale = 1.0
+  var semanticHead: PortraitSemanticHeadParameters? = nil
 
   var bounded: Self {
     var result = self
@@ -37,6 +38,7 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
     result.sketchThreshold = Self.clamp(sketchThreshold, to: 0.002...0.08, fallback: 0.012)
     result.hatchAngleDegrees = Self.clamp(hatchAngleDegrees, to: -90...90, fallback: 0)
     result.headScale = Self.clamp(headScale, to: 1...1.6, fallback: 1)
+    result.semanticHead = semanticHead?.bounded
     return result
   }
 
@@ -44,8 +46,10 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
     let original = "levels=\(contourLevels)|minLength=\(minimumContourLength)|simplify=\(simplificationTolerance)"
       + "|hatchSpacing=\(hatchSpacing)|tone=\(tonalStrength)|smooth=\(smoothing)|sketchThreshold=\(sketchThreshold)"
     // Preserve source identity for the previous default geometry.
-    return hatchAngleDegrees == 0 && headScale == 1 ? original
+    let legacy = hatchAngleDegrees == 0 && headScale == 1 ? original
       : original + "|hatchAngle=\(hatchAngleDegrees)|headScale=\(headScale)"
+    guard let semanticHead else { return legacy }
+    return legacy + "|semanticHead=\(semanticHead.revision),\(semanticHead.foreheadWidth),\(semanticHead.foreheadHeight),\(semanticHead.eyeScale),\(semanticHead.lateralScale)"
   }
 
   private static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
@@ -101,7 +105,8 @@ struct PortraitSourceCropExtent: Codable, Hashable, Sendable {
 /// A bounded, top-left-origin brightness image. Image analysis owns cropping
 /// and background removal; the vectorizer knows nothing about cameras or motion.
 struct PortraitRaster: Codable, Sendable {
-  static let schemaVersion = 2
+  static let schemaVersion = 3
+  private var encodedSchemaVersion: Int? = Self.schemaVersion
   let width: Int
   let height: Int
   let luminance: [Double]
@@ -114,11 +119,13 @@ struct PortraitRaster: Codable, Sendable {
   /// Nil identifies legacy/synthetic analysis whose exact preprocessing is unavailable.
   let analysisGeometry: PortraitAnalysisGeometry?
   let personMask: PortraitPersonMask?
+  let faceAnalysis: PortraitFaceAnalysis?
 
   init(width: Int, height: Int, luminance: [Double], provenance: String,
     analysisSummary: String, faceBounds: CGRect? = nil,
     sourceCropExtent: PortraitSourceCropExtent? = nil,
-    analysisGeometry: PortraitAnalysisGeometry? = nil, personMask: PortraitPersonMask? = nil) {
+    analysisGeometry: PortraitAnalysisGeometry? = nil, personMask: PortraitPersonMask? = nil,
+    faceAnalysis: PortraitFaceAnalysis? = nil) {
     self.width = width
     self.height = height
     self.luminance = luminance
@@ -128,6 +135,7 @@ struct PortraitRaster: Codable, Sendable {
     self.sourceCropExtent = sourceCropExtent
     self.analysisGeometry = analysisGeometry
     self.personMask = personMask
+    self.faceAnalysis = faceAnalysis
   }
 
   var metricProvenance: String {
@@ -139,7 +147,7 @@ struct PortraitRaster: Codable, Sendable {
 
   private enum CodingKeys: String, CodingKey {
     case schemaVersion, width, height, luminance, provenance, analysisSummary, faceBounds, sourceCropExtent
-    case analysisGeometry, personMask
+    case analysisGeometry, personMask, faceAnalysis
   }
 
   init(from decoder: Decoder) throws {
@@ -157,13 +165,16 @@ struct PortraitRaster: Codable, Sendable {
       faceBounds: try values.decodeIfPresent(CGRect.self, forKey: .faceBounds),
       sourceCropExtent: try values.decodeIfPresent(PortraitSourceCropExtent.self, forKey: .sourceCropExtent),
       analysisGeometry: try values.decodeIfPresent(PortraitAnalysisGeometry.self, forKey: .analysisGeometry),
-      personMask: try values.decodeIfPresent(PortraitPersonMask.self, forKey: .personMask))
+      personMask: try values.decodeIfPresent(PortraitPersonMask.self, forKey: .personMask),
+      faceAnalysis: try values.decodeIfPresent(PortraitFaceAnalysis.self, forKey: .faceAnalysis))
+    encodedSchemaVersion = try values.decodeIfPresent(Int.self, forKey: .schemaVersion)
+    guard faceAnalysis == nil || version >= 3 else { throw PortraitDrawingError.unreadableImage }
     try validateAnalysisEvidence()
   }
 
   func encode(to encoder: Encoder) throws {
     var values = encoder.container(keyedBy: CodingKeys.self)
-    try values.encode(Self.schemaVersion, forKey: .schemaVersion)
+    try values.encodeIfPresent(encodedSchemaVersion, forKey: .schemaVersion)
     try values.encode(width, forKey: .width)
     try values.encode(height, forKey: .height)
     try values.encode(luminance, forKey: .luminance)
@@ -173,6 +184,7 @@ struct PortraitRaster: Codable, Sendable {
     try values.encodeIfPresent(sourceCropExtent, forKey: .sourceCropExtent)
     try values.encodeIfPresent(analysisGeometry, forKey: .analysisGeometry)
     try values.encodeIfPresent(personMask, forKey: .personMask)
+    try values.encodeIfPresent(faceAnalysis, forKey: .faceAnalysis)
   }
 
   func validateAnalysisEvidence() throws {
@@ -181,6 +193,11 @@ struct PortraitRaster: Codable, Sendable {
     else { throw PortraitDrawingError.unreadableImage }
     try analysisGeometry?.validate(width: width, height: height)
     try personMask?.validate(width: width, height: height)
+    try faceAnalysis?.validate()
+    if let faceAnalysis, let analysisGeometry {
+      guard faceAnalysis.decodedWidth == analysisGeometry.decodedWidth,
+        faceAnalysis.decodedHeight == analysisGeometry.decodedHeight else { throw PortraitDrawingError.unreadableImage }
+    }
     if let geometry = analysisGeometry {
       let expected = try PortraitSourceCropExtent(
         widthPixels: geometry.sourcePixelExtent.widthPixels * (geometry.crop.width / Double(geometry.decodedWidth)),
@@ -231,8 +248,12 @@ enum PortraitVectorizer {
     }
     let paths = try enlargedHeadPaths(authoredPaths, raster: raster, options: options)
     guard !paths.isEmpty else { throw PortraitDrawingError.noLines }
-    var provenance = "portrait-v3|metric=\(raster.metricProvenance)|\(raster.provenance)|pose=\(pose.rawValue)|style=\(style.rawValue)|\(options.provenance)"
-    if options.headScale > 1 {
+    let producer = options.semanticHead == nil ? "portrait-v3" : "portrait-v4"
+    var provenance = "\(producer)|metric=\(raster.metricProvenance)|\(raster.provenance)|pose=\(pose.rawValue)|style=\(style.rawValue)|\(options.provenance)"
+    if let parameters = options.semanticHead {
+      let manifest = PortraitHeadTransform(raster: raster, parameters: parameters).manifest
+      provenance += "|headWarp=" + PortraitCandidateCoding.digest(try PortraitCandidateCoding.encoder().encode(manifest))
+    } else if options.headScale > 1 {
       if let bounds = PortraitHeadTransform.validFaceBounds(raster.faceBounds) {
         provenance += "|headTransform=v1|headFace=\(bounds.origin.x),\(bounds.origin.y),\(bounds.width),\(bounds.height)"
       } else { provenance += "|headTransform=unavailable" }
@@ -439,9 +460,16 @@ enum PortraitVectorizer {
 
   private static func enlargedHeadPaths(_ paths: [[CGPoint]], raster: PortraitRaster,
                                         options: PortraitVectorOptions) throws -> [[CGPoint]] {
-    guard options.headScale > 1,
-      let transform = PortraitHeadTransform(faceBounds: raster.faceBounds, width: raster.width,
-        height: raster.height, scale: options.headScale) else { return paths }
+    let transform: PortraitHeadTransform
+    if let parameters = options.semanticHead {
+      transform = PortraitHeadTransform(raster: raster, parameters: parameters)
+      guard transform.manifest.status == .applied || transform.manifest.status == .limited else { return paths }
+    } else {
+      guard options.headScale > 1,
+        let legacy = PortraitHeadTransform(faceBounds: raster.faceBounds, width: raster.width,
+          height: raster.height, scale: options.headScale) else { return paths }
+      transform = legacy
+    }
     return try paths.compactMap { path in
       try Task.checkCancellation()
       guard let first = path.first else { return path }
@@ -467,7 +495,7 @@ enum PortraitVectorizer {
     return PortraitRaster(width: raster.width, height: raster.height, luminance: values,
       provenance: raster.provenance, analysisSummary: raster.analysisSummary, faceBounds: raster.faceBounds,
       sourceCropExtent: raster.sourceCropExtent, analysisGeometry: raster.analysisGeometry,
-      personMask: raster.personMask)
+      personMask: raster.personMask, faceAnalysis: raster.faceAnalysis)
   }
 
   /// Separable, edge-clamped Gaussian. The bounded sigma limits the kernel to

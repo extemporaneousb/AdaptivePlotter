@@ -453,8 +453,11 @@ final class PortraitStudioModel {
     }
     isProcessing = true
     summary = "Preparing \(style.rawValue.lowercased()) portrait…"
-    let raster = exactRaster ?? cache.raster(for: .init(photoID: photo.id, analysis: options))
+    var raster = exactRaster ?? cache.raster(for: .init(photoID: photo.id, analysis: options))
       ?? (retainedEditSource?.id == photo.id && retainedAnalysis?.options == options ? retainedAnalysis?.raster : nil)
+    // Explicit new semantic generation refreshes legacy analysis once. Local
+    // proposals pass an exact raster and never silently run Vision again.
+    if exactRaster == nil, vectorOptions.semanticHead != nil, raster?.faceAnalysis == nil { raster = nil }
     pendingRender = PendingRender(revision: renderRevision, key: key, request: .init(
       data: photo.data, pose: photo.pose, style: style, options: options,
       cachedRaster: raster, strokeStyle: strokeStyle, vectorOptions: vectorOptions,
@@ -508,7 +511,7 @@ final class PortraitStudioModel {
       completedCandidate = try PortraitCandidate(sourceData: photo.data,
         sourcePixelExtent: photo.sourcePixelExtent, raster: result.raster, recipe: recipe,
         program: result.program, photoID: photo.id, captureSessionID: photo.captureSessionID,
-        lineage: lineage, checkpointID: checkpointID, pose: photo.pose, proposal: proposal)
+        lineage: lineage, checkpointID: checkpointID, pose: photo.pose, proposal: proposal, warpManifest: result.warpManifest)
     } catch {
       completedCandidate = nil
       summary = error.localizedDescription
@@ -622,6 +625,10 @@ final class PortraitStudioModel {
     guard let parent = selectedCandidate, let pose = parent.renderPose,
       let strokeStyle = parent.program.strokes.first?.style else {
       explorationStatus = "Select a completed drawing with recorded source pose before exploring."
+      return
+    }
+    if parent.recipe.vectorOptions.headScale > 1 && parent.recipe.vectorOptions.semanticHead == nil {
+      explorationStatus = "This drawing uses the previous head transform. Generate a new Big Head to record semantic landmarks; the archived drawing remains unchanged."
       return
     }
     let proposal = PortraitProposalPolicy.local(parent: parent,

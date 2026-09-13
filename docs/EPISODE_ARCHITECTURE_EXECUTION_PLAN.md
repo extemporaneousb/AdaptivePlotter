@@ -139,7 +139,7 @@ reviewed, but cannot complete the whole row.
 | DS-01 | Source/crop metric and explicit Fit correction; C1 frozen for candidate consumers. Physical metric remains open. | Task `task-34dc69ed47f94ed695a7e7da85632890`; [receipts](CURRENT_EVIDENCE.md#ds-01-proportional-geometry-correction-2026-09-13). | PARTIAL: R05/attended open | COMPLETE: first correction, G01 software; 84 focused, 1102 quick, 10 journey, signed app, one-shot ACCEPT | PENDING | PENDING |
 | DS-02 | Candidate, label and owned asset persistence; C2 available to dependent consumers. Physical-attempt production association remains DS-06. | Task `task-1eef1162fd8d4694b578aa756b79c61d`; [receipts](CURRENT_EVIDENCE.md#ds-02-durable-qualified-candidates-2026-09-13); bounded persistence, exact-analysis and UI leases. | PARTIAL: DS-06 association open | COMPLETE: C2 archive and three production qualifiers; 82 initial, 29 repair, 1118 quick; signed app; one-shot F1 repaired directly | PENDING | PENDING |
 | DS-03 | Balanced broad/local exploration and exact branch navigation; consumes C1/C2. | Task `task-d79ffc73deea418696794d53d641c57b`; disjoint policy, history and UI workers; coordinator candidate/model integration. | PARTIAL: native/quality open | COMPLETE: G03 software; 60 focused, 24 final integration, 1135 quick retry; signed app; one-shot ACCEPT | PENDING | PENDING |
-| DS-04 | Semantic Big Head and retained pose analysis; depends on DS-01 and DS-02. | Warp worker: `PortraitHeadTransform.swift`, new adjacent landmark/warp types and tests; sequential leases for `PortraitImageAnalyzer.swift`, `PortraitDrawing.swift` and shared recipe schema. | PENDING | PENDING | PENDING | PENDING |
+| DS-04 | Semantic Big Head and retained pose analysis; depends on DS-01 and DS-02. | Task `task-8037d07cff77461cae9104933de40a3a`; frozen semantic contract; disjoint transform and analysis workers; coordinator schemas/model/producer integration. | PARTIAL: native/likeness open | COMPLETE: G04 software; 25 final integration, 1155 quick; signed app; one-shot ACCEPT | PENDING | PENDING |
 | DS-05 | Effective material profile, measurement and final-scale feasibility; depends on DS-01/DS-02 and frozen C3. Consumes DS-06 media in integration. | Material worker: new `PlotterModel` material types, measurement beside the existing `PlotterRuntime` Vision worker and corresponding tests; coordinator integrates `DrawingProgram.swift`, `CurrentCameraCalibrationPlanning.swift`, tip evidence and renderer/draft consumers. | PENDING | PENDING | PENDING | PENDING |
 | DS-06 | Durable run images, recoverable attempts and observation coverage; depends on DS-01/DS-02 and frozen C3 material references. | Run-evidence worker: `Sources/PlotterRuntime/DrawingRunEvidence.swift`, `DrawingRunEvidenceStore.swift`, `PlannedDrawingObservation.swift`; `Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift`; `Sources/PlotterApp/DrawingRunEvidenceComposition.swift`; corresponding tests. | PENDING | PENDING | PENDING | PENDING |
 | DS-07 | Operational scoped preference fitting/proposals/checkpoints; depends on DS-02/DS-03/DS-04/DS-05 and frozen C4. | Training worker: new adjacent typed preference-training, dataset and checkpoint files/tests; coordinator leases shared recipe/model consumers after exploration integration. | PENDING | PENDING | PENDING | PENDING |
@@ -306,6 +306,39 @@ composite with per-pixel source provenance. Retain raw originals and derivation
 versions. Unseen regions remain unknown. Stop, unsafe/ambiguous motion or failed
 execution never triggers automatic repositioning for photography; preserve the
 available view and explicit missing-coverage reason.
+
+### DS-04 frozen semantic-head contract
+
+`PortraitSemanticHeadContract.swift` owns decoded-image pixel landmarks, raw Vision
+precision/classification, optional measured roll/yaw/pitch and versioned semantic
+amplitudes. `PortraitRaster.faceAnalysis` is optional; new raster schema 3 retains
+the original encoded version when decoding old records, so DS-02/DS-03 raster hashes
+remain stable. Optional `PortraitVectorOptions.semanticHead` is omitted when nil.
+Legacy recipes, candidate IDs and exact programs remain recoverable. New semantic
+head programs use producer v4 and retain a `PortraitHeadWarpManifest`; absent new
+metadata preserves old candidate identity.
+
+The warp consumes `PortraitRaster` and bounded `PortraitSemanticHeadParameters` via
+`PortraitHeadTransform(raster:parameters:)`, exposes `manifest` and maps raster points
+with `point(_:)`. It works in original crop metric and an orthonormal eye/nose basis.
+Manifest records analysis digest, basis, measured/estimated/unavailable anchors,
+requested/effective parameters, support, displacement and analytic Jacobian bounds,
+plus explicit unsupported/limited reasons. Forehead is estimated; Vision supplies
+no ear or hairline landmark, so ear support is unavailable, never invented.
+Missing reliable bilateral eyes/brows/nose/lips/chin, unknown yaw/pitch, profile
+above 60 degrees yaw, pitch above 30 degrees, low confidence, or insufficient
+image support preserves the base geometry with a reason. Frontal/rolled and
+three-quarter support must satisfy the same derivative/displacement bound; lower
+lips/chin and image boundary are fixed.
+
+Analysis worker owns only `PortraitImageAnalyzer.swift`, new Vision adapter and
+focused analysis tests. Transform worker owns only `PortraitHeadTransform.swift`,
+new warp manifest/implementation helpers and geometry tests. Coordinator owns
+raster/recipe/candidate/store, vectorizer, model/UI and migration/integration tests.
+No worker compiles during edits. Exact old candidates stay plotable; local branching
+from a legacy Big Head without semantic analysis is explicitly unavailable until
+an explicit new semantic-head generation, never silently reanalyzed. Ordinary local
+exploration freezes every semantic head parameter.
 
 ### Measured material behavior at actual drawing size
 

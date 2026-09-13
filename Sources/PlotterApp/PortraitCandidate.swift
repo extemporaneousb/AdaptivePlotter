@@ -113,12 +113,13 @@ struct PortraitCandidate: Identifiable, Codable, Sendable {
   let checkpointID: String?
   let pose: PortraitPose?
   let proposal: PortraitProposalMetadata?
+  let warpManifest: PortraitHeadWarpManifest?
 
   init(sourceData: Data, sourcePixelExtent: PortraitSourceCropExtent?, raster: PortraitRaster,
     recipe: PortraitStyleRecipe, program: DrawingProgram, photoID: UUID,
     captureSessionID: UUID, createdAt: Date = Date(), lineage: PortraitCandidateLineage? = nil,
     checkpointID: String? = nil, pose: PortraitPose? = nil,
-    proposal: PortraitProposalMetadata? = nil) throws {
+    proposal: PortraitProposalMetadata? = nil, warpManifest: PortraitHeadWarpManifest? = nil) throws {
     guard !sourceData.isEmpty else { throw PortraitCandidateError.missingSource }
     let encoder = PortraitCandidateCoding.encoder()
     self.sourceData = sourceData
@@ -134,7 +135,15 @@ struct PortraitCandidate: Identifiable, Codable, Sendable {
     self.createdAt = createdAt
     self.lineage = lineage ?? PortraitCandidateLineage(parentID: nil, parentProgramHash: nil,
       parentRecipe: nil, ancestryGroupID: captureSessionID)
-    producerRevision = "portrait-v3"
+    producerRevision = warpManifest == nil ? "portrait-v3" : "portrait-v4"
+    self.warpManifest = warpManifest
+    if let warpManifest {
+      guard let parameters = recipe.vectorOptions.semanticHead,
+        warpManifest == PortraitHeadTransform(raster: raster, parameters: parameters.bounded).manifest,
+        program.source.sourceIdentifier.hasPrefix("portrait-v4|"),
+        program.source.sourceIdentifier.split(separator: "|").contains(Substring("headWarp=" + PortraitCandidateCoding.digest(try encoder.encode(warpManifest))))
+      else { throw PortraitCandidateError.integrityMismatch }
+    } else if recipe.vectorOptions.semanticHead != nil { throw PortraitCandidateError.integrityMismatch }
     self.checkpointID = checkpointID
     self.pose = pose
     self.proposal = proposal
@@ -147,6 +156,7 @@ struct PortraitCandidate: Identifiable, Codable, Sendable {
     // Optional additions preserve existing DS-02 IDs when absent.
     if let pose { identityParts.append("pose=\(pose.rawValue)") }
     if let proposal { identityParts.append(PortraitCandidateCoding.digest(try encoder.encode(proposal))) }
+    if let warpManifest { identityParts.append(PortraitCandidateCoding.digest(try encoder.encode(warpManifest))) }
     id = PortraitCandidateCoding.digest(Data(identityParts.joined(separator: "|").utf8))
   }
 
@@ -165,7 +175,7 @@ struct PortraitCandidate: Identifiable, Codable, Sendable {
     let rebuilt = try Self(sourceData: sourceData, sourcePixelExtent: sourcePixelExtent,
       raster: raster, recipe: recipe, program: program, photoID: photoID,
       captureSessionID: captureSessionID, createdAt: createdAt, lineage: lineage, checkpointID: checkpointID,
-      pose: pose, proposal: proposal)
+      pose: pose, proposal: proposal, warpManifest: warpManifest)
     guard rebuilt.id == id, rebuilt.sourceSHA256 == sourceSHA256,
       rebuilt.rasterSHA256 == rasterSHA256, rebuilt.recipeSHA256 == recipeSHA256,
       producerRevision == rebuilt.producerRevision else { throw PortraitCandidateError.integrityMismatch }

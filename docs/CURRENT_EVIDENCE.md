@@ -8,10 +8,62 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DS-04 semantic Big Head, 2026-09-13
+
+Task `task-8037d07cff77461cae9104933de40a3a` began from clean primary `main`
+at `b868effb80a383b81da042c9331a950a70a61278`, with recorded target `main`.
+Bounded workers delivered semantic geometry, retained Vision analysis and literal
+legacy archive fixtures; the coordinator integrated schemas, producer, candidate
+integrity, model ownership and controls.
+
+New analysis retains revision-3/76-point Vision regions in exact decoded top-left
+pixels, optional observed pose, confidence and raw precision/classification.
+Semantic geometry uses original crop metric and orthonormal eye/nose axes, compact
+C2 fields with per-step derivative norm at most 0.2, fixed lower-face/boundary
+regions and conservative analytic displacement/Jacobian bounds. Forehead anchors
+are estimates; ears have no observed support. Unsupported profiles, unknown pose,
+missing parts, low confidence or insufficient support preserve base geometry with
+a reason. The manifest owns analysis digest, anchors, basis, kernel coefficients
+and bounds; v4 program provenance and candidate integrity bind its exact digest.
+
+Raster schema 3 retains original encoded schema versions on legacy decode. Optional
+semantic fields remain absent from older recipes/candidates. Literal DS-02/DS-03
+encoder goldens and exact archive reload tests guard existing identities. Explicit
+new semantic generation refreshes a legacy raster lacking face analysis; local
+proposals use the exact parent raster and freeze head settings. Legacy head-transform
+local exploration is refused with explicit new-generation guidance; archived exact
+vectors remain usable.
+
+Initial strict compilation exposed a Vision adapter type error: raw precision values
+are Swift Float values, not NSNumber. The coordinator supplied the optional compactMap
+result type and converted with Double, preserving both failed build receipts.
+The first corrected portrait run completed 120 tests with one coordinator fixture
+failure: a flat image requested contours and legitimately produced no candidate.
+The fixture now requests hatching. A production supported-warp/candidate roundtrip
+was added; its initial Swift argument-order compile error was corrected before
+execution. Final strict integration passed 25 tests (`integration-corrected.log`),
+including actual warped program provenance and exact manifest/raster/candidate
+roundtrips, semantic source reuse, pose/feature/Jacobian fixtures and archive goldens.
+The broad strict gate passed 1,155 tests with five intentional opt-in skips (`quick.log`).
+The fresh one-shot critic accepted the frozen diff without findings (`review.txt`);
+no recheck occurred. Stable-local signed debug bundle, launcher and negative bundle
+checks passed (`validate-app.log`). Final documentation and whitespace checks passed
+(`docs-final.log`, `diff-check.log`). No native pass is asserted.
+The signed immutable test app is staged after landing at
+`/Users/bullard/Projects/AdaptivePlotter/.build/StudioTestApps/AdaptivePlotter-DS04-8037d0.app`;
+`release.json` records exact landed commit, input equality, binary hash and signature.
+Receipts: `/Users/bullard/Projects/AdaptivePlotter/.build/studio-ds04-8037d0-evidence/`.
+
+Software geometry/identity tests are distinct from blind paired human likeness
+assessment, native interactions and physical evidence, all still pending. No app
+was launched or user session replaced. Material and run-media work remain DS-05/DS-06.
+
 ## DS-03 balanced exploration and exact branches, 2026-09-13
 
 Task `task-d79ffc73deea418696794d53d641c57b` began from clean primary `main`
 at `0edc1df68c44a88a7d27dcadea024e52016110c7`, with recorded target `main`.
+Landed commit `b868effb80a383b81da042c9331a950a70a61278`, tree
+`8374382746e7c9baddc6b86354db00207239450d`.
 Disjoint policy, transient-history and UI workers implemented frozen interfaces;
 the coordinator integrated source ownership, additive candidate serialization and
 asynchronous proposal/restoration behavior.

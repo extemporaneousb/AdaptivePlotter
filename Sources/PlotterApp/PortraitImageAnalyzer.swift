@@ -37,6 +37,7 @@ struct PortraitRenderResult: Sendable {
   let raster: PortraitRaster
   let program: PlotterModel.DrawingProgram
   var transformationSummary: String? = nil
+  var warpManifest: PortraitHeadWarpManifest? = nil
 }
 
 protocol PortraitRendering: Sendable {
@@ -95,12 +96,18 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       vectorOptions: request.vectorOptions)
     try Task.checkCancellation()
     let transformSummary: String?
-    if request.vectorOptions.bounded.headScale > 1 {
+    let warpManifest = request.vectorOptions.bounded.semanticHead.map {
+      PortraitHeadTransform(raster: raster, parameters: $0).manifest
+    }
+    if let warpManifest {
+      transformSummary = warpManifest.summary
+    } else if request.vectorOptions.bounded.headScale > 1 {
       transformSummary = PortraitHeadTransform.validFaceBounds(raster.faceBounds) == nil
         ? "No face located; head enlargement skipped"
         : String(format: "Head emphasis %.2f×", request.vectorOptions.bounded.headScale)
     } else { transformSummary = nil }
-    return PortraitRenderResult(raster: raster, program: program, transformationSummary: transformSummary)
+    return PortraitRenderResult(raster: raster, program: program, transformationSummary: transformSummary,
+      warpManifest: warpManifest)
   }
 
   static func image(from data: Data) throws -> CGImage {
@@ -181,22 +188,25 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     var notes: [String] = []
     // Face geometry is cached for framing and optional caricature even when
     // the operator retains the full photograph. This runs only on analysis.
-    let faces = VNDetectFaceRectanglesRequest()
-    do {
-      try VNImageRequestHandler(cgImage: image, orientation: .up).perform([faces])
-      try Task.checkCancellation()
-      if let face = faces.results?.max(by: { $0.boundingBox.width*$0.boundingBox.height < $1.boundingBox.width*$1.boundingBox.height }) {
-        detectedFace = CGRect(x: face.boundingBox.minX * Double(image.width),
-          y: (1-face.boundingBox.maxY) * Double(image.height),
-          width: face.boundingBox.width * Double(image.width), height: face.boundingBox.height * Double(image.height))
-        if options.cropToFace {
-          crop = faceCrop(bounds: face.boundingBox, imageWidth: image.width, imageHeight: image.height,
-                          margin: options.boundedFaceCropMargin)
-          notes.append("Face crop")
-        } else { notes.append("Full photo") }
-      } else { notes.append("No face located; full photo") }
-    } catch is CancellationError { throw CancellationError() }
-    catch { notes.append("Face detection unavailable (\(error.localizedDescription)); full photo") }
+    let faceAnalysis = try PortraitFaceLandmarkAnalyzer.analyze(image)
+    if let face = faceAnalysis.boundingBox {
+      detectedFace = CGRect(x: face.x, y: face.y, width: face.width, height: face.height)
+      if options.cropToFace {
+        // The retained observation is top-left pixels; faceCrop accepts Vision's
+        // normalized lower-left box. This conversion does not round landmarks.
+        let bounds = CGRect(x: face.x / Double(image.width),
+          y: 1 - (face.y + face.height) / Double(image.height),
+          width: face.width / Double(image.width), height: face.height / Double(image.height))
+        crop = faceCrop(bounds: bounds, imageWidth: image.width, imageHeight: image.height,
+          margin: options.boundedFaceCropMargin)
+        notes.append("Face crop")
+      } else { notes.append("Full photo") }
+      if let reason = faceAnalysis.unavailableReason { notes.append(reason) }
+    } else if faceAnalysis.status == .noFace {
+      notes.append("No face located; full photo")
+    } else {
+      notes.append("Face analysis unavailable (\(faceAnalysis.unavailableReason ?? "unknown reason")); full photo")
+    }
     try Task.checkCancellation()
     guard let cropped = image.cropping(to: crop) else { throw PortraitDrawingError.unreadableImage }
     let sourceCropExtent = try cropMetric(sourcePixelExtent: originalExtent,
@@ -287,12 +297,13 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       sourceMaskCrop: retainedMaskCrop, alpha: retainedAlpha, unavailableReason: maskUnavailableReason)
     let result = PortraitRaster(
       width: width, height: height, luminance: luminance,
-      provenance: "image=\(digest)|raster=\(rasterDigest)|sourcePixels=\(originalExtent.widthPixels)x\(originalExtent.heightPixels)|decodedPixels=\(image.width)x\(image.height)|crop=\(crop)|size=\(width)x\(height)|face=\(options.cropToFace)|faceMargin=\(options.boundedFaceCropMargin)|mask=\(options.removeBackground)|analysisSchema=1|maskStatus=\(maskStatus.rawValue)|maskRevision=\(maskRevision.map(String.init) ?? "none")",
+      provenance: "image=\(digest)|raster=\(rasterDigest)|sourcePixels=\(originalExtent.widthPixels)x\(originalExtent.heightPixels)|decodedPixels=\(image.width)x\(image.height)|crop=\(crop)|size=\(width)x\(height)|face=\(options.cropToFace)|faceMargin=\(options.boundedFaceCropMargin)|mask=\(options.removeBackground)|analysisSchema=3|faceAnalysisRevision=\(faceAnalysis.algorithmRevision)|faceRequestRevision=\(faceAnalysis.requestRevision)|faceConstellation=\(faceAnalysis.constellation)|faceAnalysisStatus=\(faceAnalysis.status.rawValue)|maskStatus=\(maskStatus.rawValue)|maskRevision=\(maskRevision.map(String.init) ?? "none")",
       analysisSummary: notes.joined(separator: " · "),
       faceBounds: detectedFace.map { face in
         CGRect(x: (face.minX-crop.minX)/crop.width, y: (face.minY-crop.minY)/crop.height,
           width: face.width/crop.width, height: face.height/crop.height)
-      }, sourceCropExtent: sourceCropExtent, analysisGeometry: geometry, personMask: personMask)
+      }, sourceCropExtent: sourceCropExtent, analysisGeometry: geometry, personMask: personMask,
+      faceAnalysis: faceAnalysis)
     try result.validateAnalysisEvidence()
     return result
   }
