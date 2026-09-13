@@ -60,6 +60,19 @@ recorded separately in `landing-planning-validation.json` and
 `landing-planning-docs-check.log` in that directory.
 These documentation checks do not validate any planned application behavior.
 
+Planning amendment `task-b415385e38224b0387c119542362f4cc` requires incremental delivery
+to local `main`, with the reviewed, software-validated aspect-ratio correction as
+the first user-testable release. Each user-facing increment must provide an
+immutable signed test bundle and exact source/build receipts while later tasks
+continue. Aggregate, native and attended completion remain separate from an early
+software landing. The amendment changes the delivery plan only; it does not deliver
+an aspect-ratio fix, build a test app, or replace the running user session.
+The operator's follow-up also bounds reviews: each fresh critic gets one shot to
+label findings within its assigned scope, without an arbitrary time limit.
+There is no critic recheck. The coordinator owns triage,
+worker retasking and direct repair verification. Existing receipts are reused, and
+unresolved blockers remain explicit instead of starting another critic loop.
+
 ## Portrait style browsing and preference examples, 2026-09-12
 
 Task `task-80e406d077854bc9959e49aa04e5b21d` builds on the studio capture work

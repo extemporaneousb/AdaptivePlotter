@@ -383,13 +383,69 @@ attended-authorization blockers stop only dependent work; advance independent
 authorized rows meanwhile. The present planning task completes by landing the plan
 and routed documentation; it does not execute or complete the PENDING DS rows.
 
+Delivery is incremental to local `main`, task by task. Start each new Blackdog
+task from the primary `/Users/bullard/Projects/AdaptivePlotter` checkout on `main`
+and verify that its recorded `target_branch` is `main`. A coordinator launched in
+another linked worktree must use that primary checkout as the task entrypoint;
+do not silently deliver to the linked branch or manually rewrite a recorded target.
+Resolve any target/claim mismatch through the existing Blackdog lifecycle.
+
+DS-01 is the first user-testable delivery. Land its coherent, reviewed correction
+as soon as its applicable software and build gates pass, with physical metric and
+attended acceptance still explicitly pending where unmeasured. Do not withhold it
+for the learner, the final UI integration, or aggregate DS-09/DS-10 completion.
+Freeze C1 and any other contract actually needed for that correction; unrelated
+C2–C4 design must not delay this first delivery. A speculative axis multiplier,
+diagnostic-only patch or checkbox alone is not the promised aspect-ratio fix.
+
+Apply the same release discipline to subsequent dependency-ready tasks: integrate
+and validate a usable increment, review its changed requirements/consumers, land
+and finalize through Blackdog, then continue from the advanced `main`. A DS row may
+need multiple independently coherent landings; record each commit without marking
+the whole row complete prematurely. The full R01–R36 critic and integrated journey
+remain aggregate obligations, not prerequisites for every earlier release.
+
+For each user-facing delivery, stage an immutable signed test bundle from the exact
+landed source with source/build identity and validation receipts. Preserve prior
+test bundles and the running user's app/captures; use isolated staging and serialize
+builds. Report the `main` commit, bundle path, what is ready to test, a short test
+procedure and remaining evidence limits. A Git landing does not update the running
+binary. Obtain authorization before replacing/restarting that live session, and
+continue independent implementation while the operator tests or a switchover is
+pending. Consume test feedback as campaign input and prioritize confirmed defects
+in the delivered slice without abandoning the remaining task register.
+
+Reviews have fixed scope and a one-pass limit, not an arbitrary time limit. Each
+increment gets one independent review of its diff, directly affected consumers, requirement IDs and
+existing validation receipts. At final DS-09 acceptance, allow one cross-feature
+R01–R36 completeness review.
+Each fresh critic gets exactly one pass to label findings: no critic recheck or
+second review of repairs. Earlier accepted slices are reopened only for concrete
+integration evidence, not a repeat of their original reviews.
+
+The coordinator supplies the frozen candidate and explicit scope.
+Reviewers return a compact ACCEPT, RETASK or BLOCKED with
+finding IDs, severity, affected requirement/files, evidence and coverage gaps.
+They do not run duplicate builds or full test suites, widen into repository audits,
+or introduce speculative redesigns.
+Reuse retained validation receipts; the coordinator owns necessary new validation.
+A new commit, replacement critic or renamed task does not reset the one-pass limit
+for the same work. Once the critic reports, the coordinator owns triage, worker
+retasking, repair integration and direct verification through targeted checks and
+tests. Record each finding's disposition and verification evidence without sending
+repairs back to a critic or commissioning another review of the same work;
+if a blocking defect or material coverage gap remains, keep the affected release
+pending with its exact issue, owner and next action and advance independent work.
+Finishing the critic's pass never converts an unresolved finding into a pass.
+
 1. Recheck current target, relevant docs and Blackdog claims. Enter each logical
    implementation landing through structured `task begin`, with exact request and
    composed prompt replay artifacts. Use only its returned task workspace and
    authoritative target. Follow every typed `next_action` exactly; never infer a
    recovery/landing action, bypass an owner claim, or select unrelated migration work.
-2. Freeze C1–C4 contracts and issue bounded worker leases with requirement IDs,
-   files, base identity, expected artifacts, exclusions and acceptance evidence.
+2. Freeze the C1–C4 contracts needed by the current slice and issue bounded worker
+   leases with requirement IDs, files, base identity, expected artifacts, exclusions
+   and acceptance evidence.
    At most three workers overlap. Serialize shared schema/runtime/composition edits
    and SwiftPM validation. Keep the coordinator's ledger current without promoting
    pending native/physical evidence from software receipts.
@@ -403,10 +459,13 @@ and routed documentation; it does not execute or complete the PENDING DS rows.
    Use existing repo commands and retain their actual logs. Do not run independent
    full builds per worker against changing sources. Run `git diff --check` at the
    final candidate. Native/runtime checks must use the exact retained artifact.
-5. Assign one fresh nonauthor critic the entire R01–R36 register and stable candidate,
-   including production consumers, failure paths and the complete journey. Repair
-   actionable gaps and have that critic verify fixes until actually closed. No
-   arbitrary review cap, exhausted budget or collection of partial passes means done.
+5. Review each increment before its landing. At aggregate DS-09 acceptance, assign
+   one fresh nonauthor critic the entire R01–R36 register and stable candidate,
+   including production consumers, failure paths and the complete journey. Apply
+   the fixed scope and one-pass rule above. The coordinator retasks
+   workers for actionable gaps and verifies their repairs directly. Record every
+   disposition; incomplete review coverage or unresolved blocking
+   findings remain explicit rather than causing an unbounded review cycle.
 6. Validate the complete journey: create -> branch -> rate in named scope -> train ->
    activate changed generation -> restart/reload compatible checkpoint -> add/revise
    scoped labels -> continue fitting with declared warm-start/full-refit and
