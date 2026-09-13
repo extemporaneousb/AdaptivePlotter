@@ -15,15 +15,20 @@ struct PortraitStudioView: View {
   @State private var previewInkWidth: Double?
   @State private var previewHeight = 100.0
 
-  private var displayedProgram: DrawingProgram? { model.sketches.selected?.program ?? model.program }
+  private var displayedProgram: DrawingProgram? { model.sketches.selected?.program ?? model.currentProgram }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      sourcePanel
+      if model.recentPhotos.isEmpty || model.isCapturing {
+        sourcePanel
+      } else {
+        DisclosureGroup("Capture or import another photo") { sourcePanel.padding(.top, 6) }
+      }
       PortraitPhotoStrip(model: model, strokeStyle: strokeStyle)
       Divider()
       if model.sketches.selected == nil {
-        PortraitRenderControls(model: model)
+        PortraitStyleBrowser(model: model, strokeStyle: strokeStyle)
+        DisclosureGroup("Adjust this style") { PortraitRenderControls(model: model) }
       } else {
         Button("Return to Current Edit") { model.sketches.selectedID = nil }
       }
@@ -46,12 +51,14 @@ struct PortraitStudioView: View {
         .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
       if model.sketches.selected == nil {
         Button("Keep Sketch") {
-          guard let program = model.program else { return }
-          submissionError = model.sketches.keep(program, title: "\(model.style.rawValue) · \(program.strokes.count) strokes")
+          guard let program = model.currentProgram else { return }
+          submissionError = model.sketches.keep(program, title: "\(model.currentRecipe.title) · \(program.strokes.count) strokes",
+            photoID: model.selectedPhotoID, recipe: model.currentRecipe)
         }
-        .disabled(model.program == nil || model.isProcessing)
+        .disabled(model.currentProgram == nil || model.isProcessing)
         .accessibilityIdentifier("portrait.keepSketch")
       }
+      PortraitPreferenceControls(model: model)
       PortraitSketchStrip(collection: model.sketches)
       if let error = submissionError {
         Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
@@ -76,11 +83,11 @@ struct PortraitStudioView: View {
       model.sketches.selectedID = nil
       if selected != nil { showPhoto() }
     }
-    .onChange(of: model.style) { _, _ in render() }
-    .onChange(of: model.vectorOptions) { _, _ in render() }
-    .onChange(of: model.options) { _, _ in
-      model.sketches.selectedID = nil
-      model.analysisOptionsChanged(strokeStyle: strokeStyle)
+    .onAppear { model.configureRecipes(strokeStyle: strokeStyle) }
+    .onChange(of: model.renderConfiguration) { _, _ in render() }
+    .onChange(of: strokeStyle) { _, _ in
+      model.configureRecipes(strokeStyle: strokeStyle)
+      render()
     }
     .fileImporter(isPresented: $importing, allowedContentTypes: [.image]) { result in
       switch result {
@@ -92,7 +99,7 @@ struct PortraitStudioView: View {
 
   private func render() {
     model.sketches.selectedID = nil
-    model.render(strokeStyle: strokeStyle)
+    model.renderIfNeeded(strokeStyle: strokeStyle)
   }
 
   private var sourcePanel: some View {
@@ -127,7 +134,7 @@ struct PortraitStudioView: View {
       if let captureSummary = model.captureSummary {
         Text(captureSummary).font(.caption).foregroundStyle(.secondary)
       }
-      Text("Turn slowly for several angles. A white canvas lights your face during capture; choose a frame below.")
+      Text("Turn slowly for several angles. The display turns white during capture; choose an angle below. For more light, raise display brightness before capturing.")
         .font(.caption).foregroundStyle(.secondary)
       Button("Show Photo", action: showPhoto).disabled(model.selectedPhoto == nil)
       if let status = model.cameraStatus {
@@ -153,24 +160,6 @@ struct PortraitCameraPreview: View {
           description: Text("Choose a camera in Portrait Studio or import a photo."))
       }
     }.clipped()
-  }
-}
-
-struct PortraitCaptureLightView: View {
-  let model: PortraitStudioModel
-  var body: some View {
-    ZStack {
-      Color.white
-      VStack(spacing: 16) {
-        PortraitCameraPreview(model: model.preview).frame(width: 220, height: 165)
-        Text("Turn slowly — capturing angles").font(.headline)
-        ProgressView(value: model.captureProgress).frame(width: 220)
-        Button("Cancel Capture") { Task { await model.cancelRendering() } }
-      }
-      .foregroundStyle(.black)
-      .environment(\.colorScheme, .light)
-    }
-    .accessibilityIdentifier("portrait.captureLight")
   }
 }
 

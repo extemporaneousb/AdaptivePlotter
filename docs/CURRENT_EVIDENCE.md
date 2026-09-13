@@ -9,6 +9,49 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Portrait style browsing and preference examples, 2026-09-12
+
+Task `task-80e406d077854bc9959e49aa04e5b21d` builds on the studio capture work
+without changing Learning, camera-role authority, Draw admission, or controller
+execution. A host-display white window replaces canvas-only illumination; named
+and seeded recipe browsing separates source-frame navigation from style navigation.
+Angled hatch and face-anchored head emphasis add geometry beyond the previous
+sliders. Exact source/configuration/pen cache keys support render reuse. Saved and
+current candidates use one source-bound grading path, with bounded local examples
+and explicit JSON export. No learned generator or automatic preference fitting runs.
+
+The implementation review corrected saved-rating/export divergence, Random then
+Previous returning an unrelated catalog item, same-thumbnail selection leaving a
+saved drawing displayed, and reimported-photo metadata in saved-sketch deduplication.
+The vector review found no remaining blocking geometry/provenance defect. These
+are software reviews, not proof of likeness or physical line quality.
+
+Verified against the final sources:
+
+- Strict-concurrency/warnings-as-errors focused studio validation: 45 tests passed.
+  The initial broader portrait run exposed one obsolete cache test that signaled
+  analysis changes without changing options. It now changes actual options and
+  verifies exact reuse when returning to the original configuration.
+- Strict-concurrency/warnings-as-errors final `make quick-test`: 1,091 tests passed,
+  five intentional skips. The last layout adjustment is included in this pass.
+- The opt-in reference-photo render passed. Native offscreen 320- and 760-point
+  editor snapshots and a six-recipe comparison were inspected. The reference is
+  the same pinned APDrawingGAN tutorial image used by the prior studio work; no
+  user photos were uploaded or checked into the repository.
+- `make docs-check`, strict `make validate-app`, copied-bundle deep/strict signature
+  verification, and `git diff --check` passed.
+
+The signed debug app is staged, unlaunched, at
+`/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter-studio-style-80e4.app`.
+Executable SHA256:
+`a7263360a1e17374ad5d5b9ef500bb12eee1e044ee4d9d1c6874cee9f05c8a1a`.
+Logs, reference renders, source hashes and verification metadata are retained in
+`/Users/bullard/Projects/AdaptivePlotter/.build/drawing-studio-style-80e4-evidence/`.
+These debug/offscreen results do not prove native browsing latency or physical
+portrait quality. No user app instance, live camera, or plotter run was started.
+Attended full-display lighting, native keyboard interaction, and ink quality remain
+unverified.
+
 ## Pen readiness beside position recovery, 2026-09-12
 
 Task `task-d431b9891cb949d28072588618977a00` addresses the operator having to open

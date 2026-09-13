@@ -52,7 +52,9 @@ struct PortraitCaptureTests {
     #expect(model.selectedPhoto == Data([3, 3]))
     model.removePhoto(first, strokeStyle: style)
     #expect(model.selectedPhoto == Data([4, 4]))
-    #expect(model.program == nil)
+    // Returning to an already rendered surviving source reuses its exact cache.
+    #expect(model.program != nil)
+    #expect(!model.isProcessing)
     await model.awaitRendering()
     #expect(model.program != nil)
     let last = try #require(model.selectedPhotoID)
@@ -164,8 +166,14 @@ struct PortraitCaptureTests {
     model.render(strokeStyle: style)
     await model.awaitRendering()
     #expect(await renderer.cacheHits == [false, true])
-    model.analysisOptionsChanged(strokeStyle: style)
+    model.options.cropToFace.toggle()
+    model.renderIfNeeded(strokeStyle: style)
     await model.awaitRendering()
+    #expect(await renderer.cacheHits == [false, true, false])
+    model.options.cropToFace.toggle()
+    model.renderIfNeeded(strokeStyle: style)
+    #expect(model.currentProgram != nil)
+    #expect(!model.isProcessing)
     #expect(await renderer.cacheHits == [false, true, false])
   }
 }

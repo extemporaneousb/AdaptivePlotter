@@ -31,6 +31,8 @@ struct PortraitRenderControls: View {
           if model.style == .hatch || model.style == .crosshatch || model.style == .sketchHatch {
             Stepper("Hatch spacing: \(model.vectorOptions.hatchSpacing) px",
               value: $model.vectorOptions.hatchSpacing, in: 1...16)
+            PortraitAdjustmentSlider("Hatch angle", value: $model.vectorOptions.hatchAngleDegrees,
+              range: -90...90, step: 5, unit: "°", precision: 0)
           }
           PortraitAdjustmentSlider("Tonal strength", value: $model.vectorOptions.tonalStrength,
             range: 0.4...2, step: 0.05, unit: "×")
@@ -52,6 +54,10 @@ struct PortraitRenderControls: View {
               .font(.caption).foregroundStyle(.secondary)
           }
           Toggle("Remove background", isOn: $model.options.removeBackground)
+          PortraitAdjustmentSlider("Head enlargement", value: $model.vectorOptions.headScale,
+            range: 1...1.6, step: 0.05, unit: "×")
+          Text("Expands around a detected face. No detected face leaves the shape unchanged.")
+            .font(.caption).foregroundStyle(.secondary)
         }.padding(.top, 6)
       }
     }

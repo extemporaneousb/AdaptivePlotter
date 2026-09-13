@@ -8,7 +8,19 @@ struct PortraitPhotoStrip: View {
   var body: some View {
     if !model.recentPhotos.isEmpty {
       VStack(alignment: .leading, spacing: 5) {
-        Text("Recent frames · \(model.recentPhotos.count)").font(.caption).foregroundStyle(.secondary)
+        HStack {
+          Button { model.movePhoto(by: -1, strokeStyle: strokeStyle) } label: {
+            Image(systemName: "chevron.left").frame(minWidth: 24, minHeight: 24)
+          }.accessibilityLabel("Previous frame, same style")
+            .keyboardShortcut(.leftArrow, modifiers: [.option])
+          Text(model.framePosition).font(.caption).monospacedDigit()
+          Button { model.movePhoto(by: 1, strokeStyle: strokeStyle) } label: {
+            Image(systemName: "chevron.right").frame(minWidth: 24, minHeight: 24)
+          }.accessibilityLabel("Next frame, same style")
+            .keyboardShortcut(.rightArrow, modifiers: [.option])
+          Spacer(minLength: 0)
+        }
+        Text("Same style · ⌥← / ⌥→ to browse frames").font(.caption2).foregroundStyle(.secondary)
         ScrollView(.horizontal) {
           LazyHStack(alignment: .top, spacing: 10) {
             ForEach(model.recentPhotos) { photo in
@@ -41,7 +53,7 @@ struct PortraitPhotoStrip: View {
   }
 }
 
-private struct PortraitPhotoThumbnail: View {
+struct PortraitPhotoThumbnail: View {
   let data: Data
   let id: UUID
   @State private var image: CGImage?
@@ -86,12 +98,7 @@ struct PortraitSketchStrip: View {
                   }.buttonStyle(.plain).padding(4).accessibilityLabel("Remove saved \(sketch.title)")
                 }
                 Text(sketch.title).font(.caption2).lineLimit(1).frame(width: 140, alignment: .leading)
-                Picker("Rating", selection: Binding(get: { sketch.rating }, set: {
-                  collection.rate(sketch.id, rating: $0)
-                })) {
-                  Text("Unrated").tag(0)
-                  ForEach(1...5, id: \.self) { Text(String(repeating: "★", count: $0)).tag($0) }
-                }.labelsHidden().frame(width: 140)
+
               }
             }
           }.padding(3)

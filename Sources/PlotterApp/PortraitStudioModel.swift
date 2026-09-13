@@ -28,6 +28,35 @@ final class PortraitStudioModel {
   var options = PortraitAnalysisOptions()
   var vectorOptions = PortraitVectorOptions()
   let sketches = PortraitSketchCollection()
+  let preferences = PortraitPreferenceCollection()
+  private(set) var styleRecipes = PortraitStyleRecipe.catalog()
+  private(set) var selectedRecipeID: String?
+  var renderConfiguration: PortraitRenderConfiguration {
+    .init(style: style, vectors: vectorOptions.bounded, analysis: options)
+  }
+  var currentRecipe: PortraitStyleRecipe {
+    if let recipe = styleRecipes.first(where: { $0.id == selectedRecipeID }),
+      recipe.style == style, recipe.vectorOptions.bounded == vectorOptions.bounded,
+      recipe.analysisOptions == options { return recipe }
+    return PortraitStyleRecipe(id: "custom", title: "Custom \(style.rawValue)", seed: 0,
+      style: style, vectorOptions: vectorOptions.bounded, analysisOptions: options)
+  }
+  var framePosition: String {
+    guard let index = recentPhotos.firstIndex(where: { $0.id == selectedPhotoID }) else { return "No frame" }
+    return "Frame \(index + 1) / \(recentPhotos.count)"
+  }
+  /// The completed drawing is usable only for its exact current selection.
+  var currentProgram: DrawingProgram? {
+    guard completedKey?.photoID == selectedPhotoID,
+      completedKey?.configuration == renderConfiguration else { return nil }
+    return program
+  }
+  @ObservationIgnored private var catalogPenWidth: Double?
+  @ObservationIgnored private var catalogIDs: Set<String> = []
+  @ObservationIgnored private var cache = PortraitRenderCache()
+  @ObservationIgnored private var requestedKey: PortraitRenderCacheKey?
+  @ObservationIgnored private var completedKey: PortraitRenderCacheKey?
+  @ObservationIgnored private(set) var renderCacheHits = 0
   private(set) var recentPhotos: [PortraitPhoto] = []
   private(set) var selectedPhotoID: UUID?
   var selectedPhoto: Data? { recentPhotos.first(where: { $0.id == selectedPhotoID })?.data }
@@ -66,12 +95,11 @@ final class PortraitStudioModel {
   @ObservationIgnored private var pendingAcquisition: PhotoAcquisition?
   @ObservationIgnored private var acquisitionRevision: UInt64 = 0
   @ObservationIgnored private(set) var acquisitionDiagnostics = PortraitRenderDiagnostics()
-  @ObservationIgnored private var pendingRender: (revision: UInt64, photoID: UUID, request: PortraitRenderRequest)?
+  @ObservationIgnored private var pendingRender: (revision: UInt64, key: PortraitRenderCacheKey, request: PortraitRenderRequest)?
   @ObservationIgnored private var renderRevision: UInt64 = 0
   @ObservationIgnored private var isShutdown = false
   @ObservationIgnored private(set) var renderDiagnostics = PortraitRenderDiagnostics()
   @ObservationIgnored private(set) var workDiagnostics = PortraitRenderDiagnostics()
-  @ObservationIgnored private var rasters: [UUID: PortraitRaster] = [:]
 
   init(
     camera: CameraCapture = CameraCapture(materializationPolicy:
@@ -172,6 +200,7 @@ final class PortraitStudioModel {
     renderRevision &+= 1
     renderWorker?.cancel()
     pendingRender = nil
+    requestedKey = nil
     isProcessing = false
     isCapturing = file == nil
     illuminationTask?.cancel()
@@ -328,7 +357,7 @@ final class PortraitStudioModel {
     // imports append identified photos through the bounded collection instead.
     let replaced = recentPhotos.filter { $0.pose == pose }.map(\.id)
     recentPhotos.removeAll { $0.pose == pose }
-    for id in replaced { rasters[id] = nil }
+    for id in replaced { cache.remove(photoID: id) }
     appendPhoto(.init(data: data, frameID: nil, captureNanoseconds: nil, label: "Photo"), pose: pose)
     if pose == self.pose { render(strokeStyle: strokeStyle) }
   }
@@ -344,13 +373,14 @@ final class PortraitStudioModel {
     recentPhotos.append(photo)
     selectedPhotoID = photo.id
     while recentPhotos.count > photoRetention.maximumCount || retainedPhotoBytes > photoRetention.maximumBytes {
-      rasters[recentPhotos.removeFirst().id] = nil
+      cache.remove(photoID: recentPhotos.removeFirst().id)
     }
     return true
   }
 
   func selectPhoto(_ id: UUID, strokeStyle: StrokeStyle) {
     guard !isShutdown, let photo = recentPhotos.first(where: { $0.id == id }) else { return }
+    sketches.selectedID = nil
     pose = photo.pose
     selectedPhotoID = id
     render(strokeStyle: strokeStyle)
@@ -359,16 +389,11 @@ final class PortraitStudioModel {
   func removePhoto(_ id: UUID, strokeStyle: StrokeStyle) {
     guard !isShutdown, recentPhotos.contains(where: { $0.id == id }) else { return }
     recentPhotos.removeAll { $0.id == id }
-    rasters[id] = nil
+    cache.remove(photoID: id)
     if selectedPhotoID == id {
       selectedPhotoID = recentPhotos.last?.id
       render(strokeStyle: strokeStyle)
     }
-  }
-
-  func analysisOptionsChanged(strokeStyle: StrokeStyle) {
-    rasters.removeAll()
-    render(strokeStyle: strokeStyle)
   }
 
   func render(strokeStyle: StrokeStyle) {
@@ -377,16 +402,25 @@ final class PortraitStudioModel {
     renderWorker?.cancel()
     pendingRender = nil
     program = nil
+    completedKey = nil
+    requestedKey = nil
     guard let photo = recentPhotos.first(where: { $0.id == selectedPhotoID }) else {
       isProcessing = false
       summary = "Capture a portrait or choose a photo."
       return
     }
+    let key = PortraitRenderCacheKey(photoID: photo.id, configuration: renderConfiguration, strokeStyle: strokeStyle)
+    requestedKey = key
+    if let result = cache.result(for: key) {
+      renderCacheHits += 1
+      publish(result, key: key)
+      return
+    }
     isProcessing = true
     summary = "Preparing \(style.rawValue.lowercased()) portrait…"
-    pendingRender = (renderRevision, photo.id, .init(
+    pendingRender = (renderRevision, key, .init(
       data: photo.data, pose: photo.pose, style: style, options: options,
-      cachedRaster: rasters[photo.id], strokeStyle: strokeStyle, vectorOptions: vectorOptions))
+      cachedRaster: cache.raster(for: .init(photoID: photo.id, analysis: options)), strokeStyle: strokeStyle, vectorOptions: vectorOptions))
     startWorkIfNeeded()
   }
 
@@ -412,18 +446,130 @@ final class PortraitStudioModel {
       }
       do {
         let result = try await worker.value
-        guard pending.revision == renderRevision, selectedPhotoID == pending.photoID,
-          recentPhotos.contains(where: { $0.id == pending.photoID }), !isShutdown else { continue }
-        rasters[pending.photoID] = result.raster
-        program = result.program
-        summary = "\(result.raster.analysisSummary) · \(result.program.strokes.count) strokes"
-        isProcessing = false
+        guard pending.revision == renderRevision, selectedPhotoID == pending.key.photoID,
+          recentPhotos.contains(where: { $0.id == pending.key.photoID }), !isShutdown else { continue }
+        cache.insert(result, for: pending.key)
+        publish(result, key: pending.key)
       } catch {
         guard pending.revision == renderRevision, !isShutdown else { continue }
         if !(error is CancellationError) { summary = error.localizedDescription }
         isProcessing = false
+        requestedKey = nil
       }
     }
+  }
+
+  private func publish(_ result: PortraitRenderResult, key: PortraitRenderCacheKey) {
+    completedKey = key
+    program = result.program
+    summary = [result.raster.analysisSummary, result.transformationSummary,
+      "\(result.program.strokes.count) strokes"].compactMap { $0 }.joined(separator: " · ")
+    isProcessing = false
+  }
+
+  func renderIfNeeded(strokeStyle: StrokeStyle) {
+    guard let selectedPhotoID else { return }
+    let key = PortraitRenderCacheKey(photoID: selectedPhotoID,
+      configuration: renderConfiguration, strokeStyle: strokeStyle)
+    guard requestedKey != key else { return }
+    sketches.selectedID = nil
+    render(strokeStyle: strokeStyle)
+  }
+
+  func configureRecipes(strokeStyle: StrokeStyle) {
+    let width = strokeStyle.nominalLineWidth
+    guard catalogPenWidth != width else { return }
+    let catalog = PortraitStyleRecipe.catalog(penWidthMM: width)
+    if catalogPenWidth == nil {
+      styleRecipes = catalog
+    } else {
+      // A pen change refreshes unselected presets without mutating the authored
+      // recipe. The previous selection stays available for comparison.
+      styleRecipes.removeAll { catalogIDs.contains($0.id) && $0.id != selectedRecipeID }
+      for recipe in catalog where !styleRecipes.contains(where: { $0.id == recipe.id }) {
+        styleRecipes.append(recipe)
+      }
+      while styleRecipes.count > 24 {
+        if let index = styleRecipes.firstIndex(where: { $0.id != selectedRecipeID }) {
+          styleRecipes.remove(at: index)
+        }
+      }
+    }
+    catalogIDs = Set(catalog.map(\.id))
+    catalogPenWidth = width
+  }
+
+  func applyRecipe(_ recipe: PortraitStyleRecipe, strokeStyle: StrokeStyle) {
+    if !styleRecipes.contains(where: { $0.id == recipe.id }) {
+      styleRecipes.append(recipe)
+      while styleRecipes.count > 24 { styleRecipes.removeFirst() }
+    }
+    selectedRecipeID = recipe.id
+    style = recipe.style
+    vectorOptions = recipe.vectorOptions
+    options = recipe.analysisOptions
+    sketches.selectedID = nil
+    renderIfNeeded(strokeStyle: strokeStyle)
+  }
+
+  func randomStyle(strokeStyle: StrokeStyle, bigHead: Bool = false) {
+    // Retain a manually adjusted recipe before the first surprise, so Back
+    // always returns to the drawing the operator was comparing.
+    if currentRecipe.id == "custom" {
+      let custom = PortraitStyleRecipe(id: "custom-\(UUID().uuidString)", title: currentRecipe.title,
+        seed: 0, style: style, vectorOptions: vectorOptions.bounded, analysisOptions: options)
+      styleRecipes.append(custom)
+      selectedRecipeID = custom.id
+    } else {
+      let previous = currentRecipe
+      styleRecipes.removeAll { $0.id == previous.id }
+      styleRecipes.append(previous)
+    }
+    applyRecipe(.random(seed: UInt64.random(in: 0...UInt64.max),
+      penWidthMM: strokeStyle.nominalLineWidth, bigHead: bigHead), strokeStyle: strokeStyle)
+  }
+
+  func moveStyle(by offset: Int, strokeStyle: StrokeStyle) {
+    guard !styleRecipes.isEmpty else { return }
+    let current = styleRecipes.firstIndex(where: { $0.id == selectedRecipeID }) ?? (offset > 0 ? -1 : 0)
+    let index = ((current + offset) % styleRecipes.count + styleRecipes.count) % styleRecipes.count
+    applyRecipe(styleRecipes[index], strokeStyle: strokeStyle)
+  }
+
+  func movePhoto(by offset: Int, strokeStyle: StrokeStyle) {
+    guard !recentPhotos.isEmpty else { return }
+    let current = recentPhotos.firstIndex(where: { $0.id == selectedPhotoID }) ?? 0
+    let index = ((current + offset) % recentPhotos.count + recentPhotos.count) % recentPhotos.count
+    sketches.selectedID = nil
+    selectPhoto(recentPhotos[index].id, strokeStyle: strokeStyle)
+  }
+
+  var canRateSelection: Bool {
+    if let saved = sketches.selected {
+      return saved.recipe != nil && recentPhotos.contains { $0.id == saved.photoID }
+    }
+    return !isProcessing && currentProgram != nil
+  }
+
+  func rateSelection(_ rating: Int) -> String? {
+    if let saved = sketches.selected {
+      guard let recipe = saved.recipe,
+        let photo = recentPhotos.first(where: { $0.id == saved.photoID }) else {
+        return "The source frame for this saved sketch has been removed."
+      }
+      return preferences.record(photoData: photo.data, photoID: photo.id,
+        recipe: recipe, program: saved.program, rating: rating)
+    }
+    return rateCurrent(rating)
+  }
+
+  func rateCurrent(_ rating: Int) -> String? {
+    guard !isProcessing, let program = currentProgram,
+      let photo = recentPhotos.first(where: { $0.id == selectedPhotoID }) else {
+      return "Wait for the selected frame and style to finish rendering."
+    }
+    return preferences.record(photoData: photo.data, photoID: photo.id,
+      recipe: currentRecipe, program: program, rating: rating)
   }
 
   /// Stop expensive work without discarding captured photos or the last
@@ -440,6 +586,7 @@ final class PortraitStudioModel {
     acquisitionWorker?.cancel()
     renderRevision &+= 1
     pendingRender = nil
+    requestedKey = nil
     isProcessing = false
     renderWorker?.cancel()
     await workTask?.value

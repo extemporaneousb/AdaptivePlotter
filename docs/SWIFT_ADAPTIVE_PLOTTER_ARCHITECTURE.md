@@ -2104,25 +2104,40 @@ physical holdout evaluation remain unfinished product work.
 `PortraitStudioModel` owns optional portrait capture, UUID-selected recent photos,
 raster caches, and the existing immutable authored program. The recent-photo store
 is bounded by 24 entries and 32 MiB of encoded pixels; eviction/deletion releases
-associated rasters. `PortraitSketchCollection` retains at most eight immutable vector
+associated rasters and rendered variants. `PortraitRenderCache` keys results by photo
+identity, exact analysis/vector configuration and pen style; its LRU bounds are 24
+renders / 200,000 vector points and 32 analyzed rasters. `PortraitStyleRecipe` supplies
+named and seeded variants; `PortraitStyleBrowser` keeps frame navigation independent
+of a bounded 24-recipe history. `PortraitSketchCollection` retains at most eight immutable vector
 comparisons and 200,000 total points with session-local ratings. Neither collection
 persists raw photos, owns Learning, or supplies drawing admission.
+`PortraitPreferenceCollection` stores up to 32 immutable source/recipe/program/rating
+examples with a 48 MiB complete export-payload bound. Current-candidate admission
+checks completed photo and configuration identity; manual edits invalidate eligibility
+before their observed render request. Export encodes a frozen Sendable snapshot off
+MainActor and writes only through the explicit file exporter. No training or networking
+runs, and no Learning package or execution archive owns these examples.
 
 The existing observation runtime exclusively selects plotter or face capture.
 The studio's own `CameraCapture` requests a 33,333,333 ns preview interval; shared
 plotter acquisition policy is unchanged. One acquisition worker illuminates the
-permanent canvas, waits for exposure settling, then samples strictly advancing exact
+host display through `PortraitScreenIllumination`, waits for exposure settling, then samples strictly advancing exact
 frames at up to 8 Hz for the selected 3–5 second interval. Count/byte bounded burst
 storage preserves individual poses without unregistered averaging. Camera-role
-changes and cancellation settle acquisition and clear illumination. The permanent
+changes and cancellation settle acquisition and clear illumination. The narrow AppKit
+light bridge owns one borderless white window over the host screen, restores key-window
+focus, dismisses on deactivation/host loss, and suppresses reopening until the model
+acknowledges cancellation. It changes no hardware brightness setting. The permanent
 canvas's `PortraitCameraPreview` alone observes changing preview frames; the root
 semantic projection does not receive this traffic.
 
 `PortraitImageAnalyzer` normalizes image orientation/size, performs adjustable face
 cropping, contrast normalization, and optional person masking on worker tasks.
 `PortraitAnalysisOptions` controls image analysis; separate `PortraitVectorOptions`
-controls contour length/levels/simplification, hatch spacing, smoothing, tonal strength,
-and sketch response threshold. Vector edits reuse the analyzed raster. One latest-request
+controls contour length/levels/simplification, hatch spacing/angle, smoothing, tonal
+strength, sketch response threshold, and bounded face enlargement. Face localization
+is cached even for full-photo framing; the optional normalized face rectangle anchors
+geometry and missing-face inputs skip the warp with an explicit result summary. Vector edits reuse the analyzed raster. One latest-request
 drain serializes acquisition and rendering, retains cancelled workers until actual
 settlement, and validates render revision plus selected photo identity before publication.
 Deleting a source cannot revive it through a late result. Decoding/vectorization
@@ -2130,7 +2145,9 @@ cooperatively checks cancellation.
 
 `PortraitVectorizer` generates joined tonal contours, continuous hatch/crosshatch
 polylines, or difference-of-Gaussians ink responses thinned into connected centerlines,
-optionally combined with hatch. It preserves top-left image to lower-left FieldSpace
+optionally combined with hatch. Angled hatch clips scan lines to the raster. Big-head
+geometry uses monotone face-anchored warps with fixed canvas boundaries and subdivides
+long lines before bending. It preserves top-left image to lower-left FieldSpace
 orientation and includes all bounded authoring parameters in v2 source provenance.
 `PortraitProgramPreview` draws round-capped strokes at estimated physical marker
 width for a selected preview height; those display values do not mutate geometry or

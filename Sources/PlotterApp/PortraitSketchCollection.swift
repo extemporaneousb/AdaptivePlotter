@@ -6,7 +6,8 @@ struct PortraitSavedSketch: Identifiable {
   let id: UUID
   let program: DrawingProgram
   let title: String
-  var rating: Int
+  let photoID: UUID?
+  let recipe: PortraitStyleRecipe?
 }
 
 /// Session-only comparisons retain immutable vectors, never extra raw photos.
@@ -19,8 +20,8 @@ final class PortraitSketchCollection {
   var selected: PortraitSavedSketch? { sketches.first { $0.id == selectedID } }
 
   @discardableResult
-  func keep(_ program: DrawingProgram, title: String) -> String? {
-    if let existing = sketches.first(where: { $0.program.contentHash == program.contentHash }) {
+  func keep(_ program: DrawingProgram, title: String, photoID: UUID? = nil, recipe: PortraitStyleRecipe? = nil) -> String? {
+    if let existing = sketches.first(where: { $0.program.contentHash == program.contentHash && $0.photoID == photoID && $0.recipe == recipe }) {
       selectedID = existing.id
       return nil
     }
@@ -28,7 +29,7 @@ final class PortraitSketchCollection {
     guard points <= Self.maximumPointCount else {
       return "This sketch is too detailed to keep. Increase simplification or reduce tonal levels."
     }
-    let sketch = PortraitSavedSketch(id: UUID(), program: program, title: title, rating: 0)
+    let sketch = PortraitSavedSketch(id: UUID(), program: program, title: title, photoID: photoID, recipe: recipe)
     sketches.append(sketch)
     while sketches.count > Self.maximumCount || sketches.reduce(0, { total, item in
       total + item.program.strokes.reduce(0) { $0 + $1.path.points.count }
@@ -37,11 +38,6 @@ final class PortraitSketchCollection {
     }
     selectedID = sketch.id
     return nil
-  }
-
-  func rate(_ id: UUID, rating: Int) {
-    guard let index = sketches.firstIndex(where: { $0.id == id }) else { return }
-    sketches[index].rating = min(5, max(0, rating))
   }
 
   func remove(_ id: UUID) {

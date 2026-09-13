@@ -1498,9 +1498,9 @@ native tick marks or planning every pointer movement.
 The built-in catalog and portrait authoring are deterministic `DrawingProgram`
 producers, not precomputed machine commands. Portrait authoring accepts an imported
 photo or a 3–5 second burst (four seconds by default) from the selected optional
-face camera. The permanent canvas becomes white during the burst to illuminate
-the face, including a half-second exposure settling period; system display brightness
-is unchanged. Portrait acquisition requests up to 30 fps independently of plotter
+face camera. A borderless white surface covers the host display during the burst, including a
+half-second exposure settling period. Cancel/Escape, capture completion, app
+deactivation, and host removal dismiss it; system display brightness is unchanged. Portrait acquisition requests up to 30 fps independently of plotter
 preview cadence and samples distinct frames at up to 8 fps. Actual delivery and
 encoding speed determine the captured count. Individual frames preserve different
 angles; turning faces are not averaged or treated as a reconstructed head.
@@ -1513,21 +1513,36 @@ The selected photo produces Tonal contours, Hatch, Crosshatch, Sketch, or Sketch
 hatch. Sketch extracts difference-of-Gaussians responses, thins ink to centerlines,
 and joins them into vector paths. Fine, Balanced, and Broad marker presets and
 controls expose contour minimum length, simplification, tonal levels, hatch spacing,
-smoothing, tonal strength, and sketch threshold. Spatial settings use analyzed-image
+smoothing, tonal strength, sketch threshold, hatch angle, and head enlargement. Spatial settings use analyzed-image
 pixels; their paper footprint depends on final placement scale.
 
 Face localization supplies an adjustable padded crop so the head can occupy more
 of the drawing. Vision person segmentation can remove background. Missing face or
 person detections retain the image with a visible explanation; these detectors do
-not gate drawing creation. This is person/background masking and head framing,
-not facial-part segmentation, geometric caricature, or 3D reconstruction.
+not gate drawing creation. Big-head candidates apply a bounded geometric enlargement
+around the detected face while retaining the canvas boundary. No detected face means
+no warp, with a visible explanation. This is a deterministic caricature transform;
+it does not perform facial-part parsing, learned likeness generation, or 3D reconstruction.
+
+The style recipe picker and Random Style sample named families plus reproducible
+parameter variations. New Big-head Candidate varies geometry and ink style for the
+same frame. Previous/next frame preserves the recipe (Option-left/right); previous/next
+style preserves the frame (Option-up/down). Up to 24 recipes remain in session history.
+Repeated frame/style selections reuse bounded exact renders; changing selections never
+exposes the previous candidate as the current plotter-ready drawing or rating target.
 
 The preview estimates ink width at an explicitly chosen drawing height. These
 preview settings do not alter the tool profile or actual placement; Fit to Drawing
 Area and existing placement controls determine the real drawing. Up to eight saved
 vector sketches (200,000 total points) can be compared, rated, selected for plotter
 preview, and removed immediately. Ratings and sketches remain session-local and do
-not train a model or modify Learning.
+not train a model or modify Learning. Separate 1–5 candidate grades retain the exact
+source photo, recipe/seed, generated vectors, hashes, and score in up to 32 preference
+examples / 48 MiB of exported JSON payload. Examples can be removed immediately or
+explicitly exported as JSON to retain them beyond the session. They are preference
+labels for future ranking or model work, not corrected target artwork or GAN training.
+Removing a recent frame releases its render caches; explicitly rated examples retain
+their own source until those examples are removed.
 
 The portrait editor retains captures and the authored draft across panel navigation.
 It does not add them to the Learning package or automatically persist raw photos.

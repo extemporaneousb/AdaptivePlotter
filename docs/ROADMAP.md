@@ -187,7 +187,9 @@ or dormant navigation route as a compatibility surface.
 Remaining portrait work is attended burst-camera/screen-light evaluation and ink-quality
 comparison across marker widths, paper sizes, frontal and three-quarter views. The
 studio now offers individual burst frames, adjustable head framing, coarse vector
-controls, centerline Sketch, and bounded rated comparisons. It does not yet perform
+controls, angled hatch, centerline Sketch, deterministic face-anchored big-head geometry,
+independent frame/style browsing, seeded recipe history, and bounded exportable
+preference examples. It does not yet perform
 multi-view fusion, registered temporal averaging, facial-part parsing, learned
 caricature, or identity-aware automatic preference fitting.
 
@@ -204,5 +206,21 @@ not those learned models or a full XDoG reproduction. Apple's
 supports future advisory same-subject frame ranking; it should preserve the operator's
 ability to choose useful profile frames. Naively averaging a rotating face would blur
 features, so any future averaging requires registration and motion rejection first.
+
+Different angles are useful source choices and may later supply identity information:
+[PhotoMaker](https://github.com/TencentARC/PhotoMaker) aggregates multiple reference
+images through identity embeddings without per-person model training. This is a research
+candidate, not a shipped dependency or a claim that arbitrary video frames reconstruct
+an identity. [CariGANs](https://doi.org/10.1145/3272127.3275046) separates geometric
+exaggeration from appearance; the current native implementation exposes those axes
+through deterministic face geometry and ink recipes. It does not claim a learned caricature.
+
+Grades capture generated candidates, not the artwork a supervised GAN should imitate.
+The immediate next evaluation can rank recipes within the same source image using
+exported ratings. Fine-tuning a generator from preferences requires a pretrained model,
+well-defined comparable candidates and separate evaluation: [Diffusion-DPO](https://arxiv.org/abs/2311.12908)
+uses paired preferences to adapt a pretrained diffusion model. The studio does not
+currently perform that fitting, upload examples, or adapt its output from scores.
+
 No portrait feature should own calibration, controller commands, paper state,
 plan execution, model promotion, or Draw locks.

@@ -7,7 +7,7 @@ enum PortraitPose: String, CaseIterable, Identifiable, Sendable {
   var id: Self { self }
 }
 
-enum PortraitStyle: String, CaseIterable, Identifiable, Sendable {
+enum PortraitStyle: String, CaseIterable, Identifiable, Codable, Sendable {
   case contours = "Contour", hatch = "Hatch", crosshatch = "Crosshatch"
   case sketch = "Sketch", sketchHatch = "Sketch + hatch"
   var id: Self { self }
@@ -15,7 +15,7 @@ enum PortraitStyle: String, CaseIterable, Identifiable, Sendable {
 
 /// Spatial values refer to analyzed-raster pixels, independently of paper
 /// placement. They alter authored geometry only, never plotting authority.
-struct PortraitVectorOptions: Hashable, Sendable {
+struct PortraitVectorOptions: Codable, Hashable, Sendable {
   var contourLevels = 6
   var minimumContourLength = 3.0
   var simplificationTolerance = 0.35
@@ -23,6 +23,8 @@ struct PortraitVectorOptions: Hashable, Sendable {
   var tonalStrength = 1.0
   var smoothing = 0.0
   var sketchThreshold = 0.012
+  var hatchAngleDegrees = 0.0
+  var headScale = 1.0
 
   var bounded: Self {
     var result = self
@@ -33,12 +35,17 @@ struct PortraitVectorOptions: Hashable, Sendable {
     result.tonalStrength = Self.clamp(tonalStrength, to: 0.4...2, fallback: 1)
     result.smoothing = Self.clamp(smoothing, to: 0...4, fallback: 0)
     result.sketchThreshold = Self.clamp(sketchThreshold, to: 0.002...0.08, fallback: 0.012)
+    result.hatchAngleDegrees = Self.clamp(hatchAngleDegrees, to: -90...90, fallback: 0)
+    result.headScale = Self.clamp(headScale, to: 1...1.6, fallback: 1)
     return result
   }
 
   var provenance: String {
-    "levels=\(contourLevels)|minLength=\(minimumContourLength)|simplify=\(simplificationTolerance)"
+    let original = "levels=\(contourLevels)|minLength=\(minimumContourLength)|simplify=\(simplificationTolerance)"
       + "|hatchSpacing=\(hatchSpacing)|tone=\(tonalStrength)|smooth=\(smoothing)|sketchThreshold=\(sketchThreshold)"
+    // Preserve source identity for the previous default geometry.
+    return hatchAngleDegrees == 0 && headScale == 1 ? original
+      : original + "|hatchAngle=\(hatchAngleDegrees)|headScale=\(headScale)"
   }
 
   private static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
@@ -73,6 +80,8 @@ struct PortraitRaster: Sendable {
   let luminance: [Double]
   let provenance: String
   let analysisSummary: String
+  /// Measured face bounds in the cropped raster, normalized with +Y down.
+  var faceBounds: CGRect? = nil
 }
 
 enum PortraitDrawingError: LocalizedError {
@@ -101,18 +110,24 @@ enum PortraitVectorizer {
     if let levels { configuration.contourLevels = levels }
     let options = configuration.bounded
     let prepared = try preparedRaster(raster, options: options)
-    let paths: [[CGPoint]]
+    let authoredPaths: [[CGPoint]]
     switch style {
-    case .contours: paths = try contours(prepared, options: options)
-    case .hatch: paths = try hatching(prepared, crosshatch: false, spacing: options.hatchSpacing)
-    case .crosshatch: paths = try hatching(prepared, crosshatch: true, spacing: options.hatchSpacing)
-    case .sketch: paths = try sketch(prepared, options: options)
+    case .contours: authoredPaths = try contours(prepared, options: options)
+    case .hatch: authoredPaths = try hatching(prepared, crosshatch: false, options: options)
+    case .crosshatch: authoredPaths = try hatching(prepared, crosshatch: true, options: options)
+    case .sketch: authoredPaths = try sketch(prepared, options: options)
     case .sketchHatch:
-      paths = try sketch(prepared, options: options)
-        + hatching(prepared, crosshatch: false, spacing: options.hatchSpacing)
+      authoredPaths = try sketch(prepared, options: options)
+        + hatching(prepared, crosshatch: false, options: options)
     }
+    let paths = try enlargedHeadPaths(authoredPaths, raster: raster, options: options)
     guard !paths.isEmpty else { throw PortraitDrawingError.noLines }
-    let provenance = "portrait-v2|\(raster.provenance)|pose=\(pose.rawValue)|style=\(style.rawValue)|\(options.provenance)"
+    var provenance = "portrait-v2|\(raster.provenance)|pose=\(pose.rawValue)|style=\(style.rawValue)|\(options.provenance)"
+    if options.headScale > 1 {
+      if let bounds = PortraitHeadTransform.validFaceBounds(raster.faceBounds) {
+        provenance += "|headTransform=v1|headFace=\(bounds.origin.x),\(bounds.origin.y),\(bounds.width),\(bounds.height)"
+      } else { provenance += "|headTransform=unavailable" }
+    }
     let extent = try Size2<FieldSpace>(
       width: 100 * Double(raster.width - 1) / Double(raster.height - 1), height: 100)
     let strokes = try paths.enumerated().map { index, path in
@@ -210,7 +225,11 @@ enum PortraitVectorizer {
 
   /// Continuous tonal scanlines reduce pen lifts compared with the legacy
   /// per-cell hatch marks. A darker orthogonal pass supplies crosshatching.
-  private static func hatching(_ raster: PortraitRaster, crosshatch: Bool, spacing: Int) throws -> [[CGPoint]] {
+  private static func hatching(_ raster: PortraitRaster, crosshatch: Bool, options: PortraitVectorOptions) throws -> [[CGPoint]] {
+    if options.hatchAngleDegrees != 0 {
+      return try angledHatching(raster, crosshatch: crosshatch, options: options)
+    }
+    let spacing = options.hatchSpacing
     var paths: [[CGPoint]] = []
     for vertical in crosshatch ? [false, true] : [false] {
       let rows = vertical ? raster.width : raster.height
@@ -241,12 +260,97 @@ enum PortraitVectorizer {
     return paths
   }
 
+  /// Clip each rotated scanline to the image before sampling it. The original
+  /// zero-degree route remains exact; this route adds arbitrary pen direction.
+  private static func angledHatching(_ raster: PortraitRaster, crosshatch: Bool,
+                                    options: PortraitVectorOptions) throws -> [[CGPoint]] {
+    let width = Double(raster.width - 1), height = Double(raster.height - 1)
+    let corners = [CGPoint.zero, CGPoint(x: width, y: 0), CGPoint(x: 0, y: height),
+                   CGPoint(x: width, y: height)]
+    var paths: [[CGPoint]] = []
+    for pass in 0..<(crosshatch ? 2 : 1) {
+      let angle = (options.hatchAngleDegrees + Double(pass) * 90) * .pi / 180
+      let dx = cos(angle), dy = sin(angle), nx = -dy, ny = dx
+      let offsets = corners.map { $0.x * nx + $0.y * ny }
+      let lower = offsets.min()!, upper = offsets.max()!
+      let first = Int(ceil(lower / Double(options.hatchSpacing)))
+      let last = Int(floor(upper / Double(options.hatchSpacing)))
+      guard first <= last else { continue }
+      for (rowIndex, row) in (first...last).enumerated() {
+        try Task.checkCancellation()
+        let offset = Double(row * options.hatchSpacing)
+        let origin = CGPoint(x: nx * offset, y: ny * offset)
+        var from = -Double.infinity, through = Double.infinity
+        for (position, direction, limit) in [(origin.x, dx, width), (origin.y, dy, height)] {
+          if abs(direction) < 1e-10 {
+            if position < -1e-8 || position > limit + 1e-8 { from = 1; through = 0; break }
+          } else {
+            let a = -position / direction, b = (limit - position) / direction
+            from = max(from, min(a, b)); through = min(through, max(a, b))
+          }
+        }
+        guard through > from else { continue }
+        let steps = max(1, Int(ceil(through - from)))
+        let threshold = pass == 1 ? 0.30 : [0.35, 0.55, 0.75][rowIndex % 3]
+        var start: CGPoint?, lastDark: CGPoint?
+        for sample in 0...(steps + 1) {
+          let t = from + Double(min(sample, steps)) / Double(steps) * (through - from)
+          let point = CGPoint(x: min(width, max(0, origin.x + dx * t)),
+                              y: min(height, max(0, origin.y + dy * t)))
+          let dark = sample <= steps && luminance(raster, at: point) < threshold
+          if dark {
+            if start == nil { start = point }
+            lastDark = point
+          } else if let firstPoint = start, let lastPoint = lastDark {
+            if hypot(firstPoint.x - lastPoint.x, firstPoint.y - lastPoint.y) > 0.5 {
+              paths.append(rowIndex.isMultiple(of: 2) ? [lastPoint, firstPoint] : [firstPoint, lastPoint])
+            }
+            start = nil; lastDark = nil
+          }
+        }
+      }
+    }
+    return paths
+  }
+
+  private static func luminance(_ raster: PortraitRaster, at point: CGPoint) -> Double {
+    let x = min(raster.width - 1, max(0, Int(point.x))), y = min(raster.height - 1, max(0, Int(point.y)))
+    let x1 = min(raster.width - 1, x + 1), y1 = min(raster.height - 1, y + 1)
+    let fx = point.x - Double(x), fy = point.y - Double(y)
+    let upper = raster.luminance[y*raster.width+x] * (1-fx) + raster.luminance[y*raster.width+x1] * fx
+    let lower = raster.luminance[y1*raster.width+x] * (1-fx) + raster.luminance[y1*raster.width+x1] * fx
+    return upper * (1-fy) + lower * fy
+  }
+
+  private static func enlargedHeadPaths(_ paths: [[CGPoint]], raster: PortraitRaster,
+                                        options: PortraitVectorOptions) throws -> [[CGPoint]] {
+    guard options.headScale > 1,
+      let transform = PortraitHeadTransform(faceBounds: raster.faceBounds, width: raster.width,
+        height: raster.height, scale: options.headScale) else { return paths }
+    return try paths.compactMap { path in
+      try Task.checkCancellation()
+      guard let first = path.first else { return path }
+      var warped = [transform.point(first)]
+      for (a, b) in zip(path, path.dropFirst()) {
+        // Long hatches need interior samples to follow the nonlinear warp.
+        let steps = max(1, Int(ceil(hypot(b.x-a.x, b.y-a.y) / 2)))
+        for step in 1...steps {
+          if step.isMultiple(of: 64) { try Task.checkCancellation() }
+          let t = Double(step) / Double(steps)
+          warped.append(transform.point(CGPoint(x: a.x + (b.x-a.x)*t, y: a.y + (b.y-a.y)*t)))
+        }
+      }
+      let simplified = try simplify(warped, tolerance: options.simplificationTolerance)
+      return pathLength(simplified) > 0.000_001 ? simplified : nil
+    }
+  }
+
   private static func preparedRaster(_ raster: PortraitRaster, options: PortraitVectorOptions) throws -> PortraitRaster {
     let smooth = try gaussian(raster.luminance, width: raster.width, height: raster.height,
                               sigma: options.smoothing)
     let values = smooth.map { pow(min(1, max(0, $0)), options.tonalStrength) }
     return PortraitRaster(width: raster.width, height: raster.height, luminance: values,
-      provenance: raster.provenance, analysisSummary: raster.analysisSummary)
+      provenance: raster.provenance, analysisSummary: raster.analysisSummary, faceBounds: raster.faceBounds)
   }
 
   /// Separable, edge-clamped Gaussian. The bounded sigma limits the kernel to

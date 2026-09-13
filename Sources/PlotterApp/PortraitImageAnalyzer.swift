@@ -8,7 +8,7 @@ import PlotterRuntime
 import UniformTypeIdentifiers
 import Vision
 
-struct PortraitAnalysisOptions: Hashable, Sendable {
+struct PortraitAnalysisOptions: Codable, Hashable, Sendable {
   var cropToFace = true
   var removeBackground = true
   /// Padding around the detected face, as a fraction of its width. Smaller
@@ -35,6 +35,7 @@ struct PortraitRenderRequest: Sendable {
 struct PortraitRenderResult: Sendable {
   let raster: PortraitRaster
   let program: PlotterModel.DrawingProgram
+  var transformationSummary: String? = nil
 }
 
 protocol PortraitRendering: Sendable {
@@ -81,7 +82,13 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       from: raster, pose: request.pose, style: request.style, strokeStyle: request.strokeStyle,
       vectorOptions: request.vectorOptions)
     try Task.checkCancellation()
-    return PortraitRenderResult(raster: raster, program: program)
+    let transformSummary: String?
+    if request.vectorOptions.bounded.headScale > 1 {
+      transformSummary = PortraitHeadTransform.validFaceBounds(raster.faceBounds) == nil
+        ? "No face located; head enlargement skipped"
+        : String(format: "Head emphasis %.2f×", request.vectorOptions.bounded.headScale)
+    } else { transformSummary = nil }
+    return PortraitRenderResult(raster: raster, program: program, transformationSummary: transformSummary)
   }
 
   static func image(from data: Data) throws -> CGImage {
@@ -140,20 +147,26 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     try Task.checkCancellation()
     let image = try image(from: data)
     var crop = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+    var detectedFace: CGRect?
     var notes: [String] = []
-    if options.cropToFace {
-      let faces = VNDetectFaceRectanglesRequest()
-      do {
-        try VNImageRequestHandler(cgImage: image, orientation: .up).perform([faces])
-        try Task.checkCancellation()
-        if let face = faces.results?.max(by: { $0.boundingBox.width*$0.boundingBox.height < $1.boundingBox.width*$1.boundingBox.height }) {
+    // Face geometry is cached for framing and optional caricature even when
+    // the operator retains the full photograph. This runs only on analysis.
+    let faces = VNDetectFaceRectanglesRequest()
+    do {
+      try VNImageRequestHandler(cgImage: image, orientation: .up).perform([faces])
+      try Task.checkCancellation()
+      if let face = faces.results?.max(by: { $0.boundingBox.width*$0.boundingBox.height < $1.boundingBox.width*$1.boundingBox.height }) {
+        detectedFace = CGRect(x: face.boundingBox.minX * Double(image.width),
+          y: (1-face.boundingBox.maxY) * Double(image.height),
+          width: face.boundingBox.width * Double(image.width), height: face.boundingBox.height * Double(image.height))
+        if options.cropToFace {
           crop = faceCrop(bounds: face.boundingBox, imageWidth: image.width, imageHeight: image.height,
                           margin: options.boundedFaceCropMargin)
           notes.append("Face crop")
-        } else { notes.append("No face located; full photo") }
-      } catch is CancellationError { throw CancellationError() }
-      catch { notes.append("Face detection unavailable (\(error.localizedDescription)); full photo") }
-    } else { notes.append("Full photo") }
+        } else { notes.append("Full photo") }
+      } else { notes.append("No face located; full photo") }
+    } catch is CancellationError { throw CancellationError() }
+    catch { notes.append("Face detection unavailable (\(error.localizedDescription)); full photo") }
     try Task.checkCancellation()
     guard let cropped = image.cropping(to: crop) else { throw PortraitDrawingError.unreadableImage }
     let ratio = Double(cropped.width) / Double(cropped.height)
@@ -200,7 +213,11 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     return PortraitRaster(
       width: width, height: height, luminance: luminance,
       provenance: "image=\(digest)|raster=\(rasterDigest)|crop=\(crop)|size=\(width)x\(height)|face=\(options.cropToFace)|faceMargin=\(options.boundedFaceCropMargin)|mask=\(options.removeBackground)",
-      analysisSummary: notes.joined(separator: " · "))
+      analysisSummary: notes.joined(separator: " · "),
+      faceBounds: detectedFace.map { face in
+        CGRect(x: (face.minX-crop.minX)/crop.width, y: (face.minY-crop.minY)/crop.height,
+          width: face.width/crop.width, height: face.height/crop.height)
+      })
   }
 
   static func grayscale(_ image: CGImage, width: Int, height: Int) throws -> [Double] {

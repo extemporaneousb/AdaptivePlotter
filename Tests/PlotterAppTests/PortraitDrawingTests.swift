@@ -71,6 +71,36 @@ struct PortraitDrawingTests {
     let editorImage = try await portraitEditorImage(PortraitStudioView(model: model,
       strokeStyle: try portraitTestStyle(), showOnPlotter: { _ in nil }))
     try PortraitImageAnalyzer.encodedImage(editorImage).write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-populated.png"))
+    let narrow = try await portraitEditorImage(PortraitStudioView(model: model,
+      strokeStyle: portraitTestStyle(), showOnPlotter: { _ in nil }), width: 320)
+    try PortraitImageAnalyzer.encodedImage(narrow).write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-style-narrow.png"))
+    let recipes = PortraitStyleRecipe.catalog(penWidthMM: 1.2)
+    let results = try await Task.detached(priority: .userInitiated) {
+      var results: [PortraitRenderResult] = []
+      for recipe in recipes {
+        results.append(try await PortraitImageAnalyzer().render(.init(data: data,
+          pose: .front, style: recipe.style, options: recipe.analysisOptions,
+          cachedRaster: nil, strokeStyle: portraitTestStyle(), vectorOptions: recipe.vectorOptions)))
+      }
+      return results
+    }.value
+    let recipeGrid = ImageRenderer(content: VStack(spacing: 8) {
+      Text("Drawing Studio · reproducible recipes · 1.2 mm marker at 180 mm height").font(.headline)
+      HStack(alignment: .top, spacing: 8) {
+        ForEach(recipes.indices, id: \.self) { index in
+          VStack {
+            Text(recipes[index].title).font(.headline)
+            PortraitProgramPreview(program: results[index].program, inkWidth: 1.2, drawingHeight: 180)
+              .frame(width: 220, height: 300)
+            Text("\(results[index].program.strokes.count) strokes").font(.caption)
+            Text(results[index].transformationSummary ?? "Original proportions").font(.caption2)
+          }
+        }
+      }
+    }.padding(12).background(.white).environment(\.colorScheme, .light))
+    let recipeImage = try #require(recipeGrid.cgImage)
+    try PortraitImageAnalyzer.encodedImage(recipeImage)
+      .write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-recipes.png"))
   }
 
   @Test("older drawing evidence without source metadata remains readable")

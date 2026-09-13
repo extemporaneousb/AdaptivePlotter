@@ -58,8 +58,10 @@ struct WorkbenchCameraCanvas: View {
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .overlay {
-        if portrait.screenIlluminationActive { PortraitCaptureLightView(model: portrait) }
+      .background {
+        PortraitScreenIllumination(isActive: portrait.screenIlluminationActive) {
+          Task { await portrait.cancelRendering() }
+        }
       }
     }
     .frame(minWidth: 320, maxWidth: .infinity, minHeight: 180, maxHeight: .infinity)
