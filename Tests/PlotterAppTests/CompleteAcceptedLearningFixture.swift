@@ -8,7 +8,8 @@ import Testing
 
 /// Synthetic accepted-artifact data. Boundary values come from the existing
 /// accepted Boundary fixture; the simulator supplies calibrated geometry and
-/// a completed Border. All optical sources are rebound to one test camera and
+/// a completed Border. Controller context is rebound to the synthetic lower
+/// controller used by application tests; optical sources are rebound to one test camera and
 /// dependent hashes are regenerated. This does not claim LIVE physical evidence
 /// or test the acceptance of that preceding Learning path. The application
 /// under restoration test receives only the normal persisted package/archive.
@@ -64,11 +65,33 @@ struct CompleteAcceptedLearningFixture: Sendable {
     let boundary = await seeded.boundaryRuntime.snapshot(for: .simulated)
     let originalFrame = try #require(source.displayedFrame)
     let frame = DisplayedFrame(source: syntheticSource, frame: originalFrame.frame)
+    let originalMachine = try #require(boundary.acceptedMachineArtifacts)
+    let fixtureMachine = try LowerMachineSessionFixture(log: EventLog())
+    let machine = try AcceptedMachineArtifactCheckpoint(
+      checkpointID: originalMachine.checkpointID,
+      controllerContext: ControllerCheckpointContext(probe: await fixtureMachine.passiveProbeResult()),
+      machinePositionAtSave: originalMachine.machinePositionAtSave,
+      controllerSessionID: originalMachine.controllerSessionID,
+      coordinateRevision: originalMachine.coordinateRevision,
+      acceptedAttemptSequence: originalMachine.acceptedAttemptSequence,
+      pairedBoundaryProgress: originalMachine.pairedBoundaryProgress,
+      acceptedBoundaryEvidence: originalMachine.acceptedBoundaryEvidence,
+      boundarySideAggregates: originalMachine.boundarySideAggregates,
+      estimatedMachineCenter: originalMachine.estimatedMachineCenter,
+      learnedLocalCoordinateFrame: originalMachine.learnedLocalCoordinateFrame,
+      centerArrivalPosition: originalMachine.centerArrivalPosition,
+      acceptedRevisions: originalMachine.acceptedRevisions)
+    // The learned-color identity is part of the accepted cap map. Preserve the
+    // actual sampled appearance instead of inventing a generic green value.
+    let appearance = try replacingFixtureSources(#require(source.penCapAppearanceSelection),
+      with: syntheticSource)
+    #expect(machineCamera.capAnchorEstimatorRevision
+      == "selected-cap-\(appearance.color.hexRGB)-bottom-center-anchor-v3")
     let checkpoint = try AcceptedLearningPathCheckpoint(semanticIdentity: identities.learningPathIdentity,
       penInteraction: AcceptedPenInteractionCheckpoint(
         revision: #require(source.learningArtifactGraph.currentRevision(for: .penInteraction)),
         acceptedSequence: penAttempt.acceptedSequence, evidence: #require(penAttempt.value)),
-      machineArtifacts: boundary.acceptedMachineArtifacts,
+      machineArtifacts: machine,
       machineCamera: AcceptedMachineCameraCheckpoint(
         revision: #require(source.learningArtifactGraph.currentRevision(for: .machineCameraRegistration)),
         registration: machineCamera),
@@ -78,13 +101,7 @@ struct CompleteAcceptedLearningFixture: Sendable {
       stageFour: AcceptedStageFourCheckpoint(recordID: record.recordID,
         tipCalibrationRevisionID: tip.acceptedRevisionID,
         paperContactPlane: record.paper.contactPlane),
-      penCapAppearance: AcceptedPenCapAppearance(color: .green, frameID: frame.frame.id,
-        frameSHA256: frame.frame.contentSHA256, source: syntheticSource,
-        cameraConfigurationID: frame.frame.cameraConfigurationID, width: frame.frame.width,
-        height: frame.frame.height, pixelFormat: frame.frame.pixelFormat,
-        clickPoint: Point2(x: Double(frame.frame.width) / 2, y: Double(frame.frame.height) / 2),
-        usableSampleCount: 81, totalSampleCount: 81,
-        algorithmRevision: AcceptedPenCapAppearance.algorithmRevision),
+      penCapAppearance: appearance.acceptedCheckpoint(),
       referenceFrame: AcceptedLearningReferenceFrame(
         opticalConfiguration: tip.applicability.opticalConfiguration, frame: frame.frame))
     _ = try checkpoint.restoredLearningGraph()

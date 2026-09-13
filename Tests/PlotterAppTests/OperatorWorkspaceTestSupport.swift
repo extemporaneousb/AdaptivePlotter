@@ -2014,6 +2014,8 @@ actor PenRequestGate {
     shouldBlockNextRequest = true
   }
 
+  var isHeld: Bool { held }
+
   func waitUntilHeld() async {
     if held { return }
     await withCheckedContinuation { heldWaiters.append($0) }
@@ -2189,6 +2191,7 @@ actor LowerMachineSessionFixture {
   let holdCancellationSettlement: Bool
   let relativeJogSettlementOffset: Vector2<MachineSpace>?
   let penRequestGate: PenRequestGate?
+  let reportsActivePenConnection: Bool
   let positionObserver: (@Sendable (MachinePosition) -> Void)?
   private(set) var cancelCount = 0
   private(set) var cancelIntents: [JogCancelIntent] = []
@@ -2200,6 +2203,8 @@ actor LowerMachineSessionFixture {
   private(set) var snapshotCallCount = 0
   private(set) var passiveProbeCallCount = 0
   private var moving = false
+  private var activePenCommand: PenCommand?
+  private var transportIsAvailable = true
   private var cancelPending = false
   private var pendingCancelIntent: JogCancelIntent?
   private var continuation: CheckedContinuation<MotionOutcome, Never>?
@@ -2230,6 +2235,7 @@ actor LowerMachineSessionFixture {
     holdCancellationSettlement: Bool = false,
     relativeJogSettlementOffset: Vector2<MachineSpace>? = nil,
     penRequestGate: PenRequestGate? = nil,
+    reportsActivePenConnection: Bool = false,
     motionGuardInitiallyActive: Bool = true,
     positionObserver: (@Sendable (MachinePosition) -> Void)? = nil
   ) throws {
@@ -2239,6 +2245,7 @@ actor LowerMachineSessionFixture {
     self.holdCancellationSettlement = holdCancellationSettlement
     self.relativeJogSettlementOffset = relativeJogSettlementOffset
     self.penRequestGate = penRequestGate
+    self.reportsActivePenConnection = reportsActivePenConnection
     motionGuardActive = motionGuardInitiallyActive
     self.positionObserver = positionObserver
     position = try MachinePosition(x: 0, y: 0)
@@ -2259,6 +2266,10 @@ actor LowerMachineSessionFixture {
     positionObserver?(position)
   }
 
+  func reportTransportAvailability(_ available: Bool) {
+    transportIsAvailable = available
+  }
+
   func setPenState(_ state: PenState) {
     penState = state
   }
@@ -2276,10 +2287,12 @@ actor LowerMachineSessionFixture {
     return RunInterpreterSnapshot(
       currentOperation: activeBoundaryRequest.map(RunOperation.boundaryMotion)
         ?? activeDrawingRequest.map(RunOperation.drawingStroke)
-        ?? activeRequest.map(RunOperation.relativeJog) ?? .idle,
+        ?? activeRequest.map(RunOperation.relativeJog)
+        ?? (reportsActivePenConnection ? activePenCommand.map(RunOperation.penActuation) : nil) ?? .idle,
       machine: MachineSnapshot(
-        connection: moving && (activeBoundaryRequest == nil || reportsBoundaryMoving)
-          ? .moving : .connected,
+        connection: !transportIsAvailable ? .disconnected
+          : reportsActivePenConnection && activePenCommand != nil ? .actuatingPen
+          : moving && (activeBoundaryRequest == nil || reportsBoundaryMoving) ? .moving : .connected,
         link: descriptor,
         lastProbe: nil,
         blockers: [],
@@ -2288,7 +2301,7 @@ actor LowerMachineSessionFixture {
         position: position,
         penState: penState,
         motionGuardState: motionGuardActive ? .active : .inactive,
-        operationInFlight: moving,
+        operationInFlight: moving || (reportsActivePenConnection && activePenCommand != nil),
         lastMotionOutcome: lastMotion,
         lastDrawingStrokeOutcome: lastDrawing,
         lastPenOutcome: lastPen,
@@ -2497,6 +2510,8 @@ actor LowerMachineSessionFixture {
     _ command: PenCommand,
     profile: PenActuationProfile = .initialDefaults
   ) async -> PenOutcome {
+    activePenCommand = command
+    defer { activePenCommand = nil }
     await log.append("machine:pen-\(command.rawValue)")
     requestedPenCommands.append(command)
     requestedPenProfiles.append(profile)

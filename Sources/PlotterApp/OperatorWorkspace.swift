@@ -141,6 +141,7 @@ enum ContextualStopTarget: Hashable, Sendable {
   )
   case borderValidation(
     capabilityID: ContextualStopCapabilityID, operationOwner: ContextualMotionOwnerID)
+  case positionRecovery(capabilityID: ContextualStopCapabilityID)
   case sparseTipBatch(
     capabilityID: ContextualStopCapabilityID,
     attemptID: ExerciseAttemptID
@@ -155,6 +156,7 @@ enum ContextualStopTarget: Hashable, Sendable {
     switch self {
     case .exerciseMotion(let capabilityID, _, _, _),
       .borderValidation(let capabilityID, _),
+      .positionRecovery(let capabilityID),
       .sparseTipBatch(let capabilityID, _),
       .sparseTipBatchSegment(let capabilityID, _, _):
       capabilityID
@@ -167,7 +169,7 @@ enum ContextualStopTarget: Hashable, Sendable {
       .borderValidation(_, let owner),
       .sparseTipBatchSegment(_, let owner, _):
       owner
-    case .sparseTipBatch:
+    case .sparseTipBatch, .positionRecovery:
       nil
     }
   }
@@ -894,6 +896,19 @@ final class PlotterApplicationRuntime:
   private(set) var machineSnapshot: RunInterpreterSnapshot? {
     didSet {
       guard oldValue != machineSnapshot else { return }
+      // The controller uses connection state to describe connected operations
+      // too. Those known operations preserve physical coordinate continuity.
+      let previouslyConnected = switch oldValue?.machine.connection {
+      case .connected, .probing, .moving, .actuatingPen: true
+      case .disconnected, .connecting, .blocked, nil: false
+      }
+      let currentlyConnected = switch machineSnapshot?.machine.connection {
+      case .connected, .probing, .moving, .actuatingPen: true
+      case .disconnected, .connecting, .blocked, nil: false
+      }
+      if previouslyConnected, !currentlyConnected {
+        requireVisualPositionRevalidation()
+      }
       markSemanticPresentationChanged(invalidatesActionSurface: false)
     }
   }
@@ -1622,7 +1637,8 @@ final class PlotterApplicationRuntime:
         || liveSnapshot?.currentOperation == .idle,
       passiveProbe: environment == .live ? passiveProbeResult : nil,
       penActuationProfile: currentPenActuationProfile,
-      semanticIdentity: currentLearningPathSemanticIdentity
+      semanticIdentity: currentLearningPathSemanticIdentity,
+      physicalPositionUnavailableReason: isCurrentEnvironment ? retainedPoseApplicabilityRefusal : nil
     )
   }
 
@@ -1638,6 +1654,7 @@ final class PlotterApplicationRuntime:
   }
 
   func installBoundarySnapshot(_ snapshot: PlotterBoundaryRuntimeSnapshot) {
+    guard !positionRebasePublicationIsPending else { return }
     if snapshot.projection.reference.environment == .simulated {
       simulatedBoundarySnapshot = snapshot
     } else {
@@ -1745,6 +1762,7 @@ final class PlotterApplicationRuntime:
       activeRunID: RunID?, progress: DrawingPlanProgressSnapshot?)] = [:]
   @ObservationIgnored private var drawingDraftSynchronizationGeneration: UInt64 = 0
   @ObservationIgnored private(set) var drawingDraftSynchronizationTask: Task<Void, Never>?
+  @ObservationIgnored private var positionRebasePublicationIsPending = false
   @ObservationIgnored private var drawingEvidenceReloadTask: Task<Void, Never>?
   @ObservationIgnored private var learningActivityFactRevision: UInt64 = 0
   private var controllerSessionID: UUID {
@@ -2533,6 +2551,9 @@ final class PlotterApplicationRuntime:
 
   var paperManagementUnavailableReason: String? {
     if let reason = paperReplacementInProgressReason { return reason }
+    if tipCalibrationRuntime.activeOperationID != nil {
+      return "Wait for position verification or pen-tip calibration to finish, or use Stop before changing paper."
+    }
     return drawingRunIsActive
       ? "Paper identity cannot change while Drawing Run owns execution or evidence capture."
       : nil
@@ -2737,7 +2758,8 @@ final class PlotterApplicationRuntime:
       paperCoverageIsCurrent: draft.paperCoverageIsCurrent,
       displayedFrame: capturedFacts.displayedFrame,
       interpreter: interpreter,
-      penActuationProfile: currentPenActuationProfile
+      penActuationProfile: currentPenActuationProfile,
+      physicalPositionUnavailableReason: retainedPoseApplicabilityRefusal
     )
   }
 
@@ -2997,7 +3019,10 @@ final class PlotterApplicationRuntime:
         savedIdentity: savedCandidate.semanticIdentity,
         exactPointSelectionIsActive: pointSelectionRequest != nil
       ) {
-        guard let plan = record.plan.executionPlan else { continue }
+        // Immutable records retain their original machine-coordinate frame.
+        // A current translated map must never reinterpret those old numbers.
+        guard record.tipCalibration.applicability == registration.applicability,
+          let plan = record.plan.executionPlan else { continue }
         for stroke in plan.strokes {
           guard let projected = try? Polyline(
             points: stroke.path.points.map {
@@ -3206,7 +3231,10 @@ final class PlotterApplicationRuntime:
   var isShutdown: Bool { applicationAdmissionIsClosed }
 
   var currentCameraCalibrationBusyReason: String? {
-    cameraCalibrationRuntimePhase.map {
+    if case .positionRecovery = activeStopTarget {
+      return "Position verification owns the camera and controller sample. Use Stop before changing either source."
+    }
+    return cameraCalibrationRuntimePhase.map {
       "Automatic camera calibration is in progress (\($0.description)). Use Stop during active motion."
     }
   }
@@ -3259,7 +3287,9 @@ final class PlotterApplicationRuntime:
       simulatedSnapshot: simulatedLearningSnapshot,
       machineError: machineError,
       admissionClosed: applicationAdmissionIsClosed,
-      controllerBusyReason: paperReplacementInProgressReason ?? currentCameraCalibrationBusyReason,
+      controllerBusyReason: positionRebasePublicationIsPending
+        ? "Wait for the committed position update to publish."
+        : paperReplacementInProgressReason ?? currentCameraCalibrationBusyReason,
       discoveryBusyReason: discoveryBusyReason,
       foreignOperationInFlight: passiveProbeInProgress || jogRequestInProgress
         || retainedPenRequestInProgress || jogCancelRequestInProgress
@@ -3510,6 +3540,7 @@ final class PlotterApplicationRuntime:
   }
 
   private var observationSourceChangeUnavailableReason: String? {
+    if positionRebasePublicationIsPending { return "Wait for the committed position update to publish." }
     if let reason = paperReplacementInProgressReason { return reason }
     if observationRuntime == nil {
       return "The retained observation runtime is unavailable."
@@ -3713,6 +3744,7 @@ final class PlotterApplicationRuntime:
       }
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       clearBoundaryLearningForRewind()
+      controllerPoseApplicability = .currentSession
       clearCalibrationLearningForRewind()
       clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
@@ -4622,6 +4654,15 @@ final class PlotterApplicationRuntime:
       candidates.append(contentsOf: actionability.strips.flatMap { strip in
         strip.requestDecisions().map { $0.candidate() }
       })
+    }
+    if recoverableTipCalibrationCheckpoint != nil || tipCalibrationRuntime.positionRecoveryIsAvailable {
+      let recovery = PlotterUILearningActionDecision(
+        itemID: plotterUILearningOwnerID(.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)),
+        action: .tipCalibration(.revalidateCheckpoint),
+        unavailableReason: positionRevalidationUnavailableReason
+      ).candidate()
+      candidates.removeAll { $0.id == recovery.id }
+      candidates.append(recovery)
     }
     if let plan = learningPath?.resetSurface.selectedPlan {
       candidates.append(.learningReset(
@@ -5705,6 +5746,7 @@ final class PlotterApplicationRuntime:
         _ = owner
         return .exercise(id, action, boundaryOwner: false)
       case .borderValidation(let id, _): return .borderValidation(id)
+      case .positionRecovery(let id): return .positionRecovery(id)
       case .sparseTipBatch(let id, _), .sparseTipBatchSegment(let id, _, _):
         return .sparseTipBatch(id)
       }
@@ -5713,7 +5755,7 @@ final class PlotterApplicationRuntime:
       recoverableTipCalibrationCheckpoint.map {
         $0.registration.applicability.paperContactPlane.rawValue
           == explorationPaperContactPlaneRevision
-      } ?? false
+      } ?? tipCalibrationRuntime.positionRecoveryIsAvailable
     let itemStartReasons = Dictionary(
       uniqueKeysWithValues: LearningPathItemID.learningExerciseOrder.compactMap {
         itemID -> (LearningPathItemID, String)? in
@@ -5724,7 +5766,7 @@ final class PlotterApplicationRuntime:
             ? learningConnectionAndMotionUnavailableReason
             : discoveryStartUnavailableReason(for: .penInteraction)
         case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
-          reason = boundarySnapshot?.projection.lastRefusal.map {
+          reason = retainedPoseApplicabilityRefusal ?? boundarySnapshot?.projection.lastRefusal.map {
             "Boundary refused: \($0.reason). Remedy: \($0.remedy)."
           }
         case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
@@ -5732,10 +5774,9 @@ final class PlotterApplicationRuntime:
         case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
           // Marking owns an initial settled Pen Up; capture-only checkpoint
           // revalidation still requires the current pen to already be up.
-          reason = learningExerciseMotionUnavailableReason(
-            requiresCamera: true,
-            normalizesPenUp: !savedCheckpointMatchesPaper
-          )
+          reason = savedCheckpointMatchesPaper
+            ? positionRevalidationUnavailableReason
+            : learningExerciseMotionUnavailableReason(requiresCamera: true, normalizesPenUp: true)
         case .borderValidation(let step):
           reason = borderValidationActionUnavailableReason(
             for: step == .chooseDrawingBorderPlan ? borderValidation.step : step
@@ -5925,7 +5966,20 @@ final class PlotterApplicationRuntime:
       case .rejectProposal: .rejectProposal
       case .retryCommit: .retryCommit
       }
-      let outcome = await tipCalibrationRuntime.submit(intent)
+      let outcome: PlotterTipCalibrationSubmissionOutcome
+      if case .revalidateCheckpoint = intent {
+        let target = ContextualStopTarget.positionRecovery(capabilityID: ContextualStopCapabilityID())
+        var result: PlotterTipCalibrationSubmissionOutcome?
+        let task = Task { @MainActor in
+          result = await self.tipCalibrationRuntime.submit(intent)
+        }
+        installStoppableOperation(target: target, owner: .batch(task))
+        await task.value
+        clearStoppableOperation(matching: target)
+        outcome = result ?? .cancelled
+      } else {
+        outcome = await tipCalibrationRuntime.submit(intent)
+      }
       markSemanticPresentationChanged()
       switch outcome {
       case .completed: return nil
@@ -6096,6 +6150,7 @@ final class PlotterApplicationRuntime:
         await reconcileAutomaticVisionAnalysis()
       }
       restoreInteractiveLearningCompletionFromEvidence()
+      requireVisualPositionRevalidation(checkpoint: checkpoint.tipCalibration)
       return (checkpoint, opticalComparison)
   }
 
@@ -6587,7 +6642,8 @@ final class PlotterApplicationRuntime:
   private func captureCurrentCameraCapAnchorEvidence(
     contextBaseline: ControllerContextBaseline?,
     operationID: UUID,
-    newerThanNanoseconds: UInt64? = nil
+    newerThanNanoseconds: UInt64? = nil,
+    requiresCurrentCaptureIdentity: Bool = false
   ) async throws -> CalibrationCapAnchorCapture {
     try requireCalibrationContinuation()
     guard let attemptID = activeExerciseAttemptID else {
@@ -6657,6 +6713,17 @@ final class PlotterApplicationRuntime:
         newerThan: frame.frame.captureNanoseconds
       )
       let inspection = stable.inspection
+      if requiresCurrentCaptureIdentity {
+        guard inspection.displayedFrame.source == frame.source,
+          inspection.displayedFrame.frame.cameraConfigurationID == frame.frame.cameraConfigurationID else {
+          throw LearningPathOperationError.requiredState(
+            "The position frame came from a different camera or capture configuration. Restore the current camera session and retry.")
+        }
+        guard inspection.displayedFrame.frame.captureNanoseconds > frame.frame.captureNanoseconds else {
+          throw LearningPathOperationError.requiredState(
+            "The position frame is stale. Wait for a new frame from the current camera and retry.")
+        }
+      }
       let cap = stable.cap
       try requireCalibrationContinuation()
       centroid = cap.centroid
@@ -8283,7 +8350,7 @@ final class PlotterApplicationRuntime:
     }
   }
 
-  private func revalidateTipCalibration() async throws -> TipCameraRegistration {
+  private func revalidateTipCalibration() async throws -> TipCameraRegistration? {
     let ownerID = LearningPathItemID.humanGuidedDiscovery(
       .calibratePenContactFromSparseMarks
     )
@@ -8292,13 +8359,12 @@ final class PlotterApplicationRuntime:
     }
     guard activeExerciseAttemptOwnerID == ownerID,
       let attemptID = activeExerciseAttemptID,
-      var checkpoint = recoverableTipCalibrationCheckpoint,
       var machineRegistration = machineCameraRegistration,
       let machineRegistrationRevision = learningArtifactGraph.currentRevision(
         for: .machineCameraRegistration
       )?.id,
-      checkpoint.registration.applicability.paperContactPlane.rawValue
-        == explorationPaperContactPlaneRevision
+      machineRegistration.opticalConfiguration.mountRevision == cameraMountRevision,
+      machineRegistration.opticalConfiguration.reframingRevision == cameraReframingRevision
     else {
       throw LearningPathOperationError.requiredState(
         "Saved tip calibration revalidation requires the active owner, checkpoint, and current machine-camera registration."
@@ -8306,15 +8372,64 @@ final class PlotterApplicationRuntime:
     }
 
     let operationID = UUID()
+    var checkpoint = recoverableTipCalibrationCheckpoint
+    let originalCheckpoint = checkpoint
+    let originalMachineRegistration = machineRegistration
+    let expectedSession = controllerSessionID
+    let expectedSource = frameMode
+    let expectedIdentity = currentLearningPathSemanticIdentity
+    let expectedGraph = Set(learningArtifactGraph.revisions.filter { $0.state == .current }.map(\.id))
+    let originalMachineCheckpoint = activeMachineArtifactCheckpoint
+    let priorPackage = acceptedLearningPathCheckpoint
+    let environment = penInteractionEnvironment
+    func requireCurrentPositionRecovery() throws {
+      guard applicationAdmissionIsOpen, !Task.isCancelled, frameMode == expectedSource,
+        controllerSessionID == expectedSession,
+        currentLearningPathSemanticIdentity == expectedIdentity,
+        recoverableTipCalibrationCheckpoint == originalCheckpoint,
+        machineCameraRegistration == originalMachineRegistration,
+        activeMachineArtifactCheckpoint == originalMachineCheckpoint,
+        Set(learningArtifactGraph.revisions.filter { $0.state == .current }.map(\.id)) == expectedGraph,
+        activeExerciseAttemptID == attemptID, !drawingRunIsActive
+      else { throw LearningPathOperationError.requiredState(
+        "Position verification lost its camera, controller session, accepted dependencies, or active owner. Retry from the current position.") }
+    }
     do {
+      try requireCurrentPositionRecovery()
       let capture = try await captureCurrentCameraCapAnchorEvidence(
         contextBaseline: nil,
-        operationID: operationID
+        operationID: operationID,
+        requiresCurrentCaptureIdentity: true
       )
+      try requireCurrentPositionRecovery()
       let exactFrame = try exactTipCalibrationFrame(capture.displayedFrame)
+      if let originalCheckpoint,
+        exactFrame.opticalConfiguration != originalCheckpoint.registration.applicability.opticalConfiguration {
+        throw LearningPathOperationError.requiredState(
+          "The current camera geometry does not match the accepted tip calibration. Restore that camera setup before re-establishing position.")
+      }
+      guard exactFrame.opticalConfiguration == originalMachineRegistration.opticalConfiguration else {
+        throw LearningPathOperationError.requiredState(
+          "The current camera geometry does not match the accepted machine/cap map. Restore that camera setup before re-establishing position.")
+      }
+      guard capture.capAnchor.estimatorRevision == originalMachineRegistration.capAnchorEstimatorRevision else {
+        throw LearningPathOperationError.requiredState(
+          "The learned cap appearance or anchor estimator changed (current \(capture.capAnchor.estimatorRevision), accepted \(originalMachineRegistration.capAnchorEstimatorRevision)). Restore the accepted cap appearance or repeat Camera Calibration for the changed cap.")
+      }
+      if expectedSource == .live {
+        guard let baseline = capture.contextBaseline, let originalMachineCheckpoint else {
+          throw LearningPathOperationError.requiredState(
+            "Position recovery requires the accepted machine checkpoint and fresh controller context. Restore compatible Saved Learning and reconnect the controller before retrying.")
+        }
+        let controllerComparison = originalMachineCheckpoint.controllerContext.comparison(with: baseline.context)
+        guard controllerComparison.isCompatible else {
+          throw LearningPathOperationError.controllerContextChanged(controllerComparison)
+        }
+      }
       var effectiveCoordinateRevision = explorationCoordinateRevision
       var rebasedMachineCheckpoint: AcceptedMachineArtifactCheckpoint?
       var rebasedMachineCameraCheckpoint: AcceptedMachineCameraCheckpoint?
+      var coordinateTranslation = try Vector2<MachineSpace>(dx: 0, dy: 0)
       let initialCapPrediction = try machineRegistration.fit.cameraPoint(
         from: capture.evidence.machinePoint
       )
@@ -8330,7 +8445,13 @@ final class PlotterApplicationRuntime:
         let formerMachinePoint = try machineRegistration.fit.machinePoint(
           from: capture.capAnchor.point
         )
+        let physicalBoundary = try SparseTipBatchMarkPlan.boundaryEnvelope(for: acceptedBoundaryAggregates)
+        guard physicalBoundary.contains(formerMachinePoint) else {
+          throw LearningPathOperationError.requiredState(
+            "The observed cap is outside the accepted physical machine extent. Verify the camera and pen-cap identity before retrying position recovery.")
+        }
         let delta = try formerMachinePoint.vector(to: capture.evidence.machinePoint)
+        coordinateTranslation = delta
         effectiveCoordinateRevision &+= 1
         let machineCheckpoint = try acceptedMachineCheckpoint
           .rebasedForKnownMachineCoordinateChange(
@@ -8352,15 +8473,12 @@ final class PlotterApplicationRuntime:
             ),
           registration: machineRegistration
         )
-        let rebasedTipRegistration = try checkpoint.registration
-          .rebasedForKnownMachineCoordinateChange(
-            to: MachineCoordinateFrameRevision(rawValue: effectiveCoordinateRevision),
-            delta: delta
-          )
-        checkpoint = try AcceptedTipCalibrationCheckpoint(
-          registration: rebasedTipRegistration,
-          acceptanceEvent: checkpoint.acceptanceEvent
-        )
+        if let priorTip = checkpoint {
+          let rebasedTipRegistration = try priorTip.registration.rebasedForKnownMachineCoordinateChange(
+            to: MachineCoordinateFrameRevision(rawValue: effectiveCoordinateRevision), delta: delta)
+          checkpoint = try AcceptedTipCalibrationCheckpoint(
+            registration: rebasedTipRegistration, acceptanceEvent: priorTip.acceptanceEvent)
+        }
         rebasedMachineCheckpoint = machineCheckpoint
         rebasedMachineCameraCheckpoint = machineCameraCheckpoint
       }
@@ -8371,116 +8489,182 @@ final class PlotterApplicationRuntime:
         capture.contextBaseline,
         operationID: operationID
       )
-      let currentApplicability = TipCalibrationApplicabilityContext(
-        opticalConfiguration: exactFrame.opticalConfiguration,
-        machineGeometry: machineGeometryIdentity,
-        machineCoordinateFrame: MachineCoordinateFrameRevision(
-          rawValue: effectiveCoordinateRevision
-        ),
-        toolAssembly: toolAssemblyRevision,
-        penContactProfile: penContactProfileRevision,
-        paperContactPlane: PaperContactPlaneRevision(
-          rawValue: explorationPaperContactPlaneRevision
-        )
-      )
-      let evidenceTimestamp = RuntimeTimestamp(
-        monotonicNanoseconds: max(
-          nowNanoseconds(),
-          exactFrame.captureNanoseconds + 1
-        )
-      )
-      let evidence = try TipCalibrationRevalidationEvidence(
-        currentApplicability: currentApplicability,
-        currentMachineCameraRegistrationRevisionID: machineRegistrationRevision,
-        controllerContextEvidence: controllerEvidence,
-        frame: exactFrame,
-        capEstimate: capture.capAnchor,
-        capMapPrediction: capPrediction,
-        maximumCapMapResidualPixels: 8,
-        timestamp: evidenceTimestamp,
-        algorithmRevision: "explicit-tip-checkpoint-revalidation-and-coordinate-rebase-v2"
-      )
-      guard case .restored = checkpoint.revalidate(with: evidence) else {
-        throw LearningPathOperationError.requiredState(
-          "The saved pen-tip calibration is unavailable because it does not match the current machine, camera, tool, paper, or new pen-cap evidence."
-        )
-      }
-
       var graph = learningArtifactGraph
-      var rebuiltObservationRevisions: [ToolContactObservationID: LearningArtifactRevisionID] = [:]
-      for observation in checkpoint.registration.observationEvidence {
-        let revision = LearningArtifactRevision(
-          kind: .toolContactObservation(observation.observationID),
+      var restoredRegistration: TipCameraRegistration?
+      var refreshedCheckpoint: AcceptedTipCalibrationCheckpoint?
+      if let checkpoint {
+        let currentApplicability = TipCalibrationApplicabilityContext(
+          opticalConfiguration: exactFrame.opticalConfiguration,
+          machineGeometry: machineGeometryIdentity,
+          machineCoordinateFrame: MachineCoordinateFrameRevision(
+            rawValue: effectiveCoordinateRevision
+          ),
+          toolAssembly: toolAssemblyRevision,
+          penContactProfile: penContactProfileRevision,
+          paperContactPlane: PaperContactPlaneRevision(
+            rawValue: explorationPaperContactPlaneRevision
+          )
+        )
+        let evidenceTimestamp = RuntimeTimestamp(
+          monotonicNanoseconds: max(
+            nowNanoseconds(),
+            exactFrame.captureNanoseconds + 1
+          )
+        )
+        let evidence = try TipCalibrationRevalidationEvidence(
+          currentApplicability: currentApplicability,
+          currentMachineCameraRegistrationRevisionID: machineRegistrationRevision,
+          controllerContextEvidence: controllerEvidence,
+          frame: exactFrame,
+          capEstimate: capture.capAnchor,
+          capMapPrediction: capPrediction,
+          maximumCapMapResidualPixels: 8,
+          timestamp: evidenceTimestamp,
+          algorithmRevision: "explicit-tip-checkpoint-revalidation-and-coordinate-rebase-v2"
+        )
+        guard case .restored = checkpoint.revalidate(with: evidence) else {
+          throw LearningPathOperationError.requiredState(
+            "The saved pen-tip calibration is unavailable because it does not match the current machine, camera, tool, paper, or new pen-cap evidence."
+          )
+        }
+
+        var rebuiltObservationRevisions: [ToolContactObservationID: LearningArtifactRevisionID] = [:]
+        for observation in checkpoint.registration.observationEvidence {
+          let revision = LearningArtifactRevision(
+            kind: .toolContactObservation(observation.observationID),
+            attemptID: attemptID,
+            disposition: .succeeded,
+            consumedRevisionIDs: [machineRegistrationRevision]
+          )
+          _ = try graph.commitReplacement(revision)
+          rebuiltObservationRevisions[observation.observationID] = revision.id
+        }
+        let acceptedRevisionID = LearningArtifactRevisionID()
+        let acceptedAt = RuntimeTimestamp(
+          monotonicNanoseconds: max(
+            nowNanoseconds(),
+            evidenceTimestamp.monotonicNanoseconds + 1
+          )
+        )
+        let acceptedRegistration = try checkpoint.registration.revalidatedFromCheckpoint(
+          evidence: evidence,
+          acceptedRevisionID: acceptedRevisionID,
+          machineCameraRegistrationRevisionID: machineRegistrationRevision,
+          observationArtifactRevisionIDs: rebuiltObservationRevisions,
+          acceptedAt: acceptedAt
+        )
+        let tipRevision = LearningArtifactRevision(
+          id: acceptedRevisionID,
+          kind: .tipCameraRegistration,
           attemptID: attemptID,
           disposition: .succeeded,
-          consumedRevisionIDs: [machineRegistrationRevision]
+          consumedRevisionIDs: acceptedRegistration.consumedArtifactRevisionIDs
         )
-        _ = try graph.commitReplacement(revision)
-        rebuiltObservationRevisions[observation.observationID] = revision.id
+        _ = try graph.commitReplacement(tipRevision)
+        let acceptanceEvent = try TipCalibrationAcceptanceEvent(
+          acceptedRevisionID: acceptedRevisionID,
+          timestamp: acceptedAt,
+          actor: "operator-checkpoint-revalidation"
+        )
+        refreshedCheckpoint = try AcceptedTipCalibrationCheckpoint(
+          registration: acceptedRegistration,
+          acceptanceEvent: acceptanceEvent
+        )
+        restoredRegistration = acceptedRegistration
       }
-      let acceptedRevisionID = LearningArtifactRevisionID()
-      let acceptedAt = RuntimeTimestamp(
-        monotonicNanoseconds: max(
-          nowNanoseconds(),
-          evidenceTimestamp.monotonicNanoseconds + 1
-        )
+      if expectedSource == .simulated {
+        // The existing causal simulator revalidates its own checkpoint without
+        // a hardware probe or any publication into the LIVE saved package.
+        try requireCurrentPositionRecovery()
+        withBatchedSemanticPresentationUpdate {
+          learningArtifactGraph = graph
+          tipCameraRegistration = restoredRegistration
+          tipCalibrationRuntime.installPositionRecoveryAvailability(false)
+          restoreInteractiveLearningCompletionFromEvidence()
+          controllerPoseApplicability = .visuallyRevalidated(
+            frameID: exactFrame.frameID, residualPixels: capPrediction.distance(to: capture.capAnchor.point))
+          finishActiveExerciseAttempt(disposition: .succeeded)
+          explorationError = nil
+        }
+        return restoredRegistration
+      }
+      guard let finalMachine = rebasedMachineCheckpoint ?? originalMachineCheckpoint else {
+        throw LearningPathOperationError.requiredState("The accepted machine checkpoint became unavailable before position publication.")
+      }
+      let finalCamera = rebasedMachineCameraCheckpoint ?? activeMachineCameraCheckpoint
+      let finalPackage = try AcceptedLearningPathCheckpoint(
+        semanticIdentity: expectedIdentity,
+        penInteraction: currentAcceptedPenInteractionCheckpoint(),
+        machineArtifacts: finalMachine,
+        machineCamera: finalCamera,
+        tipCalibration: refreshedCheckpoint,
+        stageFour: activeStageFourCheckpoint ?? priorPackage?.stageFour,
+        penCapAppearance: try livePenCapAppearanceSelection?.acceptedCheckpoint() ?? priorPackage?.penCapAppearance,
+        referenceFrame: try AcceptedLearningReferenceFrame(
+          opticalConfiguration: exactFrame.opticalConfiguration, frame: capture.displayedFrame.frame)
       )
-      let restoredRegistration = try checkpoint.registration.revalidatedFromCheckpoint(
-        evidence: evidence,
-        acceptedRevisionID: acceptedRevisionID,
-        machineCameraRegistrationRevisionID: machineRegistrationRevision,
-        observationArtifactRevisionIDs: rebuiltObservationRevisions,
-        acceptedAt: acceptedAt
-      )
-      let tipRevision = LearningArtifactRevision(
-        id: acceptedRevisionID,
-        kind: .tipCameraRegistration,
-        attemptID: attemptID,
-        disposition: .succeeded,
-        consumedRevisionIDs: restoredRegistration.consumedArtifactRevisionIDs
-      )
-      _ = try graph.commitReplacement(tipRevision)
-      let acceptanceEvent = try TipCalibrationAcceptanceEvent(
-        acceptedRevisionID: acceptedRevisionID,
-        timestamp: acceptedAt,
-        actor: "operator-checkpoint-revalidation"
-      )
-      let refreshedCheckpoint = try AcceptedTipCalibrationCheckpoint(
-        registration: restoredRegistration,
-        acceptanceEvent: acceptanceEvent
-      )
-      if let rebasedMachineCheckpoint, let rebasedMachineCameraCheckpoint {
-        try await boundaryRuntime.installRebasedMachineArtifacts(
-          rebasedMachineCheckpoint,
-          environment: penInteractionEnvironment
-        )
-        installBoundarySnapshot(
-          await boundaryRuntime.snapshot(for: penInteractionEnvironment)
-        )
-        activeMachineArtifactCheckpoint = rebasedMachineCheckpoint
-        activeMachineCameraCheckpoint = rebasedMachineCameraCheckpoint
-        machineCameraRegistration = rebasedMachineCameraCheckpoint.registration
+      _ = try finalPackage.restoredLearningGraph()
+      try requireCurrentPositionRecovery()
+      positionRebasePublicationIsPending = true
+      defer { positionRebasePublicationIsPending = false }
+      guard let reservation = await reserveBoundaryResetBeforePersistence() else {
+        throw LearningPathOperationError.requiredState("Boundary ownership could not reserve the position update. Finish its current operation and retry.")
+      }
+      var durabilityCommitted = false
+      let finalBoundary: PlotterBoundaryRuntimeSnapshot
+      do {
+        try requireCurrentPositionRecovery()
+        if let actions = activeStatePersistencePort {
+          do {
+            try actions.saveAcceptedLearningPathCheckpoint(finalPackage)
+          } catch {
+            // A writer may throw after replacement. Restore the exact prior
+            // immutable package rather than publishing any staged authority.
+            if let priorPackage { try actions.saveAcceptedLearningPathCheckpoint(priorPackage) }
+            throw error
+          }
+        }
+        durabilityCommitted = true
+        // No cancellation after the durable commit: this no-motion publication
+        // must finish even if shutdown closes new UI admission meanwhile.
+        finalBoundary = try await boundaryRuntime.commitRebasedMachineArtifacts(
+          finalMachine, reservation: reservation, environment: environment)
+      } catch {
+        if durabilityCommitted, let actions = activeStatePersistencePort, let priorPackage {
+          try actions.saveAcceptedLearningPathCheckpoint(priorPackage)
+        }
+        let reserved = await boundaryRuntime.snapshot(for: environment)
+        _ = await boundaryRuntime.submit(.init(projection: reserved.projection.reference, intent: .abortReset(reservation)))
+        throw error
+      }
+      withBatchedSemanticPresentationUpdate {
+        positionRebasePublicationIsPending = false
+        installBoundarySnapshot(finalBoundary)
+        activeMachineArtifactCheckpoint = finalMachine
+        activeMachineCameraCheckpoint = finalCamera
+        machineCameraRegistration = finalCamera?.registration
         explorationCoordinateRevision = effectiveCoordinateRevision
+        learningArtifactGraph = graph
+        tipCameraRegistration = restoredRegistration
+        tipCalibrationRuntime.installPositionRecoveryAvailability(false)
+        artifactResetRuntime.installSavedLearningFact(.applied(finalPackage,
+          opticalComparison: "Physical position re-established from a fresh stable cap and matching controller reports."))
+        activeStageFourCheckpoint = finalPackage.stageFour
+        controllerPoseApplicability = .visuallyRevalidated(
+          frameID: exactFrame.frameID, residualPixels: capPrediction.distance(to: capture.capAnchor.point))
         acceptedArtifactCheckpointStatus = .restored(
-          sideCount: rebasedMachineCheckpoint.acceptedBoundaryAggregates.count,
-          centerArrival: rebasedMachineCheckpoint.centerArrivalPosition != nil,
-          reportedPositionDeltaMM: initialCapResidual
-        )
+          sideCount: finalMachine.acceptedBoundaryAggregates.count,
+          centerArrival: finalMachine.centerArrivalPosition != nil,
+          reportedPositionDeltaMM: hypot(coordinateTranslation.dx, coordinateTranslation.dy))
+        restoreInteractiveLearningCompletionFromEvidence()
+        finishActiveExerciseAttempt(disposition: .succeeded)
+        explorationError = nil
       }
-      learningArtifactGraph = graph
-      restoreInteractiveLearningCompletionFromEvidence()
-      controllerPoseApplicability = .visuallyRevalidated(
-        frameID: exactFrame.frameID,
-        residualPixels: evidence.capMapResidualPixels
-      )
-      persistAcceptedLearningPathCheckpoint(tipCalibration: refreshedCheckpoint)
-      finishActiveExerciseAttempt(disposition: .succeeded)
-      explorationError = nil
       return restoredRegistration
     } catch {
       finishActiveExerciseAttempt(disposition: .failed(actionableDescription(error)))
       explorationError =
-        "Saved tip calibration was not restored: \(actionableDescription(error))"
+        "Physical position was not re-established: \(actionableDescription(error))"
       throw error
     }
   }
@@ -9313,11 +9497,43 @@ final class PlotterApplicationRuntime:
     return nil
   }
 
+  private func requireVisualPositionRevalidation(checkpoint: AcceptedTipCalibrationCheckpoint? = nil) {
+    guard frameMode == .live, activeMachineArtifactCheckpoint != nil else { return }
+    if case .requiresVisualRevalidation = controllerPoseApplicability { return }
+    recoverableTipCalibrationCheckpoint = checkpoint ?? acceptedLearningPathCheckpoint?.tipCalibration
+    tipCalibrationRuntime.installPositionRecoveryAvailability(machineCameraRegistration != nil)
+    controllerPoseApplicability = .requiresVisualRevalidation(reportedPositionDeltaMM: 0)
+    markSemanticPresentationChanged()
+  }
+
+  var positionRevalidationUnavailableReason: String? {
+    if positionRebasePublicationIsPending || tipCalibrationRuntime.activeOperationID != nil {
+      return "Position verification is in progress."
+    }
+    if drawingRunIsActive { return "Stop or finish the current drawing before re-establishing position." }
+    if frameMode == .simulated { return nil }
+    if !cameraIsLive { return "Show the current Plotter Video camera." }
+    // This is capture-only recovery. It may inspect a position whose physical
+    // alignment is unknown, but must never start travel or normalize the pen.
+    guard let snapshot = machineSnapshot, snapshot.machine.connection == .connected else {
+      return "Connect the controller before re-establishing position."
+    }
+    guard snapshot.currentOperation == .idle, snapshot.machine.controllerState == .idle,
+      snapshot.machine.stickyAmbiguity == nil, !snapshot.machine.operationInFlight,
+      snapshot.machine.position != nil else {
+      return "Wait for an unambiguous Idle controller position before re-establishing position."
+    }
+    return snapshot.machine.penState == .up ? nil : "Use Pen Up, then Re-establish Position from Camera."
+  }
+
   private var retainedPoseApplicabilityRefusal: String? {
     guard frameMode == .live else { return nil }
     if case .requiresVisualRevalidation = controllerPoseApplicability {
+      if machineCameraRegistration == nil {
+        return "Saved Boundary coordinates have no retained camera/cap map for position recovery. Redo Boundary Positioning, then Camera Calibration; accepted Pen Learning remains available."
+      }
       return
-        "The controller coordinate frame was explicitly marked as changed. Revalidate the saved tip calibration from a fresh cap frame before coordinate-dependent Learning or Drawing."
+        "Physical position is unverified after controller continuity was lost. Use Pen Up, then Re-establish Position from Camera before drawing. Accepted Learning is retained."
     }
     return nil
   }
@@ -9940,6 +10156,11 @@ final class PlotterApplicationRuntime:
         restartableExerciseItemID = .borderValidation(.chooseDrawingBorderPlan)
       }
 
+    case .positionRecovery:
+      await tipCalibrationRuntime.stop()
+      await operation.owner.settle()
+      finishActiveExerciseAttempt(disposition: .cancelled)
+
     case .sparseTipBatch:
       if let location = operation.possibleInkLocation {
         blacklistedToolContactLocations.insert(location)
@@ -10226,6 +10447,11 @@ final class PlotterApplicationRuntime:
     _ operation: PlotterRetainedStopRegistration,
     intent: JogCancelIntent
   ) async {
+    if case .positionRecovery = operation.target {
+      await tipCalibrationRuntime.stop()
+      await operation.owner.settle()
+      return
+    }
     if case .sparseTipBatch = operation.target {
       operation.owner.cancelBatch()
       if let segment = operation.segment {
@@ -11637,12 +11863,15 @@ final class PlotterApplicationRuntime:
 
   private func clearMachineAuthority(clearSelection: Bool) async {
     if applicationAdmissionIsOpen {
-      guard await clearDiscoveryAuthority() else {
+      let settled = machineCameraRegistration != nil
+        ? await cancelAndSettleLearningForReset() : await clearDiscoveryAuthority()
+      guard settled else {
         machineError = learningAuthorityError
         return
       }
     }
     if clearSelection { selectedSerialDevice = nil }
+    requireVisualPositionRevalidation()
     passiveProbeResult = nil
     machineSnapshot = nil
     machineError = nil
@@ -11849,7 +12078,7 @@ final class PlotterApplicationRuntime:
         controllerSessionID = checkpoint.controllerSessionID
         explorationCoordinateRevision = checkpoint.coordinateRevision
         acceptedAttemptSequence = max(acceptedAttemptSequence, checkpoint.acceptedAttemptSequence)
-        controllerPoseApplicability = .currentSession
+        requireVisualPositionRevalidation()
         acceptedArtifactCheckpointStatus = .restored(
           sideCount: checkpoint.acceptedBoundaryAggregates.count,
           centerArrival: checkpoint.centerArrivalPosition != nil,
@@ -11931,6 +12160,11 @@ final class PlotterApplicationRuntime:
     tipCalibrationRuntime.resetForPaper(
       PaperInstanceRevision(rawValue: explorationPaperInstanceRevision)
     )
+    // Tip/contact-plane invalidation does not remove the retained cap map's
+    // ability to establish position before learning the new contact plane.
+    if case .requiresVisualRevalidation = controllerPoseApplicability {
+      tipCalibrationRuntime.installPositionRecoveryAvailability(machineCameraRegistration != nil)
+    }
   }
 
   private func clearDrawingLearningForRewind(from step: BorderValidationStep) {
@@ -12111,7 +12345,7 @@ final class PlotterApplicationRuntime:
     guard let operation = retainedStopRegistration else { return }
     let target = operation.target
     switch target {
-    case .exerciseMotion, .borderValidation, .sparseTipBatch, .sparseTipBatchSegment:
+    case .exerciseMotion, .borderValidation, .positionRecovery, .sparseTipBatch, .sparseTipBatchSegment:
       break
     }
 

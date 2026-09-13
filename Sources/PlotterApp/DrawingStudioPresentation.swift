@@ -583,8 +583,23 @@ struct DrawingStudioView: View {
     }
   }
 
+  var positionRecoveryButton: OperatorRequestButton? {
+    guard let action = plotterUIProjection.actions.first(where: {
+      guard case .learningAction(let request) = $0.intent else { return false }
+      return request.action == .tipCalibration(.revalidateCheckpoint)
+    }) else { return nil }
+    return OperatorRequestButton(title: "Re-establish Position from Camera", role: .affirmative,
+      request: plotterUIProjection.request(for: action.id),
+      unavailableReason: action.isAvailable ? nil
+        : action.unavailableReason ?? "Refresh position verification availability.",
+      sink: plotterUIIntentSink)
+  }
+
   private var controls: some View {
     HStack(spacing: 8) {
+      if let positionRecoveryButton {
+        positionRecoveryButton.accessibilityIdentifier("drawing.reestablishPosition")
+      }
       if case .unavailable(let reason) = presentation.runState {
         OperatorRequestButton(title: "Draw", role: .affirmative, request: nil,
           unavailableReason: reason, sink: plotterUIIntentSink, showsUnavailableReason: false)

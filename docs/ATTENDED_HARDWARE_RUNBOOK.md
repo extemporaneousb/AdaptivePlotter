@@ -217,9 +217,18 @@ restoration.
   dependency graph, registration, controller pose, session ownership, or
   hardware. Choose **Use Saved Learning** only when the overlays are correct;
   confirm it applies the exact saved revisions atomically without motion or
-  command replay. Repeat with **Start New Learning** and confirm the last
-  complete package remains available until a complete replacement is saved.
-- Actual controller reset, powered-off carriage uncertainty, camera
+  command replay. Confirm Learning is complete while calibrated Drawing remains
+  blocked until **Re-establish Position from Camera** uses a current exact-frame
+  cap observation at settled Pen Up. Record reported MPos separately from the
+  physical cap/tip location and verify the corrected overlay against the paper.
+  Repeat with **Start New Learning** and confirm the last complete package
+  remains available until a complete replacement is saved.
+- Powered-off carriage drift with unchanged MPos: retain the saved Learning,
+  use the same camera and explicit camera-position recovery, and verify that the
+  observed translation rebases Boundary, camera and tip overlays coherently
+  without travel, marks or a new Learning exercise. This requires attended
+  physical evidence; a controller trace or synthetic test cannot prove it.
+- Actual controller reset, camera
   bump/remount/reframe, or tool/contact-profile change: do not perform the
   unchanged-restart case. Use **Reset From This Step** at the owning physical
   dependency (or the explicit semantic-revision control when implemented).

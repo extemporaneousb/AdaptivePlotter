@@ -674,7 +674,7 @@ extension PlotterApplicationRuntimeTests {
       relaunched,
       .selectSource(.live, relaunchedCamera.device.id)
     )
-    #expect(relaunched.controllerPoseApplicability == .currentSession)
+    #expect(relaunched.controllerPoseApplicability.requiresPhysicalPositionForTest)
     #expect(
       relaunched.currentExerciseActionStripPresentation?.directionSelection?.selected
         == .negativeX

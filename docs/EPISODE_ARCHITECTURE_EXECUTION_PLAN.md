@@ -13,6 +13,45 @@ or competing architecture plan is authority. Accepted conclusions must be
 integrated here and the source note deleted. Git history and Blackdog prompt
 artifacts are history, not current design.
 
+## Saved Learning physical-position correction, 2026-09-12
+
+Task `task-c94d61ea72b34c8e9e1500d25f97900a` is a bounded correction to the
+existing accepted-checkpoint, tip-calibration, Boundary and Drawing Run owners.
+It retains accepted Learning while requiring current visual position after
+restoration or controller continuity loss, including gravity movement that leaves
+MPos unchanged. Supported translation recovery publishes coherent geometry;
+Boundary admission and pretravel checks retain physical applicability, and compact
+placement identities preserve the UI compiler boundary without weakening exact
+intent/frame validation. No new motion runner, Learning exercise, migration wave
+or attended VAL-01 execution is selected.
+
+The pre-assessment candidate passed strict quick tests (1035, five opt-in skips),
+strict journey tests (10), default warnings-as-errors and signed debug validation.
+Before assessment began, a final prefix correction retained camera position
+recovery after a contact-plane change invalidated tip calibration but retained the
+machine/cap map. The earlier signed candidate is superseded for delivery. The
+updated default warnings-as-errors build passed, and the final-source strict
+quick suite passed 1036 tests with five existing opt-in skips; the final-source
+strict journey suite passed 10 tests. That signed candidate remains staged and
+unlaunched. The sole full independent assessment found F-01/P2 (busy connected
+states mistaken for physical continuity loss) and F-02/P3 (generic recovery
+blocker copy), requiring one consolidated repair. Repaired default compilation
+and a separately staged replacement signed debug artifact passed validation.
+The focused repair regressions passed all three tests. The repaired integrated
+strict quick suite passed 1039 tests with five existing opt-in skips, and the
+repaired strict journey suite passed 10 tests. All repaired Swift gates passed
+together. Repaired documentation contracts and Python suites of 13, 9 and 39 tests
+passed in 31.203834 seconds; working and staged whitespace checks passed. After
+the sole full independent assessment and consolidated repair, the same assessor's
+one bounded delta closed F-01/P2 and F-02/P3 with no residual finding or new serious
+defect. No implementation, validation or assessment blocker remains. Actual
+results and limitations belong to
+[Current Evidence](CURRENT_EVIDENCE.md#saved-learning-physical-position-correction-2026-09-12).
+Native/performance and attended physical gates remain skipped to preserve the
+running user session. The authoritative target branch, landed commit and cleanup
+receipt belong to this task's Blackdog history and the coordinator's final delivery
+report.
+
 ## Bounded paper, ordinary border, and Motion correction, 2026-09-12
 
 Task `task-cceb274a51cd443696f191f1233ab3e4` is the explicitly authorized

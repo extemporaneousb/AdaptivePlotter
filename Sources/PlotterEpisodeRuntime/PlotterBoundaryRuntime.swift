@@ -55,6 +55,7 @@ public struct PlotterBoundaryExternalFacts: Sendable {
   public let passiveProbe: PassiveProbeResult?
   public let penActuationProfile: PenActuationProfile
   public let semanticIdentity: LearningPathSemanticIdentity
+  public let physicalPositionUnavailableReason: String?
 
   public init(
     environment: PlotterEnvironment,
@@ -69,7 +70,8 @@ public struct PlotterBoundaryExternalFacts: Sendable {
     interpreterIsIdle: Bool,
     passiveProbe: PassiveProbeResult?,
     penActuationProfile: PenActuationProfile,
-    semanticIdentity: LearningPathSemanticIdentity
+    semanticIdentity: LearningPathSemanticIdentity,
+    physicalPositionUnavailableReason: String? = nil
   ) {
     self.environment = environment
     self.learningEnabled = learningEnabled
@@ -84,6 +86,7 @@ public struct PlotterBoundaryExternalFacts: Sendable {
     self.passiveProbe = passiveProbe
     self.penActuationProfile = penActuationProfile
     self.semanticIdentity = semanticIdentity
+    self.physicalPositionUnavailableReason = physicalPositionUnavailableReason
   }
 
   fileprivate var effectIdentity: EffectIdentity {
@@ -100,7 +103,8 @@ public struct PlotterBoundaryExternalFacts: Sendable {
       interpreterIsIdle: interpreterIsIdle,
       passiveProbe: passiveProbe,
       penActuationProfile: penActuationProfile,
-      semanticIdentity: semanticIdentity
+      semanticIdentity: semanticIdentity,
+      physicalPositionUnavailableReason: physicalPositionUnavailableReason
     )
   }
 
@@ -118,6 +122,7 @@ public struct PlotterBoundaryExternalFacts: Sendable {
     let passiveProbe: PassiveProbeResult?
     let penActuationProfile: PenActuationProfile
     let semanticIdentity: LearningPathSemanticIdentity
+    let physicalPositionUnavailableReason: String?
   }
 }
 
@@ -757,6 +762,40 @@ public actor PlotterBoundaryRuntime {
       states[environment]!.pendingPublication == nil,
       states[environment]!.pendingReset == nil
     else { throw PlotterBoundaryRestoreError.activeOwner }
+    let authority = try restoredAuthority(checkpoint)
+    states[environment]!.authority = authority
+    states[environment]!.selectedDirection = authority.progress.allowedDirections.first
+      .map(PlotterBoundaryDirection.init) ?? .negativeX
+    states[environment]!.phase = .idle
+    states[environment]!.terminal = nil
+    states[environment]!.lastRefusal = nil
+    advanceRevision(environment)
+    await publish(environment)
+  }
+
+  /// Commits an already durable coordinate translation under the existing
+  /// reset reservation. Shutdown may close admission after persistence; the
+  /// reservation still owns publication of that committed value.
+  public func commitRebasedMachineArtifacts(
+    _ checkpoint: AcceptedMachineArtifactCheckpoint,
+    reservation: PlotterBoundaryResetCapabilityID,
+    environment: PlotterEnvironment
+  ) async throws -> PlotterBoundaryRuntimeSnapshot {
+    guard states[environment]!.pendingReset?.capabilityID == reservation,
+      states[environment]!.active == nil, states[environment]!.pendingPublication == nil
+    else { throw PlotterBoundaryRestoreError.activeOwner }
+    let authority = try restoredAuthority(checkpoint)
+    states[environment]!.authority = authority
+    states[environment]!.pendingReset = nil
+    states[environment]!.phase = .idle
+    states[environment]!.terminal = nil
+    states[environment]!.lastRefusal = nil
+    advanceRevision(environment)
+    await publish(environment)
+    return snapshot(for: environment)
+  }
+
+  private func restoredAuthority(_ checkpoint: AcceptedMachineArtifactCheckpoint) throws -> Authority {
     var authority = Authority()
     let restored = try checkpoint.restoredBoundaryHistories()
     authority.histories = Dictionary(uniqueKeysWithValues: restored.compactMap { direction, groups in
@@ -774,14 +813,7 @@ public actor PlotterBoundaryRuntime {
     authority.acceptedSequence = checkpoint.acceptedAttemptSequence
     authority.revisions = checkpoint.acceptedRevisions
     authority.checkpoint = checkpoint
-    states[environment]!.authority = authority
-    states[environment]!.selectedDirection = authority.progress.allowedDirections.first
-      .map(PlotterBoundaryDirection.init) ?? .negativeX
-    states[environment]!.phase = .idle
-    states[environment]!.terminal = nil
-    states[environment]!.lastRefusal = nil
-    advanceRevision(environment)
-    await publish(environment)
+    return authority
   }
 
   public func installRebasedMachineArtifacts(
@@ -902,6 +934,9 @@ public actor PlotterBoundaryRuntime {
     }
     guard facts.learningEnabled else {
       return (.learningDisabled, .enableLearning)
+    }
+    if let reason = facts.physicalPositionUnavailableReason {
+      return (.physicalPositionUnverified(reason), .restorePhysicalPosition)
     }
     if let ambiguity = facts.stickyAmbiguity {
       return (.stickyAmbiguity(ambiguity), .resolveAmbiguityWithoutAutomaticResend)

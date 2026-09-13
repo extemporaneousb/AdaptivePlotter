@@ -1187,7 +1187,8 @@ Changes apply as follows:
 - presentation zoom/pan: retain authority;
 - proven crop/resample transform: derive a rebased projection and covariance;
 - binary, process, or capture-session restart with the same camera device and
-  proven identical semantic optics: retain authority;
+  proven identical semantic optics: retain accepted calibration; restored physical
+  position remains a separate visual-verification prerequisite;
 - unknown device, source, crop, mirror, orientation, capture zoom, mount,
   lens/focus, or optical change: invalidate;
 - known machine-coordinate rebase: rebase intercept and domain;
@@ -1242,7 +1243,12 @@ pending command, a current camera frame, or a continuation. Before any choice,
 the app projects compatible saved frame/tip/cap/drawing geometry onto the
 current frame and reports bounded integer shift plus background mean absolute
 difference when a compatible saved reference exists. That report is advisory;
-it has no threshold and cannot accept or reject the package.
+it has no threshold and cannot accept or reject the package. Archived numeric
+paths are projected only when their recorded typed applicability matches the
+current registration. After a coordinate rebase, old-coordinate records remain
+immutable history but their paths are omitted from the current camera overlay;
+the rebased calibrated Boundary and Border remain visible. The app cannot
+reinterpret old numeric paths through a new map as if their frame were current.
 
 The startup candidate exposes exactly **Use Saved Learning** and **Start New
 Learning**. Use Saved Learning atomically rebuilds the process-local dependency
@@ -1250,8 +1256,22 @@ index with the exact stored revisions and installs the accepted values without
 motion, Pen-pose restoration, or command replay. Start New Learning applies no
 saved value and retains the last complete package until a newer dependency-
 complete package can replace it atomically. The operator owns this decision.
-Binary replacement, process restart, and capture-session restart perform no cap
-capture, click, mark, paper replacement, or Learning Path replay.
+Binary/process restoration and controller continuity loss cannot prove current
+physical carriage position. The unpowered armature can move under gravity while
+controller MPos remains unchanged. A restored machine/cap map therefore
+retains accepted Learning and overlays but requires **Re-establish Position from
+Camera** before coordinate-dependent automatic Learning or drawing. A saved
+cap-map prefix without tip calibration uses the same recovery before new
+calibration marks. A Boundary-only package has no retained map for this visual
+recovery; it retains accepted Pen Learning and reports the specific Boundary/
+Camera recovery needed before derived travel.
+The existing recovery owner acquires fresh exact-frame learned-cap evidence at a settled Pen-Up
+controller position; it issues no motion, click, mark, paper replacement, or
+Learning Path replay. Controller settings, offsets and MPos are necessary context,
+not physical-position evidence. Recovery uses the existing unique stable cap
+acquisition policy; confidence remains diagnostic rather than introducing a
+new numerical cutoff. A current verified session retains position
+applicability through ordinary known motion and same-plane sheet replacement.
 
 Accepted Learning completion depends on the retained accepted artifacts and
 outcomes, not the current Pen pose. A compatible complete checkpoint restores
@@ -1275,9 +1295,15 @@ contact-profile change, or paper-contact-plane change is a physical semantic
 change, not a software restart. A detectable context or optical mismatch keeps
 authority unavailable or invalidates it. A known coordinate translation may be
 explicitly recovered and rebased; unknown rotation, scale, geometry, or
-assembly change invalidates. Unobservable physical changes require the operator
-to declare the relevant reset rather than relying on process lifetime as a
-proxy.
+assembly change invalidates. A fresh observed cap can establish a pure
+carriage-coordinate translation against the retained camera map. Recovery must publish the translated machine
+Boundary, camera map and tip calibration coherently under one coordinate
+revision, preserving their accepted lineage and original drawing evidence.
+Stale, ambiguous, unavailable or mismatched observations cannot authorize motion;
+cancellation or failed durable publication leaves preceding accepted authority
+intact and position unverified. Camera/assembly changes that cannot be explained
+by that supported translation still require the owning reset. Restoration never
+uses unchanged MPos as proof that an unpowered carriage stayed physically still.
 
 ## Stage 2 dependency boundary
 

@@ -2,6 +2,7 @@ import EpisodeCore
 import Foundation
 import PlotterEpisodeModel
 import PlotterModel
+import PlotterUI
 import Testing
 
 @testable import PlotterApp
@@ -874,7 +875,7 @@ extension PlotterApplicationRuntimeTests {
     #expect(relaunched.penInteractionCompleted)
     #expect(relaunched.activeExerciseAttemptID == nil)
     #expect(relaunched.testActionSurfacePresentation.pointSelectionRequest == nil)
-    #expect(relaunched.controllerPoseApplicability == .currentSession)
+    #expect(relaunched.controllerPoseApplicability.requiresPhysicalPositionForTest)
     #expect(relaunched.testAcceptedBoundaryAggregates == first.testAcceptedBoundaryAggregates)
     await relaunched.establishMachineSession(machine.descriptor)
     await submitControllerSession(relaunched, .requestPassiveProbe)
@@ -908,7 +909,7 @@ extension PlotterApplicationRuntimeTests {
     } else {
       Issue.record("Expected accepted boundaries to apply after the operator decision.")
     }
-    #expect(relaunched.controllerPoseApplicability == .currentSession)
+    #expect(relaunched.controllerPoseApplicability.requiresPhysicalPositionForTest)
     let restoredRevisions = relaunched.learningArtifactGraph.revisions
     #expect(relaunched.controllerSessionProjection.motionAuthorized)
     #expect(relaunched.testManualMotionEpisodePresentation.jogControlsUnavailableReason == nil)
@@ -934,6 +935,41 @@ extension PlotterApplicationRuntimeTests {
         == .boundary(.moveToEstimatedCenter(retry: false))
     )
     #expect(relaunched.testAcceptedBoundaryAggregates == first.testAcceptedBoundaryAggregates)
+    let centerAction = try #require(relaunched.currentExerciseActionStripPresentation?.actions.first)
+    #expect(!centerAction.isEnabled)
+    #expect(centerAction.unavailableReason?.contains("no retained camera/cap map") == true)
+    let centerProjection = relaunched.testPlotterUIProjection(selectedItemID: boundaryOwner,
+      includesLearningPath: true).semantic
+    let centerIntent = PlotterLearningActionRequest(
+      item: .init(rawValue: "\(boundaryOwner.number)-\(boundaryOwner.title)"),
+      action: .boundary(.moveToEstimatedCenter(retry: false)))
+    #expect(centerProjection.request(matching: .learningAction(centerIntent)) == nil)
+    let centerRequest = PlotterUIRequest(id: .init(rawValue: UUID()),
+      uiRevision: centerProjection.revision, runtimeRevisions: centerProjection.runtimeRevisions,
+      actionID: .init(learningRequest: centerIntent), intent: .learningAction(centerIntent))
+    let commandsBeforeCenter = await machine.requestedPenCommands
+    let movesBeforeCenter = await machine.requestedFeeds
+    guard case .refused = await relaunched.submitPlotterUIRequest(centerRequest) else {
+      Issue.record("Saved Boundary admitted Center travel without current physical alignment")
+      await first.shutdown(); await relaunched.shutdown(); return
+    }
+    #expect(await machine.requestedPenCommands == commandsBeforeCenter)
+    #expect(await machine.requestedFeeds == movesBeforeCenter)
+    #expect(relaunched.learningArtifactGraph.revisions == restoredRevisions)
+    let recovery = try #require(relaunched.learningVacatePlan(from: boundaryOwner))
+    let commandsBeforeReset = await machine.requestedPenCommands
+    let movesBeforeReset = await machine.requestedFeeds
+    #expect(await relaunched.performLearningVacate(recovery))
+    #expect(relaunched.testAcceptedBoundaryAggregates.isEmpty)
+    #expect(relaunched.penInteractionCompleted)
+    #expect(!relaunched.controllerPoseApplicability.requiresPhysicalPositionForTest)
+    let relearnActions = relaunched.currentExerciseActionStripPresentation?.actions ?? []
+    #expect(relearnActions.contains { action in
+      if case .boundary(.acquire) = action.kind { return action.isEnabled }
+      return false
+    })
+    #expect(await machine.requestedPenCommands == commandsBeforeReset)
+    #expect(await machine.requestedFeeds == movesBeforeReset)
     await first.shutdown()
     await relaunched.shutdown()
   }

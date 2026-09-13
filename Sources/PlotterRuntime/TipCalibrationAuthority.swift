@@ -1375,7 +1375,11 @@ public struct TipCameraRegistration: Codable, Hashable, Sendable {
       estimatorRevision: estimatorRevision,
       acceptedAt: acceptedAt,
       derivation: .knownMachineCoordinateRebase(
-        fromRevision: acceptedRevisionID,
+        fromRevision: {
+          if case .checkpointRevalidated(let durableSource, _) = derivation { return durableSource }
+          if case .knownMachineCoordinateRebase(let durableSource, _) = derivation { return durableSource }
+          return acceptedRevisionID
+        }(),
         delta: delta
       ),
       revalidationEvidence: revalidationEvidence
@@ -1470,8 +1474,8 @@ extension TipCameraRegistration {
     }
     let durableSourceRevision: LearningArtifactRevisionID =
       switch derivation {
-      case .checkpointRevalidated(let fromRevision, _): fromRevision
-      case .accepted, .knownPixelTransform, .knownMachineCoordinateRebase:
+      case .checkpointRevalidated(let fromRevision, _), .knownMachineCoordinateRebase(let fromRevision, _): fromRevision
+      case .accepted, .knownPixelTransform:
         self.acceptedRevisionID
       }
     return try Self(

@@ -102,6 +102,11 @@ enum PlotterAppUIActionID {
     if case .selectProgram(let program) = intent {
       return PlotterUIActionID(rawValue: "drawing.draft.program.\(program.contentHash)")
     }
+    if case .placeAtCameraPoint = intent {
+      // One pending placement is projected at a time. The exact typed frame
+      // and point remain in the intent and are checked by request ingress.
+      return PlotterUIActionID(rawValue: "drawing.draft.place-at-camera-point")
+    }
     return PlotterUIActionID(rawValue: "drawing.draft.\(String(describing: intent))")
   }
 

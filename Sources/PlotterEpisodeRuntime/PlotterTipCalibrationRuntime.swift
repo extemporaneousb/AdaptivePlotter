@@ -173,7 +173,7 @@ public enum PlotterTipCalibrationEffectFact: Hashable, Sendable {
   case markBatch(PlotterTipCalibrationMarkBatchFact)
   case clickFrameReplaced(PlotterTipCalibrationExpectedPointSelection)
   case proposal(PlotterTipCalibrationRetainedDomainEvidence)
-  case revalidated(TipCameraRegistration)
+  case revalidated(TipCameraRegistration?)
   case committed(TipCameraRegistration)
   case proposalRejected
   case possibleInk(PlotterTipCalibrationPossibleInkFact)
@@ -221,6 +221,7 @@ public final class PlotterTipCalibrationRuntime {
 
   private let effectPort: any PlotterTipCalibrationEffectPort
   private var admissionClosed = false
+  private var shutdownRequested = false
   private var activeTask: Task<PlotterTipCalibrationEffectResult, Never>?
   private var operationSettlementWaiters: [CheckedContinuation<Void, Never>] = []
   private var terminalHistory: [PlotterTipCalibrationTerminalRecord] = []
@@ -232,6 +233,7 @@ public final class PlotterTipCalibrationRuntime {
   public private(set) var completedSelection: PlotterTipCalibrationCompletedPointSelection?
   public private(set) var retainedDomainEvidence: PlotterTipCalibrationRetainedDomainEvidence?
   public private(set) var acceptedRegistration: TipCameraRegistration?
+  public private(set) var positionRecoveryIsAvailable = false
   public private(set) var recoverableCheckpoint: AcceptedTipCalibrationCheckpoint?
   public private(set) var blacklistedLocations: Set<BlacklistedToolContactLocation> = []
 
@@ -269,6 +271,10 @@ public final class PlotterTipCalibrationRuntime {
     }
   }
 
+  public func installPositionRecoveryAvailability(_ available: Bool) {
+    positionRecoveryIsAvailable = available
+  }
+
   public func installRecoverableCheckpoint(_ checkpoint: AcceptedTipCalibrationCheckpoint?) {
     recoverableCheckpoint = checkpoint
   }
@@ -304,6 +310,7 @@ public final class PlotterTipCalibrationRuntime {
   public func resetForPaper(_ paperInstance: PaperInstanceRevision) {
     acceptedRegistration = nil
     recoverableCheckpoint = nil
+    positionRecoveryIsAvailable = false
     clearPaperTransients(paperInstance)
   }
 
@@ -344,8 +351,17 @@ public final class PlotterTipCalibrationRuntime {
   }
 
   /// Close admission before cancelling and joining the exact active task.
-  public func stop() async { await closeAdmission() }
-  public func shutdown() async { await closeAdmission() }
+  public func stop() async {
+    let stoppedPositionRecovery = activeIntent == .revalidateCheckpoint
+    await closeAdmission()
+    // A cancelled read-only check leaves the accepted checkpoint available for
+    // an explicit retry after the exact capture task has settled.
+    if stoppedPositionRecovery, !shutdownRequested { admissionClosed = false }
+  }
+  public func shutdown() async {
+    shutdownRequested = true
+    await closeAdmission()
+  }
 
   public func snapshot() -> PlotterTipCalibrationRuntimeSnapshot {
     PlotterTipCalibrationRuntimeSnapshot(
@@ -371,7 +387,7 @@ public final class PlotterTipCalibrationRuntime {
         && expectedSelection.map { phase == .awaitingCompletedPointSelection($0) } == true
     case .consumeCompletedPointSelection(let batch): validates(batch)
     case .revalidateCheckpoint:
-      recoverableCheckpoint != nil && activeOperationID == nil
+      (recoverableCheckpoint != nil || positionRecoveryIsAvailable) && activeOperationID == nil
     case .acceptProposal, .retryCommit:
       retainedDomainEvidence?.proposedRegistration != nil && phase == .reviewingProposal
     case .rejectProposal: retainedDomainEvidence != nil && phase == .reviewingProposal
@@ -459,11 +475,12 @@ public final class PlotterTipCalibrationRuntime {
       return .completed
     case (.revalidateCheckpoint, .revalidated(let registration)):
       acceptedRegistration = registration
+      positionRecoveryIsAvailable = false
       recoverableCheckpoint = nil
       expectedSelection = nil
       completedSelection = nil
       retainedDomainEvidence = nil
-      phase = .accepted
+      phase = registration == nil ? .idle : .accepted
       return .completed
     case (.acceptProposal, .committed(let registration)), (.retryCommit, .committed(let registration)):
       acceptedRegistration = registration

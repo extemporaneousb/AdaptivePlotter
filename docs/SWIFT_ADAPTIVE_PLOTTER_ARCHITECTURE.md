@@ -1738,15 +1738,40 @@ identity.
 Loading produces one exhaustive saved-package candidate and mutates no
 `LearningDependencyGraph` or registration owner. `PlotterApplicationRuntime` projects
 compatible saved geometry and uses the package's one bounded reference frame to
-produce an advisory integer-shift/background-MAD report. **Use Saved Learning**
+produce an advisory integer-shift/background-MAD report. The saved-plan overlay
+requires each record's typed calibration applicability to equal the selected
+registration's applicability. A coordinate-frame change therefore excludes old
+numeric archived strokes from current projection while preserving the record
+and current calibrated Boundary/Border. Fresh programs still plan and preview
+against the rebased registration. Drawing placement uses one compact action-kind
+identity per pending projection; full exact-frame/point intent equality and current
+revisions remain authoritative at submission. Embedding the frame's description
+in the action ID would exceed the UI compiler's bounded identity length.
+**Use Saved Learning**
 calls the checkpoint-owned exact graph reconstruction once, stages all fallible
 decoding locally, then assigns the complete accepted prefix atomically. **Start
 New Learning** retains the package but applies no values. Neither action restores
 Motion authorization, Pen state, controller pose trust, frames, operation
 owners, or Stop capabilities, and neither issues motion.
 
-Explicit changed-coordinate recovery may still construct fresh
-`TipCalibrationRevalidationEvidence` and rebase the machine checkpoint,
+Saved Learning restoration with a machine/cap map retains accepted geometry but marks current
+physical pose unverified. Controller disconnection loses that continuity even
+when a later MPos sample is identical: unpowered carriage movement is absent
+from the controller's coordinate history. Drawing Run and Boundary external facts
+carry this applicability independently of Learning completion. Boundary checks
+it before Pen Up or derived Center travel and includes it in the admitted effect
+identity, so continuity loss during preparation prevents travel. A Boundary-only
+package without a retained cap map requires the existing Boundary reset/relearning
+route; direct manual controls remain independent.
+**Re-establish Position from Camera** uses the existing typed
+`.tipCalibration(.revalidateCheckpoint)` request and tip-calibration owner,
+without a second motion or recovery runner. The same path supports a cap-map
+prefix before tip calibration, without inventing an accepted tip. Tip reset after
+a contact-plane change rederives the existing recovery availability from the
+retained machine/cap map when pose remains unverified; it does not restore the
+invalidated tip or StageFour result. A fresh learned-cap observation,
+bound to its exact frame/source/configuration and settled before/after controller
+context, constructs `TipCalibrationRevalidationEvidence` and can rebase the machine checkpoint,
 `MachineCameraRegistration`, and `TipCameraRegistration` under one new
 coordinate revision when a pure translation is actually proven. Direct manual
 controls remain independent. Replacing only the
@@ -1755,11 +1780,15 @@ it and requires the full four-mark calibration. The revalidation evidence is
 durable. Reset clears the affected durable machine and/or tip checkpoint before
 clearing in-memory authority.
 
-Process restart does not rotate persisted semantic identities. Unknown physical
-changes still cannot be inferred from a UUID: after an unrecorded camera bump,
-machine reset, remount, or assembly change, the operator must use the owning
-reset rather than accepting unchanged restoration. Explicit operator-facing
-revision controls remain a roadmap item.
+Process restart does not rotate persisted semantic identities or erase accepted
+Learning. It also cannot prove the carriage stayed physically still. A supported
+pure translation is recovered from observed cap position rather than an MPos
+difference. Rebased Boundary, machine-camera and tip authority must publish as
+one durable transition; failure or cancellation retains the preceding authority
+and unverified pose. Prior drawing records remain immutable and equivalent
+possible-ink plans remain protected against redraw after translation. A camera
+bump, remount, geometry or assembly change beyond this translation model still
+uses the owning reset. Explicit semantic-revision controls remain a roadmap item.
 
 ## Stage 2 ownership
 

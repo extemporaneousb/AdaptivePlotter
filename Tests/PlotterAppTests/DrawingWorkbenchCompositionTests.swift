@@ -303,6 +303,10 @@ struct DrawingWorkbenchApplicationFixture {
   let runRuntime: PlotterDrawingRunRuntime
 
   static func make(releasePlanOnStop: Bool = true,
+    verifyPhysicalPose: Bool = true,
+    checkpointSaveFails: Bool = false,
+    holdsManualJog: Bool = false,
+    penRequestGate: PenRequestGate? = nil,
     paperPersistence: any PlotterDrawingDraftPaperPersistence = PlotterDrawingDraftTransientPaperPersistence()
   ) async throws -> Self {
     let accepted = try await CompleteAcceptedLearningFixture.make()
@@ -310,12 +314,17 @@ struct DrawingWorkbenchApplicationFixture {
     try await stores.save(accepted)
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log,
-      relativeJogSettlementOffset: Vector2(dx: 0, dy: 0))
+      relativeJogSettlementOffset: holdsManualJog ? nil : Vector2(dx: 0, dy: 0),
+      penRequestGate: penRequestGate, reportsActivePenConnection: penRequestGate != nil)
     await machine.setPenState(.unknown)
     let clock = ComputationTestClock()
     clock.set(max(clock.read(), accepted.frame.frame.captureNanoseconds))
-    let camera = try AcceptedDrawingCameraSession(frame: accepted.frame, clock: clock)
+    let capAnchor = try #require(accepted.checkpoint.machineCamera).registration.fit.cameraPoint(
+      from: (await machine.snapshot()).machine.position!.point)
+    let camera = try AcceptedDrawingCameraSession(frame: accepted.frame, clock: clock,
+      poseCapAnchor: capAnchor)
     let planGate = DrawingRunPlanGate()
+    let checkpointStore = stores.checkpointStore
     var runRuntime: PlotterDrawingRunRuntime?
     let app = plotterApplicationRuntime(machine: machine, observationSessionOverride: camera,
       drawingPlanBegin: { request in
@@ -326,7 +335,10 @@ struct DrawingWorkbenchApplicationFixture {
         if releasePlanOnStop { await planGate.release(.cancelled) }
         return .transmitted
       },
-      statePersistencePort: stores.persistence,
+      statePersistencePort: checkpointSaveFails ? TestApplicationStatePersistencePort(
+        loadCheckpoint: { checkpointStore.load() },
+        saveCheckpoint: { _ in throw PhysicalPoseFixtureError.persistence },
+        clearCheckpoint: { try checkpointStore.clear() }) : stores.persistence,
       drawingDraftRuntime: nominalDrawingDraftRuntime(paperPersistence: paperPersistence),
       drawingEvidencePort: stores.evidencePort,
       tipCalibrationSemanticIdentities: accepted.identities,
@@ -340,12 +352,30 @@ struct DrawingWorkbenchApplicationFixture {
     try await applyCompleteSavedLearning(app)
     #expect(app.interactiveLearningIsComplete)
     #expect(app.tipCameraRegistration == accepted.registration)
+    if verifyPhysicalPose {
+      // Establish current physical authority through the rendered production
+      // request and coherent synthetic camera/controller evidence. A fixture
+      // must never turn Saved Learning itself into current-pose authority.
+      await machine.setPenState(.up)
+      _ = await app.refreshControllerSessionSnapshot()
+      try await reestablishPhysicalPositionForTest(app)
+      await machine.setPenState(.unknown)
+      _ = await app.refreshControllerSessionSnapshot()
+    }
     return Self(application: app, machine: machine, stores: stores, accepted: accepted, camera: camera, clock: clock,
       planGate: planGate, runRuntime: try #require(runRuntime))
   }
 
   func submit(_ intent: PlotterDrawingDraftIntent) async throws {
-    let request = try #require(application.testPlotterUIProjection().semantic.request(matching: .drawingDraft(intent)))
+    let projection = application.testPlotterUIProjection().semantic
+    let projectedRequest = projection.request(matching: .drawingDraft(intent))
+    let draft = application.drawingDraftSnapshot
+    let action = projection.actions.first { $0.intent == .drawingDraft(intent) }
+    let context = "intent=\(intent); draft plan=\(draft.plan == nil ? "absent" : "present"), "
+      + "coverage=\(draft.paperCoverageIsCurrent), refusal=\(String(describing: draft.lastSubmissionRefusal)); "
+      + "run=\(String(describing: application.drawingRunSnapshot?.readiness)); "
+      + "action=\(action?.unavailableReason ?? (action == nil ? "omitted" : "available"))"
+    let request = try #require(projectedRequest, "\(context)")
     #expect(await application.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
   }
 }
@@ -360,12 +390,18 @@ actor AcceptedDrawingCameraSession: PlotterObservationCameraSessionPort {
   private let clock: ComputationTestClock
   private let fallback: any PlotterObservationCameraSessionPort
   private let vision = DrawingRunVisionProbe(events: DrawingRunEventProbe())
+  private var poseCapAnchor: Point2<CameraPixelSpace>?
+  private var poseCaptureMode: PhysicalPoseCaptureMode = .valid
+  private var poseCaptureGate: TestInspectionSuspension?
+  private(set) var poseCaptureCount = 0
 
-  init(frame: DisplayedFrame, clock: ComputationTestClock) throws {
+  init(frame: DisplayedFrame, clock: ComputationTestClock,
+    poseCapAnchor: Point2<CameraPixelSpace>? = nil) throws {
     guard case .live(let id) = frame.source else { throw DrawingWorkbenchFixtureError.missingReadinessIssue }
     device = CameraDevice(id: id, name: "Synthetic accepted drawing camera")
     self.frame = frame
     self.clock = clock
+    self.poseCapAnchor = poseCapAnchor
     fallback = resolvedObservationSession(try TestObservationCameraSession())
   }
 
@@ -399,7 +435,29 @@ actor AcceptedDrawingCameraSession: PlotterObservationCameraSessionPort {
   func inspectWorkflowScene(newerThanNanoseconds: UInt64, requestedFeatures: SceneFeatureSet,
     analysisRegion: PixelRect?) async throws -> LiveSceneInspection? { nil }
   func captureStableWorkflowCap(_ request: StableWorkflowCapCaptureRequest) async throws -> StableWorkflowCapInspection {
-    try await fallback.captureStableWorkflowCap(request)
+    guard let anchor = poseCapAnchor else {
+      return try await fallback.captureStableWorkflowCap(request)
+    }
+    poseCaptureCount += 1
+    await poseCaptureGate?.waitIfArmed()
+    try Task.checkCancellation()
+    if poseCaptureMode == .unavailable {
+      throw LearningPathOperationError.requiredState("Current camera frame is unavailable.")
+    }
+    if poseCaptureMode == .ambiguous {
+      throw LearningPathOperationError.requiredState("Pen-cap measurement refused: ambiguous candidates.")
+    }
+    let frame = try captureFrame(newerThanNanoseconds: request.newerThanNanoseconds)
+    let captured = try #require(frame)
+    let sample = try physicalPoseInspection(frame: captured, anchor: anchor,
+      mode: poseCaptureMode, staleBoundary: request.newerThanNanoseconds)
+    return sample
+  }
+  func configurePoseCapture(anchor: Point2<CameraPixelSpace>? = nil,
+    mode: PhysicalPoseCaptureMode = .valid, gate: TestInspectionSuspension? = nil) {
+    if let anchor { poseCapAnchor = anchor }
+    poseCaptureMode = mode
+    poseCaptureGate = gate
   }
   func setSceneAnalysisRegion(_: PixelRect?) {}
   func setPenCapColor(_: PenCapColor) {}

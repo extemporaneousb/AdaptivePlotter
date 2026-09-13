@@ -3,6 +3,7 @@ import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
+import PlotterUI
 import Testing
 
 @testable import PlotterApp
@@ -89,15 +90,48 @@ struct SavedLearningPenUpTests {
     }
   }
 
+  @Test("saved cap-map prefix blocks marking until current physical position is observed")
+  func prefixRequiresPhysicalPositionBeforeMarking() async throws {
+    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up,
+      verifyPhysicalPose: false)
+    defer { fixture.stores.remove() }
+    let app = fixture.app
+    #expect(app.penInteractionCompleted)
+    #expect(app.machineCameraRegistration != nil)
+    #expect(app.tipCameraRegistration == nil)
+    #expect(app.controllerPoseApplicability.requiresPhysicalPositionForTest)
+    let action = try #require(app.currentExerciseActionStripPresentation?.actions.first {
+      $0.kind == .tipCalibration(.revalidateCheckpoint)
+    })
+    #expect(action.isEnabled)
+    _ = try physicalPositionRequest(app)
+    await assertSavedPrefixMarkingIsRefused(app)
+    #expect(await fixture.machine.requestedFeeds.isEmpty)
+    #expect(await fixture.machine.requestedPenCommands.isEmpty)
+    try await reestablishPhysicalPositionForTest(app)
+    let marking = try #require(app.currentExerciseActionStripPresentation?.actions.first {
+      $0.kind == .tipCalibration(.beginFourMarkBatch)
+    })
+    #expect(marking.isEnabled)
+    #expect(app.tipCameraRegistration == nil)
+    #expect(app.penInteractionCompleted)
+    #expect(await fixture.machine.requestedFeeds.isEmpty)
+    #expect(await fixture.machine.requestedPenCommands.isEmpty)
+    await app.shutdown()
+  }
+
   @Test("the automatic raise does not remove the live camera prerequisite")
   func cameraIsStillRequired() async throws {
     let fixture = try await SavedCameraCalibrationFixture.make(penState: .unknown, includeCamera: false)
     defer { fixture.stores.remove() }
     let action = try #require(fixture.app.currentExerciseActionStripPresentation?.actions.first {
-      $0.kind == .tipCalibration(.beginFourMarkBatch)
+      $0.kind == .tipCalibration(.revalidateCheckpoint)
     })
     #expect(!action.isEnabled)
-    #expect(action.unavailableReason == "A current LIVE camera frame is required.")
+    #expect(action.unavailableReason == "Show the current Plotter Video camera.")
+    await assertSavedPrefixMarkingIsRefused(fixture.app)
+    #expect(await fixture.machine.requestedFeeds.isEmpty)
+    #expect(await fixture.machine.requestedDrawingStrokes.isEmpty)
     #expect(await fixture.machine.requestedPenCommands.isEmpty)
     await fixture.app.shutdown()
   }
@@ -112,7 +146,8 @@ private struct SavedCameraCalibrationFixture {
   let checkpoint: AcceptedLearningPathCheckpoint
   let log: EventLog
 
-  static func make(penState: PenState, includeCamera: Bool = true) async throws -> Self {
+  static func make(penState: PenState, includeCamera: Bool = true,
+    verifyPhysicalPose: Bool = true) async throws -> Self {
     // Use synthetic accepted artifacts through the production persistence and
     // Apply Saved Learning path, retaining only the prefix before tip marking.
     let accepted = try await CompleteAcceptedLearningFixture.make()
@@ -132,7 +167,9 @@ private struct SavedCameraCalibrationFixture {
     await machine.setPenState(penState)
     let clock = ComputationTestClock()
     clock.set(max(clock.read(), accepted.frame.frame.captureNanoseconds))
-    let camera = try AcceptedDrawingCameraSession(frame: accepted.frame, clock: clock)
+    let capAnchor = try #require(checkpoint.machineCamera).registration.fit.cameraPoint(
+      from: (await machine.snapshot()).machine.position!.point)
+    let camera = try AcceptedDrawingCameraSession(frame: accepted.frame, clock: clock, poseCapAnchor: capAnchor)
     let app = plotterApplicationRuntime(
       machine: machine,
       observationSessionOverride: includeCamera ? camera : nil,
@@ -149,7 +186,30 @@ private struct SavedCameraCalibrationFixture {
       await submitObservationConfigurationForTest(app, .selectSource(.live, camera.device.id))
     }
     try await applyCompleteSavedLearning(app)
+    if includeCamera && verifyPhysicalPose {
+      await machine.setPenState(.up)
+      _ = await app.refreshControllerSessionSnapshot()
+      try await reestablishPhysicalPositionForTest(app)
+      await machine.setPenState(penState)
+      _ = await app.refreshControllerSessionSnapshot()
+    }
     return Self(app: app, machine: machine, penGate: penGate, stores: stores,
       checkpoint: checkpoint, log: log)
+  }
+}
+
+@MainActor
+private func assertSavedPrefixMarkingIsRefused(_ app: PlotterApplicationRuntime) async {
+  let owner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+  let projection = app.testPlotterUIProjection(selectedItemID: owner, includesLearningPath: true).semantic
+  let learning = PlotterLearningActionRequest(
+    item: .init(rawValue: "\(owner.number)-\(owner.title)"), action: .tipCalibration(.beginFourMarkBatch))
+  #expect(projection.request(matching: .learningAction(learning)) == nil)
+  let request = PlotterUIRequest(id: .init(rawValue: UUID()), uiRevision: projection.revision,
+    runtimeRevisions: projection.runtimeRevisions, actionID: .init(learningRequest: learning),
+    intent: .learningAction(learning))
+  guard case .refused = await app.submitPlotterUIRequest(request) else {
+    Issue.record("Saved cap-map prefix admitted marking without current physical-position evidence")
+    return
   }
 }

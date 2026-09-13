@@ -9,6 +9,125 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Saved Learning physical-position correction, 2026-09-12
+
+Task `task-c94d61ea72b34c8e9e1500d25f97900a` follows the operator's screenshot
+showing physical drawing displacement and explanation that the unpowered
+armature moves under gravity. The retained controller trace used relative
+millimeter jogs with zero work offsets; 23 completed endpoints matched the
+archived plan within 0.025519 mm. This controller-coordinate evidence did not
+establish physical tip alignment or resolve the reported displacement.
+
+The correction retains accepted Learning while requiring fresh camera/cap
+position evidence before derived travel. Production typed requests cover coherent
+rebase, exact-frame/source/context rejection, cancellation and failed persistence,
+and immutable ink exclusion across repeated border-off/border-on runs. Old numeric
+archive strokes are not projected through a newly rebased map; current calibrated
+Boundary/Border and fresh program previews remain available. Boundary admission
+and its effect identity carry physical applicability, including continuity loss
+during Pen Up preparation. Direct manual controls remain independent.
+
+A production placement defect was also corrected: embedding the full exact frame
+in an action ID exceeded the UI compiler's 512-character bound. A compact placement
+kind identity now survives compilation, while full reached frame/point intent and
+current revisions remain checked. The regression requires altered-point refusal
+and successful actual placement away from a possibly inked drawing.
+
+Before the final prefix correction, the integrated strict quick suite passed
+1035 tests in 90.650 seconds tests / 102.424 seconds wall, with five existing
+opt-in skips. The strict journey suite passed 10 tests in 3.363 seconds tests /
+4.615 seconds wall. Exact commands were `make quick-test` and `make journey-test`,
+each with `SWIFT_FLAGS="-Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors"`.
+The default warnings-as-errors build passed in 60.987 seconds. `make validate-app`
+with those strict flags passed in 13.152 seconds. That pre-correction signed debug
+artifact remains separately staged at
+`/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter-vision-c94d61ea.app`,
+with executable SHA-256
+`e4620ced5815be45397ee16720900826934b436381f4bfead25d10ea343944b5`.
+Its stable local signature and 176 production/build inputs matched at that build.
+It was not launched and is superseded for delivery by the final prefix correction.
+
+Before independent assessment began, source review found that a contact-plane
+change while pose was unverified cleared the tip owner's recovery availability
+despite retaining the machine/cap map. The existing reset helper now rederives
+that availability from the retained map only while visual verification is required.
+Its production regression requires changed-plane invalidation, actionable and
+successful camera recovery, tip and StageFour remaining invalid, retained Pen/map
+and immutable archive, no lower motion effects, and available tip recalibration.
+The reviewed-candidate command `swift build --scratch-path .build-default-warning-check
+-Xswiftc -warnings-as-errors` passed in 205.178 seconds. The reviewed-candidate strict
+quick suite passed 1036 tests in 88.577 seconds tests / 153.901 seconds wall,
+with five existing opt-in skips; the new changed-plane regression passed in
+6.539 seconds. The reviewed-candidate strict journey suite passed 10 tests in 3.343
+seconds tests / 4.596 seconds wall. Reviewed-candidate strict `make validate-app`
+passed in 12.636 seconds. The separately staged final signed debug candidate is
+`/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter-vision-c94d61ea-final.app`,
+with executable SHA-256
+`c58e163d441df0c918503c8404fc9fd8699aa46504d3c368deb904345a3d8715`.
+Its stable local signature and all 176 production/build inputs matched
+`plane-recovery-source-inputs.json` at assessment. It remains unlaunched and now
+requires the consolidated assessment repair before delivery.
+
+The sole full independent assessment reviewed tree
+`43f908299c4aff10362b8c386ec2d604db54658e` and found two actionable issues:
+F-01/P2 misclassified connected moving/actuating-Pen states as physical continuity
+loss; F-02/P3 replaced the recovery owner's precise blocker with generic Pen Up/
+camera copy. No P0 or P1 was found. Both findings require correction; this is not
+an assessment pass. The one consolidated repair preserves busy connected states
+while retaining real disconnect invalidation, and renders the actual recovery
+owner reason through the existing button. New production tests hold manual Jog
+and Pen operations in their actual lower busy states, cover transport loss while
+moving, and inspect the actual recovery button for disconnected/in-progress/
+available states. The repaired default warnings-as-errors build passed in 26.599
+seconds. Repaired strict `make validate-app` passed in 12.247 seconds. Its new
+separate signed debug artifact supersedes the c58e reviewed base for delivery:
+`/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter-vision-c94d61ea-reviewed.app`,
+executable SHA-256
+`bb0025909cf3afce163ce9eab0e2ffd1a0f8b3c4e3c1990c756763e3e84c6ce9`.
+Deep/strict signature verification passed and all 176 inputs match
+`repair-source-inputs.json`; the candidate remains unlaunched. The first repaired
+focused run compiled but deadlocked in new test sequencing and was terminated
+after 237.180 seconds, a nonpass. The corrected run passed both F-01 tests but
+failed the F-02 test's capture-hold wait (three tests, one issue, 5.734 seconds
+tests / 22.773 seconds wall). The test now binds the actual button request after
+asynchronous fixture setup and reports early refusal rather than discarding it;
+that earlier request result was not captured, so the timeout's exact cause is
+unproven. The next run reached successful recovery but failed an obsolete
+expectation that the recovery action would remain visible (three tests, one issue,
+2.841 seconds tests / 14.603 seconds wall). The existing owner consumes that action after success;
+the test now requires its absence and retains exact blocker/availability checks.
+The final focused repair run passed all three tests in 2.957 seconds tests /
+14.341 seconds wall. The repaired integrated strict quick suite passed 1039 tests
+in 91.237 seconds tests / 92.974 seconds wall, with the same five existing opt-in
+skips. The repaired strict journey suite passed 10 tests in 3.369 seconds tests /
+4.644 seconds wall. All repaired Swift gates passed together on this candidate.
+The same independent assessor completed the sole bounded delta after the one full
+assessment and consolidated repair. F-01/P2 and F-02/P3 are closed; no residual
+finding or new serious defect remains. The assessor independently verified repair
+tree `ffaac914b6172463509e14f51bf6888b1fee670f`, all 176 source/build inputs, the
+staged bb002590 executable and signature, and unchanged live-session state.
+
+Complete documentation checks passed in 32.3758, 42.356, 30.795 and 31.076
+seconds. Repaired documentation checks passed in 31.203834 seconds, including
+contracts and Python suites of 13, 9 and 39 tests; working and staged whitespace
+checks also passed. Earlier
+failed runs remain historical in the task's external validation ledger and logs:
+source/test compilation failures, the 71-test/58-issue fixture/contract run, the
+mixed-build-cache link failure, the 72-test/6-issue and 72-test/2-issue runs,
+narrow no-redraw failures, the 1033-test/four-issue Boundary admission run, the
+42-test/two-issue asynchronous owner-test run, and the 1035-test/one-issue canvas
+bootstrap run. The canvas fixture now joins its existing Draft/Run initialization
+chain and retains all original full snapshot/action/Learning/revision assertions.
+These failures are not passes and do not establish physical alignment.
+
+The user's application (PID 60994) and saved state remain protected. The staged
+candidate is not running in that session. Native/performance and attended
+camera/pen/paper/ink validation were skipped; no hardware action was performed.
+Voice stays parked, including its independently documented workflow speech path.
+The validated correction has no remaining implementation, validation or assessment
+blocker. The authoritative target branch, landed commit and cleanup receipt belong
+to this Blackdog task's history and the coordinator's final delivery report.
+
 ## Default-build Motion reader warning, 2026-09-12
 
 Task `task-c996a0e8390246288358802d786158d8` follows the operator's compiler-warning

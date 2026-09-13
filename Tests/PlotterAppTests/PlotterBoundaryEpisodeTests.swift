@@ -1057,6 +1057,66 @@ struct PlotterBoundaryEpisodeTests {
     )
   }
 
+  @Test("retained Boundary cannot raise or travel until current physical alignment is established")
+  func centerRequiresCurrentPhysicalPosition() async throws {
+    let fixture = try makeBoundaryEpisodeFixture(machinePosition: try MachinePosition(x: 100, y: 50))
+    try await fixture.runtime.restore(acceptedBoundaryTestCheckpoint(centerArrivalIsAccepted: false,
+      controllerSessionID: boundaryEpisodeControllerSessionID), environment: .live)
+    let before = await fixture.runtime.snapshot(for: .live)
+    let reason = "Saved Boundary has no current physical alignment."
+    await fixture.facts.setPhysicalPositionUnavailableReason(reason)
+    guard case .applied = await fixture.runtime.submit(submission(before, .moveToEstimatedCenter(retry: false))) else {
+      Issue.record("Expected the owner's pre-fact Center reservation"); return
+    }
+    // Fact admission runs after the stoppable reservation is published. Join
+    // its terminal refusal before replacing facts or requesting another run.
+    let refused = await fixture.recorder.waitForTerminalCount(1, environment: .live)
+    #expect(refused.projection.lastRefusal?.reason == .physicalPositionUnverified(reason))
+    #expect(refused.projection.lastRefusal?.remedy == .restorePhysicalPosition)
+    #expect(refused.projection.terminal?.disposition == .refused(String(describing:
+      PlotterBoundaryRefusalReason.physicalPositionUnverified(reason))))
+    #expect(await fixture.effects.preparationCount == 0)
+    #expect(await fixture.effects.centerAdmissionCount == 0)
+    #expect(await fixture.persistence.candidateCount == 0)
+    #expect((await fixture.runtime.snapshot(for: .live)).acceptedAggregates == before.acceptedAggregates)
+
+    // The root supplies this fact only after its accepted recovery or explicit
+    // relearning transaction; owner admission responds to that authority change.
+    await fixture.facts.setPhysicalPositionUnavailableReason(nil)
+    let current = await fixture.runtime.snapshot(for: .live)
+    let resumed = await fixture.runtime.submit(submission(current,
+      .moveToEstimatedCenter(retry: current.projection.centerArrivalRetryRequired)))
+    guard case .applied = resumed else {
+      Issue.record("Current physical authority failed to restore Center admission: \(resumed)"); return
+    }
+    let center = await fixture.effects.waitForCenterAdmission(1)
+    await fixture.effects.settle(center.handle,
+      with: .completed(finalPosition: try MachinePosition(x: 0, y: 0), idleVerified: true))
+    let terminal = await fixture.recorder.waitForTerminalCount(2, environment: .live)
+    #expect(terminal.projection.terminal?.disposition == .accepted)
+    #expect(await fixture.effects.preparationCount == 1)
+  }
+
+  @Test("losing physical alignment during Pen Up preparation prevents Boundary Center travel")
+  func physicalPositionLossBeforeCenterTravel() async throws {
+    let fixture = try makeBoundaryEpisodeFixture(machinePosition: try MachinePosition(x: 100, y: 50))
+    try await fixture.runtime.restore(acceptedBoundaryTestCheckpoint(centerArrivalIsAccepted: false,
+      controllerSessionID: boundaryEpisodeControllerSessionID), environment: .live)
+    let before = await fixture.runtime.snapshot(for: .live)
+    await fixture.effects.holdNextPreparation()
+    guard case .applied = await fixture.runtime.submit(submission(before, .moveToEstimatedCenter(retry: false))) else {
+      Issue.record("Expected initial known-pose Center admission"); return
+    }
+    _ = await fixture.effects.waitForPreparation(1)
+    await fixture.facts.setPhysicalPositionUnavailableReason("Controller continuity was lost while preparing.")
+    await fixture.effects.releaseHeldPreparation(.success(()))
+    let terminal = await fixture.recorder.waitForTerminalCount(1, environment: .live)
+    #expect(terminal.projection.terminal?.disposition != .accepted)
+    #expect(terminal.acceptedAggregates == before.acceptedAggregates)
+    #expect(await fixture.effects.centerAdmissionCount == 0)
+    #expect(await fixture.persistence.candidateCount == 0)
+  }
+
   @Test("center arrival accepts exact settlement and outside tolerance offers center-only retry")
   func centerArrivalAndRetry() async throws {
     let accepted = try makeBoundaryEpisodeFixture(machinePosition: try MachinePosition(x: 100, y: 50))
@@ -1516,6 +1576,7 @@ private func expectRefusal(
 private actor BoundaryEpisodeFactSource: PlotterBoundaryFactSource {
   private var machinePosition: MachinePosition
   private var learningEnabled = true
+  private var physicalPositionUnavailableReason: String?
   private(set) var requestCount = 0
   private let passiveProbe: PassiveProbeResult
   private let semanticIdentity: LearningPathSemanticIdentity
@@ -1528,6 +1589,10 @@ private actor BoundaryEpisodeFactSource: PlotterBoundaryFactSource {
     self.machinePosition = machinePosition
     self.passiveProbe = passiveProbe
     self.semanticIdentity = semanticIdentity
+  }
+
+  func setPhysicalPositionUnavailableReason(_ reason: String?) {
+    physicalPositionUnavailableReason = reason
   }
 
   func setLearningEnabled(_ enabled: Bool) {
@@ -1549,7 +1614,8 @@ private actor BoundaryEpisodeFactSource: PlotterBoundaryFactSource {
       interpreterIsIdle: true,
       passiveProbe: environment == .live ? passiveProbe : nil,
       penActuationProfile: .initialDefaults,
-      semanticIdentity: semanticIdentity
+      semanticIdentity: semanticIdentity,
+      physicalPositionUnavailableReason: physicalPositionUnavailableReason
     )
   }
 }

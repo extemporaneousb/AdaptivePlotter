@@ -84,8 +84,12 @@ camera mount/reframing changes, and known machine-geometry revisions. Each
 control must rotate the correct semantic identity, show the affected checkpoint
 and graph suffix, preserve raw history, and require explicit invalidation or
 revalidation. Binary/process/capture restart retains the persisted semantic
-identities; the controls must let the operator declare a real physical change
-without using application lifetime as its proxy.
+identities. Camera-based position recovery now separates accepted Learning from
+physical carriage continuity; unchanged MPos cannot prove an unpowered armature
+stayed still. The controls must still let the operator declare camera, tool or
+geometry changes beyond the supported translation recovery. Attended validation
+of gravity-drift recovery and corrected overlay/ink placement remains required;
+software fixtures do not establish it.
 
 ## Diagnostic archive integration
 

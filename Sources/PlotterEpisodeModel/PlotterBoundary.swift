@@ -136,6 +136,7 @@ public enum PlotterBoundaryRefusalReason: Hashable, Sendable {
   case acceptedDirectionRequired(PlotterBoundaryDirection)
   case controllerUnavailable(String)
   case motionAuthorizationRequired
+  case physicalPositionUnverified(String)
   case lowerOperationInFlight
   case stickyAmbiguity(String)
   case cancellationCapabilityMismatch
@@ -160,6 +161,7 @@ public enum PlotterBoundaryRemedy: Hashable, Sendable {
   case recordRequiredDirection
   case connectAndProbeController
   case authorizeMotion
+  case restorePhysicalPosition
   case resolveAmbiguityWithoutAutomaticResend
   case useExactCancellationCapability
   case completeAllFourSides

@@ -526,7 +526,7 @@ private extension PlotterLearningAction {
     case .tipCalibration(.captureNewClickFrame): "Capture New Click Frame"
     case .pointSelectionCorrection(.undoLastPoint): "Undo Last Click"
     case .pointSelectionCorrection(.clearPoints): "Clear Clicks on This Frame"
-    case .tipCalibration(.revalidateCheckpoint): "Revalidate Saved Pen-Tip Calibration"
+    case .tipCalibration(.revalidateCheckpoint): "Re-establish Position from Camera"
     case .tipCalibration(.acceptProposal): "Accept Pen-Tip Calibration"
     case .tipCalibration(.rejectProposal): "Reject Pen-Tip Calibration"
     case .tipCalibration(.retryCommit): "Retry Pen-Tip Calibration Save"
@@ -1040,6 +1040,13 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
           ? "Retry Drawing Border Validation" : "Restart Attempt"
       )])
     }
+    if item.kind == .sparseTipCalibration, facts.sparseSavedCheckpointMatchesPaper {
+      return strip(item.ownerID, [.init(
+        itemID: item.ownerID,
+        action: .tipCalibration(.revalidateCheckpoint),
+        unavailableReason: facts.startUnavailableReasons[item.ownerID]
+      )])
+    }
     if item.isComplete {
       guard item.ownerID == facts.selectedOwnerID else { return nil }
       if item.kind == .drawingValidation { return nil }
@@ -1083,13 +1090,6 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       return strip(item.ownerID, [.init(
         itemID: item.ownerID,
         action: .cameraCalibration(.buildFivePositionProposal),
-        unavailableReason: reason
-      )])
-    }
-    if item.kind == .sparseTipCalibration, facts.sparseSavedCheckpointMatchesPaper {
-      return strip(item.ownerID, [.init(
-        itemID: item.ownerID,
-        action: .tipCalibration(.revalidateCheckpoint),
         unavailableReason: reason
       )])
     }

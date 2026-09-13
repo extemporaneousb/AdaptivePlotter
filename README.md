@@ -210,8 +210,12 @@ its machine and `AcceptedTipCalibrationCheckpoint` components. Tip authority
 is composed back into current authority after a matching read-only controller-
 context probe and a current frame with the same camera device and semantic
 optics. An ordinary binary replacement, process restart, or capture-session
-restart preserves the exact accepted tip revision: it performs no fresh cap
-capture, click, mark, paper operation, or Learning Path replay. Paper identity is split into a
+restart retains accepted Learning; it cannot establish current physical position.
+An unpowered carriage may move under gravity without changing MPos. Use
+**Re-establish Position from Camera** with the same camera and settled Pen Up
+before calibrated automatic drawing. The exact-frame cap observation either
+verifies the position or coherently rebases a supported translation without
+motion, new marks or Learning replay. Paper identity is split into a
 replaceable `PaperInstanceRevision` and the support/stock/contact-height
 `PaperContactPlaneRevision`. A new sheet explicitly placed on the unchanged
 contact plane rotates only the instance, clears sheet coverage and ink-specific

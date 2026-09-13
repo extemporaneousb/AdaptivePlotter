@@ -51,6 +51,7 @@ public struct PlotterDrawingRunExternalFacts: Hashable, Sendable {
   public let displayedFrame: DisplayedFrame?
   public let interpreter: RunInterpreterSnapshot?
   public let penActuationProfile: PenActuationProfile
+  public let physicalPositionUnavailableReason: String?
 
   public init(
     environment: PlotterEnvironment,
@@ -59,7 +60,8 @@ public struct PlotterDrawingRunExternalFacts: Hashable, Sendable {
     paperCoverageIsCurrent: Bool,
     displayedFrame: DisplayedFrame?,
     interpreter: RunInterpreterSnapshot?,
-    penActuationProfile: PenActuationProfile
+    penActuationProfile: PenActuationProfile,
+    physicalPositionUnavailableReason: String? = nil
   ) {
     self.environment = environment
     self.interactiveLearningIsComplete = interactiveLearningIsComplete
@@ -68,6 +70,7 @@ public struct PlotterDrawingRunExternalFacts: Hashable, Sendable {
     self.displayedFrame = displayedFrame
     self.interpreter = interpreter
     self.penActuationProfile = penActuationProfile
+    self.physicalPositionUnavailableReason = physicalPositionUnavailableReason
   }
 }
 
@@ -271,6 +274,9 @@ public actor PlotterDrawingRunRuntime {
       detail: "Drawing evidence archive has not been loaded."
     )
     var blockedPlanHashes = Set<Digest>()
+    // Immutable same-paper records back the existing no-redraw index. A known
+    // coordinate rebase may change a plan hash without changing physical ink.
+    var blockedPlanRecords: [DrawingRunEvidenceRecord] = []
     var baselineFrame: DisplayedFrame?
     var postFrame: DisplayedFrame?
     var observation: DrawingRunObservationOutcome?
@@ -332,6 +338,7 @@ public actor PlotterDrawingRunRuntime {
     }
     let previous = snapshot(state, environment: environment)
     state.currentPlanIdentity = currentFacts.plan?.identity
+    indexEquivalentPhysicalPlan(in: &state, facts: currentFacts)
     state.readiness = readiness(state: state, facts: currentFacts, controller: currentFacts.interpreter)
     if state.active == nil, state.terminal == nil { state.phase = .idle }
     guard snapshot(state, environment: environment) != previous else { return previous }
@@ -352,11 +359,10 @@ public actor PlotterDrawingRunRuntime {
     if case .appending = state.evidencePersistence {
       return snapshot(state, environment: environment)
     }
-    state.blockedPlanHashes = Set(
-      archive.records.lazy
-        .filter { $0.paper == paper && $0.executionFrontiers.commandedStrokeCount > 0 }
-        .map(\.plan.contentHash)
-    )
+    state.blockedPlanRecords = archive.records.filter {
+      $0.paper == paper && $0.executionFrontiers.commandedStrokeCount > 0
+    }
+    state.blockedPlanHashes = Set(state.blockedPlanRecords.map(\.plan.contentHash))
     state.evidenceArchiveAvailability = .available(revision: archive.revision)
     if case .archiveUnavailable = state.noRedraw {
       state.noRedraw = .clear
@@ -540,7 +546,8 @@ public actor PlotterDrawingRunRuntime {
   ) async -> PlotterDrawingRunSubmissionResult {
     let environment = currentFacts.environment
     let controller = await interpreter.snapshot()
-    let currentState = states[environment] ?? initialState
+    var currentState = states[environment] ?? initialState
+    indexEquivalentPhysicalPlan(in: &currentState, facts: currentFacts)
     let currentReadiness = readiness(state: currentState, facts: currentFacts, controller: controller)
     if case .unavailable(let issue) = currentReadiness {
       return refuse(submission, state: currentState, owner: issue.owner,
@@ -1125,6 +1132,10 @@ public actor PlotterDrawingRunRuntime {
       let archive = try await evidence.append(record)
       guard isCurrent(owner, environment: environment) else { return }
       update(owner, environment: environment) { state in
+        state.blockedPlanRecords = archive.records.filter {
+          $0.paper == record.paper && $0.executionFrontiers.commandedStrokeCount > 0
+        }
+        state.blockedPlanHashes.formUnion(state.blockedPlanRecords.map(\.plan.contentHash))
         state.phase = .terminal
         state.active = nil
         state.pendingRecord = nil
@@ -1363,6 +1374,10 @@ public actor PlotterDrawingRunRuntime {
           remedy: .retryEvidencePublication
         )
       }
+      state.blockedPlanRecords = archive.records.filter {
+        $0.paper == record.paper && $0.executionFrontiers.commandedStrokeCount > 0
+      }
+      state.blockedPlanHashes.formUnion(state.blockedPlanRecords.map(\.plan.contentHash))
       state.phase = .terminal
       state.pendingRecord = nil
       state.evidencePersistence = .persisted(
@@ -1515,6 +1530,10 @@ public actor PlotterDrawingRunRuntime {
         reason: .effectEnvironmentChanged,
         remedy: .useCurrentProjection
       )
+    }
+    if current.physicalPositionUnavailableReason != nil {
+      return PreEffectRefusal(currentFacts: current, owner: Authority.learning,
+        reason: .physicalPositionUnverified, remedy: .reestablishPositionFromCamera)
     }
     if current.interactiveLearningIsComplete != captured.interactiveLearningIsComplete {
       return PreEffectRefusal(
@@ -1815,6 +1834,41 @@ public actor PlotterDrawingRunRuntime {
     state.revision = PlotterDrawingRunRevision(rawValue: state.revision.rawValue &+ 1)
   }
 
+  private func indexEquivalentPhysicalPlan(in state: inout SourceState, facts: PlotterDrawingRunExternalFacts) {
+    guard facts.physicalPositionUnavailableReason == nil, let current = facts.plan,
+      !state.blockedPlanHashes.contains(current.plan.contentHash),
+      case .checkpointRevalidated = current.registration.derivation else { return }
+    let epsilon = DrawingRegionContainmentPolicy.numericalEpsilonMM
+    func close(_ left: Double, _ right: Double) -> Bool { abs(left - right) <= epsilon }
+    let region = current.plan.drawableRegion.bounds
+    let applicability = current.registration.applicability
+    let currentSource = current.program.source
+    let sourceIdentity = currentSource.sourceIdentifier.components(separatedBy: "|draw-border-v1").first
+    for record in state.blockedPlanRecords {
+      guard let prior = record.plan.executionPlan, let priorSource = record.program.source else { continue }
+      let old = prior.drawableRegion.bounds
+      let previous = record.tipCalibration.applicability
+      guard previous.machineGeometry == applicability.machineGeometry,
+        previous.toolAssembly == applicability.toolAssembly,
+        previous.penContactProfile == applicability.penContactProfile,
+        previous.paperContactPlane == applicability.paperContactPlane,
+        previous.opticalConfiguration == applicability.opticalConfiguration,
+        priorSource.kind == currentSource.kind,
+        priorSource.sourceIdentifier.components(separatedBy: "|draw-border-v1").first == sourceIdentity,
+        close(old.maxX - old.minX, region.maxX - region.minX),
+        close(old.maxY - old.minY, region.maxY - region.minY),
+        prior.strokes.count == current.plan.strokes.count else { continue }
+      let samePhysicalInk = zip(prior.strokes, current.plan.strokes).allSatisfy { before, after in
+        before.ordering == after.ordering && before.style == after.style
+          && before.semanticRole == after.semanticRole && before.path.points.count == after.path.points.count
+          && zip(before.path.points, after.path.points).allSatisfy { a, b in
+            close(a.x - old.minX, b.x - region.minX) && close(a.y - old.minY, b.y - region.minY)
+          }
+      }
+      if samePhysicalInk { state.blockedPlanHashes.insert(current.plan.contentHash); return }
+    }
+  }
+
   private func readiness(
     state: SourceState,
     facts: PlotterDrawingRunExternalFacts,
@@ -1833,6 +1887,9 @@ public actor PlotterDrawingRunRuntime {
     }
     if !facts.interactiveLearningIsComplete {
       return unavailable(Authority.learning, .learningIncomplete, .restoreLearningAuthority, "Use Saved Learning or complete Guided Learning/Setup before drawing.")
+    }
+    if let reason = facts.physicalPositionUnavailableReason {
+      return unavailable(Authority.learning, .physicalPositionUnverified, .reestablishPositionFromCamera, reason)
     }
     if !facts.paperCoverageIsCurrent {
       return unavailable(Authority.paper, .paperCoverageNotCurrent, .assertCurrentPaperCoverage, "Confirm that the current sheet covers the drawing area.")

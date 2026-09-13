@@ -366,7 +366,9 @@ For an unchanged physical setup:
    software lifetimes do not rotate a physical semantic identity.
 2. Start the same camera device. Before applying anything, inspect the saved
    Drawing Border, predicted cap/tip where available, and reconstructable prior
-   drawing plans projected on the current frame.
+   drawing plans projected on the current frame. Old-coordinate archived paths
+   are omitted after rebase when their typed applicability no longer matches;
+   their evidence remains retained, and current Boundary/Border still appears.
 3. Read the advisory optical comparison. A compatible bounded reference reports
    integer X/Y shift and background mean absolute difference; incompatible or
    legacy packages report why the comparison is unavailable. No value gates the
@@ -375,14 +377,29 @@ For an unchanged physical setup:
    the exact saved dependency revisions atomically without motion or Pen-pose
    restoration. Start New applies nothing and retains the last complete package.
 5. Connecting and probing remain ordinary controller-session work; they do not
-   implicitly apply saved Learning. Require no cap capture, click, mark, paper
-   replacement, or Learning Path replay for an operator-accepted unchanged setup.
+   implicitly apply saved Learning or prove physical carriage position. MPos can
+   stay unchanged while the unpowered armature moves under gravity.
+6. With the same live camera and a settled Pen-Up controller, choose
+   **Re-establish Position from Camera**. The existing tip-checkpoint owner
+   captures fresh exact-frame learned-cap evidence without moving or marking.
+   A compatible observation verifies the current position or coherently rebases
+   the retained machine Boundary, camera map and tip calibration for a supported
+   translation. Learning remains complete. Unavailable, ambiguous, stale or
+   incompatible evidence leaves drawing blocked with the specific recovery
+   reason; cancellation or persistence failure publishes no partial authority.
+7. Confirm coverage for the current sheet and exact frame, choose **Draw border**
+   if wanted, and Draw. Do not repeat Learning merely to recover a compatible
+   carriage translation. A verified uninterrupted session does not require this
+   recovery again for ordinary known motion or a same-plane replacement sheet.
+   If the saved prefix has only Boundary artifacts and no camera/cap map, follow
+   the specific Boundary/Camera recovery remedy; direct manual controls remain
+   available under their existing controller/Motion requirements.
 
 When the saved package and drawing archive contain a completed Drawing Border
 result for that calibration, applying Saved Learning restores **Learning
 complete** and the filled graduation cap. Current Pen Unknown or Down does not
 reopen cap identification or accepted Pen calibration; Draw's existing Pen Up
-normalization must settle before travel. Controller, Motion, paper, camera and
+normalization must settle before travel. Controller, physical-position applicability, Motion, paper, camera and
 plan currentness remain separate execution prerequisites. Tip
 checkpoint revalidation retains the original accepted calibration lineage, so
 its existing Border result can survive subsequent save/load cycles without

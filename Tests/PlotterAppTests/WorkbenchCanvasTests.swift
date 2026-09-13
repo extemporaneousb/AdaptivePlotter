@@ -26,6 +26,9 @@ struct WorkbenchCanvasTests {
   @Test("fallback image leaves live execution, Learning and semantic publications unchanged")
   func fallbackHasNoOperationalEffects() async throws {
     let application = makeCausalSimulatorAppFixture().workspace
+    // Compose and settle the existing Draft -> Run publication chain before
+    // taking the baseline. Rendering awaits must not include fixture startup.
+    await application.drawingDraftSynchronizationTask?.value
     let mode = application.frameMode
     let projection = application.testPlotterUIProjection(includesLearningPath: true).semantic
     let episode = application.learningEpisodeRecord

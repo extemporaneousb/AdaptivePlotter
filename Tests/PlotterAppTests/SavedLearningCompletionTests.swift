@@ -58,6 +58,7 @@ struct SavedLearningCompletionTests {
     #expect(restored.artifactResetEpisodeSnapshot.savedLearning.appliedCheckpoint?.checkpointID == checkpoint.checkpointID)
     #expect(restored.borderValidationSnapshot.assessment == .predictionObserved)
     #expect(restored.interactiveLearningIsComplete)
+    #expect(restored.controllerPoseApplicability.requiresPhysicalPositionForTest)
     #expect(restored.currentExerciseActionStripPresentation == nil)
     #expect(restored.learningPathItemPresentations.allSatisfy { $0.status == .complete })
     #expect(restored.activeExerciseAttemptID == nil)
@@ -232,7 +233,7 @@ extension SavedLearningCompletionTests {
     #expect(app.tipCameraRegistration == nil)
     #expect(!app.interactiveLearningIsComplete)
     try await applyCompleteSavedLearning(app)
-    #expect(app.tipCameraRegistration == f.accepted.registration)
+    #expect(app.tipCameraRegistration == checkpoint.tipCalibration?.registration)
     #expect(app.currentPaperRevisionContext == currentPaper)
     #expect(app.interactiveLearningIsComplete)
     #expect(app.currentDrawableMachineRegion != nil)
@@ -358,6 +359,7 @@ extension SavedLearningCompletionTests {
     #expect(await app.submitPlotterUIRequest(start) == .accepted(requestID: start.id))
     let record = try #require(app.drawingRunSnapshot?.terminal?.record)
     let oldPaper = app.currentPaperRevisionContext
+    let activeRegistration = app.tipCameraRegistration
     await persistence.holdNextClear()
     let replacement = Task { await app.recordNewPaperSheetOnCurrentPlane() }
     try await waitUntilAsync { await persistence.isHeld }
@@ -376,7 +378,7 @@ extension SavedLearningCompletionTests {
       return
     }
     #expect(checkpoint.semanticIdentity.paperInstance == app.currentPaperRevisionContext.instance)
-    #expect(checkpoint.tipCalibration?.registration == f.accepted.registration)
+    #expect(checkpoint.tipCalibration?.registration == activeRegistration)
     #expect(archive.records.contains(record))
   }
 

@@ -10,6 +10,92 @@ import Testing
 
 @Suite("Drawing Studio presentation")
 struct DrawingStudioPresentationTests {
+  @MainActor
+  @Test("camera recovery button presents its current owner blocker and clears it after settlement")
+  func recoveryButtonUsesCurrentOwnerReason() async throws {
+    let f = try await DrawingWorkbenchApplicationFixture.make(verifyPhysicalPose: false)
+    defer { f.stores.remove() }
+    let app = f.application
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+    func currentButton(_ phase: String) throws -> (button: OperatorRequestButton, action: PlotterUIAction) {
+      let projection = app.testPlotterUIProjection(selectedItemID: owner, includesLearningPath: true).semantic
+      let candidate = projection.actions.first {
+        if case .learningAction(let request) = $0.intent {
+          return request.action == .tipCalibration(.revalidateCheckpoint)
+        }
+        return false
+      }
+      let action = try #require(candidate, "Expected current recovery action while \(phase)")
+      let button = try #require(DrawingStudioView(presentation: app.drawingStudioPresentation,
+        plotterUIProjection: projection, plotterUIIntentSink: app).positionRecoveryButton)
+      return (button, action)
+    }
+    await f.machine.setPenState(.up)
+    _ = await app.refreshControllerSessionSnapshot()
+    await submitControllerSession(app, .toggleConnection)
+    let disconnected = try currentButton("disconnected")
+    #expect(disconnected.button.request == nil)
+    #expect(disconnected.button.unavailableReason == disconnected.action.unavailableReason)
+    #expect(disconnected.button.unavailableReason?.contains("Connect the controller") == true)
+
+    await app.establishMachineSession(f.machine.descriptor)
+    await submitControllerSession(app, .requestPassiveProbe)
+    let gate = TestInspectionSuspension()
+    await gate.arm()
+    await f.camera.configurePoseCapture(gate: gate)
+    await app.drawingDraftSynchronizationTask?.value
+    // Bind the actual rendered request only after asynchronous fixture setup
+    // and the reconnect publication tail have settled.
+    let available = try currentButton("available before verification")
+    #expect(available.button.unavailableReason == nil)
+    let request = try #require(available.button.request)
+    var recoveryResult: PlotterUIRequestDisposition?
+    let recovery = Task {
+      let result = await app.submitPlotterUIRequest(request)
+      recoveryResult = result
+      return result
+    }
+    do {
+      try await waitUntilAsync {
+        if await gate.isWaiting { return true }
+        return recoveryResult != nil
+      }
+      let captureIsHeld = await gate.isWaiting
+      try #require(captureIsHeld,
+        "Recovery completed before the capture hold: \(String(describing: recoveryResult))")
+      let inProgress = try currentButton("verification is in progress")
+      #expect(inProgress.button.request == nil)
+      #expect(inProgress.button.unavailableReason == inProgress.action.unavailableReason)
+      #expect(inProgress.button.unavailableReason?.contains("Position verification is in progress") == true)
+      #expect(inProgress.button.unavailableReason != disconnected.button.unavailableReason)
+      await gate.release()
+      #expect(await recovery.value == .accepted(requestID: request.id))
+      // Successful recovery consumes its availability in the retained owner.
+      // The resolved control disappears; its obsolete blocker must not remain.
+      let settledProjection = app.testPlotterUIProjection(selectedItemID: owner,
+        includesLearningPath: true).semantic
+      let settledView = DrawingStudioView(presentation: app.drawingStudioPresentation,
+        plotterUIProjection: settledProjection, plotterUIIntentSink: app)
+      #expect(settledView.positionRecoveryButton == nil)
+      #expect(!settledProjection.actions.contains {
+        if case .learningAction(let request) = $0.intent {
+          return request.action == .tipCalibration(.revalidateCheckpoint)
+        }
+        return false
+      })
+      #expect(!app.controllerPoseApplicability.requiresPhysicalPositionForTest)
+      await app.shutdown()
+    } catch {
+      await gate.release()
+      let result = await recovery.value
+      if case .refused(let refusal) = result {
+        Issue.record("Actual recovery request refused: \(refusal.reason); \(refusal.remedy)")
+      }
+      await app.shutdown()
+      throw error
+    }
+  }
+
   @Test("a failed Fit warning retires after calibration recovery before sheet coverage is confirmed")
   @MainActor
   func fitFeedbackResolvesBeforeRunReady() async throws {

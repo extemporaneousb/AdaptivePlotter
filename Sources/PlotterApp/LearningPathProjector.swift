@@ -208,12 +208,13 @@ struct PlotterLearningPresentationFacts: Sendable {
     case exercise(ContextualStopCapabilityID, LearningMotionAction, boundaryOwner: Bool)
     case borderValidation(ContextualStopCapabilityID)
     case sparseTipBatch(ContextualStopCapabilityID)
+    case positionRecovery(ContextualStopCapabilityID)
 
     var capabilityID: ContextualStopCapabilityID {
       switch self {
       case .exercise(let id, _, _): id
       case .manualJog(let id), .manualDrawing(let id), .borderValidation(let id),
-        .sparseTipBatch(let id): id
+        .sparseTipBatch(let id), .positionRecovery(let id): id
       }
     }
 
@@ -550,6 +551,7 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
       .exercise(title: action.title, boundaryOwner: boundaryOwner)
     case .borderValidation: .drawingValidation
     case .sparseTipBatch: .sparseTipBatch
+    case .positionRecovery: .exercise(title: "Position Verification", boundaryOwner: false)
     }
     return PlotterUILearningStopFacts(capabilityID: owner.capabilityID.rawValue, kind: kind)
   }

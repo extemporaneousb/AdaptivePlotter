@@ -131,6 +131,7 @@ public enum PlotterDrawingRunRefusalReason: Hashable, Sendable {
   case effectEnvironmentChanged
   case penActuationProfileChanged
   case learningIncomplete
+  case physicalPositionUnverified
   case paperCoverageNotCurrent
   case controllerUnavailable
   case activeRunOwnsWorkflow
@@ -151,6 +152,7 @@ public enum PlotterDrawingRunRemedy: Hashable, Sendable {
   case reviewExactPlan
   case reviewPenActuationProfile
   case restoreLearningAuthority
+  case reestablishPositionFromCamera
   case assertCurrentPaperCoverage
   case restoreControllerReadiness
   case waitForActiveRun

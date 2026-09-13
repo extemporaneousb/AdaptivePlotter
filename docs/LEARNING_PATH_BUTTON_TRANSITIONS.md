@@ -217,6 +217,13 @@ Dependency behavior is intentionally asymmetric:
   **Confirm sheet coverage**. **Contact Plane Changed** invalidates the dependent
   tip calibration. Compatible **Use Saved Learning** recovery remains available
   after its original startup application when only active calibration was lost.
+- **Use Saved Learning** retains finished milestones while current
+  physical position remains unverified. **Re-establish Position from Camera**
+  uses the existing tip-checkpoint recovery action with current exact-frame cap
+  evidence and settled Pen Up; it performs no motion or new marks. Draw remains
+  blocked until that recovery succeeds. A restored cap-map prefix also requires
+  recovery before calibration marking. Controller continuity loss requires a
+  fresh observation even when MPos is unchanged.
 - **Draw border** is an ordinary draft option, initially off. It changes the
   drawing program and preview, not the Learning state or calibrated outline.
   It is unavailable while a run or retained terminal owns editing.
