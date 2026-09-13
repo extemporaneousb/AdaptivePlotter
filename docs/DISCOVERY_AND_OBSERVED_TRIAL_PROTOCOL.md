@@ -379,7 +379,15 @@ For an unchanged physical setup:
 5. Connecting and probing remain ordinary controller-session work; they do not
    implicitly apply saved Learning or prove physical carriage position. MPos can
    stay unchanged while the unpowered armature moves under gravity.
-6. With the same live camera and a settled Pen-Up controller, choose
+6. Choose **Enable Motion & Raise Pen** when motion is disabled. It authorizes
+   motion and settles Pen Up with the current learned settings, skipping an
+   already-Up pen. If preparation fails, use **Raise Pen** beside position
+   recovery and resolve its displayed prerequisite; opening Motion is unnecessary.
+   A finite held pen operation remains busy until its existing owner settles.
+   If Saved Learning was loaded after enabling, a different accepted pen profile
+   makes the prior Up state Unknown without issuing motion; use adjacent Raise
+   Pen to settle those settings. Identical settings retain the settled state.
+   With the same live camera and settled Pen Up, choose
    **Re-establish Position from Camera**. The existing tip-checkpoint owner
    captures fresh exact-frame learned-cap evidence without moving or marking.
    A compatible observation verifies the current position or coherently rebases

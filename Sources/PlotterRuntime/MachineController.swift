@@ -1051,6 +1051,19 @@ public actor MachineController {
     )
   }
 
+  /// Reconciles commanded pen knowledge with newly accepted settings without
+  /// sending controller traffic. Up/Down under a different profile is unknown
+  /// until an explicit pen operation establishes the current settings.
+  @discardableResult
+  public func reconcilePenActuationProfile(_ profile: PenActuationProfile) -> Bool {
+    guard activeOperation == nil else { return false }
+    if penActuationProfile != profile {
+      penState = .unknown
+      penActuationProfile = profile
+    }
+    return true
+  }
+
   /// Sends one closed pen command followed by the fixed settle dwell. A successful
   /// result records the controller-commanded state, not a visually proven state.
   public func requestPenActuation(

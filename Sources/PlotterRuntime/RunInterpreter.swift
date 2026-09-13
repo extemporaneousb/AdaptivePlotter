@@ -949,6 +949,13 @@ public actor RunInterpreter {
     return outcome
   }
 
+  /// A settings-only update shares the existing controller operation lane.
+  /// It cannot invalidate the knowledge of an operation still settling.
+  public func reconcilePenActuationProfile(_ profile: PenActuationProfile) async -> Bool {
+    guard currentOperation == .idle else { return false }
+    return await machineController.reconcilePenActuationProfile(profile)
+  }
+
   public func requestPenActuation(
     _ command: PenCommand,
     profile: PenActuationProfile

@@ -667,7 +667,22 @@ admission or task owner. SwiftUI reads
 `controllerSessionProjection` and submits a typed request only through
 `submitControllerSessionRequest`; explicit connection, passive-probe,
 alarm-clear, and Motion-authorisation actions therefore cannot become arbitrary
-workspace closure calls. `PlotterControllerConnectionAction` is the single
+workspace closure calls. After a successful explicit disabled-to-enabled request,
+the application composes one existing `PlotterManualMotionRuntime` `.setPen(.raised)`
+request with the current learned profile and joins its terminal publication. An
+already-raised pen skips the handoff. Session/environment/cancellation checks
+prevent an obsolete successor; Connect, probe and disable results have no pen
+side effect. Manual operation admission and finite noncancellable pen settlement
+remain authoritative. Once a pen effect is admitted, its presentation observer
+joins that exact effect through terminal publication even when the caller is
+cancelled; cancellation suppresses a successor without abandoning settlement. Position-recovery controls reuse the exact manual Pen Up
+request and availability; no additional runner or physical-pose authority is added.
+Saved Learning calls the nominal session `reconcilePenActuationProfile` before
+accepted-state publication. `PersistentMachineSession` forwards through
+`RunInterpreter` to the existing `MachineController` profile/pen-state owner.
+Changing the profile invalidates commanded Up/Down without a write or query; an
+identical profile preserves it. A retained active operation refuses the change.
+The restore refreshes the resulting lower snapshot and emits no pen command. `PlotterControllerConnectionAction` is the single
 semantic Connect/Disconnect value consumed by toolbar title/color and by lower
 effect dispatch; no presentation string or stricter session-established Boolean
 selects the lower effect. Thus an open connecting/probing link is truthfully a

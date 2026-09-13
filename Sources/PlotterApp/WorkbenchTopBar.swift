@@ -22,7 +22,7 @@ struct WorkbenchMotionAuthorizationActionPresentation: Equatable, Sendable {
   let title: String
 
   init(isAuthorized: Bool) {
-    title = isAuthorized ? "Disable Motion" : "Enable Motion"
+    title = isAuthorized ? "Disable Motion" : "Enable Motion & Raise Pen"
   }
 }
 

@@ -16,6 +16,7 @@ protocol PlotterMachineSession: Actor {
   func beginRelativeJog(_ request: RelativeJogRequest) async -> RelativeJogAdmission
   func beginDrawingStroke(_ request: DrawingStrokeRequest) async -> DrawingStrokeAdmission
   func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission
+  func reconcilePenActuationProfile(_ profile: PenActuationProfile) async -> Bool
   func beginPenActuation(
     _ command: PenCommand,
     profile: PenActuationProfile
@@ -322,6 +323,12 @@ actor PersistentMachineSession: PlotterMachineSession {
   func requestJogCancel(_ intent: JogCancelIntent) async -> JogCancelOutcome {
     guard let interpreter else { return .refused(.noSerialDeviceSelected) }
     return await interpreter.requestJogCancel(intent)
+  }
+
+  func reconcilePenActuationProfile(_ profile: PenActuationProfile) async -> Bool {
+    // An absent controller has no commanded pen state to invalidate.
+    guard let interpreter else { return true }
+    return await interpreter.reconcilePenActuationProfile(profile)
   }
 
   func beginPenActuation(

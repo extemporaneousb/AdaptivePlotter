@@ -37,7 +37,11 @@ comparison remains reviewable after the exercise finishes. That attributable
 validation enables running from **Drawing Studio**; corrected-execution model acceptance and
 adaptive readiness remain Roadmap scope and are not Learning Path stages.
 
-Connect and Enable Motion expose direct current-session facts. Selecting a row
+Connect and Enable Motion expose direct current-session facts. The explicit
+**Enable Motion & Raise Pen** action also settles Pen Up using the current learned
+settings; an already-Up pen needs no extra command. Position recovery shows an
+adjacent **Raise Pen** retry and its prerequisite, so the Motion pane is not needed.
+Pen Up alone does not verify physical carriage position. Selecting a row
 changes presentation only; it cannot admit motion, change runtime current state,
 or promote evidence.
 

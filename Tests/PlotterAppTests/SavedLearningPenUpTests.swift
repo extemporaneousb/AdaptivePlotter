@@ -40,7 +40,14 @@ struct SavedLearningPenUpTests {
     })
     #expect(!blocked.isEnabled)
     #expect(blocked.unavailableReason?.contains("Motion authorization") == true)
+    // This test isolates calibration's own normalization from Enable Motion's
+    // preparation. An already-Up enable emits no command; then model the later
+    // Unknown/Down state that the calibration owner must handle independently.
+    await machine.setPenState(.up)
+    _ = await app.refreshControllerSessionSnapshot()
     await submitControllerSession(app, .toggleMotionAuthorization)
+    await machine.setPenState(penState)
+    _ = await app.refreshControllerSessionSnapshot()
 
     if raiseFails {
       await machine.enqueuePenOutcome(.refused(.controllerRejected("initial raise refused")))

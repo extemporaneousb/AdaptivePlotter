@@ -877,6 +877,10 @@ extension PlotterApplicationRuntimeTests {
     #expect(relaunched.testActionSurfacePresentation.pointSelectionRequest == nil)
     #expect(relaunched.controllerPoseApplicability.requiresPhysicalPositionForTest)
     #expect(relaunched.testAcceptedBoundaryAggregates == first.testAcceptedBoundaryAggregates)
+    // Restoring retained settings must not attribute an unselected lower
+    // controller snapshot to this application's session before Connect.
+    #expect(relaunched.machineSnapshot == nil)
+    #expect(!relaunched.controllerSessionProjection.sessionEstablished)
     await relaunched.establishMachineSession(machine.descriptor)
     await submitControllerSession(relaunched, .requestPassiveProbe)
     await submitObservationConfigurationForTest(

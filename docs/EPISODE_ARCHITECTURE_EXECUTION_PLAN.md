@@ -13,6 +13,25 @@ or competing architecture plan is authority. Accepted conclusions must be
 integrated here and the source note deleted. Git history and Blackdog prompt
 artifacts are history, not current design.
 
+## Pen readiness beside position recovery, 2026-09-12
+
+Task `task-d431b9891cb949d28072588618977a00` is a bounded correction to explicit
+motion authorization and existing manual Pen Up composition, plus adjacent
+position-recovery controls. It introduces no new episode owner or migration wave.
+The combined source preserves the independently landed portrait correction at
+`19bb6a68b955c249c88e0a173027038add221db5`. Default warnings-as-errors compilation,
+strict quick validation (1067 tests, five existing opt-in skips) and strict journey
+validation (10 tests) and strict signed-debug bundle validation passed together.
+The separate unlaunched candidate matches all 180 source/build inputs and passed
+stable-local signature verification. One full independent nonauthor assessment
+passed all 74 register items with no actionable P0–P3 finding or residual issue;
+no repair pass or delta was needed. Final integrated documentation checks passed
+in 36.016895 seconds, including contracts and Python suites of 13, 9 and 39 tests.
+Local Blackdog landing remains coordinator-owned. Current behavior belongs to Product Contract and
+Architecture; exact validation and remaining gates belong to
+[Current Evidence](CURRENT_EVIDENCE.md#pen-readiness-beside-position-recovery-2026-09-12).
+Final delivery receipts belong to Blackdog task history and the coordinator's report.
+
 ## Saved Learning physical-position correction, 2026-09-12
 
 Task `task-c94d61ea72b34c8e9e1500d25f97900a` is a bounded correction to the

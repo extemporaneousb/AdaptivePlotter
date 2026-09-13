@@ -1095,7 +1095,8 @@ func installAcceptedBoundaryTestProjection(
 
 @MainActor
 func completeSimulatedPenInteractionPrerequisite(
-  _ workspace: PlotterApplicationRuntime
+  _ workspace: PlotterApplicationRuntime,
+  raisedSpindleValue: Int? = nil
 ) async throws {
   await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
   if !workspace.controllerSessionProjection.sessionEstablished {
@@ -1123,6 +1124,15 @@ func completeSimulatedPenInteractionPrerequisite(
   submitPointSelection(workspace, request: request, point: point)
   try await waitUntil {
     workspace.activeDiscoverySequenceID == .penInteraction || workspace.discoveryError != nil
+  }
+  if let raisedSpindleValue {
+    let projection = workspace.testPlotterUIProjection(selectedItemID: owner,
+      includesLearningPath: true).semantic
+    let setpoint = try #require(projection.request(for:
+      learningSetpointActionID(PenCommand.raise, value: raisedSpindleValue, owner: owner)))
+    #expect(await workspace.submitPlotterUIRequest(setpoint) == .accepted(requestID: setpoint.id))
+    try await waitUntil { workspace.currentExerciseActionStripPresentation?
+      .actions.first(where: { $0.kind == .choice(.yes) })?.isEnabled == true }
   }
   for _ in 0..<8 where !workspace.penInteractionCompleted {
     try requireEnabledPublicAction(.choice(.yes), owner: owner, workspace: workspace)
@@ -1514,6 +1524,7 @@ func plotterApplicationRuntime(
       )
     },
     beginDrawingPlan: drawingPlanBegin,
+    reconcilePenActuationProfile: { await machine.reconcilePenActuationProfile($0) },
     beginPenActuation: { command, profile in
       .admitted(PenActuationOperation(
         id: UUID(),
@@ -2085,6 +2096,7 @@ actor ClosurePlotterMachineSession: PlotterMachineSession {
   private let jogAction: @Sendable (RelativeJogRequest) async -> RelativeJogAdmission
   private let strokeAction: @Sendable (DrawingStrokeRequest) async -> DrawingStrokeAdmission
   private let planAction: (@Sendable (DrawingPlanRequest) async -> DrawingPlanAdmission)?
+  private let reconcilePenProfileAction: @Sendable (PenActuationProfile) async -> Bool
   private let penAction: @Sendable (PenCommand, PenActuationProfile) async -> PenActuationAdmission
   private let boundaryAction:
     @Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
@@ -2102,6 +2114,7 @@ actor ClosurePlotterMachineSession: PlotterMachineSession {
     beginRelativeJog: @escaping @Sendable (RelativeJogRequest) async -> RelativeJogAdmission,
     beginDrawingStroke: @escaping @Sendable (DrawingStrokeRequest) async -> DrawingStrokeAdmission,
     beginDrawingPlan: (@Sendable (DrawingPlanRequest) async -> DrawingPlanAdmission)? = nil,
+    reconcilePenActuationProfile: @escaping @Sendable (PenActuationProfile) async -> Bool = { _ in true },
     beginPenActuation: @escaping @Sendable (PenCommand, PenActuationProfile) async
       -> PenActuationAdmission,
     beginBoundaryMotion: @escaping @Sendable (
@@ -2119,6 +2132,7 @@ actor ClosurePlotterMachineSession: PlotterMachineSession {
     jogAction = beginRelativeJog
     strokeAction = beginDrawingStroke
     planAction = beginDrawingPlan
+    reconcilePenProfileAction = reconcilePenActuationProfile
     penAction = beginPenActuation
     boundaryAction = beginBoundaryMotion
     cancelAction = requestJogCancel
@@ -2133,6 +2147,9 @@ actor ClosurePlotterMachineSession: PlotterMachineSession {
   func requestControllerAlarmClear() async -> ControllerAlarmClearOutcome { await alarmAction() }
   func activateMotionGuard() async -> MotionGuardActivationOutcome { await activateAction() }
   func deactivateMotionGuard() async { await deactivateAction() }
+  func reconcilePenActuationProfile(_ profile: PenActuationProfile) async -> Bool {
+    await reconcilePenProfileAction(profile)
+  }
   func beginRelativeJog(_ request: RelativeJogRequest) async -> RelativeJogAdmission {
     await jogAction(request)
   }
@@ -2212,7 +2229,10 @@ actor LowerMachineSessionFixture {
   private var boundaryContinuation: CheckedContinuation<BoundaryMotionOutcome, Never>?
   private var position: MachinePosition
   private var penState: PenState = .up
+  private var currentPenProfile: PenActuationProfile = .initialDefaults
   private var motionGuardActive: Bool
+  private var queuedMotionGuardOutcomes: [MotionGuardActivationOutcome] = []
+  private var motionGuardActivationGate: TestInspectionSuspension?
   private var hasActuatedPen = false
   private var lastMotion: MotionOutcome?
   private var lastDrawing: DrawingStrokeOutcome?
@@ -2252,9 +2272,20 @@ actor LowerMachineSessionFixture {
     positionObserver?(position)
   }
 
-  func activateMotionGuard() -> MotionGuardActivationOutcome {
-    motionGuardActive = true
-    return .activated
+  func enqueueMotionGuardOutcome(_ outcome: MotionGuardActivationOutcome) {
+    queuedMotionGuardOutcomes.append(outcome)
+  }
+
+  func holdMotionGuardActivation(on gate: TestInspectionSuspension) {
+    motionGuardActivationGate = gate
+  }
+
+  func activateMotionGuard() async -> MotionGuardActivationOutcome {
+    await motionGuardActivationGate?.waitIfArmed()
+    let outcome = queuedMotionGuardOutcomes.isEmpty
+      ? MotionGuardActivationOutcome.activated : queuedMotionGuardOutcomes.removeFirst()
+    if case .activated = outcome { motionGuardActive = true }
+    return outcome
   }
 
   func deactivateMotionGuard() {
@@ -2268,6 +2299,15 @@ actor LowerMachineSessionFixture {
 
   func reportTransportAvailability(_ available: Bool) {
     transportIsAvailable = available
+  }
+
+  func reconcilePenActuationProfile(_ profile: PenActuationProfile) -> Bool {
+    guard !moving, activePenCommand == nil else { return false }
+    if currentPenProfile != profile {
+      currentPenProfile = profile
+      penState = .unknown
+    }
+    return true
   }
 
   func setPenState(_ state: PenState) {
@@ -2511,6 +2551,7 @@ actor LowerMachineSessionFixture {
     profile: PenActuationProfile = .initialDefaults
   ) async -> PenOutcome {
     activePenCommand = command
+    currentPenProfile = profile
     defer { activePenCommand = nil }
     await log.append("machine:pen-\(command.rawValue)")
     requestedPenCommands.append(command)

@@ -96,7 +96,11 @@ operator name or identifier.
 1. Connect the intended controller and request the passive probe.
 2. Verify current units, distance mode, coordinate system, settings digest,
    pins, Pen state, Idle state, and MPos are expected.
-3. Enable Motion only after those facts are acceptable.
+3. Choose **Enable Motion & Raise Pen** only after those facts are acceptable.
+   It commands and settles Pen Up unless the pen is already Up. Observe the actual
+   lift and record any refusal or uncertain outcome; software settlement alone is
+   not attended pen evidence. For saved-position recovery, **Raise Pen** beside
+   **Re-establish Position from Camera** retries preparation without opening Motion.
 4. Start Exercise 1.1. Its first action is **Identify Pen Cap**. Confirm the
    app freezes one current exact frame before any pen question or actuation, then
    click a visibly colored area of the cap body, not the tip. Confirm the

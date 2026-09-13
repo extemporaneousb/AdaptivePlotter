@@ -595,8 +595,20 @@ struct DrawingStudioView: View {
       sink: plotterUIIntentSink)
   }
 
+  private var positionPenPreparation: PositionPenPreparationControls {
+    PositionPenPreparationControls(plotterUIProjection: plotterUIProjection,
+      plotterUIIntentSink: plotterUIIntentSink)
+  }
+
+  var positionRaisePenButton: OperatorRequestButton? {
+    positionRecoveryButton == nil ? nil : positionPenPreparation.raisePenButton
+  }
+
   private var controls: some View {
     HStack(spacing: 8) {
+      if positionRecoveryButton != nil {
+        positionPenPreparation
+      }
       if let positionRecoveryButton {
         positionRecoveryButton.accessibilityIdentifier("drawing.reestablishPosition")
       }
@@ -659,4 +671,38 @@ struct DrawingStudioView: View {
     }
   }
 
+}
+
+/// Both recovery surfaces forward the same current finite Manual pen operation.
+/// No local Stop is offered because that owner awaits finite pen settlement.
+struct PositionPenPreparationControls: View {
+  let plotterUIProjection: PlotterUIProjection
+  let plotterUIIntentSink: any PlotterUIIntentSink
+
+  var raisePenButton: OperatorRequestButton? {
+    guard let action = plotterUIProjection.action(id: PlotterAppUIActionID.manualPenUp) else { return nil }
+    return OperatorRequestButton(title: action.title, role: .affirmative,
+      request: plotterUIProjection.request(for: action.id),
+      unavailableReason: action.isAvailable ? nil : action.unavailableReason,
+      sink: plotterUIIntentSink)
+  }
+
+  var prerequisiteText: String {
+    let recovery = plotterUIProjection.actions.first {
+      guard case .learningAction(let request) = $0.intent else { return false }
+      return request.action == .tipCalibration(.revalidateCheckpoint)
+    }
+    return recovery?.unavailableReason ?? "The pen is raised. Use the camera to find its position."
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      if let raisePenButton {
+        raisePenButton.accessibilityIdentifier("positionRecovery.raisePen")
+      }
+      Text(prerequisiteText)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+  }
 }

@@ -8,6 +8,29 @@ import Testing
 
 @Suite("Passive machine controller")
 struct MachineControllerTests {
+  @Test("profile reconciliation changes readiness without any wire command or status query",
+    arguments: [PenCommand.raise, .lower])
+  func profileReconciliationPreservesOnlyMatchingPenState(command: PenCommand) async throws {
+    let ready = try await penReadyController(commands: successfulPenCommands(command))
+    let outcome = await ready.controller.requestPenActuation(command, profile: .initialDefaults)
+    #expect(outcome == .commandedAndSettled(command: command, commandedState: command.commandedState))
+    let before = await ready.controller.snapshot()
+    let writes = ready.link.completedWriteCount
+    #expect(await ready.controller.reconcilePenActuationProfile(.initialDefaults))
+    #expect(await ready.controller.snapshot() == before)
+    let changed = PenActuationProfile(raisedSpindleValue: 55, loweredSpindleValue: 800, settleSeconds: 0.3)
+    #expect(await ready.controller.reconcilePenActuationProfile(changed))
+    let after = await ready.controller.snapshot()
+    #expect(after.penState == .unknown)
+    #expect(after.position == before.position)
+    #expect(after.lastPenOutcome == before.lastPenOutcome)
+    #expect(after.latestStatusSample == before.latestStatusSample)
+    #expect(ready.link.completedWriteCount == writes)
+    #expect(await ready.controller.reconcilePenActuationProfile(changed))
+    #expect(await ready.controller.snapshot() == after)
+    #expect(ready.link.completedWriteCount == writes)
+  }
+
   @Test("fixed passive probe records exact fragmented TX and RX")
   func passiveProbe() async throws {
     let fixture = try await Fixture.make()

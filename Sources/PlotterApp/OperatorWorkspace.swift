@@ -4413,7 +4413,7 @@ final class PlotterApplicationRuntime:
     )
     appendApplicationCandidate(
       id: PlotterAppUIActionID.controllerMotion,
-      title: controller.motionAuthorized ? "Disable Motion" : "Enable Motion",
+      title: controller.motionAuthorized ? "Disable Motion" : "Enable Motion & Raise Pen",
       intent: .controller(controller.request(.toggleMotionAuthorization)),
       unavailableReason: controller.motionAuthorizationUnavailableReason,
       owner: "PlotterControllerSessionRuntime"
@@ -5135,7 +5135,16 @@ final class PlotterApplicationRuntime:
       where request.actionID == PlotterAppUIActionID.pointSelection(submission):
       submitPointSelection(submission)
     case .manualMotion(let intent):
-      await submitManualMotionIntent(intent)
+      let settled = await submitManualMotionIntent(intent)
+      if case .setPen(let pen) = intent, pen.position == .raised,
+        settled?.projection.lastTerminalEffect?.result.disposition != .completed
+          || settled?.terminalPublicationIssue != nil || settled?.evidenceDispositionAction != nil {
+        return plotterUIRefusal(request, reason: .retainedOwnerRefused,
+          currentUIRevision: currentPlotterUIProjection?.revision ?? currentUIRevision,
+          currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(),
+          remedy: settled?.projection.remedy ?? machineError
+            ?? "The pen did not settle. Use the current Raise Pen control to retry.")
+      }
     case .manualStop(let rawID) where request.actionID == PlotterAppUIActionID.manualStop:
       await requestManualMotionStop(
         capabilityID: PlotterManualMotionStopCapabilityID(rawValue: rawID)
@@ -5338,13 +5347,19 @@ final class PlotterApplicationRuntime:
         intent == .reviewExactFrame ? .reviewComparison : .resumeLivePreview
       )
     case .controller(let controllerRequest):
-      if case .refused(let reason) = await submitControllerSessionRequest(controllerRequest) {
+      let disposition = await submitControllerSessionRequest(controllerRequest)
+      let refusal: String? = switch disposition {
+      case .completed: nil
+      case .refused(let reason): reason
+      case .cancelled: "The controller action was cancelled; preparation did not complete. Use the current control to retry."
+      }
+      if let refusal {
         return plotterUIRefusal(
           request,
           reason: .retainedOwnerRefused,
           currentUIRevision: currentPlotterUIProjection?.revision ?? currentUIRevision,
           currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(),
-          remedy: reason
+          remedy: refusal
         )
       }
     case .observation(let observationRequest):
@@ -5574,9 +5589,12 @@ final class PlotterApplicationRuntime:
           ?? (intent == nil ? "Enter finite positive jog distance and feed values." : nil)
       )
     }
+    let raisingPen: Bool = if case .setPen(let request) = manualMotionEpisodeSnapshot?.activeOperation?.intent {
+      request.position == .raised
+    } else { false }
     actions.append(PlotterUIAction(
       id: PlotterAppUIActionID.manualPenUp,
-      title: "Pen Up",
+      title: raisingPen ? "Raising Pen…" : "Raise Pen",
       intent: .manualMotion(manualPenIntent(.raise)),
       unavailableReason: presentation.penUpUnavailableReason
     ))
@@ -6101,6 +6119,31 @@ final class PlotterApplicationRuntime:
       }
     }
       let restoredGraph = try checkpoint.restoredLearningGraph()
+      let restoredPenProfile = checkpoint.penInteraction?.evidence.actuationProfile ?? .initialDefaults
+      // Validate the complete package before changing any current owner. A
+      // changed accepted profile invalidates commanded pen knowledge only;
+      // loading Saved Learning never actuates the pen or moves the carriage.
+      if let machineSession {
+        let priorSelection = selectedSerialDevice?.identifier
+        let priorSession = controllerSessionID
+        let ownsPublishedSnapshot = priorSelection != nil
+          && machineSnapshot?.machine.link.identifier == priorSelection
+        guard await machineSession.reconcilePenActuationProfile(restoredPenProfile) else {
+          throw LearningPathOperationError.requiredState(
+            "Wait for the current controller operation to finish before applying Saved Learning."
+          )
+        }
+        // Loading settings cannot claim an unselected lower controller for this
+        // application. Refresh only the already-published matching session.
+        if ownsPublishedSnapshot {
+          let refreshed = await machineSession.snapshot()
+          if frameMode == .live, controllerSessionID == priorSession,
+            selectedSerialDevice?.identifier == priorSelection,
+            refreshed == nil || refreshed?.machine.link.identifier == priorSelection {
+            machineSnapshot = refreshed
+          }
+        }
+      }
       await penInteractionRuntime.restore(checkpoint.penInteraction, environment: .live)
       installPenInteractionSnapshot(
         await penInteractionRuntime.snapshot(environment: .live)
@@ -9507,6 +9550,10 @@ final class PlotterApplicationRuntime:
   }
 
   var positionRevalidationUnavailableReason: String? {
+    if case .setPen(let request) = manualMotionEpisodeSnapshot?.activeOperation?.intent,
+      request.position == .raised {
+      return "Raising the pen. Wait for it to finish, then use the camera to find its position."
+    }
     if positionRebasePublicationIsPending || tipCalibrationRuntime.activeOperationID != nil {
       return "Position verification is in progress."
     }
@@ -9523,7 +9570,8 @@ final class PlotterApplicationRuntime:
       snapshot.machine.position != nil else {
       return "Wait for an unambiguous Idle controller position before re-establishing position."
     }
-    return snapshot.machine.penState == .up ? nil : "Use Pen Up, then Re-establish Position from Camera."
+    return snapshot.machine.penState == .up ? nil
+      : "Raise the pen first, then use the camera to find its position. Enable Motion raises it automatically."
   }
 
   private var retainedPoseApplicabilityRefusal: String? {
@@ -9533,7 +9581,7 @@ final class PlotterApplicationRuntime:
         return "Saved Boundary coordinates have no retained camera/cap map for position recovery. Redo Boundary Positioning, then Camera Calibration; accepted Pen Learning remains available."
       }
       return
-        "Physical position is unverified after controller continuity was lost. Use Pen Up, then Re-establish Position from Camera before drawing. Accepted Learning is retained."
+        "Physical position is unverified after controller continuity was lost. Raise Pen here if needed, then Re-establish Position from Camera before drawing. Accepted Learning is retained."
     }
     return nil
   }
@@ -9723,6 +9771,8 @@ final class PlotterApplicationRuntime:
   ) async -> PlotterControllerSessionDisposition {
     guard applicationAdmissionIsOpen else { return .cancelled }
     let facts = controllerSessionFacts
+    let enablesMotion = request.intent == .toggleMotionAuthorization
+      && !PlotterControllerSessionRules.project(facts).motionAuthorized
     guard request.reference == facts.reference else {
       return .refused("The controller-session projection changed; use the current action.")
     }
@@ -9750,8 +9800,52 @@ final class PlotterApplicationRuntime:
       if case .refused(let reason) = disposition { machineError = reason }
       return disposition
     }
+    if enablesMotion {
+      // A completed authorization remains controller truth after caller
+      // cancellation. Publish it for this owner before suppressing Pen Up.
+      guard applicationAdmissionIsOpen,
+        frameMode == facts.environment, controllerSessionID == facts.reference.capabilityID
+      else { return .cancelled }
+    }
     await applyControllerSessionResult(result)
-    return disposition
+    guard enablesMotion else { return disposition }
+    // Authorization and pen preparation have separate retained owners. Only
+    // this explicit enable request may hand off to the existing Manual owner;
+    // passive connection/probe results never acquire a pen side effect.
+    guard !Task.isCancelled, applicationAdmissionIsOpen,
+      frameMode == facts.environment, controllerSessionID == facts.reference.capabilityID
+    else { return .cancelled }
+    let enableFailure: String? = switch result {
+    case .liveSession(_, _, let error): error
+    case .simulated(_, _, let refusal): refusal
+    default: "Motion authorization did not complete."
+    }
+    if let enableFailure { return .refused(enableFailure) }
+    guard controllerSessionProjection.motionAuthorized else {
+      return .refused("Motion authorization did not become active; the pen was not raised.")
+    }
+    guard manualControllerPenState != .raised else { return disposition }
+    guard let settled = await submitManualMotionIntent(manualPenIntent(.raise)) else {
+      if Task.isCancelled || !applicationAdmissionIsOpen { return .cancelled }
+      return .refused(machineError ?? "Motion is enabled, but the pen did not settle. Use Raise Pen beside Re-establish Position from Camera.")
+    }
+    guard settled.projection.lastTerminalEffect?.result.disposition == .completed,
+      settled.terminalPublicationIssue == nil,
+      settled.evidenceDispositionAction == nil,
+      manualControllerPenState == .raised
+    else {
+      let reason = settled.projection.remedy ?? machineError
+        ?? "The pen did not settle. Use Raise Pen beside Re-establish Position from Camera."
+      machineError = reason
+      return .refused(reason)
+    }
+    switch facts.environment {
+    case .live:
+      return .completed(.liveSession(snapshot: machineSnapshot, probe: passiveProbeResult, error: nil))
+    case .simulated:
+      guard let snapshot = simulatedLearningSnapshot else { return .cancelled }
+      return .completed(.simulated(snapshot, action: "Enable simulated motion and raise pen", refusal: nil))
+    }
   }
 
   private func applyControllerSessionResult(
@@ -10549,11 +10643,14 @@ final class PlotterApplicationRuntime:
     return .setPen(manualPenRequest(position: position))
   }
 
-  func submitManualMotionIntent(_ intent: PlotterManualMotionIntent) async {
-    guard applicationAdmissionIsOpen else { return }
+  @discardableResult
+  func submitManualMotionIntent(
+    _ intent: PlotterManualMotionIntent
+  ) async -> PlotterManualMotionRuntimeSnapshot? {
+    guard applicationAdmissionIsOpen, !Task.isCancelled else { return nil }
     if let reason = manualMotionRuntimePresentation.attentionReason {
       machineError = reason
-      return
+      return nil
     }
     do {
       let environment = manualMotionEnvironment
@@ -10581,7 +10678,7 @@ final class PlotterApplicationRuntime:
             recovery: .resolveNamedFailure
           ))
         }
-        return
+        return nil
       }
       if let telemetry {
         await recordWorkflowTelemetry(WorkflowTelemetryEvent(
@@ -10592,7 +10689,20 @@ final class PlotterApplicationRuntime:
           motionIntent: telemetry.motionIntent
         ))
       }
-      guard let settled = await observeManualMotionSettlement(effectID: effectID) else { return }
+      let settlement: PlotterManualMotionRuntimeSnapshot?
+      switch intent {
+      case .setPen:
+        // The admitted finite pen owner has no cancellation capability. Keep
+        // its existing presentation observation joined even if this UI caller
+        // is cancelled; actual settlement still has to retire cached busy state.
+        let observation = Task { @MainActor in
+          await self.observeManualMotionSettlement(effectID: effectID)
+        }
+        settlement = await observation.value
+      case .jog:
+        settlement = await observeManualMotionSettlement(effectID: effectID)
+      }
+      guard let settled = settlement else { return nil }
       if let telemetry,
         let terminal = settled.projection.lastTerminalEffect,
         terminal.result.context.effectID == effectID
@@ -10611,8 +10721,14 @@ final class PlotterApplicationRuntime:
           recovery: terminalTelemetry.recovery
         ))
       }
+      guard !Task.isCancelled,
+        settled.projection.lastTerminalEffect?.result.context.effectID == effectID else {
+        return nil
+      }
+      return settled
     } catch {
       machineError = actionableDescription(error)
+      return nil
     }
   }
 

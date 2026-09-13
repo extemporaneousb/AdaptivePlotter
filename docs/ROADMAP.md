@@ -68,7 +68,9 @@ review, two consecutive ordinary drawings across same-plane sheet replacement,
 with Draw border off and on, exact new-sheet coverage confirmation, and retained
 calibration/completion/outline. Check visible Motion values during both manual
 and automatic paths, stale/disconnected labeling, hide/reopen, and current
-blocker recovery. Record post-run planned-versus-observed review and failures without
+blocker recovery. Verify the explicit Enable Motion & Raise Pen lift and adjacent
+position-recovery Raise Pen retry in attended use; automated settlement cannot
+prove the physical pen lifted. Record post-run planned-versus-observed review and failures without
 redrawing ambiguous locations.
 
 This is the highest-priority gap. Automated and simulated evidence cannot close

@@ -1276,9 +1276,21 @@ applicability through ordinary known motion and same-plane sheet replacement.
 Accepted Learning completion depends on the retained accepted artifacts and
 outcomes, not the current Pen pose. A compatible complete checkpoint restores
 the same completed milestones as finishing those exercises in this process.
-Unknown or down Pen pose is an execution-readiness fact: use the existing Pen Up
-operation and learned profile, without reopening Pen Interaction or requesting
-another cap click. Actual incompatible controller, optical, tool, or contact-plane
+Unknown or down Pen pose is an execution-readiness fact. Explicit **Enable Motion
+& Raise Pen** first establishes authorization, then commands and awaits one Pen Up
+through the existing manual owner and current learned profile. Already-Up skips
+that command; Connect, passive probe and Disable Motion do not actuate the pen.
+Failure leaves the actual pen outcome visible and dependent recovery unavailable.
+**Raise Pen** beside **Re-establish Position from Camera** provides the same typed
+manual operation without opening Motion or reopening Pen Interaction. A held
+finite servo operation retains its existing noncancellable settlement policy; the
+UI does not invent a Stop capability. Settled Pen Up still requires separate
+current camera verification before physical position is accepted. Loading Saved
+Learning never actuates the pen. If its accepted profile differs from the profile
+that established the current Up/Down state, the existing lower owner marks that
+state Unknown; adjacent Raise Pen must settle the accepted settings before camera
+recovery. An identical profile retains the already-settled state. A busy lower
+owner refuses reconciliation before accepted Learning is published. Actual incompatible controller, optical, tool, or contact-plane
 dependencies retain their precise existing remedy. The implementation correction
 and its proof are tracked in the execution plan's
 [workbench and portrait completion correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#workbench-and-portrait-completion-correction-2026-09-08).

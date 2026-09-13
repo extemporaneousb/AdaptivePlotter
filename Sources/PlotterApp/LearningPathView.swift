@@ -254,6 +254,11 @@ private struct ExerciseActionStripView: View {
         directionSelectionControl(directionSelection)
       }
 
+      if presentation.actions.contains(where: { $0.action == .tipCalibration(.revalidateCheckpoint) }) {
+        PositionPenPreparationControls(plotterUIProjection: plotterUIProjection,
+          plotterUIIntentSink: plotterUIIntentSink)
+      }
+
       LazyVGrid(
         columns: [
           GridItem(

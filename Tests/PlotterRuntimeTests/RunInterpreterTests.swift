@@ -582,6 +582,13 @@ struct RunInterpreterTests {
     }
     let (jogOutcome, penOutcome) = await withTaskCancellationHandler {
       await gate.waitUntilBlockedWrite()
+      let busy = await interpreter.snapshot()
+      let writes = scriptedLink.completedWriteCount
+      let changed = PenActuationProfile(raisedSpindleValue: 55, loweredSpindleValue: 800, settleSeconds: 0.3)
+      #expect(await interpreter.reconcilePenActuationProfile(changed) == false)
+      #expect(await controller.reconcilePenActuationProfile(changed) == false)
+      #expect(await interpreter.snapshot() == busy)
+      #expect(scriptedLink.completedWriteCount == writes)
       let jogOutcome = await interpreter.requestRelativeJog(jog)
       await gate.release()
       return (jogOutcome, await penOperation.outcome())
@@ -591,6 +598,15 @@ struct RunInterpreterTests {
 
     #expect(jogOutcome == .refused(.operationInFlight))
     #expect(penOutcome == .commandedAndSettled(command: .raise, commandedState: .up))
+    #expect(scriptedLink.completedWriteCount == PassiveQuery.allCases.count + 3)
+    let settled = await interpreter.snapshot()
+    #expect(await interpreter.reconcilePenActuationProfile(.initialDefaults))
+    #expect(await interpreter.snapshot() == settled)
+    #expect(await interpreter.reconcilePenActuationProfile(
+      PenActuationProfile(raisedSpindleValue: 55, loweredSpindleValue: 800, settleSeconds: 0.3)))
+    let reconciled = await interpreter.snapshot()
+    #expect(reconciled.machine.penState == .unknown)
+    #expect(reconciled.lastPenOutcome == settled.lastPenOutcome)
     #expect(scriptedLink.completedWriteCount == PassiveQuery.allCases.count + 3)
   }
 

@@ -9,6 +9,100 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Pen readiness beside position recovery, 2026-09-12
+
+Task `task-d431b9891cb949d28072588618977a00` addresses the operator having to open
+Motion and raise the pen before camera position recovery becomes available.
+The bounded correction composes explicit **Enable Motion & Raise Pen** with the
+existing manual Pen Up owner and exposes the same typed **Raise Pen** retry and
+plain prerequisite beside position recovery in both Learning and Drawing Studio.
+Already-Up skips the command; Connect, passive probe and Disable Motion never
+actuate the pen. Finite pen settlement retains its existing noncancellable owner
+policy, with visible Raising Pen activity and no fabricated Stop capability.
+Pen settlement remains separate from accepted Learning and physical-position
+evidence. A cancelled enable caller still publishes a completed matching-session
+authorization result, then prevents the automatic Pen Up successor.
+
+The initial cold default warnings-as-errors build passed in 347.179665 seconds;
+the cancellation-order build passed in 63.370773 seconds. Initial documentation
+checks passed in 44.053550 seconds, including contracts and Python suites of 13,
+9 and 39 tests. The first focused strict run failed compilation after 412.950613
+seconds because a test did not explicitly discard a newly returned optional owner
+result; zero tests ran. Its explicit discard preserves all publication/recovery
+assertions. The next focused compilation failed after 118.816079 seconds on an
+ambiguous overloaded test-helper argument; explicit `PenCommand.raise` resolves
+that diagnostic without changing the typed slider behavior. Zero tests ran.
+
+Inspection then found an order-sensitive profile gap: enabling before loading
+different saved settings could leave Up attributed to the old profile. Restore
+now reconciles the existing lower profile without motion, invalidates mismatched
+Up/Down, and refuses while busy. That default build passed in 86.073523 seconds.
+The first executed focused suite ran 21 tests with one issue in 17.953 seconds
+tests / 59.394933 seconds wall: cancelling the enable caller returned before the
+retained finite Pen owner published settlement. The production observer now joins
+that exact effect through terminal publication before reporting caller cancellation;
+no local Stop or second motion runner was added. The existing terminal assertion
+remains unchanged. The final default warnings-as-errors build passed in 55.086435
+seconds, and the focused strict suite passed all 21 tests in 17.883 seconds tests /
+80.255001 seconds wall. The full strict quick suite then ran 1050 tests with
+22 issues in 108.763 seconds tests / 111.553264 seconds wall, all in two retained
+apply-before-connect regressions. Restore had published a lower snapshot before
+the application owned a selected controller; the following selection retired that
+apparent old session and erased restored Learning. The source now refreshes only
+an already-owned application snapshot. Both original tests and their ordering are
+retained, with explicit no-session-before-Connect assertions. The updated default
+warnings-as-errors build passed in 46.907745 seconds. The pre-integration full
+strict quick suite then passed all 1050 tests in 113.655 seconds tests /
+115.785651 seconds wall, with five existing opt-in skips. The target branch
+independently advanced to `19bb6a68b955c249c88e0a173027038add221db5`, adding the
+portrait correction recorded below. The combined source passed default
+warnings-as-errors compilation in 78.775467 seconds, strict quick validation with
+1067 tests in 99.827 seconds tests / 226.811656 seconds wall (five existing opt-in
+skips), and strict journey validation with 10 tests in 3.744 seconds tests /
+5.231462 seconds wall. Combined-source strict signed-debug `make validate-app`
+passed in 13.966002 seconds. The separately staged candidate is
+`/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter-pen-readiness-d431b989-reviewed.app`,
+executable SHA-256
+`a954fa16f4f6e05fc39ee71e92bc062f00b6734ab77011ff75049c074d60c30b`.
+All 180 source/build input hashes match, and stable-local signing plus deep/strict
+signature verification passed. `candidate-artifact.json` records provenance. The
+bundle remains unlaunched. One full independent nonauthor assessment passed with
+no actionable P0–P3 finding or residual issue. The assessor verified all 74 register
+items against the integrated tree `28b2674d`, all 180 source/build inputs and the
+signed a954fa16 candidate. No repair pass or delta verification was needed.
+Final integrated documentation checks passed in 36.016895 seconds, including
+contracts and Python suites of 13, 9 and 39 tests. Local Blackdog landing remains
+the coordinator's next step; the authoritative target, commit and cleanup receipt
+belong to task history and the final delivery report.
+
+The earlier signed debug validation passed in 13.983225 seconds and staged
+`/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter-pen-readiness-d431b989.app`
+with executable SHA-256
+`57b8a9f6ebd2eb0a66c7c55907471355255a17c97c29d676380cd835e1857e45`.
+Its 176 source inputs and deep/strict signature passed at that build. The finite
+settlement correction supersedes this unlaunched artifact before assessment; it
+is historical build evidence, not the final delivery candidate.
+
+The baseline user app was not controlled or replaced by this campaign. During
+source-only compilation, before any tests, its accepted-Learning package hash
+changed; the other three monitored saved-state hashes matched. The external
+`user-state-during-build.json` preserves both hashes and modification time.
+At 22:37:25, a later read-only observation found baseline PID 80042 had exited
+and no application process was running; this campaign did not request the exit
+and its cause is not established. The original app binary still matched its
+baseline hash, and all four immediate pre-test saved-state hashes matched.
+`live-during-validation.json` records that observation. A subsequent observation
+found a newly running primary-build portrait app at PID 88952, executable SHA-256
+`20d00491a4a96dc617a69a7f4fbc40bb73a97fcbdd696ad4eb752e15c59d4834`, recorded in
+`live-new-process.json`. That process does not contain this pen-readiness patch;
+this campaign did not launch or control it. The 22:52:45 pre-landing observation
+still found PID 88952 with the same 20d00491 binary. Three monitored authority/
+archive hashes matched their immediate pre-test values; preferences had changed.
+Together with the earlier initial-baseline package change, these observations
+preclude an all-state-unchanged claim. No agent wrote that saved state or controlled
+the running app. Native/performance and attended physical validation remain
+unperformed; software results cannot establish physical pen lift or alignment.
+
 ## Drawing Studio burst capture and coarse portrait styles, 2026-09-12
 
 Task `task-e5239da72d3642b49ef3697b3967ec12` changes only portrait authoring,

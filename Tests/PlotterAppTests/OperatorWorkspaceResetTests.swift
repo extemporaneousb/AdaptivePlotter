@@ -668,6 +668,8 @@ extension PlotterApplicationRuntimeTests {
     #expect(relaunched.learningArtifactGraph.revisions.isEmpty)
     await relaunched.performTestExerciseAction(.applySavedLearning, for: savedOwner)
     #expect(relaunched.testSelectedBoundaryDirection == .negativeX)
+    #expect(relaunched.machineSnapshot == nil)
+    #expect(!relaunched.controllerSessionProjection.sessionEstablished)
     await relaunched.establishMachineSession(machine.descriptor)
     await submitControllerSession(relaunched, .requestPassiveProbe)
     await submitObservationConfigurationForTest(

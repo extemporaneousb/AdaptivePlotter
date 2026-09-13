@@ -444,7 +444,7 @@ extension PlotterApplicationRuntimeTests {
 
     try FileManager.default.moveItem(at: displaced, to: directory)
     await workspace.recoverTestManualMotionPublication(capabilityID: recovery.capabilityID)
-    await owner.value
+    _ = await owner.value
 
     let restored = workspace.testManualMotionEpisodePresentation
     #expect(restored.publicationRecovery == nil)

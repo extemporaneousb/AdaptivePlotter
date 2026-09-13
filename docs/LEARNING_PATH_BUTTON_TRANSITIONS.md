@@ -169,7 +169,12 @@ flowchart TD
 
 Dependency behavior is intentionally asymmetric:
 
-- Motion Enabled implies a connected controller session.
+- Motion Enabled implies a connected controller session. **Enable Motion & Raise
+  Pen** awaits one current-profile Pen Up when the pen is not already Up; it does
+  not perform camera recovery. The recovery strip exposes **Raise Pen** and its
+  actual prerequisite beside **Re-establish Position from Camera**, including in
+  Drawing Studio. Finite pen settlement stays visibly busy without a fabricated
+  Stop capability. Connect, probe and Disable Motion never raise the pen.
 - Every semantic **Connect** action is green and every semantic **Disconnect**
   action is red, including open connecting/probing states. An unavailable
   **Enable Motion** stays gray and shows its blocker beside the control.

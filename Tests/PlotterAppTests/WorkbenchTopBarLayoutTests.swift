@@ -20,7 +20,7 @@ struct WorkbenchTopBarLayoutTests {
     let enable = WorkbenchMotionAuthorizationActionPresentation(isAuthorized: false)
     let disable = WorkbenchMotionAuthorizationActionPresentation(isAuthorized: true)
 
-    #expect(enable.title == "Enable Motion")
+    #expect(enable.title == "Enable Motion & Raise Pen")
     #expect(disable.title == "Disable Motion")
   }
 

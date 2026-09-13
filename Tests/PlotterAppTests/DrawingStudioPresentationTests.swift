@@ -11,6 +11,57 @@ import Testing
 @Suite("Drawing Studio presentation")
 struct DrawingStudioPresentationTests {
   @MainActor
+  @Test("Drawing Studio raises the pen beside camera recovery and clears the prerequisite after retry")
+  func adjacentRaisePenResolvesRecoveryPrerequisite() async throws {
+    let f = try await DrawingWorkbenchApplicationFixture.make(verifyPhysicalPose: false)
+    defer { f.stores.remove() }
+    let app = f.application
+    func currentView() -> DrawingStudioView {
+      DrawingStudioView(presentation: app.drawingStudioPresentation,
+        plotterUIProjection: app.testPlotterUIProjection().semantic, plotterUIIntentSink: app)
+    }
+    await submitControllerSession(app, .toggleMotionAuthorization)
+    let disabled = currentView()
+    let disabledRaise = try #require(disabled.positionRaisePenButton)
+    #expect(disabledRaise.request == nil)
+    #expect(disabledRaise.unavailableReason?.contains("Enable Motion") == true)
+    #expect(disabled.positionRecoveryButton?.request == nil)
+    // The Learning recovery strip and Drawing Studio render this same component.
+    let sharedControls = PositionPenPreparationControls(
+      plotterUIProjection: app.testPlotterUIProjection().semantic, plotterUIIntentSink: app)
+    #expect(sharedControls.raisePenButton?.request == disabledRaise.request)
+    #expect(sharedControls.prerequisiteText == disabled.positionRecoveryButton?.unavailableReason)
+    await f.machine.enqueuePenOutcome(.refused(.controllerRejected("fixture preparation failed")))
+    let enable = try #require(app.testPlotterUIProjection().semantic.request(for: PlotterAppUIActionID.controllerMotion))
+    _ = await app.submitPlotterUIRequest(enable)
+    #expect(app.machineSnapshot?.machine.penState == .unknown)
+    let failed = currentView()
+    #expect(failed.positionRecoveryButton?.request == nil)
+    let raise = try #require(failed.positionRaisePenButton)
+    #expect(raise.title == "Raise Pen")
+    let request = try #require(raise.request)
+    #expect(request.actionID == PlotterAppUIActionID.manualPenUp)
+    #expect(raise.unavailableReason == nil)
+    #expect(await app.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+    #expect(app.machineSnapshot?.machine.penState == .up)
+    let ready = currentView()
+    let recovery = try #require(ready.positionRecoveryButton)
+    #expect(recovery.request != nil)
+    #expect(recovery.unavailableReason == nil)
+    #expect(await f.machine.requestedPenCommands == [.raise, .raise])
+    #expect(await f.machine.requestedFeeds.isEmpty)
+    #expect(await f.camera.poseCaptureCount == 0)
+    #expect(app.controllerPoseApplicability.requiresPhysicalPositionForTest)
+    let recoveryRequest = try #require(recovery.request)
+    #expect(await app.submitPlotterUIRequest(recoveryRequest) == .accepted(requestID: recoveryRequest.id))
+    #expect(!app.controllerPoseApplicability.requiresPhysicalPositionForTest)
+    #expect(app.interactiveLearningIsComplete)
+    #expect(currentView().positionRecoveryButton == nil)
+    #expect(currentView().positionRaisePenButton == nil)
+    await app.shutdown()
+  }
+
+  @MainActor
   @Test("camera recovery button presents its current owner blocker and clears it after settlement")
   func recoveryButtonUsesCurrentOwnerReason() async throws {
     let f = try await DrawingWorkbenchApplicationFixture.make(verifyPhysicalPose: false)

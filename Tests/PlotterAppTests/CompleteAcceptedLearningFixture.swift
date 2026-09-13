@@ -24,11 +24,11 @@ struct CompleteAcceptedLearningFixture: Sendable {
   var registration: TipCameraRegistration { checkpoint.tipCalibration!.registration }
 
   @MainActor
-  static func make() async throws -> Self {
+  static func make(raisedSpindleValue: Int? = nil) async throws -> Self {
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
     let seeded = makeCausalSimulatorAppFixture(tipCalibrationSemanticIdentities: identities)
     let source = seeded.workspace
-    try await completeSimulatedPenInteractionPrerequisite(source)
+    try await completeSimulatedPenInteractionPrerequisite(source, raisedSpindleValue: raisedSpindleValue)
     try await installAcceptedBoundaryTestProjection(runtime: seeded.boundaryRuntime,
       workspace: source, environment: .simulated)
     try await completeSimulatedTipCalibration(source, simulator: seeded.simulator)
