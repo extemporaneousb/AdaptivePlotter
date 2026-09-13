@@ -2086,20 +2086,42 @@ and comparison results. These values have no model-application, controller,
 readiness, or new persistence authority. Automatic batch execution and corrected
 physical holdout evaluation remain unfinished product work.
 
-`PortraitStudioModel` retains optional portrait capture and the three labeled
-pose images across panel navigation. The existing observation runtime exclusively
-selects plotter or face capture; the UI never starts both sessions independently.
-Only the permanent canvas's `PortraitCameraPreview` reads the changing portrait
-preview frame; these frames do not enter the root semantic projection. `PortraitImageAnalyzer`
-runs bounded image decoding, face cropping, contrast normalization, and optional
-person masking on worker tasks. Style changes reuse the analyzed raster.
-One latest-request render drain cancels superseded work, retains it until actual
-settlement, then starts the latest pending request. Decoding/vectorization
-cooperatively checks cancellation. `PlotterSceneAnalysisPipeline` likewise retains
-its cancelled drain until completion before starting replacement Vision work.
-`PortraitVectorizer` generates deterministic joined tonal contours or continuous
-hatch/crosshatch polylines, preserving top-left image to lower-left FieldSpace
-orientation. It has no controller or Learning dependencies.
+`PortraitStudioModel` owns optional portrait capture, UUID-selected recent photos,
+raster caches, and the existing immutable authored program. The recent-photo store
+is bounded by 24 entries and 32 MiB of encoded pixels; eviction/deletion releases
+associated rasters. `PortraitSketchCollection` retains at most eight immutable vector
+comparisons and 200,000 total points with session-local ratings. Neither collection
+persists raw photos, owns Learning, or supplies drawing admission.
+
+The existing observation runtime exclusively selects plotter or face capture.
+The studio's own `CameraCapture` requests a 33,333,333 ns preview interval; shared
+plotter acquisition policy is unchanged. One acquisition worker illuminates the
+permanent canvas, waits for exposure settling, then samples strictly advancing exact
+frames at up to 8 Hz for the selected 3–5 second interval. Count/byte bounded burst
+storage preserves individual poses without unregistered averaging. Camera-role
+changes and cancellation settle acquisition and clear illumination. The permanent
+canvas's `PortraitCameraPreview` alone observes changing preview frames; the root
+semantic projection does not receive this traffic.
+
+`PortraitImageAnalyzer` normalizes image orientation/size, performs adjustable face
+cropping, contrast normalization, and optional person masking on worker tasks.
+`PortraitAnalysisOptions` controls image analysis; separate `PortraitVectorOptions`
+controls contour length/levels/simplification, hatch spacing, smoothing, tonal strength,
+and sketch response threshold. Vector edits reuse the analyzed raster. One latest-request
+drain serializes acquisition and rendering, retains cancelled workers until actual
+settlement, and validates render revision plus selected photo identity before publication.
+Deleting a source cannot revive it through a late result. Decoding/vectorization
+cooperatively checks cancellation.
+
+`PortraitVectorizer` generates joined tonal contours, continuous hatch/crosshatch
+polylines, or difference-of-Gaussians ink responses thinned into connected centerlines,
+optionally combined with hatch. It preserves top-left image to lower-left FieldSpace
+orientation and includes all bounded authoring parameters in v2 source provenance.
+`PortraitProgramPreview` draws round-capped strokes at estimated physical marker
+width for a selected preview height; those display values do not mutate geometry or
+calibration. It has no controller, planner, or Learning dependencies. The existing
+`PlotterSceneAnalysisPipeline` continues to retain its cancelled drain until completion
+before starting replacement Vision work.
 
 Show on Plotter Video selects the plotter role, supplies
 `.selectProgram(DrawingProgram)` and `.fitInDrawableRegion` to the existing draft

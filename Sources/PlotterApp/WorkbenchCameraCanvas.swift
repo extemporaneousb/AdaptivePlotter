@@ -36,11 +36,11 @@ struct WorkbenchCameraCanvas: View {
       let displayed = surface.usesAmbientPreviewFrame
         ? application.actionSurfacePreview.displayedFrame : surface.displayedFrame
       let portrait = application.portraitStudio
-      let content: WorkbenchCanvasContent = showsPortraitPhoto && portrait.photos[portrait.pose] != nil
+      let content: WorkbenchCanvasContent = showsPortraitPhoto && portrait.selectedPhoto != nil
         ? .portraitPhoto : WorkbenchCanvasContent.select(
         portrait: application.workbenchCameraRole == .portrait,
         portraitVideoAvailable: portrait.cameraIsRunning && portrait.preview.frame != nil,
-        portraitPhotoAvailable: portrait.photos[portrait.pose] != nil,
+        portraitPhotoAvailable: portrait.selectedPhoto != nil,
         plotterFrameAvailable: displayed != nil, retainedPlotterFrame: !surface.usesAmbientPreviewFrame,
         plotterLive: application.cameraIsLive, simulated: application.frameMode == .simulated)
       Group {
@@ -52,12 +52,15 @@ struct WorkbenchCameraCanvas: View {
         case .portraitVideo:
           PortraitCameraPreview(model: portrait.preview, zoom: viewport.zoom)
         case .portraitPhoto:
-          WorkbenchPhotoCanvas(data: portrait.photos[portrait.pose], zoom: viewport.zoom)
+          WorkbenchPhotoCanvas(data: portrait.selectedPhoto, zoom: viewport.zoom)
         case .simulationPreview:
           WorkbenchSimulationCanvas(application: application, zoom: viewport.zoom)
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .overlay {
+        if portrait.screenIlluminationActive { PortraitCaptureLightView(model: portrait) }
+      }
     }
     .frame(minWidth: 320, maxWidth: .infinity, minHeight: 180, maxHeight: .infinity)
     .background(.black)

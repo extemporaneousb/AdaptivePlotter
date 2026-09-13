@@ -182,10 +182,25 @@ implemented. Do not restore the deleted
 speculative online dataset, policy/reward scaffolding, model-mismatch overlay,
 or dormant navigation route as a compatibility surface.
 
-Remaining portrait work is attended exclusive camera switching and ink-quality evaluation across
-front and profile faces, richer styles (facets, stipple, feature landmarks), and
-multi-view composition or reconstruction. The delivered portrait producer uses
-the existing DrawingProgram placement, planning, execution, and evidence path.
-Person/background masking is implemented; facial-part segmentation and 3D head
-reconstruction are not. No portrait feature should own calibration, controller
-commands, paper state, plan execution, or model promotion.
+Remaining portrait work is attended burst-camera/screen-light evaluation and ink-quality
+comparison across marker widths, paper sizes, frontal and three-quarter views. The
+studio now offers individual burst frames, adjustable head framing, coarse vector
+controls, centerline Sketch, and bounded rated comparisons. It does not yet perform
+multi-view fusion, registered temporal averaging, facial-part parsing, learned
+caricature, or identity-aware automatic preference fitting.
+
+The next learned producer can be assessed against
+[APDrawingGAN](https://github.com/yiranran/APDrawingGAN), which uses aligned faces,
+landmarks and masks, and
+[Informative Drawings](https://carolineec.github.io/informative_drawings/), which uses
+semantic and geometric objectives for raster line drawings. Their output still needs
+centerline vectorization, marker/paper-scale evaluation, and likeness ratings before
+being called festival-quality portrait drawing. The shipped local Sketch uses the
+[difference-of-Gaussians stylization family](https://www.cs.northwestern.edu/~sco590/winnemoeller-cag2012.pdf),
+not those learned models or a full XDoG reproduction. Apple's
+[face capture quality guidance](https://developer.apple.com/videos/play/wwdc2019/222/)
+supports future advisory same-subject frame ranking; it should preserve the operator's
+ability to choose useful profile frames. Naively averaging a rotating face would blur
+features, so any future averaging requires registration and motion rejection first.
+No portrait feature should own calibration, controller commands, paper state,
+plan execution, model promotion, or Draw locks.

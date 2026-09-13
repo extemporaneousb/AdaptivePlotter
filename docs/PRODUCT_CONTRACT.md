@@ -1484,29 +1484,52 @@ submit at release (or on keyboard/accessibility edits), without hundreds of
 native tick marks or planning every pointer movement.
 
 The built-in catalog and portrait authoring are deterministic `DrawingProgram`
-producers, not precomputed machine commands. Portrait authoring accepts a photo
-or one exact frame from the selected optional face camera. Left, front, and
-right are labeled individual captures; selecting a pose and Contour, Hatch, or
-Crosshatch produces ordered FieldSpace polylines. Face localization supplies a
-padded crop and Vision person segmentation can remove background. A missing
-face or person mask retains the image, with a visible analysis explanation;
-these detectors do not gate drawing creation. This is person/background masking,
-not segmentation of individual facial parts or reconstruction of a 3D head.
+producers, not precomputed machine commands. Portrait authoring accepts an imported
+photo or a 3–5 second burst (four seconds by default) from the selected optional
+face camera. The permanent canvas becomes white during the burst to illuminate
+the face, including a half-second exposure settling period; system display brightness
+is unchanged. Portrait acquisition requests up to 30 fps independently of plotter
+preview cadence and samples distinct frames at up to 8 fps. Actual delivery and
+encoding speed determine the captured count. Individual frames preserve different
+angles; turning faces are not averaged or treated as a reconstructed head.
 
-The portrait editor retains its captures and authored draft in memory across
-panel navigation. It does not add them to the Learning package or automatically
-persist raw photos. Show on Plotter Video installs the immutable generated
-program through the same draft intent owner as catalog selection. It does not start motion. Placement,
-execution, Stop, and observation use the existing drawing path. Program source
-provenance identifies the image/raster digests, crop, pose, and style; completed
-runs retain it alongside their reconstructable execution plan in the existing
-drawing evidence archive. Preview frames and image analysis stay local to the
-selected camera and portrait authoring. Camera selection changes capture
-lifecycle without changing accepted calibration or Learning completion when the
-physical plotter optics are unchanged. Expensive portrait work observes
-cancellation and coalesces superseded edits. Source changes settle the active
-worker; hiding or moving the panel retains the captures and draft. Application
-shutdown cancels and joins remaining work.
+A thumbnail strip replaces the labeled left/front/right controls. It retains at
+most 24 normalized photos and 32 MiB of photo data in session memory; oldest entries
+are evicted, and each thumbnail has an immediate × removal with no confirmation.
+Selection, deletion, and superseding capture invalidate obsolete render work.
+The selected photo produces Tonal contours, Hatch, Crosshatch, Sketch, or Sketch +
+hatch. Sketch extracts difference-of-Gaussians responses, thins ink to centerlines,
+and joins them into vector paths. Fine, Balanced, and Broad marker presets and
+controls expose contour minimum length, simplification, tonal levels, hatch spacing,
+smoothing, tonal strength, and sketch threshold. Spatial settings use analyzed-image
+pixels; their paper footprint depends on final placement scale.
+
+Face localization supplies an adjustable padded crop so the head can occupy more
+of the drawing. Vision person segmentation can remove background. Missing face or
+person detections retain the image with a visible explanation; these detectors do
+not gate drawing creation. This is person/background masking and head framing,
+not facial-part segmentation, geometric caricature, or 3D reconstruction.
+
+The preview estimates ink width at an explicitly chosen drawing height. These
+preview settings do not alter the tool profile or actual placement; Fit to Drawing
+Area and existing placement controls determine the real drawing. Up to eight saved
+vector sketches (200,000 total points) can be compared, rated, selected for plotter
+preview, and removed immediately. Ratings and sketches remain session-local and do
+not train a model or modify Learning.
+
+The portrait editor retains captures and the authored draft across panel navigation.
+It does not add them to the Learning package or automatically persist raw photos.
+Show on Plotter Video installs the selected immutable generated program through
+the same draft intent owner as catalog selection and does not start motion.
+Placement, execution, Stop, and observation use the existing drawing path with
+unchanged Draw admission. Program provenance identifies normalized image/raster
+digests, crop, source pose metadata, style, and all bounded vector settings;
+completed runs retain it alongside their reconstructable execution plan in the
+existing drawing evidence archive. Image analysis stays local. Expensive acquisition
+and rendering share one serial drain that cancels and settles superseded work.
+Camera-role changes cancel a burst and remove its illumination; hiding a pane retains
+its state. Shutdown cancels and joins remaining work. None of these authoring
+features changes calibration, Learning completion, paper authority, or run locks.
 
 Initial placement and Fit compare upright and 90-degree candidates and select
 the larger valid uniform fit, preferring upright on ties. The same fitting

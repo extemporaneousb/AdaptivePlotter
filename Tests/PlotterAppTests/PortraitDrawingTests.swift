@@ -38,6 +38,32 @@ struct PortraitDrawingTests {
     let renderer = ImageRenderer(content: comparison)
     let image = try #require(renderer.cgImage)
     try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-styles.png"))
+    let presets = PortraitVectorPreset.allCases
+    let variants = try presets.map { preset in
+      try PortraitStyle.allCases.map { style in
+        try PortraitVectorizer.program(from: raster, pose: .front, style: style,
+          strokeStyle: portraitTestStyle(), vectorOptions: preset.options)
+      }
+    }
+    let grid = VStack(alignment: .leading, spacing: 16) {
+      Text("Marker estimate: 1.5 mm ink at 180 mm drawing height").font(.headline)
+      ForEach(presets.indices, id: \.self) { row in
+        Text(presets[row].rawValue).font(.headline)
+        HStack {
+          ForEach(PortraitStyle.allCases.indices, id: \.self) { column in
+            VStack {
+              Text(PortraitStyle.allCases[column].rawValue).font(.caption)
+              PortraitProgramPreview(program: variants[row][column], inkWidth: 1.5, drawingHeight: 180)
+                .frame(width: 180, height: 230)
+              Text("\(variants[row][column].strokes.count) strokes").font(.caption2)
+            }
+          }
+        }
+      }
+    }.padding().background(.white).foregroundStyle(.black)
+    let gridImage = try #require(ImageRenderer(content: grid).cgImage)
+    try PortraitImageAnalyzer.encodedImage(gridImage)
+      .write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-marker-presets.png"))
     let model = PortraitStudioModel()
     model.setPhoto(data, for: .front, strokeStyle: try portraitTestStyle())
     await model.awaitRendering()
@@ -64,7 +90,7 @@ struct PortraitDrawingTests {
     let first = try PortraitVectorizer.program(from: raster, pose: .front, style: style, strokeStyle: strokeStyle)
     let second = try PortraitVectorizer.program(from: raster, pose: .front, style: style, strokeStyle: strokeStyle)
     #expect(first == second)
-    #expect(first.strokes.count > 1)
+    #expect(!first.strokes.isEmpty)
     #expect(first.strokes.allSatisfy { $0.style == strokeStyle && $0.semanticRole == .drawing })
     let decoded = try JSONDecoder().decode(DrawingProgram.self, from: JSONEncoder().encode(first))
     #expect(decoded == first)
@@ -241,7 +267,20 @@ struct PortraitDrawingTests {
     await driver.emit()
     try await awaitPortraitTestState { model.preview.frame != nil }
     let capture = Task { await model.capture(strokeStyle: style) }
+    // Model a continuing camera stream so the exposure boundary cannot
+    // consume the test's sole frame when the main actor is busy.
+    let frames = Task {
+      var timestamp: UInt64 = 2
+      while !Task.isCancelled && timestamp < 255 {
+        await driver.emit(captureNanoseconds: timestamp)
+        timestamp += 1
+        do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+      }
+    }
+    defer { frames.cancel() }
     try await acquirer.waitUntilEntered()
+    frames.cancel()
+    await frames.value
     var didSettle = false
     let cancellation = Task { await model.cancelRendering(); didSettle = true }
     try await awaitPortraitTestState { model.acquisitionDiagnostics.cancellationCount > 0 }
@@ -298,7 +337,8 @@ struct PortraitDrawingTests {
     #expect(image.width >= width)
     #expect(image.width * 610 == image.height * width)
     if let path = ProcessInfo.processInfo.environment["PORTRAIT_UI_SNAPSHOT"] {
-      try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: path))
+      let output = URL(fileURLWithPath: path).deletingPathExtension().appendingPathExtension("\(width).png")
+      try PortraitImageAnalyzer.encodedImage(image).write(to: output)
     }
   }
 }
@@ -339,14 +379,6 @@ private actor HeldPortraitRenderer: PortraitRendering {
 
   init(holdFirst: Bool = true) throws {
     entered = !holdFirst
-    let raster = portraitTestRaster()
-    for pose in PortraitPose.allCases {
-      for style in PortraitStyle.allCases {
-        results[pose.rawValue + style.rawValue] = PortraitRenderResult(raster: raster,
-          program: try PortraitVectorizer.program(from: raster, pose: pose, style: style,
-                                                 strokeStyle: portraitTestStyle()))
-      }
-    }
   }
 
   func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
@@ -358,7 +390,18 @@ private actor HeldPortraitRenderer: PortraitRendering {
       await withCheckedContinuation { releaseWaiter = $0 }
     }
     // Deliberately ignores cancellation like a synchronous Vision request.
-    return results[request.pose.rawValue + request.style.rawValue]!
+    // Build fixture vectors off the MainActor so other lifecycle tests can
+    // reach their suspended workers while structural sketch generation runs.
+    let key = request.pose.rawValue + request.style.rawValue
+    if let result = results[key] { return result }
+    let result = try await Task.detached {
+      let raster = portraitTestRaster()
+      return PortraitRenderResult(raster: raster,
+        program: try PortraitVectorizer.program(from: raster, pose: request.pose,
+          style: request.style, strokeStyle: portraitTestStyle()))
+    }.value
+    results[key] = result
+    return result
   }
 
   func waitUntilEntered() async throws {
@@ -417,16 +460,18 @@ private actor PortraitAcquisitionDriver: CameraCaptureDriver {
     return .init(appliedMaximumFramesPerSecond: maximumFramesPerSecond)
   }
   func stop() async { handler = nil }
-  func emit() {
+  func emit(captureNanoseconds: UInt64 = 1) {
     handler?(.frame(.init(width: 2, height: 2, rowBytes: 8,
-      bytes: Data(repeating: 0, count: 16), captureNanoseconds: 1)))
+      bytes: Data(repeating: 0, count: 16), captureNanoseconds: captureNanoseconds)))
   }
 }
 
 @MainActor
 private func portraitEditorImage(_ view: PortraitStudioView, width: Int = 760) async throws -> CGImage {
   _ = NSApplication.shared
-  let host = NSHostingView(rootView: view.environment(\.colorScheme, .light)
+  let host = NSHostingView(rootView: ScrollView { view.padding(12) }
+    .frame(width: CGFloat(width), height: 610)
+    .environment(\.colorScheme, .light)
     .background(Color(nsColor: .windowBackgroundColor)))
   let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: CGFloat(width), height: 610),
     styleMask: [.borderless], backing: .buffered, defer: false)

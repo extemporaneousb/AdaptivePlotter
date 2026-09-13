@@ -1,0 +1,102 @@
+import ImageIO
+import PlotterModel
+import SwiftUI
+
+struct PortraitPhotoStrip: View {
+  let model: PortraitStudioModel
+  let strokeStyle: PlotterModel.StrokeStyle
+  var body: some View {
+    if !model.recentPhotos.isEmpty {
+      VStack(alignment: .leading, spacing: 5) {
+        Text("Recent frames · \(model.recentPhotos.count)").font(.caption).foregroundStyle(.secondary)
+        ScrollView(.horizontal) {
+          LazyHStack(alignment: .top, spacing: 10) {
+            ForEach(model.recentPhotos) { photo in
+              VStack(spacing: 4) {
+                ZStack(alignment: .topTrailing) {
+                  Button { model.selectPhoto(photo.id, strokeStyle: strokeStyle) } label: {
+                    PortraitPhotoThumbnail(data: photo.data, id: photo.id)
+                      .frame(width: 104, height: 100)
+                      .contentShape(Rectangle())
+                  }
+                  .buttonStyle(.plain)
+                  .accessibilityLabel("Select \(photo.label)")
+                  .overlay { Rectangle().stroke(model.selectedPhotoID == photo.id ? Color.accentColor : .clear, lineWidth: 3) }
+                  Button { model.removePhoto(photo.id, strokeStyle: strokeStyle) } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+                      .frame(width: 26, height: 26).background(.regularMaterial, in: Circle())
+                  }
+                  .buttonStyle(.plain).padding(4)
+                  .accessibilityLabel("Remove \(photo.label)")
+                }
+                Text(photo.label).font(.caption2).lineLimit(1).frame(width: 104)
+              }
+            }
+          }.padding(3)
+        }
+        Text("Up to 24 frames / 32 MB, kept for this session. × removes immediately.")
+          .font(.caption2).foregroundStyle(.secondary)
+      }
+    }
+  }
+}
+
+private struct PortraitPhotoThumbnail: View {
+  let data: Data
+  let id: UUID
+  @State private var image: CGImage?
+  var body: some View {
+    Group {
+      if let image { Image(decorative: image, scale: 1).resizable().scaledToFit() }
+      else { Color.secondary.opacity(0.1) }
+    }
+    .task(id: id) {
+      let data = data
+      let decoded = await Task.detached(priority: .utility) {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil as CGImage? }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+          kCGImageSourceThumbnailMaxPixelSize: 208,
+        ] as CFDictionary)
+      }.value
+      if !Task.isCancelled { image = decoded }
+    }
+  }
+}
+
+struct PortraitSketchStrip: View {
+  let collection: PortraitSketchCollection
+  var body: some View {
+    if !collection.sketches.isEmpty {
+      VStack(alignment: .leading, spacing: 5) {
+        Text("Compare sketches · up to 8 this session").font(.caption).foregroundStyle(.secondary)
+        ScrollView(.horizontal) {
+          HStack(alignment: .top, spacing: 10) {
+            ForEach(collection.sketches) { sketch in
+              VStack(alignment: .leading, spacing: 5) {
+                ZStack(alignment: .topTrailing) {
+                  Button { collection.selectedID = sketch.id } label: {
+                    PortraitProgramPreview(program: sketch.program).frame(width: 140, height: 150)
+                  }.buttonStyle(.plain).accessibilityLabel("Select saved \(sketch.title)")
+                    .overlay { Rectangle().stroke(collection.selectedID == sketch.id ? Color.accentColor : .clear, lineWidth: 3) }
+                  Button { collection.remove(sketch.id) } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+                      .frame(width: 26, height: 26).background(.regularMaterial, in: Circle())
+                  }.buttonStyle(.plain).padding(4).accessibilityLabel("Remove saved \(sketch.title)")
+                }
+                Text(sketch.title).font(.caption2).lineLimit(1).frame(width: 140, alignment: .leading)
+                Picker("Rating", selection: Binding(get: { sketch.rating }, set: {
+                  collection.rate(sketch.id, rating: $0)
+                })) {
+                  Text("Unrated").tag(0)
+                  ForEach(1...5, id: \.self) { Text(String(repeating: "★", count: $0)).tag($0) }
+                }.labelsHidden().frame(width: 140)
+              }
+            }
+          }.padding(3)
+        }
+      }
+    }
+  }
+}

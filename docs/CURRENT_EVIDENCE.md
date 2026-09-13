@@ -9,6 +9,64 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Drawing Studio burst capture and coarse portrait styles, 2026-09-12
+
+Task `task-e5239da72d3642b49ef3697b3967ec12` changes only portrait authoring,
+its permanent-canvas presentation, tests, and owning documentation. The existing
+DrawingProgram handoff, Draw admission, Learning, controller, and paper owners
+are unchanged. New behavior includes 3–5 second screen-lit portrait bursts,
+independent camera cadence, bounded recent-frame selection/removal, adjustable
+contour/hatch density and head framing, centerline Sketch styles, marker-width
+preview, and bounded rated vector comparisons.
+
+The settled focused strict-concurrency/warnings-as-errors run reported 46 tests
+passed in 10.562 seconds, with the reference-photo opt-in skipped. It covers
+capture retention, distinct post-settling frames, delete/cancel races, serial
+worker settlement, illumination expiry during held encoding, raster reuse,
+vector controls, camera-role ownership, and existing Drawing Studio readiness.
+The separately enabled reference-photo test passed in 30.708 seconds. Its input
+was the attributed [APDrawingGAN preprocessing example](https://github.com/yiranran/APDrawingGAN/blob/38f4319f8e724f6bef5a32c348a8c0967baad773/preprocess/readme.md),
+retained outside the repository for internal software evaluation. Face crop and
+person masking succeeded. Offscreen native views were inspected at 320 and 760
+point widths, and the actual vectorizer produced a 15-variant style/preset grid.
+At a displayed estimate of 1.5 mm ink and 180 mm drawing height, the sample's
+crosshatch changed from 539 Fine strokes to 85 Broad marker strokes. This is
+software geometry/display evidence, not observed physical pen width or likeness
+acceptance.
+
+The strict serial quick suite passed all 1,056 tests in 355.928 seconds, with five
+existing opt-in skips, using `make quick-test` with
+`SWIFT_FLAGS="--no-parallel -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors"`.
+The independent strict `make validate-app` passed bundle, stable local signature,
+and launcher validation. The separately staged, unlaunched debug candidate is
+`/Users/bullard/Projects/AdaptivePlotter/.build/AdaptivePlotter-studio-e523.app`,
+with executable SHA-256
+`7d205c9c8f504fe9fd9acd01bb886615defa7e90affc00fb5b6e71b5c37c15ac`.
+Its copied signature passed deep/strict verification. Validation logs, source-input
+hashes, and inspected screenshots are retained under
+`.build/drawing-studio-e523-evidence/` in the primary checkout. The final strict
+parallel repeat of `make quick-test` also passed all 1,056 tests in 122.981 seconds
+with five existing opt-in skips. Both complete suite modes now pass; earlier
+nonpasses remain historical evidence rather than the final validation result.
+
+Earlier nonpasses remain explicit: the first build rejected a test file edited
+during compilation; the combined visual/lifecycle run had seven issues from
+fixture wait timeouts and an offscreen host lacking the real pane's scroll wrapper.
+Fixture vector creation now runs off the MainActor, visual evaluation runs separately,
+and the offscreen host matches the actual scrolling pane. A subsequent parallel
+quick-suite run reported 1,056 tests with 14 timeout issues across portrait,
+camera-role, and voice fixtures. The legacy capture fixture now supplies a continuing
+fake camera stream instead of one wall-time-scheduled post-exposure frame. No
+production timeout, Learning behavior, or run lock was changed to accommodate tests.
+
+Independent static review closed its findings on style-specific controls, explicit
+saved-sketch selection, memory-limit feedback, and narrow capture-row layout.
+Real face-camera cadence/exposure, attended native interaction, paper placement,
+physical ink, and festival-portrait likeness remain unverified. The running user
+application and its in-memory captures are preserved. The research-backed roadmap
+distinguishes this local DoG centerline implementation from learned portrait models,
+multi-view reconstruction, and unregistered frame averaging.
+
 ## Saved Learning physical-position correction, 2026-09-12
 
 Task `task-c94d61ea72b34c8e9e1500d25f97900a` follows the operator's screenshot

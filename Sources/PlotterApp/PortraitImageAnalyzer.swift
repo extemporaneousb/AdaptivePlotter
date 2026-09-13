@@ -11,6 +11,13 @@ import Vision
 struct PortraitAnalysisOptions: Hashable, Sendable {
   var cropToFace = true
   var removeBackground = true
+  /// Padding around the detected face, as a fraction of its width. Smaller
+  /// margins allocate more of the portrait to the head; no facial warp occurs.
+  var faceCropMargin = 0.35
+
+  var boundedFaceCropMargin: Double {
+    faceCropMargin.isFinite ? min(0.8, max(0.05, faceCropMargin)) : 0.35
+  }
 }
 
 /// Invoked on a worker task only after capture/import or an analysis option
@@ -22,6 +29,7 @@ struct PortraitRenderRequest: Sendable {
   let options: PortraitAnalysisOptions
   let cachedRaster: PortraitRaster?
   let strokeStyle: PlotterModel.StrokeStyle
+  var vectorOptions = PortraitVectorOptions()
 }
 
 struct PortraitRenderResult: Sendable {
@@ -51,7 +59,7 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       guard let captured = FrameImageFactory.image(from: frame) else {
         throw PortraitDrawingError.unreadableImage
       }
-      image = captured
+      image = try Self.scaledImage(captured, maximumDimension: 1200)
     case .file(let url):
       let accessed = url.startAccessingSecurityScopedResource()
       defer { if accessed { url.stopAccessingSecurityScopedResource() } }
@@ -70,7 +78,8 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     let raster = try request.cachedRaster ?? Self.analyze(data: request.data, options: request.options)
     try Task.checkCancellation()
     let program = try PortraitVectorizer.program(
-      from: raster, pose: request.pose, style: request.style, strokeStyle: request.strokeStyle)
+      from: raster, pose: request.pose, style: request.style, strokeStyle: request.strokeStyle,
+      vectorOptions: request.vectorOptions)
     try Task.checkCancellation()
     return PortraitRenderResult(raster: raster, program: program)
   }
@@ -97,6 +106,36 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     return data as Data
   }
 
+  /// Store camera frames at the same bounded resolution as imported photos.
+  /// The gallery also imposes a total byte bound; this avoids retaining a full
+  /// camera-resolution PNG for every candidate in a portrait burst.
+  static func scaledImage(_ image: CGImage, maximumDimension: Int) throws -> CGImage {
+    try Task.checkCancellation()
+    guard maximumDimension > 0 else { throw PortraitDrawingError.unreadableImage }
+    guard max(image.width, image.height) > maximumDimension else { return image }
+    let scale = Double(maximumDimension) / Double(max(image.width, image.height))
+    let width = max(1, Int((Double(image.width) * scale).rounded()))
+    let height = max(1, Int((Double(image.height) * scale).rounded()))
+    guard let context = CGContext(data: nil, width: width, height: height,
+      bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { throw PortraitDrawingError.unreadableImage }
+    context.interpolationQuality = .high
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    try Task.checkCancellation()
+    guard let result = context.makeImage() else { throw PortraitDrawingError.unreadableImage }
+    return result
+  }
+
+  static func faceCrop(bounds: CGRect, imageWidth: Int, imageHeight: Int, margin: Double) -> CGRect {
+    let padding = margin.isFinite ? min(0.8, max(0.05, margin)) : 0.35
+    let padded = bounds.insetBy(dx: -bounds.width * padding, dy: -bounds.height * padding * 9 / 7)
+    let full = CGRect(x: 0, y: 0, width: imageWidth, height: imageHeight)
+    return CGRect(x: padded.minX * Double(imageWidth), y: (1 - padded.maxY) * Double(imageHeight),
+      width: padded.width * Double(imageWidth), height: padded.height * Double(imageHeight))
+      .intersection(full).integral.intersection(full)
+  }
+
   static func analyze(data: Data, options: PortraitAnalysisOptions) throws -> PortraitRaster {
     try Task.checkCancellation()
     let image = try image(from: data)
@@ -108,10 +147,8 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
         try VNImageRequestHandler(cgImage: image, orientation: .up).perform([faces])
         try Task.checkCancellation()
         if let face = faces.results?.max(by: { $0.boundingBox.width*$0.boundingBox.height < $1.boundingBox.width*$1.boundingBox.height }) {
-          let bounds = face.boundingBox.insetBy(dx: -face.boundingBox.width * 0.35, dy: -face.boundingBox.height * 0.45)
-          crop = CGRect(x: bounds.minX * Double(image.width), y: (1-bounds.maxY) * Double(image.height),
-                        width: bounds.width * Double(image.width), height: bounds.height * Double(image.height))
-            .intersection(crop).integral.intersection(crop)
+          crop = faceCrop(bounds: face.boundingBox, imageWidth: image.width, imageHeight: image.height,
+                          margin: options.boundedFaceCropMargin)
           notes.append("Face crop")
         } else { notes.append("No face located; full photo") }
       } catch is CancellationError { throw CancellationError() }
@@ -162,7 +199,7 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       .map { String(format: "%02x", $0) }.joined()
     return PortraitRaster(
       width: width, height: height, luminance: luminance,
-      provenance: "image=\(digest)|raster=\(rasterDigest)|crop=\(crop)|size=\(width)x\(height)|face=\(options.cropToFace)|mask=\(options.removeBackground)",
+      provenance: "image=\(digest)|raster=\(rasterDigest)|crop=\(crop)|size=\(width)x\(height)|face=\(options.cropToFace)|faceMargin=\(options.boundedFaceCropMargin)|mask=\(options.removeBackground)",
       analysisSummary: notes.joined(separator: " · "))
   }
 
