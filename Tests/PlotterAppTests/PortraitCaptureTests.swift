@@ -13,12 +13,16 @@ struct PortraitCaptureTests {
     let clock = AdvancingPortraitClock()
     let source = try RepeatingPortraitFrames()
     let acquirer = BurstPhotoAcquirer()
-    let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: acquirer,
+    let renderer = BurstRenderer()
+    let model = PortraitStudioModel(renderer: renderer, photoAcquirer: acquirer,
       frameSource: source, captureClock: clock,
       photoRetention: .init(maximumCount: 5, maximumBytes: 10))
     await model.capture(strokeStyle: try portraitTestStyle())
     #expect(await clock.now() == 4)
     #expect(await clock.sleeps.first == 0.5)
+    let metric = try PortraitSourceCropExtent(widthPixels: 901, heightPixels: 1600)
+    #expect(model.recentPhotos.allSatisfy { $0.sourcePixelExtent == metric })
+    #expect(await renderer.sourcePixelExtents.last == metric)
     #expect(model.recentPhotos.count == 5)
     #expect(model.retainedPhotoBytes == 10)
     let stamps = model.recentPhotos.compactMap(\.captureNanoseconds)
@@ -210,7 +214,7 @@ private actor RepeatingPortraitFrames: PortraitFrameAcquiring {
 
 private actor BurstPhotoAcquirer: PortraitPhotoAcquiring {
   private(set) var capturedTimestamps: [UInt64] = []
-  func acquire(_ input: PortraitPhotoInput) async throws -> Data {
+  func acquire(_ input: PortraitPhotoInput) async throws -> PortraitAcquiredPhoto {
     let value: UInt8
     switch input {
     case .frame(let frame):
@@ -218,14 +222,17 @@ private actor BurstPhotoAcquirer: PortraitPhotoAcquiring {
       value = UInt8(frame.captureNanoseconds)
     case .file(let url): value = UInt8(url.lastPathComponent) ?? 0
     }
-    return Data([value, value])
+    return PortraitAcquiredPhoto(data: Data([value, value]),
+      sourcePixelExtent: try PortraitSourceCropExtent(widthPixels: 901, heightPixels: 1600))
   }
 }
 
 private actor BurstRenderer: PortraitRendering {
   private(set) var cacheHits: [Bool] = []
+  private(set) var sourcePixelExtents: [PortraitSourceCropExtent?] = []
   func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
     cacheHits.append(request.cachedRaster != nil)
+    sourcePixelExtents.append(request.sourcePixelExtent)
     let raster = request.cachedRaster ?? portraitTestRaster()
     return PortraitRenderResult(raster: raster, program: try PortraitVectorizer.program(
       from: raster, pose: request.pose, style: request.style, strokeStyle: request.strokeStyle,
@@ -261,10 +268,10 @@ private actor PausedBurstRenderer: PortraitRendering {
 private actor PausedBurstAcquirer: PortraitPhotoAcquiring {
   private var waiter: CheckedContinuation<Void, Never>?
   private var enteredCount = 0
-  func acquire(_ input: PortraitPhotoInput) async throws -> Data {
+  func acquire(_ input: PortraitPhotoInput) async throws -> PortraitAcquiredPhoto {
     enteredCount += 1
     await withCheckedContinuation { waiter = $0 }
-    return Data([1])
+    return PortraitAcquiredPhoto(data: Data([1]))
   }
   func waitUntilEntered(after count: Int = 0) async throws {
     let deadline = ContinuousClock.now.advanced(by: .seconds(5))

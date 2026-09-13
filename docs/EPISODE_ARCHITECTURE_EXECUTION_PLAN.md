@@ -18,8 +18,7 @@ artifacts are history, not current design.
 This is the canonical implementation plan for the operator's Drawing/Portrait
 Studio correction and trainable-style request. Planning task
 `task-2cc60c7340414b9ebcbec83e275333ec` assessed base
-`69ba9df7b752516780d98c051bc966316f970f13`. All implementation tasks below are
-**PENDING**. This named product corrective campaign does not select, reorder,
+`69ba9df7b752516780d98c051bc966316f970f13`. Implementation and evidence states are recorded independently in the ledger below. This named product corrective campaign does not select, reorder,
 complete, or reopen any historical episode migration package; do not invoke
 `run-multi-agent-wave` to select its work. Product Contract and Architecture remain
 as-built authorities until implementation actually changes them. Planning receipts
@@ -137,7 +136,7 @@ reviewed, but cannot complete the whole row.
 
 | Campaign task | Deliverable and dependency | Worker file/semantic lease | Overall | Software | Native | Attended |
 | --- | --- | --- | --- | --- | --- | --- |
-| DS-01 | First priority: diagnose/fix metric and proportions; freeze C1. No feature dependency. | Geometry worker: `Sources/PlotterModel/DrawingPlacement.swift`, `DrawingExecutionPlan.swift`, `DrawingProgram.swift`; `Sources/PlotterApp/PortraitDrawing.swift`, `PortraitImageAnalyzer.swift`; focused geometry tests. Draft runtime and overlay integration are coordinator-serialized leases. | PENDING | PENDING | PENDING | PENDING |
+| DS-01 | Source/crop metric and explicit Fit correction; C1 frozen for candidate consumers. Physical metric remains open. | Task `task-34dc69ed47f94ed695a7e7da85632890`; [receipts](CURRENT_EVIDENCE.md#ds-01-proportional-geometry-correction-2026-09-13). | PARTIAL: R05/attended open | COMPLETE: first correction, G01 software; 84 focused, 1102 quick, 10 journey, signed app, one-shot ACCEPT | PENDING | PENDING |
 | DS-02 | Candidate, label and owned asset persistence; freeze C2 after C1 identity contract. | Persistence worker: `PortraitSketchCollection.swift`, `PortraitPreferenceCollection.swift`, new adjacent typed store/asset files and focused persistence tests. `PortraitStudioModel.swift` integration is serialized. | PENDING | PENDING | PENDING | PENDING |
 | DS-03 | Balanced broad/local exploration and exact branch navigation; depends on DS-01/C1 and DS-02/C2. | Exploration worker: `PortraitStyleRecipe.swift`, `PortraitStyleBrowser.swift`, dedicated branch/proposal types and tests; exclusive sequential lease for `PortraitStudioModel.swift` and `PortraitDrawing.swift`. | PENDING | PENDING | PENDING | PENDING |
 | DS-04 | Semantic Big Head and retained pose analysis; depends on DS-01 and DS-02. | Warp worker: `PortraitHeadTransform.swift`, new adjacent landmark/warp types and tests; sequential leases for `PortraitImageAnalyzer.swift`, `PortraitDrawing.swift` and shared recipe schema. | PENDING | PENDING | PENDING | PENDING |
@@ -182,6 +181,43 @@ style learning compensate. DS-10 must bind an actual calibration, exact plan and
 artifact to independently observed physical segment ratios and orthogonality.
 Camera projection may be oblique; the physical drawing must still meet the declared
 metric tolerance. Missing metric evidence leaves R05 and the defect open.
+
+### DS-01 contract and physical metric evidence boundary
+
+The first correction uses `PortraitSourceCropExtent` (positive finite crop width
+and height in original oriented source pixel coordinates) and versioned `PortraitRaster` serialization.
+`PortraitAcquiredPhoto` and each recent photo/render request carry the original
+source extent beside normalized bytes. Raster sample centers map through the source
+crop metric; neither 1200-pixel thumbnail rounding nor the 8...160 raster sample
+limits define source proportions. New portrait producer provenance is v3.
+A missing crop extent denotes legacy sample-lattice geometry explicitly; existing
+immutable programs are not rewritten. `DrawingProgram.id` plus `contentHash`, full
+program payload, and `DrawingPlacement`'s anchor/uniform-scale/rotation remain C1
+identity and authored-placement authorities. Fit retains authored rotation. No
+unlocked stretch is provided. C2 will bind candidate identity to these exact values.
+
+Controller `G21` coordinates supply nominal millimetres, but neither those units nor
+the accepted camera affine prove equal physical axis scale or orthogonality. R05
+and reported physical stretch remain open. The missing calibrated-metric scope is
+within existing machine-geometry/registration acceptance and checkpoint ownership:
+independent commanded basis vectors, physical lengths and included angle/diagonals,
+measurement uncertainty and method, applicability region, machine geometry identity,
+and immutable evidence digest. Absence means unmeasured. A measured positive-definite
+Gram matrix can later determine physical similarity placement through the existing
+planning adapter; containment, Fit, preview and material consumers must use that
+same transform. Never derive this correction from camera-affine inversion alone.
+
+Predeclared DS-10 geometry procedure: bind the exact app, source, plan, registration,
+material and paper, then measure a 40 mm square with diagonals and a 40 x 20 mm
+rectangle at explicit 0 and 90 degrees through the ordinary attended runner.
+Use independently calibrated centreline measurements at the centre and representative
+permitted locations. Require the full uncertainty intervals within 2 percent of
+intended segment ratios and 1 degree of orthogonality, with length uncertainty no
+more than 0.2 mm for 40 mm targets. If these shapes do not fit or cannot be resolved,
+predeclare smaller targets and appropriate uncertainty before acquisition; record
+insufficient evidence rather than loosening failed tolerances. A metric correction
+requires separate calibration and held-out shapes/locations. Overlay agreement,
+software geometry and physical likeness remain distinct evidence classes.
 
 ### Retained candidates, labels and realized drawings
 

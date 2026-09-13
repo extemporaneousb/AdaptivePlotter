@@ -11,6 +11,7 @@ struct PortraitPhoto: Identifiable, Sendable {
   let captureNanoseconds: UInt64?
   // Retained solely for existing saved-program provenance, never a capture slot.
   let pose: PortraitPose
+  var sourcePixelExtent: PortraitSourceCropExtent? = nil
 }
 
 struct PortraitPhotoRetention: Sendable {
@@ -54,6 +55,7 @@ struct PortraitBurstSample: Sendable {
   let frameID: FrameID?
   let captureNanoseconds: UInt64?
   let label: String
+  var sourcePixelExtent: PortraitSourceCropExtent? = nil
 }
 
 /// Keeps the first sample and the newest samples when count/byte pressure

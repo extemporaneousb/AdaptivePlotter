@@ -78,7 +78,7 @@ struct PortraitRasterObservationTests {
     let executionPlan: ExecutionPlanRevision
     if workload == .fullResolutionDenseCrosshatch {
       // Exercise the same authoring intents as Show on Plotter Video. Retain
-      // every vectorized stroke and use the largest canonical 0/90 fit.
+      // every vectorized stroke, explicitly rotate, then fit without changing orientation.
       let draftRuntime = PlotterDrawingDraftRuntime()
       let authoringFacts = PlotterDrawingDraftExternalFacts(environment: .live,
         interactiveLearningIsComplete: true, displayedFrame: nil,
@@ -90,7 +90,10 @@ struct PortraitRasterObservationTests {
       let selected = await draftRuntime.submit(.init(projection: initial.projection,
         intent: .selectProgram(program)), facts: authoringFacts)
       #expect(selected.disposition == .applied)
-      let fitted = await draftRuntime.submit(.init(projection: selected.snapshot.projection,
+      let rotated = await draftRuntime.submit(.init(projection: selected.snapshot.projection,
+        intent: .setRotationDegrees(90)), facts: authoringFacts)
+      #expect(rotated.disposition == .applied)
+      let fitted = await draftRuntime.submit(.init(projection: rotated.snapshot.projection,
         intent: .fitInDrawableRegion), facts: authoringFacts)
       #expect(fitted.disposition == .applied)
       #expect(fitted.snapshot.rotationDegrees == 90)

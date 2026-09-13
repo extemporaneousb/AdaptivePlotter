@@ -1590,8 +1590,17 @@ prior RMS; tangent, spatial and direction-dependent corrections are unestimated.
 Reserved and evaluation holdouts cannot be selected as fitting evidence through
 this ordinary-drawing path. The candidate does not change the active model.
 
+Portrait proportions derive from the actual cropped source pixel dimensions, not
+from clamped or rounded analyzed-raster dimensions. New render identity includes
+that source metric; previously accepted programs remain immutable. Fit preserves
+the authored rotation and applies a single uniform scale, leaving unused area as
+needed. Rotation remains explicit in the placement controls.
+
 Placement is one immutable field-to-machine
-transform. `DrawingPlanner` clips nothing: every planned stroke must fit inside
+transform. Controller coordinates currently provide the nominal millimetre metric;
+the camera affine is a projection and is not independent physical-axis calibration.
+Independent physical ratios and orthogonality remain unverified until attended
+measurement; a proportional software plan alone does not establish them. `DrawingPlanner` clips nothing: every planned stroke must fit inside
 the effective `DrawableMachineRegion`, or planning is refused. The resulting
 `ExecutionPlanRevision` is content-addressed and binds program, placement,
 region, calibration/model provenance, ordered strokes, and one checkpoint per

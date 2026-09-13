@@ -1,3 +1,5 @@
+import CoreGraphics
+import CryptoKit
 import Foundation
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
@@ -117,6 +119,134 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(try #require(fitted.plan).strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
   }
 
+  @Test("Fit retains explicit rotation and creates a new immutable plan", arguments: [30.0, 90.0, -45.0])
+  func fitRetainsExplicitRotation(degrees: Double) async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let facts = fixture.facts()
+    let opened = try await open(runtime, facts: facts)
+    let rotated = try applied(await runtime.submit(.init(projection: opened.projection,
+      intent: .setRotationDegrees(degrees)), facts: facts))
+    let before = rotated.plan
+    let fitted = try applied(await runtime.submit(.init(projection: rotated.projection,
+      intent: .fitInDrawableRegion), facts: facts))
+    #expect(fitted.rotationDegrees == degrees)
+    #expect(fitted.uniformScale == fitted.allowedScale.upperBound)
+    let plan = try #require(fitted.plan)
+    #expect(abs(plan.placement.rotationRadians - degrees * .pi / 180) < 1e-12)
+    #expect(plan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
+    #expect(rotated.plan == before)
+    #expect(fitted.placementID != rotated.placementID)
+    #expect(try JSONDecoder().decode(ExecutionPlanRevision.self,
+      from: JSONEncoder().encode(plan)) == plan)
+  }
+
+  @Test("every primitive preserves segment metric through rotated fit and optional border")
+  func primitiveMetricThroughPlanAndBorder() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let style = try StrokeStyle(nominalLineWidth: 0.4,
+      penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue))
+    for size in [(240.0, 120.0), (100.0, 250.0), (160.0, 160.0)] {
+      let region = try DrawableMachineRegion(bounds: AxisAlignedBounds(
+        minX: -30, minY: 40, maxX: -30 + size.0, maxY: 40 + size.1))
+      let border = try AxisAlignedBounds<MachineSpace>(
+        minX: -20, minY: 50, maxX: -40 + size.0, maxY: 30 + size.1)
+      for entry in DrawingCatalogEntryID.allCases {
+        let program = try DrawingProgramCatalog.program(for: entry, style: style)
+        for angle in [0.0, 30.0, 90.0, -45.0] {
+          let scale = PlotterDrawingPlanningAdapter.scaleRange(extent: program.fieldExtent,
+            rotationDegrees: angle, region: region).upperBound
+          let plain = PlotterDrawingPlanningAdapter.buildDraft(program: program,
+            machineCenter: nil, uniformScale: scale, rotationDegrees: angle,
+            drawableRegion: region, registration: fixture.registration)
+          let plan = try #require(plain.plan)
+          let bordered = PlotterDrawingPlanningAdapter.buildDraft(program: program,
+            machineCenter: nil, uniformScale: scale, rotationDegrees: angle,
+            drawableRegion: region, registration: fixture.registration,
+            drawBorder: true, drawingBorderBounds: border)
+          let borderPlan = try #require(bordered.plan)
+          #expect(borderPlan.strokes.count == plan.strokes.count + 1)
+          for (plainStroke, borderedStroke) in zip(plan.strokes, borderPlan.strokes) {
+            #expect(plainStroke.path.points.count == borderedStroke.path.points.count)
+            for (a, b) in zip(plainStroke.path.points, borderedStroke.path.points) {
+              #expect(a.distance(to: b) < 1e-10)
+            }
+          }
+          #expect(borderPlan.contentHash != plan.contentHash)
+          let origin = try plan.placement.applying(to: Point2(x: 0, y: 0))
+          let x = try plan.placement.applying(to: Point2(x: 1, y: 0))
+          let y = try plan.placement.applying(to: Point2(x: 0, y: 1))
+          #expect(abs(origin.distance(to: x) - scale) < 1e-10)
+          #expect(abs(origin.distance(to: y) - scale) < 1e-10)
+          #expect(abs((x.x-origin.x)*(y.x-origin.x) + (x.y-origin.y)*(y.y-origin.y)) < 1e-10)
+          for (source, placed) in zip(program.strokes, plan.strokes) {
+            for index in source.path.points.indices.dropFirst() {
+              let expected = source.path.points[index-1].distance(to: source.path.points[index]) * scale
+              let actual = placed.path.points[index-1].distance(to: placed.path.points[index])
+              #expect(abs(actual - expected) < 1e-9)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @Test("portrait fixture retains exact source through crop, plan and camera projection")
+  func portraitGeometryTrace() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let width = 901, height = 1600
+    let pixels = Data((0..<(width * height)).map { index in
+      UInt8(index % width < width / 2 ? 0 : 255)
+    })
+    let provider = try #require(CGDataProvider(data: pixels as CFData))
+    let image = try #require(CGImage(width: width, height: height, bitsPerComponent: 8,
+      bitsPerPixel: 8, bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+      bitmapInfo: CGBitmapInfo(rawValue: 0), provider: provider, decode: nil,
+      shouldInterpolate: false, intent: .defaultIntent))
+    let source = try PortraitImageAnalyzer.encodedImage(image)
+    let raster = try PortraitImageAnalyzer.analyze(data: source,
+      options: PortraitAnalysisOptions(cropToFace: false, removeBackground: false))
+    let style = try StrokeStyle(nominalLineWidth: 0.4,
+      penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue))
+    let program = try PortraitVectorizer.program(from: raster, pose: .front,
+      style: .contours, strokeStyle: style)
+    let scale = PlotterDrawingPlanningAdapter.scaleRange(extent: program.fieldExtent,
+      rotationDegrees: 0, region: fixture.drawableRegion).upperBound
+    let build = PlotterDrawingPlanningAdapter.buildDraft(program: program, machineCenter: nil,
+      uniformScale: scale, rotationDegrees: 0, drawableRegion: fixture.drawableRegion,
+      registration: fixture.registration)
+    let plan = try #require(build.plan)
+    let cameraPoints = try plan.strokes.flatMap { stroke in
+      try stroke.path.points.map { try fixture.registration.cameraFromMachine.applying(to: $0) }
+    }
+    for (authored, planned) in zip(program.strokes, plan.strokes) {
+      for (a, b) in zip(authored.path.points, planned.path.points) {
+        #expect(try plan.placement.applying(to: a).distance(to: b) < 1e-10)
+      }
+    }
+    if let directory = ProcessInfo.processInfo.environment["ADAPTIVEPLOTTER_GEOMETRY_EVIDENCE_DIRECTORY"] {
+      let root = URL(fileURLWithPath: directory).appendingPathComponent("source-to-plan")
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+      let assets: [(String, Data)] = [
+        ("source.png", source), ("raster.json", try encoder.encode(raster)),
+        ("program.json", try encoder.encode(program)), ("plan.json", try encoder.encode(plan)),
+        ("registration.json", try encoder.encode(fixture.registration)),
+        ("camera-points.json", try encoder.encode(cameraPoints))]
+      var hashes: [String: String] = [:]
+      for (name, bytes) in assets {
+        try bytes.write(to: root.appendingPathComponent(name), options: .atomic)
+        hashes[name] = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+      }
+      hashes["evidenceClass"] = "synthetic source, simulated learned registration; software only"
+      hashes["displayTransform"] = "ActionSurface camera pixel aspect-fit; uniform scale and translation"
+      hashes["controllerTransform"] = "RunInterpreter plan deltas; MachineController G91 G21 three-decimal quantization"
+      hashes["physicalMetric"] = "unmeasured; camera affine is not independent physical geometry"
+      try encoder.encode(hashes).write(to: root.appendingPathComponent("trace.json"), options: .atomic)
+    }
+  }
+
   @Test("panel visibility survives preview advancement without admitting stale draft edits")
   func panelVisibilitySurvivesPreviewAdvancement() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
@@ -178,7 +308,7 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(edited.paperCoverageObservation == saved.paperCoverageObservation)
   }
 
-  @Test("automatic portrait fit chooses the larger contained orientation and survives camera restart")
+  @Test("portrait fit preserves authored orientation and survives camera restart")
   func portraitFitAndCameraRestart() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let runtime = PlotterDrawingDraftRuntime(clock: DraftRuntimeClock(now: fixture.frame.frame.captureNanoseconds + 100))
@@ -195,7 +325,7 @@ struct PlotterDrawingDraftEpisodeTests {
       intent: .selectProgram(program)), facts: fixture.facts()))
     let fitted = try applied(await runtime.submit(.init(projection: selected.projection,
       intent: .fitInDrawableRegion), facts: fixture.facts()))
-    #expect(fitted.rotationDegrees == 90)
+    #expect(fitted.rotationDegrees == 0)
     #expect(fitted.uniformScale == fitted.allowedScale.upperBound)
     #expect(try #require(fitted.plan).strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
     let asserted = try applied(await runtime.submit(.init(projection: fitted.projection,

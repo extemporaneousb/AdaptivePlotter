@@ -8,6 +8,74 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DS-01 proportional geometry correction, 2026-09-13
+
+Implementation task `task-34dc69ed47f94ed695a7e7da85632890` starts from primary
+`main` at `8d9b68a4b707f788e2383fbb03002dd1e9f54984`; Blackdog records target
+`main`. This first increment corrects source metric loss across bounded image
+sampling and removes implicit Fit rotation. It does not close DS-01's physical
+metric requirement or the rest of the campaign.
+
+The reproduced failure is concrete: a 4000 x 100 source previously became a
+160 x 8 raster whose sample intervals defined a 159/7 = 22.714 aspect rather than
+40. An earlier 1200-pixel thumbnail reduction could also round source proportions.
+The corrected acquisition contract carries original oriented dimensions beside
+bounded normalized bytes; crop extents use original pixel coordinates and the
+vectorizer maps sample centers through that metric. New v3 program identities bind
+the metric/sampling convention. Existing accepted programs are immutable. Fit uses
+one uniform scale at the explicitly selected rotation. A stable pre-correction
+runtime test reproduced the old 90-degree automatic rotation instead of 0 degrees.
+
+Strict-concurrency/warnings-as-errors focused geometry, capture, portrait and draft
+validation passed 84 tests (`focused.log`). `make docs-check` passed. The first
+broad strict run exposed one obsolete assertion in the dense portrait observation
+fixture that expected automatic 90-degree Fit. Its setup now explicitly authors
+90 degrees before fitting, preserving the same rotated observation workload and
+all existing outcome assertions. This is a changed-contract fixture correction;
+the final broad rerun passed 1,102 tests with five intentional opt-in skips
+(`quick.log`). Strict retained journeys passed 10 tests (`journey.log`).
+`make validate-app` passed with the stable local signing identity, including
+launcher identity/logic and negative signature/plist checks (`validate-app.log`).
+One fresh critic accepted the frozen diff with no repair findings (`review.txt`);
+its scope excludes native, physical and subsequent campaign claims. The coordinator
+verified the unchanged production source after review and owns final staging.
+
+The reviewed patch SHA-256 is
+`e3d433911ecc986d748c351da1fbe87308248bef59e569f5696e64094e6d9274`.
+`build-inputs.json` binds every build/test input and Swift version. The final
+immutable signed test bundle is staged after landing at
+`/Users/bullard/Projects/AdaptivePlotter/.build/StudioTestApps/AdaptivePlotter-DS01-34dc69.app`;
+`release.json` in the evidence directory binds the exact landed commit, executable
+hash, bundle signature and source-tree equality. This is a separate unlaunched
+bundle; the Git landing does not update a running binary.
+
+Retained validation/fixture directory:
+`/Users/bullard/Projects/AdaptivePlotter/.build/studio-ds01-34dc69-evidence/`.
+`reproduced-fit-failure.log` records that expected failure. The earlier
+`invalidated-initial-build.log` records a coordinator scheduling error: source
+changes overlapped compilation. That run is invalid validation evidence; subsequent
+checks use frozen source. Exact source PNGs, analyzed rasters, programs, plans and
+registration/projection payloads from the geometry fixtures are software evidence.
+
+Read-only inspection of
+`/Users/bullard/Library/Application Support/AdaptivePlotter/AcceptedArtifacts/accepted-learning-path-v1.json`
+(SHA-256 `4a4cc8bc690ed243b1e8a7e28fa38dd586ee104ce3ecb260c38c28b4e6295808`)
+found camera basis lengths 1.69740775884 and 1.34708846321 pixels per nominal
+controller unit, ratio 1.26005663711, and included angle 91.10027544913 degrees.
+These establish camera projection anisotropy, not physical axis distortion.
+`DrawingPlacement` and `DrawingPlanner` preserve controller-coordinate similarity;
+`RunInterpreter` emits plan deltas through `MachineController`'s nominal G21 units
+and three-decimal wire quantization. The exact-plan camera projection and uniform
+view aspect-fit are downstream presentation. No independent physical length or
+orthogonality evidence was found, and no inverse-camera axis correction is applied.
+The canonical DS-01/DS-10 protocol records the required independent measurement.
+
+R01/R02/R03/R04 software geometry, C1 identity and R31 immutable plan behavior are
+this increment's scope. R05, physical R02/R30, and the reported physical stretch
+remain open. Measured material/final-size behavior awaits DS-05. Native interaction,
+attended drawing, physical alignment and likeness are unverified. No running app,
+existing test bundle, camera, controller or stored Learning was replaced or started.
+
 ## Trainable Drawing Studio planning, 2026-09-13
 
 Task `task-2cc60c7340414b9ebcbec83e275333ec` records the coordinator-ready

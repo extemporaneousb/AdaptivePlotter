@@ -864,12 +864,10 @@ public actor PlotterDrawingDraftRuntime {
       }
       let extent = state.suppliedProgram?.fieldExtent
         ?? DrawingProgramCatalog.entry(for: state.selectedCatalogItemID).fieldExtent
-      let upright = PlotterDrawingPlanningAdapter.scaleRange(
-        extent: extent, rotationDegrees: 0, region: region).upperBound
-      let sideways = PlotterDrawingPlanningAdapter.scaleRange(
-        extent: extent, rotationDegrees: 90, region: region).upperBound
-      state.rotationDegrees = sideways > upright + 1e-9 ? 90 : 0
-      state.uniformScale = max(upright, sideways)
+      // Fit changes size and position only. Rotation is authored intent and
+      // must never change merely because another orientation occupies more area.
+      state.uniformScale = PlotterDrawingPlanningAdapter.scaleRange(
+        extent: extent, rotationDegrees: state.rotationDegrees, region: region).upperBound
       let bounds = region.effectiveBounds
       state.machineCenter = try? Point2(x: (bounds.minX + bounds.maxX) / 2,
         y: (bounds.minY + bounds.maxY) / 2)

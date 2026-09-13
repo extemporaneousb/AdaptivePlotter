@@ -30,6 +30,7 @@ struct PortraitRenderRequest: Sendable {
   let cachedRaster: PortraitRaster?
   let strokeStyle: PlotterModel.StrokeStyle
   var vectorOptions = PortraitVectorOptions()
+  var sourcePixelExtent: PortraitSourceCropExtent? = nil
 }
 
 struct PortraitRenderResult: Sendable {
@@ -47,36 +48,47 @@ enum PortraitPhotoInput: Sendable {
   case file(URL)
 }
 
+struct PortraitAcquiredPhoto: Sendable {
+  let data: Data
+  var sourcePixelExtent: PortraitSourceCropExtent? = nil
+}
+
 protocol PortraitPhotoAcquiring: Sendable {
-  func acquire(_ input: PortraitPhotoInput) async throws -> Data
+  func acquire(_ input: PortraitPhotoInput) async throws -> PortraitAcquiredPhoto
 }
 
 struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
-  func acquire(_ input: PortraitPhotoInput) async throws -> Data {
+  func acquire(_ input: PortraitPhotoInput) async throws -> PortraitAcquiredPhoto {
     try Task.checkCancellation()
     let image: CGImage
+    let sourcePixelExtent: PortraitSourceCropExtent
     switch input {
     case .frame(let frame):
       guard let captured = FrameImageFactory.image(from: frame) else {
         throw PortraitDrawingError.unreadableImage
       }
+      sourcePixelExtent = try PortraitSourceCropExtent(
+        widthPixels: Double(captured.width), heightPixels: Double(captured.height))
       image = try Self.scaledImage(captured, maximumDimension: 1200)
     case .file(let url):
       let accessed = url.startAccessingSecurityScopedResource()
       defer { if accessed { url.stopAccessingSecurityScopedResource() } }
       let data = try Data(contentsOf: url)
       try Task.checkCancellation()
-      image = try Self.image(from: data)
+      let decoded = try Self.decodedImage(from: data)
+      image = decoded.image
+      sourcePixelExtent = decoded.sourcePixelExtent
     }
     try Task.checkCancellation()
     let data = try Self.encodedImage(image)
     try Task.checkCancellation()
-    return data
+    return PortraitAcquiredPhoto(data: data, sourcePixelExtent: sourcePixelExtent)
   }
 
   func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
     try Task.checkCancellation()
-    let raster = try request.cachedRaster ?? Self.analyze(data: request.data, options: request.options)
+    let raster = try request.cachedRaster ?? Self.analyze(
+      data: request.data, options: request.options, sourcePixelExtent: request.sourcePixelExtent)
     try Task.checkCancellation()
     let program = try PortraitVectorizer.program(
       from: raster, pose: request.pose, style: request.style, strokeStyle: request.strokeStyle,
@@ -92,15 +104,30 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
   }
 
   static func image(from data: Data) throws -> CGImage {
+    try decodedImage(from: data).image
+  }
+
+  /// Read the full source metric before the thumbnail rounds either axis.
+  /// ImageIO applies EXIF orientation to the thumbnail, so its source metric
+  /// must use the same oriented axes. Decoding work remains bounded at 1200 px.
+  static func decodedImage(from data: Data) throws
+    -> (image: CGImage, sourcePixelExtent: PortraitSourceCropExtent) {
     try Task.checkCancellation()
     guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+      let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+      let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
       let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
         kCGImageSourceCreateThumbnailFromImageAlways: true,
         kCGImageSourceCreateThumbnailWithTransform: true,
         kCGImageSourceThumbnailMaxPixelSize: 1200,
       ] as CFDictionary)
     else { throw PortraitDrawingError.unreadableImage }
-    return image
+    let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+    let swapsAxes = (5...8).contains(orientation)
+    let sourcePixelExtent = try PortraitSourceCropExtent(
+      widthPixels: swapsAxes ? height : width, heightPixels: swapsAxes ? width : height)
+    return (image, sourcePixelExtent)
   }
 
   static func encodedImage(_ image: CGImage) throws -> Data {
@@ -143,9 +170,12 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       .intersection(full).integral.intersection(full)
   }
 
-  static func analyze(data: Data, options: PortraitAnalysisOptions) throws -> PortraitRaster {
+  static func analyze(data: Data, options: PortraitAnalysisOptions,
+    sourcePixelExtent: PortraitSourceCropExtent? = nil) throws -> PortraitRaster {
     try Task.checkCancellation()
-    let image = try image(from: data)
+    let decoded = try decodedImage(from: data)
+    let image = decoded.image
+    let originalExtent = sourcePixelExtent ?? decoded.sourcePixelExtent
     var crop = CGRect(x: 0, y: 0, width: image.width, height: image.height)
     var detectedFace: CGRect?
     var notes: [String] = []
@@ -169,9 +199,12 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     catch { notes.append("Face detection unavailable (\(error.localizedDescription)); full photo") }
     try Task.checkCancellation()
     guard let cropped = image.cropping(to: crop) else { throw PortraitDrawingError.unreadableImage }
-    let ratio = Double(cropped.width) / Double(cropped.height)
-    let width = max(8, min(160, Int(160 * ratio)))
-    let height = max(8, min(160, Int(160 / ratio)))
+    let sourceCropExtent = try cropMetric(sourcePixelExtent: originalExtent,
+      decodedWidth: image.width, decodedHeight: image.height,
+      cropWidth: cropped.width, cropHeight: cropped.height)
+    let ratio = sourceCropExtent.aspectRatio
+    let width = Int(min(160, max(8, 160 * ratio)))
+    let height = Int(min(160, max(8, 160 / ratio)))
     var luminance = try grayscale(cropped, width: width, height: height)
     // Normalize illumination before whitening the background; the matte must
     // not bias the contrast percentiles toward white.
@@ -212,12 +245,22 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       .map { String(format: "%02x", $0) }.joined()
     return PortraitRaster(
       width: width, height: height, luminance: luminance,
-      provenance: "image=\(digest)|raster=\(rasterDigest)|crop=\(crop)|size=\(width)x\(height)|face=\(options.cropToFace)|faceMargin=\(options.boundedFaceCropMargin)|mask=\(options.removeBackground)",
+      provenance: "image=\(digest)|raster=\(rasterDigest)|sourcePixels=\(originalExtent.widthPixels)x\(originalExtent.heightPixels)|decodedPixels=\(image.width)x\(image.height)|crop=\(crop)|size=\(width)x\(height)|face=\(options.cropToFace)|faceMargin=\(options.boundedFaceCropMargin)|mask=\(options.removeBackground)",
       analysisSummary: notes.joined(separator: " · "),
       faceBounds: detectedFace.map { face in
         CGRect(x: (face.minX-crop.minX)/crop.width, y: (face.minY-crop.minY)/crop.height,
           width: face.width/crop.width, height: face.height/crop.height)
-      })
+      }, sourceCropExtent: sourceCropExtent)
+  }
+
+  /// An integer crop of a rounded thumbnail occupies fractional original pixels.
+  static func cropMetric(sourcePixelExtent: PortraitSourceCropExtent,
+    decodedWidth: Int, decodedHeight: Int, cropWidth: Int, cropHeight: Int) throws -> PortraitSourceCropExtent {
+    guard decodedWidth > 0, decodedHeight > 0, cropWidth > 0, cropHeight > 0,
+      cropWidth <= decodedWidth, cropHeight <= decodedHeight else { throw PortraitDrawingError.unreadableImage }
+    return try PortraitSourceCropExtent(
+      widthPixels: sourcePixelExtent.widthPixels * (Double(cropWidth) / Double(decodedWidth)),
+      heightPixels: sourcePixelExtent.heightPixels * (Double(cropHeight) / Double(decodedHeight)))
   }
 
   static func grayscale(_ image: CGImage, width: Int, height: Int) throws -> [Double] {

@@ -246,10 +246,10 @@ final class PortraitStudioModel {
       let clock = captureClock, retention = photoRetention
       let worker = Task.detached(priority: .userInitiated) { [weak self] in
         if let file = request.file {
-          let data = try await acquirer.acquire(.file(file))
+          let acquired = try await acquirer.acquire(.file(file))
           try Task.checkCancellation()
-          return [PortraitBurstSample(data: data, frameID: nil,
-            captureNanoseconds: nil, label: file.lastPathComponent)]
+          return [PortraitBurstSample(data: acquired.data, frameID: nil,
+            captureNanoseconds: nil, label: file.lastPathComponent, sourcePixelExtent: acquired.sourcePixelExtent)]
         }
         await self?.beginCaptureIllumination(duration: request.duration, revision: request.revision)
         let started = await clock.now()
@@ -269,11 +269,11 @@ final class PortraitStudioModel {
             frame.captureNanoseconds > lastCaptureNanoseconds,
             seenFrames.insert(frame.id).inserted {
             lastCaptureNanoseconds = frame.captureNanoseconds
-            let data = try await acquirer.acquire(.frame(frame))
+            let acquired = try await acquirer.acquire(.frame(frame))
             try Task.checkCancellation()
-            buffer.append(PortraitBurstSample(data: data, frameID: frame.id,
+            buffer.append(PortraitBurstSample(data: acquired.data, frameID: frame.id,
               captureNanoseconds: frame.captureNanoseconds,
-              label: String(format: "Frame %.1fs", elapsed)))
+              label: String(format: "Frame %.1fs", elapsed), sourcePixelExtent: acquired.sourcePixelExtent))
           }
           let afterSample = await clock.now()
           await self?.updateCaptureProgress(min(1, (afterSample - started) / request.duration),
@@ -369,7 +369,7 @@ final class PortraitStudioModel {
       return false
     }
     let photo = PortraitPhoto(id: UUID(), data: sample.data, label: sample.label,
-      capturedAt: Date(), frameID: sample.frameID, captureNanoseconds: sample.captureNanoseconds, pose: pose)
+      capturedAt: Date(), frameID: sample.frameID, captureNanoseconds: sample.captureNanoseconds, pose: pose, sourcePixelExtent: sample.sourcePixelExtent)
     recentPhotos.append(photo)
     selectedPhotoID = photo.id
     while recentPhotos.count > photoRetention.maximumCount || retainedPhotoBytes > photoRetention.maximumBytes {
@@ -420,7 +420,7 @@ final class PortraitStudioModel {
     summary = "Preparing \(style.rawValue.lowercased()) portrait…"
     pendingRender = (renderRevision, key, .init(
       data: photo.data, pose: photo.pose, style: style, options: options,
-      cachedRaster: cache.raster(for: .init(photoID: photo.id, analysis: options)), strokeStyle: strokeStyle, vectorOptions: vectorOptions))
+      cachedRaster: cache.raster(for: .init(photoID: photo.id, analysis: options)), strokeStyle: strokeStyle, vectorOptions: vectorOptions, sourcePixelExtent: photo.sourcePixelExtent))
     startWorkIfNeeded()
   }
 

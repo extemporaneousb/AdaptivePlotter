@@ -447,7 +447,7 @@ private actor HeldPortraitRenderer: PortraitRendering {
 private actor HeldPortraitAcquirer: PortraitPhotoAcquiring {
   private(set) var inputs: [UInt8] = []
   private var releaseWaiter: CheckedContinuation<Void, Never>?
-  func acquire(_ input: PortraitPhotoInput) async throws -> Data {
+  func acquire(_ input: PortraitPhotoInput) async throws -> PortraitAcquiredPhoto {
     let identifier: UInt8
     switch input {
     case .file(let url): identifier = UInt8(url.lastPathComponent)!
@@ -458,7 +458,7 @@ private actor HeldPortraitAcquirer: PortraitPhotoAcquiring {
       await withCheckedContinuation { releaseWaiter = $0 }
     }
     // Models synchronous image decoding/encoding that cannot be preempted.
-    return Data([identifier])
+    return PortraitAcquiredPhoto(data: Data([identifier]))
   }
   func waitUntilEntered() async throws {
     let deadline = ContinuousClock.now.advanced(by: .seconds(5))

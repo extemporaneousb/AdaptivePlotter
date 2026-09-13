@@ -2058,8 +2058,9 @@ the same plan can make it camera/ink evidence eligible.
 Predicted preview binds compatible source, camera configuration, pixel layout,
 program content hash and plan revision. It remains visible as frame identity
 advances; measured overlays and operator clicks retain exact-frame requirements.
-`.fitInDrawableRegion` compares upright and 90-degree placements, chooses the
-larger valid uniform scale with upright tie-breaking, and centers the result.
+`.fitInDrawableRegion` retains the explicitly authored rotation, chooses one
+uniform scale within the drawable region, and centers the result. Fit never
+chooses a different orientation.
 The same rotated extent calculation supplies the scale slider's bounds.
 Registration/configuration mismatch is unavailable; outside-region planning
 shows no clipped strokes; outside-applicability projection is diagnostic-only.
@@ -2148,7 +2149,13 @@ polylines, or difference-of-Gaussians ink responses thinned into connected cente
 optionally combined with hatch. Angled hatch clips scan lines to the raster. Big-head
 geometry uses monotone face-anchored warps with fixed canvas boundaries and subdivides
 long lines before bending. It preserves top-left image to lower-left FieldSpace
-orientation and includes all bounded authoring parameters in v2 source provenance.
+orientation. `PortraitAcquiredPhoto` carries the original oriented source pixel extent beside
+the bounded normalized image bytes through recent photos and render requests.
+New analyzed rasters retain the source crop extent in those original pixel
+coordinates independently of thumbnail and raster dimensions; the vectorizer maps
+raster pixel centers into that source metric before uniform field placement. The v3 producer identity
+includes that metric and all bounded authoring parameters. Legacy rasters without
+a source metric retain explicitly identified sample-lattice interpretation.
 `PortraitProgramPreview` draws round-capped strokes at estimated physical marker
 width for a selected preview height; those display values do not mutate geometry or
 calibration. It has no controller, planner, or Learning dependencies. The existing

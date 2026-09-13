@@ -72,16 +72,96 @@ enum PortraitVectorPreset: String, CaseIterable, Identifiable, Sendable {
   }
 }
 
+/// The crop metric in oriented original-image pixels, before thumbnail/raster
+/// sampling. Thumbnail crops can span fractional original pixels. This is image
+/// geometry, not a physical measurement or a FieldSpace distance.
+struct PortraitSourceCropExtent: Codable, Hashable, Sendable {
+  let widthPixels: Double
+  let heightPixels: Double
+
+  init(widthPixels: Double, heightPixels: Double) throws {
+    let ratio = widthPixels / heightPixels
+    guard widthPixels.isFinite, heightPixels.isFinite, widthPixels > 0, heightPixels > 0,
+      ratio.isFinite, ratio > 0, (100 * ratio).isFinite else { throw PortraitDrawingError.unreadableImage }
+    self.widthPixels = widthPixels
+    self.heightPixels = heightPixels
+  }
+
+  var aspectRatio: Double { widthPixels / heightPixels }
+
+  private enum CodingKeys: String, CodingKey { case widthPixels, heightPixels }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    try self.init(widthPixels: values.decode(Double.self, forKey: .widthPixels),
+      heightPixels: values.decode(Double.self, forKey: .heightPixels))
+  }
+}
+
 /// A bounded, top-left-origin brightness image. Image analysis owns cropping
 /// and background removal; the vectorizer knows nothing about cameras or motion.
-struct PortraitRaster: Sendable {
+struct PortraitRaster: Codable, Sendable {
+  static let schemaVersion = 1
   let width: Int
   let height: Int
   let luminance: [Double]
   let provenance: String
   let analysisSummary: String
   /// Measured face bounds in the cropped raster, normalized with +Y down.
-  var faceBounds: CGRect? = nil
+  var faceBounds: CGRect?
+  /// Absent only for legacy or synthetic rasters whose original crop is unknown.
+  let sourceCropExtent: PortraitSourceCropExtent?
+
+  init(width: Int, height: Int, luminance: [Double], provenance: String,
+    analysisSummary: String, faceBounds: CGRect? = nil,
+    sourceCropExtent: PortraitSourceCropExtent? = nil) {
+    self.width = width
+    self.height = height
+    self.luminance = luminance
+    self.provenance = provenance
+    self.analysisSummary = analysisSummary
+    self.faceBounds = faceBounds
+    self.sourceCropExtent = sourceCropExtent
+  }
+
+  var metricProvenance: String {
+    if let sourceCropExtent {
+      return "source-crop-pixels-v1=\(sourceCropExtent.widthPixels)x\(sourceCropExtent.heightPixels)|sampling=pixel-centers-v1"
+    }
+    return "legacy-sample-lattice-v1=\(width - 1)x\(height - 1)"
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case schemaVersion, width, height, luminance, provenance, analysisSummary, faceBounds, sourceCropExtent
+  }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    let version = try values.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 0
+    guard (0...Self.schemaVersion).contains(version) else {
+      throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: values,
+        debugDescription: "Unsupported portrait raster schema version")
+    }
+    self.init(width: try values.decode(Int.self, forKey: .width),
+      height: try values.decode(Int.self, forKey: .height),
+      luminance: try values.decode([Double].self, forKey: .luminance),
+      provenance: try values.decode(String.self, forKey: .provenance),
+      analysisSummary: try values.decode(String.self, forKey: .analysisSummary),
+      faceBounds: try values.decodeIfPresent(CGRect.self, forKey: .faceBounds),
+      sourceCropExtent: try values.decodeIfPresent(PortraitSourceCropExtent.self, forKey: .sourceCropExtent))
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var values = encoder.container(keyedBy: CodingKeys.self)
+    try values.encode(Self.schemaVersion, forKey: .schemaVersion)
+    try values.encode(width, forKey: .width)
+    try values.encode(height, forKey: .height)
+    try values.encode(luminance, forKey: .luminance)
+    try values.encode(provenance, forKey: .provenance)
+    try values.encode(analysisSummary, forKey: .analysisSummary)
+    try values.encodeIfPresent(faceBounds, forKey: .faceBounds)
+    try values.encodeIfPresent(sourceCropExtent, forKey: .sourceCropExtent)
+  }
 }
 
 enum PortraitDrawingError: LocalizedError {
@@ -122,23 +202,29 @@ enum PortraitVectorizer {
     }
     let paths = try enlargedHeadPaths(authoredPaths, raster: raster, options: options)
     guard !paths.isEmpty else { throw PortraitDrawingError.noLines }
-    var provenance = "portrait-v2|\(raster.provenance)|pose=\(pose.rawValue)|style=\(style.rawValue)|\(options.provenance)"
+    var provenance = "portrait-v3|metric=\(raster.metricProvenance)|\(raster.provenance)|pose=\(pose.rawValue)|style=\(style.rawValue)|\(options.provenance)"
     if options.headScale > 1 {
       if let bounds = PortraitHeadTransform.validFaceBounds(raster.faceBounds) {
         provenance += "|headTransform=v1|headFace=\(bounds.origin.x),\(bounds.origin.y),\(bounds.width),\(bounds.height)"
       } else { provenance += "|headTransform=unavailable" }
     }
     let extent = try Size2<FieldSpace>(
-      width: 100 * Double(raster.width - 1) / Double(raster.height - 1), height: 100)
+      width: 100 * (raster.sourceCropExtent?.aspectRatio
+        ?? (Double(raster.width - 1) / Double(raster.height - 1))), height: 100)
     let strokes = try paths.enumerated().map { index, path in
       try Task.checkCancellation()
       return LogicalStroke(
         id: StrokeID(stableID("\(provenance)|stroke=\(index)")),
         path: try Polyline(points: path.map { point in
-          // Raster +Y is down; drawing-local FieldSpace +Y is up.
-          try Point2<FieldSpace>(
-            x: Double(point.x) / Double(raster.width - 1) * extent.width,
-            y: (1.0 - Double(point.y) / Double(raster.height - 1)) * extent.height)
+          // CGContext samples are pixel centers inside the source crop. Using
+          // width-1/height-1 would stretch the two sample axes independently.
+          // Preserve the previous lattice convention only for unknown legacy crops.
+          let sourceMetric = raster.sourceCropExtent != nil
+          let x = sourceMetric ? (Double(point.x) + 0.5) / Double(raster.width)
+            : Double(point.x) / Double(raster.width - 1)
+          let y = sourceMetric ? (Double(point.y) + 0.5) / Double(raster.height)
+            : Double(point.y) / Double(raster.height - 1)
+          return try Point2<FieldSpace>(x: x * extent.width, y: (1 - y) * extent.height)
         }),
         style: strokeStyle, ordering: UInt32(index))
     }
@@ -350,7 +436,8 @@ enum PortraitVectorizer {
                               sigma: options.smoothing)
     let values = smooth.map { pow(min(1, max(0, $0)), options.tonalStrength) }
     return PortraitRaster(width: raster.width, height: raster.height, luminance: values,
-      provenance: raster.provenance, analysisSummary: raster.analysisSummary, faceBounds: raster.faceBounds)
+      provenance: raster.provenance, analysisSummary: raster.analysisSummary, faceBounds: raster.faceBounds,
+      sourceCropExtent: raster.sourceCropExtent)
   }
 
   /// Separable, edge-clamped Gaussian. The bounded sigma limits the kernel to
