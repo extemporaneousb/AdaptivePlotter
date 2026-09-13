@@ -323,8 +323,11 @@ public struct DrawingCoverageAssessment: Hashable, Sendable {
 extension TipCameraRegistration {
   /// Same durable evidence hash used by planning and residual-model admission.
   public func drawingEvidenceContentHash() throws -> PlotterModel.Digest {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys]
-    return try PlotterModel.Digest(bytes: Array(SHA256.hash(data: encoder.encode(self))))
+    // captureSessionIDs is a Set: sorted JSON keys alone are not deterministic.
+    let hex = try DrawingMaterialApplicability.registrationHash(self)
+    let characters = Array(hex)
+    return try PlotterModel.Digest(bytes: stride(from: 0, to: characters.count, by: 2).map {
+      UInt8(String(characters[$0...($0 + 1)]), radix: 16)!
+    })
   }
 }

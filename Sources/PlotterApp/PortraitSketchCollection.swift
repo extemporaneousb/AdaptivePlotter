@@ -60,6 +60,7 @@ final class PortraitSketchCollection {
     do {
       try candidate.validateIntegrity()
       let previous = labels.last { $0.candidateID == candidate.id && $0.scope.id == scope.id
+        && $0.presentation.physicalAttemptID == presentation.physicalAttemptID
         && !archive.withdrawnLabelIDs.contains($0.id.uuidString) }
       let label = try PortraitLabelRevision(candidate: candidate, rating: rating, scope: scope,
         presentation: presentation, previousRevisionID: previous?.id)

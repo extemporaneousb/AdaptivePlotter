@@ -63,17 +63,21 @@ public struct DrawingPlanningProvenance: Hashable, Codable, Sendable, CanonicalE
   public let modelContentHash: Digest
   public let registrationRevisionID: DrawingRegistrationRevisionID
   public let registrationContentHash: Digest
+  /// Optional extension: nil preserves the original canonical plan identity.
+  public let materialContextHash: Digest?
 
   public init(
     modelRevisionID: DrawingModelRevisionID,
     modelContentHash: Digest,
     registrationRevisionID: DrawingRegistrationRevisionID,
-    registrationContentHash: Digest
+    registrationContentHash: Digest,
+    materialContextHash: Digest? = nil
   ) {
     self.modelRevisionID = modelRevisionID
     self.modelContentHash = modelContentHash
     self.registrationRevisionID = registrationRevisionID
     self.registrationContentHash = registrationContentHash
+    self.materialContextHash = materialContextHash
   }
 
   public func encodeCanonical(to encoder: inout CanonicalEncoder) throws {
@@ -82,6 +86,10 @@ public struct DrawingPlanningProvenance: Hashable, Codable, Sendable, CanonicalE
     encoder.appendDigest(modelContentHash)
     try registrationRevisionID.encodeCanonical(to: &encoder)
     encoder.appendDigest(registrationContentHash)
+    if let materialContextHash {
+      try encoder.appendString("DrawingMaterialContext-v1")
+      encoder.appendDigest(materialContextHash)
+    }
   }
 }
 

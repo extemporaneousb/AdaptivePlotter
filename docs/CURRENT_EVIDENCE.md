@@ -8,6 +8,61 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DS-06 durable physical attempts and original images, 2026-09-13
+
+Task `task-1807468af632464ba4628a3817c9b6c2` began from clean primary `main`
+at `be5a772659dd21f8cb48548c55f890e3c2201601`, targeting `main`. Three bounded
+workers owned evidence storage, drawing execution, and observation geometry/coverage;
+the coordinator owns projection identity, material plan provenance, gallery/label
+consumers and integration. The initial 146-test strict focused suite and signed
+app/launcher/negative-bundle/documentation checks passed. The broad strict serial
+run completed 1239 tests with 16 issues confined to eight portrait-raster fixtures
+that omitted accepted movement bounds. Those receipts remain retained.
+
+New attempts stage the full immutable executed plan/program, original projected
+candidate program, reconstructable registration and material/actual conditions.
+Candidate retention is joined before motion; original baseline pixels and a
+monotonic possible-dispatch marker precede ink dispatch. Terminal records seal raw
+result frames and comparison provenance. Restart distinguishes preparation from
+possible ink and never dispatches motion. Stop remains latched through lower
+completion, result capture and terminal publication; failed/ambiguous/cancelled runs
+cannot begin photo travel. Shutdown joins the exact owned publication.
+
+A bounded observation plan prefers geometric clearance inside accepted movement
+bounds; up to three matched poses are possible when clearance falls short. Raw
+frames and exact source/pose associations remain owned even when comparison fails.
+Coverage uses bounded existing alignment and explicit visible/occluded/unknown masks,
+with transparent unknown pixels and retained per-pixel original provenance. The
+store verifies composite pixels against actual content-addressed original bytes.
+Production armature visibility remains unknown; pose choice is not a visibility proof.
+
+Physical gallery images are recovered from the existing archive and image store.
+Their ratings name the exact physical attempt, terminal record and result-image
+hashes under a separate objective. Material inspection now installs its actual raw
+images through the same store before retaining a measured revision. A material
+revision changes exact plan provenance while preserving artwork/placement. New
+registration hashes canonicalize capture-session Set order. Old candidate and nil
+material-plan encodings remain unchanged.
+
+No test app from this increment has been launched and no live session was replaced.
+Native interactions, physical image coverage, marker accuracy, geometry and likeness
+remain pending. The R05 independent metric and DS-10 attended gates remain open.
+The one-shot critic reported three accepted issues: possible-ink geometry across
+provenance/restart, post-settlement image freshness, and recoverable failed writes
+of available originals. All three repairs passed direct verification in the 170-test strict serial
+focused suite (171.711 seconds), including the eight repaired raster workloads.
+The critic did not recheck. A subsequent 1247-test strict serial run found six fixture-clock issues: its
+synthetic camera/UI clock was mixed with the run owner system clock. Explicit
+composition clock injection preserves the production default and fixes that
+fixture without relaxing assertions. All 51 affected consumer tests passed
+in 32.585 seconds. Final gates passed: 1247 strict serial tests in 334.436 seconds (five existing
+skips), 10 retained journeys in 3.321 seconds, and the strict signed debug app,
+launcher and negative bundle validation. Final documentation/whitespace receipts
+accompany landing. Frozen review patch SHA256 is
+`97bde386c20d4fbf15f5c076950eeee4498b65db4badf3cfdf6011d39b5ca601`, with
+receipts in `.build/studio-ds06-180746-evidence/`. Final validation will replace
+this pending status before landing.
+
 ## DS-05 material measurement and placed-scale adaptation, 2026-09-13
 
 Task `task-e8792f04a5ad4066bd8375db8831128d` began from clean primary `main`

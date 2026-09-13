@@ -4,6 +4,8 @@ import PlotterModel
 public enum DrawingRunEvidenceError: Error, Equatable, Sendable {
   case emptyValue(String)
   case invalidHash
+  case invalidAttemptContext
+  case invalidMediaReference
   case planIdentityMismatch
   case missingExecutionPlanGeometry
   case invalidFrontier
@@ -243,7 +245,9 @@ public struct DrawingObservationFramePair: Codable, Hashable, Sendable {
       Self.isSHA256(post.frameSHA256),
       baseline.width > 0,
       baseline.height > 0,
+      baseline.width <= Int.max / baseline.pixelFormat.bytesPerPixel,
       baseline.rowBytes >= baseline.width * baseline.pixelFormat.bytesPerPixel,
+      baseline.rowBytes <= Int.max / baseline.height,
       baseline.width == post.width,
       baseline.height == post.height,
       baseline.rowBytes == post.rowBytes,
@@ -487,7 +491,8 @@ public enum DrawingRunObservationOutcome: Codable, Hashable, Sendable {
 /// cannot itself promote a model, restore calibration, authorize execution, or
 /// replay motion.
 public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
-  public static let schemaVersion: UInt16 = 3
+  public static let schemaVersion: UInt16 = 4
+  private static let hashOnlyMediaSchemaVersion: UInt16 = 3
   private static let legacyReferenceOnlySchemaVersion: UInt16 = 1
   private static let reconstructablePlanSchemaVersion: UInt16 = 2
 
@@ -508,6 +513,8 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
   public let paper: PaperRevisionContext
   public let observation: DrawingRunObservationOutcome
   public let recordedAt: RuntimeTimestamp
+  /// Nil is an explicit legacy hash-only evidence limitation.
+  public let attemptEvidence: DrawingRunAttemptEvidence?
 
   public init(
     recordID: DrawingEvidenceRecordID = DrawingEvidenceRecordID(),
@@ -525,10 +532,11 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
     tipCalibration: DrawingTipCalibrationEvidenceReference,
     paper: PaperRevisionContext,
     observation: DrawingRunObservationOutcome,
-    recordedAt: RuntimeTimestamp
+    recordedAt: RuntimeTimestamp,
+    attemptEvidence: DrawingRunAttemptEvidence? = nil
   ) throws {
     try self.init(
-      schemaVersion: Self.schemaVersion,
+      schemaVersion: attemptEvidence == nil ? Self.hashOnlyMediaSchemaVersion : Self.schemaVersion,
       recordID: recordID,
       runID: runID,
       requestID: requestID,
@@ -544,7 +552,8 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
       tipCalibration: tipCalibration,
       paper: paper,
       observation: observation,
-      recordedAt: recordedAt
+      recordedAt: recordedAt,
+      attemptEvidence: attemptEvidence
     )
   }
 
@@ -565,11 +574,13 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
     tipCalibration: DrawingTipCalibrationEvidenceReference,
     paper: PaperRevisionContext,
     observation: DrawingRunObservationOutcome,
-    recordedAt: RuntimeTimestamp
+    recordedAt: RuntimeTimestamp,
+    attemptEvidence: DrawingRunAttemptEvidence? = nil
   ) throws {
     guard
       schemaVersion == Self.legacyReferenceOnlySchemaVersion
         || schemaVersion == Self.reconstructablePlanSchemaVersion
+        || schemaVersion == Self.hashOnlyMediaSchemaVersion
         || schemaVersion == Self.schemaVersion
     else { throw DrawingRunEvidenceError.unsupportedSchema(schemaVersion) }
     if schemaVersion != Self.legacyReferenceOnlySchemaVersion,
@@ -577,7 +588,7 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
     {
       throw DrawingRunEvidenceError.missingExecutionPlanGeometry
     }
-    if schemaVersion != Self.schemaVersion,
+    if schemaVersion < Self.hashOnlyMediaSchemaVersion,
       evidenceDisposition == .nonAttributable
         || observation == .notAttempted(.projectionOutsideTipApplicability)
     {
@@ -624,6 +635,66 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
     self.paper = paper
     self.observation = observation
     self.recordedAt = recordedAt
+    self.attemptEvidence = attemptEvidence
+    guard (schemaVersion == Self.schemaVersion) == (attemptEvidence != nil) else {
+      throw DrawingRunEvidenceError.invalidAttemptContext
+    }
+    try validateAttemptEvidence()
+  }
+
+  func validateAttemptEvidence() throws {
+    guard let attempt = attemptEvidence else { return }
+    let intent = attempt.intent
+    try intent.validate()
+    guard intent.runID == runID, intent.requestID == requestID, intent.role == role,
+      intent.plan == plan.executionPlan, intent.plan.provenance == planningProvenance,
+      intent.placementID == placement.placementID,
+      try DrawingPlacementEvidenceReference(placementID: placement.placementID,
+        placement: intent.plan.placement) == placement,
+      intent.context.program.id == program.programID,
+      intent.context.program.contentHash == program.contentHash,
+      intent.context.program.source == program.source,
+      Int(executionFrontiers.plannedStrokeCount) == intent.plan.strokes.count,
+      intent.context.paper == paper,
+      intent.context.registration.acceptedRevisionID == tipCalibration.acceptedRevisionID,
+      intent.context.registration.applicability == tipCalibration.applicability,
+      intent.context.registration.estimatorRevision == tipCalibration.estimatorRevision,
+      try DrawingMaterialApplicability.registrationHash(intent.context.registration)
+        == tipCalibration.registrationEvidenceSHA256,
+      attempt.baselines.count <= 4, attempt.terminalFrames.count <= 8,
+      Set(attempt.baselines).count == attempt.baselines.count,
+      Set(attempt.terminalFrames).count == attempt.terminalFrames.count else {
+      throw DrawingRunEvidenceError.invalidAttemptContext
+    }
+    for media in attempt.baselines + attempt.terminalFrames { try media.validate() }
+    if let reason = attempt.missingCoverageReason,
+      reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      throw DrawingRunEvidenceError.invalidAttemptContext
+    }
+    let pair: DrawingObservationFramePair?
+    switch observation {
+    case .observed(let value): pair = value.frames
+    case .rejected(let value): pair = value.frames
+    case .notAttempted: pair = nil
+    }
+    if let pair { try validateMediaPair(pair, attempt: attempt) }
+    if let coverage = attempt.mediaCoverage {
+      try coverage.validate()
+      guard coverage.registration == intent.context.registration,
+        let observationPlan = intent.observationPlan,
+        Set(coverage.views.map(\.viewID)).isSubset(of: Set(observationPlan.poses.map(\.id))) else {
+        throw DrawingRunEvidenceError.invalidAttemptContext
+      }
+      for view in coverage.views { try validateMediaPair(view.frames, attempt: attempt) }
+    }
+  }
+
+  private func validateMediaPair(_ pair: DrawingObservationFramePair,
+    attempt: DrawingRunAttemptEvidence) throws {
+    guard attempt.baselines.contains(where: { $0.source == pair.source && $0.frame == pair.baseline }),
+      attempt.terminalFrames.contains(where: { $0.source == pair.source && $0.frame == pair.post }) else {
+      throw DrawingRunEvidenceError.invalidMediaReference
+    }
   }
 
   public var readinessReference: DrawingEvidenceReference {
@@ -686,7 +757,7 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
   private enum CodingKeys: String, CodingKey {
     case schemaVersion, recordID, runID, requestID, role, evidenceDisposition
     case requestFrontier, executionFrontiers, executionDisposition, program, placement, plan
-    case planningProvenance, tipCalibration, paper, observation, recordedAt
+    case planningProvenance, tipCalibration, paper, observation, recordedAt, attemptEvidence
   }
 
   public init(from decoder: any Decoder) throws {
@@ -695,6 +766,7 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
     guard
       decodedSchema == Self.legacyReferenceOnlySchemaVersion
         || decodedSchema == Self.reconstructablePlanSchemaVersion
+        || decodedSchema == Self.hashOnlyMediaSchemaVersion
         || decodedSchema == Self.schemaVersion
     else {
       throw DrawingRunEvidenceError.unsupportedSchema(decodedSchema)
@@ -737,7 +809,8 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
       ),
       paper: values.decode(PaperRevisionContext.self, forKey: .paper),
       observation: values.decode(DrawingRunObservationOutcome.self, forKey: .observation),
-      recordedAt: values.decode(RuntimeTimestamp.self, forKey: .recordedAt)
+      recordedAt: values.decode(RuntimeTimestamp.self, forKey: .recordedAt),
+      attemptEvidence: values.decodeIfPresent(DrawingRunAttemptEvidence.self, forKey: .attemptEvidence)
     )
   }
 

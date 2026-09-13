@@ -11,6 +11,21 @@ import Testing
 @Suite("Drawing Studio run episode", .serialized)
 @MainActor
 struct PlotterDrawingRunEpisodeTests {
+  @Test("synthetic run fixture preserves registration pixel geometry and exact optical identity")
+  func fixtureOpticalIdentityMatchesOwnedFrames() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let optical = fixture.registration.applicability.opticalConfiguration
+    for frame in [fixture.previewFrame, fixture.baselineFrame, fixture.postFrame] {
+      #expect(frame.source == optical.source)
+      #expect(frame.frame.width == optical.width)
+      #expect(frame.frame.height == optical.height)
+      #expect(frame.frame.pixelFormat == optical.pixelFormat)
+      #expect(frame.frame.bytes.count == frame.frame.rowBytes * optical.height)
+    }
+    #expect(fixture.plan.registration == fixture.registration)
+    #expect(fixture.facts().acceptedMovementBounds == fixture.drawableRegion.bounds)
+  }
+
   @Test("retained draft preflight refreshes dependency failures and remedies after recovery")
   func retainedDraftReadinessFollowsCurrentDependencies() async throws {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
@@ -50,12 +65,13 @@ struct PlotterDrawingRunEpisodeTests {
     await harness.facts.replace(PlotterDrawingRunExternalFacts(environment: .live,
       interactiveLearningIsComplete: true, plan: fixture.plan, paperCoverageIsCurrent: true,
       displayedFrame: fixture.previewFrame, interpreter: await harness.interpreter.snapshot(),
-      penActuationProfile: initialFacts.penActuationProfile))
+      penActuationProfile: initialFacts.penActuationProfile,
+      acceptedMovementBounds: fixture.drawableRegion.bounds))
     let ready = await harness.runtime.synchronize(environment: .live)
     #expect(ready.readiness == .ready)
     let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilHeld()
-    #expect(await harness.events.values == ["normalize"])
+    #expect(await harness.events.values == ["stage-intent", "normalize"])
     let active = await harness.runtime.snapshot(environment: .live)
     if case .unavailable(let issue) = active.readiness { #expect(issue.reason == .activeRunOwnsWorkflow) }
     else { Issue.record("Active run retained stale Ready admission") }
@@ -63,7 +79,7 @@ struct PlotterDrawingRunEpisodeTests {
     let result = await run.value
     #expect(result.snapshot.terminal?.disposition == .succeeded)
     let events = await harness.events.values
-    #expect(Array(events.prefix(2)) == ["normalize", "travel"])
+    #expect(Array(events.prefix(3)) == ["stage-intent", "normalize", "travel"])
     if case .unavailable(let issue) = result.snapshot.readiness { #expect(issue.reason == .terminalRequiresNewRunHandoff) }
     else { Issue.record("Terminal run retained stale Ready admission") }
   }
@@ -113,7 +129,8 @@ struct PlotterDrawingRunEpisodeTests {
     let result = await harness.runtime.submit(PlotterDrawingRunSubmission(projection: current.projection, intent: .start))
     let recordedEvents = await harness.events.values
     #expect(recordedEvents == [
-      "normalize", "travel", "capture-baseline", "execute", "capture-post", "observe", "append",
+      "stage-intent", "normalize", "travel", "capture-baseline", "stage-baseline", "dispatch-marker",
+      "execute", "travel", "capture-post", "observe", "append",
     ])
     #expect(try #require(await harness.interpreter.planRequests.first).plan == plan.plan)
     let terminal = try #require(result.snapshot.terminal)
@@ -127,6 +144,260 @@ struct PlotterDrawingRunEpisodeTests {
       Issue.record("Portrait run evidence was not persisted by the ordinary evidence owner.")
       return
     }
+  }
+
+  @Test("same-paper material provenance changes preserve no-redraw in memory and after staged restart",
+    arguments: [false, true])
+  func provenanceOnlyPlanChangeRetainsPossibleInk(_ interruptedArchive: Bool) async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let harness = await drawingRunHarness(fixture: fixture, outcome: .cancelled)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    let original = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let terminal = try #require(original.snapshot.terminal)
+    let material = try DrawingMaterialProfileRevision(name: "Different selected revision", nominalWidthMM: 0.8)
+    let revised = try fixture.withMaterial(material)
+    #expect(revised.plan.contentHash != fixture.plan.plan.contentHash)
+    #expect(revised.plan.strokes.map(\.path) == fixture.plan.plan.strokes.map(\.path))
+    #expect(revised.registration.derivation == .accepted)
+    if interruptedArchive {
+      let sealed = await harness.evidence.archive
+      let staged = try DrawingRunEvidenceArchive(archiveID: sealed.archiveID, revision: 0,
+        records: [], attempts: sealed.attempts)
+      #expect(staged.incompleteAttempts.first?.inkDispatchPossible == true)
+      let restored = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: revised),
+        archiveLoadResult: .loaded(staged))
+      let projection = await restored.runtime.synchronize(environment: .live)
+      let refused = await restored.runtime.submit(.init(projection: projection.projection, intent: .start))
+      #expect(try drawingRunRefusal(refused).reason == .planMayAlreadyContainInk)
+      #expect(await restored.events.values.isEmpty)
+    } else {
+      _ = await harness.runtime.submit(.init(projection: original.snapshot.projection,
+        intent: .beginNewRun(terminal.runID)))
+      await harness.facts.replace(fixture.facts(plan: revised))
+      let projection = await harness.runtime.synchronize(environment: .live)
+      let effectsBefore = await harness.events.values
+      let refused = await harness.runtime.submit(.init(projection: projection.projection, intent: .start))
+      #expect(try drawingRunRefusal(refused).reason == .planMayAlreadyContainInk)
+      #expect(await harness.events.values == effectsBefore)
+    }
+  }
+
+  @Test("staged same-coordinate ink survives changed generator style and optical provenance")
+  func stagedGeometrySurvivesUnrelatedProvenanceChanges() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let harness = await drawingRunHarness(fixture: fixture, outcome: .cancelled)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    _ = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let sealed = await harness.evidence.archive
+    let staged = try DrawingRunEvidenceArchive(archiveID: sealed.archiveID, revision: 0,
+      records: [], attempts: sealed.attempts)
+    let revised = try fixture.withChangedSourceStyleAndOpticalIdentity()
+    #expect(revised.plan.strokes.map(\.path) == fixture.plan.plan.strokes.map(\.path))
+    #expect(revised.program.source != fixture.plan.program.source)
+    #expect(revised.plan.strokes.map(\.style) != fixture.plan.plan.strokes.map(\.style))
+    #expect(revised.registration.applicability.opticalConfiguration != fixture.registration.applicability.opticalConfiguration)
+    #expect(revised.registration.acceptedRevisionID != fixture.registration.acceptedRevisionID)
+    let restored = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: revised),
+      archiveLoadResult: .loaded(staged))
+    let current = await restored.runtime.synchronize(environment: .live)
+    let refused = await restored.runtime.submit(.init(projection: current.projection, intent: .start))
+    #expect(try drawingRunRefusal(refused).reason == .planMayAlreadyContainInk)
+    #expect(await restored.events.values.isEmpty)
+  }
+
+  @Test("buffered frames predating settled observation boundaries cannot acquire pose identity",
+    arguments: [false, true])
+  func bufferedFrameBeforeObservationSettlementIsRejected(_ staleResult: Bool) async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let timing = DrawingRunSequenceClock(staleResult ? [10, 15, 35, 40] : [10, 25, 40])
+    let harness = await drawingRunHarness(fixture: fixture, clock: timing)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let attempt = try #require(result.snapshot.terminal?.record.attemptEvidence)
+    #expect(await harness.camera.requests == (staleResult ? [15, 35] : [25]))
+    #expect(await harness.vision.requests.isEmpty)
+    #expect(!result.snapshot.physicalEvidenceClaimed)
+    if staleResult {
+      #expect(attempt.baselines.first?.captureAfterNanoseconds == 15)
+      #expect(attempt.terminalFrames.first?.frame == ExactFrameProvenance(frame: fixture.postFrame.frame))
+      #expect(attempt.terminalFrames.first?.controllerPosition == nil)
+      #expect(attempt.terminalFrames.first?.captureAfterNanoseconds == nil)
+    } else {
+      #expect(await harness.interpreter.planRequests.isEmpty)
+      #expect(attempt.baselines.isEmpty)
+    }
+    #expect(try #require(attempt.missingCoverageReason).isEmpty == false)
+  }
+
+  @Test("failed terminal media installation retries exact owned bytes before sealing",
+    arguments: [DrawingRunOutcomeKind.completed, .cancelled])
+  func terminalMediaFailureRetainsOriginalForPublicationRetry(_ outcome: DrawingRunOutcomeKind) async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let harness = await drawingRunHarness(fixture: fixture, outcome: outcome)
+    let originalFrame = outcome == .completed ? fixture.postFrame : fixture.previewFrame
+    await harness.evidence.rejectMediaFrames([originalFrame.frame.id])
+    let ready = await harness.runtime.synchronize(environment: .live)
+    let failed = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let terminal = try #require(failed.snapshot.terminal)
+    #expect(terminal.disposition == .publicationIncomplete)
+    #expect(failed.snapshot.postFrame == originalFrame)
+    #expect(await harness.evidence.archive.records.isEmpty)
+    guard case .failed(let recordID, let capability, let detail) = failed.snapshot.evidencePersistence else {
+      Issue.record("Available bytes were sealed away despite failed media installation")
+      return
+    }
+    #expect(detail.contains("mediaFailed"))
+    let refusedHandoff = await harness.runtime.submit(.init(projection: failed.snapshot.projection,
+      intent: .beginNewRun(terminal.runID)))
+    #expect(try drawingRunRefusal(refusedHandoff).remedy == .retryEvidencePublication)
+    let stillFailed = await harness.runtime.submit(.init(projection: refusedHandoff.snapshot.projection,
+      intent: .recoverPublication(capability)))
+    #expect(stillFailed.snapshot.terminal?.disposition == .publicationIncomplete)
+    #expect(stillFailed.snapshot.terminal?.record == terminal.record)
+    let cameraBefore = await harness.camera.requests
+    let plansBefore = await harness.interpreter.planRequests
+    let motionEventsBefore = await harness.events.values.filter { ["normalize", "travel", "execute"].contains($0) }
+    await harness.evidence.rejectMediaFrames([])
+    let recovered = await harness.runtime.submit(.init(projection: stillFailed.snapshot.projection,
+      intent: .recoverPublication(capability)))
+    guard case .persisted(let savedID, _) = recovered.snapshot.evidencePersistence else {
+      Issue.record("Restored storage did not seal retained exact media")
+      return
+    }
+    #expect(savedID == recordID)
+    #expect(recovered.snapshot.terminal?.record == terminal.record)
+    let media = try #require(terminal.record.attemptEvidence?.terminalFrames.first)
+    #expect(try await harness.evidence.readMedia(media) == originalFrame.frame)
+    #expect(await harness.camera.requests == cameraBefore)
+    #expect(await harness.interpreter.planRequests == plansBefore)
+    #expect(await harness.events.values.filter { ["normalize", "travel", "execute"].contains($0) } == motionEventsBefore)
+  }
+
+  @Test("Stop stays latched when the admitted operation races to completed")
+  func stopRacingCompletedOutcomeDoesNotPhotograph() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let gate = DrawingRunPlanGate()
+    let harness = await drawingRunHarness(fixture: fixture, planGate: gate, releasePlanOnStop: false)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    await gate.waitUntilStarted()
+    let active = await harness.runtime.snapshot(environment: .live)
+    let stop = try #require(active.stopCapabilityID)
+    _ = await harness.runtime.submit(.init(projection: active.projection, intent: .stop(stop)))
+    await gate.release(.completed)
+    let result = await run.value
+    #expect(result.snapshot.terminal?.disposition == .cancelled)
+    #expect(await harness.camera.requests.count == 1)
+    #expect(await harness.vision.requests.isEmpty)
+    let events = await harness.events.values
+    #expect(Array(events.suffix(from: try #require(events.firstIndex(of: "execute")))).filter { $0 == "travel" }.isEmpty)
+    let evidence = try #require(result.snapshot.terminal?.record.attemptEvidence)
+    #expect(evidence.terminalFrames.contains { $0.frame == ExactFrameProvenance(frame: fixture.previewFrame.frame) })
+    #expect(try #require(evidence.missingCoverageReason).isEmpty == false)
+    #expect(evidence.mediaCoverage == nil)
+    #expect(evidence.terminalFrames.allSatisfy { $0.controllerPosition == nil })
+  }
+
+  @Test("Stop cancels the exact owned result positioning effect and joins publication")
+  func stopDuringResultPositioning() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let gate = DrawingRunHoldGate()
+    let harness = await drawingRunHarness(fixture: fixture)
+    await harness.interpreter.holdTravel(ordinal: 2, at: gate)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    await gate.waitUntilHeld()
+    let active = await harness.runtime.snapshot(environment: .live)
+    #expect(active.phase == .positioningForPostObservation)
+    let stop = try #require(active.stopCapabilityID)
+    _ = await harness.runtime.submit(.init(projection: active.projection, intent: .stop(stop)))
+    let result = await run.value
+    #expect(await harness.interpreter.stopIntents == [.operatorStop])
+    #expect(await harness.camera.requests.count == 1)
+    #expect(result.snapshot.terminal?.disposition == .cancelled)
+    let attempt = try #require(result.snapshot.terminal?.record.attemptEvidence)
+    #expect(try #require(attempt.missingCoverageReason).isEmpty == false)
+    #expect(attempt.mediaCoverage == nil)
+    #expect(attempt.terminalFrames.allSatisfy { $0.controllerPosition == nil })
+    if case .persisted = result.snapshot.evidencePersistence {} else { Issue.record("Stop did not seal exact terminal evidence") }
+  }
+
+  @Test("failed and ambiguous execution never moves for a terminal photograph",
+    arguments: [DrawingRunOutcomeKind.refused, .cancelled, .ambiguous, .possibleInk])
+  func failedOutcomeDoesNotReposition(_ outcome: DrawingRunOutcomeKind) async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let harness = await drawingRunHarness(fixture: fixture, outcome: outcome)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let events = await harness.events.values
+    let execution = try #require(events.firstIndex(of: "execute"))
+    #expect(!events.suffix(from: execution).contains("travel"))
+    #expect(await harness.camera.requests.count == 1)
+    #expect(await harness.vision.requests.isEmpty)
+    let attempt = try #require(result.snapshot.terminal?.record.attemptEvidence)
+    #expect(attempt.terminalFrames.count == 1)
+    #expect(attempt.terminalFrames.first?.controllerPosition == nil)
+    #expect(attempt.mediaCoverage == nil)
+    #expect(try #require(attempt.missingCoverageReason).isEmpty == false)
+  }
+
+  @Test("staging failure prevents ink dispatch and keeps the exact failure recoverable", arguments: [false, true])
+  func stagedPersistenceFailurePreventsInk(_ baselineFailure: Bool) async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let harness = await drawingRunHarness(fixture: fixture,
+      stageFailures: baselineFailure ? 0 : 1, stageBaselineFailures: baselineFailure ? 1 : 0)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    #expect(await harness.interpreter.planRequests.isEmpty)
+    #expect(await harness.vision.requests.isEmpty)
+    let events = await harness.events.values
+    #expect(!events.contains("dispatch-marker"))
+    if !baselineFailure { #expect(!events.contains("normalize")) }
+    let record = try #require(result.snapshot.terminal?.record)
+    #expect(record.executionFrontiers.commandedStrokeCount == 0)
+    #expect(record.evidenceDisposition == .refused)
+    #expect(record.attemptEvidence?.missingCoverageReason?.contains("stageFailed") == true)
+    #expect(record.attemptEvidence?.baselines.count == (baselineFailure ? 1 : 0))
+  }
+
+  @Test("dispatch acknowledgement failure retains possible ink after terminal seal and restart")
+  func markerAcknowledgementFailureRetainsNoRedraw() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let harness = await drawingRunHarness(fixture: fixture, failDispatchAcknowledgement: true)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    #expect(await harness.interpreter.planRequests.isEmpty)
+    #expect(result.snapshot.terminal?.record.executionFrontiers.commandedStrokeCount == 0)
+    if case .planMayContainInk = result.snapshot.noRedraw {} else { Issue.record("Uncertain dispatch marker released no-redraw") }
+    let archive = await harness.evidence.archive
+    #expect(archive.records.count == 1)
+    #expect(archive.incompleteAttempts.isEmpty)
+    #expect(archive.attempts.first?.inkDispatchPossible == true)
+    let restored = await drawingRunHarness(fixture: fixture, archiveLoadResult: .loaded(archive))
+    let state = await restored.runtime.synchronize(environment: .live)
+    let refused = await restored.runtime.submit(.init(projection: state.projection, intent: .start))
+    #expect(try drawingRunRefusal(refused).reason == .planMayAlreadyContainInk)
+    #expect(await restored.events.values.isEmpty)
+  }
+
+  @Test("restart retains marked incomplete attempts as possible ink without replay")
+  func interruptedAttemptRestoresNoRedraw() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let gate = DrawingRunPlanGate()
+    let harness = await drawingRunHarness(fixture: fixture, planGate: gate)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    await gate.waitUntilStarted()
+    let archive = await harness.evidence.archive
+    #expect(archive.incompleteAttempts.count == 1)
+    #expect(archive.incompleteAttempts.first?.interruptionClassification == .possibleInk)
+    let restored = await drawingRunHarness(fixture: fixture, archiveLoadResult: .loaded(archive))
+    let restoredReady = await restored.runtime.synchronize(environment: .live)
+    let refused = await restored.runtime.submit(.init(projection: restoredReady.projection, intent: .start))
+    #expect(try drawingRunRefusal(refused).reason == .planMayAlreadyContainInk)
+    #expect(await restored.events.values.isEmpty)
+    await gate.release(.cancelled)
+    _ = await run.value
   }
 
   @Test("saved drawing projection requires complete paper identity and no new exact-frame request")
@@ -212,7 +483,7 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(await harness.interpreter.planRequests.isEmpty)
     #expect(await harness.camera.requests.isEmpty)
     #expect(await harness.vision.requests.isEmpty)
-    #expect(await harness.events.values == ["normalize", "append"])
+    #expect(await harness.events.values == ["stage-intent", "normalize", "append"])
   }
 
   @Test("Pen profile drift before the first effect is typed and effect-free")
@@ -309,13 +580,13 @@ struct PlotterDrawingRunEpisodeTests {
 
     #expect(await harness.interpreter.stopIntents == [.shutdown])
     #expect(await harness.interpreter.planRequests.count == 1)
-    #expect(await harness.evidence.attempts.isEmpty)
+    #expect(await harness.evidence.attempts.count == 1)
     #expect(shutdownSnapshot.activeRunID == nil)
     #expect(shutdownSnapshot.phase == .terminal)
-    #expect(shutdownSnapshot.terminal?.disposition == .publicationIncomplete)
+    #expect(shutdownSnapshot.terminal?.disposition == .cancelled)
     #expect(
       shutdownSnapshot.terminal?.record.executionDisposition
-        == .cancelled(reason: "Operator Stop")
+        == .cancelled(reason: "Application shutdown")
     )
     #expect(submissionResult.snapshot == shutdownSnapshot)
   }
@@ -333,7 +604,8 @@ struct PlotterDrawingRunEpisodeTests {
     ))
 
     #expect(await harness.events.values == [
-      "normalize", "capture-baseline", "execute", "capture-post", "observe", "append",
+      "stage-intent", "normalize", "travel", "capture-baseline", "stage-baseline", "dispatch-marker",
+      "execute", "travel", "capture-post", "observe", "append",
     ])
     let request = try #require(await harness.interpreter.planRequests.first)
     let terminal = try #require(result.snapshot.terminal)
@@ -350,6 +622,29 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(result.snapshot.physicalEvidenceClaimed)
     #expect(result.snapshot.baselineFrame == fixture.baselineFrame)
     #expect(result.snapshot.postFrame == fixture.postFrame)
+    let attempt = try #require(terminal.record.attemptEvidence)
+    let observationPlan = try #require(attempt.intent.observationPlan)
+    let pose = try #require(observationPlan.poses.first)
+    let baselineMedia = try #require(attempt.baselines.first)
+    let postMedia = try #require(attempt.terminalFrames.first)
+    #expect(observationPlan.poses.count == 1)
+    #expect(baselineMedia.frame == ExactFrameProvenance(frame: fixture.baselineFrame.frame))
+    #expect(baselineMedia.captureAfterNanoseconds == 10)
+    #expect(postMedia.captureAfterNanoseconds == fixture.baselineFrame.frame.captureNanoseconds)
+    #expect(baselineMedia.frame.captureNanoseconds > (baselineMedia.captureAfterNanoseconds ?? .max))
+    #expect(postMedia.frame.captureNanoseconds > (postMedia.captureAfterNanoseconds ?? .max))
+    #expect(postMedia.frame == ExactFrameProvenance(frame: fixture.postFrame.frame))
+    let baselinePosition = try #require(baselineMedia.controllerPosition)
+    let postPosition = try #require(postMedia.controllerPosition)
+    #expect(MachinePositionAcceptancePolicy.accepts(baselinePosition, target: pose.position))
+    #expect(MachinePositionAcceptancePolicy.accepts(postPosition, target: pose.position))
+    #expect(MachinePositionAcceptancePolicy.accepts(postPosition, target: baselinePosition))
+    #expect(pose.position != fixture.finalPosition)
+    #expect(try #require(attempt.missingCoverageReason).isEmpty == false)
+    if let coverage = attempt.mediaCoverage {
+      #expect(coverage.coveredPixelCount == 0)
+      #expect(coverage.uncoveredMask.allSatisfy { $0 })
+    }
     guard case .persisted(let recordID, let revision) = result.snapshot.evidencePersistence else {
       Issue.record("Expected durable evidence publication.")
       return
@@ -695,6 +990,12 @@ struct PlotterDrawingRunEpisodeTests {
     let store = DrawingRunEvidenceStore(
       fileURL: directory.appendingPathComponent("drawing-runs.json")
     )
+    let owned = try #require(record.attemptEvidence)
+    try await store.stageIntent(owned.intent)
+    _ = try await store.installMedia(frame: fixture.baselineFrame.frame, source: fixture.baselineFrame.source)
+    for baseline in owned.baselines { try await store.stageBaseline(runID: record.runID, media: baseline) }
+    try await store.markInkDispatchPossible(runID: record.runID)
+    _ = try await store.installMedia(frame: fixture.postFrame.frame, source: fixture.postFrame.source)
     let archive = try await store.append(record)
     guard case .loaded(let loaded) = await store.load() else {
       Issue.record("Expected the exact checksummed archive to load.")

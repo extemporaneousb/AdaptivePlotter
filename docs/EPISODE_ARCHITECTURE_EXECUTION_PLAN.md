@@ -141,7 +141,7 @@ reviewed, but cannot complete the whole row.
 | DS-03 | Balanced broad/local exploration and exact branch navigation; consumes C1/C2. | Task `task-d79ffc73deea418696794d53d641c57b`; disjoint policy, history and UI workers; coordinator candidate/model integration. | PARTIAL: native/quality open | COMPLETE: G03 software; 60 focused, 24 final integration, 1135 quick retry; signed app; one-shot ACCEPT | PENDING | PENDING |
 | DS-04 | Semantic Big Head and retained pose analysis; depends on DS-01 and DS-02. | Task `task-8037d07cff77461cae9104933de40a3a`; frozen semantic contract; disjoint transform and analysis workers; coordinator schemas/model/producer integration. | PARTIAL: native/likeness open | COMPLETE: G04 software; 25 final integration, 1155 quick; signed app; one-shot ACCEPT | PENDING | PENDING |
 | DS-05 | Effective material profile, measurement and final-scale feasibility; depends on DS-01/DS-02 and frozen C3. Consumes DS-06 media in integration. | Task `task-e8792f04a5ad4066bd8375db8831128d`; coordinator C3 types/shared integration; disjoint measurement, library/UI and feasibility workers. | PARTIAL: DS-06 raw media and G10 physical widths open | COMPLETE: 50 initial focused, 54 repair focused, 1202 strict serial quick (5 skips), separate-process archive verification; one-shot F1/F2 repaired directly. Unrestricted parallel timing failures retained. Strict signed app/launcher/negative-bundle gates passed; documentation receipts accompany release. | PENDING | PENDING |
-| DS-06 | Durable run images, recoverable attempts and observation coverage; depends on DS-01/DS-02 and frozen C3 material references. | Run-evidence worker: `Sources/PlotterRuntime/DrawingRunEvidence.swift`, `DrawingRunEvidenceStore.swift`, `PlannedDrawingObservation.swift`; `Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift`; `Sources/PlotterApp/DrawingRunEvidenceComposition.swift`; corresponding tests. | PENDING | PENDING | PENDING | PENDING |
+| DS-06 | Durable run images, recoverable attempts and observation coverage; depends on DS-01/DS-02 and frozen C3 material references. | Task `task-1807468af632464ba4628a3817c9b6c2`, primary main `be5a772659dd21f8cb48548c55f890e3c2201601`, target main. Bounded store/evidence, run-runtime and observation-geometry/coverage workers; coordinator C2 projection association, C3 interface freeze and app consumers. | PARTIAL: software complete; native/attended coverage and physical metric open | COMPLETE: 170 strict focused, 51 clock-consumer tests, 1247 strict serial quick (5 skips), 10 journeys; signed app/launcher/negative-bundle gates passed. One-shot F1/F2/F3 repaired and directly verified; failed receipts retained. | PENDING | PENDING |
 | DS-07 | Operational scoped preference fitting/proposals/checkpoints; depends on DS-02/DS-03/DS-04/DS-05 and frozen C4. | Training worker: new adjacent typed preference-training, dataset and checkpoint files/tests; coordinator leases shared recipe/model consumers after exploration integration. | PENDING | PENDING | PENDING | PENDING |
 | DS-08 | Integrated authoring/gallery/training/material/Draw layout; depends on DS-02/DS-03/DS-04/DS-05/DS-06/DS-07 APIs. | UI worker: `PlotterApplicationRuntimeView.swift`, `PortraitStudioView.swift`, `PortraitPreferenceControls.swift`, `PortraitRecentItemsView.swift`, `DrawingStudioPresentation.swift`, focused UI tests; coordinator owns semantic intent/projection integration. | PENDING | PENDING | PENDING | PENDING |
 | DS-09 | Full software/native journey, stable artifact, fresh requirements critic and integration repairs; depends on DS-01 through DS-08. | Coordinator plus fresh critic: cross-feature tests, exact build/provenance artifacts, current product/architecture/evidence docs; no concurrent full builds on a changing tree. | PENDING | PENDING | PENDING | PENDING |
@@ -359,6 +359,13 @@ not define current acceptance. Trace the previously working implementation and
 actual running binary; the introducing commit is unverified. A bounded repair
 must suppress/cancel every shared speech source while off without blocking
 advisory operation settlement. Neither report establishes a DS-01–DS-04 cause.
+
+DS-05 landed to local `main` as `be5a772659dd21f8cb48548c55f890e3c2201601`.
+Its immutable, signed, unlaunched test app is
+`.build/StudioTestApps/AdaptivePlotter-DS05-e8792f.app`; release and build-input
+receipts are in `.build/studio-ds05-e8792f-evidence/`. Prior builds and the running
+session were preserved. The two unrestricted parallel timing failures remain
+recorded; the same complete 1202-test set passed strict serial execution.
 
 ### DS-05 frozen material contract (C3)
 
@@ -2043,3 +2050,66 @@ moves no authority and cannot repair implementation while assessing it.
 | physical causality and faults | controller/plant/pen/paper/camera/Vision causal simulation |
 | UI actionability | every reached state renders action, wait/progress, remedy, or exact Stop/cancel |
 | actual hardware and ink | explicitly attended runbook evidence only |
+
+### DS-06 frozen run-media integration contract (C3)
+
+Task `task-1807468af632464ba4628a3817c9b6c2` extends the existing drawing evidence
+archive to schema 2 and terminal records to schema 4. `DrawingRunIntent` owns the
+full executed program, existing immutable plan/placement, full registration,
+exact projected C2 candidate (String content identity and original source program),
+selected material profile/applicability and actual paper/feed/actuation. The known
+Draw Border compositor is checked by source identity, stroke identity and a uniform
+orientation-preserving transform; it does not replace the original candidate.
+Gallery selection cannot retarget the projection. Candidate physical qualification
+is durably joined after intent staging and before hardware effects.
+
+The existing evidence store installs original pixel bytes by content hash with
+exact frame/source/layout identities. Intent precedes motion; baseline images and
+a monotonic possible-dispatch marker precede ink dispatch. Terminal sealing owns
+all available raw images and bounded derived comparison data. Interrupted intent
+is retained and classified without replay. Stop remains latched and forbids post-run
+photo travel; the existing run owner joins terminal publication during shutdown.
+
+Observation poses use explicit accepted machine bounds and a conservative drawing
+rectangle. A pose has geometric clearance only, not measured armature visibility.
+At most three matched views may be traversed on an uncancelled successful run.
+Coverage reuses bounded registration/alignment, exact-frame visible/occluded/unknown
+masks and per-pixel original-image provenance. Production visibility defaults to
+unknown. Unknown pixels stay transparent; software tests cannot prove clear paper.
+
+The coordinator owns App projection association, gallery image recovery and physical
+ratings, material raw-image integration, and optional material plan provenance.
+Optional nil provenance preserves older canonical encodings; new material context
+changes plan identity while preserving artwork and placement. Registration hashes
+normalize the schema-known capture-session Set. Material measurement records retain
+raw-image references installed through this same store, without another blob owner.
+Physical ratings name an exact attempt, terminal record and original result images;
+they remain separate from screen-aesthetic labels.
+
+DS-06 one-shot review froze patch SHA256
+`97bde386c20d4fbf15f5c076950eeee4498b65db4badf3cfdf6011d39b5ca601`
+and reported three accepted findings: F1 possible-ink geometry must survive
+provenance-only plan changes and marked interrupted attempts; F2 each observation
+image must follow a recorded monotonic boundary sampled after pose settlement;
+F3 failed writes of available originals must remain retryable through the existing
+publication owner before sealing. The coordinator directly verified repairs without a critic recheck: 170 strict
+focused tests passed, followed by 51 clock-consumer tests. A shared fixture clock
+is explicitly injected through the existing run composition; the production
+SystemRuntimeClock default and all camera-currentness assertions are unchanged.
+The final 1247-test strict serial suite, 10 journeys and signed app/launcher/negative
+bundle gates passed. Documentation and whitespace checks accompany landing. Original review and failed receipts remain immutable in
+`.build/studio-ds06-180746-evidence/`.
+
+The capture-boundary clock uses the same Dispatch uptime domain as the existing
+camera delivery timestamp. It rejects frames already delivered before settlement;
+it does not independently measure sensor exposure latency or physical armature
+settlement. Native and attended matched-pose image checks remain required.
+
+Possible-ink indexing includes terminal records and marked staged intents. Exact
+same-paper paths in the same machine geometry/coordinate frame stay blocked
+regardless of generator, pen style or camera provenance; checkpoint translation
+retains the established stricter applicability proof. Available terminal image
+bytes remain owned by the existing failed-publication state until installation
+and sealing succeed. Recovery replays persistence only, never acquisition or
+motion. The optional capture boundary preserves old reference encodings while
+requiring every new pose-bound image to follow settlement in its clock domain.

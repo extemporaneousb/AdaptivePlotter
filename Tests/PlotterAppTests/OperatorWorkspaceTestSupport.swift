@@ -314,7 +314,8 @@ func nominalIncidentPackageUIService() -> PlotterIncidentPackageUIService {
 func nominalDrawingRunComposition(
   machineSession: (any PlotterMachineSession)? = nil,
   observationSession: (any PlotterObservationCameraSessionPort)? = nil,
-  evidencePort: DrawingRunEvidencePort? = nil
+  evidencePort: DrawingRunEvidencePort? = nil,
+  clock: any RuntimeClock = SystemRuntimeClock()
 ) -> PlotterDrawingRunComposition {
   let isolatedEvidence = evidencePort ?? DrawingRunEvidencePort(store: DrawingRunEvidenceStore(
     fileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -322,7 +323,7 @@ func nominalDrawingRunComposition(
   return PlotterDrawingRunComposition.make(
     machineSession: machineSession ?? MachineSessionComposition.session,
     observationSession: observationSession ?? CameraComposition.makeIsolatedObservationSessionForTesting(),
-    evidencePort: isolatedEvidence
+    evidencePort: isolatedEvidence, clock: clock
   )
 }
 
@@ -1462,6 +1463,7 @@ func plotterApplicationRuntime(
   portraitStudio: PortraitStudioModel? = nil,
   drawingPlanBegin: (@Sendable (DrawingPlanRequest) async -> DrawingPlanAdmission)? = nil,
   drawingRunRuntimeAccess: ((PlotterDrawingRunRuntime) -> Void)? = nil,
+  drawingRunClock: any RuntimeClock = SystemRuntimeClock(),
   boundaryMotionBegin:
     (
       @Sendable (BoundaryMotionRequest, BoundaryMotionRenewalPlanner?) async
@@ -1570,7 +1572,7 @@ func plotterApplicationRuntime(
   )
   let drawingRunComposition = nominalDrawingRunComposition(
     machineSession: machineSession, observationSession: resolvedObservationPort,
-    evidencePort: drawingEvidencePort)
+    evidencePort: drawingEvidencePort, clock: drawingRunClock)
   drawingRunRuntimeAccess?(drawingRunComposition.runtime)
   let workspace = PlotterApplicationRuntime(
     machineSession: machineSession,

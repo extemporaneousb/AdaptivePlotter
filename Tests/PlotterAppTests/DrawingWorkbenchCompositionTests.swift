@@ -331,6 +331,7 @@ struct DrawingWorkbenchApplicationFixture {
         .admitted(DrawingPlanOperation(id: request.operationID, planRevisionID: request.plan.revisionID,
           task: Task { drawingRunOutcome(await planGate.wait(request), request: request) }))
       }, drawingRunRuntimeAccess: { runRuntime = $0 },
+      drawingRunClock: DrawingWorkbenchRuntimeClock(clock: clock),
       jogCancel: { _ in
         if releasePlanOnStop { await planGate.release(.cancelled) }
         return .transmitted
@@ -469,4 +470,13 @@ actor AcceptedDrawingCameraSession: PlotterObservationCameraSessionPort {
   func observePlannedDrawingInk(_ request: PlannedDrawingObservationRequest) async -> PlannedDrawingObservationOutcome {
     await vision.observePlannedDrawingInk(request)
   }
+}
+
+/// The run, synthetic camera and UI share one monotonic timeline. Sampling a
+/// system clock here would advance only capture to host uptime and make the
+/// independently retained preview artificially stale.
+private struct DrawingWorkbenchRuntimeClock: RuntimeClock {
+  let clock: ComputationTestClock
+  func nowNanoseconds() -> UInt64 { clock.read() }
+  func sleep(nanoseconds _: UInt64) async throws { try Task.checkCancellation() }
 }

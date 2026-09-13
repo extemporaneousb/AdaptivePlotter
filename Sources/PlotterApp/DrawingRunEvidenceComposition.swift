@@ -2,6 +2,7 @@ import Foundation
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterRuntime
+import PlotterModel
 
 @MainActor
 final class PlotterApplicationRuntimeDrawingRunFactSource: PlotterDrawingRunFactSource {
@@ -11,6 +12,11 @@ final class PlotterApplicationRuntimeDrawingRunFactSource: PlotterDrawingRunFact
 
   func install(_ application: PlotterApplicationRuntime) {
     self.application = application
+  }
+
+  func retainCandidateForAttempt(_ intent: DrawingRunIntent) async throws {
+    guard let application else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    try await application.retainDrawingCandidateForAttempt(intent)
   }
 
   func drawingRunFacts(
@@ -44,7 +50,8 @@ struct PlotterDrawingRunComposition: Sendable {
   static func make(
     machineSession: (any PlotterMachineSession),
     observationSession: any PlotterObservationCameraSessionPort,
-    evidencePort: DrawingRunEvidencePort = DrawingRunEvidenceComposition.port
+    evidencePort: DrawingRunEvidencePort = DrawingRunEvidenceComposition.port,
+    clock: any RuntimeClock = SystemRuntimeClock()
   ) -> Self {
     let factSource = PlotterApplicationRuntimeDrawingRunFactSource()
     let interpreter = PlotterApplicationRuntimeDrawingRunInterpreterPort(session: machineSession)
@@ -55,7 +62,8 @@ struct PlotterDrawingRunComposition: Sendable {
         interpreter: interpreter,
         camera: camera,
         vision: camera,
-        evidence: evidencePort
+        evidence: evidencePort,
+        clock: clock
       ),
       evidencePort: evidencePort,
       factSource: factSource
@@ -95,6 +103,26 @@ actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort {
   func load() async -> DrawingRunEvidenceStoreLoadResult {
     loadCount += 1
     return await store.load()
+  }
+
+  func stageIntent(_ intent: DrawingRunIntent) async throws -> DrawingRunEvidenceArchive {
+    try await store.stageIntent(intent)
+  }
+
+  func installMedia(frame: StampedFrame, source: FrameSourceIdentity) async throws -> DrawingRunMediaReference {
+    try await store.installMedia(frame: frame, source: source)
+  }
+
+  func readMedia(_ reference: DrawingRunMediaReference) async throws -> StampedFrame {
+    try await store.readMedia(reference)
+  }
+
+  func stageBaseline(runID: RunID, media: DrawingRunMediaReference) async throws -> DrawingRunEvidenceArchive {
+    try await store.stageBaseline(runID: runID, media: media)
+  }
+
+  func markInkDispatchPossible(runID: RunID) async throws -> DrawingRunEvidenceArchive {
+    try await store.markInkDispatchPossible(runID: runID)
   }
 
   func append(_ record: DrawingRunEvidenceRecord) async throws

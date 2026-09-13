@@ -70,6 +70,14 @@ enum PortraitArchiveValidation {
       scope.frozenParameters.allSatisfy({ $0.value.isFinite }) else {
       throw PortraitCandidateError.incompatibleScope
     }
+    if presentation.objective == .physicalRealization {
+      guard presentation.physicalAttemptID != nil, presentation.physicalRecordID != nil,
+        let hashes = presentation.physicalMediaSHA256s, !hashes.isEmpty,
+        hashes.allSatisfy({ $0.count == 64 && $0.allSatisfy(\.isHexDigit) }) else {
+        throw PortraitCandidateError.invalidPresentation
+      }
+    } else if presentation.physicalAttemptID != nil || presentation.physicalRecordID != nil
+      || presentation.physicalMediaSHA256s != nil { throw PortraitCandidateError.invalidPresentation }
     if let candidate {
       guard candidate.id == label.candidateID,
         candidate.program.contentHash.description == label.programContentHash,

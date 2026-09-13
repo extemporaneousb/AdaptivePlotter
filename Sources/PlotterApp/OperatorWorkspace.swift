@@ -1601,8 +1601,9 @@ final class PlotterApplicationRuntime:
   /// workflow can load, save, or clear physical durable authority.
   @ObservationIgnored private let statePersistencePort:
     (any PlotterApplicationStatePersistencePort)?
-  @ObservationIgnored private let drawingEvidencePort: DrawingRunEvidencePort
-  private var drawingEvidenceArchive = DrawingRunEvidenceArchive()
+  @ObservationIgnored let drawingEvidencePort: DrawingRunEvidencePort
+  @ObservationIgnored var drawingMaterialHashCache: (key: String, digest: PlotterModel.Digest)?
+  private(set) var drawingEvidenceArchive = DrawingRunEvidenceArchive()
   private(set) var drawingEvidenceError: String?
   private(set) var incidentPackageUIState: PlotterUIIncidentPackageState = .unavailable(
     reason: "No complete incident-package source provider is configured."
@@ -2456,8 +2457,13 @@ final class PlotterApplicationRuntime:
         nominalWidthMM: prior.nominalWidthMM, qualification: measurement.qualification,
         depositedWidth: measurement.distribution, measurementEvidenceID: measurement.id,
         measurementLimitations: measurement.limitations)
+      var ownedMedia: [DrawingRunMediaReference] = []
+      if let baseline = inspected.baseline {
+        ownedMedia.append(try await drawingEvidencePort.installMedia(frame: baseline.frame, source: baseline.source))
+      }
+      ownedMedia.append(try await drawingEvidencePort.installMedia(frame: inspected.result.frame, source: inspected.result.source))
       let record = try DrawingMaterialRecord(profile: profile, applicability: inspected.applicability, measurement: measurement,
-        conditionsOrigin: "operator-confirmed-existing-mark-conditions-v1")
+        conditionsOrigin: "operator-confirmed-existing-mark-conditions-v1", ownedMedia: ownedMedia)
       if let error = drawingMaterials.add(record) { return error }
       if currentMaterialApplicability == inspected.applicability, drawingMaterials.activeKey == prior.key {
         if let error = drawingMaterials.activate(key: profile.key) { return error }
@@ -2465,7 +2471,7 @@ final class PlotterApplicationRuntime:
       await drawingMaterials.flush()
       materialMeasurementStatus = measurement.qualification == .unavailable
         ? "Deposited width unavailable: " + measurement.limitations.joined(separator: " ")
-        : "Controller-coordinate width estimated from \(measurement.samples.count) samples. Independent physical accuracy and durable raw-image retention remain unverified."
+        : "Controller-coordinate width estimated from \(measurement.samples.count) samples. Original inspected images are durably retained. Independent physical accuracy remains unverified."
       if materialInspection?.id == inspected.id { materialInspection = nil }
       return drawingMaterials.persistenceError
     } catch { return error.localizedDescription }
@@ -2492,6 +2498,10 @@ final class PlotterApplicationRuntime:
         penProfileID: PenProfileID(drawingDraftSnapshot.projection.externalFacts.toolAssemblyRevision.rawValue)))
   }
 
+  func drawingMaterialSelectionDidChange() {
+    commitSemanticPresentationChange(invalidatesActionSurface: true)
+  }
+
   var drawingDraftExternalFacts: PlotterDrawingDraftExternalFacts {
     let opticalConfiguration = displayedFrame.flatMap {
       try? exactTipCalibrationFrame($0).opticalConfiguration
@@ -2513,7 +2523,8 @@ final class PlotterApplicationRuntime:
           case .available = snapshot.evidenceArchiveAvailability else { return false }
         return true
       }(),
-      drawingBorderBounds: currentDrawingBorderBounds
+      drawingBorderBounds: currentDrawingBorderBounds,
+      materialContextHash: currentDrawingMaterialContextHash
     )
   }
 
@@ -2742,6 +2753,9 @@ final class PlotterApplicationRuntime:
         detail: "Evidence append failed. No successful record was published: \(detail)"
       )
     }
+    if case .intentPublicationIncomplete(_, let detail) = snapshot.evidencePersistence {
+      return .unavailable(reason: "The durable attempt remains unresolved: " + detail)
+    }
     if let terminal = snapshot.terminal {
       let detail = drawingRunTerminalDetail(terminal)
       switch snapshot.review {
@@ -2771,6 +2785,10 @@ final class PlotterApplicationRuntime:
     switch phase {
     case .idle: "Waiting for a reviewed exact plan."
     case .validating: "Revalidating the exact EA-08A plan and current facts."
+    case .stagingIntent: "Saving the exact physical attempt before motion."
+    case .stagingBaseline: "Saving original baseline images before ink dispatch."
+    case .markingInkDispatchPossible: "Recording ink-dispatch intent."
+    case .positioningForPostObservation: "Returning Pen Up to the matched observation pose."
     case .normalizingPenUp: "Normalizing Pen Up through RunInterpreter."
     case .positioningForBaseline: "Moving to the exact observation pose."
     case .capturingBaseline: "Capturing the exact pre-drawing frame."
@@ -2875,7 +2893,11 @@ final class PlotterApplicationRuntime:
         plan: plan,
         evidenceRole: draft.evidenceRole,
         paperCoverage: paperCoverage,
-        registration: registration
+        registration: registration,
+        candidate: portraitStudio.projectedReference(for: program),
+        materialProfile: drawingMaterials.activeRecord?.profile,
+        materialApplicability: drawingMaterials.activeRecord?.applicability,
+        paperStock: materialPaperStock.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : materialPaperStock
       )
     } else {
       runPlan = nil
@@ -2888,7 +2910,8 @@ final class PlotterApplicationRuntime:
       displayedFrame: capturedFacts.displayedFrame,
       interpreter: interpreter,
       penActuationProfile: currentPenActuationProfile,
-      physicalPositionUnavailableReason: retainedPoseApplicabilityRefusal
+      physicalPositionUnavailableReason: retainedPoseApplicabilityRefusal,
+      acceptedMovementBounds: try? SparseTipBatchMarkPlan.boundaryEnvelope(for: acceptedBoundaryAggregates)
     )
   }
 
@@ -13720,7 +13743,7 @@ extension PlotterApplicationRuntime {
           )
         }
         switch snapshot.evidencePersistence {
-        case .appending, .failed:
+        case .appending, .failed, .intentPublicationIncomplete:
           return .refused("Drawing Run evidence must settle before changing paper identity.")
         case .none, .persisted:
           break

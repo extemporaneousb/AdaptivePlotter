@@ -2,6 +2,7 @@ import Foundation
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
+import Testing
 
 @testable import PlotterApp
 @testable import PlotterRuntime
@@ -47,6 +48,40 @@ struct DrawingRunEpisodeFixture: Sendable {
     )
   }
 
+  func withMaterial(_ profile: DrawingMaterialProfileRevision) throws -> PlotterDrawingRunPlan {
+    let original = plan.plan
+    let prior = original.provenance
+    let provenance = DrawingPlanningProvenance(modelRevisionID: prior.modelRevisionID,
+      modelContentHash: prior.modelContentHash, registrationRevisionID: prior.registrationRevisionID,
+      registrationContentHash: prior.registrationContentHash,
+      materialContextHash: try DrawingRunAttemptContext.materialContextHash(profile: profile, applicability: nil))
+    let revised = try ExecutionPlanRevision(sourceProgramID: original.sourceProgramID,
+      sourceProgramContentHash: original.sourceProgramContentHash, placement: original.placement,
+      drawableRegion: original.drawableRegion, provenance: provenance,
+      strokes: original.strokes, checkpoints: original.checkpoints)
+    return PlotterDrawingRunPlan(draftRevision: .init(rawValue: 2), program: plan.program,
+      placementID: plan.placementID, plan: revised, evidenceRole: plan.evidenceRole,
+      paperCoverage: plan.paperCoverage, registration: registration, materialProfile: profile)
+  }
+
+  func withChangedSourceStyleAndOpticalIdentity() throws -> PlotterDrawingRunPlan {
+    let prior = plan.program
+    let style = try StrokeStyle(nominalLineWidth: 1.2,
+      penProfileID: PenProfileID(registration.applicability.toolAssembly.rawValue))
+    let program = try DrawingProgram(id: prior.id, fieldExtent: prior.fieldExtent,
+      strokes: prior.strokes.map { LogicalStroke(id: $0.id, path: $0.path, style: style,
+        semanticRole: $0.semanticRole, ordering: $0.ordering) },
+      source: DrawingSourceProvenance(kind: "another-generator", sourceIdentifier: "another-source"))
+    let revisedRegistration = try drawingRunSyntheticRegistration(registration,
+      source: .live(CameraDeviceID(rawValue: "synthetic-recovered-camera")))
+    let built = PlotterDrawingPlanningAdapter.buildDraft(program: program, machineCenter: nil,
+      uniformScale: 0.02, rotationDegrees: 0, drawableRegion: drawableRegion,
+      registration: revisedRegistration)
+    return PlotterDrawingRunPlan(draftRevision: .init(rawValue: 3), program: program,
+      placementID: plan.placementID, plan: try requireForDrawingRun(built.plan), evidenceRole: plan.evidenceRole,
+      paperCoverage: plan.paperCoverage, registration: revisedRegistration)
+  }
+
   func facts(
     environment: PlotterEnvironment = .live,
     plan: PlotterDrawingRunPlan? = nil,
@@ -61,7 +96,8 @@ struct DrawingRunEpisodeFixture: Sendable {
       paperCoverageIsCurrent: paperCurrent,
       displayedFrame: previewFrame,
       interpreter: drawingRunReadySnapshot(position: finalPosition),
-      penActuationProfile: penActuationProfile
+      penActuationProfile: penActuationProfile,
+      acceptedMovementBounds: drawableRegion.bounds
     )
   }
 }
@@ -92,29 +128,37 @@ enum DrawingRunEpisodeFixtureCache {
       harness.workspace,
       simulator: harness.simulator
     )
-    let registration = try requireForDrawingRun(harness.workspace.tipCameraRegistration)
+    let simulatedRegistration = try requireForDrawingRun(harness.workspace.tipCameraRegistration)
     let drawableRegion = try requireForDrawingRun(harness.workspace.currentDrawableMachineRegion)
     let source = FrameSourceIdentity.live(
       CameraDeviceID(rawValue: "drawing-run-episode-camera")
     )
+    // This is a synthetic runtime fixture, not a physical calibration claim.
+    // Preserve the simulator-derived transform and its pixel coordinate space;
+    // only the fixture camera identity changes, with a fresh accepted revision.
+    let registration = try drawingRunSyntheticRegistration(simulatedRegistration, source: source)
+    let optical = registration.applicability.opticalConfiguration
     let configuration = CameraConfigurationID()
     let preview = try drawingRunFrame(
       id: "drawing-run-preview",
       sequence: 10,
       source: source,
-      configuration: configuration
+      configuration: configuration,
+      width: optical.width, height: optical.height, pixelFormat: optical.pixelFormat
     )
     let baseline = try drawingRunFrame(
       id: "drawing-run-baseline",
       sequence: 20,
       source: source,
-      configuration: configuration
+      configuration: configuration,
+      width: optical.width, height: optical.height, pixelFormat: optical.pixelFormat
     )
     let post = try drawingRunFrame(
       id: "drawing-run-post",
       sequence: 30,
       source: source,
-      configuration: configuration
+      configuration: configuration,
+      width: optical.width, height: optical.height, pixelFormat: optical.pixelFormat
     )
     let paper = harness.workspace.currentPaperRevisionContext
     let paperCoverage = try PaperCoverageObservation(
@@ -164,11 +208,42 @@ enum DrawingRunEpisodeFixtureCache {
   }
 }
 
+/// Test-only Codable fixture construction. No production acceptance/rebase path
+/// is called: all evidence here is synthetic. Numerical registration geometry,
+/// covariance and observation coordinates retain their original pixel meaning.
+private func drawingRunSyntheticRegistration(
+  _ sourceRegistration: TipCameraRegistration, source: FrameSourceIdentity
+) throws -> TipCameraRegistration {
+  let prior = sourceRegistration.applicability.opticalConfiguration
+  let optical = try CameraOpticalConfigurationIdentity(source: source,
+    sensorFormat: "drawing-run-synthetic-" + prior.sensorFormat,
+    width: prior.width, height: prior.height, pixelFormat: prior.pixelFormat,
+    orientation: prior.orientation, mirrored: prior.mirrored,
+    captureCrop: prior.captureCrop, digitalZoomFactor: prior.digitalZoomFactor,
+    lensIdentity: "synthetic-fixture-lens", focusConfiguration: "synthetic-fixture-focus",
+    mountRevision: prior.mountRevision, reframingRevision: prior.reframingRevision)
+  let previous = sourceRegistration.applicability
+  let applicability = TipCalibrationApplicabilityContext(opticalConfiguration: optical,
+    machineGeometry: previous.machineGeometry, machineCoordinateFrame: previous.machineCoordinateFrame,
+    toolAssembly: previous.toolAssembly, penContactProfile: previous.penContactProfile,
+    paperContactPlane: previous.paperContactPlane)
+  let encoder = JSONEncoder()
+  var object = try JSONSerialization.jsonObject(with: encoder.encode(sourceRegistration)) as! [String: Any]
+  object["applicability"] = try JSONSerialization.jsonObject(with: encoder.encode(applicability))
+  object["acceptedRevisionID"] = try JSONSerialization.jsonObject(with: encoder.encode(LearningArtifactRevisionID()))
+  object["estimatorRevision"] = sourceRegistration.estimatorRevision + "-synthetic-run-fixture"
+  return try JSONDecoder().decode(TipCameraRegistration.self,
+    from: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
+}
+
 func drawingRunFrame(
   id: String,
   sequence: UInt64,
   source: FrameSourceIdentity,
-  configuration: CameraConfigurationID
+  configuration: CameraConfigurationID,
+  width: Int = 64,
+  height: Int = 64,
+  pixelFormat: FramePixelFormat = .gray8
 ) throws -> DisplayedFrame {
   DisplayedFrame(
     source: source,
@@ -177,11 +252,11 @@ func drawingRunFrame(
       sequence: sequence,
       captureNanoseconds: sequence,
       cameraConfigurationID: configuration,
-      width: 64,
-      height: 64,
-      rowBytes: 64,
-      pixelFormat: .gray8,
-      bytes: OwnedFrameBytes(Array(repeating: UInt8(sequence), count: 64 * 64))
+      width: width,
+      height: height,
+      rowBytes: width * pixelFormat.bytesPerPixel,
+      pixelFormat: pixelFormat,
+      bytes: OwnedFrameBytes(Array(repeating: UInt8(sequence), count: width * height * pixelFormat.bytesPerPixel))
     )
   )
 }
@@ -270,7 +345,7 @@ enum DrawingRunOutcomeKind: Hashable, Sendable {
 
 actor DrawingRunHoldGate {
   private var isHolding = false
-  private var holdWaiters: [CheckedContinuation<Void, Never>] = []
+  private var holdWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
   private var releaseContinuation: CheckedContinuation<Void, Never>?
   private var released = false
 
@@ -278,14 +353,27 @@ actor DrawingRunHoldGate {
     isHolding = true
     let waiters = holdWaiters
     holdWaiters.removeAll()
-    waiters.forEach { $0.resume() }
+    waiters.values.forEach { $0.resume() }
     if released { return }
     await withCheckedContinuation { releaseContinuation = $0 }
   }
 
   func waitUntilHeld() async {
     if isHolding { return }
-    await withCheckedContinuation { holdWaiters.append($0) }
+    let id = UUID()
+    let timeout = Task {
+      do { try await Task.sleep(for: .seconds(10)) } catch { return }
+      failUnreachedHold(id)
+    }
+    await withCheckedContinuation { holdWaiters[id] = $0 }
+    timeout.cancel()
+  }
+
+  private func failUnreachedHold(_ id: UUID) {
+    guard let waiter = holdWaiters.removeValue(forKey: id) else { return }
+    Issue.record("Drawing run never reached the held effect within 10 seconds; inspect an earlier pipeline or fixture failure.")
+    release()
+    waiter.resume()
   }
 
   func release() {
@@ -297,7 +385,7 @@ actor DrawingRunHoldGate {
 
 actor DrawingRunPlanGate {
   private(set) var request: DrawingPlanRequest?
-  private var startedWaiters: [CheckedContinuation<Void, Never>] = []
+  private var startedWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
   private var continuation: CheckedContinuation<DrawingRunOutcomeKind, Never>?
   private var releasedKind: DrawingRunOutcomeKind?
 
@@ -305,14 +393,27 @@ actor DrawingRunPlanGate {
     self.request = request
     let waiters = startedWaiters
     startedWaiters.removeAll()
-    waiters.forEach { $0.resume() }
+    waiters.values.forEach { $0.resume() }
     if let releasedKind { return releasedKind }
     return await withCheckedContinuation { continuation = $0 }
   }
 
   func waitUntilStarted() async {
     if request != nil { return }
-    await withCheckedContinuation { startedWaiters.append($0) }
+    let id = UUID()
+    let timeout = Task {
+      do { try await Task.sleep(for: .seconds(10)) } catch { return }
+      failUnreachedPlan(id)
+    }
+    await withCheckedContinuation { startedWaiters[id] = $0 }
+    timeout.cancel()
+  }
+
+  private func failUnreachedPlan(_ id: UUID) {
+    guard let waiter = startedWaiters.removeValue(forKey: id) else { return }
+    Issue.record("Drawing run never admitted its plan within 10 seconds; inspect an earlier pipeline or fixture failure.")
+    release(.cancelled)
+    waiter.resume()
   }
 
   func release(_ kind: DrawingRunOutcomeKind) {
@@ -331,6 +432,8 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
   private let releasePlanOnStop: Bool
   private var nextSnapshotGate: DrawingRunHoldGate?
   private var drawingProgress: DrawingPlanProgressSnapshot?
+  private var heldTravel: (ordinal: Int, gate: DrawingRunHoldGate)?
+  private var travelCount = 0
   private(set) var planRequests: [DrawingPlanRequest] = []
   private(set) var stopIntents: [JogCancelIntent] = []
 
@@ -379,12 +482,16 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
     return .commandedAndSettled(command: .raise, commandedState: .up)
   }
 
+  func holdTravel(ordinal: Int, at gate: DrawingRunHoldGate) { heldTravel = (ordinal, gate) }
+
   func travelToObservationPosition(_ request: RelativeJogRequest) async -> MotionOutcome {
+    travelCount += 1
     await events.append("travel")
     let position = ready.machine.position!
-    return .acceptedThenCompleted(
-      finalPosition: MachinePosition(point: try! position.point.translated(by: request.delta))
-    )
+    if let hold = heldTravel, hold.ordinal == travelCount { await hold.gate.hold() }
+    let final = MachinePosition(point: try! position.point.translated(by: request.delta))
+    setPosition(final)
+    return .acceptedThenCompleted(finalPosition: final)
   }
 
   func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission {
@@ -400,7 +507,9 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
       planRevisionID: request.plan.revisionID,
       task: Task {
         let kind = await gate?.wait(request) ?? fallback
-        return drawingRunOutcome(kind, request: request)
+        let result = drawingRunOutcome(kind, request: request)
+        if case .completed(_, let position) = result { self.setPosition(position) }
+        return result
       }
     ))
   }
@@ -409,6 +518,7 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
     stopIntents.append(intent)
     await events.append("stop")
     if releasePlanOnStop { await planGate?.release(.cancelled) }
+    if let hold = heldTravel { await hold.gate.release() }
     return .transmitted
   }
 }
@@ -476,18 +586,75 @@ actor DrawingRunVisionProbe: PlotterDrawingRunVisionPort {
 
 enum DrawingRunEvidenceProbeError: Error {
   case appendFailed
+  case stageFailed
+  case mediaFailed
 }
 
 actor DrawingRunEvidenceProbe: PlotterDrawingRunEvidencePort {
   private let events: DrawingRunEventProbe
+  private let store: DrawingRunEvidenceStore
   private var failuresRemaining: Int
+  private var stageFailuresRemaining: Int
+  private var stageBaselineFailuresRemaining: Int
+  private var failDispatchAcknowledgement: Bool
+  private var rejectedMediaFrames: Set<FrameID> = []
   private var nextAppendGate: DrawingRunHoldGate?
   private(set) var attempts: [DrawingRunEvidenceRecord] = []
   private(set) var archive = DrawingRunEvidenceArchive()
 
-  init(events: DrawingRunEventProbe, failures: Int = 0) {
+  init(events: DrawingRunEventProbe, failures: Int = 0, stageFailures: Int = 0,
+    stageBaselineFailures: Int = 0, failDispatchAcknowledgement: Bool = false) {
     self.events = events
     failuresRemaining = failures
+    stageFailuresRemaining = stageFailures
+    stageBaselineFailuresRemaining = stageBaselineFailures
+    self.failDispatchAcknowledgement = failDispatchAcknowledgement
+    store = DrawingRunEvidenceStore(fileURL: FileManager.default.temporaryDirectory
+      .appendingPathComponent("drawing-run-probe-" + UUID().uuidString)
+      .appendingPathComponent("evidence.json"))
+  }
+
+  deinit { try? FileManager.default.removeItem(at: store.fileURL.deletingLastPathComponent()) }
+
+  func stageIntent(_ intent: DrawingRunIntent) async throws -> DrawingRunEvidenceArchive {
+    if !archive.attempts.contains(where: { $0.intent.runID == intent.runID }) {
+      await events.append("stage-intent")
+    }
+    if stageFailuresRemaining > 0 { stageFailuresRemaining -= 1; throw DrawingRunEvidenceProbeError.stageFailed }
+    archive = try await store.stageIntent(intent)
+    return archive
+  }
+
+  func rejectMediaFrames(_ ids: Set<FrameID>) { rejectedMediaFrames = ids }
+
+  func installMedia(frame: StampedFrame, source: FrameSourceIdentity) async throws -> DrawingRunMediaReference {
+    if rejectedMediaFrames.contains(frame.id) { throw DrawingRunEvidenceProbeError.mediaFailed }
+    return try await store.installMedia(frame: frame, source: source)
+  }
+
+  func readMedia(_ reference: DrawingRunMediaReference) async throws -> StampedFrame {
+    try await store.readMedia(reference)
+  }
+
+  func stageBaseline(runID: RunID, media: DrawingRunMediaReference) async throws -> DrawingRunEvidenceArchive {
+    if !archive.attempts.contains(where: { $0.intent.runID == runID && $0.baselines.contains(media) }) {
+      await events.append("stage-baseline")
+    }
+    if stageBaselineFailuresRemaining > 0 {
+      stageBaselineFailuresRemaining -= 1; throw DrawingRunEvidenceProbeError.stageFailed
+    }
+    archive = try await store.stageBaseline(runID: runID, media: media)
+    return archive
+  }
+
+  func markInkDispatchPossible(runID: RunID) async throws -> DrawingRunEvidenceArchive {
+    await events.append("dispatch-marker")
+    archive = try await store.markInkDispatchPossible(runID: runID)
+    if failDispatchAcknowledgement {
+      failDispatchAcknowledgement = false
+      throw DrawingRunEvidenceProbeError.stageFailed
+    }
+    return archive
   }
 
   func append(_ record: DrawingRunEvidenceRecord) async throws -> DrawingRunEvidenceArchive {
@@ -500,7 +667,7 @@ actor DrawingRunEvidenceProbe: PlotterDrawingRunEvidencePort {
       failuresRemaining -= 1
       throw DrawingRunEvidenceProbeError.appendFailed
     }
-    archive = try archive.appending(record)
+    archive = try await store.append(record)
     return archive
   }
 
@@ -527,7 +694,11 @@ func drawingRunHarness(
   planGate: DrawingRunPlanGate? = nil,
   releasePlanOnStop: Bool = true,
   evidenceFailures: Int = 0,
-  archiveLoadResult: DrawingRunEvidenceStoreLoadResult = .absent
+  stageFailures: Int = 0,
+  stageBaselineFailures: Int = 0,
+  failDispatchAcknowledgement: Bool = false,
+  archiveLoadResult: DrawingRunEvidenceStoreLoadResult = .absent,
+  clock: any RuntimeClock = DrawingRunEpisodeClock()
 ) async -> DrawingRunRuntimeHarness {
   let events = DrawingRunEventProbe()
   let resolvedFacts = initialFacts ?? fixture.facts()
@@ -545,14 +716,16 @@ func drawingRunHarness(
     events: events
   )
   let vision = DrawingRunVisionProbe(events: events)
-  let evidence = DrawingRunEvidenceProbe(events: events, failures: evidenceFailures)
+  let evidence = DrawingRunEvidenceProbe(events: events, failures: evidenceFailures,
+    stageFailures: stageFailures, stageBaselineFailures: stageBaselineFailures,
+    failDispatchAcknowledgement: failDispatchAcknowledgement)
   let runtime = PlotterDrawingRunRuntime(
     facts: facts,
     interpreter: interpreter,
     camera: camera,
     vision: vision,
     evidence: evidence,
-    clock: DrawingRunEpisodeClock()
+    clock: clock
   )
   if resolvedFacts.environment == .live {
     _ = await runtime.restoreNoRedrawTruth(
@@ -573,7 +746,21 @@ func drawingRunHarness(
 }
 
 struct DrawingRunEpisodeClock: RuntimeClock {
-  func nowNanoseconds() -> UInt64 { 1_000 }
+  func nowNanoseconds() -> UInt64 { 10 }
+  func sleep(nanoseconds _: UInt64) async throws {}
+}
+
+/// Deterministic monotonic times for intent, settled baseline/result boundaries
+/// and terminal recording. It does not infer real camera timing from test time.
+final class DrawingRunSequenceClock: RuntimeClock, @unchecked Sendable {
+  private let lock = NSLock()
+  private var values: [UInt64]
+  init(_ values: [UInt64]) { precondition(!values.isEmpty); self.values = values }
+  func nowNanoseconds() -> UInt64 {
+    lock.lock()
+    defer { lock.unlock() }
+    return values.count > 1 ? values.removeFirst() : values[0]
+  }
   func sleep(nanoseconds _: UInt64) async throws {}
 }
 

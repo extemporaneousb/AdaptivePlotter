@@ -187,8 +187,11 @@ public struct DrawingMaterialRecord: Codable, Hashable, Sendable {
   public let applicability: DrawingMaterialApplicability?
   public let measurement: DrawingMaterialMeasurement?
   public let conditionsOrigin: String?
+  /// Nil identifies a legacy measurement with references only.
+  public let ownedMedia: [DrawingRunMediaReference]?
   public init(profile: DrawingMaterialProfileRevision, applicability: DrawingMaterialApplicability? = nil,
-    measurement: DrawingMaterialMeasurement? = nil, conditionsOrigin: String? = nil) throws {
+    measurement: DrawingMaterialMeasurement? = nil, conditionsOrigin: String? = nil,
+    ownedMedia: [DrawingRunMediaReference]? = nil) throws {
     try profile.validate()
     guard profile.createdAt.timeIntervalSince1970.isFinite,
       profile.measurementEvidenceID == measurement?.id,
@@ -218,19 +221,29 @@ public struct DrawingMaterialRecord: Codable, Hashable, Sendable {
       }
     }
     self.profile = profile; self.applicability = applicability; self.measurement = measurement
+    if let ownedMedia {
+      guard let measurement else { throw DrawingRunEvidenceError.invalidMediaReference }
+      let expected = measurement.frames.map { [$0.baseline, $0.post] } ?? measurement.singleFrame.map { [$0] } ?? []
+      guard !expected.isEmpty, ownedMedia.map(\.frame) == expected,
+        ownedMedia.allSatisfy({ $0.source == measurement.source }) else {
+        throw DrawingRunEvidenceError.invalidMediaReference
+      }
+    }
+    self.ownedMedia = ownedMedia
     self.conditionsOrigin = conditionsOrigin
   }
   public func validate() throws {
-    _ = try Self(profile: profile, applicability: applicability, measurement: measurement, conditionsOrigin: conditionsOrigin)
+    _ = try Self(profile: profile, applicability: applicability, measurement: measurement, conditionsOrigin: conditionsOrigin, ownedMedia: ownedMedia)
   }
 
-  private enum CodingKeys: String, CodingKey { case profile, applicability, measurement, conditionsOrigin }
+  private enum CodingKeys: String, CodingKey { case profile, applicability, measurement, conditionsOrigin, ownedMedia }
   public init(from decoder: any Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     try self.init(profile: values.decode(DrawingMaterialProfileRevision.self, forKey: .profile),
       applicability: values.decodeIfPresent(DrawingMaterialApplicability.self, forKey: .applicability),
       measurement: values.decodeIfPresent(DrawingMaterialMeasurement.self, forKey: .measurement),
-      conditionsOrigin: values.decodeIfPresent(String.self, forKey: .conditionsOrigin))
+      conditionsOrigin: values.decodeIfPresent(String.self, forKey: .conditionsOrigin),
+      ownedMedia: values.decodeIfPresent([DrawingRunMediaReference].self, forKey: .ownedMedia))
   }
 }
 

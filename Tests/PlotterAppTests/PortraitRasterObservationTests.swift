@@ -129,6 +129,8 @@ struct PortraitRasterObservationTests {
     }
     let configuration = CameraConfigurationID()
     let renderer = PaperSceneSimulator(width: optical.width, height: optical.height)
+    let preview = try renderer.render(strokes: [], sequence: 1,
+      captureNanoseconds: 1, cameraConfigurationID: configuration)
     let baseline = try renderer.render(strokes: [], sequence: 10,
       captureNanoseconds: 10, cameraConfigurationID: configuration)
     let post = workload == .fullResolutionDenseCrosshatch
@@ -140,11 +142,11 @@ struct PortraitRasterObservationTests {
     let postDisplayed = DisplayedFrame(source: optical.source, frame: post)
     let paper = fixture.borderRecord.paper
     let paperCoverage = try PaperCoverageObservation(paper: paper,
-      source: optical.source, frame: ExactFrameProvenance(frame: baseline),
+      source: optical.source, frame: ExactFrameProvenance(frame: preview),
       polygon: [Point2(x: 1, y: 1), Point2(x: Double(optical.width - 2), y: 1),
         Point2(x: Double(optical.width - 2), y: Double(optical.height - 2)),
         Point2(x: 1, y: Double(optical.height - 2))], method: .operatorAccepted,
-      observedAt: RuntimeTimestamp(monotonicNanoseconds: 10),
+      observedAt: RuntimeTimestamp(monotonicNanoseconds: 1),
       algorithmRevision: "synthetic-portrait-paper-v1",
       opticalConfiguration: optical, drawableRegion: fixture.drawableRegion)
     let plan = PlotterDrawingRunPlan(draftRevision: .init(rawValue: 1), program: program,
@@ -156,7 +158,8 @@ struct PortraitRasterObservationTests {
     let interpreter = DrawingRunInterpreterProbe(ready: ready, events: events)
     let facts = DrawingRunFactProbe(PlotterDrawingRunExternalFacts(environment: .live,
       interactiveLearningIsComplete: true, plan: plan, paperCoverageIsCurrent: true,
-      displayedFrame: baselineDisplayed, interpreter: ready, penActuationProfile: .initialDefaults))
+      displayedFrame: DisplayedFrame(source: optical.source, frame: preview), interpreter: ready,
+      penActuationProfile: .initialDefaults, acceptedMovementBounds: fixture.drawableRegion.bounds))
     let camera = DrawingRunCameraProbe(frames: [baselineDisplayed, postDisplayed], events: events)
     let vision = PortraitRasterVisionPort()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -164,7 +167,7 @@ struct PortraitRasterObservationTests {
     let store = DrawingRunEvidenceStore(fileURL: directory.appendingPathComponent("ordinary-portrait.json"))
     let runtime = PlotterDrawingRunRuntime(facts: facts, interpreter: interpreter,
       camera: camera, vision: vision, evidence: DrawingRunEvidencePort(store: store),
-      clock: DrawingRunEpisodeClock())
+      clock: PortraitRasterObservationClock())
     _ = await runtime.restoreNoRedrawTruth(from: .absent, paper: paper, environment: .live)
     let projection = await runtime.synchronize(environment: .live)
     #expect(projection.readiness == .ready)
@@ -614,4 +617,9 @@ private func contourCorrespondenceDiagnostic(
   let idealFit = try #require(idealAnalysis.candidate)
   #expect(abs(idealFit.xMM - 0.6) < 0.02)
   #expect(abs(idealFit.yMM + 0.4) < 0.02)
+}
+
+private struct PortraitRasterObservationClock: RuntimeClock {
+  func nowNanoseconds() -> UInt64 { 1 }
+  func sleep(nanoseconds _: UInt64) async throws {}
 }

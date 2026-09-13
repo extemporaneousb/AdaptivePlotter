@@ -43,11 +43,16 @@ struct PortraitPresentationContext: Codable, Hashable, Sendable {
   let materialRevision: String?
   let objective: PortraitLabelObjective
   let prompt: String
+  let physicalAttemptID: UUID?
+  let physicalRecordID: UUID?
+  let physicalMediaSHA256s: [String]?
 
   init(drawingHeightMM: Double = 100, inkWidthMM: Double = 0.4,
     inkWidthIsMeasured: Bool = false, materialRevision: String? = nil,
     objective: PortraitLabelObjective = .screenAesthetic,
-    prompt: String = "Rate likeness and drawing quality as displayed") throws {
+    prompt: String = "Rate likeness and drawing quality as displayed",
+    physicalAttemptID: UUID? = nil, physicalRecordID: UUID? = nil,
+    physicalMediaSHA256s: [String]? = nil) throws {
     guard drawingHeightMM.isFinite, drawingHeightMM > 0,
       inkWidthMM.isFinite, inkWidthMM > 0 else { throw PortraitCandidateError.invalidPresentation }
     rendererRevision = "portrait-preview-v1"
@@ -57,6 +62,18 @@ struct PortraitPresentationContext: Codable, Hashable, Sendable {
     self.materialRevision = materialRevision
     self.objective = objective
     self.prompt = prompt
+    self.physicalAttemptID = physicalAttemptID
+    self.physicalRecordID = physicalRecordID
+    self.physicalMediaSHA256s = physicalMediaSHA256s
+    if objective == .physicalRealization {
+      guard physicalAttemptID != nil, physicalRecordID != nil,
+        let hashes = physicalMediaSHA256s, !hashes.isEmpty,
+        hashes.allSatisfy({ $0.count == 64 && $0.allSatisfy(\.isHexDigit) }) else {
+        throw PortraitCandidateError.invalidPresentation
+      }
+    } else if physicalAttemptID != nil || physicalRecordID != nil || physicalMediaSHA256s != nil {
+      throw PortraitCandidateError.invalidPresentation
+    }
   }
 }
 

@@ -7,22 +7,29 @@ public enum DrawingRunEvidenceArchiveError: Error, Equatable, Sendable {
   case revisionMismatch(expected: UInt64, actual: UInt64)
   case duplicateRecordID(DrawingEvidenceRecordID)
   case duplicateRunID(RunID)
+  case invalidAttempt(RunID)
 }
 
 /// Append-only value persisted by `DrawingRunEvidenceStore`. Existing facts
 /// are never replaced; a new record creates a new archive revision.
 public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
-  public static let schemaVersion: UInt16 = 1
+  public static let schemaVersion: UInt16 = 2
 
   public let schemaVersion: UInt16
   public let archiveID: UUID
   public let revision: UInt64
   public let records: [DrawingRunEvidenceRecord]
+  public let attempts: [DrawingRunAttemptState]
+  public var incompleteAttempts: [DrawingRunAttemptState] {
+    let sealed = Set(records.map(\.runID))
+    return attempts.filter { !sealed.contains($0.intent.runID) }
+  }
 
   public init(
     archiveID: UUID = UUID(),
     revision: UInt64,
-    records: [DrawingRunEvidenceRecord]
+    records: [DrawingRunEvidenceRecord],
+    attempts: [DrawingRunAttemptState] = []
   ) throws {
     guard revision == UInt64(records.count) else {
       throw DrawingRunEvidenceArchiveError.revisionMismatch(
@@ -40,10 +47,48 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
         throw DrawingRunEvidenceArchiveError.duplicateRunID(record.runID)
       }
     }
+    var intentIDs = Set<RunID>()
+    for attempt in attempts {
+      let runID = attempt.intent.runID
+      try attempt.intent.validate()
+      guard intentIDs.insert(runID).inserted, attempt.baselines.count <= 4,
+        Set(attempt.baselines).count == attempt.baselines.count,
+        !attempt.inkDispatchPossible || !attempt.baselines.isEmpty else {
+        throw DrawingRunEvidenceArchiveError.invalidAttempt(runID)
+      }
+      let optical = attempt.intent.context.registration.applicability.opticalConfiguration
+      for (index, media) in attempt.baselines.enumerated() {
+        try media.validate()
+        guard media.source == optical.source, media.frame.width == optical.width,
+          media.frame.height == optical.height, media.frame.pixelFormat == optical.pixelFormat,
+          media.frame.cameraConfigurationID == attempt.baselines.first?.frame.cameraConfigurationID else {
+          throw DrawingRunEvidenceArchiveError.invalidAttempt(runID)
+        }
+        if let observation = attempt.intent.observationPlan, let position = media.controllerPosition {
+          guard observation.poses.indices.contains(index),
+            MachinePositionAcceptancePolicy.accepts(position, target: observation.poses[index].position) else {
+            throw DrawingRunEvidenceArchiveError.invalidAttempt(runID)
+          }
+        }
+      }
+    }
+    for record in records {
+      try record.validateAttemptEvidence()
+      if let evidence = record.attemptEvidence {
+        guard let state = attempts.first(where: { $0.intent.runID == record.runID }),
+          state.intent == evidence.intent, state.baselines == evidence.baselines,
+          record.executionFrontiers.commandedStrokeCount == 0 || state.inkDispatchPossible else {
+          throw DrawingRunEvidenceArchiveError.invalidAttempt(record.runID)
+        }
+      } else if intentIDs.contains(record.runID) {
+        throw DrawingRunEvidenceArchiveError.invalidAttempt(record.runID)
+      }
+    }
     schemaVersion = Self.schemaVersion
     self.archiveID = archiveID
     self.revision = revision
     self.records = records
+    self.attempts = attempts
   }
 
   public init(archiveID: UUID = UUID()) {
@@ -51,28 +96,31 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
     self.archiveID = archiveID
     revision = 0
     records = []
+    attempts = []
   }
 
   public func appending(_ record: DrawingRunEvidenceRecord) throws -> Self {
     try Self(
       archiveID: archiveID,
       revision: revision + 1,
-      records: records + [record]
+      records: records + [record],
+      attempts: attempts
     )
   }
 
-  private enum CodingKeys: String, CodingKey { case schemaVersion, archiveID, revision, records }
+  private enum CodingKeys: String, CodingKey { case schemaVersion, archiveID, revision, records, attempts }
 
   public init(from decoder: any Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     let decodedSchema = try values.decode(UInt16.self, forKey: .schemaVersion)
-    guard decodedSchema == Self.schemaVersion else {
+    guard decodedSchema == 1 || decodedSchema == Self.schemaVersion else {
       throw DrawingRunEvidenceArchiveError.unsupportedSchema(decodedSchema)
     }
     try self.init(
       archiveID: values.decode(UUID.self, forKey: .archiveID),
       revision: values.decode(UInt64.self, forKey: .revision),
-      records: values.decode([DrawingRunEvidenceRecord].self, forKey: .records)
+      records: values.decode([DrawingRunEvidenceRecord].self, forKey: .records),
+      attempts: values.decodeIfPresent([DrawingRunAttemptState].self, forKey: .attempts) ?? []
     )
   }
 }
@@ -83,6 +131,7 @@ public enum DrawingRunEvidenceStoreRejection: Error, Equatable, Sendable {
   case integrityMismatch
   case malformedEnvelope(String)
   case invalidArchive(String)
+  case invalidMedia(String)
 }
 
 public enum DrawingRunEvidenceStoreLoadResult: Sendable {
@@ -93,6 +142,9 @@ public enum DrawingRunEvidenceStoreLoadResult: Sendable {
 
 public enum DrawingRunEvidenceStoreError: Error, Equatable, Sendable {
   case existingArchiveRejected(DrawingRunEvidenceStoreRejection)
+  case missingAttempt(RunID)
+  case immutableAttempt(RunID)
+  case invalidMedia(String)
 }
 
 /// Atomic, integrity-checked persistence intended for an injected Application
@@ -117,26 +169,127 @@ public actor DrawingRunEvidenceStore {
     Self.load(from: fileURL)
   }
 
+  public func installMedia(frame: StampedFrame, source: FrameSourceIdentity) throws
+    -> DrawingRunMediaReference {
+    let reference = DrawingRunMediaReference(frame: frame, source: source)
+    try reference.validate()
+    let data = frame.bytes.data
+    guard Self.sha256(data) == reference.frame.frameSHA256 else {
+      throw DrawingRunEvidenceStoreError.invalidMedia("Frame content differs from its identity")
+    }
+    let destination = Self.mediaURL(reference, archiveURL: fileURL)
+    try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(),
+      withIntermediateDirectories: true)
+    if FileManager.default.fileExists(atPath: destination.path) {
+      _ = try Self.readMedia(reference, archiveURL: fileURL)
+    } else {
+      try data.write(to: destination, options: [.atomic])
+      try Self.synchronizeFile(destination)
+      _ = try Self.readMedia(reference, archiveURL: fileURL)
+    }
+    return reference
+  }
+
+  public func readMedia(_ reference: DrawingRunMediaReference) throws -> StampedFrame {
+    try Self.readMedia(reference, archiveURL: fileURL)
+  }
+
   @discardableResult
-  public func append(
-    _ record: DrawingRunEvidenceRecord,
-    archiveID: UUID = UUID()
-  ) throws -> DrawingRunEvidenceArchive {
-    let current: DrawingRunEvidenceArchive
-    switch Self.load(from: fileURL) {
-    case .absent:
-      current = DrawingRunEvidenceArchive(archiveID: archiveID)
-    case .loaded(let loaded):
-      current = loaded
-    case .rejected(let rejection):
-      throw DrawingRunEvidenceStoreError.existingArchiveRejected(rejection)
+  public func stageIntent(_ intent: DrawingRunIntent) throws -> DrawingRunEvidenceArchive {
+    let current = try currentArchive()
+    if let existing = current.attempts.first(where: { $0.intent.runID == intent.runID }) {
+      guard existing.intent == intent else { throw DrawingRunEvidenceStoreError.immutableAttempt(intent.runID) }
+      return current
+    }
+    guard !current.records.contains(where: { $0.runID == intent.runID }) else {
+      throw DrawingRunEvidenceStoreError.immutableAttempt(intent.runID)
+    }
+    return try saving(current, attempts: current.attempts + [DrawingRunAttemptState(intent: intent)])
+  }
+
+  @discardableResult
+  public func stageBaseline(runID: RunID, media: DrawingRunMediaReference) throws
+    -> DrawingRunEvidenceArchive {
+    _ = try readMedia(media)
+    let current = try currentArchive()
+    guard let index = current.attempts.firstIndex(where: { $0.intent.runID == runID }) else {
+      throw DrawingRunEvidenceStoreError.missingAttempt(runID)
+    }
+    let state = current.attempts[index]
+    if state.baselines.contains(media) { return current }
+    guard !current.records.contains(where: { $0.runID == runID }) else {
+      throw DrawingRunEvidenceStoreError.immutableAttempt(runID)
+    }
+    guard !state.inkDispatchPossible else {
+      throw DrawingRunEvidenceStoreError.immutableAttempt(runID)
+    }
+    var attempts = current.attempts
+    attempts[index] = DrawingRunAttemptState(intent: state.intent,
+      baselines: state.baselines + [media])
+    return try saving(current, attempts: attempts)
+  }
+
+  @discardableResult
+  public func markInkDispatchPossible(runID: RunID) throws -> DrawingRunEvidenceArchive {
+    let current = try currentArchive()
+    guard let index = current.attempts.firstIndex(where: { $0.intent.runID == runID }) else {
+      throw DrawingRunEvidenceStoreError.missingAttempt(runID)
+    }
+    let state = current.attempts[index]
+    if state.inkDispatchPossible { return current }
+    guard !current.records.contains(where: { $0.runID == runID }) else {
+      throw DrawingRunEvidenceStoreError.immutableAttempt(runID)
+    }
+    guard !state.baselines.isEmpty else {
+      throw DrawingRunEvidenceStoreError.immutableAttempt(runID)
+    }
+    var attempts = current.attempts
+    attempts[index] = DrawingRunAttemptState(intent: state.intent,
+      baselines: state.baselines, inkDispatchPossible: true)
+    return try saving(current, attempts: attempts)
+  }
+
+  @discardableResult
+  public func append(_ record: DrawingRunEvidenceRecord, archiveID: UUID = UUID()) throws
+    -> DrawingRunEvidenceArchive {
+    var current = try currentArchive(archiveID: archiveID)
+    // Only the exact schema-4 seal is idempotent. A changed outcome/identity and
+    // historical duplicate submissions preserve the existing rejection contract.
+    if record.attemptEvidence != nil, current.records.contains(record) { return current }
+    if let evidence = record.attemptEvidence,
+      !current.attempts.contains(where: { $0.intent.runID == record.runID }) {
+      guard record.executionFrontiers.commandedStrokeCount == 0 else {
+        throw DrawingRunEvidenceStoreError.missingAttempt(record.runID)
+      }
+      // A pre-dispatch failure can retain and seal its intent in this one write.
+      current = try DrawingRunEvidenceArchive(archiveID: current.archiveID,
+        revision: current.revision, records: current.records,
+        attempts: current.attempts + [DrawingRunAttemptState(intent: evidence.intent,
+          baselines: evidence.baselines)])
     }
     let updated = try current.appending(record)
     try save(updated)
     return updated
   }
 
+  private func currentArchive(archiveID: UUID = UUID()) throws -> DrawingRunEvidenceArchive {
+    switch Self.load(from: fileURL) {
+    case .absent: return DrawingRunEvidenceArchive(archiveID: archiveID)
+    case .loaded(let archive): return archive
+    case .rejected(let rejection): throw DrawingRunEvidenceStoreError.existingArchiveRejected(rejection)
+    }
+  }
+
+  private func saving(_ current: DrawingRunEvidenceArchive,
+    attempts: [DrawingRunAttemptState]) throws -> DrawingRunEvidenceArchive {
+    let updated = try DrawingRunEvidenceArchive(archiveID: current.archiveID,
+      revision: current.revision, records: current.records, attempts: attempts)
+    try save(updated)
+    return updated
+  }
+
   private func save(_ archive: DrawingRunEvidenceArchive) throws {
+    try Self.verifyMedia(in: archive, archiveURL: fileURL)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
     let payload = try encoder.encode(archive)
@@ -150,6 +303,7 @@ public actor DrawingRunEvidenceStore {
       withIntermediateDirectories: true
     )
     try encoder.encode(envelope).write(to: fileURL, options: [.atomic])
+    try Self.synchronizeFile(fileURL)
   }
 
   private nonisolated static func load(from fileURL: URL) -> DrawingRunEvidenceStoreLoadResult {
@@ -167,15 +321,98 @@ public actor DrawingRunEvidenceStore {
       return .rejected(.integrityMismatch)
     }
     do {
-      return .loaded(try JSONDecoder().decode(
-        DrawingRunEvidenceArchive.self,
-        from: envelope.payload
-      ))
+      let archive = try JSONDecoder().decode(DrawingRunEvidenceArchive.self, from: envelope.payload)
+      try verifyMedia(in: archive, archiveURL: fileURL)
+      return .loaded(archive)
+    } catch DrawingRunEvidenceStoreError.invalidMedia(let reason) {
+      return .rejected(.invalidMedia(reason))
     } catch DrawingRunEvidenceArchiveError.unsupportedSchema(let schema) {
       return .rejected(.unsupportedArchiveSchema(schema))
     } catch {
       return .rejected(.invalidArchive(String(describing: error)))
     }
+  }
+
+  private nonisolated static func mediaURL(_ reference: DrawingRunMediaReference,
+    archiveURL: URL) -> URL {
+    archiveURL.deletingLastPathComponent()
+      .appendingPathComponent(archiveURL.lastPathComponent + ".media", isDirectory: true)
+      .appendingPathComponent(reference.frame.frameSHA256 + ".pixels")
+  }
+
+  private nonisolated static func readMedia(_ reference: DrawingRunMediaReference,
+    archiveURL: URL) throws -> StampedFrame {
+    do {
+      try reference.validate()
+      let bytes = try Data(contentsOf: mediaURL(reference, archiveURL: archiveURL))
+      guard bytes.count == reference.byteCount, sha256(bytes) == reference.frame.frameSHA256 else {
+        throw DrawingRunEvidenceStoreError.invalidMedia("Missing or corrupt original frame " + reference.frame.frameSHA256)
+      }
+      let frame = reference.frame
+      return try StampedFrame(id: frame.frameID, sequence: reference.sequence,
+        captureNanoseconds: frame.captureNanoseconds, cameraConfigurationID: frame.cameraConfigurationID,
+        width: frame.width, height: frame.height, rowBytes: frame.rowBytes,
+        pixelFormat: frame.pixelFormat, bytes: OwnedFrameBytes(copying: bytes))
+    } catch {
+      throw DrawingRunEvidenceStoreError.invalidMedia(String(describing: error))
+    }
+  }
+
+  private nonisolated static func verifyMedia(in archive: DrawingRunEvidenceArchive,
+    archiveURL: URL) throws {
+    let references = archive.attempts.flatMap(\.baselines)
+      + archive.records.flatMap { ($0.attemptEvidence?.baselines ?? []) + ($0.attemptEvidence?.terminalFrames ?? []) }
+    for reference in Set(references) { _ = try readMedia(reference, archiveURL: archiveURL) }
+    for record in archive.records {
+      guard let attempt = record.attemptEvidence, let coverage = attempt.mediaCoverage else { continue }
+      try verifyCoverage(coverage, attempt: attempt, archiveURL: archiveURL)
+    }
+  }
+
+  /// Checks the claimed per-pixel derivation against original, verified bytes.
+  /// A valid checksum alone cannot turn a fabricated composite into evidence.
+  private nonisolated static func verifyCoverage(_ coverage: DrawingRunMediaCoverage,
+    attempt: DrawingRunAttemptEvidence, archiveURL: URL) throws {
+    try coverage.validate()
+    var originals: [(baseline: StampedFrame, result: StampedFrame)] = []
+    for view in coverage.views {
+      guard let before = attempt.baselines.first(where: {
+        $0.source == view.frames.source && $0.frame == view.frames.baseline
+      }), let after = attempt.terminalFrames.first(where: {
+        $0.source == view.frames.source && $0.frame == view.frames.post
+      }) else { throw DrawingRunEvidenceStoreError.invalidMedia("Composite lacks its exact original frames") }
+      originals.append((try readMedia(before, archiveURL: archiveURL),
+        try readMedia(after, archiveURL: archiveURL)))
+    }
+    func equalsPixel(_ frame: StampedFrame, x: Int, y: Int, output: Data, offset: Int) -> Bool {
+      let input = y * frame.rowBytes + x * frame.pixelFormat.bytesPerPixel
+      switch frame.pixelFormat {
+      case .gray8:
+        return output[offset] == frame.bytes[input] && output[offset + 1] == frame.bytes[input]
+          && output[offset + 2] == frame.bytes[input]
+      case .rgba8:
+        return (0..<3).allSatisfy { output[offset + $0] == frame.bytes[input + $0] }
+      case .bgra8:
+        return output[offset] == frame.bytes[input + 2] && output[offset + 1] == frame.bytes[input + 1]
+          && output[offset + 2] == frame.bytes[input]
+      }
+    }
+    for (index, source) in coverage.perPixelSource.enumerated() {
+      guard let source else { continue }
+      let frames = originals[source.viewIndex]
+      guard equalsPixel(frames.baseline, x: source.baselineX, y: source.baselineY,
+        output: coverage.baselineRGBA, offset: index * 4),
+        equalsPixel(frames.result, x: source.resultX, y: source.resultY,
+          output: coverage.resultRGBA, offset: index * 4) else {
+        throw DrawingRunEvidenceStoreError.invalidMedia("Composite pixels differ from retained originals")
+      }
+    }
+  }
+
+  private nonisolated static func synchronizeFile(_ url: URL) throws {
+    let handle = try FileHandle(forWritingTo: url)
+    defer { try? handle.close() }
+    try handle.synchronize()
   }
 
   private nonisolated static func sha256(_ data: Data) -> String {

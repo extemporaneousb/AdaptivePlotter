@@ -1529,3 +1529,42 @@ private actor DraftSubmissionInterleavingProbe {
     completed = true
   }
 }
+
+extension PlotterDrawingDraftEpisodeTests {
+  @Test("active material revises exact plan identity without changing artwork or placement")
+  func physicalMaterialPlanIdentity() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let candidate = try portraitPersistenceCandidate()
+    let material = try PlotterModel.Digest(bytes: Array(repeating: 7, count: 32))
+    let ordinary = PlotterDrawingPlanningAdapter.buildDraft(program: candidate.program,
+      machineCenter: nil, uniformScale: 0.5, rotationDegrees: 15,
+      drawableRegion: fixture.drawableRegion, registration: fixture.registration)
+    let adapted = PlotterDrawingPlanningAdapter.buildDraft(program: candidate.program,
+      machineCenter: ordinary.center, uniformScale: 0.5, rotationDegrees: 15,
+      drawableRegion: fixture.drawableRegion, registration: fixture.registration,
+      materialContextHash: material)
+    let before = try #require(ordinary.plan), after = try #require(adapted.plan)
+    #expect(before.contentHash != after.contentHash)
+    #expect(before.placement == after.placement)
+    #expect(before.strokes.map(\.path) == after.strokes.map(\.path))
+    #expect(before.strokes.map(\.style) == after.strokes.map(\.style))
+    #expect(before.strokes.map(\.logicalStrokeID) == after.strokes.map(\.logicalStrokeID))
+    #expect(before.strokes.map(\.endingCheckpointID) != after.strokes.map(\.endingCheckpointID))
+    #expect(ordinary.program == adapted.program)
+    #expect(after.provenance.materialContextHash == material)
+    let model = PortraitStudioModel()
+    #expect(await model.acceptProjection(candidate, perform: { nil }) == nil)
+    let bordered = PlotterDrawingPlanningAdapter.buildDraft(program: candidate.program,
+      machineCenter: ordinary.center, uniformScale: 0.5, rotationDegrees: 15,
+      drawableRegion: fixture.drawableRegion, registration: fixture.registration,
+      drawBorder: true, drawingBorderBounds: fixture.registration.applicabilityRectangle,
+      materialContextHash: material)
+    let program = try #require(bordered.program)
+    let reference = try #require(model.projectedReference(for: program))
+    #expect(reference.sourceProgram == candidate.program)
+    #expect(reference.matches(program))
+    #expect(program.contentHash != candidate.program.contentHash)
+    #expect(bordered.plan?.provenance.materialContextHash == material)
+    await model.shutdown()
+  }
+}

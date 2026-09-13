@@ -10,6 +10,8 @@ struct DrawingMaterialControls: View {
   var canApply = true
   let measure: () async -> String?
   let apply: (DrawingMaterialProfileRevision) async -> String?
+  var verifyMedia: (DrawingMaterialRecord) async -> String? = { _ in nil }
+  @State private var mediaStatus: String?
   @State private var materialName = ""
   @State private var nominalWidthMM = 0.8
   @State private var actionStatus: String?
@@ -80,6 +82,7 @@ struct DrawingMaterialControls: View {
         .accessibilityIdentifier("drawing.material.delete")
         .help("Remove this library entry and clear its active selection. Retained drawings preserve their own material revision.")
       }
+      if let mediaStatus { Text(mediaStatus).font(.caption).foregroundStyle(.secondary) }
       if let measurementStatus { Text(measurementStatus).font(.caption).foregroundStyle(.secondary) }
       if let actionStatus { Text(actionStatus).font(.caption).foregroundStyle(.secondary) }
       HStack {
@@ -91,6 +94,13 @@ struct DrawingMaterialControls: View {
       }
     }
     .task { await library.load() }
+    .task(id: library.activeKey) {
+      mediaStatus = nil
+      guard let record = library.activeRecord else { return }
+      let result = await verifyMedia(record)
+      guard !Task.isCancelled, library.activeKey == record.profile.key else { return }
+      mediaStatus = result
+    }
   }
 
   private func perform(_ operation: @escaping () async -> String?) {

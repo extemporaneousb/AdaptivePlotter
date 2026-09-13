@@ -33,6 +33,8 @@ final class PortraitStudioModel {
   private(set) var explorationStatus: String?
   var selectedStyleScope: PortraitStyleScope = .screenSketch
   private(set) var completedCandidate: PortraitCandidate?
+  /// Exact last successful projection; gallery browsing cannot replace this association.
+  private(set) var projectedCandidate: PortraitCandidate?
   var selectedCandidate: PortraitCandidate? {
     sketches.selected?.candidate ?? (currentProgram == nil ? nil : completedCandidate)
   }
@@ -753,6 +755,7 @@ final class PortraitStudioModel {
   func acceptProjection(_ candidate: PortraitCandidate,
     perform: () async -> String?) async -> String? {
     if let error = await perform() { return error }
+    projectedCandidate = candidate
     return sketches.retain(candidate: candidate, reason: .projectionAccepted(acceptanceID: UUID()))
   }
 

@@ -147,6 +147,7 @@ struct PlotterApplicationRuntimeView: View {
           PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
             showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) },
             showPhoto: { canvasShowsPortraitPhoto = true })
+          DrawingStudioPhysicalGallery(application: application)
           TextField("Paper stock for material measurement", text: $application.materialPaperStock)
           Picker("Existing ink source", selection: $application.materialUsesBorderImages) {
             Text("Drawing Border before/after").tag(true)
@@ -157,7 +158,11 @@ struct PlotterApplicationRuntimeView: View {
             measurementStatus: application.materialMeasurementStatus,
             canMeasureExistingInk: application.currentMaterialApplicability != nil,
             canApply: application.drawingDraftSnapshot.plan != nil,
-            measure: { await application.prepareMaterialInspection() }, apply: applyPortraitMaterial)
+            measure: { await application.prepareMaterialInspection() }, apply: applyPortraitMaterial,
+            verifyMedia: { await application.verifyMaterialMedia($0) })
+          .onChange(of: application.drawingMaterials.activeKey) { _, _ in
+            application.drawingMaterialSelectionDidChange()
+          }
           .sheet(item: $application.materialInspection) { inspection in
             DrawingMaterialInspectionView(inspection: inspection,
               confirm: { await application.confirmMaterialInspection(inspection) },

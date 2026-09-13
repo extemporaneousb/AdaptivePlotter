@@ -12,6 +12,10 @@ public struct PlotterDrawingRunPlan: Hashable, Sendable {
   public let evidenceRole: BorderValidationEvidenceRole
   public let paperCoverage: PaperCoverageObservation
   public let registration: TipCameraRegistration
+  public let candidate: DrawingRunCandidateReference?
+  public let materialProfile: DrawingMaterialProfileRevision?
+  public let materialApplicability: DrawingMaterialApplicability?
+  public let paperStock: String?
 
   public init(
     draftRevision: PlotterDrawingDraftRevision,
@@ -20,7 +24,11 @@ public struct PlotterDrawingRunPlan: Hashable, Sendable {
     plan: ExecutionPlanRevision,
     evidenceRole: BorderValidationEvidenceRole,
     paperCoverage: PaperCoverageObservation,
-    registration: TipCameraRegistration
+    registration: TipCameraRegistration,
+    candidate: DrawingRunCandidateReference? = nil,
+    materialProfile: DrawingMaterialProfileRevision? = nil,
+    materialApplicability: DrawingMaterialApplicability? = nil,
+    paperStock: String? = nil
   ) {
     precondition(plan.revisionID.rawValue == plan.contentHash)
     self.program = program
@@ -29,6 +37,10 @@ public struct PlotterDrawingRunPlan: Hashable, Sendable {
     self.evidenceRole = evidenceRole
     self.paperCoverage = paperCoverage
     self.registration = registration
+    self.candidate = candidate
+    self.materialProfile = materialProfile
+    self.materialApplicability = materialApplicability
+    self.paperStock = paperStock
     identity = PlotterDrawingRunPlanIdentity(
       draftRevision: draftRevision,
       programID: program.id,
@@ -52,6 +64,7 @@ public struct PlotterDrawingRunExternalFacts: Hashable, Sendable {
   public let interpreter: RunInterpreterSnapshot?
   public let penActuationProfile: PenActuationProfile
   public let physicalPositionUnavailableReason: String?
+  public let acceptedMovementBounds: AxisAlignedBounds<MachineSpace>?
 
   public init(
     environment: PlotterEnvironment,
@@ -61,7 +74,8 @@ public struct PlotterDrawingRunExternalFacts: Hashable, Sendable {
     displayedFrame: DisplayedFrame?,
     interpreter: RunInterpreterSnapshot?,
     penActuationProfile: PenActuationProfile,
-    physicalPositionUnavailableReason: String? = nil
+    physicalPositionUnavailableReason: String? = nil,
+    acceptedMovementBounds: AxisAlignedBounds<MachineSpace>? = nil
   ) {
     self.environment = environment
     self.interactiveLearningIsComplete = interactiveLearningIsComplete
@@ -71,6 +85,7 @@ public struct PlotterDrawingRunExternalFacts: Hashable, Sendable {
     self.interpreter = interpreter
     self.penActuationProfile = penActuationProfile
     self.physicalPositionUnavailableReason = physicalPositionUnavailableReason
+    self.acceptedMovementBounds = acceptedMovementBounds
   }
 }
 
@@ -79,6 +94,13 @@ public struct PlotterDrawingRunExternalFacts: Hashable, Sendable {
 public protocol PlotterDrawingRunFactSource: Sendable {
   func drawingRunFacts(for environment: PlotterEnvironment) async
     -> PlotterDrawingRunExternalFacts
+  func retainCandidateForAttempt(_ intent: DrawingRunIntent) async throws
+}
+
+extension PlotterDrawingRunFactSource {
+  public func retainCandidateForAttempt(_ intent: DrawingRunIntent) async throws {
+    guard intent.context.candidate == nil else { throw DrawingRunEvidenceError.invalidAttemptContext }
+  }
 }
 
 /// Nominal bridge to the retained RunInterpreter/MachineController stack.
@@ -104,6 +126,10 @@ public protocol PlotterDrawingRunVisionPort: Sendable {
 
 /// Nominal bridge to the retained checksummed append-only evidence store.
 public protocol PlotterDrawingRunEvidencePort: Sendable {
+  func stageIntent(_ intent: DrawingRunIntent) async throws -> DrawingRunEvidenceArchive
+  func installMedia(frame: StampedFrame, source: FrameSourceIdentity) async throws -> DrawingRunMediaReference
+  func stageBaseline(runID: RunID, media: DrawingRunMediaReference) async throws -> DrawingRunEvidenceArchive
+  func markInkDispatchPossible(runID: RunID) async throws -> DrawingRunEvidenceArchive
   func append(_ record: DrawingRunEvidenceRecord) async throws
     -> DrawingRunEvidenceArchive
 }
@@ -111,10 +137,14 @@ public protocol PlotterDrawingRunEvidencePort: Sendable {
 public enum PlotterDrawingRunPhase: Hashable, Sendable {
   case idle
   case validating
+  case stagingIntent
   case normalizingPenUp
   case positioningForBaseline
   case capturingBaseline
+  case stagingBaseline
+  case markingInkDispatchPossible
   case executingPlan
+  case positioningForPostObservation
   case capturingPostFrame
   case observingInk
   case appendingEvidence
@@ -152,6 +182,7 @@ public enum PlotterDrawingRunReviewState: Hashable, Sendable {
 
 public enum PlotterDrawingRunEvidencePersistence: Hashable, Sendable {
   case none
+  case intentPublicationIncomplete(runID: RunID, detail: String)
   case appending(DrawingEvidenceRecordID)
   case persisted(recordID: DrawingEvidenceRecordID, archiveRevision: UInt64)
   case failed(
@@ -240,6 +271,7 @@ public actor PlotterDrawingRunRuntime {
     let plan: PlotterDrawingRunPlan?
     let paperCoverageIsCurrent: Bool
     let penActuationProfile: PenActuationProfile
+    let acceptedMovementBounds: AxisAlignedBounds<MachineSpace>?
 
     init(_ facts: PlotterDrawingRunExternalFacts) {
       environment = facts.environment
@@ -247,6 +279,7 @@ public actor PlotterDrawingRunRuntime {
       plan = facts.plan
       paperCoverageIsCurrent = facts.paperCoverageIsCurrent
       penActuationProfile = facts.penActuationProfile
+      acceptedMovementBounds = facts.acceptedMovementBounds
     }
   }
 
@@ -277,6 +310,7 @@ public actor PlotterDrawingRunRuntime {
     // Immutable same-paper records back the existing no-redraw index. A known
     // coordinate rebase may change a plan hash without changing physical ink.
     var blockedPlanRecords: [DrawingRunEvidenceRecord] = []
+    var blockedPlanIntents: [DrawingRunIntent] = []
     var baselineFrame: DisplayedFrame?
     var postFrame: DisplayedFrame?
     var observation: DrawingRunObservationOutcome?
@@ -284,6 +318,15 @@ public actor PlotterDrawingRunRuntime {
     var evidencePersistence = PlotterDrawingRunEvidencePersistence.none
     var evidenceArchiveAvailability = PlotterDrawingRunEvidenceArchiveAvailability.awaitingLoad
     var pendingRecord: DrawingRunEvidenceRecord?
+    var stagedIntent: DrawingRunIntent?
+    var baselineMedia: [DrawingRunMediaReference] = []
+    var terminalMedia: [DrawingRunMediaReference] = []
+    // Available originals remain owned until their exact immutable terminal is
+    // durable. Failed media installation uses the existing publication retry.
+    var terminalMediaBytes: [DrawingRunMediaReference: DisplayedFrame] = [:]
+    var mediaCoverage: DrawingRunMediaCoverage?
+    var missingCoverageReason: String?
+    var inkDispatchPossible = false
     var publicationRecoveryOwner: PublicationRecoveryOwner?
     var review = PlotterDrawingRunReviewState.livePreview
     var lastRefusal: PlotterDrawingRunRefusal?
@@ -359,10 +402,15 @@ public actor PlotterDrawingRunRuntime {
     if case .appending = state.evidencePersistence {
       return snapshot(state, environment: environment)
     }
+    let markedRuns = Set(archive.attempts.filter(\.inkDispatchPossible).map { $0.intent.runID })
     state.blockedPlanRecords = archive.records.filter {
-      $0.paper == paper && $0.executionFrontiers.commandedStrokeCount > 0
+      $0.paper == paper && ($0.executionFrontiers.commandedStrokeCount > 0 || markedRuns.contains($0.runID))
     }
     state.blockedPlanHashes = Set(state.blockedPlanRecords.map(\.plan.contentHash))
+    state.blockedPlanIntents = archive.attempts.filter {
+      $0.intent.context.paper == paper && $0.inkDispatchPossible
+    }.map(\.intent)
+    state.blockedPlanHashes.formUnion(state.blockedPlanIntents.map { $0.plan.contentHash })
     state.evidenceArchiveAvailability = .available(revision: archive.revision)
     if case .archiveUnavailable = state.noRedraw {
       state.noRedraw = .clear
@@ -430,7 +478,8 @@ public actor PlotterDrawingRunRuntime {
       advance(&state)
       states[environment] = state
       _ = publish(state, environment: environment)
-      if state.phase == .positioningForBaseline || state.phase == .executingPlan {
+      if state.phase == .positioningForBaseline || state.phase == .executingPlan
+        || state.phase == .positioningForPostObservation {
         _ = await interpreter.requestStop(.shutdown)
       }
     }
@@ -580,6 +629,13 @@ public actor PlotterDrawingRunRuntime {
     state.presentationObservation = nil
     state.progress = nil
     state.evidencePersistence = .none
+    state.stagedIntent = nil
+    state.baselineMedia = []
+    state.terminalMedia = []
+    state.terminalMediaBytes = [:]
+    state.mediaCoverage = nil
+    state.missingCoverageReason = nil
+    state.inkDispatchPossible = false
     state.review = .livePreview
     advance(&state)
     states[environment] = state
@@ -600,334 +656,287 @@ public actor PlotterDrawingRunRuntime {
     )
   }
 
-  private func run(
-    _ owner: ActiveRun,
-    initialFacts: PlotterDrawingRunExternalFacts
-  ) async {
+  private enum PreparationFailure: Error {
+    case cancelled(String)
+    case refused(String)
+    case ambiguous(String)
+  }
+
+  private func run(_ owner: ActiveRun, initialFacts: PlotterDrawingRunExternalFacts) async {
     let environment = initialFacts.environment
+    let observationPlan: DrawingRunObservationPlan
+    do {
+      guard let bounds = owner.capturedEffectFacts.acceptedMovementBounds,
+        let position = initialFacts.interpreter?.machine.position else {
+        throw PreparationFailure.refused("Accepted movement bounds or controller position are unavailable.")
+      }
+      observationPlan = try DrawingRunObservationPlan(
+        executionPlan: owner.plan.plan, acceptedMovementBounds: bounds, currentPosition: position)
+      let context = try DrawingRunAttemptContext(
+        program: owner.plan.program, registration: owner.plan.registration,
+        materialProfile: owner.plan.materialProfile, materialApplicability: owner.plan.materialApplicability,
+        paperStock: owner.plan.paperStock,
+        drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
+        penActuationProfile: owner.capturedEffectFacts.penActuationProfile,
+        paper: owner.plan.paperCoverage.paper, candidate: owner.plan.candidate)
+      let intent = try DrawingRunIntent(
+        runID: owner.runID, requestID: owner.requestID, plan: owner.plan.plan,
+        placementID: owner.plan.placementID, role: owner.plan.evidenceRole,
+        context: context, observationPlan: observationPlan,
+        recordedAt: RuntimeTimestamp(monotonicNanoseconds: clock.nowNanoseconds()))
+      update(owner, environment: environment) { $0.stagedIntent = intent; $0.phase = .stagingIntent }
+      _ = try await evidence.stageIntent(intent)
+      try await facts.retainCandidateForAttempt(intent)
+      if let refusal = await preEffectRefusal(for: owner, requiresPenUp: false) {
+        throw PreparationFailure.refused("Attempt facts changed before preparation: \(refusal.reason)")
+      }
+    } catch {
+      await finishPreparationFailure(owner, error: error)
+      return
+    }
+
     setPhase(.normalizingPenUp, owner: owner, environment: environment)
-    let penOutcome = await interpreter.normalizePenUp(
-      profile: owner.capturedEffectFacts.penActuationProfile
-    )
+    let penOutcome = await interpreter.normalizePenUp(profile: owner.capturedEffectFacts.penActuationProfile)
     guard isCurrent(owner, environment: environment) else { return }
     if admissionClosed || cancellationWasRequested(owner, environment: environment) {
-      await finishBeforePlan(
-        owner,
-        execution: .cancelled(
-          reason: admissionClosed ? "Application shutdown" : "Operator Stop"
-        ),
-        evidenceDisposition: .cancelled,
-        observation: .notAttempted(.executionCancelledBeforeObservation)
-      )
+      await finishPreparationFailure(owner, error: PreparationFailure.cancelled("Stop during Pen Up normalization."))
       return
     }
     guard case .commandedAndSettled(command: .raise, commandedState: .up) = penOutcome else {
-      let disposition: DrawingRunExecutionDisposition
-      let evidenceDisposition: BorderValidationEvidenceDisposition
-      if case .ambiguous = penOutcome {
-        disposition = .ambiguous(reason: String(describing: penOutcome))
-        evidenceDisposition = .ambiguous
-      } else {
-        disposition = .refused(reason: String(describing: penOutcome))
-        evidenceDisposition = .refused
-      }
-      await finishBeforePlan(
-        owner,
-        execution: disposition,
-        evidenceDisposition: evidenceDisposition,
-        observation: .notAttempted(.requestRefused)
-      )
+      let failure: PreparationFailure
+      if case .ambiguous = penOutcome { failure = .ambiguous(String(describing: penOutcome)) }
+      else { failure = .refused(String(describing: penOutcome)) }
+      await finishPreparationFailure(owner, error: failure)
       return
     }
 
     guard await revalidate(owner, requiringControllerReady: true) else {
-      await finishBeforePlan(
-        owner,
-        execution: .refused(reason: "Run facts changed after Pen Up normalization."),
-        evidenceDisposition: .refused,
-        observation: .notAttempted(.requestRefused)
-      )
+      await finishPreparationFailure(owner,
+        error: PreparationFailure.refused("Run facts changed after Pen Up normalization."))
       return
     }
-    guard let targetPoint = owner.plan.plan.strokes.last?.path.points.last else {
-      await finishBeforePlan(
-        owner,
-        execution: .refused(reason: "The exact plan has no observation point."),
-        evidenceDisposition: .refused,
-        observation: .notAttempted(.requestRefused)
-      )
-      return
-    }
-    let target = MachinePosition(point: targetPoint)
-    guard let interpreterSnapshot = await interpreter.snapshot(),
-      let currentPosition = interpreterSnapshot.machine.position,
-      !admissionClosed,
-      isCurrent(owner, environment: environment)
-    else {
-      await finishBeforePlan(
-        owner,
-        execution: .refused(reason: "Current controller MPos is unavailable."),
-        evidenceDisposition: .refused,
-        observation: .notAttempted(.requestRefused)
-      )
-      return
-    }
-    var observationPosition = currentPosition
-    if !MachinePositionAcceptancePolicy.accepts(currentPosition, target: target) {
-      setPhase(.positioningForBaseline, owner: owner, environment: environment)
-      do {
-        let request = RelativeJogRequest(
-          delta: try currentPosition.point.vector(to: targetPoint),
-          feedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute
-        )
-        guard await revalidate(owner, requiringControllerReady: true) else {
-          await finishBeforePlan(
-            owner,
-            execution: .cancelled(reason: "Stop, shutdown, or stale facts before travel."),
-            evidenceDisposition: .cancelled,
-            observation: .notAttempted(.executionCancelledBeforeObservation)
-          )
-          return
-        }
-        let travel = await interpreter.travelToObservationPosition(request)
-        guard isCurrent(owner, environment: environment) else { return }
-        if admissionClosed || cancellationWasRequested(owner, environment: environment) {
-          await finishBeforePlan(
-            owner,
-            execution: .cancelled(reason: "Stop or shutdown during observation travel."),
-            evidenceDisposition: .cancelled,
-            observation: .notAttempted(.executionCancelledBeforeObservation)
-          )
-          return
-        }
-        switch travel {
-        case .acceptedThenCompleted(let finalPosition):
-          guard MachinePositionAcceptancePolicy.accepts(finalPosition, target: target) else {
-            await finishBeforePlan(
-              owner,
-              execution: .ambiguous(reason: "Observation travel settled outside target."),
-              evidenceDisposition: .ambiguous,
-              observation: .notAttempted(.executionFailedBeforeObservation)
-            )
-            return
-          }
-          observationPosition = finalPosition
-        case .cancelled:
-          await finishBeforePlan(
-            owner,
-            execution: .cancelled(reason: "Operator Stop"),
-            evidenceDisposition: .cancelled,
-            observation: .notAttempted(.executionCancelledBeforeObservation)
-          )
-          return
-        case .refused(let reason):
-          await finishBeforePlan(
-            owner,
-            execution: .refused(reason: String(describing: reason)),
-            evidenceDisposition: .refused,
-            observation: .notAttempted(.requestRefused)
-          )
-          return
-        case .ambiguous(let reason):
-          await finishBeforePlan(
-            owner,
-            execution: .ambiguous(reason: String(describing: reason)),
-            evidenceDisposition: .ambiguous,
-            observation: .notAttempted(.executionFailedBeforeObservation)
-          )
-          return
-        }
-      } catch {
-        await finishBeforePlan(
-          owner,
-          execution: .refused(reason: String(describing: error)),
-          evidenceDisposition: .refused,
-          observation: .notAttempted(.requestRefused)
-        )
-        return
-      }
-    }
-
-    guard await revalidate(owner, requiringControllerReady: true) else {
-      await finishBeforePlan(
-        owner,
-        execution: .refused(reason: "Run facts changed before baseline capture."),
-        evidenceDisposition: .refused,
-        observation: .notAttempted(.frameEvidenceUnavailable)
-      )
-      return
-    }
-    setPhase(.capturingBaseline, owner: owner, environment: environment)
-    let baseline: DisplayedFrame
+    var baselines: [SamePoseFrameSample] = []
+    var newestCapture = initialFacts.displayedFrame?.frame.captureNanoseconds ?? 0
     do {
-      baseline = try await camera.captureFrame(
-        newerThan: initialFacts.displayedFrame?.frame.captureNanoseconds ?? 0
-      )
-      guard !admissionClosed, isCurrent(owner, environment: environment) else {
-        await finishBeforePlan(
-          owner,
-          execution: .cancelled(reason: "Application shutdown during baseline capture."),
-          evidenceDisposition: .cancelled,
-          observation: .notAttempted(.frameEvidenceUnavailable)
-        )
-        return
+      for pose in observationPlan.poses {
+        let settled = try await reachObservationPose(pose.position, owner: owner, phase: .positioningForBaseline)
+        guard await revalidate(owner, requiringControllerReady: true) else {
+          throw PreparationFailure.cancelled("Stop or stale facts before baseline capture.")
+        }
+        let captureAfter = max(clock.nowNanoseconds(), newestCapture)
+        setPhase(.capturingBaseline, owner: owner, environment: environment)
+        let baseline = try await camera.captureFrame(newerThan: captureAfter)
+        guard isCurrent(owner, environment: environment) else { return }
+        update(owner, environment: environment) { $0.baselineFrame = baseline }
+        guard baseline.frame.captureNanoseconds > captureAfter,
+          baseline.source == initialFacts.displayedFrame?.source else {
+          throw DrawingRunEvidenceError.invalidFramePair
+        }
+        newestCapture = baseline.frame.captureNanoseconds
+        baselines.append(SamePoseFrameSample(displayedFrame: baseline, controllerPosition: settled))
+        setPhase(.stagingBaseline, owner: owner, environment: environment)
+        _ = try await evidence.installMedia(frame: baseline.frame, source: baseline.source)
+        let media = DrawingRunMediaReference(frame: baseline.frame, source: baseline.source,
+          controllerPosition: settled, captureAfterNanoseconds: captureAfter)
+        update(owner, environment: environment) { $0.baselineMedia.append(media) }
+        _ = try await evidence.stageBaseline(runID: owner.runID, media: media)
+        guard await revalidate(owner, requiringControllerReady: true) else {
+          throw PreparationFailure.cancelled("Stop or stale facts after baseline persistence.")
+        }
       }
     } catch {
-      await finishBeforePlan(
-        owner,
-        execution: .refused(reason: "Baseline capture failed: \(error)"),
-        evidenceDisposition: .refused,
-        observation: .notAttempted(.frameEvidenceUnavailable)
-      )
-      return
-    }
-    update(owner, environment: environment) { state in
-      state.baselineFrame = baseline
-    }
-
-    guard !cancellationWasRequested(owner, environment: environment),
-      await revalidate(owner, requiringControllerReady: true)
-    else {
-      await finishBeforePlan(
-        owner,
-        execution: .cancelled(reason: "Operator Stop or stale facts before execution."),
-        evidenceDisposition: .cancelled,
-        observation: .notAttempted(.executionCancelledBeforeObservation)
-      )
+      await finishPreparationFailure(owner, error: error)
       return
     }
 
     let request: DrawingPlanRequest
     do {
       request = try DrawingPlanRequest(
-        operationID: DrawingPlanOperationID(rawValue: owner.requestID),
-        plan: owner.plan.plan,
+        operationID: DrawingPlanOperationID(rawValue: owner.requestID), plan: owner.plan.plan,
         travelFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
         drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
-        penActuationProfile: owner.capturedEffectFacts.penActuationProfile
-      )
+        penActuationProfile: owner.capturedEffectFacts.penActuationProfile)
+      guard await revalidate(owner, requiringControllerReady: true) else {
+        throw PreparationFailure.cancelled("Stop or stale facts before durable dispatch marker.")
+      }
+      update(owner, environment: environment) {
+        $0.phase = .markingInkDispatchPossible
+        // A failed save can be an uncertain acknowledgement of a durable marker.
+        $0.inkDispatchPossible = true
+        $0.blockedPlanHashes.insert(owner.plan.plan.contentHash)
+      }
+      _ = try await evidence.markInkDispatchPossible(runID: owner.runID)
+      guard await revalidate(owner, requiringControllerReady: true) else {
+        throw PreparationFailure.cancelled("Stop or stale facts before plan admission.")
+      }
     } catch {
-      await finishBeforePlan(
-        owner,
-        execution: .refused(reason: String(describing: error)),
-        evidenceDisposition: .refused,
-        observation: .notAttempted(.requestRefused)
-      )
+      await finishPreparationFailure(owner, error: error)
       return
     }
 
     setPhase(.executingPlan, owner: owner, environment: environment)
-    guard await revalidate(owner, requiringControllerReady: true) else {
-      await finishBeforePlan(
-        owner,
-        execution: .cancelled(reason: "Stop, shutdown, or stale facts before plan admission."),
-        evidenceDisposition: .cancelled,
-        observation: .notAttempted(.executionCancelledBeforeObservation)
-      )
-      return
-    }
     let admission = await interpreter.beginDrawingPlan(request)
     let outcome: DrawingPlanOutcome
     let frontier: DrawingRunRequestFrontier
     switch admission {
-    case .admitted(let operation):
-      frontier = .admitted
-      outcome = await operation.outcome()
-    case .rejected(let rejected):
-      frontier = .validated
-      outcome = rejected
+    case .admitted(let operation): frontier = .admitted; outcome = await operation.outcome()
+    case .rejected(let rejected): frontier = .validated; outcome = rejected
     }
     guard isCurrent(owner, environment: environment) else { return }
-    update(owner, environment: environment) { state in
-      state.progress = outcome.progress
-      state.active = state.active.map {
-        var value = $0
-        value.cancellationRequested = false
-        return value
-      }
-      if outcome.progress.commandedStrokeCount > 0 {
-        state.blockedPlanHashes.insert(owner.plan.plan.contentHash)
-        state.noRedraw = .planMayContainInk(
-          runID: owner.runID,
-          planIdentity: owner.plan.identity
-        )
-      } else {
-        state.noRedraw = .newPlanRequired(
-          runID: owner.runID,
-          planIdentity: owner.plan.identity
-        )
-      }
+    update(owner, environment: environment) { $0.progress = outcome.progress }
+    if admissionClosed || cancellationWasRequested(owner, environment: environment) {
+      await preserveAvailableTerminalFrame(owner)
+      await finish(owner, frontier: frontier, progress: outcome.progress,
+        execution: .cancelled(reason: admissionClosed ? "Application shutdown" : "Operator Stop"),
+        evidenceDisposition: .cancelled,
+        observation: .notAttempted(.executionCancelledBeforeObservation))
+      return
     }
-
-    guard case .completed(_, let finalPosition) = outcome else {
+    guard case .completed(_, let completedPosition) = outcome else {
+      await preserveAvailableTerminalFrame(owner)
       let mapped = Self.executionDisposition(for: outcome)
-      await finish(
-        owner,
-        frontier: frontier,
-        progress: outcome.progress,
-        execution: mapped.execution,
-        evidenceDisposition: mapped.evidence,
-        observation: Self.notAttempted(for: outcome)
-      )
-      return
-    }
-    guard MachinePositionAcceptancePolicy.accepts(finalPosition, target: target) else {
-      await finish(
-        owner,
-        frontier: frontier,
-        progress: outcome.progress,
-        execution: .ambiguous(reason: "Final MPos did not match the observation pose."),
-        evidenceDisposition: .possibleInk,
-        observation: .notAttempted(.executionFailedBeforeObservation)
-      )
+      await finish(owner, frontier: frontier, progress: outcome.progress,
+        execution: mapped.execution, evidenceDisposition: mapped.evidence,
+        observation: Self.notAttempted(for: outcome))
       return
     }
 
-    guard await revalidate(owner, requiringControllerReady: false) else {
-      await finish(
-        owner,
-        frontier: frontier,
-        progress: outcome.progress,
-        execution: .completed,
-        evidenceDisposition: .visionUnclear,
-        observation: .notAttempted(.frameEvidenceUnavailable)
-      )
+    guard let endpoint = owner.plan.plan.strokes.last?.path.points.last,
+      MachinePositionAcceptancePolicy.accepts(completedPosition, target: MachinePosition(point: endpoint)) else {
+      await preserveAvailableTerminalFrame(owner)
+      await finish(owner, frontier: frontier, progress: outcome.progress,
+        execution: .ambiguous(reason: "Completed drawing reported an unexpected final position."),
+        evidenceDisposition: .possibleInk, observation: .notAttempted(.executionFailedBeforeObservation))
       return
     }
-
-    setPhase(.capturingPostFrame, owner: owner, environment: environment)
-    let post: DisplayedFrame
+    var results: [SamePoseFrameSample] = []
     do {
-      post = try await camera.captureFrame(
-        newerThan: baseline.frame.captureNanoseconds
-      )
-      guard !admissionClosed, isCurrent(owner, environment: environment) else {
-        await finish(
-          owner,
-          frontier: frontier,
-          progress: outcome.progress,
-          execution: .completed,
-          evidenceDisposition: .visionUnclear,
-          observation: .notAttempted(.frameEvidenceUnavailable)
-        )
-        return
+      for (index, pose) in observationPlan.poses.enumerated() {
+        // This branch exists only after successful, uncancelled execution; every
+        // suspension rechecks that the same run still owns safe pen-up travel.
+        let settled = try await reachObservationPose(
+          pose.position, owner: owner, phase: .positioningForPostObservation)
+        guard await revalidate(owner, requiringControllerReady: true) else {
+          throw PreparationFailure.cancelled("Stop or stale facts before result capture.")
+        }
+        let captureAfter = max(clock.nowNanoseconds(), newestCapture)
+        setPhase(.capturingPostFrame, owner: owner, environment: environment)
+        let post = try await camera.captureFrame(newerThan: captureAfter)
+        guard isCurrent(owner, environment: environment) else { return }
+        update(owner, environment: environment) { $0.postFrame = post }
+        guard post.source == baselines[index].drawingRunDisplayedFrame.source,
+          post.frame.captureNanoseconds > captureAfter else {
+          // Keep stale available bytes, but never bind them to the settled pose.
+          throw DrawingRunEvidenceError.invalidFramePair
+        }
+        let media = DrawingRunMediaReference(frame: post.frame, source: post.source,
+          controllerPosition: settled, captureAfterNanoseconds: captureAfter)
+        update(owner, environment: environment) {
+          $0.terminalMedia.append(media)
+          $0.terminalMediaBytes[media] = post
+        }
+        // Failure retains exact bytes and reference for publication-only retry.
+        _ = try await evidence.installMedia(frame: post.frame, source: post.source)
+        newestCapture = post.frame.captureNanoseconds
+        results.append(SamePoseFrameSample(displayedFrame: post, controllerPosition: settled))
+        guard await revalidate(owner, requiringControllerReady: true) else {
+          throw PreparationFailure.cancelled("Stop or stale facts after result capture.")
+        }
       }
-      guard post.source == baseline.source,
-        post.frame.captureNanoseconds > baseline.frame.captureNanoseconds
-      else { throw DrawingRunEvidenceError.invalidFramePair }
     } catch {
-      await finish(
-        owner,
-        frontier: frontier,
-        progress: outcome.progress,
-        execution: .completed,
-        evidenceDisposition: .visionUnclear,
-        observation: .notAttempted(.frameEvidenceUnavailable)
-      )
+      await preserveAvailableTerminalFrame(owner)
+      update(owner, environment: environment) { $0.missingCoverageReason = String(describing: error) }
+      await finish(owner, frontier: frontier, progress: outcome.progress,
+        execution: .completed, evidenceDisposition: .visionUnclear,
+        observation: .notAttempted(.frameEvidenceUnavailable))
       return
     }
-    update(owner, environment: environment) { state in state.postFrame = post }
 
+    guard let baseline = baselines.first, let post = results.first else {
+      await finish(owner, frontier: frontier, progress: outcome.progress,
+        execution: .completed, evidenceDisposition: .visionUnclear,
+        observation: .notAttempted(.frameEvidenceUnavailable))
+      return
+    }
+    do {
+      let views = try zip(baselines, results).enumerated().map { index, pair in
+        try DrawingRunCoverageView(viewID: observationPlan.poses[index].id,
+          baseline: pair.0, result: pair.1, registration: owner.plan.registration)
+      }
+      let intended = try TipApplicabilityEvidencePolicy.project(
+        paths: owner.plan.plan.strokes.map(\.path), using: owner.plan.registration)
+        .attributableCameraPolylines ?? []
+      let coverage = try await DrawingRunMediaCoverage.compose(views: views,
+        region: Self.observationRegion(intended, frameWidth: post.drawingRunDisplayedFrame.frame.width,
+          frameHeight: post.drawingRunDisplayedFrame.frame.height))
+      update(owner, environment: environment) {
+        $0.mediaCoverage = coverage
+        if coverage.uncoveredMask.contains(true) {
+          $0.missingCoverageReason = "Exact armature/occlusion visibility is unavailable; uncovered pixels remain unknown."
+        }
+      }
+    } catch {
+      update(owner, environment: environment) { $0.missingCoverageReason = "Coverage comparison unavailable: \(error)" }
+    }
+    let (observation, disposition) = await observePrimaryView(owner,
+      baseline: baseline.drawingRunDisplayedFrame, post: post.drawingRunDisplayedFrame,
+      observationPosition: baseline.controllerPosition, finalPosition: post.controllerPosition)
+    await finish(owner, frontier: frontier, progress: outcome.progress,
+      execution: .completed, evidenceDisposition: disposition, observation: observation)
+  }
+
+  private func reachObservationPose(_ target: MachinePosition, owner: ActiveRun,
+    phase: PlotterDrawingRunPhase) async throws -> MachinePosition {
+    guard await revalidate(owner, requiringControllerReady: true),
+      let current = await interpreter.snapshot()?.machine.position else {
+      throw PreparationFailure.cancelled("Controller or run facts changed before observation travel.")
+    }
+    guard !admissionClosed, !cancellationWasRequested(owner, environment: .live) else {
+      throw PreparationFailure.cancelled("Stop before observation travel.")
+    }
+    if MachinePositionAcceptancePolicy.accepts(current, target: target) { return current }
+    let request = RelativeJogRequest(delta: try current.point.vector(to: target.point),
+      feedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute)
+    setPhase(phase, owner: owner, environment: .live)
+    guard await revalidate(owner, requiringControllerReady: true) else {
+      throw PreparationFailure.cancelled("Stop or stale facts before observation travel.")
+    }
+    let travel = await interpreter.travelToObservationPosition(request)
+    guard isCurrent(owner, environment: .live), !admissionClosed,
+      !cancellationWasRequested(owner, environment: .live) else {
+      throw PreparationFailure.cancelled("Stop during observation travel.")
+    }
+    switch travel {
+    case .acceptedThenCompleted(let final):
+      guard MachinePositionAcceptancePolicy.accepts(final, target: target) else {
+        throw PreparationFailure.ambiguous("Observation travel settled outside the exact target.")
+      }
+      return final
+    case .cancelled: throw PreparationFailure.cancelled("Observation travel cancelled.")
+    case .refused(let reason): throw PreparationFailure.refused(String(describing: reason))
+    case .ambiguous(let reason): throw PreparationFailure.ambiguous(String(describing: reason))
+    }
+  }
+
+  private func finishPreparationFailure(_ owner: ActiveRun, error: any Error) async {
+    if states[.live]?.inkDispatchPossible == true { await preserveAvailableTerminalFrame(owner) }
+    update(owner, environment: .live) { $0.missingCoverageReason = String(describing: error) }
+    let execution: DrawingRunExecutionDisposition
+    let disposition: BorderValidationEvidenceDisposition
+    switch error {
+    case PreparationFailure.cancelled(let detail): execution = .cancelled(reason: detail); disposition = .cancelled
+    case PreparationFailure.ambiguous(let detail): execution = .ambiguous(reason: detail); disposition = .ambiguous
+    default: execution = .refused(reason: String(describing: error)); disposition = .refused
+    }
+    await finishBeforePlan(owner, execution: execution, evidenceDisposition: disposition,
+      observation: disposition == .refused ? .notAttempted(.requestRefused) : .notAttempted(.frameEvidenceUnavailable))
+  }
+
+  private func observePrimaryView(
+    _ owner: ActiveRun, baseline: DisplayedFrame, post: DisplayedFrame,
+    observationPosition: MachinePosition, finalPosition: MachinePosition
+  ) async -> (DrawingRunObservationOutcome, BorderValidationEvidenceDisposition) {
+    let environment = PlotterEnvironment.live
     let observation: DrawingRunObservationOutcome
     let evidenceDisposition: BorderValidationEvidenceDisposition
     do {
@@ -936,26 +945,10 @@ public actor PlotterDrawingRunRuntime {
         using: owner.plan.registration
       )
       guard let intended = projection.attributableCameraPolylines else {
-        await finish(
-          owner,
-          frontier: frontier,
-          progress: outcome.progress,
-          execution: .completed,
-          evidenceDisposition: .nonAttributable,
-          observation: .notAttempted(.projectionOutsideTipApplicability)
-        )
-        return
+        return (.notAttempted(.projectionOutsideTipApplicability), .nonAttributable)
       }
       guard await revalidate(owner, requiringControllerReady: false) else {
-        await finish(
-          owner,
-          frontier: frontier,
-          progress: outcome.progress,
-          execution: .completed,
-          evidenceDisposition: .visionUnclear,
-          observation: .notAttempted(.frameEvidenceUnavailable)
-        )
-        return
+        return (.notAttempted(.frameEvidenceUnavailable), .visionUnclear)
       }
       setPhase(.observingInk, owner: owner, environment: environment)
       let framePair = try DrawingObservationFramePair(
@@ -998,15 +991,7 @@ public actor PlotterDrawingRunRuntime {
         )
       )
       guard !admissionClosed, isCurrent(owner, environment: environment) else {
-        await finish(
-          owner,
-          frontier: frontier,
-          progress: outcome.progress,
-          execution: .completed,
-          evidenceDisposition: .visionUnclear,
-          observation: .notAttempted(.frameEvidenceUnavailable)
-        )
-        return
+        return (.notAttempted(.frameEvidenceUnavailable), .visionUnclear)
       }
       switch result {
       case .observed(let value):
@@ -1034,14 +1019,7 @@ public actor PlotterDrawingRunRuntime {
       observation = .notAttempted(.frameEvidenceUnavailable)
       evidenceDisposition = .visionUnclear
     }
-    await finish(
-      owner,
-      frontier: frontier,
-      progress: outcome.progress,
-      execution: .completed,
-      evidenceDisposition: evidenceDisposition,
-      observation: observation
-    )
+    return (observation, evidenceDisposition)
   }
 
   private func finishBeforePlan(
@@ -1070,6 +1048,23 @@ public actor PlotterDrawingRunRuntime {
   ) async {
     let environment = PlotterEnvironment.live
     guard isCurrent(owner, environment: environment) else { return }
+    if let post = states[environment]?.postFrame {
+      let available = DrawingRunMediaReference(frame: post.frame, source: post.source)
+      let reference = states[environment]?.terminalMedia.first(where: {
+        $0.frame == available.frame && $0.source == available.source
+      }) ?? available
+      update(owner, environment: environment) {
+        if !$0.terminalMedia.contains(reference) { $0.terminalMedia.append(reference) }
+        $0.terminalMediaBytes[reference] = post
+      }
+    }
+    let stopped = admissionClosed || cancellationWasRequested(owner, environment: environment)
+    let execution = stopped
+      ? DrawingRunExecutionDisposition.cancelled(reason: admissionClosed ? "Application shutdown" : "Operator Stop")
+      : execution
+    let evidenceDisposition = stopped ? BorderValidationEvidenceDisposition.cancelled : evidenceDisposition
+    let observation = stopped
+      ? DrawingRunObservationOutcome.notAttempted(.executionCancelledBeforeObservation) : observation
     do {
       let record = try makeRecord(
         owner: owner,
@@ -1079,20 +1074,12 @@ public actor PlotterDrawingRunRuntime {
         evidenceDisposition: evidenceDisposition,
         observation: observation
       )
-      if admissionClosed {
-        retainPublicationIncomplete(
-          record,
-          owner: owner,
-          detail: "Application shutdown closed drawing evidence publication."
-        )
-        return
-      }
       update(owner, environment: environment) { state in
         state.phase = .appendingEvidence
         state.observation = observation
         state.pendingRecord = record
         state.evidencePersistence = .appending(record.recordID)
-        state.noRedraw = progress?.commandedStrokeCount ?? 0 > 0
+        state.noRedraw = (progress?.commandedStrokeCount ?? 0 > 0 || state.inkDispatchPossible)
           ? .planMayContainInk(runID: owner.runID, planIdentity: owner.plan.identity)
           : .newPlanRequired(runID: owner.runID, planIdentity: owner.plan.identity)
       }
@@ -1101,15 +1088,17 @@ public actor PlotterDrawingRunRuntime {
         evidence: evidenceDisposition
       ))
     } catch {
-      // Record construction failure is itself terminal and non-retriable from
-      // this API because no incomplete record is fabricated.
+      // Preserve the durable attempt and explicit diagnostic when a terminal
+      // record cannot be constructed. There is no fabricated successful record
+      // and no new-run admission from this incomplete publication state.
       update(owner, environment: environment) { state in
         state.phase = .terminal
         state.active = nil
-        state.noRedraw = .newPlanRequired(
-          runID: owner.runID,
-          planIdentity: owner.plan.identity
-        )
+        state.evidencePersistence = .intentPublicationIncomplete(runID: owner.runID,
+          detail: "Terminal evidence construction failed; retained attempt requires recovery: \(error)")
+        state.noRedraw = state.inkDispatchPossible || (progress?.commandedStrokeCount ?? 0) > 0
+          ? .planMayContainInk(runID: owner.runID, planIdentity: owner.plan.identity)
+          : .newPlanRequired(runID: owner.runID, planIdentity: owner.plan.identity)
       }
     }
   }
@@ -1120,25 +1109,24 @@ public actor PlotterDrawingRunRuntime {
     proposed: PlotterDrawingRunTerminalDisposition
   ) async {
     let environment = PlotterEnvironment.live
-    guard !admissionClosed else {
-      retainPublicationIncomplete(
-        record,
-        owner: owner,
-        detail: "Application shutdown closed drawing evidence publication."
-      )
-      return
-    }
+    // Closing admission cannot cancel publication owned by this exact run.
+    // Shutdown joins its durable terminal append before quiescence is released.
     do {
-      let archive = try await evidence.append(record)
+      let archive = try await appendExactEvidence(record)
       guard isCurrent(owner, environment: environment) else { return }
       update(owner, environment: environment) { state in
+        state.blockedPlanIntents = archive.attempts.filter {
+          $0.intent.context.paper == record.paper && $0.inkDispatchPossible
+        }.map(\.intent)
+        let markedRuns = Set(state.blockedPlanIntents.map(\.runID))
         state.blockedPlanRecords = archive.records.filter {
-          $0.paper == record.paper && $0.executionFrontiers.commandedStrokeCount > 0
+          $0.paper == record.paper && ($0.executionFrontiers.commandedStrokeCount > 0 || markedRuns.contains($0.runID))
         }
         state.blockedPlanHashes.formUnion(state.blockedPlanRecords.map(\.plan.contentHash))
         state.phase = .terminal
         state.active = nil
         state.pendingRecord = nil
+        state.terminalMediaBytes = [:]
         state.evidencePersistence = .persisted(
           recordID: record.recordID,
           archiveRevision: archive.revision
@@ -1184,6 +1172,27 @@ public actor PlotterDrawingRunRuntime {
     }
   }
 
+  /// Replays only idempotent persistence, never controller or camera work.
+  /// A save acknowledgement can fail after installation; retain and retry the
+  /// exact intent/baseline identities before sealing the immutable terminal.
+  private func appendExactEvidence(_ record: DrawingRunEvidenceRecord) async throws -> DrawingRunEvidenceArchive {
+    if let attempt = record.attemptEvidence {
+      // Raw bytes remain owned by this run even while active == nil during
+      // publication recovery. Installation has no capture or motion authority.
+      let retainedBytes = states[.live]?.terminalMediaBytes ?? [:]
+      for reference in attempt.terminalFrames {
+        if let frame = retainedBytes[reference] {
+          _ = try await evidence.installMedia(frame: frame.frame, source: frame.source)
+        }
+      }
+      _ = try await evidence.stageIntent(attempt.intent)
+      for baseline in attempt.baselines {
+        _ = try await evidence.stageBaseline(runID: record.runID, media: baseline)
+      }
+    }
+    return try await evidence.append(record)
+  }
+
   private func stop(
     _ submission: PlotterDrawingRunSubmission,
     capabilityID: PlotterDrawingRunStopCapabilityID,
@@ -1207,7 +1216,8 @@ public actor PlotterDrawingRunRuntime {
     advance(&state)
     states[environment] = state
     _ = publish(state, environment: environment)
-    if state.phase == .positioningForBaseline || state.phase == .executingPlan {
+    if state.phase == .positioningForBaseline || state.phase == .executingPlan
+        || state.phase == .positioningForPostObservation {
       _ = await interpreter.requestStop(.operatorStop)
     }
     return PlotterDrawingRunSubmissionResult(
@@ -1363,7 +1373,7 @@ public actor PlotterDrawingRunRuntime {
           snapshot: snapshot(state, environment: environment)
         )
       }
-      let archive = try await evidence.append(record)
+      let archive = try await appendExactEvidence(record)
       state = states[environment] ?? state
       guard publicationRecoveryIsCurrent(recoveryOwner, state: state) else {
         return refuse(
@@ -1374,12 +1384,17 @@ public actor PlotterDrawingRunRuntime {
           remedy: .retryEvidencePublication
         )
       }
+      state.blockedPlanIntents = archive.attempts.filter {
+        $0.intent.context.paper == record.paper && $0.inkDispatchPossible
+      }.map(\.intent)
+      let markedRuns = Set(state.blockedPlanIntents.map(\.runID))
       state.blockedPlanRecords = archive.records.filter {
-        $0.paper == record.paper && $0.executionFrontiers.commandedStrokeCount > 0
+        $0.paper == record.paper && ($0.executionFrontiers.commandedStrokeCount > 0 || markedRuns.contains($0.runID))
       }
       state.blockedPlanHashes.formUnion(state.blockedPlanRecords.map(\.plan.contentHash))
       state.phase = .terminal
       state.pendingRecord = nil
+      state.terminalMediaBytes = [:]
       state.evidencePersistence = .persisted(
         recordID: record.recordID,
         archiveRevision: archive.revision
@@ -1543,7 +1558,7 @@ public actor PlotterDrawingRunRuntime {
         remedy: .restoreLearningAuthority
       )
     }
-    if current.plan != captured.plan {
+    if current.plan != captured.plan || current.acceptedMovementBounds != captured.acceptedMovementBounds {
       return PreEffectRefusal(
         currentFacts: current,
         owner: Authority.draft,
@@ -1620,13 +1635,34 @@ public actor PlotterDrawingRunRuntime {
     requiringControllerReady: Bool
   ) async -> Bool {
     let current = await facts.drawingRunFacts(for: .live)
-    guard !admissionClosed, isCurrent(owner, environment: .live) else { return false }
+    guard !admissionClosed, isCurrent(owner, environment: .live),
+      !cancellationWasRequested(owner, environment: .live) else { return false }
     let actualInterpreter = await interpreter.snapshot()
+    let settledFacts = await facts.drawingRunFacts(for: .live)
     guard !admissionClosed,
       CapturedEffectFacts(current) == owner.capturedEffectFacts,
+      CapturedEffectFacts(settledFacts) == owner.capturedEffectFacts,
+      settledFacts.physicalPositionUnavailableReason == nil,
       (!requiringControllerReady || Self.controllerIsReady(actualInterpreter))
     else { return false }
     return isCurrent(owner, environment: .live)
+      && !cancellationWasRequested(owner, environment: .live)
+  }
+
+  /// Read-only retention of the available terminal view. Failure and Stop must
+  /// never travel or initiate another camera acquisition to improve coverage.
+  private func preserveAvailableTerminalFrame(_ owner: ActiveRun) async {
+    let current = await facts.drawingRunFacts(for: .live)
+    guard isCurrent(owner, environment: .live) else { return }
+    update(owner, environment: .live) { state in
+      if state.missingCoverageReason == nil {
+        state.missingCoverageReason = "Matched result observation did not complete. No automatic photo repositioning was authorized; available images may predate completion and visibility remains unknown."
+      }
+      if let frame = current.displayedFrame,
+        frame.frame.captureNanoseconds > (state.postFrame?.frame.captureNanoseconds ?? 0) {
+        state.postFrame = frame
+      }
+    }
   }
 
   private func makeRecord(
@@ -1641,9 +1677,7 @@ public actor PlotterDrawingRunRuntime {
     let commanded = UInt32(progress?.commandedStrokeCount ?? 0)
     let completed = UInt32(progress?.controllerCompletedStrokeCount ?? 0)
     let verified = evidenceDisposition == .attributable ? completed : 0
-    let provenance = try PlotterDrawingPlanningAdapter.planningProvenance(
-      for: owner.plan.registration
-    )
+    let provenance = owner.plan.plan.provenance
     return try DrawingRunEvidenceRecord(
       runID: owner.runID,
       requestID: owner.requestID,
@@ -1672,7 +1706,14 @@ public actor PlotterDrawingRunRuntime {
       ),
       paper: owner.plan.paperCoverage.paper,
       observation: observation,
-      recordedAt: RuntimeTimestamp(monotonicNanoseconds: clock.nowNanoseconds())
+      recordedAt: RuntimeTimestamp(monotonicNanoseconds: clock.nowNanoseconds()),
+      attemptEvidence: states[.live]?.stagedIntent.map { intent in
+        let state = states[.live] ?? SourceState()
+        return DrawingRunAttemptEvidence(intent: intent, baselines: state.baselineMedia,
+          terminalFrames: state.terminalMedia, mediaCoverage: state.mediaCoverage,
+          missingCoverageReason: state.missingCoverageReason
+            ?? (state.mediaCoverage == nil ? "Matched observation coverage was not completed." : nil))
+      }
     )
   }
 
@@ -1836,36 +1877,61 @@ public actor PlotterDrawingRunRuntime {
 
   private func indexEquivalentPhysicalPlan(in state: inout SourceState, facts: PlotterDrawingRunExternalFacts) {
     guard facts.physicalPositionUnavailableReason == nil, let current = facts.plan,
-      !state.blockedPlanHashes.contains(current.plan.contentHash),
-      case .checkpointRevalidated = current.registration.derivation else { return }
+      !state.blockedPlanHashes.contains(current.plan.contentHash) else { return }
     let epsilon = DrawingRegionContainmentPolicy.numericalEpsilonMM
     func close(_ left: Double, _ right: Double) -> Bool { abs(left - right) <= epsilon }
     let region = current.plan.drawableRegion.bounds
     let applicability = current.registration.applicability
-    let currentSource = current.program.source
-    let sourceIdentity = currentSource.sourceIdentifier.components(separatedBy: "|draw-border-v1").first
-    for record in state.blockedPlanRecords {
-      guard let prior = record.plan.executionPlan, let priorSource = record.program.source else { continue }
+    let source = current.program.source
+    let sourceIdentity = source.sourceIdentifier.components(separatedBy: "|draw-border-v1").first
+    let permitsCheckpointTranslation: Bool
+    if case .checkpointRevalidated = current.registration.derivation { permitsCheckpointTranslation = true }
+    else { permitsCheckpointTranslation = false }
+    let candidates: [(ExecutionPlanRevision, DrawingSourceProvenance?, TipCalibrationApplicabilityContext)] =
+      state.blockedPlanRecords.compactMap { record in
+        guard let plan = record.plan.executionPlan else { return nil }
+        return (plan, record.program.source, record.tipCalibration.applicability)
+      } + state.blockedPlanIntents.map { ($0.plan, $0.context.program.source, $0.context.registration.applicability) }
+    for (prior, priorSource, previous) in candidates {
       let old = prior.drawableRegion.bounds
-      let previous = record.tipCalibration.applicability
       guard previous.machineGeometry == applicability.machineGeometry,
+        prior.strokes.count == current.plan.strokes.count else { continue }
+      let sameCoordinates = previous.machineCoordinateFrame == applicability.machineCoordinateFrame
+      let samePaths = zip(prior.strokes, current.plan.strokes).allSatisfy { before, after in
+        before.path.points.count == after.path.points.count
+          && zip(before.path.points, after.path.points).allSatisfy { a, b in
+            close(a.x, b.x) && close(a.y, b.y)
+          }
+      }
+      // Ink location survives changes to generator IDs, pen/material styling,
+      // optical provenance and registration revision within the same machine
+      // coordinate frame. None of those changes establishes clean paper.
+      if sameCoordinates && samePaths {
+        state.blockedPlanHashes.insert(current.plan.contentHash)
+        return
+      }
+      // Retain the existing stricter checkpoint-relative translation proof for
+      // a changed coordinate frame; do not generalize arbitrary translations.
+      guard permitsCheckpointTranslation, let priorSource,
         previous.toolAssembly == applicability.toolAssembly,
         previous.penContactProfile == applicability.penContactProfile,
         previous.paperContactPlane == applicability.paperContactPlane,
         previous.opticalConfiguration == applicability.opticalConfiguration,
-        priorSource.kind == currentSource.kind,
+        priorSource.kind == source.kind,
         priorSource.sourceIdentifier.components(separatedBy: "|draw-border-v1").first == sourceIdentity,
         close(old.maxX - old.minX, region.maxX - region.minX),
-        close(old.maxY - old.minY, region.maxY - region.minY),
-        prior.strokes.count == current.plan.strokes.count else { continue }
-      let samePhysicalInk = zip(prior.strokes, current.plan.strokes).allSatisfy { before, after in
+        close(old.maxY - old.minY, region.maxY - region.minY) else { continue }
+      let checkpointTranslatedPaths = zip(prior.strokes, current.plan.strokes).allSatisfy { before, after in
         before.ordering == after.ordering && before.style == after.style
           && before.semanticRole == after.semanticRole && before.path.points.count == after.path.points.count
           && zip(before.path.points, after.path.points).allSatisfy { a, b in
             close(a.x - old.minX, b.x - region.minX) && close(a.y - old.minY, b.y - region.minY)
           }
       }
-      if samePhysicalInk { state.blockedPlanHashes.insert(current.plan.contentHash); return }
+      if checkpointTranslatedPaths {
+        state.blockedPlanHashes.insert(current.plan.contentHash)
+        return
+      }
     }
   }
 
@@ -1891,6 +1957,10 @@ public actor PlotterDrawingRunRuntime {
     if let reason = facts.physicalPositionUnavailableReason {
       return unavailable(Authority.learning, .physicalPositionUnverified, .reestablishPositionFromCamera, reason)
     }
+    if facts.acceptedMovementBounds == nil {
+      return unavailable(Authority.learning, .physicalPositionUnverified, .reestablishPositionFromCamera,
+        "Accepted machine movement bounds are unavailable for the observation plan.")
+    }
     if !facts.paperCoverageIsCurrent {
       return unavailable(Authority.paper, .paperCoverageNotCurrent, .assertCurrentPaperCoverage, "Confirm that the current sheet covers the drawing area.")
     }
@@ -1907,6 +1977,10 @@ public actor PlotterDrawingRunRuntime {
   }
 
   private func lifecycleReadiness(_ state: SourceState) -> PlotterDrawingRunReadiness? {
+    if case .intentPublicationIncomplete(_, let detail) = state.evidencePersistence {
+      return .unavailable(.init(owner: Authority.evidence, reason: .evidenceArchiveUnavailable,
+        remedy: .restoreEvidenceArchive, detail: detail))
+    }
     if admissionClosed {
       return .unavailable(.init(owner: Authority.run, reason: .admissionClosed,
         remedy: .restartApplication, detail: "The application is shutting down."))
@@ -2014,4 +2088,8 @@ public actor PlotterDrawingRunRuntime {
       height: max(1, maxY - minY + 1)
     )
   }
+}
+
+private extension SamePoseFrameSample {
+  var drawingRunDisplayedFrame: DisplayedFrame { DisplayedFrame(source: source, frame: frame) }
 }

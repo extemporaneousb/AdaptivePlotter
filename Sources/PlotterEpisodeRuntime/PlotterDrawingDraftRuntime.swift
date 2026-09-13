@@ -45,6 +45,7 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
   public let terminalRequiresNewPlan: Bool
   public let coverageRecordIDs: [DrawingEvidenceRecordID]
   public let drawingArchiveIsAvailable: Bool
+  public let materialContextHash: PlotterModel.Digest?
 
   /// A sealed experiment selection consumes the current archive and physical
   /// context. A newer frame from the same stream does not change that selection.
@@ -64,7 +65,8 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
       drawableRegion: drawableRegion, toolAssemblyRevision: toolAssemblyRevision,
       paper: paper, displayedFrame: frame, runInProgress: runInProgress,
       terminalRequiresNewPlan: terminalRequiresNewPlan, coverageRecordIDs: coverageRecordIDs,
-      drawingArchiveIsAvailable: drawingArchiveIsAvailable, drawingBorderBounds: drawingBorderBounds)
+      drawingArchiveIsAvailable: drawingArchiveIsAvailable, drawingBorderBounds: drawingBorderBounds,
+      materialContextHash: materialContextHash)
   }
 
   public init(
@@ -80,7 +82,8 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
     terminalRequiresNewPlan: Bool,
     coverageRecordIDs: [DrawingEvidenceRecordID] = [],
     drawingArchiveIsAvailable: Bool = true,
-    drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil
+    drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil,
+    materialContextHash: PlotterModel.Digest? = nil
   ) {
     self.environment = environment
     self.interactiveLearningIsComplete = interactiveLearningIsComplete
@@ -95,6 +98,7 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
     self.terminalRequiresNewPlan = terminalRequiresNewPlan
     self.coverageRecordIDs = coverageRecordIDs
     self.drawingArchiveIsAvailable = drawingArchiveIsAvailable
+    self.materialContextHash = materialContextHash
   }
 }
 
@@ -118,7 +122,8 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
     terminalRequiresNewPlan: Bool,
     coverageRecords: [DrawingRunEvidenceRecord] = [],
     drawingArchiveIsAvailable: Bool = true,
-    drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil
+    drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil,
+    materialContextHash: PlotterModel.Digest? = nil
   ) {
     let exactFrameReference = displayedFrame?.plotterExactFrameReferenceIfMaterialized
     self.displayedFrame = exactFrameReference == nil ? nil : displayedFrame
@@ -137,7 +142,8 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
       terminalRequiresNewPlan: terminalRequiresNewPlan,
       coverageRecordIDs: coverageRecords.map(\.recordID),
       drawingArchiveIsAvailable: drawingArchiveIsAvailable,
-      drawingBorderBounds: drawingBorderBounds
+      drawingBorderBounds: drawingBorderBounds,
+      materialContextHash: materialContextHash
     )
   }
 }
@@ -343,7 +349,8 @@ public enum PlotterDrawingPlanningAdapter {
     drawableRegion: DrawableMachineRegion,
     registration: TipCameraRegistration,
     drawBorder: Bool = false,
-    drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil
+    drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil,
+    materialContextHash: PlotterModel.Digest? = nil
   ) -> PlotterDrawingDraftPlanBuild {
     let allowedScale = scaleRange(extent: program.fieldExtent,
       rotationDegrees: rotationDegrees, region: drawableRegion)
@@ -370,7 +377,7 @@ public enum PlotterDrawingPlanningAdapter {
         program: program,
         placement: placement,
         drawableRegion: drawableRegion,
-        provenance: try planningProvenance(for: registration)
+        provenance: try planningProvenance(for: registration, materialContextHash: materialContextHash)
       )
       var executionProgram = program
       if drawBorder {
@@ -381,7 +388,7 @@ public enum PlotterDrawingPlanningAdapter {
           bounds: drawingBorderBounds, region: drawableRegion)
         executionProgram = composed.program
         plan = try DrawingPlanner.plan(program: composed.program, placement: composed.placement,
-          drawableRegion: drawableRegion, provenance: planningProvenance(for: registration))
+          drawableRegion: drawableRegion, provenance: planningProvenance(for: registration, materialContextHash: materialContextHash))
       }
       return PlotterDrawingDraftPlanBuild(
         program: executionProgram,
@@ -469,7 +476,7 @@ public enum PlotterDrawingPlanningAdapter {
   }
 
   package static func planningProvenance(
-    for registration: TipCameraRegistration
+    for registration: TipCameraRegistration, materialContextHash: PlotterModel.Digest? = nil
   ) throws -> DrawingPlanningProvenance {
     let digest = try registration.drawingEvidenceContentHash()
     return DrawingPlanningProvenance(
@@ -478,7 +485,7 @@ public enum PlotterDrawingPlanningAdapter {
       registrationRevisionID: DrawingRegistrationRevisionID(
         registration.acceptedRevisionID.rawValue
       ),
-      registrationContentHash: digest
+      registrationContentHash: digest, materialContextHash: materialContextHash
     )
   }
 }
@@ -524,6 +531,7 @@ public actor PlotterDrawingDraftRuntime {
     let registration: TipCameraRegistration?
     let region: DrawableMachineRegion?
     let tool: ToolAssemblyRevision
+    let materialContextHash: PlotterModel.Digest?
     let paper: PaperRevisionContext
     let experiment: DrawingCoverageExperiment?
     let coverageRecords: [DrawingEvidenceRecordID]
@@ -540,6 +548,7 @@ public actor PlotterDrawingDraftRuntime {
       registration = facts.registration
       region = facts.revisions.drawableRegion
       tool = facts.revisions.toolAssemblyRevision
+      materialContextHash = facts.revisions.materialContextHash
       paper = facts.revisions.paper
       experiment = state.coverageExperiment
       coverageRecords = facts.revisions.coverageRecordIDs
@@ -724,7 +733,7 @@ public actor PlotterDrawingDraftRuntime {
           let region = facts.revisions.drawableRegion else {
           throw PlotterModelError.invalidValue("Restore current tip calibration and Drawing Boundary first.")
         }
-        let prior = try PlotterDrawingPlanningAdapter.planningProvenance(for: registration)
+        let prior = try PlotterDrawingPlanningAdapter.planningProvenance(for: registration, materialContextHash: facts.revisions.materialContextHash)
         if state.coverageExperiment == nil {
           // Resume from existing immutable source provenance. Never propose a
           // fresh overlapping design on a sheet with earlier experiment ink.
@@ -1085,7 +1094,7 @@ public actor PlotterDrawingDraftRuntime {
     if let experiment = state.coverageExperiment {
       if let registration = facts.registration,
         let region = facts.revisions.drawableRegion,
-        let prior = try? PlotterDrawingPlanningAdapter.planningProvenance(for: registration),
+        let prior = try? PlotterDrawingPlanningAdapter.planningProvenance(for: registration, materialContextHash: facts.revisions.materialContextHash),
         experiment.isCurrent(registration: registration, prior: prior,
           region: region, paper: facts.revisions.paper) {
         state.coverageUnavailableReason = nil
@@ -1165,7 +1174,8 @@ public actor PlotterDrawingDraftRuntime {
       drawableRegion: region,
       registration: registration,
       drawBorder: state.drawBorder && state.coverageExperiment == nil,
-      drawingBorderBounds: facts.revisions.drawingBorderBounds
+      drawingBorderBounds: facts.revisions.drawingBorderBounds,
+      materialContextHash: facts.revisions.materialContextHash
     )
     state.machineCenter = built.center ?? state.machineCenter
     state.program = built.program
