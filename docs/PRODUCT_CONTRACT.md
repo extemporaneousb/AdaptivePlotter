@@ -1533,19 +1533,23 @@ exposes the previous candidate as the current plotter-ready drawing or rating ta
 
 The preview estimates ink width at an explicitly chosen drawing height. These
 preview settings do not alter the tool profile or actual placement; Fit to Drawing
-Area and existing placement controls determine the real drawing. Up to eight saved
-vector sketches (200,000 total points) can be compared, rated, selected for plotter
-preview, and removed immediately. Ratings and sketches remain session-local and do
-not train a model or modify Learning. Separate 1–5 candidate grades retain the exact
-source photo, recipe/seed, generated vectors, hashes, and score in up to 32 preference
-examples / 48 MiB of exported JSON payload. Examples can be removed immediately or
-explicitly exported as JSON to retain them beyond the session. They are preference
-labels for future ranking or model work, not corrected target artwork or GAN training.
-Removing a recent frame releases its render caches; explicitly rated examples retain
-their own source until those examples are removed.
+Area and existing placement controls determine the real drawing. Shortlisting, any
+1–5 rating, and complete successful projection acceptance qualify the exact candidate
+for automatic local retention. Generation and navigation alone remain transient.
+Qualified drawings have no silent count/byte eviction and remain selectable and
+rateable after recent-photo eviction and restart. The archive reports loading,
+pending, saved or failed persistence, retained size, unresolved changes and retry.
+Each candidate owns its source bytes, exact raster, applied mask and preprocessing
+geometry, recipe/seed, immutable vectors and provenance. Labels are immutable
+revisions pinned to the selected style scope and actual displayed size/ink estimate.
+Retention events are not scores; screen labels are not physical evidence. Candidate
+or source deletion and label withdrawal explicitly affect future eligible data.
+Export is an additional copy. Operational fitting and physical-attempt retention
+integration remain later campaign work; these labels do not yet train a model.
 
-The portrait editor retains captures and the authored draft across panel navigation.
-It does not add them to the Learning package or automatically persist raw photos.
+The portrait editor retains recent captures and the authored draft across panel
+navigation. Only qualified candidates persist raw source/analysis assets, outside
+accepted Learning and machine readiness ownership.
 Show on Plotter Video installs the selected immutable generated program through
 the same draft intent owner as catalog selection and does not start motion.
 Placement, execution, Stop, and observation use the existing drawing path with

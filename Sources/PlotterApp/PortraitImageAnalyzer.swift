@@ -213,44 +213,88 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     if high - low > 0.05 {
       luminance = luminance.map { min(1, max(0, ($0-low)/(high-low))) }
     }
+    var maskStatus: PortraitPersonMaskStatus = .notRequested
+    var maskRevision: Int?
+    var maskWidth: Int?
+    var maskHeight: Int?
+    var retainedMaskCrop: PortraitAnalysisCrop?
+    var retainedAlpha: [Double]?
+    var maskUnavailableReason: String?
     if options.removeBackground {
       try Task.checkCancellation()
       do {
         let request = VNGeneratePersonSegmentationRequest()
+        maskRevision = request.revision
+        maskStatus = .unavailable
         request.qualityLevel = .accurate
         request.outputPixelFormat = kCVPixelFormatType_OneComponent8
         try VNImageRequestHandler(cgImage: image, orientation: .up).perform([request])
         try Task.checkCancellation()
         if let buffer = request.results?.first?.pixelBuffer {
           let mask = try maskImage(buffer)
+          maskWidth = mask.width
+          maskHeight = mask.height
           let maskCrop = CGRect(
             x: crop.minX / Double(image.width) * Double(mask.width),
             y: crop.minY / Double(image.height) * Double(mask.height),
             width: crop.width / Double(image.width) * Double(mask.width),
             height: crop.height / Double(image.height) * Double(mask.height))
+            .integral.intersection(CGRect(x: 0, y: 0, width: mask.width, height: mask.height))
           if let croppedMask = mask.cropping(to: maskCrop) {
+            retainedMaskCrop = PortraitAnalysisCrop(x: maskCrop.minX, y: maskCrop.minY,
+              width: Double(croppedMask.width), height: Double(croppedMask.height))
             let alpha = try grayscale(croppedMask, width: width, height: height)
+            retainedAlpha = alpha
             if alpha.contains(where: { $0 > 0.5 }) {
               luminance = zip(luminance, alpha).map { value, mask in 1 - mask*(1-value) }
+              maskStatus = .applied
               notes.append("Person background removed")
-            } else { notes.append("No person mask; background retained") }
-          } else { notes.append("Mask crop unavailable; background retained") }
-        } else { notes.append("No person mask; background retained") }
+            } else {
+              maskStatus = .noPerson
+              maskUnavailableReason = "No foreground alpha above 0.5"
+              notes.append("No person mask; background retained")
+            }
+          } else {
+            maskStatus = .cropUnavailable
+            maskUnavailableReason = "The Vision mask could not be cropped to the analyzed image"
+            notes.append("Mask crop unavailable; background retained")
+          }
+        } else {
+          maskStatus = .noPerson
+          maskUnavailableReason = "Vision returned no person mask"
+          notes.append("No person mask; background retained")
+        }
       } catch is CancellationError { throw CancellationError() }
-      catch { notes.append("Person masking unavailable (\(error.localizedDescription)); background retained") }
+      catch {
+        maskStatus = .unavailable
+        maskUnavailableReason = error.localizedDescription
+        notes.append("Person masking unavailable (\(error.localizedDescription)); background retained")
+      }
     }
     try Task.checkCancellation()
     let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     let rasterDigest = SHA256.hash(data: Data(luminance.map { UInt8(($0*255).rounded()) }))
       .map { String(format: "%02x", $0) }.joined()
-    return PortraitRaster(
+    let geometry = PortraitAnalysisGeometry(sourcePixelExtent: originalExtent,
+      decodedWidth: image.width, decodedHeight: image.height,
+      crop: PortraitAnalysisCrop(x: crop.minX, y: crop.minY,
+        width: Double(cropped.width), height: Double(cropped.height)),
+      rasterWidth: width, rasterHeight: height,
+      contrastLow: low, contrastHigh: high, contrastApplied: high - low > 0.05)
+    let personMask = PortraitPersonMask(status: maskStatus, requestRevision: maskRevision,
+      platformVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+      width: width, height: height, sourceMaskWidth: maskWidth, sourceMaskHeight: maskHeight,
+      sourceMaskCrop: retainedMaskCrop, alpha: retainedAlpha, unavailableReason: maskUnavailableReason)
+    let result = PortraitRaster(
       width: width, height: height, luminance: luminance,
-      provenance: "image=\(digest)|raster=\(rasterDigest)|sourcePixels=\(originalExtent.widthPixels)x\(originalExtent.heightPixels)|decodedPixels=\(image.width)x\(image.height)|crop=\(crop)|size=\(width)x\(height)|face=\(options.cropToFace)|faceMargin=\(options.boundedFaceCropMargin)|mask=\(options.removeBackground)",
+      provenance: "image=\(digest)|raster=\(rasterDigest)|sourcePixels=\(originalExtent.widthPixels)x\(originalExtent.heightPixels)|decodedPixels=\(image.width)x\(image.height)|crop=\(crop)|size=\(width)x\(height)|face=\(options.cropToFace)|faceMargin=\(options.boundedFaceCropMargin)|mask=\(options.removeBackground)|analysisSchema=1|maskStatus=\(maskStatus.rawValue)|maskRevision=\(maskRevision.map(String.init) ?? "none")",
       analysisSummary: notes.joined(separator: " · "),
       faceBounds: detectedFace.map { face in
         CGRect(x: (face.minX-crop.minX)/crop.width, y: (face.minY-crop.minY)/crop.height,
           width: face.width/crop.width, height: face.height/crop.height)
-      }, sourceCropExtent: sourceCropExtent)
+      }, sourceCropExtent: sourceCropExtent, analysisGeometry: geometry, personMask: personMask)
+    try result.validateAnalysisEvidence()
+    return result
   }
 
   /// An integer crop of a rounded thumbnail occupies fractional original pixels.

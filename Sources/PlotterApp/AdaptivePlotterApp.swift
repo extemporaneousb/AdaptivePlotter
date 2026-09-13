@@ -31,6 +31,7 @@ struct PlotterEpisodeComposition {
       machineSession: MachineSessionComposition.session,
       observationSession: CameraComposition.observationSession,
       observationRecordingStore: CameraComposition.recordingStore,
+      portraitStudio: PortraitStudioModel(candidateStore: PortraitCandidateStore.defaultStore()),
       pointSelectionRuntime: PointSelectionComposition.production.runtime,
       pointSelectionRecordingDiagnostic:
         PointSelectionComposition.production.recordingDiagnostic,

@@ -8,11 +8,62 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DS-02 durable qualified candidates, 2026-09-13
+
+Task `task-1eef1162fd8d4694b578aa756b79c61d` began from primary clean `main`
+at `251d3546a2417ebad046a7e66bb849c404cd4325`, with recorded target `main`.
+The persistence, exact-analysis and UI workers had bounded disjoint leases;
+the coordinator integrated immutable render snapshots and projection acceptance.
+
+Source and analyzed-raster blobs are content-addressed and verified before atomic
+checksummed index association. The retained renderer-source bytes are normalized
+image bytes, paired with original oriented dimensions; no discarded original import
+file is claimed as an owned asset. Exact crop/sampling/contrast and applied mask
+alpha are retained. Capture sessions, recipes, full vectors, lineage metadata and
+producer/checkpoint identities survive serialization. Generation alone stays
+transient; shortlist, any 1–5 rating and complete successful projection acceptance
+retain the exact candidate. The fourth reason, physical attempt, has a tested typed
+storage seam; its production runtime association remains DS-06 work.
+
+Qualified retention has no FIFO count/byte eviction. The gallery survives recent-photo
+eviction; labels preserve immutable presentation/scope revisions. Explicit deletion
+keeps historical identities while excluding old labels, even if identical content is
+retained again. Failed saves preserve queued current work. Corrupt assets/index are
+reported without replacing the damaged index. Interrupted asset installation is
+identified; committed deletion cleanup resumes on load and reports retryable failures.
+
+Strict concurrency/warnings-as-errors validation passed 82 portrait tests in the
+initial frozen tree (`focused.log`). One fresh critic returned one P2 finding:
+interrupted deletion cleanup could be reported saved after restart (`review.txt`).
+The coordinator accepted and repaired it, then passed 29 focused checks including
+committed-deletion restart and injected deletion failure/retry (`repair-focused.log`).
+`finding-dispositions.json` records the disposition. No critic recheck occurred.
+The final broad strict suite passed 1,118 tests with five intentional opt-in skips
+(`quick.log`). Stable-local signed debug bundle validation, launcher checks and
+negative bundle/signature checks passed (`validate-app.log`). Final documentation
+and diff checks are recorded in `final-docs-check.log` and the landing receipt.
+
+Receipts are retained at
+`/Users/bullard/Projects/AdaptivePlotter/.build/studio-ds02-1eef11-evidence/`.
+The reviewed patch, final build-input manifest, finding disposition and release
+receipt distinguish the reviewed tree, coordinator repair and exact landed binary.
+The immutable test app is staged after landing at
+`/Users/bullard/Projects/AdaptivePlotter/.build/StudioTestApps/AdaptivePlotter-DS02-1eef11.app`;
+`release.json` binds its landed commit, executable hash and signature after staging.
+
+This increment establishes C2 and the applicable G02/R06–R10/R20/R31/R33 software
+paths. Semantic landmarks (DS-04), physical-attempt/media integration (DS-06),
+operational fitting (DS-07) and final integrated layout (DS-08) remain separate work.
+Native interaction, learning quality and attended physical evidence are unverified.
+No existing test build, running app/session, camera, controller or accepted Learning
+was replaced or started.
+
 ## DS-01 proportional geometry correction, 2026-09-13
 
 Implementation task `task-34dc69ed47f94ed695a7e7da85632890` starts from primary
 `main` at `8d9b68a4b707f788e2383fbb03002dd1e9f54984`; Blackdog records target
-`main`. This first increment corrects source metric loss across bounded image
+`main`. Landed commit `251d3546a2417ebad046a7e66bb849c404cd4325`
+(source tree `61ff80d03c04a66c501feaf99917ceaf61e75c25`). This first increment corrects source metric loss across bounded image
 sampling and removes implicit Fit rotation. It does not close DS-01's physical
 metric requirement or the rest of the campaign.
 
@@ -85,8 +136,8 @@ This is planning-only work: the coordinator and three workers assessed current
 source, geometry, authoring/training choices, persistence, realization evidence,
 material measurement and UI integration. The canonical plan contains requirements,
 dependencies, worker ownership and separate software/native/attended gates. It
-does not implement or validate those future behaviors; all campaign tasks remain
-pending and current as-built product/architecture declarations are unchanged.
+did not implement or validate those future behaviors. At the planning snapshot all
+campaign tasks were pending; current implementation states are in the campaign ledger.
 
 The operator supplied a screenshot showing a sideways portrait planned overlay and
 visible ink, reporting material X-axis stretch. A local evidence copy is retained at

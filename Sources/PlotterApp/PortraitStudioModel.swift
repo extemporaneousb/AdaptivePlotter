@@ -27,8 +27,13 @@ final class PortraitStudioModel {
   var style: PortraitStyle = .contours
   var options = PortraitAnalysisOptions()
   var vectorOptions = PortraitVectorOptions()
-  let sketches = PortraitSketchCollection()
-  let preferences = PortraitPreferenceCollection()
+  let sketches: PortraitSketchCollection
+  let preferences: PortraitPreferenceCollection
+  var selectedStyleScope: PortraitStyleScope = .screenSketch
+  private(set) var completedCandidate: PortraitCandidate?
+  var selectedCandidate: PortraitCandidate? {
+    sketches.selected?.candidate ?? (currentProgram == nil ? nil : completedCandidate)
+  }
   private(set) var styleRecipes = PortraitStyleRecipe.catalog()
   private(set) var selectedRecipeID: String?
   var renderConfiguration: PortraitRenderConfiguration {
@@ -95,7 +100,7 @@ final class PortraitStudioModel {
   @ObservationIgnored private var pendingAcquisition: PhotoAcquisition?
   @ObservationIgnored private var acquisitionRevision: UInt64 = 0
   @ObservationIgnored private(set) var acquisitionDiagnostics = PortraitRenderDiagnostics()
-  @ObservationIgnored private var pendingRender: (revision: UInt64, key: PortraitRenderCacheKey, request: PortraitRenderRequest)?
+  @ObservationIgnored private var pendingRender: (revision: UInt64, key: PortraitRenderCacheKey, request: PortraitRenderRequest, photo: PortraitPhoto, recipe: PortraitStyleRecipe)?
   @ObservationIgnored private var renderRevision: UInt64 = 0
   @ObservationIgnored private var isShutdown = false
   @ObservationIgnored private(set) var renderDiagnostics = PortraitRenderDiagnostics()
@@ -108,8 +113,12 @@ final class PortraitStudioModel {
     photoAcquirer: any PortraitPhotoAcquiring = PortraitImageAnalyzer(),
     frameSource: (any PortraitFrameAcquiring)? = nil,
     captureClock: any PortraitCaptureClock = PortraitSystemCaptureClock(),
-    photoRetention: PortraitPhotoRetention = PortraitPhotoRetention()
+    photoRetention: PortraitPhotoRetention = PortraitPhotoRetention(),
+    candidateStore: PortraitCandidateStore? = nil
   ) {
+    let collection = PortraitSketchCollection(store: candidateStore)
+    sketches = collection
+    preferences = PortraitPreferenceCollection(collection: collection)
     self.camera = camera
     self.renderer = renderer
     self.photoAcquirer = photoAcquirer
@@ -186,6 +195,7 @@ final class PortraitStudioModel {
 
   private struct PhotoAcquisition: Sendable {
     let revision: UInt64
+    let sessionID: UUID
     let file: URL?
     let pose: PortraitPose
     let strokeStyle: StrokeStyle
@@ -208,7 +218,7 @@ final class PortraitStudioModel {
     screenIlluminationActive = false
     captureProgress = 0
     captureSummary = nil
-    pendingAcquisition = PhotoAcquisition(revision: acquisitionRevision, file: file, pose: pose,
+    pendingAcquisition = PhotoAcquisition(revision: acquisitionRevision, sessionID: UUID(), file: file, pose: pose,
       strokeStyle: strokeStyle, duration: min(5, max(3, captureDuration.isFinite ? captureDuration : 4)))
     startWorkIfNeeded()
     await workTask?.value
@@ -305,7 +315,7 @@ final class PortraitStudioModel {
         if request.file == nil { cameraStatus = nil }
         var retained = 0
         for sample in samples {
-          if appendPhoto(sample, pose: request.pose) { retained += 1 }
+          if appendPhoto(sample, pose: request.pose, sessionID: request.sessionID) { retained += 1 }
         }
         captureSummary = request.file == nil ? "Captured \(retained) distinct frames. Choose a frame to sketch." : nil
         if retained > 0 { render(strokeStyle: request.strokeStyle) }
@@ -363,13 +373,13 @@ final class PortraitStudioModel {
   }
 
   @discardableResult
-  private func appendPhoto(_ sample: PortraitBurstSample, pose: PortraitPose) -> Bool {
+  private func appendPhoto(_ sample: PortraitBurstSample, pose: PortraitPose, sessionID: UUID = UUID()) -> Bool {
     guard photoRetention.maximumCount > 0, sample.data.count <= photoRetention.maximumBytes else {
       summary = "This photo exceeds the studio's recent-photo memory limit."
       return false
     }
     let photo = PortraitPhoto(id: UUID(), data: sample.data, label: sample.label,
-      capturedAt: Date(), frameID: sample.frameID, captureNanoseconds: sample.captureNanoseconds, pose: pose, sourcePixelExtent: sample.sourcePixelExtent)
+      capturedAt: Date(), frameID: sample.frameID, captureNanoseconds: sample.captureNanoseconds, pose: pose, sourcePixelExtent: sample.sourcePixelExtent, captureSessionID: sessionID)
     recentPhotos.append(photo)
     selectedPhotoID = photo.id
     while recentPhotos.count > photoRetention.maximumCount || retainedPhotoBytes > photoRetention.maximumBytes {
@@ -402,6 +412,7 @@ final class PortraitStudioModel {
     renderWorker?.cancel()
     pendingRender = nil
     program = nil
+    completedCandidate = nil
     completedKey = nil
     requestedKey = nil
     guard let photo = recentPhotos.first(where: { $0.id == selectedPhotoID }) else {
@@ -413,14 +424,14 @@ final class PortraitStudioModel {
     requestedKey = key
     if let result = cache.result(for: key) {
       renderCacheHits += 1
-      publish(result, key: key)
+      publish(result, key: key, photo: photo, recipe: currentRecipe)
       return
     }
     isProcessing = true
     summary = "Preparing \(style.rawValue.lowercased()) portrait…"
     pendingRender = (renderRevision, key, .init(
       data: photo.data, pose: photo.pose, style: style, options: options,
-      cachedRaster: cache.raster(for: .init(photoID: photo.id, analysis: options)), strokeStyle: strokeStyle, vectorOptions: vectorOptions, sourcePixelExtent: photo.sourcePixelExtent))
+      cachedRaster: cache.raster(for: .init(photoID: photo.id, analysis: options)), strokeStyle: strokeStyle, vectorOptions: vectorOptions, sourcePixelExtent: photo.sourcePixelExtent), photo, currentRecipe)
     startWorkIfNeeded()
   }
 
@@ -449,7 +460,7 @@ final class PortraitStudioModel {
         guard pending.revision == renderRevision, selectedPhotoID == pending.key.photoID,
           recentPhotos.contains(where: { $0.id == pending.key.photoID }), !isShutdown else { continue }
         cache.insert(result, for: pending.key)
-        publish(result, key: pending.key)
+        publish(result, key: pending.key, photo: pending.photo, recipe: pending.recipe)
       } catch {
         guard pending.revision == renderRevision, !isShutdown else { continue }
         if !(error is CancellationError) { summary = error.localizedDescription }
@@ -459,7 +470,18 @@ final class PortraitStudioModel {
     }
   }
 
-  private func publish(_ result: PortraitRenderResult, key: PortraitRenderCacheKey) {
+  private func publish(_ result: PortraitRenderResult, key: PortraitRenderCacheKey,
+    photo: PortraitPhoto, recipe: PortraitStyleRecipe) {
+    do {
+      completedCandidate = try PortraitCandidate(sourceData: photo.data,
+        sourcePixelExtent: photo.sourcePixelExtent, raster: result.raster, recipe: recipe,
+        program: result.program, photoID: photo.id, captureSessionID: photo.captureSessionID)
+    } catch {
+      completedCandidate = nil
+      summary = error.localizedDescription
+      isProcessing = false
+      return
+    }
     completedKey = key
     program = result.program
     summary = [result.raster.analysisSummary, result.transformationSummary,
@@ -544,32 +566,43 @@ final class PortraitStudioModel {
     selectPhoto(recentPhotos[index].id, strokeStyle: strokeStyle)
   }
 
-  var canRateSelection: Bool {
-    if let saved = sketches.selected {
-      return saved.recipe != nil && recentPhotos.contains { $0.id == saved.photoID }
-    }
-    return !isProcessing && currentProgram != nil
+  var canRateSelection: Bool { selectedCandidate != nil }
+
+  func loadArchive() async { await sketches.load() }
+
+  func keepSelection() -> String? {
+    guard let candidate = selectedCandidate else { return "Wait for the selected drawing to finish rendering." }
+    return sketches.retain(candidate: candidate, reason: .shortlisted)
   }
 
-  func rateSelection(_ rating: Int) -> String? {
-    if let saved = sketches.selected {
-      guard let recipe = saved.recipe,
-        let photo = recentPhotos.first(where: { $0.id == saved.photoID }) else {
-        return "The source frame for this saved sketch has been removed."
-      }
-      return preferences.record(photoData: photo.data, photoID: photo.id,
-        recipe: recipe, program: saved.program, rating: rating)
-    }
-    return rateCurrent(rating)
+  /// Capture the immutable candidate before crossing an asynchronous acceptance
+  /// boundary. A failed camera/program/Fit action cannot qualify the drawing.
+  func acceptProjection(_ candidate: PortraitCandidate,
+    perform: () async -> String?) async -> String? {
+    if let error = await perform() { return error }
+    return sketches.retain(candidate: candidate, reason: .projectionAccepted(acceptanceID: UUID()))
   }
 
-  func rateCurrent(_ rating: Int) -> String? {
-    guard !isProcessing, let program = currentProgram,
-      let photo = recentPhotos.first(where: { $0.id == selectedPhotoID }) else {
+  func rateSelection(_ rating: Int, presentation: PortraitPresentationContext? = nil) -> String? {
+    guard let candidate = selectedCandidate else {
       return "Wait for the selected frame and style to finish rendering."
     }
-    return preferences.record(photoData: photo.data, photoID: photo.id,
-      recipe: currentRecipe, program: program, rating: rating)
+    return rate(candidate, rating: rating, presentation: presentation)
+  }
+
+  func rateCurrent(_ rating: Int, presentation: PortraitPresentationContext? = nil) -> String? {
+    guard !isProcessing, currentProgram != nil, let candidate = completedCandidate else {
+      return "Wait for the selected frame and style to finish rendering."
+    }
+    return rate(candidate, rating: rating, presentation: presentation)
+  }
+
+  private func rate(_ candidate: PortraitCandidate, rating: Int,
+    presentation: PortraitPresentationContext?) -> String? {
+    do {
+      let context = try presentation ?? PortraitPresentationContext(objective: selectedStyleScope.objective)
+      return sketches.rate(candidate: candidate, rating: rating, scope: selectedStyleScope, presentation: context)
+    } catch { return error.localizedDescription }
   }
 
   /// Stop expensive work without discarding captured photos or the last
@@ -600,5 +633,6 @@ final class PortraitStudioModel {
     isShutdown = true
     await cancelRendering()
     await stopCamera()
+    await sketches.awaitPersistence()
   }
 }

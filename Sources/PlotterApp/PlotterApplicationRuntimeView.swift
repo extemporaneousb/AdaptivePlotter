@@ -194,12 +194,15 @@ struct PlotterApplicationRuntimeView: View {
     return await submit(PlotterAppUIActionID.observationCameraRole(role))
   }
 
-  private func usePortraitProgram(_ program: DrawingProgram) async -> String? {
-    if let error = await selectCamera(.plotter) { return error }
-    if let error = await submit(PlotterAppUIActionID.drawingDraft(.selectProgram(program)), program: program) {
-      return error
+  private func usePortraitProgram(_ candidate: PortraitCandidate) async -> String? {
+    await application.portraitStudio.acceptProjection(candidate) {
+      let program = candidate.program
+      if let error = await selectCamera(.plotter) { return error }
+      if let error = await submit(PlotterAppUIActionID.drawingDraft(.selectProgram(program)), program: program) {
+        return error
+      }
+      return await submit(PlotterAppUIActionID.drawingDraft(.fitInDrawableRegion))
     }
-    return await submit(PlotterAppUIActionID.drawingDraft(.fitInDrawableRegion))
   }
 
   private func submit(_ action: PlotterUIActionID, program: DrawingProgram? = nil) async -> String? {

@@ -106,26 +106,71 @@ struct PortraitBrowsingTests {
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
     let source = try #require(model.selectedPhotoID)
-    let program = try #require(model.currentProgram)
-    let recipe = model.currentRecipe
-    #expect(model.sketches.keep(program, title: "Saved", photoID: source, recipe: recipe) == nil)
+    #expect(model.keepSelection() == nil)
+    let candidateID = try #require(model.selectedCandidate?.id)
     #expect(model.rateSelection(5) == nil)
     #expect(model.preferences.examples.last?.photoID == source)
     model.selectPhoto(source, strokeStyle: pen)
     #expect(model.sketches.selected == nil)
-    #expect(model.sketches.keep(program, title: "Saved", photoID: source, recipe: recipe) == nil)
+    #expect(model.keepSelection() == nil)
     model.removePhoto(source, strokeStyle: pen)
-    #expect(!model.canRateSelection)
-    #expect(model.rateSelection(4) != nil)
+    #expect(model.canRateSelection)
+    #expect(model.rateSelection(4) == nil)
+    #expect(model.selectedCandidate?.sourceData == Data([1]))
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
     let replacement = try #require(model.selectedPhotoID)
-    #expect(model.sketches.keep(try #require(model.currentProgram), title: "Replacement",
-      photoID: replacement, recipe: recipe) == nil)
-    #expect(model.canRateSelection)
-    #expect(model.sketches.selected?.photoID == replacement)
+    model.selectPhoto(replacement, strokeStyle: pen)
+    #expect(model.keepSelection() == nil)
+    #expect(model.sketches.entries.count == 1)
+    #expect(model.sketches.selectedID == candidateID)
+    // Identical content deduplicates without rewriting the retained provenance.
+    #expect(model.sketches.selected?.photoID == source)
     #expect(model.rateSelection(3) == nil)
-    #expect(model.preferences.examples.last?.photoID == replacement)
+    #expect(model.preferences.examples.count == 3)
+    #expect(model.preferences.examples.map(\.rating) == [5, 4, 3])
+    await model.shutdown()
+  }
+
+  @Test("generation is transient and successful projection retains the pre-await candidate")
+  @MainActor
+  func projectionQualification() async throws {
+    let model = PortraitStudioModel(renderer: BrowsingRenderer())
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    let accepted = try #require(model.selectedCandidate)
+    #expect(model.sketches.entries.isEmpty)
+    let refused = await model.acceptProjection(accepted) { "Fit refused" }
+    #expect(refused == "Fit refused")
+    #expect(model.sketches.entries.isEmpty)
+    let result = await model.acceptProjection(accepted) {
+      model.setPhoto(Data([2]), for: .front, strokeStyle: pen)
+      await model.awaitRendering()
+      return nil
+    }
+    #expect(result == nil)
+    #expect(model.sketches.entries.count == 1)
+    #expect(model.sketches.entries.first?.candidate.id == accepted.id)
+    #expect(model.sketches.entries.first?.candidate.sourceData == Data([1]))
+    #expect(model.sketches.labels.isEmpty)
+    await model.shutdown()
+  }
+
+  @Test("labels preserve the actual displayed size and ink context independently of later controls")
+  @MainActor
+  func presentationContext() async throws {
+    let model = PortraitStudioModel(renderer: BrowsingRenderer())
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    let narrow = try PortraitPresentationContext(drawingHeightMM: 73, inkWidthMM: 0.3)
+    let wide = try PortraitPresentationContext(drawingHeightMM: 140, inkWidthMM: 1.2)
+    #expect(model.rateSelection(1, presentation: narrow) == nil)
+    #expect(model.rateSelection(5, presentation: wide) == nil)
+    #expect(model.sketches.entries.count == 1)
+    #expect(model.sketches.labels.map(\.presentation) == [narrow, wide])
+    #expect(model.sketches.labels.last?.previousRevisionID == model.sketches.labels.first?.id)
     await model.shutdown()
   }
 

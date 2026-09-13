@@ -137,7 +137,7 @@ reviewed, but cannot complete the whole row.
 | Campaign task | Deliverable and dependency | Worker file/semantic lease | Overall | Software | Native | Attended |
 | --- | --- | --- | --- | --- | --- | --- |
 | DS-01 | Source/crop metric and explicit Fit correction; C1 frozen for candidate consumers. Physical metric remains open. | Task `task-34dc69ed47f94ed695a7e7da85632890`; [receipts](CURRENT_EVIDENCE.md#ds-01-proportional-geometry-correction-2026-09-13). | PARTIAL: R05/attended open | COMPLETE: first correction, G01 software; 84 focused, 1102 quick, 10 journey, signed app, one-shot ACCEPT | PENDING | PENDING |
-| DS-02 | Candidate, label and owned asset persistence; freeze C2 after C1 identity contract. | Persistence worker: `PortraitSketchCollection.swift`, `PortraitPreferenceCollection.swift`, new adjacent typed store/asset files and focused persistence tests. `PortraitStudioModel.swift` integration is serialized. | PENDING | PENDING | PENDING | PENDING |
+| DS-02 | Candidate, label and owned asset persistence; C2 available to dependent consumers. Physical-attempt production association remains DS-06. | Task `task-1eef1162fd8d4694b578aa756b79c61d`; [receipts](CURRENT_EVIDENCE.md#ds-02-durable-qualified-candidates-2026-09-13); bounded persistence, exact-analysis and UI leases. | PARTIAL: DS-06 association open | COMPLETE: C2 archive and three production qualifiers; 82 initial, 29 repair, 1118 quick; signed app; one-shot F1 repaired directly | PENDING | PENDING |
 | DS-03 | Balanced broad/local exploration and exact branch navigation; depends on DS-01/C1 and DS-02/C2. | Exploration worker: `PortraitStyleRecipe.swift`, `PortraitStyleBrowser.swift`, dedicated branch/proposal types and tests; exclusive sequential lease for `PortraitStudioModel.swift` and `PortraitDrawing.swift`. | PENDING | PENDING | PENDING | PENDING |
 | DS-04 | Semantic Big Head and retained pose analysis; depends on DS-01 and DS-02. | Warp worker: `PortraitHeadTransform.swift`, new adjacent landmark/warp types and tests; sequential leases for `PortraitImageAnalyzer.swift`, `PortraitDrawing.swift` and shared recipe schema. | PENDING | PENDING | PENDING | PENDING |
 | DS-05 | Effective material profile, measurement and final-scale feasibility; depends on DS-01/DS-02 and frozen C3. Consumes DS-06 media in integration. | Material worker: new `PlotterModel` material types, measurement beside the existing `PlotterRuntime` Vision worker and corresponding tests; coordinator integrates `DrawingProgram.swift`, `CurrentCameraCalibrationPlanning.swift`, tip evidence and renderer/draft consumers. | PENDING | PENDING | PENDING | PENDING |
@@ -218,6 +218,22 @@ predeclare smaller targets and appropriate uncertainty before acquisition; recor
 insufficient evidence rather than loosening failed tolerances. A metric correction
 requires separate calibration and held-out shapes/locations. Overlay agreement,
 software geometry and physical likeness remain distinct evidence classes.
+
+### DS-02 C2 ownership and serialization
+
+`PortraitCandidate` owns a content identity over source/extent, raster, recipe,
+program, checkpoint and parent identity. UUID/time/session provenance does not create
+duplicates. `PortraitCandidateLineage` stores parent identity/recipe metadata only.
+`PortraitStyleScope`, `PortraitPresentationContext` and `PortraitLabelRevision`
+freeze parameter masks, named objective, displayed context and immutable score history.
+`PortraitRetentionReason` distinguishes shortlist, rating, projection and attempt.
+`PortraitSketchCollection` owns one archive; preferences and gallery are projections.
+`PortraitCandidateStore` owns version-1 checksummed metadata and SHA-256 source/raster
+blobs, atomic association, ordered failure retry and explicit deletion tombstones.
+`PortraitRaster` version 2 preserves exact preprocessing/mask evidence; legacy missing
+analysis is explicit. No former session collection has a durable-record FIFO limit.
+Physical attempt qualification and semantic landmarks are typed dependent integration
+work for DS-06 and DS-04; C2 alone does not claim those full requirements complete.
 
 ### Retained candidates, labels and realized drawings
 

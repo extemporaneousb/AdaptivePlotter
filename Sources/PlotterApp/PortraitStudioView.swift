@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 struct PortraitStudioView: View {
   @Bindable var model: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
-  let showOnPlotter: (DrawingProgram) async -> String?
+  let showOnPlotter: (PortraitCandidate) async -> String?
   var selectCamera: () async -> String? = { nil }
   var showPhoto: () -> Void = {}
   @State private var importing = false
@@ -15,7 +15,13 @@ struct PortraitStudioView: View {
   @State private var previewInkWidth: Double?
   @State private var previewHeight = 100.0
 
-  private var displayedProgram: DrawingProgram? { model.sketches.selected?.program ?? model.currentProgram }
+  private var displayedProgram: DrawingProgram? { model.selectedCandidate?.program }
+  private var presentationContext: PortraitPresentationContext? {
+    try? PortraitPresentationContext(drawingHeightMM: previewHeight,
+      inkWidthMM: previewInkWidth ?? strokeStyle.nominalLineWidth,
+      inkWidthIsMeasured: false, objective: .screenAesthetic,
+      prompt: "Rate likeness and drawing quality as displayed")
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -51,25 +57,24 @@ struct PortraitStudioView: View {
         .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
       if model.sketches.selected == nil {
         Button("Keep Sketch") {
-          guard let program = model.currentProgram else { return }
-          submissionError = model.sketches.keep(program, title: "\(model.currentRecipe.title) · \(program.strokes.count) strokes",
-            photoID: model.selectedPhotoID, recipe: model.currentRecipe)
+          submissionError = model.keepSelection()
         }
         .disabled(model.currentProgram == nil || model.isProcessing)
         .accessibilityIdentifier("portrait.keepSketch")
       }
-      PortraitPreferenceControls(model: model)
+      PortraitPreferenceControls(model: model, presentation: presentationContext)
+      PortraitArchiveStatus(collection: model.sketches)
       PortraitSketchStrip(collection: model.sketches)
       if let error = submissionError {
         Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
       }
       Button("Show on Plotter Video") {
-        guard let program = displayedProgram else { return }
+        guard let candidate = model.selectedCandidate else { return }
         WorkbenchRequestTelemetry.nativeActionHandled("portrait.showOnPlotter")
         isSubmitting = true
         submissionError = nil
         Task {
-          submissionError = await showOnPlotter(program)
+          submissionError = await showOnPlotter(candidate)
           isSubmitting = false
         }
       }
@@ -80,10 +85,13 @@ struct PortraitStudioView: View {
       if isSubmitting { ProgressView("Preparing plotter preview").controlSize(.small) }
     }
     .onChange(of: model.selectedPhotoID) { _, selected in
-      model.sketches.selectedID = nil
-      if selected != nil { showPhoto() }
+      if selected != nil {
+        model.sketches.selectedID = nil
+        showPhoto()
+      }
     }
     .onAppear { model.configureRecipes(strokeStyle: strokeStyle) }
+    .task { await model.loadArchive() }
     .onChange(of: model.renderConfiguration) { _, _ in render() }
     .onChange(of: strokeStyle) { _, _ in
       model.configureRecipes(strokeStyle: strokeStyle)

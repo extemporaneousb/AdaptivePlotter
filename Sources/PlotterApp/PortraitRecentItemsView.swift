@@ -46,7 +46,7 @@ struct PortraitPhotoStrip: View {
             }
           }.padding(3)
         }
-        Text("Up to 24 frames / 32 MB, kept for this session. × removes immediately.")
+        Text("Recent frames: up to 24 / 32 MB this session. × removes this recent frame; retained drawings keep their own source.")
           .font(.caption2).foregroundStyle(.secondary)
       }
     }
@@ -82,9 +82,9 @@ struct PortraitSketchStrip: View {
   var body: some View {
     if !collection.sketches.isEmpty {
       VStack(alignment: .leading, spacing: 5) {
-        Text("Compare sketches · up to 8 this session").font(.caption).foregroundStyle(.secondary)
+        Text("Retained drawings · \(collection.sketches.count)").font(.caption).foregroundStyle(.secondary)
         ScrollView(.horizontal) {
-          HStack(alignment: .top, spacing: 10) {
+          LazyHStack(alignment: .top, spacing: 10) {
             ForEach(collection.sketches) { sketch in
               VStack(alignment: .leading, spacing: 5) {
                 ZStack(alignment: .topTrailing) {
@@ -92,18 +92,45 @@ struct PortraitSketchStrip: View {
                     PortraitProgramPreview(program: sketch.program).frame(width: 140, height: 150)
                   }.buttonStyle(.plain).accessibilityLabel("Select saved \(sketch.title)")
                     .overlay { Rectangle().stroke(collection.selectedID == sketch.id ? Color.accentColor : .clear, lineWidth: 3) }
-                  Button { collection.remove(sketch.id) } label: {
-                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+                  Menu {
+                    Button("Delete This Retained Drawing", role: .destructive) {
+                      collection.remove(sketch.id)
+                    }
+                    Button("Delete Source and All Its Retained Drawings", role: .destructive) {
+                      collection.deleteSource(sketch.candidate.sourceSHA256)
+                    }
+                  } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 11, weight: .bold))
                       .frame(width: 26, height: 26).background(.regularMaterial, in: Circle())
-                  }.buttonStyle(.plain).padding(4).accessibilityLabel("Remove saved \(sketch.title)")
+                  }.menuStyle(.borderlessButton).fixedSize().padding(4)
+                    .accessibilityLabel("Manage retained \(sketch.title)")
                 }
-                Text(sketch.title).font(.caption2).lineLimit(1).frame(width: 140, alignment: .leading)
-
+                Text(sketch.title).font(.caption2).lineLimit(2).frame(width: 140, alignment: .leading)
+                Text(retentionSummary(for: sketch.id)).font(.caption2).foregroundStyle(.secondary)
+                  .frame(width: 140, alignment: .leading)
               }
             }
           }.padding(3)
         }
+        Text("Deleting a retained drawing removes its payload from future datasets. Deleting its source removes every retained drawing from that source. Earlier record identities remain as deletion history.")
+          .font(.caption2).foregroundStyle(.secondary)
       }
     }
+  }
+
+  private func retentionSummary(for id: String) -> String {
+    guard let entry = collection.entries.first(where: { $0.id == id }) else { return "" }
+    var labels: [String] = []
+    for event in entry.reasons {
+      let label: String
+      switch event.reason {
+      case .shortlisted: label = "Shortlisted"
+      case .rated: label = "Rated"
+      case .projectionAccepted: label = "Accepted on plotter video"
+      case .physicalAttempt: label = "Physical attempt"
+      }
+      if !labels.contains(label) { labels.append(label) }
+    }
+    return labels.joined(separator: " · ")
   }
 }

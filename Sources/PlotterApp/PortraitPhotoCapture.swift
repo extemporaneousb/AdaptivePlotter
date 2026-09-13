@@ -12,6 +12,7 @@ struct PortraitPhoto: Identifiable, Sendable {
   // Retained solely for existing saved-program provenance, never a capture slot.
   let pose: PortraitPose
   var sourcePixelExtent: PortraitSourceCropExtent? = nil
+  var captureSessionID: UUID = UUID()
 }
 
 struct PortraitPhotoRetention: Sendable {

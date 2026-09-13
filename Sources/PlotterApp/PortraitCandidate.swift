@@ -1,0 +1,190 @@
+import CryptoKit
+import Foundation
+import PlotterModel
+
+/// A label objective is independent of why a candidate was retained.
+enum PortraitLabelObjective: String, Codable, CaseIterable, Sendable {
+  case screenAesthetic, physicalRealization
+}
+
+enum PortraitTrainableParameter: String, Codable, CaseIterable, Sendable {
+  case contourLevels, minimumContourLength, simplificationTolerance, hatchSpacing
+  case tonalStrength, smoothing, sketchThreshold, hatchAngleDegrees, headScale
+  case foreheadWidth, foreheadHeight, eyeScale, lateralScale
+}
+
+struct PortraitFrozenParameter: Codable, Hashable, Sendable {
+  let parameter: PortraitTrainableParameter
+  let value: Double
+}
+
+struct PortraitStyleScope: Identifiable, Codable, Hashable, Sendable {
+  let id: UUID
+  let name: String
+  let revision: Int
+  let objective: PortraitLabelObjective
+  let allowedFamilies: [PortraitStyle]
+  let activeParameters: [PortraitTrainableParameter]
+  let frozenParameters: [PortraitFrozenParameter]
+
+  static let screenSketch = Self(
+    id: UUID(uuidString: "BC4D5C09-434A-4092-8762-C4DB391D463F")!, name: "My drawing style", revision: 1,
+    objective: .screenAesthetic, allowedFamilies: PortraitStyle.allCases,
+    activeParameters: [.contourLevels, .minimumContourLength, .simplificationTolerance,
+      .hatchSpacing, .tonalStrength, .smoothing, .sketchThreshold, .hatchAngleDegrees],
+    frozenParameters: [.init(parameter: .headScale, value: 1)])
+}
+
+struct PortraitPresentationContext: Codable, Hashable, Sendable {
+  let rendererRevision: String
+  let drawingHeightMM: Double
+  let inkWidthMM: Double
+  let inkWidthIsMeasured: Bool
+  let materialRevision: String?
+  let objective: PortraitLabelObjective
+  let prompt: String
+
+  init(drawingHeightMM: Double = 100, inkWidthMM: Double = 0.4,
+    inkWidthIsMeasured: Bool = false, materialRevision: String? = nil,
+    objective: PortraitLabelObjective = .screenAesthetic,
+    prompt: String = "Rate likeness and drawing quality as displayed") throws {
+    guard drawingHeightMM.isFinite, drawingHeightMM > 0,
+      inkWidthMM.isFinite, inkWidthMM > 0 else { throw PortraitCandidateError.invalidPresentation }
+    rendererRevision = "portrait-preview-v1"
+    self.drawingHeightMM = drawingHeightMM
+    self.inkWidthMM = inkWidthMM
+    self.inkWidthIsMeasured = inkWidthIsMeasured
+    self.materialRevision = materialRevision
+    self.objective = objective
+    self.prompt = prompt
+  }
+}
+
+/// An ancestry reference does not own a parent's source, raster or vectors.
+struct PortraitCandidateLineage: Codable, Hashable, Sendable {
+  let parentID: String?
+  let parentProgramHash: String?
+  let parentRecipe: PortraitStyleRecipe?
+  let ancestryGroupID: UUID
+}
+
+enum PortraitCandidateError: Error, LocalizedError {
+  case missingSource, invalidPresentation, invalidRating, integrityMismatch, incompatibleScope
+  var errorDescription: String? {
+    switch self {
+    case .missingSource: "The exact source and analyzed drawing are unavailable."
+    case .invalidPresentation: "Drawing size and ink width must be positive and finite."
+    case .invalidRating: "Choose a rating from 1 to 5."
+    case .integrityMismatch: "The retained candidate does not match its content identity."
+    case .incompatibleScope: "The rating objective does not match the selected style scope."
+    }
+  }
+}
+
+enum PortraitCandidateCoding {
+  static func encoder() -> JSONEncoder {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    return encoder
+  }
+  static func digest(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  }
+}
+
+/// The immutable transient rendering result. Only an explicit qualifying event
+/// sends this same payload to durable storage. Generation alone never saves it.
+struct PortraitCandidate: Identifiable, Codable, Sendable {
+  static let schemaVersion = 1
+  let id: String
+  let sourceData: Data
+  let sourceSHA256: String
+  let sourcePixelExtent: PortraitSourceCropExtent?
+  let raster: PortraitRaster
+  let rasterSHA256: String
+  let recipe: PortraitStyleRecipe
+  let recipeSHA256: String
+  let program: DrawingProgram
+  let photoID: UUID
+  let captureSessionID: UUID
+  let createdAt: Date
+  let lineage: PortraitCandidateLineage
+  let producerRevision: String
+  let checkpointID: String?
+
+  init(sourceData: Data, sourcePixelExtent: PortraitSourceCropExtent?, raster: PortraitRaster,
+    recipe: PortraitStyleRecipe, program: DrawingProgram, photoID: UUID,
+    captureSessionID: UUID, createdAt: Date = Date(), lineage: PortraitCandidateLineage? = nil,
+    checkpointID: String? = nil) throws {
+    guard !sourceData.isEmpty else { throw PortraitCandidateError.missingSource }
+    let encoder = PortraitCandidateCoding.encoder()
+    self.sourceData = sourceData
+    sourceSHA256 = PortraitCandidateCoding.digest(sourceData)
+    self.sourcePixelExtent = sourcePixelExtent
+    self.raster = raster
+    rasterSHA256 = PortraitCandidateCoding.digest(try encoder.encode(raster))
+    self.recipe = recipe
+    recipeSHA256 = PortraitCandidateCoding.digest(try encoder.encode(recipe))
+    self.program = program
+    self.photoID = photoID
+    self.captureSessionID = captureSessionID
+    self.createdAt = createdAt
+    self.lineage = lineage ?? PortraitCandidateLineage(parentID: nil, parentProgramHash: nil,
+      parentRecipe: nil, ancestryGroupID: captureSessionID)
+    producerRevision = "portrait-v3"
+    self.checkpointID = checkpointID
+    // Source/analysis/recipe/program define a candidate. Session/photo UUIDs and
+    // time are provenance, not artificial duplicates of an identical drawing.
+    let extentHash = PortraitCandidateCoding.digest(try encoder.encode(sourcePixelExtent))
+    let identity = ["portrait-candidate-v1", sourceSHA256, extentHash, rasterSHA256, recipeSHA256,
+      program.contentHash.description, checkpointID ?? "prior",
+      self.lineage.parentID ?? "root"].joined(separator: "|")
+    id = PortraitCandidateCoding.digest(Data(identity.utf8))
+  }
+
+  func validateIntegrity() throws {
+    let rebuilt = try Self(sourceData: sourceData, sourcePixelExtent: sourcePixelExtent,
+      raster: raster, recipe: recipe, program: program, photoID: photoID,
+      captureSessionID: captureSessionID, createdAt: createdAt, lineage: lineage, checkpointID: checkpointID)
+    guard rebuilt.id == id, rebuilt.sourceSHA256 == sourceSHA256,
+      rebuilt.rasterSHA256 == rasterSHA256, rebuilt.recipeSHA256 == recipeSHA256,
+      producerRevision == rebuilt.producerRevision else { throw PortraitCandidateError.integrityMismatch }
+  }
+}
+
+enum PortraitRetentionReason: Codable, Hashable, Sendable {
+  case shortlisted
+  case rated(labelRevisionID: UUID)
+  case projectionAccepted(acceptanceID: UUID)
+  case physicalAttempt(attemptID: UUID)
+}
+
+struct PortraitRetentionEvent: Identifiable, Codable, Hashable, Sendable {
+  let id: UUID
+  let reason: PortraitRetentionReason
+  let createdAt: Date
+  init(reason: PortraitRetentionReason, id: UUID = UUID(), createdAt: Date = Date()) {
+    self.id = id; self.reason = reason; self.createdAt = createdAt
+  }
+}
+
+struct PortraitLabelRevision: Identifiable, Codable, Hashable, Sendable {
+  let id: UUID
+  let previousRevisionID: UUID?
+  let candidateID: String
+  let programContentHash: String
+  let rating: Int
+  let createdAt: Date
+  let scope: PortraitStyleScope
+  let presentation: PortraitPresentationContext
+
+  init(candidate: PortraitCandidate, rating: Int, scope: PortraitStyleScope,
+    presentation: PortraitPresentationContext, previousRevisionID: UUID? = nil,
+    id: UUID = UUID(), createdAt: Date = Date()) throws {
+    guard (1...5).contains(rating) else { throw PortraitCandidateError.invalidRating }
+    guard scope.objective == presentation.objective else { throw PortraitCandidateError.incompatibleScope }
+    self.id = id; self.previousRevisionID = previousRevisionID
+    candidateID = candidate.id; programContentHash = candidate.program.contentHash.description
+    self.rating = rating; self.scope = scope; self.presentation = presentation; self.createdAt = createdAt
+  }
+}

@@ -2109,15 +2109,29 @@ associated rasters and rendered variants. `PortraitRenderCache` keys results by 
 identity, exact analysis/vector configuration and pen style; its LRU bounds are 24
 renders / 200,000 vector points and 32 analyzed rasters. `PortraitStyleRecipe` supplies
 named and seeded variants; `PortraitStyleBrowser` keeps frame navigation independent
-of a bounded 24-recipe history. `PortraitSketchCollection` retains at most eight immutable vector
-comparisons and 200,000 total points with session-local ratings. Neither collection
-persists raw photos, owns Learning, or supplies drawing admission.
-`PortraitPreferenceCollection` stores up to 32 immutable source/recipe/program/rating
-examples with a 48 MiB complete export-payload bound. Current-candidate admission
-checks completed photo and configuration identity; manual edits invalidate eligibility
-before their observed render request. Export encodes a frozen Sendable snapshot off
-MainActor and writes only through the explicit file exporter. No training or networking
-runs, and no Learning package or execution archive owns these examples.
+of a bounded 24-recipe history. `PortraitCandidate` freezes exact source bytes,
+source extent, analyzed raster, recipe, program, capture-session and lineage metadata
+at render completion. Content identity deduplicates identical candidates independently
+of capture UUID/time; a selected retained candidate does not depend on recent photos.
+`PortraitSketchCollection` is the sole observable qualified-archive owner;
+`PortraitCandidateStore` serializes content-addressed source/raster installation
+before atomic checksummed index association. Production injects Application Support
+storage; tests explicitly use isolated stores or memory. Failed writes retain ordered
+pending mutations for retry; damaged assets/index block replacement while healthy
+records remain recoverable. Qualified records have no FIFO limit. Explicit deletion
+commits tombstones before removing unreferenced payloads.
+`PortraitPreferenceCollection` projects immutable scoped labels from that same archive.
+Labels bind displayed drawing height, estimated/measured ink context, objective and
+prompt; revised labels retain previous IDs. Source/candidate deletion and label
+withdrawal preserve tombstone identity. Export encodes a frozen Sendable snapshot off
+MainActor. Complete successful camera/program/Fit acceptance retains the exact candidate
+captured before awaiting; failed acceptance does not qualify it. Physical attempt
+retention is a typed reason awaiting DS-06 runtime integration. Training remains DS-07.
+
+Versioned `PortraitRaster` retains typed source/decoded/crop/sample geometry and the
+actual applied mask alpha, mask outcome and preprocessing bounds. Legacy/synthetic
+rasters explicitly lack this evidence. The vectorizer preserves these values through
+its preparation; recorded analysis is not reproduced by rerunning Vision by assertion.
 
 The existing observation runtime exclusively selects plotter or face capture.
 The studio's own `CameraCapture` requests a 33,333,333 ns preview interval; shared

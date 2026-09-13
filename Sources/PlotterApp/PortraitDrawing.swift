@@ -101,7 +101,7 @@ struct PortraitSourceCropExtent: Codable, Hashable, Sendable {
 /// A bounded, top-left-origin brightness image. Image analysis owns cropping
 /// and background removal; the vectorizer knows nothing about cameras or motion.
 struct PortraitRaster: Codable, Sendable {
-  static let schemaVersion = 1
+  static let schemaVersion = 2
   let width: Int
   let height: Int
   let luminance: [Double]
@@ -111,10 +111,14 @@ struct PortraitRaster: Codable, Sendable {
   var faceBounds: CGRect?
   /// Absent only for legacy or synthetic rasters whose original crop is unknown.
   let sourceCropExtent: PortraitSourceCropExtent?
+  /// Nil identifies legacy/synthetic analysis whose exact preprocessing is unavailable.
+  let analysisGeometry: PortraitAnalysisGeometry?
+  let personMask: PortraitPersonMask?
 
   init(width: Int, height: Int, luminance: [Double], provenance: String,
     analysisSummary: String, faceBounds: CGRect? = nil,
-    sourceCropExtent: PortraitSourceCropExtent? = nil) {
+    sourceCropExtent: PortraitSourceCropExtent? = nil,
+    analysisGeometry: PortraitAnalysisGeometry? = nil, personMask: PortraitPersonMask? = nil) {
     self.width = width
     self.height = height
     self.luminance = luminance
@@ -122,6 +126,8 @@ struct PortraitRaster: Codable, Sendable {
     self.analysisSummary = analysisSummary
     self.faceBounds = faceBounds
     self.sourceCropExtent = sourceCropExtent
+    self.analysisGeometry = analysisGeometry
+    self.personMask = personMask
   }
 
   var metricProvenance: String {
@@ -133,6 +139,7 @@ struct PortraitRaster: Codable, Sendable {
 
   private enum CodingKeys: String, CodingKey {
     case schemaVersion, width, height, luminance, provenance, analysisSummary, faceBounds, sourceCropExtent
+    case analysisGeometry, personMask
   }
 
   init(from decoder: Decoder) throws {
@@ -148,7 +155,10 @@ struct PortraitRaster: Codable, Sendable {
       provenance: try values.decode(String.self, forKey: .provenance),
       analysisSummary: try values.decode(String.self, forKey: .analysisSummary),
       faceBounds: try values.decodeIfPresent(CGRect.self, forKey: .faceBounds),
-      sourceCropExtent: try values.decodeIfPresent(PortraitSourceCropExtent.self, forKey: .sourceCropExtent))
+      sourceCropExtent: try values.decodeIfPresent(PortraitSourceCropExtent.self, forKey: .sourceCropExtent),
+      analysisGeometry: try values.decodeIfPresent(PortraitAnalysisGeometry.self, forKey: .analysisGeometry),
+      personMask: try values.decodeIfPresent(PortraitPersonMask.self, forKey: .personMask))
+    try validateAnalysisEvidence()
   }
 
   func encode(to encoder: Encoder) throws {
@@ -161,6 +171,25 @@ struct PortraitRaster: Codable, Sendable {
     try values.encode(analysisSummary, forKey: .analysisSummary)
     try values.encodeIfPresent(faceBounds, forKey: .faceBounds)
     try values.encodeIfPresent(sourceCropExtent, forKey: .sourceCropExtent)
+    try values.encodeIfPresent(analysisGeometry, forKey: .analysisGeometry)
+    try values.encodeIfPresent(personMask, forKey: .personMask)
+  }
+
+  func validateAnalysisEvidence() throws {
+    guard width >= 2, height >= 2, width <= 512, height <= 512,
+      luminance.count == width * height, luminance.allSatisfy(\.isFinite)
+    else { throw PortraitDrawingError.unreadableImage }
+    try analysisGeometry?.validate(width: width, height: height)
+    try personMask?.validate(width: width, height: height)
+    if let geometry = analysisGeometry {
+      let expected = try PortraitSourceCropExtent(
+        widthPixels: geometry.sourcePixelExtent.widthPixels * (geometry.crop.width / Double(geometry.decodedWidth)),
+        heightPixels: geometry.sourcePixelExtent.heightPixels * (geometry.crop.height / Double(geometry.decodedHeight)))
+      guard let sourceCropExtent,
+        abs(expected.widthPixels / sourceCropExtent.widthPixels - 1) < 1e-12,
+        abs(expected.heightPixels / sourceCropExtent.heightPixels - 1) < 1e-12
+      else { throw PortraitDrawingError.unreadableImage }
+    }
   }
 }
 
@@ -437,7 +466,8 @@ enum PortraitVectorizer {
     let values = smooth.map { pow(min(1, max(0, $0)), options.tonalStrength) }
     return PortraitRaster(width: raster.width, height: raster.height, luminance: values,
       provenance: raster.provenance, analysisSummary: raster.analysisSummary, faceBounds: raster.faceBounds,
-      sourceCropExtent: raster.sourceCropExtent)
+      sourceCropExtent: raster.sourceCropExtent, analysisGeometry: raster.analysisGeometry,
+      personMask: raster.personMask)
   }
 
   /// Separable, edge-clamped Gaussian. The bounded sigma limits the kernel to
