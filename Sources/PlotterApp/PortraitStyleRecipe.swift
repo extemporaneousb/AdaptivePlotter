@@ -42,22 +42,7 @@ struct PortraitStyleRecipe: Identifiable, Codable, Hashable, Sendable {
   }
 
   static func random(seed: UInt64, penWidthMM: Double = 0.8, bigHead: Bool = false) -> Self {
-    var random = PortraitRecipeRandom(seed: seed)
-    let style = PortraitStyle.allCases[random.index(PortraitStyle.allCases.count)]
-    var vectors = baseOptions(penWidthMM: penWidthMM)
-    vectors.contourLevels = 2 + random.index(6)
-    vectors.minimumContourLength *= random.value(0.55...1.6)
-    vectors.simplificationTolerance *= random.value(0.55...1.65)
-    vectors.hatchSpacing = min(16, vectors.hatchSpacing + random.index(6))
-    vectors.tonalStrength = random.value(0.7...1.4)
-    vectors.smoothing = random.value(0.25...1.8)
-    vectors.sketchThreshold = random.value(0.004...0.022)
-    vectors.hatchAngleDegrees = [-60.0, -40, -20, 0, 20, 40, 60][random.index(7)]
-    vectors.headScale = bigHead ? random.value(1.2...1.6) : 1
-    let analysis = PortraitAnalysisOptions(cropToFace: true, removeBackground: true,
-      faceCropMargin: bigHead ? random.value(0.55...0.8) : random.value(0.25...0.65))
-    let title = (bigHead ? "Festival " : "") + style.rawValue + " · " + String(seed % 10_000)
-    return make(title: title, seed: seed, style: style, vectors: vectors, analysis: analysis)
+    PortraitProposalPolicy.broad(seed: seed, penWidthMM: penWidthMM, bigHead: bigHead).recipe
   }
 
   static func seededVariants(seed: UInt64, count: Int = 6, penWidthMM: Double = 0.8) -> [Self] {
@@ -67,7 +52,7 @@ struct PortraitStyleRecipe: Identifiable, Codable, Hashable, Sendable {
     }
   }
 
-  private static func baseOptions(penWidthMM: Double) -> PortraitVectorOptions {
+  static func baseOptions(penWidthMM: Double) -> PortraitVectorOptions {
     let width = penWidthMM.isFinite ? min(5, max(0.1, penWidthMM)) : 0.8
     var options = width >= 1 ? PortraitVectorPreset.broadMarker.options : PortraitVectorPreset.balanced.options
     // The authored field is 100 mm high and analysis is at most 160 pixels.
@@ -88,7 +73,7 @@ struct PortraitStyleRecipe: Identifiable, Codable, Hashable, Sendable {
 
 /// SplitMix64 has a specified integer transition; sequences do not depend on
 /// Swift's process-randomized Hasher or the system random-number generator.
-private struct PortraitRecipeRandom {
+struct PortraitRecipeRandom {
   private var state: UInt64
   init(seed: UInt64) { state = seed }
   mutating func next() -> UInt64 {

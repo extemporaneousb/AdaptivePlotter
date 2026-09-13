@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import PlotterModel
 
-enum PortraitPose: String, CaseIterable, Identifiable, Sendable {
+enum PortraitPose: String, CaseIterable, Identifiable, Codable, Sendable {
   case left = "Left", front = "Front", right = "Right"
   var id: Self { self }
 }

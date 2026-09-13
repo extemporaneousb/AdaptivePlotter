@@ -38,6 +38,7 @@ struct PortraitStudioView: View {
       } else {
         Button("Return to Current Edit") { model.sketches.selectedID = nil }
       }
+      PortraitExplorationControls(model: model)
       PortraitProgramPreview(program: displayedProgram,
         inkWidth: previewInkWidth ?? strokeStyle.nominalLineWidth, drawingHeight: previewHeight)
         .frame(minHeight: 220, idealHeight: 300)
@@ -92,7 +93,9 @@ struct PortraitStudioView: View {
     }
     .onAppear { model.configureRecipes(strokeStyle: strokeStyle) }
     .task { await model.loadArchive() }
-    .onChange(of: model.renderConfiguration) { _, _ in render() }
+    .onChange(of: model.renderConfiguration) { _, _ in
+      model.renderIfConfigurationChanged(strokeStyle: strokeStyle)
+    }
     .onChange(of: strokeStyle) { _, _ in
       model.configureRecipes(strokeStyle: strokeStyle)
       render()
@@ -106,7 +109,6 @@ struct PortraitStudioView: View {
   }
 
   private func render() {
-    model.sketches.selectedID = nil
     model.renderIfNeeded(strokeStyle: strokeStyle)
   }
 

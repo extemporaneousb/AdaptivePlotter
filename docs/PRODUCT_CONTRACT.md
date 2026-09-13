@@ -1524,12 +1524,25 @@ around the detected face while retaining the canvas boundary. No detected face m
 no warp, with a visible explanation. This is a deterministic caricature transform;
 it does not perform facial-part parsing, learned likeness generation, or 3D reconstruction.
 
-The style recipe picker and Random Style sample named families plus reproducible
-parameter variations. New Big-head Candidate varies geometry and ink style for the
-same frame. Previous/next frame preserves the recipe (Option-left/right); previous/next
-style preserves the frame (Option-up/down). Up to 24 recipes remain in session history.
-Repeated frame/style selections reuse bounded exact renders; changing selections never
-exposes the previous candidate as the current plotter-ready drawing or rating target.
+The style recipe picker retains named choices, including deliberate hatch styles.
+Broad Random Style uses declared weights: contour, tonal contour and clean line
+receive 30 percent each; hatch, crosshatch and sketch-plus-hatch share 10 percent.
+New Big-head Candidate varies head amplitude and broad ink style for the same frame.
+More Like This preserves the displayed candidate's exact source, analyzed crop/mask,
+family and head configuration while varying relevant nearby line/tone parameters.
+It can start from an archived drawing after recent-photo eviction. Parent, Back,
+Forward and child selection recover exact available completed candidates without
+rerendering. Transient history is bounded by 24 candidates / 96 MiB of encoded
+payloads; expired or oversized history is explicit, and qualified archive records
+remain independent of that limit. No generation or navigation action alone qualifies
+retention. A qualified child records parent metadata without retaining full
+unqualified ancestors or browsing siblings.
+
+Previous/next frame preserves the recipe (Option-left/right); previous/next style
+preserves the frame (Option-up/down). Up to 24 recipes remain in session history.
+Exact candidate history is separate from recipe and photo navigation. Completed
+candidate admission binds selection/configuration and frozen proposal context;
+superseded work cannot replace the current drawing or label target.
 
 The preview estimates ink width at an explicitly chosen drawing height. These
 preview settings do not alter the tool profile or actual placement; Fit to Drawing

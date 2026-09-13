@@ -111,11 +111,14 @@ struct PortraitCandidate: Identifiable, Codable, Sendable {
   let lineage: PortraitCandidateLineage
   let producerRevision: String
   let checkpointID: String?
+  let pose: PortraitPose?
+  let proposal: PortraitProposalMetadata?
 
   init(sourceData: Data, sourcePixelExtent: PortraitSourceCropExtent?, raster: PortraitRaster,
     recipe: PortraitStyleRecipe, program: DrawingProgram, photoID: UUID,
     captureSessionID: UUID, createdAt: Date = Date(), lineage: PortraitCandidateLineage? = nil,
-    checkpointID: String? = nil) throws {
+    checkpointID: String? = nil, pose: PortraitPose? = nil,
+    proposal: PortraitProposalMetadata? = nil) throws {
     guard !sourceData.isEmpty else { throw PortraitCandidateError.missingSource }
     let encoder = PortraitCandidateCoding.encoder()
     self.sourceData = sourceData
@@ -133,19 +136,36 @@ struct PortraitCandidate: Identifiable, Codable, Sendable {
       parentRecipe: nil, ancestryGroupID: captureSessionID)
     producerRevision = "portrait-v3"
     self.checkpointID = checkpointID
+    self.pose = pose
+    self.proposal = proposal
     // Source/analysis/recipe/program define a candidate. Session/photo UUIDs and
     // time are provenance, not artificial duplicates of an identical drawing.
     let extentHash = PortraitCandidateCoding.digest(try encoder.encode(sourcePixelExtent))
-    let identity = ["portrait-candidate-v1", sourceSHA256, extentHash, rasterSHA256, recipeSHA256,
+    var identityParts = ["portrait-candidate-v1", sourceSHA256, extentHash, rasterSHA256, recipeSHA256,
       program.contentHash.description, checkpointID ?? "prior",
-      self.lineage.parentID ?? "root"].joined(separator: "|")
-    id = PortraitCandidateCoding.digest(Data(identity.utf8))
+      self.lineage.parentID ?? "root"]
+    // Optional additions preserve existing DS-02 IDs when absent.
+    if let pose { identityParts.append("pose=\(pose.rawValue)") }
+    if let proposal { identityParts.append(PortraitCandidateCoding.digest(try encoder.encode(proposal))) }
+    id = PortraitCandidateCoding.digest(Data(identityParts.joined(separator: "|").utf8))
+  }
+
+  /// Legacy DS-02 programs already own an exact pose token in producer
+  /// provenance. Decode only that known format; missing/ambiguous pose stays nil.
+  var renderPose: PortraitPose? {
+    if let pose { return pose }
+    guard program.source.kind == "portrait",
+      program.source.sourceIdentifier.hasPrefix("portrait-v3|") else { return nil }
+    let tokens = program.source.sourceIdentifier.split(separator: "|").filter { $0.hasPrefix("pose=") }
+    guard tokens.count == 1, let token = tokens.first else { return nil }
+    return PortraitPose(rawValue: String(token.dropFirst(5)))
   }
 
   func validateIntegrity() throws {
     let rebuilt = try Self(sourceData: sourceData, sourcePixelExtent: sourcePixelExtent,
       raster: raster, recipe: recipe, program: program, photoID: photoID,
-      captureSessionID: captureSessionID, createdAt: createdAt, lineage: lineage, checkpointID: checkpointID)
+      captureSessionID: captureSessionID, createdAt: createdAt, lineage: lineage, checkpointID: checkpointID,
+      pose: pose, proposal: proposal)
     guard rebuilt.id == id, rebuilt.sourceSHA256 == sourceSHA256,
       rebuilt.rasterSHA256 == rasterSHA256, rebuilt.recipeSHA256 == recipeSHA256,
       producerRevision == rebuilt.producerRevision else { throw PortraitCandidateError.integrityMismatch }

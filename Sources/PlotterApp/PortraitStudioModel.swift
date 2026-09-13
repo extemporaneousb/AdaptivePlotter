@@ -29,6 +29,8 @@ final class PortraitStudioModel {
   var vectorOptions = PortraitVectorOptions()
   let sketches: PortraitSketchCollection
   let preferences: PortraitPreferenceCollection
+  let history = PortraitExplorationHistory()
+  private(set) var explorationStatus: String?
   var selectedStyleScope: PortraitStyleScope = .screenSketch
   private(set) var completedCandidate: PortraitCandidate?
   var selectedCandidate: PortraitCandidate? {
@@ -47,7 +49,7 @@ final class PortraitStudioModel {
       style: style, vectorOptions: vectorOptions.bounded, analysisOptions: options)
   }
   var framePosition: String {
-    guard let index = recentPhotos.firstIndex(where: { $0.id == selectedPhotoID }) else { return "No frame" }
+    guard let index = recentPhotos.firstIndex(where: { $0.id == selectedPhotoID }) else { return selectedSource == nil ? "No frame" : "Retained source" }
     return "Frame \(index + 1) / \(recentPhotos.count)"
   }
   /// The completed drawing is usable only for its exact current selection.
@@ -64,7 +66,13 @@ final class PortraitStudioModel {
   @ObservationIgnored private(set) var renderCacheHits = 0
   private(set) var recentPhotos: [PortraitPhoto] = []
   private(set) var selectedPhotoID: UUID?
-  var selectedPhoto: Data? { recentPhotos.first(where: { $0.id == selectedPhotoID })?.data }
+  @ObservationIgnored private var retainedEditSource: PortraitPhoto?
+  @ObservationIgnored private var retainedAnalysis: (options: PortraitAnalysisOptions, raster: PortraitRaster)?
+  private var selectedSource: PortraitPhoto? {
+    recentPhotos.first(where: { $0.id == selectedPhotoID })
+      ?? (retainedEditSource?.id == selectedPhotoID ? retainedEditSource : nil)
+  }
+  var selectedPhoto: Data? { selectedSource?.data }
   var retainedPhotoBytes: Int { recentPhotos.reduce(0) { $0 + $1.data.count } }
   // Transitional access for existing source-provenance consumers. New studio
   // controls use identified recent photos, never left/center/right slots.
@@ -100,7 +108,18 @@ final class PortraitStudioModel {
   @ObservationIgnored private var pendingAcquisition: PhotoAcquisition?
   @ObservationIgnored private var acquisitionRevision: UInt64 = 0
   @ObservationIgnored private(set) var acquisitionDiagnostics = PortraitRenderDiagnostics()
-  @ObservationIgnored private var pendingRender: (revision: UInt64, key: PortraitRenderCacheKey, request: PortraitRenderRequest, photo: PortraitPhoto, recipe: PortraitStyleRecipe)?
+  private struct PendingRender: Sendable {
+    let revision: UInt64
+    let key: PortraitRenderCacheKey
+    let request: PortraitRenderRequest
+    let photo: PortraitPhoto
+    let recipe: PortraitStyleRecipe
+    let lineage: PortraitCandidateLineage?
+    let proposal: PortraitProposalMetadata?
+    let checkpointID: String?
+    let ownsSource: Bool
+  }
+  @ObservationIgnored private var pendingRender: PendingRender?
   @ObservationIgnored private var renderRevision: UInt64 = 0
   @ObservationIgnored private var isShutdown = false
   @ObservationIgnored private(set) var renderDiagnostics = PortraitRenderDiagnostics()
@@ -406,7 +425,8 @@ final class PortraitStudioModel {
     }
   }
 
-  func render(strokeStyle: StrokeStyle) {
+  func render(strokeStyle: StrokeStyle, parent: PortraitCandidate? = nil,
+    proposal: PortraitProposalMetadata? = nil, exactRaster: PortraitRaster? = nil) {
     guard !isShutdown else { return }
     renderRevision &+= 1
     renderWorker?.cancel()
@@ -415,23 +435,33 @@ final class PortraitStudioModel {
     completedCandidate = nil
     completedKey = nil
     requestedKey = nil
-    guard let photo = recentPhotos.first(where: { $0.id == selectedPhotoID }) else {
+    guard let photo = selectedSource else {
       isProcessing = false
       summary = "Capture a portrait or choose a photo."
       return
     }
     let key = PortraitRenderCacheKey(photoID: photo.id, configuration: renderConfiguration, strokeStyle: strokeStyle)
     requestedKey = key
-    if let result = cache.result(for: key) {
+    let lineage = parent.map { PortraitCandidateLineage(parentID: $0.id,
+      parentProgramHash: $0.program.contentHash.description, parentRecipe: $0.recipe,
+      ancestryGroupID: $0.lineage.ancestryGroupID) }
+    if exactRaster == nil, let result = cache.result(for: key) {
       renderCacheHits += 1
-      publish(result, key: key, photo: photo, recipe: currentRecipe)
+      publish(result, key: key, photo: photo, recipe: currentRecipe,
+        lineage: lineage, proposal: proposal, checkpointID: parent?.checkpointID)
       return
     }
     isProcessing = true
     summary = "Preparing \(style.rawValue.lowercased()) portrait…"
-    pendingRender = (renderRevision, key, .init(
+    let raster = exactRaster ?? cache.raster(for: .init(photoID: photo.id, analysis: options))
+      ?? (retainedEditSource?.id == photo.id && retainedAnalysis?.options == options ? retainedAnalysis?.raster : nil)
+    pendingRender = PendingRender(revision: renderRevision, key: key, request: .init(
       data: photo.data, pose: photo.pose, style: style, options: options,
-      cachedRaster: cache.raster(for: .init(photoID: photo.id, analysis: options)), strokeStyle: strokeStyle, vectorOptions: vectorOptions, sourcePixelExtent: photo.sourcePixelExtent), photo, currentRecipe)
+      cachedRaster: raster, strokeStyle: strokeStyle, vectorOptions: vectorOptions,
+      sourcePixelExtent: photo.sourcePixelExtent), photo: photo, recipe: currentRecipe,
+      lineage: lineage, proposal: proposal, checkpointID: parent?.checkpointID,
+      ownsSource: retainedEditSource?.id == photo.id)
+
     startWorkIfNeeded()
   }
 
@@ -458,9 +488,10 @@ final class PortraitStudioModel {
       do {
         let result = try await worker.value
         guard pending.revision == renderRevision, selectedPhotoID == pending.key.photoID,
-          recentPhotos.contains(where: { $0.id == pending.key.photoID }), !isShutdown else { continue }
+          (pending.ownsSource || recentPhotos.contains(where: { $0.id == pending.key.photoID })), !isShutdown else { continue }
         cache.insert(result, for: pending.key)
-        publish(result, key: pending.key, photo: pending.photo, recipe: pending.recipe)
+        publish(result, key: pending.key, photo: pending.photo, recipe: pending.recipe,
+          lineage: pending.lineage, proposal: pending.proposal, checkpointID: pending.checkpointID)
       } catch {
         guard pending.revision == renderRevision, !isShutdown else { continue }
         if !(error is CancellationError) { summary = error.localizedDescription }
@@ -471,22 +502,34 @@ final class PortraitStudioModel {
   }
 
   private func publish(_ result: PortraitRenderResult, key: PortraitRenderCacheKey,
-    photo: PortraitPhoto, recipe: PortraitStyleRecipe) {
+    photo: PortraitPhoto, recipe: PortraitStyleRecipe, lineage: PortraitCandidateLineage?,
+    proposal: PortraitProposalMetadata?, checkpointID: String?) {
     do {
       completedCandidate = try PortraitCandidate(sourceData: photo.data,
         sourcePixelExtent: photo.sourcePixelExtent, raster: result.raster, recipe: recipe,
-        program: result.program, photoID: photo.id, captureSessionID: photo.captureSessionID)
+        program: result.program, photoID: photo.id, captureSessionID: photo.captureSessionID,
+        lineage: lineage, checkpointID: checkpointID, pose: photo.pose, proposal: proposal)
     } catch {
       completedCandidate = nil
       summary = error.localizedDescription
       isProcessing = false
       return
     }
+    if let completedCandidate { history.record(completedCandidate) }
     completedKey = key
     program = result.program
     summary = [result.raster.analysisSummary, result.transformationSummary,
       "\(result.program.strokes.count) strokes"].compactMap { $0 }.joined(separator: " · ")
     isProcessing = false
+  }
+
+  /// Configuration callbacks may follow an exact restore or an explicitly
+  /// submitted proposal whose pen differs from today's global nominal profile.
+  /// That request already owns its pen; only a real pen-change callback replaces it.
+  func renderIfConfigurationChanged(strokeStyle: StrokeStyle) {
+    if requestedKey?.photoID == selectedPhotoID,
+      requestedKey?.configuration == renderConfiguration { return }
+    renderIfNeeded(strokeStyle: strokeStyle)
   }
 
   func renderIfNeeded(strokeStyle: StrokeStyle) {
@@ -522,6 +565,11 @@ final class PortraitStudioModel {
   }
 
   func applyRecipe(_ recipe: PortraitStyleRecipe, strokeStyle: StrokeStyle) {
+    installRecipe(recipe)
+    renderIfNeeded(strokeStyle: strokeStyle)
+  }
+
+  private func installRecipe(_ recipe: PortraitStyleRecipe) {
     if !styleRecipes.contains(where: { $0.id == recipe.id }) {
       styleRecipes.append(recipe)
       while styleRecipes.count > 24 { styleRecipes.removeFirst() }
@@ -531,10 +579,10 @@ final class PortraitStudioModel {
     vectorOptions = recipe.vectorOptions
     options = recipe.analysisOptions
     sketches.selectedID = nil
-    renderIfNeeded(strokeStyle: strokeStyle)
   }
 
-  func randomStyle(strokeStyle: StrokeStyle, bigHead: Bool = false) {
+  func randomStyle(strokeStyle: StrokeStyle, bigHead: Bool = false, seed: UInt64? = nil) {
+    let parent = selectedCandidate ?? (history.current?.photoID == selectedPhotoID ? history.current : nil)
     // Retain a manually adjusted recipe before the first surprise, so Back
     // always returns to the drawing the operator was comparing.
     if currentRecipe.id == "custom" {
@@ -547,8 +595,101 @@ final class PortraitStudioModel {
       styleRecipes.removeAll { $0.id == previous.id }
       styleRecipes.append(previous)
     }
-    applyRecipe(.random(seed: UInt64.random(in: 0...UInt64.max),
-      penWidthMM: strokeStyle.nominalLineWidth, bigHead: bigHead), strokeStyle: strokeStyle)
+    let proposal = PortraitProposalPolicy.broad(seed: seed ?? UInt64.random(in: 0...UInt64.max),
+      penWidthMM: strokeStyle.nominalLineWidth, bigHead: bigHead)
+    installRecipe(proposal.recipe)
+    explorationStatus = nil
+    render(strokeStyle: strokeStyle, parent: parent, proposal: proposal.metadata)
+  }
+
+  var canExploreSelection: Bool { selectedCandidate?.renderPose != nil }
+
+  var explorationParent: PortraitCandidate? {
+    guard let id = selectedCandidate?.lineage.parentID else { return nil }
+    return history.candidates.first(where: { $0.id == id })
+      ?? sketches.entries.first(where: { $0.id == id })?.candidate
+  }
+
+  var explorationBranches: [PortraitCandidate] {
+    guard let id = selectedCandidate?.id else { return [] }
+    var candidates = history.candidates.filter { $0.lineage.parentID == id }
+    for entry in sketches.entries where entry.candidate.lineage.parentID == id
+      && !candidates.contains(where: { $0.id == entry.id }) { candidates.append(entry.candidate) }
+    return candidates
+  }
+
+  func moreLikeThis(seed: UInt64? = nil) {
+    guard let parent = selectedCandidate, let pose = parent.renderPose,
+      let strokeStyle = parent.program.strokes.first?.style else {
+      explorationStatus = "Select a completed drawing with recorded source pose before exploring."
+      return
+    }
+    let proposal = PortraitProposalPolicy.local(parent: parent,
+      seed: seed ?? UInt64.random(in: 0...UInt64.max))
+    // This action refers to the displayed candidate, not an acquisition that
+    // may still be encoding. Supersede it while retaining the joined worker.
+    acquisitionRevision &+= 1
+    pendingAcquisition = nil
+    acquisitionWorker?.cancel()
+    finishCapture()
+    history.record(parent)
+    installCandidateSource(parent, pose: pose)
+    installRecipe(proposal.recipe)
+    explorationStatus = nil
+    // Reuse the exact parent's analysis, including its original Vision result.
+    render(strokeStyle: strokeStyle, parent: parent, proposal: proposal.metadata, exactRaster: parent.raster)
+  }
+
+  func historyBack() { if let candidate = history.goBack() { restoreCandidate(candidate) } }
+  func historyForward() { if let candidate = history.goForward() { restoreCandidate(candidate) } }
+  func historyParent() {
+    guard let candidate = explorationParent else { return }
+    selectHistory(candidate.id)
+  }
+
+  func selectHistory(_ id: String) {
+    if let candidate = history.candidates.first(where: { $0.id == id }) {
+      _ = history.select(id)
+      restoreCandidate(candidate)
+    } else if let candidate = sketches.entries.first(where: { $0.id == id })?.candidate {
+      history.record(candidate)
+      restoreCandidate(candidate)
+    } else { explorationStatus = "That transient drawing has expired from history." }
+  }
+
+  private func installCandidateSource(_ candidate: PortraitCandidate, pose: PortraitPose) {
+    retainedEditSource = PortraitPhoto(id: candidate.photoID, data: candidate.sourceData,
+      label: candidate.recipe.title, capturedAt: candidate.createdAt, frameID: nil,
+      captureNanoseconds: nil, pose: pose, sourcePixelExtent: candidate.sourcePixelExtent,
+      captureSessionID: candidate.captureSessionID)
+    retainedAnalysis = (candidate.recipe.analysisOptions, candidate.raster)
+    self.pose = pose
+    selectedPhotoID = candidate.photoID
+  }
+
+  private func restoreCandidate(_ candidate: PortraitCandidate) {
+    guard let pose = candidate.renderPose, let pen = candidate.program.strokes.first?.style else {
+      explorationStatus = "This legacy drawing has no unambiguous recorded source pose."
+      return
+    }
+    acquisitionRevision &+= 1
+    pendingAcquisition = nil
+    acquisitionWorker?.cancel()
+    finishCapture()
+    renderRevision &+= 1
+    pendingRender = nil
+    renderWorker?.cancel()
+    installCandidateSource(candidate, pose: pose)
+    installRecipe(candidate.recipe)
+    let key = PortraitRenderCacheKey(photoID: candidate.photoID,
+      configuration: renderConfiguration, strokeStyle: pen)
+    requestedKey = key
+    completedKey = key
+    completedCandidate = candidate
+    program = candidate.program
+    isProcessing = false
+    summary = "Restored exact \(candidate.recipe.title) · \(candidate.program.strokes.count) strokes"
+    explorationStatus = nil
   }
 
   func moveStyle(by offset: Int, strokeStyle: StrokeStyle) {

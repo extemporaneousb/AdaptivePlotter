@@ -138,7 +138,7 @@ reviewed, but cannot complete the whole row.
 | --- | --- | --- | --- | --- | --- | --- |
 | DS-01 | Source/crop metric and explicit Fit correction; C1 frozen for candidate consumers. Physical metric remains open. | Task `task-34dc69ed47f94ed695a7e7da85632890`; [receipts](CURRENT_EVIDENCE.md#ds-01-proportional-geometry-correction-2026-09-13). | PARTIAL: R05/attended open | COMPLETE: first correction, G01 software; 84 focused, 1102 quick, 10 journey, signed app, one-shot ACCEPT | PENDING | PENDING |
 | DS-02 | Candidate, label and owned asset persistence; C2 available to dependent consumers. Physical-attempt production association remains DS-06. | Task `task-1eef1162fd8d4694b578aa756b79c61d`; [receipts](CURRENT_EVIDENCE.md#ds-02-durable-qualified-candidates-2026-09-13); bounded persistence, exact-analysis and UI leases. | PARTIAL: DS-06 association open | COMPLETE: C2 archive and three production qualifiers; 82 initial, 29 repair, 1118 quick; signed app; one-shot F1 repaired directly | PENDING | PENDING |
-| DS-03 | Balanced broad/local exploration and exact branch navigation; depends on DS-01/C1 and DS-02/C2. | Exploration worker: `PortraitStyleRecipe.swift`, `PortraitStyleBrowser.swift`, dedicated branch/proposal types and tests; exclusive sequential lease for `PortraitStudioModel.swift` and `PortraitDrawing.swift`. | PENDING | PENDING | PENDING | PENDING |
+| DS-03 | Balanced broad/local exploration and exact branch navigation; consumes C1/C2. | Task `task-d79ffc73deea418696794d53d641c57b`; disjoint policy, history and UI workers; coordinator candidate/model integration. | PARTIAL: native/quality open | COMPLETE: G03 software; 60 focused, 24 final integration, 1135 quick retry; signed app; one-shot ACCEPT | PENDING | PENDING |
 | DS-04 | Semantic Big Head and retained pose analysis; depends on DS-01 and DS-02. | Warp worker: `PortraitHeadTransform.swift`, new adjacent landmark/warp types and tests; sequential leases for `PortraitImageAnalyzer.swift`, `PortraitDrawing.swift` and shared recipe schema. | PENDING | PENDING | PENDING | PENDING |
 | DS-05 | Effective material profile, measurement and final-scale feasibility; depends on DS-01/DS-02 and frozen C3. Consumes DS-06 media in integration. | Material worker: new `PlotterModel` material types, measurement beside the existing `PlotterRuntime` Vision worker and corresponding tests; coordinator integrates `DrawingProgram.swift`, `CurrentCameraCalibrationPlanning.swift`, tip evidence and renderer/draft consumers. | PENDING | PENDING | PENDING | PENDING |
 | DS-06 | Durable run images, recoverable attempts and observation coverage; depends on DS-01/DS-02 and frozen C3 material references. | Run-evidence worker: `Sources/PlotterRuntime/DrawingRunEvidence.swift`, `DrawingRunEvidenceStore.swift`, `PlannedDrawingObservation.swift`; `Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift`; `Sources/PlotterApp/DrawingRunEvidenceComposition.swift`; corresponding tests. | PENDING | PENDING | PENDING | PENDING |
@@ -234,6 +234,30 @@ blobs, atomic association, ordered failure retry and explicit deletion tombstone
 analysis is explicit. No former session collection has a durable-record FIFO limit.
 Physical attempt qualification and semantic landmarks are typed dependent integration
 work for DS-06 and DS-04; C2 alone does not claim those full requirements complete.
+
+### DS-03 proposal and history contract
+
+`PortraitProposalMetadata` pins seed, broad/local kind, exploration family and policy
+revision. Six exploration families map to the existing vector producers; broad
+weights are contour 30, tonal contour 30, clean line 30, hatch 4, crosshatch 3 and
+sketch-plus-hatch 3. Deliberate hatch recipes remain available. Local proposals
+hold source, exact raster/mask/crop, analysis options, renderer family and head
+configuration while changing only relevant line/tone parameters in declared bounded
+neighborhoods. Current proposal revision is `portrait-proposal-v1`.
+
+`PortraitExplorationHistory` owns only completed transient candidate payloads, with
+24-candidate/96-MiB encoded-payload bounds and bounded navigation metadata. Exact
+Back/Forward/Parent/child restoration never rerenders. Expired/oversize payloads
+are explicitly unavailable; qualified archive records have no such eviction.
+`PortraitCandidate` adds optional typed pose/proposal metadata without changing
+legacy IDs when absent. Later raster/recipe/warp schema additions must preserve the
+canonical re-encoding of already hashed legacy payloads (including schema version
+and omitted default fields), or perform an explicit identity-preserving migration;
+merely decoding old fields into new defaults is insufficient for C2 integrity. Existing v3 program provenance can supply its one exact
+pose token; unsupported or ambiguous legacy provenance remains unavailable.
+The coordinator binds parent/checkpoint/proposal context before awaiting rendering
+and reuses the parent's retained raster for local proposals. These actions do not
+implicitly persist an ancestor, sibling or candidate.
 
 ### Retained candidates, labels and realized drawings
 

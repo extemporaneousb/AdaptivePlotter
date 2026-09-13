@@ -2109,7 +2109,17 @@ associated rasters and rendered variants. `PortraitRenderCache` keys results by 
 identity, exact analysis/vector configuration and pen style; its LRU bounds are 24
 renders / 200,000 vector points and 32 analyzed rasters. `PortraitStyleRecipe` supplies
 named and seeded variants; `PortraitStyleBrowser` keeps frame navigation independent
-of a bounded 24-recipe history. `PortraitCandidate` freezes exact source bytes,
+of a bounded 24-recipe history. `PortraitProposalPolicy` declares weighted broad
+exploration and bounded local neighborhoods; local requests consume the parent
+raster directly. `PortraitProposalMetadata` binds policy revision/seed/family/kind,
+and optional typed pose/proposal fields preserve legacy C2 decoding/identity.
+`PortraitExplorationHistory` holds completed immutable transient payloads independently
+of the render cache, bounded to 24 candidates / 96 MiB of encoded content and a
+finite visit path. Exact parent/back/forward/child restoration reinstalls candidate
+content and completed request identity synchronously, without a renderer call.
+Expired payloads have explicit unavailable recovery; the qualified archive is not
+evicted by history pressure.
+`PortraitCandidate` freezes exact source bytes,
 source extent, analyzed raster, recipe, program, capture-session and lineage metadata
 at render completion. Content identity deduplicates identical candidates independently
 of capture UUID/time; a selected retained candidate does not depend on recent photos.

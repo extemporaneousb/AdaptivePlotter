@@ -8,10 +8,62 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DS-03 balanced exploration and exact branches, 2026-09-13
+
+Task `task-d79ffc73deea418696794d53d641c57b` began from clean primary `main`
+at `0edc1df68c44a88a7d27dcadea024e52016110c7`, with recorded target `main`.
+Disjoint policy, transient-history and UI workers implemented frozen interfaces;
+the coordinator integrated source ownership, additive candidate serialization and
+asynchronous proposal/restoration behavior.
+
+Broad policy `portrait-proposal-v1` declares weights 30/30/30/4/3/3 for contour,
+tonal contour, clean line, hatch, crosshatch and sketch-plus-hatch. A 10,000-seed
+fixture produced counts 2970/3031/2944/430/341/284. Local proposals preserve exact
+source/raster/crop/mask, analysis, family and head settings while varying relevant
+bounded line/tone controls. Requests pin parent/proposal/checkpoint metadata before
+awaiting rendering. More Like This supersedes a held import without concurrent
+workers or stale source publication.
+
+The independent transient history preserves exact available programs/rasters through
+parent/back/forward/child navigation, including archived sources after photo eviction.
+Payload and visit bounds report unavailable expired/oversize history; they do not
+evict qualified archive records. Generation/navigation alone do not retain candidates.
+A qualified child owns its payload and parent metadata, not full unqualified ancestors.
+Additive pose/proposal metadata preserve DS-02 IDs when absent, and existing v3
+programs retain their exact legacy pose token. A configuration callback after restore
+or local submission does not replace the candidate with a global-pen rerender.
+
+Initial strict-concurrency/warnings-as-errors focused validation passed 60 tests
+(`focused.log`), with the supplied-photo opt-in test skipped. Final integration/policy
+validation passed 24 tests (`integration.log`), including archived-parent Back and
+held-import supersession. One fresh critic accepted the frozen diff with no findings
+(`review.txt`); no recheck occurred. Stable-local signed debug bundle, launcher and
+negative bundle checks passed (`validate-app.log`). The first broad run completed
+1,135 tests with one timing failure outside the changed code: the recording-store
+non-cooperative timeout check took 8.262 seconds against its unchanged 8-second
+limit (`quick.log`). The isolated unchanged test passed in 0.034 seconds
+(`isolated-timeout.log`). The unchanged full retry passed all 1,135 tests with five
+intentional opt-in skips (`quick-retry.log`). No timing assertion was relaxed.
+Final documentation and whitespace checks passed (`docs-final.log`, `diff-check.log`).
+
+Receipts are in
+`/Users/bullard/Projects/AdaptivePlotter/.build/studio-ds03-d79ffc-evidence/`.
+The immutable test app is staged after landing at
+`/Users/bullard/Projects/AdaptivePlotter/.build/StudioTestApps/AdaptivePlotter-DS03-d79ffc.app`;
+`release.json` binds its exact landed commit, source-input equality, executable hash
+and signature. Prior signed apps and sessions remain preserved.
+
+This increment covers G03 software and applicable R06/R08/R11–R13/R31 behavior.
+Native interactions and aesthetic/held-out quality remain unverified. Big Head still
+uses its preceding geometry pending DS-04 semantic landmarks; measured material and
+physical attempt imagery await DS-05/DS-06. No hardware/camera/motion was started.
+
 ## DS-02 durable qualified candidates, 2026-09-13
 
 Task `task-1eef1162fd8d4694b578aa756b79c61d` began from primary clean `main`
 at `251d3546a2417ebad046a7e66bb849c404cd4325`, with recorded target `main`.
+It landed as `0edc1df68c44a88a7d27dcadea024e52016110c7`
+(source tree `781df21c25b11ca9dfd6c8c297e98948872a20d5`).
 The persistence, exact-analysis and UI workers had bounded disjoint leases;
 the coordinator integrated immutable render snapshots and projection acceptance.
 
