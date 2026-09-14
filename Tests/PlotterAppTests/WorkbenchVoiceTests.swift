@@ -54,7 +54,7 @@ struct WorkbenchVoiceTests {
     #expect(await announcer.messages == [
       "Move Toward positive Y? Say Start.", "Move Toward negative Y? Say Start."
     ])
-    controller.stop()
+    await controller.shutdown()
     await speech.shutdown()
   }
 
@@ -80,7 +80,7 @@ struct WorkbenchVoiceTests {
     try await eventually { count == 1 }
     // The only restart is after cancellation returns, never before submission.
     #expect(listener.startCount <= starts + 1)
-    controller.stop()
+    await controller.shutdown()
     await speech.shutdown()
   }
 
@@ -112,7 +112,7 @@ struct WorkbenchVoiceTests {
     for _ in 0..<10 { await Task.yield() }
     #expect(count == 1)
     release?.resume()
-    controller.stop()
+    await controller.shutdown()
     await speech.shutdown()
   }
 
@@ -153,7 +153,7 @@ struct WorkbenchVoiceTests {
     listener.send(.transcript("Confirmed", isFinal: true))
     try await eventually { requests.count == 3 }
     #expect(requests.last?.uiRevision.rawValue == 3)
-    controller.stop()
+    await controller.shutdown()
     await speech.shutdown()
   }
 
@@ -191,7 +191,7 @@ struct WorkbenchVoiceTests {
       #expect(requests.last?.uiRevision == latest.projection.revision)
       #expect(requests.last?.intent == latest.matchingStop("stop")?.intent)
     }
-    controller.stop()
+    await controller.shutdown()
     await speech.shutdown()
   }
 
@@ -211,7 +211,7 @@ struct WorkbenchVoiceTests {
     try await eventually { controller.isListening && listener.startCount == 2 }
     listener.send(.transcript("stop", isFinal: false))
     try await eventually { count == 1 }
-    controller.stop()
+    await controller.shutdown()
     await speech.shutdown()
   }
 
@@ -276,7 +276,7 @@ struct WorkbenchVoiceTests {
     while requests.isEmpty, ContinuousClock.now < deadline { await Task.yield() }
     #expect(requests.count == 1)
     #expect(requests.first?.uiRevision.rawValue == 2)
-    controller.stop()
+    await controller.shutdown()
     await speech.shutdown()
   }
 
@@ -298,7 +298,7 @@ struct WorkbenchVoiceTests {
     #expect(requests[0].uiRevision == context.projection.revision)
     #expect(requests[0].runtimeRevisions == context.projection.runtimeRevisions)
     #expect(requests[0].intent == context.matching("yes")?.intent)
-    controller.stop()
+    await controller.shutdown()
     await speech.shutdown()
   }
 
@@ -327,6 +327,7 @@ struct WorkbenchVoiceTests {
     #expect(requests.isEmpty)
     #expect(!controller.isListening)
     #expect(listener.continuation == nil)
+    await controller.shutdown()
     await speech.shutdown()
   }
 
@@ -350,8 +351,189 @@ struct WorkbenchVoiceTests {
     try await eventually { await announcer.pendingCount > 0 }
     await announcer.finish()
     try await eventually { controller.isListening }
-    controller.stop()
+    await controller.shutdown()
     await speech.shutdown()
+  }
+
+  @Test("only a Pen Stop context permits workflow audio alongside exact Stop recognition")
+  func playbackPolicyIsTyped() {
+    let pen = voiceContext(actions: [.stopPenInteraction(.init())])
+    #expect(pen.stopIsOnlyResponse)
+    #expect(pen.allowsStopDuringPlayback)
+    #expect(!pen.suppressesAdvisoryPlayback)
+    let boundary = voiceContext(actions: [.boundary(.stop(.init()))])
+    #expect(boundary.stopIsOnlyResponse)
+    #expect(!boundary.allowsStopDuringPlayback)
+    #expect(boundary.suppressesAdvisoryPlayback)
+    let mixed = voiceContext(actions: [.stopPenInteraction(.init()), .choice(.yes)])
+    #expect(!mixed.allowsStopDuringPlayback)
+    #expect(!mixed.suppressesAdvisoryPlayback)
+  }
+
+  @Test("Voice off drains pending cues before rapid re-enable and discards old input")
+  func serializedVoiceToggle() async throws {
+    let announcer = HeldVoiceAnnouncer()
+    let speech = PlotterSpeechEffectRuntime(announcer: announcer)
+    let listener = TestVoiceListener()
+    var submissions: [PlotterUIRequest] = []
+    let controller = WorkbenchVoiceController(speech: speech, listener: listener) {
+      submissions.append($0)
+      return .accepted(requestID: $0.id)
+    }
+    do {
+      #expect(await speech.start(.init(message: "Disabled at startup")) == .cancelled)
+      #expect(await announcer.messages.isEmpty)
+      controller.update(voiceContext(actions: [.stopPenInteraction(.init())]))
+      controller.setEnabled(true)
+      try await eventually { controller.isListening }
+      let first = PlotterSpeechEffectRequest(message: "Raising the pen.")
+      let second = PlotterSpeechEffectRequest(message: "Lowering the pen.")
+      #expect(await speech.start(first) == .admitted(first))
+      #expect(await speech.start(second) == .admitted(second))
+      try await eventually { await announcer.pendingCount == 2 }
+      let obsolete = listener.continuation
+      let starts = listener.startCount
+      await announcer.holdNextCancellation()
+      controller.setEnabled(false)
+      #expect(!controller.isEnabled)
+      #expect(!controller.isListening)
+      #expect(listener.continuation == nil)
+      obsolete?.yield(.transcript("Stop", isFinal: false))
+      try await eventually { await announcer.cancellationIsHeld }
+      controller.setEnabled(true)
+      // The new enable must wait for the older mute's lower cancellation barrier.
+      for _ in 0..<10 { await Task.yield() }
+      #expect(!controller.isListening)
+      #expect(listener.startCount == starts)
+      #expect(await speech.start(.init(message: "Must not enter the muted lane")) == .cancelled)
+      #expect(submissions.isEmpty)
+      await announcer.releaseCancellation()
+      try await eventually { controller.isListening }
+      let cancelled = await speech.snapshot().terminalRequests.filter {
+        $0.request.id == first.id || $0.request.id == second.id
+      }
+      #expect(cancelled.count == 2)
+      #expect(cancelled.allSatisfy { $0.disposition == .cancelled })
+      let successor = PlotterSpeechEffectRequest(message: "Fresh cue after re-enable")
+      #expect(await speech.start(successor) == .admitted(successor))
+      try await eventually { await announcer.pendingCount == 1 }
+      let messages = await announcer.messages
+      #expect(messages.count == 3)
+      #expect(Set(messages.prefix(2)) == Set([first.message, second.message]))
+      #expect(messages.last == successor.message)
+      #expect(await speech.snapshot().activeRequests == [successor])
+      #expect(controller.isListening)
+      await controller.shutdown()
+      #expect(!controller.isEnabled && !controller.isListening)
+      #expect(await speech.start(.init(message: "After controller shutdown")) == .cancelled)
+      await speech.shutdown()
+    } catch {
+      await announcer.releaseCancellation()
+      await controller.shutdown()
+      await speech.shutdown()
+      throw error
+    }
+  }
+
+  @Test("obsolete enable transitions never open output between mandatory mutes", arguments: [false, true])
+  func obsoleteEnableIsSkipped(finalEnabled: Bool) async throws {
+    let announcer = HeldVoiceAnnouncer()
+    let speech = PlotterSpeechEffectRuntime(announcer: announcer)
+    let listener = TestVoiceListener()
+    let controller = WorkbenchVoiceController(speech: speech, listener: listener) {
+      .accepted(requestID: $0.id)
+    }
+    do {
+      controller.update(voiceContext(actions: [.stopPenInteraction(.init())]))
+      controller.setEnabled(true)
+      try await eventually { controller.isListening }
+      #expect(controller.outputEnableRequestCount == 1)
+      await announcer.holdNextCancellation()
+      controller.setEnabled(false)
+      try await eventually { await announcer.cancellationIsHeld }
+      controller.setEnabled(true)
+      controller.setEnabled(false)
+      if finalEnabled { controller.setEnabled(true) }
+      #expect(!controller.isListening)
+      #expect(await speech.start(.init(message: "During held mute")) == .cancelled)
+      await announcer.releaseCancellation()
+      try await eventually {
+        let cancellations = await announcer.cancellationCount
+        let snapshot = await speech.snapshot()
+        return cancellations >= 2 && !snapshot.isDraining
+      }
+      if finalEnabled { try await eventually { controller.isListening } }
+      #expect(controller.outputEnableRequestCount == (finalEnabled ? 2 : 1))
+      let settled = await speech.snapshot()
+      #expect(settled.outputEnabled == finalEnabled)
+      #expect(!settled.isDraining)
+      if !finalEnabled {
+        #expect(!controller.isEnabled && !controller.isListening)
+        #expect(await speech.start(.init(message: "Must remain muted")) == .cancelled)
+      }
+      #expect(await announcer.messages.isEmpty)
+      await controller.shutdown()
+      await speech.shutdown()
+    } catch {
+      await announcer.releaseCancellation()
+      await controller.shutdown()
+      await speech.shutdown()
+      throw error
+    }
+  }
+
+  @Test("Pen cues keep input open for the latest exact Stop and ignore repeat or confirmation")
+  func penStopOverlapsPlayback() async throws {
+    let announcer = HeldVoiceAnnouncer()
+    let speech = PlotterSpeechEffectRuntime(announcer: announcer)
+    let listener = TestVoiceListener()
+    var submissions: [PlotterUIRequest] = []
+    var stopsAtSubmission: [Int] = []
+    let controller = WorkbenchVoiceController(speech: speech, listener: listener) {
+      stopsAtSubmission.append(listener.stopCount)
+      submissions.append($0)
+      return .accepted(requestID: $0.id)
+    }
+    do {
+      controller.update(voiceContext(actions: [.stopPenInteraction(.init())]))
+      controller.setEnabled(true)
+      try await eventually { controller.isListening }
+      let cue = PlotterSpeechEffectRequest(message: "Raising the pen.")
+      #expect(await speech.start(cue) == .admitted(cue))
+      try await eventually { await announcer.pendingCount == 1 }
+      #expect(controller.isListening)
+      #expect(!controller.canRepeatPrompt)
+      let starts = listener.startCount
+      listener.send(.transcript("repeat", isFinal: true))
+      listener.send(.transcript("Confirmed", isFinal: true))
+      controller.repeatPrompt()
+      for _ in 0..<10 { await Task.yield() }
+      #expect(submissions.isEmpty)
+      #expect(listener.startCount == starts)
+      #expect(await announcer.messages == [cue.message])
+      let latest = voiceContext(revision: 77, actions: [.stopPenInteraction(.init())])
+      controller.update(latest)
+      let stops = listener.stopCount
+      listener.send(.transcript("Stop", isFinal: false))
+      try await eventually { submissions.count == 1 }
+      #expect(submissions[0].intent == latest.matchingStop("Stop")?.intent)
+      #expect(submissions[0].uiRevision == latest.projection.revision)
+      #expect(stopsAtSubmission == [stops])
+      // Input service recovery during the same Pen cue must also allow Stop.
+      try await eventually { controller.isListening }
+      let beforeReconnect = listener.startCount
+      listener.send(.failed("Synthetic recognizer restart"))
+      try await eventually { controller.isListening && listener.startCount > beforeReconnect }
+      #expect(await announcer.pendingCount == 1)
+      await controller.shutdown()
+      #expect(await announcer.pendingCount == 0)
+      #expect(await speech.start(.init(message: "Muted Pen cue")) == .cancelled)
+      await speech.shutdown()
+    } catch {
+      await controller.shutdown()
+      await speech.shutdown()
+      throw error
+    }
   }
 
   @Test("a partial reply endpoints without requiring Apple's final callback")
@@ -368,7 +550,7 @@ struct WorkbenchVoiceTests {
     try await eventually { controller.isListening }
     listener.send(.transcript("yes", isFinal: false))
     try await eventually { count == 1 }
-    controller.stop()
+    await controller.shutdown()
     await speech.shutdown()
   }
 }
@@ -430,22 +612,50 @@ private actor ImmediateVoiceAnnouncer: SpeechAnnouncing {
     messages.append(text)
     return .completed
   }
+  func cancelPendingAnnouncements() async {}
   func cancelForShutdown() async {}
 }
 
 private actor HeldVoiceAnnouncer: SpeechAnnouncing {
   private var continuations: [UUID: CheckedContinuation<SpeechAnnouncementOutcome, Never>] = [:]
+  private var holdCancellation = false
+  private var cancellationRelease: CheckedContinuation<Void, Never>?
+  private(set) var cancellationIsHeld = false
+  private(set) var cancellationCount = 0
+  private(set) var messages: [String] = []
   var pendingCount: Int { continuations.count }
+
   func announce(_ text: String) async -> SpeechAnnouncementOutcome {
     let id = UUID()
     return await withTaskCancellationHandler {
       guard !Task.isCancelled else { return .cancelled }
+      messages.append(text)
       return await withCheckedContinuation { continuations[id] = $0 }
     } onCancel: {
-      Task { await self.finish(id) }
+      Task { await self.finish(id, outcome: .cancelled) }
     }
   }
-  private func finish(_ id: UUID) { continuations.removeValue(forKey: id)?.resume(returning: .completed) }
-  func finish() { for id in Array(continuations.keys) { finish(id) } }
-  func cancelForShutdown() async { finish() }
+
+  private func finish(_ id: UUID, outcome: SpeechAnnouncementOutcome) {
+    continuations.removeValue(forKey: id)?.resume(returning: outcome)
+  }
+  func finish() {
+    for id in Array(continuations.keys) { finish(id, outcome: .completed) }
+  }
+  func holdNextCancellation() { holdCancellation = true }
+  func releaseCancellation() {
+    holdCancellation = false
+    cancellationIsHeld = false
+    cancellationRelease?.resume()
+    cancellationRelease = nil
+  }
+  func cancelPendingAnnouncements() async {
+    cancellationCount += 1
+    if holdCancellation {
+      cancellationIsHeld = true
+      await withCheckedContinuation { cancellationRelease = $0 }
+    }
+    for id in Array(continuations.keys) { finish(id, outcome: .cancelled) }
+  }
+  func cancelForShutdown() async { await cancelPendingAnnouncements() }
 }

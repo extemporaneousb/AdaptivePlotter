@@ -35,6 +35,18 @@ struct WorkbenchVoiceContext: Equatable {
     !commands.isEmpty && commands.allSatisfy(\.isLearningStop)
   }
 
+  var allowsStopDuringPlayback: Bool {
+    !commands.isEmpty && commands.allSatisfy {
+      guard case .learningAction(let request) = $0.intent,
+        case .stopPenInteraction = request.action else { return false }
+      return true
+    }
+  }
+
+  var suppressesAdvisoryPlayback: Bool {
+    stopIsOnlyResponse && !allowsStopDuringPlayback
+  }
+
   var conversationChoices: [String] {
     commands.map { $0.isLearningStop ? "stop" : $0.id.rawValue }
   }
@@ -189,7 +201,7 @@ private extension PlotterUIAction {
   }
 }
 
-/// Window-local speech interaction. Recognition and meter changes stay outside
+/// Application-owned speech interaction. Recognition and meter changes stay outside
 /// the semantic observation graph. All accepted input uses the existing sink.
 @MainActor @Observable
 final class WorkbenchVoiceController {
@@ -203,6 +215,11 @@ final class WorkbenchVoiceController {
   @ObservationIgnored private let submit: (PlotterUIRequest) async -> PlotterUIRequestDisposition
   @ObservationIgnored private var context: WorkbenchVoiceContext?
   @ObservationIgnored private var activityTask: Task<Void, Never>?
+  @ObservationIgnored private var outputTransitionTask: Task<Void, Never>?
+  @ObservationIgnored private var outputTransitionID = UUID()
+  /// Diagnostic count of enable invocations, never admission authority or UI state.
+  @ObservationIgnored private(set) var outputEnableRequestCount = 0
+  @ObservationIgnored private var isShutdown = false
   @ObservationIgnored private var inputTask: Task<Void, Never>?
   @ObservationIgnored private var silenceTask: Task<Void, Never>?
   @ObservationIgnored private var generation = UUID()
@@ -226,15 +243,56 @@ final class WorkbenchVoiceController {
     self.submit = submit
   }
 
+  var canRepeatPrompt: Bool {
+    isEnabled && !playbackIsActive && context?.stopIsOnlyResponse != true
+  }
+
   func setEnabled(_ enabled: Bool) {
+    guard !isShutdown, isEnabled != enabled else { return }
     isEnabled = enabled
     lastSpokenPrompt = nil
+    enqueueOutputTransition(enabled)
+    // This invalidates queued recognizer callbacks and stops input immediately;
+    // the retained output chain separately joins every prior mute before unmute.
     restart()
   }
 
+  private func enqueueOutputTransition(_ enabled: Bool) {
+    let predecessor = outputTransitionTask
+    let id = UUID()
+    outputTransitionID = id
+    outputTransitionTask = Task { [weak self, speech] in
+      await predecessor?.value
+      if enabled {
+        // Every mute must drain, but an obsolete unmute must never briefly
+        // reopen the shared lane between those mandatory drains.
+        guard let self, self.outputTransitionID == id, self.isEnabled, !self.isShutdown else { return }
+        self.outputEnableRequestCount += 1
+      }
+      await speech.setOutputEnabled(enabled)
+    }
+  }
+
+  func shutdown() async {
+    let input = inputTask
+    let activity = activityTask
+    if !isShutdown {
+      isShutdown = true
+      isEnabled = false
+      enqueueOutputTransition(false)
+      restart()
+    }
+    await outputTransitionTask?.value
+    await input?.value
+    await activity?.value
+    await activityTask?.value
+  }
+
   func update(_ context: WorkbenchVoiceContext?) {
-    guard self.context != context else { return }
+    guard !isShutdown, self.context != context else { return }
     let choicesChanged = self.context?.conversationChoices != context?.conversationChoices
+      || self.context?.suppressesAdvisoryPlayback != context?.suppressesAdvisoryPlayback
+      || self.context?.allowsStopDuringPlayback != context?.allowsStopDuringPlayback
       || (self.context?.prompt != context?.prompt && context?.stopIsOnlyResponse != true)
     self.context = context
     // Controller telemetry can refresh the request revision without changing
@@ -247,9 +305,11 @@ final class WorkbenchVoiceController {
         silenceTask = nil
         lastSpokenPrompt = context?.spokenPrompt
         let id = generation
+        let transition = outputTransitionTask
         Task { [weak self, speech] in
+          await transition?.value
           guard self?.generation == id else { return }
-          await speech.prioritizeOperatorInput(true)
+          await speech.prioritizeOperatorInput(context?.suppressesAdvisoryPlayback == true)
         }
       } else {
         restart()
@@ -258,6 +318,7 @@ final class WorkbenchVoiceController {
   }
 
   func repeatPrompt() {
+    guard canRepeatPrompt, !isShutdown else { return }
     lastSpokenPrompt = nil
     restart()
   }
@@ -278,9 +339,11 @@ final class WorkbenchVoiceController {
     consumedPrefix = ""
     let priorPrompt = promptID
     promptID = nil
-    guard isEnabled, let context, !context.commands.isEmpty else {
-      Task { [weak self, speech] in
-        guard self?.generation == id else { return }
+    let transition = outputTransitionTask
+    guard isEnabled, !isShutdown, let context, !context.commands.isEmpty else {
+      activityTask = Task { [weak self, speech] in
+        await transition?.value
+        guard self?.generation == id, !Task.isCancelled else { return }
         await speech.prioritizeOperatorInput(false)
         if let priorPrompt { await speech.cancel(priorPrompt) }
       }
@@ -291,8 +354,9 @@ final class WorkbenchVoiceController {
     let shouldSpeak = lastSpokenPrompt != context.spokenPrompt && !context.stopIsOnlyResponse
     lastSpokenPrompt = context.spokenPrompt
     activityTask = Task { [weak self, speech] in
+      await transition?.value
       guard let self, self.generation == id, !Task.isCancelled else { return }
-      await speech.prioritizeOperatorInput(context.stopIsOnlyResponse)
+      await speech.prioritizeOperatorInput(context.suppressesAdvisoryPlayback)
       if let priorPrompt { await speech.cancel(priorPrompt) }
       guard self.generation == id, !Task.isCancelled else { return }
       if shouldSpeak {
@@ -308,11 +372,12 @@ final class WorkbenchVoiceController {
       for await speaking in activity {
         guard self.generation == id, !Task.isCancelled else { return }
         self.playbackIsActive = speaking
-        if speaking {
+        let current = self.context ?? context
+        if speaking && !current.allowsStopDuringPlayback {
           self.stopInput()
           self.status = "Speaking…"
         } else if !self.isSubmitting {
-          if self.inputTask == nil { self.beginListening(self.context ?? context, generation: id) }
+          if self.inputTask == nil { self.beginListening(current, generation: id) }
         }
       }
       if self.generation == id { self.stop() }
@@ -320,6 +385,8 @@ final class WorkbenchVoiceController {
   }
 
   private func beginListening(_ context: WorkbenchVoiceContext, generation id: UUID) {
+    guard generation == id, isEnabled, !isShutdown,
+      !playbackIsActive || (self.context ?? context).allowsStopDuringPlayback else { return }
     stopInput()
     transcript = ""
     consumedPrefix = ""
@@ -393,22 +460,26 @@ final class WorkbenchVoiceController {
   private func retryInput(_ context: WorkbenchVoiceContext, generation id: UUID) {
     silenceTask = Task { [weak self] in
       do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
-      guard let self, self.generation == id, self.isEnabled, !self.playbackIsActive else { return }
+      guard let self, self.generation == id, self.isEnabled,
+        !self.playbackIsActive || (self.context ?? context).allowsStopDuringPlayback else { return }
       self.beginListening(self.context ?? context, generation: id)
     }
   }
 
   private func finishUtterance(_ text: String, context: WorkbenchVoiceContext, generation id: UUID) {
-    guard generation == id, isEnabled, isListening, !playbackIsActive else { return }
+    guard generation == id, isEnabled, isListening else { return }
     let context = self.context ?? context
     let stop = context.matchingStop(text)
+    // During a Pen cue the sole recognized action is the exact offered Stop.
+    // Playback never authorizes confirmation, repeat, or another command.
+    guard !playbackIsActive || (context.allowsStopDuringPlayback && stop != nil) else { return }
     guard !isSubmitting || (stop != nil && !submittingStop) else { return }
     let normalized = WorkbenchVoiceContext.normalized(text)
     if ["repeat", "repeat the question", "say that again"].contains(normalized) {
       repeatPrompt()
       return
     }
-    guard let command = context.matching(text),
+    guard let command = playbackIsActive ? stop : context.matching(text),
       let request = context.projection.request(for: command.id)
     else {
       if context.stopIsOnlyResponse { return }
@@ -420,7 +491,9 @@ final class WorkbenchVoiceController {
         message: context.responseHint
       )
       promptID = request.id
+      let transition = outputTransitionTask
       Task { [weak self, speech] in
+        await transition?.value
         guard self?.generation == id, self?.isEnabled == true else { return }
         _ = await speech.start(request)
         if self?.generation != id || self?.isEnabled != true { await speech.cancel(request.id) }
@@ -457,12 +530,13 @@ final class WorkbenchVoiceController {
       case .refused(let refusal):
         self.status = refusal.remedy
         self.preservingInputForStop = false
-        await speech.prioritizeOperatorInput(self.context?.stopIsOnlyResponse == true)
+        await speech.prioritizeOperatorInput(self.context?.suppressesAdvisoryPlayback == true)
         guard self.generation == id, self.submissionID == submission else { return }
       }
       // A normal state transition supplies a new context. A non-advancing
       // answer can keep this question current and must remain conversational.
-      if !self.playbackIsActive, !self.preservingInputForStop {
+      if !self.playbackIsActive || (self.context ?? context).allowsStopDuringPlayback,
+        !self.preservingInputForStop {
         self.beginListening(self.context ?? context, generation: id)
       }
     }

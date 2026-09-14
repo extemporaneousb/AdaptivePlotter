@@ -209,7 +209,7 @@ struct AdaptivePlotterLaunchPolicy: Equatable, Sendable {
 }
 
 private enum SpeechComposition {
-  static let runtime = PlotterSpeechEffectRuntime(announcer: NativeSpeechAnnouncer())
+  static let runtime = PlotterSpeechEffectRuntime(announcer: NativeSpeechAnnouncer(), outputEnabled: false)
 }
 
 @MainActor

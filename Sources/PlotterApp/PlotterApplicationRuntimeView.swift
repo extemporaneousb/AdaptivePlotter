@@ -71,7 +71,7 @@ struct PlotterApplicationRuntimeView: View {
             : application.learningPathProjection(selectedItemID: ui.currentLearningPathItemID)
           return WorkbenchVoiceContext(presentation: current.selectedAction, projection: ui.semantic,
             actionStrip: learning.currentActionStrip)
-        }, speech: application.speechEffectRuntime, sink: application)
+        }, controller: application.workbenchVoiceController)
         .padding(.horizontal, 12).padding(.vertical, 6)
     }
     .onChange(of: ui.currentLearningPathItemID, initial: true) { _, item in selection.updateCurrent(item) }

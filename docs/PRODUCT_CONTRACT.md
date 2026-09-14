@@ -1893,8 +1893,13 @@ No model changes during a Pen Down stroke or chooses hidden motion.
 ## Input, output, and launch
 
 Buttons and contextual Voice responses submit the same current projected
-requests for choices, progression, Cancel, and Stop. Voice is opt-in and offers
-short replies for unique current actions: Start for the offered motion or
+requests for choices, progression, Cancel, and Stop. One application-owned Voice
+switch controls both output and input: off means no talking and no listening;
+on enables both. Output starts disabled before the first workflow request. Turning
+off invalidates recognition immediately, closes speech admission, cancels queued
+and active speech and joins its exact requests. Re-enabling never replays cancelled
+cues. Native view reconstruction does not reset the switch or create another
+controller. Voice is opt-in and offers short replies for unique current actions: Start for the offered motion or
 exercise, Confirmed for affirmative observation or acceptance, Cancel for ending
 the attempt, and Stop for active motion. No remains a negative observation;
 Reject remains an explicit proposal rejection. Ambiguous or unavailable aliases
@@ -1914,8 +1919,13 @@ UI scheduling cannot erase the utterance boundary. The microphone stays open. A 
 ended recognition request reopens immediately; service errors retry after 500 ms.
 Recognized events cannot be evicted by microphone-meter events.
 
-Outside motion, microphone input is suspended during speech playback, and stale
-recognition callbacks cannot answer a successor question. Exact short replies
+During a Pen phase whose only current action is the exact Pen Stop, enabled Voice
+keeps the raise/lower advisory cue audible and accepts only that Stop during
+playback. Repeat and affirmative input cannot consume the cue as an answer. This
+exception does not authorize physical confirmation or change finite Pen settlement.
+Boundary movement keeps its existing uninterrupted Stop-listening priority.
+Outside that Pen Stop exception, microphone input is suspended during speech
+playback, and stale recognition callbacks cannot answer a successor question. Exact short replies
 endpoint after 350 ms of unchanged recognition; other responses use 900 ms. The
 current prompt can be repeated. These are application timing rules, not a bound
 on Apple's recognition latency or mechanical stopping time. Microphone level and

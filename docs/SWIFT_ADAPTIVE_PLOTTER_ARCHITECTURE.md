@@ -805,13 +805,21 @@ semantic/runtime revisions and window inputs. A native view reevaluation with
 unchanged inputs reuses that value; input edits and model transitions compile a
 fresh projection through the same request authority.
 
-`WorkbenchVoiceController` is a window-local input adapter over the current
-immutable rendered action strip. `NativeSpeechListener` owns Apple's microphone
-and recognizer lifetime. The controller observes the existing speech lane's
-activity, stops listening during playback, and sends the captured projected
-request to the existing sink after recognition. It owns no learning state or
-controller permission. Only its own superseded prompt is canceled in the native
-queue; unrelated workflow announcements retain their ordering.
+`PlotterApplicationRuntime` retains one `WorkbenchVoiceController`, created on
+first use with a weak application submit closure. `WorkbenchVoiceView` observes
+that controller rather than constructing window-local switch state. Recognition
+and meter updates remain local. `NativeSpeechListener` owns Apple's microphone and
+recognizer lifetime. Output starts disabled in the shared speech composition.
+The Voice switch invalidates input synchronously and retains ordered output
+transitions so every mute drains before a later unmute. Application shutdown stops
+input before suspension and joins the controller before speech shutdown.
+
+The controller observes the existing speech lane and submits the newest exact
+rendered request. A Pen-only Stop context permits advisory playback with only its
+typed Stop recognized during playback; ordinary choices remain half-duplex and
+Boundary motion retains input-priority suppression. Context changes cancel only
+the superseded prompt. Turning Voice off cancels all output through the shared
+lane. The controller owns no Learning state or controller permission.
 
 `WorkbenchDebugSnapshot` is an on-demand copy of `PlotterLearningEpisodeRecord`
 and current projections for Copy/Save in Diagnostics. No new journal or event
@@ -820,7 +828,11 @@ audio, and older/in-flight transitions omitted. It is not a complete canonical
 incident archive and does not promote software evidence to physical evidence.
 
 `NativeSpeechAnnouncer` owns lower AVFoundation speech synthesis,
-identity-bound queueing, bounded timeout/completion, and shutdown cancellation.
+identity-bound queueing, bounded timeout/completion, reversible bulk cancellation
+and permanent shutdown. A cancellation generation is checked at actual native
+queue admission, including work delayed across queue creation. The existing effect
+task carries bounded cancellation state so an admitted task delayed before lower
+entry cannot become a new post-mute request. No second synthesis queue is added.
 `PlotterSpeechEffectRuntime` owns application-level advisory speech admission,
 retained task ownership, identity-bound terminal tracking, ordering, and
 shutdown; its lower port reaches the native announcer from the App/Boundary

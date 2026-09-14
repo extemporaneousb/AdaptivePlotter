@@ -47,15 +47,20 @@ public enum PlotterSpeechEffectAdmission: Hashable, Sendable {
 
 public struct PlotterSpeechEffectRegistrySnapshot: Sendable {
   public let admissionClosed: Bool
+  public let outputEnabled: Bool
+  public let isDraining: Bool
   public let activeRequests: [PlotterSpeechEffectRequest]
   public let terminalRequests: [PlotterSpeechEffectTerminal]
 
   public init(
     admissionClosed: Bool,
     activeRequests: [PlotterSpeechEffectRequest],
-    terminalRequests: [PlotterSpeechEffectTerminal]
+    terminalRequests: [PlotterSpeechEffectTerminal],
+    outputEnabled: Bool = false, isDraining: Bool = false
   ) {
     self.admissionClosed = admissionClosed
+    self.outputEnabled = outputEnabled
+    self.isDraining = isDraining
     self.activeRequests = activeRequests
     self.terminalRequests = terminalRequests
   }
@@ -72,6 +77,10 @@ public actor PlotterSpeechEffectRuntime {
 
   private let announcer: any SpeechAnnouncing
   private var isShutdown = false
+  private var outputEnabled: Bool
+  private var admissionToken = SpeechAnnouncementAdmissionToken()
+  private var drainTask: Task<Void, Never>?
+  private var drainID: UUID?
   private var operatorInputHasPriority = false
   private var activeByID: [UUID: PlotterSpeechEffectRequest] = [:]
   private var terminalByID: [UUID: PlotterSpeechEffectTerminal] = [:]
@@ -99,8 +108,18 @@ public actor PlotterSpeechEffectRuntime {
     for observer in activityObservers.values { observer.yield(!activeByID.isEmpty) }
   }
 
-  public init(announcer: any SpeechAnnouncing = NativeSpeechAnnouncer()) {
+  public init(announcer: any SpeechAnnouncing = NativeSpeechAnnouncer(), outputEnabled: Bool = false) {
     self.announcer = announcer
+    self.outputEnabled = outputEnabled
+  }
+
+  /// The latest requested setting owns admission. A later enable joins the
+  /// prior drain before any new effect can enter the existing native queue.
+  public func setOutputEnabled(_ enabled: Bool) async {
+    guard !isShutdown else { return }
+    outputEnabled = enabled
+    if !enabled { beginDrain() }
+    await joinDrain()
   }
 
   /// Starts one identity-bound advisory request. Concurrent requests proceed
@@ -134,10 +153,38 @@ public actor PlotterSpeechEffectRuntime {
   /// During a moving exercise the microphone must be available for Stop.
   /// Cancel advisory playback and suppress new cues until that phase ends;
   /// cancelling speech never cancels the operation that requested it.
-  public func prioritizeOperatorInput(_ enabled: Bool) {
+  public func prioritizeOperatorInput(_ enabled: Bool) async {
+    guard !isShutdown else { return }
     operatorInputHasPriority = enabled
-    if enabled {
-      for task in taskByID.values { task.cancel() }
+    if enabled { beginDrain() }
+    await joinDrain()
+  }
+
+  private func beginDrain(permanent: Bool = false) {
+    if drainTask != nil, !permanent { return }
+    admissionToken.invalidate()
+    let previous = drainTask
+    let tasks = Array(taskByID.values)
+    let id = UUID()
+    drainID = id
+    drainTask = Task { [announcer] in
+      if let previous { await previous.value }
+      // Clear the FIFO before individual task cancellation can advance it.
+      if permanent { await announcer.cancelForShutdown() }
+      else { await announcer.cancelPendingAnnouncements() }
+      for task in tasks { task.cancel() }
+      for task in tasks { _ = await task.value }
+    }
+  }
+
+  private func joinDrain() async {
+    guard let task = drainTask else { return }
+    let id = drainID
+    await task.value
+    if drainID == id {
+      drainTask = nil
+      drainID = nil
+      admissionToken = SpeechAnnouncementAdmissionToken()
     }
   }
 
@@ -145,11 +192,12 @@ public actor PlotterSpeechEffectRuntime {
   /// native owner to cancel every queued or active utterance by its own queue
   /// identity. A suspended request cannot begin synthesis after this latch.
   public func shutdown() async {
-    guard !isShutdown else { return }
-    isShutdown = true
-    let tasks = Array(taskByID.values)
-    await announcer.cancelForShutdown()
-    for task in tasks { _ = await task.value }
+    if !isShutdown {
+      isShutdown = true
+      outputEnabled = false
+      beginDrain(permanent: true)
+    }
+    await joinDrain()
     for observer in activityObservers.values { observer.finish() }
     activityObservers.removeAll()
   }
@@ -158,7 +206,8 @@ public actor PlotterSpeechEffectRuntime {
     PlotterSpeechEffectRegistrySnapshot(
       admissionClosed: isShutdown,
       activeRequests: activeByID.values.sorted { $0.id.uuidString < $1.id.uuidString },
-      terminalRequests: terminalOrder.compactMap { terminalByID[$0] }
+      terminalRequests: terminalOrder.compactMap { terminalByID[$0] },
+      outputEnabled: outputEnabled, isDraining: drainTask != nil
     )
   }
 
@@ -178,7 +227,7 @@ public actor PlotterSpeechEffectRuntime {
 
   private func admit(_ request: PlotterSpeechEffectRequest) -> PlotterSpeechEffectAdmission {
     let message = request.message.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !isShutdown, !operatorInputHasPriority else { return .cancelled }
+    guard !isShutdown, outputEnabled, !operatorInputHasPriority, drainTask == nil else { return .cancelled }
     guard activeByID[request.id] == nil, terminalByID[request.id] == nil else {
       return .refused("The advisory speech request identity has already been used.")
     }
@@ -192,9 +241,13 @@ public actor PlotterSpeechEffectRuntime {
     }
     activeByID[admitted.id] = admitted
     publishActivity()
+    let token = admissionToken
     let task = Task { [weak self, announcer] in
-      let outcome = await announcer.announce(admitted.message)
-      await self?.finish(admitted, outcome: outcome)
+      let result = await SpeechAnnouncementExecutionContext.$admissionToken.withValue(token) {
+        guard token.isValid, !Task.isCancelled else { return SpeechAnnouncementOutcome.cancelled }
+        return await announcer.announce(admitted.message)
+      }
+      let outcome = await self?.finish(admitted, outcome: result, token: token) ?? .cancelled
       return outcome
     }
     taskByID[admitted.id] = task
@@ -203,12 +256,14 @@ public actor PlotterSpeechEffectRuntime {
 
   private func finish(
     _ request: PlotterSpeechEffectRequest,
-    outcome: SpeechAnnouncementOutcome
-  ) {
-    guard activeByID.removeValue(forKey: request.id) != nil else { return }
+    outcome: SpeechAnnouncementOutcome, token: SpeechAnnouncementAdmissionToken
+  ) -> SpeechAnnouncementOutcome {
+    guard activeByID.removeValue(forKey: request.id) != nil else { return terminalOutcome(for: request.id) ?? .cancelled }
+    let outcome = token.isValid ? outcome : .cancelled
     taskByID[request.id] = nil
     recordTerminal(request: request, outcome: outcome)
     publishActivity()
+    return outcome
   }
 
   private func terminalOutcome(for id: UUID) -> SpeechAnnouncementOutcome? {

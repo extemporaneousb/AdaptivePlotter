@@ -639,7 +639,7 @@ func makeCausalSimulatorAppFixture(
     discoverDevices: { [] },
     readNanoseconds: { clock.next() }
   )
-  let speechEffectRuntime = PlotterSpeechEffectRuntime(announcer: ImmediateSpeechAnnouncer())
+  let speechEffectRuntime = PlotterSpeechEffectRuntime(announcer: ImmediateSpeechAnnouncer(), outputEnabled: true)
   let boundaryComposition = PlotterBoundaryComposition.make(
     machineSession: MachineSessionComposition.session,
     causalSimulator: manualMotionComposition.causalSimulatorEffectAdapter,
@@ -1471,6 +1471,8 @@ func plotterApplicationRuntime(
     )? = nil,
   jogCancel: (@Sendable (JogCancelIntent) async -> JogCancelOutcome)? = nil,
   speechAnnouncer: (any SpeechAnnouncing)? = nil,
+  speechOutputEnabled: Bool = true,
+  workbenchVoiceListener: (any SpeechListening)? = nil,
   statePersistencePort: (any PlotterApplicationStatePersistencePort)? = nil,
   drawingDraftRuntime: PlotterDrawingDraftRuntime = nominalDrawingDraftRuntime(),
   drawingEvidencePort: DrawingRunEvidencePort? = nil,
@@ -1562,7 +1564,7 @@ func plotterApplicationRuntime(
     readNanoseconds: { clock.next() }
   )
   let speechEffectRuntime = PlotterSpeechEffectRuntime(
-    announcer: speechAnnouncer ?? ImmediateSpeechAnnouncer()
+    announcer: speechAnnouncer ?? ImmediateSpeechAnnouncer(), outputEnabled: speechOutputEnabled
   )
   let boundaryComposition = PlotterBoundaryComposition.make(
     machineSession: machineSession,
@@ -1582,6 +1584,7 @@ func plotterApplicationRuntime(
     penInteractionRuntime: penInteractionRuntime,
     boundaryRuntime: boundaryComposition.runtime,
     speechEffectRuntime: speechEffectRuntime,
+    workbenchVoiceListener: workbenchVoiceListener,
     statePersistencePort: statePersistencePort,
     drawingDraftRuntime: drawingDraftRuntime,
     drawingRunComposition: drawingRunComposition,
@@ -1940,22 +1943,36 @@ final class ArtifactResetCheckpointStoreFixture: @unchecked Sendable {
 }
 
 actor ImmediateSpeechAnnouncer: SpeechAnnouncing {
-  func announce(_: String) async -> SpeechAnnouncementOutcome { .completed }
+  func announce(_: String) async -> SpeechAnnouncementOutcome {
+    guard !Task.isCancelled, SpeechAnnouncementExecutionContext.admissionToken?.isValid != false else { return .cancelled }
+    return .completed
+  }
 
+  func cancelPendingAnnouncements() async {}
   func cancelForShutdown() async {}
 }
 
 actor HeldSpeechAnnouncer: SpeechAnnouncing {
   private var startCount = 0
   private var startWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-  private var continuations: [CheckedContinuation<SpeechAnnouncementOutcome, Never>] = []
+  private var continuations: [UUID: CheckedContinuation<SpeechAnnouncementOutcome, Never>] = [:]
 
   func announce(_: String) async -> SpeechAnnouncementOutcome {
-    startCount += 1
-    let ready = startWaiters.filter { $0.0 <= startCount }
-    startWaiters.removeAll { $0.0 <= startCount }
-    ready.forEach { $0.1.resume() }
-    return await withCheckedContinuation { continuations.append($0) }
+    let id = UUID()
+    return await withTaskCancellationHandler {
+      guard !Task.isCancelled, SpeechAnnouncementExecutionContext.admissionToken?.isValid != false else { return .cancelled }
+      startCount += 1
+      let ready = startWaiters.filter { $0.0 <= startCount }
+      startWaiters.removeAll { $0.0 <= startCount }
+      ready.forEach { $0.1.resume() }
+      return await withCheckedContinuation { continuations[id] = $0 }
+    } onCancel: {
+      Task { await self.cancel(id) }
+    }
+  }
+
+  private func cancel(_ id: UUID) {
+    continuations.removeValue(forKey: id)?.resume(returning: .cancelled)
   }
 
   func waitUntilStarted(_ expectedCount: Int = 1) async {
@@ -1967,10 +1984,11 @@ actor HeldSpeechAnnouncer: SpeechAnnouncing {
 
   func releaseAll(_ outcome: SpeechAnnouncementOutcome = .completed) {
     let pending = continuations
-    continuations = []
-    pending.forEach { $0.resume(returning: outcome) }
+    continuations = [:]
+    pending.values.forEach { $0.resume(returning: outcome) }
   }
 
+  func cancelPendingAnnouncements() async { releaseAll(.cancelled) }
   func cancelForShutdown() async { releaseAll(.cancelled) }
 }
 
@@ -1984,10 +2002,12 @@ actor ScriptedSpeechAnnouncer: SpeechAnnouncing {
   }
 
   func announce(_ message: String) async -> SpeechAnnouncementOutcome {
+    guard !Task.isCancelled, SpeechAnnouncementExecutionContext.admissionToken?.isValid != false else { return .cancelled }
     await log.append("announce:\(message)")
     return outcomes.isEmpty ? .completed : outcomes.removeFirst()
   }
 
+  func cancelPendingAnnouncements() async {}
   func cancelForShutdown() async {}
 }
 

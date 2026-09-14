@@ -8,6 +8,33 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Unified Voice feedback repair, 2026-09-13
+
+Task `task-aca1b29ebb094d6eaf06580766c72db1` began from clean primary main
+`05a360f3261e6c4d7efd8c415f1403bf05a8ec7a`, recorded target main. The user clarified
+that Voice off must stop both talking and listening, while Voice on must retain
+consistent Pen raise/lower cues. One bounded worker owns native/shared speech
+cancellation, another owns Voice interaction and view lifetime; the coordinator
+owns application composition, production Pen consumers, review and validation.
+The implementation uses one application-owned controller and one existing speech
+lane. Output starts disabled, mute drains active/queued work, and Pen-only Stop
+allows its exact Stop during advisory playback. Coordinator acceptance found and
+repaired an obsolete-enable race before compilation: each enable checks its exact
+transition identity after prior drains, while every disable still executes. The
+bounded internal invocation counter is diagnostic only, not action authority or UI.
+All 58 focused tests pass under strict concurrency in 4.584 seconds, including the
+actual production Pen runtime entering cancellation while its cue and lower
+actuation remain held. Silent native queue seams cover creation/admission races,
+queued cancellation and late callbacks. Documentation checks passed. The one-shot
+critic accepted frozen patch SHA256
+`915eda33c9c413c58b235ed859ec9ddbec8dd5478f27a40ffdb0b1e7a572a5d8` with no actionable
+findings. No recheck was performed. The final source passed all 1293 strict serial
+quick tests in 358.102 seconds, with six explicit skips, and all 10 journeys in
+3.247 seconds. Strict signed-app, launcher, negative-bundle, documentation and
+diff checks passed. No microphone, audio, controller action or live-session
+replacement has been performed. Receipts are retained in
+`.build/studio-voice-aca1b2-evidence/`.
+
 ## Boundary replacement checkpoint repair, 2026-09-13
 
 Task `task-33f1006713d949a9b9102709fa11ccfa` began from clean primary main
@@ -46,10 +73,13 @@ tests in 380.188 seconds, with six explicit skips, and all 10 journeys in 3.371
 seconds. Strict signed-app, launcher, negative-bundle, documentation and diff checks
 passed. The reviewed production patch is unchanged; the coordinator's additional
 change only synchronizes the Pen fixture with its existing admission publication.
-No critic recheck was performed. Exact landed commit/signature and source-input
-receipts are staged externally in `.build/studio-boundary-33f100-evidence/` and
-will be incorporated at the next increment. The test app remains unlaunched and
-the live session is unchanged.
+No critic recheck was performed. The repair landed as
+`05a360f3261e6c4d7efd8c415f1403bf05a8ec7a`; its immutable signed app is
+`.build/StudioTestApps/AdaptivePlotter-Boundary-33f100.app`, with all 365 build inputs
+matching that exact commit. Binary SHA256:
+`7278a8a53fa272bb3c6eaf4d126e557e4e1312928848aa6c47f997875e8be9db`.
+Exact landing/source/signature receipts remain in `.build/studio-boundary-33f100-evidence/`.
+The test app remains unlaunched and the live session is unchanged.
 
 Next independent deliveries are the unified Voice repair, R05 measured-axis
 calibration, then DS-09 aggregate integration and DS-10 attended readiness. Native

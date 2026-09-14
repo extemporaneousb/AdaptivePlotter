@@ -4,17 +4,11 @@ import SwiftUI
 
 struct WorkbenchVoiceView: View {
   let context: WorkbenchVoiceContext?
-  @State private var controller: WorkbenchVoiceController
+  let controller: WorkbenchVoiceController
 
-  init(
-    context: WorkbenchVoiceContext?,
-    speech: PlotterSpeechEffectRuntime,
-    sink: any PlotterUIIntentSink
-  ) {
+  init(context: WorkbenchVoiceContext?, controller: WorkbenchVoiceController) {
     self.context = context
-    _controller = State(initialValue: WorkbenchVoiceController(speech: speech) { request in
-      await sink.submitPlotterUIRequest(request)
-    })
+    self.controller = controller
   }
 
   var body: some View {
@@ -25,7 +19,7 @@ struct WorkbenchVoiceView: View {
         }
         .toggleStyle(.switch)
         .controlSize(.small)
-        .help("Read the current question and listen for short replies: Stop, Confirmed, Cancel, Start, or No when offered. Uses Apple Speech; on-device recognition when available.")
+        .help("Turn spoken cues and microphone input on or off together. Say only the currently offered replies. Uses Apple Speech; on-device recognition when available.")
         if controller.isEnabled {
           Text(controller.status)
             .font(.caption)
@@ -36,6 +30,7 @@ struct WorkbenchVoiceView: View {
             Image(systemName: "arrow.clockwise")
           }
           .buttonStyle(.borderless)
+          .disabled(!controller.canRepeatPrompt)
           .help("Repeat prompt / retry Voice")
           .accessibilityLabel("Repeat prompt or retry Voice")
         }
@@ -60,6 +55,5 @@ struct WorkbenchVoiceView: View {
       }
     }
     .onChange(of: context, initial: true) { _, value in controller.update(value) }
-    .onDisappear { controller.stop() }
   }
 }

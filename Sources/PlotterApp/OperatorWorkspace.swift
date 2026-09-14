@@ -1591,6 +1591,27 @@ final class PlotterApplicationRuntime:
   @ObservationIgnored private let incidentPackageUIService: PlotterIncidentPackageUIService
   @ObservationIgnored private let observationPreferences: any PlotterObservationPreferencePort
   @ObservationIgnored let speechEffectRuntime: PlotterSpeechEffectRuntime
+  @ObservationIgnored private let workbenchVoiceListener: (any SpeechListening)?
+  @ObservationIgnored private var retainedWorkbenchVoiceController: WorkbenchVoiceController?
+
+  /// One application-owned switch survives native view reconstruction. Audio
+  /// levels/transcripts remain local to its observable controller.
+  var workbenchVoiceController: WorkbenchVoiceController {
+    if let retainedWorkbenchVoiceController { return retainedWorkbenchVoiceController }
+    let controller = WorkbenchVoiceController(speech: speechEffectRuntime,
+      listener: workbenchVoiceListener) { [weak self] request in
+      guard let self else {
+        return .refused(PlotterUIRequestRefusal(requestID: request.id,
+          reason: .retainedOwnerRefused, owner: "Voice application",
+          submittedUIRevision: request.uiRevision, currentUIRevision: request.uiRevision,
+          submittedRuntimeRevisions: request.runtimeRevisions, currentRuntimeRevisions: [],
+          remedy: "The application owning this Voice request is no longer available."))
+      }
+      return await self.submitPlotterUIRequest(request)
+    }
+    retainedWorkbenchVoiceController = controller
+    return controller
+  }
   @ObservationIgnored private var artifactResetRuntime: PlotterArtifactResetRuntime!
   @ObservationIgnored private lazy var cameraCalibrationRuntime = PlotterCameraCalibrationRuntime(
     effectPort: PlotterApplicationRuntimeCameraCalibrationEffectPort(application: self),
@@ -1850,6 +1871,7 @@ final class PlotterApplicationRuntime:
     penInteractionRuntime: PlotterPenInteractionRuntime,
     boundaryRuntime: PlotterBoundaryRuntime,
     speechEffectRuntime: PlotterSpeechEffectRuntime = PlotterSpeechEffectRuntime(),
+    workbenchVoiceListener: (any SpeechListening)? = nil,
     statePersistencePort: (any PlotterApplicationStatePersistencePort)? = nil,
     artifactResetRuntime: PlotterArtifactResetRuntime? = nil,
     drawingDraftRuntime: PlotterDrawingDraftRuntime,
@@ -1957,6 +1979,7 @@ final class PlotterApplicationRuntime:
       try? observationPreferences.clearLegacyPenCapAppearance()
     }
     self.speechEffectRuntime = speechEffectRuntime
+    self.workbenchVoiceListener = workbenchVoiceListener
     self.artifactResetRuntime = artifactResetRuntime
     self.statePersistencePort = statePersistencePort
     machineGeometryIdentity = tipCalibrationSemanticIdentities.machineGeometry
@@ -11333,6 +11356,7 @@ final class PlotterApplicationRuntime:
     // model episode before the first suspension. Feature owners close before
     // the task is joined, so a suspended request cannot outlive its owner.
     admissionState = .closing
+    retainedWorkbenchVoiceController?.setEnabled(false)
     startupState = .cancelled
     markSemanticPresentationChanged()
     let learningTask = activeLearningActionTask
@@ -11378,6 +11402,7 @@ final class PlotterApplicationRuntime:
     await cameraCalibrationRuntime.shutdown()
     await pointSelectionRuntime.shutdown()
     await boundaryRuntime.beginShutdown()
+    await retainedWorkbenchVoiceController?.shutdown()
     await speechEffectRuntime.shutdown()
     await boundaryRuntime.shutdown()
     await manualMotionRuntime.shutdown()
@@ -12733,7 +12758,7 @@ final class PlotterApplicationRuntime:
       case .completed: "Announcement completed."
       case .failed(let reason): "Announcement failed: \(reason). Continuing."
       case .timedOut: "Announcement timed out. Continuing."
-      case .cancelled: "Announcement cancelled during shutdown."
+      case .cancelled: "Announcement cancelled or disabled."
       }
     return outcome
   }
@@ -12747,7 +12772,7 @@ final class PlotterApplicationRuntime:
       case .refused(let reason):
         "Announcement dispatch was refused: \(reason). Continuing."
       case .cancelled:
-        "Announcement dispatch was cancelled during shutdown."
+        "Announcement dispatch was cancelled or disabled."
       }
     return admission
   }

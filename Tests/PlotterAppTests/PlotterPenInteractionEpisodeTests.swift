@@ -809,7 +809,10 @@ private struct ProductionPenWorkspaceFixture {
 @MainActor
 private func makeProductionPenWorkspace(
   setpointAdmissionGate: PlotterPenInteractionSetpointAdmissionGate? = nil,
-  confirmationAdmissionGate: PlotterPenInteractionConfirmationAdmissionGate? = nil
+  confirmationAdmissionGate: PlotterPenInteractionConfirmationAdmissionGate? = nil,
+  speechAnnouncer: (any SpeechAnnouncing)? = nil,
+  speechOutputEnabled: Bool = true,
+  workbenchVoiceListener: (any SpeechListening)? = nil
 ) throws -> ProductionPenWorkspaceFixture {
   let log = EventLog()
   let lowerGate = PenRequestGate()
@@ -819,6 +822,8 @@ private func makeProductionPenWorkspace(
   let workspace = plotterApplicationRuntime(
     machine: machine,
     camera: camera,
+    speechAnnouncer: speechAnnouncer, speechOutputEnabled: speechOutputEnabled,
+    workbenchVoiceListener: workbenchVoiceListener,
     penInteractionRuntimeFactory: { machineSession, manualMotionComposition in
       let port = PlotterApplicationRuntimePenInteractionActuationPort(
         machineSession: machineSession,
@@ -1114,5 +1119,69 @@ private final class PenInteractionCancellationPublicationProbe:
   func waitUntilCancelling() async {
     if cancellingWasPublished { return }
     await withCheckedContinuation { waiters.append($0) }
+  }
+}
+
+
+extension PlotterPenInteractionEpisodeTests {
+  @MainActor
+  @Test("application Voice Stop reaches the exact held Pen owner while its cue is still playing")
+  func productionVoiceStopDuringPenCue() async throws {
+    let listener = TestVoiceListener()
+    let speech = HeldSpeechAnnouncer()
+    let fixture = try makeProductionPenWorkspace(speechAnnouncer: speech,
+      speechOutputEnabled: false, workbenchVoiceListener: listener)
+    let app = fixture.workspace
+    var confirming: Task<PlotterUIRequestDisposition, Never>?
+    do {
+      try await preparePenQuestion(app, machine: fixture.machine)
+      updateProductionPenVoiceContext(app)
+      let voice = app.workbenchVoiceController
+      voice.setEnabled(true)
+      await speech.waitUntilStarted()
+      await speech.releaseAll()
+      try await waitUntil { voice.isListening }
+      let yes = try currentPenChoiceRequest(app, choice: .yes)
+      let task = Task { await app.submitPlotterUIRequest(yes) }
+      confirming = task
+      await fixture.lowerGate.waitUntilHeld()
+      await speech.waitUntilStarted(2)
+      let stop = try currentPenStopRequest(app)
+      updateProductionPenVoiceContext(app)
+      try await waitUntil { voice.isListening }
+      #expect(!(await app.speechEffectRuntime.snapshot()).activeRequests.isEmpty)
+      listener.send(.transcript("Stop", isFinal: false))
+      try await waitUntilAsync {
+        (await fixture.runtime.snapshot(environment: .live)).projection.phase == .cancelling
+      }
+      // Recognition has reached the actual Pen runtime before playback or the
+      // finite lower actuation settles. Audio never supplies physical evidence.
+      #expect(!(await app.speechEffectRuntime.snapshot()).activeRequests.isEmpty)
+      #expect(!app.penInteractionCompleted)
+      #expect(await fixture.machine.requestedPenCommands == [.lower])
+      guard case .learningAction(let request) = stop.intent,
+        case .stopPenInteraction = request.action else {
+        Issue.record("Expected the current exact Pen Stop request.")
+        await fixture.lowerGate.releaseFirstRequest()
+        _ = await task.value
+        await app.shutdown(); return
+      }
+      await fixture.lowerGate.releaseFirstRequest()
+      _ = await task.value
+      try await waitUntilAsync {
+        (await fixture.runtime.snapshot(environment: .live)).acceptedHistory.attempts.first?.disposition == .cancelled
+      }
+      #expect(await fixture.machine.requestedPenCommands == [.lower])
+      #expect(!app.penInteractionCompleted)
+      await app.shutdown()
+      #expect(!voice.isListening)
+      #expect((await app.speechEffectRuntime.snapshot()).activeRequests.isEmpty)
+    } catch {
+      await fixture.lowerGate.releaseFirstRequest()
+      await speech.releaseAll(.cancelled)
+      _ = await confirming?.value
+      await app.shutdown()
+      throw error
+    }
   }
 }
