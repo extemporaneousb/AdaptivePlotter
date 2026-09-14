@@ -8,6 +8,40 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## R05 independent axis metric implementation, 2026-09-13
+
+Task `task-9935a6df0be84c4bb2d9a07ffbcf49ac` began from clean primary main
+`a13f2160fdab819efc4825fc2be4e144ea8c64e7`, recorded target main. The coordinator
+owns contract acceptance, drawing-evidence persistence, typed controller admission,
+geometry transition, startup reconciliation and integration. Bounded workers own
+metric value contracts, the existing lower controller/interpreter capability, and
+the measurement editor/identity composition. No settings have been written and no
+reported physical lengths have been accepted. Independent axis association,
+measurement uncertainty, held-out geometry and attended behavior remain pending.
+The strict focused suite passes all 78 tests in 32.179 seconds. Integration exposed
+and repaired an existing reset mismatch: Boundary-forward rewind persisted a
+Stage-Four-free prefix but retained its active checkpoint. The same reset owner
+now clears that active suffix. Production tests exercise passive measurement save,
+durable preparation/reset before a partial settings write, zero writes on prefix
+save failure, shutdown joining and exact evidence-only retry. Lower tests cover
+exclusive fresh-context admission, byte/ack receipts, readback and ambiguous failure;
+startup tests cover interrupted transitions without firmware replay.
+The one-shot critic accepted frozen patch SHA256
+`94dfc3fb23ac5e6e22e8d1838d1c087f4d384f562425d2be1fb71e7f9290fd48` with no actionable
+findings; no recheck was performed. The first full run completed 1331 tests with
+one existing jog-cancel fixture assertion failure: the link write counter was
+observed before the controller resumed and published its retained transmitted
+state. The coordinator synchronized that test with the owner publication while
+keeping Idle held; production code was unchanged after review. All 43 focused
+controller/calibration tests passed in 7.443 seconds. Final strict serial validation
+passed all 1331 quick tests in 380.954 seconds with six explicit skips, all ten
+journeys in 3.291 seconds, and signed-app/launcher/negative-bundle, documentation
+and diff gates. Native operator interaction, actual firmware transfer, independently
+measured metric and attended drawing remain unverified. All ten prior test apps
+were checked read-only: source commit, binary digest, signature and write protection
+remain intact. The metric app will be staged unlaunched after the exact landing.
+Receipts are retained in `.build/studio-metric-9935a6-evidence/`.
+
 ## Unified Voice feedback repair, 2026-09-13
 
 Task `task-aca1b29ebb094d6eaf06580766c72db1` began from clean primary main
@@ -33,7 +67,11 @@ quick tests in 358.102 seconds, with six explicit skips, and all 10 journeys in
 3.247 seconds. Strict signed-app, launcher, negative-bundle, documentation and
 diff checks passed. No microphone, audio, controller action or live-session
 replacement has been performed. Receipts are retained in
-`.build/studio-voice-aca1b2-evidence/`.
+`.build/studio-voice-aca1b2-evidence/`. The repair landed as
+`a13f2160fdab819efc4825fc2be4e144ea8c64e7`; its immutable signed, unlaunched app is
+`.build/StudioTestApps/AdaptivePlotter-Voice-aca1b2.app`. All 366 build inputs match
+that commit. Binary SHA256:
+`682378986ff4d26362abb5b340caf7f5202924b2a6f6a90753f4b26224a09188`.
 
 ## Boundary replacement checkpoint repair, 2026-09-13
 
@@ -81,8 +119,7 @@ matching that exact commit. Binary SHA256:
 Exact landing/source/signature receipts remain in `.build/studio-boundary-33f100-evidence/`.
 The test app remains unlaunched and the live session is unchanged.
 
-Next independent deliveries are the unified Voice repair, R05 measured-axis
-calibration, then DS-09 aggregate integration and DS-10 attended readiness. Native
+Next independent deliveries are R05 measured-axis calibration, then DS-09 aggregate integration and DS-10 attended readiness. Native
 recovery, physical dimensions and realized ink remain unverified.
 
 ### Physical metric feedback retained for the R05 correction
@@ -103,8 +140,17 @@ canonical machine geometry owner. Opposite sides and a second length distinguish
 consistent scale from backlash or slipping; two lengths do not prove orthogonality.
 No factors are accepted from this report, no controller settings are written, and
 no motion or live-app restart is authorized by it. Source evidence is retained at
-`/tmp/adaptiveplotter-camera-metric-20260913-181418/`; receipt contents reported by
-the diagnostic task have not yet been independently rebound by this coordinator.
+`/tmp/adaptiveplotter-camera-metric-20260913-181418/`. The coordinator independently
+verified the saved checkpoint and drawing-record envelopes and their SHA256 values,
+then read the existing machine-session SQLite database in read-only mode. Four
+hash-valid raw transmissions at sequences 11038, 11946, 12596 and 13504 contain
+Y+225.991, X+159.133, Y-225.991 and X-159.133 respectively, consistent with the
+saved frame. No matching run/program UUID was present in the bounded event range;
+this is span consistency, not an independently proven wire-to-record identity.
+The checkpoint retains $100=40.18235 and $101=45.09100. Exact ruler association,
+opposite-side observations and measurement uncertainty still require the operator.
+Read-only extracts are retained as `reported-border-wire-readonly.json` and
+`reported-border-record-readonly.json` in the metric task evidence directory.
 This remains R05 corrective work before aggregate campaign acceptance.
 
 ## DS-08 integrated Studio workflow, 2026-09-13

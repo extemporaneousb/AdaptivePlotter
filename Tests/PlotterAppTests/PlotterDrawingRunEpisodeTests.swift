@@ -205,6 +205,84 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(await restored.events.values.isEmpty)
   }
 
+  @Test("axis geometry revision preserves old-sheet ink even after moving the target; exact new paper clears it",
+    arguments: [false, true])
+  func axisGeometryChangeRequiresNewPhysicalSheet(_ interruptedArchive: Bool) async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let original = await drawingRunHarness(fixture: fixture, outcome: .cancelled)
+    let ready = await original.runtime.synchronize(environment: .live)
+    let run = await original.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let record = try #require(run.snapshot.terminal?.record)
+    let sealed = await original.evidence.archive
+    let attempt = try #require(sealed.attempts.first)
+    #expect(attempt.inkDispatchPossible)
+    #expect(record.executionFrontiers.commandedStrokeCount > 0)
+    let baseline = try #require(attempt.baselines.first)
+    let baselineBytes = try await original.evidence.readMedia(baseline)
+    let terminalMedia = try #require(record.attemptEvidence?.terminalFrames.first)
+    let terminalBytes = try await original.evidence.readMedia(terminalMedia)
+    let archive = interruptedArchive
+      ? try DrawingRunEvidenceArchive(archiveID: sealed.archiveID, revision: 0,
+          records: [], attempts: sealed.attempts)
+      : sealed
+    let archiveEncoder = JSONEncoder()
+    archiveEncoder.outputFormatting = [.sortedKeys]
+    let archiveBytes = try archiveEncoder.encode(archive)
+
+    // Synthetic accepted registration and a rebuilt plan represent completed
+    // relearning under a new controller metric. This asserts software admission
+    // and does not infer a physical transform for the old ink.
+    let registration = try drawingRunRegistrationWithNewMachineGeometry(fixture.registration)
+    #expect(registration.applicability.machineGeometry != fixture.registration.applicability.machineGeometry)
+    let revised = try drawingRunGeometryRevisionPlan(fixture: fixture, registration: registration, shifted: false)
+    #expect(revised.plan.provenance.registrationRevisionID.rawValue == registration.acceptedRevisionID.rawValue)
+    let restored = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: revised),
+      archiveLoadResult: .loaded(archive))
+    let shifted = try drawingRunGeometryRevisionPlan(fixture: fixture, registration: registration, shifted: true)
+    #expect(shifted.plan.strokes.map(\.path) != revised.plan.strokes.map(\.path))
+    for plan in [revised, shifted] {
+      await restored.facts.replace(fixture.facts(plan: plan))
+      let state = await restored.runtime.synchronize(environment: .live)
+      guard case .unavailable(let issue) = state.readiness else {
+        Issue.record("Changed geometry made the previously marked sheet ready.")
+        return
+      }
+      #expect(issue.reason == .planMayAlreadyContainInk)
+      #expect(issue.remedy == .replaceMarkedPaper)
+      let rejected = await restored.runtime.submit(.init(projection: state.projection, intent: .start))
+      let refusal = try drawingRunRefusal(rejected)
+      #expect(refusal.reason == .planMayAlreadyContainInk)
+      #expect(refusal.remedy == .replaceMarkedPaper)
+    }
+    #expect(await restored.events.values.isEmpty)
+    #expect(await restored.interpreter.planRequests.isEmpty)
+    #expect(await restored.camera.requests.isEmpty)
+    #expect(await restored.evidence.attempts.isEmpty)
+
+    let newPaper = PaperRevisionContext(instance: PaperInstanceRevision(), contactPlane: fixture.paper.contactPlane)
+    let newSheetPlan = try drawingRunPlan(shifted, replacingPaper: newPaper)
+    #expect(newSheetPlan.plan == shifted.plan)
+    #expect(newSheetPlan.registration == shifted.registration)
+    await restored.facts.replace(fixture.facts(plan: newSheetPlan))
+    // Changing the plan's paper alone does not erase retained no-redraw truth.
+    let beforePaperRestore = await restored.runtime.synchronize(environment: .live)
+    if case .unavailable(let issue) = beforePaperRestore.readiness {
+      #expect(issue.remedy == .replaceMarkedPaper)
+    } else { Issue.record("Paper was cleared without the current-paper archive restore.") }
+    _ = await restored.runtime.restoreNoRedrawTruth(from: archive, paper: newPaper, environment: .live)
+    #expect((await restored.runtime.synchronize(environment: .live)).readiness == .ready)
+    #expect(await restored.events.values.isEmpty)
+
+    // Recovery changes current-paper filtering, never the old immutable record,
+    // staged attempt, its physical-paper association, or owned image bytes.
+    #expect(await original.evidence.archive == sealed)
+    #expect(try archiveEncoder.encode(archive) == archiveBytes)
+    #expect(attempt.intent.context.paper == fixture.paper)
+    #expect(record.paper == fixture.paper)
+    #expect(try await original.evidence.readMedia(baseline) == baselineBytes)
+    #expect(try await original.evidence.readMedia(terminalMedia) == terminalBytes)
+  }
+
   @Test("buffered frames predating settled observation boundaries cannot acquire pose identity",
     arguments: [false, true])
   func bufferedFrameBeforeObservationSettlementIsRejected(_ staleResult: Bool) async throws {
@@ -1089,4 +1167,53 @@ private func drawingRunRefusal(
     throw PlotterDrawingRunEpisodeTestError.expectedRefusal
   }
   return refusal
+}
+
+
+/// Test-only Codable construction follows the existing synthetic registration
+/// fixture seam. No production calibration, rebase, camera, or motion occurs.
+private func drawingRunRegistrationWithNewMachineGeometry(
+  _ registration: TipCameraRegistration
+) throws -> TipCameraRegistration {
+  let previous = registration.applicability
+  let applicability = TipCalibrationApplicabilityContext(
+    opticalConfiguration: previous.opticalConfiguration, machineGeometry: MachineGeometryIdentity(),
+    machineCoordinateFrame: MachineCoordinateFrameRevision(rawValue: previous.machineCoordinateFrame.rawValue + 1),
+    toolAssembly: previous.toolAssembly, penContactProfile: previous.penContactProfile,
+    paperContactPlane: previous.paperContactPlane)
+  let encoder = JSONEncoder()
+  var object = try #require(JSONSerialization.jsonObject(with: encoder.encode(registration)) as? [String: Any])
+  object["applicability"] = try JSONSerialization.jsonObject(with: encoder.encode(applicability))
+  object["acceptedRevisionID"] = try JSONSerialization.jsonObject(with: encoder.encode(LearningArtifactRevisionID()))
+  object["machineCameraRegistrationRevisionID"] = try JSONSerialization.jsonObject(with: encoder.encode(LearningArtifactRevisionID()))
+  object["estimatorRevision"] = registration.estimatorRevision + "-new-machine-metric-fixture"
+  return try JSONDecoder().decode(TipCameraRegistration.self,
+    from: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
+}
+
+private func drawingRunGeometryRevisionPlan(
+  fixture: DrawingRunEpisodeFixture, registration: TipCameraRegistration, shifted: Bool
+) throws -> PlotterDrawingRunPlan {
+  let anchor = fixture.plan.plan.placement.machineAnchor
+  let deltaX = shifted ? (fixture.drawableRegion.bounds.maxX - anchor.x) / 4 : 0
+  let built = PlotterDrawingPlanningAdapter.buildDraft(program: fixture.plan.program,
+    machineCenter: try Point2(x: anchor.x + deltaX, y: anchor.y),
+    uniformScale: fixture.plan.plan.placement.uniformScale, rotationDegrees: 0,
+    drawableRegion: fixture.drawableRegion, registration: registration)
+  return PlotterDrawingRunPlan(draftRevision: .init(rawValue: shifted ? 12 : 11),
+    program: try #require(built.program), placementID: UUID(), plan: try #require(built.plan),
+    evidenceRole: fixture.plan.evidenceRole, paperCoverage: fixture.plan.paperCoverage, registration: registration)
+}
+
+private func drawingRunPlan(
+  _ plan: PlotterDrawingRunPlan, replacingPaper paper: PaperRevisionContext
+) throws -> PlotterDrawingRunPlan {
+  let prior = plan.paperCoverage
+  let coverage = try PaperCoverageObservation(paper: paper, source: prior.source, frame: prior.frame,
+    polygon: prior.polygon, method: prior.method, observedAt: prior.observedAt,
+    algorithmRevision: prior.algorithmRevision, opticalConfiguration: prior.opticalConfiguration,
+    drawableRegion: prior.drawableRegion)
+  return PlotterDrawingRunPlan(draftRevision: plan.identity.draftRevision, program: plan.program,
+    placementID: plan.placementID, plan: plan.plan, evidenceRole: plan.evidenceRole,
+    paperCoverage: coverage, registration: plan.registration)
 }

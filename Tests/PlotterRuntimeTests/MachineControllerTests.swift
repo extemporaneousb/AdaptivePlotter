@@ -713,6 +713,14 @@ struct RelativeJogTests {
     defer { cancelTask.cancel() }
     await waitForWriteCount(ready.base, atLeast: ready.writesThroughCancel)
 
+    // The simulated link increments its count before the controller resumes
+    // from await write and publishes .transmitted. Keep Idle held and observe
+    // that owner publication before asserting its retained state.
+    for _ in 0..<1_000 {
+      if await ready.controller.snapshot().lastJogCancelOutcome == .transmitted { break }
+      await Task.yield()
+    }
+
     var snapshot = await ready.controller.snapshot()
     #expect(snapshot.jogCancellationInFlight)
     #expect(snapshot.lastJogCancelOutcome == .transmitted)

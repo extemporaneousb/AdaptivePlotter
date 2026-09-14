@@ -78,6 +78,7 @@ public struct PlotterArtifactResetPlan: Hashable, Sendable {
   /// Exact durable predecessor retained only for transaction rollback.
   public let previousAcceptedCheckpoint: AcceptedLearningPathCheckpoint?
   public let expectedControllerSessionID: UUID?
+  public let axisCalibration: ControllerAxisCalibrationProposal?
 
   public init(
     id: String,
@@ -92,7 +93,8 @@ public struct PlotterArtifactResetPlan: Hashable, Sendable {
     physicalInkMayRemain: Bool,
     paperReplacement: PaperReplacementTransition? = nil,
     previousAcceptedCheckpoint: AcceptedLearningPathCheckpoint? = nil,
-    expectedControllerSessionID: UUID? = nil
+    expectedControllerSessionID: UUID? = nil,
+    axisCalibration: ControllerAxisCalibrationProposal? = nil
   ) {
     self.id = id
     self.anchorStepID = anchorStepID
@@ -107,6 +109,7 @@ public struct PlotterArtifactResetPlan: Hashable, Sendable {
     self.paperReplacement = paperReplacement
     self.previousAcceptedCheckpoint = previousAcceptedCheckpoint
     self.expectedControllerSessionID = expectedControllerSessionID
+    self.axisCalibration = axisCalibration
   }
 }
 

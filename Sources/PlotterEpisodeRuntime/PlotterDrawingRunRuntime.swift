@@ -1967,6 +1967,16 @@ public actor PlotterDrawingRunRuntime {
     guard let plan = facts.plan else {
       return unavailable(Authority.draft, .exactPlanUnavailable, .reviewExactPlan, "Show the portrait on the plotter video and fit its target inside the current drawing area.")
     }
+    let geometry = plan.registration.applicability.machineGeometry
+    let unmappedMarkedPaper = state.blockedPlanRecords.contains {
+      $0.tipCalibration.applicability.machineGeometry != geometry
+    } || state.blockedPlanIntents.contains {
+      $0.context.registration.applicability.machineGeometry != geometry
+    }
+    if unmappedMarkedPaper {
+      return unavailable(Authority.run, .planMayAlreadyContainInk, .replaceMarkedPaper,
+        "This sheet has possible ink recorded under different machine geometry. Its location cannot be compared after axis calibration. Replace the marked sheet and record New Sheet before drawing; moving the target does not locate that old ink.")
+    }
     if state.blockedPlanHashes.contains(plan.plan.contentHash) {
       return unavailable(Authority.run, .planMayAlreadyContainInk, .movePlanAwayFromPossibleInk, "This plan may already contain ink. Move the target or use a new sheet for the next drawing.")
     }

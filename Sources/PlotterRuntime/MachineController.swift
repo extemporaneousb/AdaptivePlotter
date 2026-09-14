@@ -152,6 +152,7 @@ public actor MachineController {
   private enum ActiveOperation {
     case passiveProbe
     case alarmClear
+    case axisCalibration
     case relativeJog
     case drawingStroke
     case penActuation
@@ -219,6 +220,9 @@ public actor MachineController {
   private var lastDrawingStrokeOutcome: DrawingStrokeOutcome?
   private var lastPenOutcome: PenOutcome?
   private var lastAlarmClearOutcome: ControllerAlarmClearOutcome?
+  private var axisCalibrationCancellationRequested = false
+  private var axisCalibrationDisconnectInProgress = false
+  private var axisCalibrationCompletionWaiters: [CheckedContinuation<Void, Never>] = []
   private var activeJogCommandTransmitted = false
   private var preTransmissionJogCancellationRequested = false
   private var jogCancellationProgress: JogCancellationProgress?
@@ -341,6 +345,12 @@ public actor MachineController {
   }
 
   public func disconnect() async {
+    axisCalibrationDisconnectInProgress = true
+    defer { axisCalibrationDisconnectInProgress = false }
+    if activeOperation == .axisCalibration {
+      axisCalibrationCancellationRequested = true
+      await withCheckedContinuation { axisCalibrationCompletionWaiters.append($0) }
+    }
     // This is the workflow-telemetry admission cutoff. Capture the one
     // existing ordered tail before the first suspension so actor reentrancy
     // cannot append work that this disconnect fails to drain.
@@ -409,6 +419,14 @@ public actor MachineController {
     }
     activeOperation = .passiveProbe
     defer { activeOperation = nil }
+    return await executePassiveProbe(probeID: probeID, started: started)
+  }
+
+  /// Runs inside the caller's existing exclusive controller operation.
+  private func executePassiveProbe(
+    probeID: UUID = UUID(), started: RuntimeTimestamp? = nil, discardPendingInput: Bool = false
+  ) async -> PassiveProbeResult {
+    let started = started ?? timestamp()
     blockers = []
     lastAlarmClearOutcome = nil
     var exchanges: [PassiveProbeExchange] = []
@@ -416,7 +434,7 @@ public actor MachineController {
 
     do {
       let opened = try await ensureConnected()
-      if opened { _ = try await link.discardPendingInput() }
+      if opened || discardPendingInput { _ = try await link.discardPendingInput() }
       connection = .probing
     } catch {
       blockers = [.transport(String(describing: error))]
@@ -425,6 +443,10 @@ public actor MachineController {
     }
 
     for query in PassiveQuery.allCases {
+      if activeOperation == .axisCalibration, axisCalibrationIsCancelled {
+        blockers.append(.transport("Axis calibration was cancelled during controller inspection."))
+        break
+      }
       let exchange = await executePassive(query)
       exchanges.append(exchange)
       if let blocker = exchange.blocker {
@@ -447,6 +469,147 @@ public actor MachineController {
       await closeAndInvalidateKnowledge()
     }
     return finishProbe(probeID: probeID, started: started, exchanges: exchanges)
+  }
+
+  /// Applies one explicitly approved metric proposal. No setting is retried;
+  /// the exclusive owner retains every transfer through terminal readback.
+  public func applyAxisCalibration(
+    _ proposal: ControllerAxisCalibrationProposal,
+    beforeSettingsWrite: @escaping @Sendable () async throws -> Void
+  ) async -> ControllerAxisCalibrationOutcome {
+    func refused(_ reason: String) -> ControllerAxisCalibrationOutcome {
+      try! ControllerAxisCalibrationOutcome(status: .refused, reason: reason)
+    }
+    guard selectionIsExplicit, proposal.baseline.link == link.descriptor else {
+      return refused("The proposal does not belong to this explicitly selected controller.")
+    }
+    guard activeOperation == nil, !axisCalibrationDisconnectInProgress else { return refused("Another controller operation is in flight.") }
+    guard stickyAmbiguity == nil else { return refused("Resolve the existing controller ambiguity first.") }
+    activeOperation = .axisCalibration
+    axisCalibrationCancellationRequested = false
+    motionGuardState = .inactive
+    defer {
+      activeOperation = nil
+      let waiters = axisCalibrationCompletionWaiters
+      axisCalibrationCompletionWaiters.removeAll()
+      for waiter in waiters { waiter.resume() }
+    }
+    var attempted: [String] = []
+    var acknowledged: [String] = []
+    var transfers: [ControllerAxisCalibrationCommandTransfer] = []
+    var baseline: PassiveProbeResult?
+    var verification: PassiveProbeResult?
+    func outcome(
+      _ status: ControllerAxisCalibrationStatus, _ reason: String,
+      context: ControllerCheckpointContext? = nil
+    ) -> ControllerAxisCalibrationOutcome {
+      try! ControllerAxisCalibrationOutcome(
+        status: status, attemptedCommands: attempted, acknowledgedCommands: acknowledged,
+        verifiedContext: context, reason: reason, baselineProbe: baseline,
+        verificationProbe: verification, commandTransfers: transfers
+      )
+    }
+    if axisCalibrationIsCancelled { return outcome(.cancelled, "Cancelled before settings inspection.") }
+    let fresh = await executePassiveProbe(discardPendingInput: true)
+    baseline = fresh
+    guard !axisCalibrationIsCancelled else {
+      return outcome(.cancelled, "Cancelled before settings preparation.")
+    }
+    guard let context = try? ControllerCheckpointContext(probe: fresh),
+      proposal.baseline.comparison(with: context).isCompatible,
+      fresh.latestStatusReport?.controllerState == .idle else {
+      return outcome(.refused, "Fresh Idle controller context does not match the proposal baseline.")
+    }
+    do {
+      try await beforeSettingsWrite()
+    } catch {
+      return outcome(.refused, "Durable settings preparation failed: \(error)")
+    }
+    for command in proposal.commands {
+      // Check after acquiring the existing wire lock, immediately before the
+      // link call. A cancelled waiter cannot emit a later axis command.
+      await acquireWireWrite(priority: false)
+      if axisCalibrationIsCancelled {
+        releaseWireWrite()
+        return outcome(attempted.isEmpty ? .cancelled : .ambiguous,
+          "Cancelled before the next setting command; no automatic retry was made.")
+      }
+      let bytes = Data((command + "\n").utf8)
+      attempted.append(command)
+      let written: Int
+      do {
+        let receipt = try await link.write(bytes)
+        releaseWireWrite()
+        written = receipt.writtenByteCount
+        guard written == bytes.count else {
+          transfers.append(try! ControllerAxisCalibrationCommandTransfer(
+            command: command, writtenByteCount: (0...bytes.count).contains(written) ? written : nil,
+            writeError: "Link reported \(written) written bytes of \(bytes.count)."
+          ))
+          await closeAndInvalidateKnowledge()
+          return outcome(.ambiguous, "The setting write was incomplete; no automatic retry was made.")
+        }
+        recordRawIOBestEffort(RawMachineIO(direction: .transmit, bytes: bytes, timestamp: timestamp()))
+      } catch {
+        releaseWireWrite()
+        let count = Self.axisCalibrationWrittenByteCount(error, maximum: bytes.count)
+        if let count, count > 0 {
+          recordRawIOBestEffort(RawMachineIO(
+            direction: .transmit, bytes: Data(bytes.prefix(count)), timestamp: timestamp()
+          ))
+        }
+        transfers.append(try! ControllerAxisCalibrationCommandTransfer(
+          command: command, writtenByteCount: count, writeError: String(describing: error)
+        ))
+        await closeAndInvalidateKnowledge()
+        return outcome(.ambiguous, "Setting write failed: \(error). No automatic retry was made.")
+      }
+      let receipt = await awaitCommandAcknowledgementReceipt(context: "Axis calibration \(command)")
+      transfers.append(try! ControllerAxisCalibrationCommandTransfer(
+        command: command, writtenByteCount: written,
+        acknowledgement: receipt.terminalLine, received: receipt.received
+      ))
+      switch receipt.result {
+      case .accepted:
+        acknowledged.append(command)
+      case .rejected(let reason):
+        await closeAndInvalidateKnowledge()
+        return outcome(.ambiguous, "Controller rejected \(command): \(reason). Earlier acknowledgements are retained.")
+      case .ambiguous(let reason):
+        await closeAndInvalidateKnowledge()
+        return outcome(.ambiguous, "Setting acknowledgement is uncertain: \(reason). No automatic retry was made.")
+      }
+    }
+    guard !axisCalibrationIsCancelled else {
+      return outcome(.ambiguous, "Settings were acknowledged, but cancellation prevented verification.")
+    }
+    let readback = await executePassiveProbe()
+    verification = readback
+    guard !axisCalibrationIsCancelled,
+      let context = try? ControllerCheckpointContext(probe: readback),
+      readback.latestStatusReport?.controllerState == .idle,
+      proposal.validatesReadback(context) else {
+      await closeAndInvalidateKnowledge()
+      return outcome(.ambiguous, "Settings readback did not verify the exact proposal and unchanged controller context.")
+    }
+    motionGuardState = .inactive
+    return outcome(.applied, "Both settings were acknowledged and read back. Physical dimensions require new measurement.", context: context)
+  }
+
+  private var axisCalibrationIsCancelled: Bool {
+    Task.isCancelled || axisCalibrationCancellationRequested
+  }
+
+  private static func axisCalibrationWrittenByteCount(_ error: any Error, maximum: Int) -> Int? {
+    guard let error = error as? MachineLinkError else { return nil }
+    let count: Int
+    switch error {
+    case .writeTimedOut(let written, _), .writeCancelled(let written, _),
+      .writeFailed(let written, _, _): count = written
+    case .notOpen, .disconnected: count = 0
+    default: return nil
+    }
+    return (0...maximum).contains(count) ? count : nil
   }
 
   /// Sends one explicit GRBL/grblHAL `$X` request only when the latest probe
@@ -1703,66 +1866,73 @@ public actor MachineController {
     )
   }
 
+  private struct CommandAcknowledgementReceipt {
+    let result: AcknowledgementResult
+    let received: [MachineLinkReadReceipt]
+    let terminalLine: String?
+  }
+
   private func awaitCommandAcknowledgement(context: String) async -> AcknowledgementResult {
+    await awaitCommandAcknowledgementReceipt(context: context).result
+  }
+
+  private func awaitCommandAcknowledgementReceipt(context: String) async -> CommandAcknowledgementReceipt {
     var parser = GRBLParser()
     let deadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
     var receivedBytes = 0
-    var receivedChunks = 0
+    var received: [MachineLinkReadReceipt] = []
+    func result(_ result: AcknowledgementResult, line: String? = nil) -> CommandAcknowledgementReceipt {
+      CommandAcknowledgementReceipt(result: result, received: received, terminalLine: line)
+    }
     do {
       while clock.nowNanoseconds() < deadline {
         guard receivedBytes < maximumRawReceiveBytesPerQuery,
-          receivedChunks < maximumRawReceiveChunksPerQuery
-        else {
-          return .ambiguous(.malformedReply("\(context) acknowledgement exceeded response bounds"))
+          received.count < maximumRawReceiveChunksPerQuery else {
+          return result(.ambiguous(.malformedReply("\(context) acknowledgement exceeded response bounds")))
         }
         let remaining = deadline - clock.nowNanoseconds()
         let receipt = try await link.read(
           maximumBytes: min(4_096, maximumRawReceiveBytesPerQuery - receivedBytes),
           timeoutNanoseconds: remaining
         )
-        let data = receipt.bytes
-        receivedBytes += data.count
-        receivedChunks += 1
-        let receivedAt = RuntimeTimestamp(
-          monotonicNanoseconds: receipt.receivedAtMonotonicNanoseconds
-        )
-        recordRawIOBestEffort(
-          RawMachineIO(direction: .receive, bytes: data, timestamp: receivedAt)
-        )
-        for line in parser.consume(data) {
+        received.append(receipt)
+        receivedBytes += receipt.bytes.count
+        let receivedAt = RuntimeTimestamp(monotonicNanoseconds: receipt.receivedAtMonotonicNanoseconds)
+        recordRawIOBestEffort(RawMachineIO(direction: .receive, bytes: receipt.bytes, timestamp: receivedAt))
+        for line in parser.consume(receipt.bytes) {
           switch line.kind {
-          case .acknowledgement:
-            return .accepted
-          case .error(let code):
-            return .rejected("error:\(code)")
+          case .acknowledgement: return result(.accepted, line: line.text)
+          case .error(let code): return result(.rejected("error:\(code)"), line: line.text)
           case .alarm:
             applyAlarm(line.text)
-            return .ambiguous(.controllerAlarm(line.text))
-          case .status(let report):
-            apply(report, receivedAt: receivedAt)
-          case .unknown:
-            return .ambiguous(.malformedReply(line.text))
+            return result(.ambiguous(.controllerAlarm(line.text)), line: line.text)
+          case .status(let report): apply(report, receivedAt: receivedAt)
+          case .unknown: return result(.ambiguous(.malformedReply(line.text)), line: line.text)
           case .greeting:
             applyControllerReset()
-            return .ambiguous(.malformedReply("controller reset greeting arrived after \(context)"))
-          case .configuration, .bracketReport, .message:
-            continue
+            return result(.ambiguous(.malformedReply("controller reset greeting arrived after \(context)")), line: line.text)
+          case .configuration, .bracketReport, .message: continue
           }
         }
       }
-      return .ambiguous(.acceptanceTimedOut)
+      return result(.ambiguous(.acceptanceTimedOut))
     } catch let error as MachineLinkError {
+      if case .readFailed(let partial, _, _) = error {
+        received.append(contentsOf: partial)
+        for receipt in partial {
+          recordRawIOBestEffort(RawMachineIO(direction: .receive, bytes: receipt.bytes,
+            timestamp: RuntimeTimestamp(monotonicNanoseconds: receipt.receivedAtMonotonicNanoseconds)))
+        }
+      }
       switch error {
-      case .timedOut, .readFailed(_, _, .timedOut):
-        return .ambiguous(.acceptanceTimedOut)
+      case .timedOut, .readFailed(_, _, .timedOut): return result(.ambiguous(.acceptanceTimedOut))
       case .disconnected, .readFailed(_, _, .disconnected):
         invalidateConnectionKnowledge()
-        return .ambiguous(.disconnected)
-      default:
-        return .ambiguous(.transport(String(describing: error)))
+        return result(.ambiguous(.disconnected))
+      default: return result(.ambiguous(.transport(String(describing: error))))
       }
     } catch {
-      return .ambiguous(.transport(String(describing: error)))
+      return result(.ambiguous(.transport(String(describing: error))))
     }
   }
 
@@ -2237,6 +2407,15 @@ public actor MachineController {
         }
       }
     } catch let error as MachineLinkError {
+      if case .readFailed(let partial, _, _) = error {
+        for receipt in partial {
+          let raw = RawMachineIO(direction: .receive, bytes: receipt.bytes,
+            timestamp: RuntimeTimestamp(monotonicNanoseconds: receipt.receivedAtMonotonicNanoseconds))
+          rawIO.append(raw)
+          recordRawIOBestEffort(raw)
+          parsed.append(contentsOf: parser.consume(receipt.bytes))
+        }
+      }
       switch error {
       case .timedOut, .readFailed(_, _, .timedOut):
         if let unterminated = parser.finishUnterminatedLine() { parsed.append(unterminated) }

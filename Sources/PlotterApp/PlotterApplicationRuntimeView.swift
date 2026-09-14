@@ -135,6 +135,22 @@ struct PlotterApplicationRuntimeView: View {
           paperControls(ui)
           DrawingStudioView(presentation: ui.drawingStudio, plotterUIProjection: ui.semantic,
             plotterUIIntentSink: application, panel: .activeLearning)
+          DisclosureGroup("Measure Learning frame") {
+            AxisMetricCalibrationView(geometry: application.axisMetricFrame,
+              latestMeasurement: application.latestAxisMetricMeasurement,
+              proposal: application.axisCalibrationProposal,
+              status: application.axisMetricStatus ?? application.axisMetricRecoveryError,
+              busy: application.axisCalibrationInProgress,
+              applyUnavailableReason: application.axisMetricApplyUnavailableReason,
+              onSave: { edges, method, confirmed in
+                await application.saveAxisMetricMeasurement(edges, method: method, axesConfirmed: confirmed)
+              }, onApply: { await application.applyAxisMetricCalibration() })
+            if application.axisMetricHasPendingPublication {
+              Button("Retry calibration evidence save") {
+                Task { await application.retryAxisMetricEvidencePublication() }
+              }
+            }
+          }
         }.padding(12)
       }
     case .portraitStudio:

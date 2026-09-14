@@ -307,6 +307,7 @@ public struct PlotterControllerSerialDevice: Hashable, Sendable {
   }
 }
 public enum PlotterControllerSessionIntent: Hashable, Sendable {
+  case applyAxisCalibration(proposalID: UUID)
   case refreshSerialDevices, toggleConnection, requestPassiveProbe, clearAlarm
   case toggleMotionAuthorization
   case selectSerialDevice(PlotterControllerSerialDevice)

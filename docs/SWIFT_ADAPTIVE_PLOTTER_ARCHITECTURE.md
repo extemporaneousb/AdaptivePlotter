@@ -23,6 +23,43 @@ attempts reached no controls in the locked GUI; actual camera workload and physi
 acceptance remain unverified. Current Evidence owns exact receipts and limits;
 software acceptance and delivery do not assert Git landing or attended success.
 
+## Independent axis calibration ownership
+
+`ControllerAxisMetric` in PlotterRuntime owns validated immutable frame geometry,
+ruler observations, independent axis factors and exact setting proposals. An exact
+Stage Four checkpoint and matching registration bind the historical controller
+context. `DrawingRunEvidenceArchive` schema 3 reads schemas 1–3 and retains metric
+measurements, prepared calibration attempts and separate terminal receipts alongside
+existing drawing records/attempts. Record revision still equals record count;
+supplementary facts do not reinterpret historical revision semantics. All mutations
+preserve these arrays, validate identity/lineage/proposal derivation and use the
+existing checksummed atomic store. Source packages are historical evidence only.
+
+`PlotterControllerSessionIntent.applyAxisCalibration` carries only a proposal UUID.
+The existing application/session owner resolves its exact value, retains preparation
+and terminal callbacks, and dispatches through `PersistentMachineSession` and
+`RunInterpreter` to `MachineController`. The same finite exclusive operation spans
+fresh passive context, pre-write persistence, the two individual commands and
+readback. Actual transfer and acknowledgement receipts remain distinct. The
+interpreter and controller join admitted calibration before disconnect; terminal
+publication belongs to the retained session operation even during shutdown.
+
+`PlotterArtifactResetPlan.axisCalibration` carries the exact dependent reset context
+through the existing Boundary reservation, persistence and local invalidation
+transaction. The existing application state port persists the machine-geometry
+identity and canonical prefix. `AxisMetricLearningTransition` reconciles a pending
+durable attempt before the initializer installs Saved Learning; it has no controller
+port. The measurement view owns only editable text and exposes explicit Save and
+Apply callbacks. It uses a proportional controller-coordinate diagram, not a claim
+of retained physical ink imagery. The drawing owner preserves old-geometry possible
+ink until actual paper replacement. This adds no planner, runner, camera or journal.
+
+Setting commands use three decimals to match standard GRBL setting-report precision;
+fresh readback must still match the exact proposal and unchanged remaining context.
+See upstream [GRBL reporting configuration](https://github.com/gnea/grbl/blob/master/grbl/config.h)
+and [settings report](https://github.com/gnea/grbl/blob/master/grbl/report.c). These
+protocol facts do not establish the identity or physical behavior of the live firmware.
+
 ## Package topology
 
 ```text

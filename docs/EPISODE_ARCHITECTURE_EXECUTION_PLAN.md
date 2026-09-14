@@ -202,10 +202,15 @@ and reported physical stretch remain open. The missing calibrated-metric scope i
 within existing machine-geometry/registration acceptance and checkpoint ownership:
 independent commanded basis vectors, physical lengths and included angle/diagonals,
 measurement uncertainty and method, applicability region, machine geometry identity,
-and immutable evidence digest. Absence means unmeasured. A measured positive-definite
-Gram matrix can later determine physical similarity placement through the existing
-planning adapter; containment, Fit, preview and material consumers must use that
-same transform. Never derive this correction from camera-affine inversion alone.
+and immutable evidence digest. Absence means unmeasured. The selected R05 implementation uses independent frame-edge measurements to
+propose firmware X/Y steps corrections through the existing exclusive controller
+owner, followed by a new geometry identity and dependent Learning reacquisition.
+This keeps proportional placement, Fit, containment and material consumers on the
+same corrected controller metric. It does not implement a portrait-only transform
+or compensate nonorthogonality. If held-out diagonals show shear, that remains a
+mechanical or separately scoped metric defect; a later measured Gram-matrix solution
+would have to update every coordinate consumer together. Never derive correction
+from camera-affine inversion alone.
 
 Operator feedback now supplies a provisional physical/controller travel discrepancy:
 reported X 159.5 / commanded 159.133 and Y 177 / commanded 225.991 mm. Exact axis

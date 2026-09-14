@@ -11,6 +11,10 @@ protocol PlotterMachineSession: Actor {
   func snapshot() async -> RunInterpreterSnapshot?
   func requestPassiveProbe() async throws -> PassiveProbeResult
   func requestControllerAlarmClear() async -> ControllerAlarmClearOutcome
+  func applyAxisCalibration(
+    _ proposal: ControllerAxisCalibrationProposal,
+    beforeSettingsWrite: @escaping @Sendable () async throws -> Void
+  ) async -> ControllerAxisCalibrationOutcome
   func activateMotionGuard() async -> MotionGuardActivationOutcome
   func deactivateMotionGuard() async
   func beginRelativeJog(_ request: RelativeJogRequest) async -> RelativeJogAdmission
@@ -29,6 +33,15 @@ protocol PlotterMachineSession: Actor {
   @discardableResult
   func recordWorkflowTelemetry(_ event: WorkflowTelemetryEvent) async -> Bool
   func disconnect() async
+}
+
+extension PlotterMachineSession {
+  func applyAxisCalibration(
+    _ proposal: ControllerAxisCalibrationProposal,
+    beforeSettingsWrite: @escaping @Sendable () async throws -> Void
+  ) async -> ControllerAxisCalibrationOutcome {
+    try! ControllerAxisCalibrationOutcome(status: .refused, reason: "This machine session does not support axis calibration.")
+  }
 }
 
 struct PlotterApplicationRuntimeDrawingRunInterpreterPort: PlotterDrawingRunInterpreterPort {
@@ -257,6 +270,16 @@ actor PersistentMachineSession: PlotterMachineSession {
   func requestControllerAlarmClear() async -> ControllerAlarmClearOutcome {
     guard let interpreter else { return .refused(.noSerialDeviceSelected) }
     return await interpreter.requestControllerAlarmClear()
+  }
+
+  func applyAxisCalibration(
+    _ proposal: ControllerAxisCalibrationProposal,
+    beforeSettingsWrite: @escaping @Sendable () async throws -> Void
+  ) async -> ControllerAxisCalibrationOutcome {
+    guard let interpreter else {
+      return try! ControllerAxisCalibrationOutcome(status: .refused, reason: "No controller session is selected.")
+    }
+    return await interpreter.applyAxisCalibration(proposal, beforeSettingsWrite: beforeSettingsWrite)
   }
 
   func activateMotionGuard() async -> MotionGuardActivationOutcome {

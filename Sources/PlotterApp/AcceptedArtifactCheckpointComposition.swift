@@ -54,6 +54,10 @@ private struct AcceptedArtifactCheckpointStatePersistenceAdapter:
   func persistPaperRevisionContext(_ context: PaperRevisionContext) throws {
     try TipCalibrationSemanticIdentityComposition.persistPaperRevisionContext(context)
   }
+
+  func persistMachineGeometryIdentity(_ identity: MachineGeometryIdentity) throws {
+    try TipCalibrationSemanticIdentityComposition.persistMachineGeometryIdentity(identity)
+  }
 }
 
 enum TipCalibrationSemanticIdentityComposition {
@@ -67,19 +71,33 @@ enum TipCalibrationSemanticIdentityComposition {
     static let cameraReframing = "AdaptivePlotter.tip.cameraReframing.v1"
   }
 
-  static let state = TipCalibrationSemanticIdentityState(
-    machineGeometry: MachineGeometryIdentity(rawValue: persistedUUID(for: Key.machineGeometry)),
-    toolAssembly: ToolAssemblyRevision(rawValue: persistedUUID(for: Key.toolAssembly)),
-    penContactProfile: PenContactProfileRevision(
-      rawValue: persistedUUID(for: Key.penContactProfile)
-    ),
-    paperInstance: PaperInstanceRevision(rawValue: persistedUUID(for: Key.paperInstance)),
-    paperContactPlane: PaperContactPlaneRevision(
-      rawValue: persistedUUID(for: Key.paperContactPlane)
-    ),
-    cameraMountRevision: persistedUUID(for: Key.cameraMount),
-    cameraReframingRevision: persistedUUID(for: Key.cameraReframing)
-  )
+  static var state: TipCalibrationSemanticIdentityState {
+    TipCalibrationSemanticIdentityState(
+      machineGeometry: MachineGeometryIdentity(rawValue: persistedUUID(for: Key.machineGeometry)),
+      toolAssembly: ToolAssemblyRevision(rawValue: persistedUUID(for: Key.toolAssembly)),
+      penContactProfile: PenContactProfileRevision(
+        rawValue: persistedUUID(for: Key.penContactProfile)
+      ),
+      paperInstance: PaperInstanceRevision(rawValue: persistedUUID(for: Key.paperInstance)),
+      paperContactPlane: PaperContactPlaneRevision(
+        rawValue: persistedUUID(for: Key.paperContactPlane)
+      ),
+      cameraMountRevision: persistedUUID(for: Key.cameraMount),
+      cameraReframingRevision: persistedUUID(for: Key.cameraReframing)
+    )
+  }
+
+  static func persistMachineGeometryIdentity(_ identity: MachineGeometryIdentity) throws {
+    let value = identity.rawValue.uuidString.lowercased()
+    UserDefaults.standard.set(value, forKey: Key.machineGeometry)
+    guard UserDefaults.standard.string(forKey: Key.machineGeometry) == value else {
+      throw MachineGeometryPersistenceError.readBackMismatch
+    }
+  }
+
+  enum MachineGeometryPersistenceError: Error {
+    case readBackMismatch
+  }
 
   static func persistPaperRevisionContext(_ context: PaperRevisionContext) throws {
     let instance = context.instance.rawValue.uuidString.lowercased()

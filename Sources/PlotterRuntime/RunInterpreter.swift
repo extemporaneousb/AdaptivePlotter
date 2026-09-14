@@ -131,6 +131,7 @@ public enum RunOperation: Hashable, Sendable {
   case idle
   case passiveProbe
   case alarmClear
+  case axisCalibration(UUID)
   case relativeJog(RelativeJogRequest)
   case boundaryMotion(BoundaryMotionRequest)
   case drawingStroke(DrawingStrokeRequest)
@@ -234,6 +235,8 @@ public actor RunInterpreter {
   private let machineController: MachineController
   private var generation: UInt64 = 0
   private var activeTransition: InterpreterTransitionToken?
+  private var activeAxisCalibration: (id: UUID, task: Task<ControllerAxisCalibrationOutcome, Never>)?
+  private var axisCalibrationDisconnectInProgress = false
   private var currentOperation: RunOperation = .idle
   private var lastProbe: PassiveProbeResult?
   private var lastMotionOutcome: MotionOutcome?
@@ -283,6 +286,36 @@ public actor RunInterpreter {
     currentOperation = .alarmClear
     let outcome = await machineController.requestControllerAlarmClear()
     if currentOperation == .alarmClear { currentOperation = .idle }
+    return outcome
+  }
+
+  public func applyAxisCalibration(
+    _ proposal: ControllerAxisCalibrationProposal,
+    beforeSettingsWrite: @escaping @Sendable () async throws -> Void
+  ) async -> ControllerAxisCalibrationOutcome {
+    guard currentOperation == .idle, activeTransition == nil, !axisCalibrationDisconnectInProgress else {
+      return try! ControllerAxisCalibrationOutcome(status: .refused, reason: "Another interpreter operation is in flight.")
+    }
+    guard !Task.isCancelled else {
+      return try! ControllerAxisCalibrationOutcome(status: .cancelled, reason: "Cancelled before calibration admission.")
+    }
+    generation &+= 1
+    currentOperation = .axisCalibration(proposal.proposalID)
+    let controller = machineController
+    let task = Task {
+      await controller.applyAxisCalibration(proposal, beforeSettingsWrite: beforeSettingsWrite)
+    }
+    activeAxisCalibration = (proposal.proposalID, task)
+    let outcome = await withTaskCancellationHandler {
+      await task.value
+    } onCancel: {
+      task.cancel()
+    }
+    if activeAxisCalibration?.id == proposal.proposalID {
+      activeAxisCalibration = nil
+      currentOperation = .idle
+      lastProbe = outcome.verificationProbe ?? outcome.baselineProbe
+    }
     return outcome
   }
 
@@ -934,7 +967,7 @@ public actor RunInterpreter {
     switch currentOperation {
     case .relativeJog, .drawingStroke:
       break
-    case .boundaryMotion, .drawingPlan:
+    case .boundaryMotion, .drawingPlan, .axisCalibration:
       return .refused(.noActiveJog)
     case .idle, .passiveProbe, .alarmClear, .penActuation:
       let outcome = await machineController.requestJogCancel()
@@ -1000,6 +1033,12 @@ public actor RunInterpreter {
   }
 
   public func disconnect() async {
+    axisCalibrationDisconnectInProgress = true
+    defer { axisCalibrationDisconnectInProgress = false }
+    if let calibration = activeAxisCalibration {
+      calibration.task.cancel()
+      _ = await calibration.task.value
+    }
     if let boundary = activeBoundaryMotion {
       if let cancelTask = boundary.cancelTask {
         _ = await cancelTask.value

@@ -701,6 +701,13 @@ protocol PlotterApplicationStatePersistencePort: Sendable {
   ) throws
   func clearAcceptedLearningPathCheckpoint() throws
   func persistPaperRevisionContext(_ context: PaperRevisionContext) throws
+  func persistMachineGeometryIdentity(_ identity: MachineGeometryIdentity) throws
+}
+
+extension PlotterApplicationStatePersistencePort {
+  func persistMachineGeometryIdentity(_ identity: MachineGeometryIdentity) throws {
+    throw AxisMetricLearningTransitionError.persistenceUnavailable
+  }
 }
 
 private struct PlotterApplicationEffectLease: Hashable, Sendable {
@@ -1349,7 +1356,7 @@ final class PlotterApplicationRuntime:
     guard pointSelectionRequest?.purpose == .toolContact else { return [] }
     return pointSelectionEpisodeProjection.exactPointSelection.selectedPoints
   }
-  private let machineGeometryIdentity: MachineGeometryIdentity
+  private var machineGeometryIdentity: MachineGeometryIdentity
   private let toolAssemblyRevision: ToolAssemblyRevision
   private let penContactProfileRevision: PenContactProfileRevision
   private let cameraMountRevision: UUID
@@ -1626,6 +1633,13 @@ final class PlotterApplicationRuntime:
   @ObservationIgnored var drawingMaterialHashCache: (key: String, digest: PlotterModel.Digest)?
   private(set) var drawingEvidenceArchive = DrawingRunEvidenceArchive()
   private(set) var drawingEvidenceError: String?
+  private(set) var axisCalibrationProposal: ControllerAxisCalibrationProposal?
+  private(set) var axisMetricStatus: String?
+  private(set) var axisCalibrationInProgress = false {
+    didSet { if oldValue != axisCalibrationInProgress { markSemanticPresentationChanged() } }
+  }
+  private(set) var axisMetricRecoveryError: String?
+  @ObservationIgnored private var pendingAxisCalibrationTerminal: ControllerAxisCalibrationTerminal?
   private(set) var incidentPackageUIState: PlotterUIIncidentPackageState = .unavailable(
     reason: "No complete incident-package source provider is configured."
   ) {
@@ -2004,6 +2018,18 @@ final class PlotterApplicationRuntime:
       )
     }
     if let statePersistencePort {
+      do {
+        let identity = try AxisMetricLearningTransition.reconcile(
+          archive: drawingEvidencePort.loadSnapshot(), identity: currentLearningPathSemanticIdentity,
+          persistence: statePersistencePort)
+        machineGeometryIdentity = identity.machineGeometry
+      } catch {
+        axisMetricRecoveryError = "Axis calibration evidence/identity recovery failed: \(error)"
+      }
+      if let error = axisMetricRecoveryError {
+        self.artifactResetRuntime.installSavedLearningFact(.rejected(error))
+        acceptedArtifactCheckpointStatus = .rejected(error)
+      } else {
       switch statePersistencePort.loadAcceptedLearningPathCheckpoint() {
       case .absent:
         self.artifactResetRuntime.installSavedLearningFact(.absent)
@@ -2029,7 +2055,7 @@ final class PlotterApplicationRuntime:
           } else {
             checkpoint = loadedCheckpoint
           }
-          if checkpoint.semanticIdentity == tipCalibrationSemanticIdentities.learningPathIdentity {
+          if checkpoint.semanticIdentity == currentLearningPathSemanticIdentity {
             self.artifactResetRuntime.installSavedLearningFact(.awaitingOperatorDecision(
               checkpoint,
               opticalComparison: "Waiting for a compatible current camera frame. No saved value has been applied."
@@ -2055,6 +2081,7 @@ final class PlotterApplicationRuntime:
         self.artifactResetRuntime.installSavedLearningFact(.rejected(reason))
         acceptedArtifactCheckpointStatus = .rejected(reason)
       }
+    }
     }
     drawingRunComposition.install(on: self)
     drawingRunProjectionTask = Task { [weak self, drawingRunRuntime] in
@@ -2620,7 +2647,8 @@ final class PlotterApplicationRuntime:
   }
 
   var interactiveLearningIsComplete: Bool {
-    borderValidationSnapshot.assessment != nil || retainedLearningCompletion != nil
+    axisMetricRecoveryError == nil && !axisCalibrationInProgress
+      && (borderValidationSnapshot.assessment != nil || retainedLearningCompletion != nil)
   }
 
   private var retainedLearningCompletion: BorderValidationAssessment? {
@@ -3472,7 +3500,7 @@ final class PlotterApplicationRuntime:
         ? "Wait for the committed position update to publish."
         : paperReplacementInProgressReason ?? currentCameraCalibrationBusyReason,
       discoveryBusyReason: discoveryBusyReason,
-      foreignOperationInFlight: passiveProbeInProgress || jogRequestInProgress
+      foreignOperationInFlight: axisCalibrationInProgress || passiveProbeInProgress || jogRequestInProgress
         || retainedPenRequestInProgress || jogCancelRequestInProgress
         || borderValidationSnapshot.activeOperationID != nil
         || machineSnapshot?.machine.operationInFlight == true,
@@ -3480,7 +3508,8 @@ final class PlotterApplicationRuntime:
       connectionActionInProgress: controllerConnectionActionInProgress,
       alarmClearInProgress: controllerAlarmClearInProgress,
       motionActionInProgress: motionAuthorizationActionInProgress,
-      lowerSessionAvailable: machineSession != nil
+      lowerSessionAvailable: machineSession != nil,
+      axisCalibrationProposal: axisCalibrationProposal
     )
   }
 
@@ -3590,6 +3619,7 @@ final class PlotterApplicationRuntime:
     case .idle: "idle"
     case .passiveProbe: "controller inspection"
     case .alarmClear: "clearing controller alarm"
+    case .axisCalibration: "applying measured axis calibration"
     case .relativeJog: "relative jog"
     case .boundaryMotion: "Boundary Discovery motion"
     case .drawingStroke: "single drawing stroke"
@@ -3737,7 +3767,7 @@ final class PlotterApplicationRuntime:
     if borderValidationSnapshot.activeOperationID != nil {
       return "Wait for the current learning action before changing frame source."
     }
-    if passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
+    if axisCalibrationInProgress || passiveProbeInProgress || jogRequestInProgress || retainedPenRequestInProgress
       || jogCancelRequestInProgress || machineSnapshot?.machine.operationInFlight == true
     {
       return "Wait for the current controller operation before changing frame source."
@@ -3818,7 +3848,7 @@ final class PlotterApplicationRuntime:
         || borderValidationSnapshot.executionState == .possibleInk,
       activeStopBlocked: activeStopTarget != nil
         || borderValidationSnapshot.activeOperationID != nil,
-      motionSettlementBlocked: passiveProbeInProgress || jogRequestInProgress
+      motionSettlementBlocked: axisCalibrationInProgress || passiveProbeInProgress || jogRequestInProgress
         || retainedPenRequestInProgress || jogCancelRequestInProgress
         || machineSnapshot?.machine.operationInFlight == true || admittedApplicationEffects.count > 0,
       lowerOwnerBlocker: artifactResetLowerOwnerBlocker
@@ -3941,6 +3971,10 @@ final class PlotterApplicationRuntime:
       return false
     }
 
+    // Every supported rewind removes the completed Border suffix, just as the
+    // persisted Learning prefix does. Retaining its active checkpoint could
+    // reintroduce the old registration after a geometry change.
+    activeStageFourCheckpoint = nil
     currentEnvironmentState.exerciseAttempt.finish()
     restartableExerciseItemID = nil
     explorationError = nil
@@ -3972,7 +4006,8 @@ final class PlotterApplicationRuntime:
   }
 
   private func persistLearningPathPrefixBeforeVacate(
-    _ plan: LearningVacatePlan
+    _ plan: LearningVacatePlan,
+    axisCalibration: ControllerAxisCalibrationProposal? = nil
   ) -> PersistedLearningPrefix? {
     guard frameMode == .live, let actions = activeStatePersistencePort else {
       return .unchanged
@@ -3994,8 +4029,12 @@ final class PlotterApplicationRuntime:
       let tipIndex = order.firstIndex(
         of: .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
       )!
+      let identity = axisCalibration.map {
+        AxisMetricLearningTransition.replacingGeometry(in: currentLearningPathSemanticIdentity,
+          with: $0.proposedMachineGeometry)
+      } ?? currentLearningPathSemanticIdentity
       let checkpoint = try AcceptedLearningPathCheckpoint(
-        semanticIdentity: currentLearningPathSemanticIdentity,
+        semanticIdentity: identity,
         penInteraction: currentAcceptedPenInteractionCheckpoint(),
         machineArtifacts: anchorIndex > boundaryIndex
           ? activeMachineArtifactCheckpoint : nil,
@@ -4006,7 +4045,26 @@ final class PlotterApplicationRuntime:
             ?? recoverableTipCalibrationCheckpoint : nil,
         stageFour: nil
       )
-      try actions.saveAcceptedLearningPathCheckpoint(checkpoint)
+      if let proposal = axisCalibration {
+        guard proposal.oldMachineGeometry == machineGeometryIdentity else {
+          throw AxisMetricLearningTransitionError.staleProposal
+        }
+        let previous = actions.loadAcceptedLearningPathCheckpoint()
+        try actions.saveAcceptedLearningPathCheckpoint(checkpoint)
+        do { try actions.persistMachineGeometryIdentity(proposal.proposedMachineGeometry) }
+        catch {
+          do {
+            try actions.persistMachineGeometryIdentity(proposal.oldMachineGeometry)
+            if case .loaded(let old) = previous { try actions.saveAcceptedLearningPathCheckpoint(old) }
+            else { try actions.clearAcceptedLearningPathCheckpoint() }
+          } catch {
+            axisMetricRecoveryError = "Geometry identity/checkpoint persistence requires recovery before Learning: \(error)"
+            machineGeometryIdentity = proposal.proposedMachineGeometry
+          }
+          throw error
+        }
+        machineGeometryIdentity = proposal.proposedMachineGeometry
+      } else { try actions.saveAcceptedLearningPathCheckpoint(checkpoint) }
       return .saved(checkpoint)
     } catch {
       learningAuthorityError =
@@ -9910,6 +9968,7 @@ final class PlotterApplicationRuntime:
       drawingEvidenceArchive = archive
       drawingEvidenceError = nil
       restoreInteractiveLearningCompletionFromEvidence()
+      restoreAxisMetricProposal()
     case .rejected(let detail):
       drawingEvidenceError =
         "Saved drawing evidence was rejected; Drawing Run remains unavailable: \(detail)"
@@ -9951,13 +10010,21 @@ final class PlotterApplicationRuntime:
     _ request: PlotterControllerSessionRequest
   ) async -> PlotterControllerSessionDisposition {
     guard applicationAdmissionIsOpen else { return .cancelled }
+    guard !axisCalibrationInProgress else { return .refused("Wait for axis calibration to settle.") }
     let facts = controllerSessionFacts
+    let resetPlan = learningVacatePlan(from: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering))
+    let resetFacts = artifactResetAdmissionFacts
     let enablesMotion = request.intent == .toggleMotionAuthorization
       && !PlotterControllerSessionRules.project(facts).motionAuthorized
     guard request.reference == facts.reference else {
       return .refused("The controller-session projection changed; use the current action.")
     }
     switch request.intent {
+    case .applyAxisCalibration:
+      guard axisMetricApplyUnavailableReason == nil else {
+        return .refused(axisMetricApplyUnavailableReason ?? "Axis calibration is unavailable.")
+      }
+      axisCalibrationInProgress = true
     case .refreshSerialDevices, .selectSerialDevice:
       break
     case .toggleConnection:
@@ -9970,12 +10037,22 @@ final class PlotterApplicationRuntime:
       motionAuthorizationActionInProgress = true
     }
     defer {
+      axisCalibrationInProgress = false
       controllerConnectionActionInProgress = false
       passiveProbeInProgress = false
       controllerAlarmClearInProgress = false
       motionAuthorizationActionInProgress = false
     }
-    let disposition = await controllerSessionRuntime.submit(request, facts: facts)
+    let callbacks = PlotterAxisCalibrationCallbacks(
+      prepare: { [self] proposal in
+        guard let resetPlan else { throw AxisMetricLearningTransitionError.staleProposal }
+        try await self.prepareAxisCalibration(proposal, resetPlan: resetPlan, admission: resetFacts)
+      },
+      retainTerminal: { [self] proposal, outcome in
+        try await self.retainAxisCalibrationTerminal(proposal, outcome: outcome)
+      })
+    let disposition = await controllerSessionRuntime.submit(request, facts: facts,
+      axisCalibrationCallbacks: callbacks)
     guard applicationAdmissionIsOpen else { return .cancelled }
     guard case .completed(let result) = disposition else {
       if case .refused(let reason) = disposition { machineError = reason }
@@ -10033,6 +10110,14 @@ final class PlotterApplicationRuntime:
     _ result: PlotterControllerSessionEffectResult
   ) async {
     switch result {
+    case .axisCalibrated(_, let outcome, let snapshot, let persistenceError):
+      machineSnapshot = snapshot
+      if let probe = outcome.verificationProbe ?? outcome.baselineProbe { passiveProbeResult = probe }
+      axisMetricStatus = outcome.reason + (persistenceError.map { " Terminal persistence failed: " + $0 } ?? "")
+      machineError = outcome.status == .applied ? nil : outcome.reason
+      if outcome.status == .applied { axisCalibrationProposal = nil }
+      await synchronizeDrawingDraft()
+      await synchronizeDrawingRunProjection()
     case .discovered(let devices, let retiredLowerSession):
       serialDevices = devices
       if retiredLowerSession { await clearMachineAuthority(clearSelection: true) }
@@ -14066,7 +14151,17 @@ extension PlotterApplicationRuntime {
       } else {
         capability = nil
       }
-      guard let prefix = persistLearningPathPrefixBeforeVacate(plan) else {
+      if let proposal = runtimePlan.axisCalibration {
+        guard proposal == axisCalibrationProposal,
+          runtimePlan.expectedControllerSessionID == controllerSessionID,
+          plan.anchor == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering),
+          !runtimePlan.sourceIsSimulated else {
+          if let capability { await abortBoundaryResetAfterPersistenceRefusal(capability) }
+          return .refused("The measured geometry transition changed before persistence.")
+        }
+      }
+      guard let prefix = persistLearningPathPrefixBeforeVacate(plan,
+        axisCalibration: runtimePlan.axisCalibration) else {
         if let capability { await abortBoundaryResetAfterPersistenceRefusal(capability) }
         return .failed(learningAuthorityError ?? "Durable Learning prefix update failed.")
       }
@@ -14122,7 +14217,8 @@ extension PlotterApplicationRuntime {
     )
   }
 
-  private func artifactResetPlan(_ plan: LearningVacatePlan) -> PlotterArtifactResetPlan {
+  private func artifactResetPlan(_ plan: LearningVacatePlan,
+    axisCalibration: ControllerAxisCalibrationProposal? = nil) -> PlotterArtifactResetPlan {
     PlotterArtifactResetPlan(
       id: plan.id,
       anchorStepID: PlotterArtifactResetStepID(rawValue: plan.anchor.number),
@@ -14135,7 +14231,9 @@ extension PlotterApplicationRuntime {
       resetAll: plan.scope == .all,
       removesDurableMachineCheckpoint: plan.removesDurableMachineCheckpoint,
       removesDurableTipCheckpoint: plan.removesDurableTipCheckpoint,
-      physicalInkMayRemain: plan.physicalInkMayRemain
+      physicalInkMayRemain: plan.physicalInkMayRemain,
+      expectedControllerSessionID: axisCalibration == nil ? nil : controllerSessionID,
+      axisCalibration: axisCalibration
     )
   }
 
@@ -14252,4 +14350,150 @@ func machineBlockerLabel(_ blocker: MachineBlocker) -> String {
   case .controllerAlarm(let code): "Controller alarm: \(code)"
   case .controllerError(let code): "Controller error: \(code)"
   }
+}
+
+extension PlotterApplicationRuntime {
+  private var axisMetricSourceCheckpoint: AcceptedLearningPathCheckpoint? {
+    if let checkpoint = savedLearningState.checkpoint, let stage = checkpoint.stageFour,
+      drawingEvidenceArchive.records.contains(where: { $0.recordID == stage.recordID }) {
+      return checkpoint
+    }
+    return drawingEvidenceArchive.axisMetricMeasurements.last?.sourceCheckpoint
+  }
+
+  var axisMetricFrame: LearningFrameMetricGeometry? {
+    guard let recordID = axisMetricSourceCheckpoint?.stageFour?.recordID,
+      let record = drawingEvidenceArchive.records.first(where: { $0.recordID == recordID }) else { return nil }
+    return try? LearningFrameMetricGeometry.extract(record: record)
+  }
+
+  var latestAxisMetricMeasurement: ControllerAxisMetricMeasurement? {
+    guard let frame = axisMetricFrame else { return nil }
+    return drawingEvidenceArchive.axisMetricMeasurements.last { $0.geometry == frame }
+  }
+
+  var axisMetricApplyUnavailableReason: String? {
+    if axisCalibrationInProgress { return "Axis calibration is in progress." }
+    guard activeStatePersistencePort != nil else { return "Durable Learning identity persistence is unavailable." }
+    if let error = axisMetricRecoveryError { return error }
+    if pendingAxisCalibrationTerminal != nil { return "Retain the pending terminal evidence before another calibration." }
+    guard frameMode == .live, let proposal = axisCalibrationProposal,
+      let measurement = latestAxisMetricMeasurement, proposal.validates(measurement: measurement) else {
+      return "Save confirmed measurements for both directions of both axes to review a calibration."
+    }
+    guard proposal.oldMachineGeometry == machineGeometryIdentity,
+      measurement.sourceCheckpoint.semanticIdentity == currentLearningPathSemanticIdentity,
+      activeStageFourCheckpoint?.recordID == measurement.geometry.recordID,
+      tipCameraRegistration == measurement.sourceCheckpoint.tipCalibration?.registration else {
+      return "Apply the exact Learning package associated with this measured frame, or measure the current frame."
+    }
+    guard !drawingEvidenceArchive.axisCalibrationAttempts.contains(where: { $0.proposal.proposalID == proposal.proposalID }) else {
+      return "This calibration was already attempted. Its receipt cannot replay settings."
+    }
+    if let reason = artifactResetUnavailableReason { return reason }
+    guard activeExerciseAttemptID == nil, activeDiscoverySequenceID == nil,
+      learningVacatePlan(from: .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)) != nil else {
+      return "Finish the active Learning action before applying axis calibration."
+    }
+    return PlotterControllerSessionRules.refusal(for: .applyAxisCalibration(proposalID: proposal.proposalID),
+      facts: controllerSessionFacts)
+  }
+
+  func saveAxisMetricMeasurement(_ edges: [ControllerAxisRulerMeasurement], method: String,
+    axesConfirmed: Bool) async {
+    guard applicationAdmissionIsOpen, !axisCalibrationInProgress,
+      let frame = axisMetricFrame, let checkpoint = axisMetricSourceCheckpoint else { return }
+    do {
+      let measurement = try ControllerAxisMetricMeasurement(recordedAt: Date(), geometry: frame,
+        sourceCheckpoint: checkpoint, edges: edges, method: method,
+        operatorAxisAssociationConfirmed: axesConfirmed,
+        supersedesMeasurementID: latestAxisMetricMeasurement?.measurementID)
+      drawingEvidenceArchive = try await drawingEvidencePort.appendAxisMetricMeasurement(measurement)
+      guard applicationAdmissionIsOpen else { return }
+      axisCalibrationProposal = nil
+      do {
+        axisCalibrationProposal = try ControllerAxisCalibrationProposal(measurement: measurement)
+        axisMetricStatus = "Measurements retained. Review the proposed settings; physical holdouts remain required."
+      } catch {
+        axisMetricStatus = "Measurements retained; calibration proposal unavailable: \(error)."
+      }
+    } catch { axisMetricStatus = "Measurements could not be retained: \(error). The prior evidence is unchanged." }
+  }
+
+  private func restoreAxisMetricProposal() {
+    guard let measurement = latestAxisMetricMeasurement,
+      measurement.sourceCheckpoint.semanticIdentity.machineGeometry == machineGeometryIdentity,
+      !drawingEvidenceArchive.axisCalibrationAttempts.contains(where: { $0.proposal.measurementID == measurement.measurementID }) else { return }
+    axisCalibrationProposal = try? ControllerAxisCalibrationProposal(measurement: measurement)
+  }
+
+  func applyAxisMetricCalibration() async {
+    guard let proposal = axisCalibrationProposal else { return }
+    let disposition = await submitControllerSessionRequest(
+      controllerSessionProjection.request(.applyAxisCalibration(proposalID: proposal.proposalID)))
+    if case .refused(let reason) = disposition { axisMetricStatus = reason }
+  }
+
+  private func prepareAxisCalibration(_ proposal: ControllerAxisCalibrationProposal,
+    resetPlan: LearningVacatePlan, admission: PlotterArtifactResetAdmissionFacts) async throws {
+    guard applicationAdmissionIsOpen, !Task.isCancelled, axisCalibrationInProgress,
+      proposal == axisCalibrationProposal, proposal.oldMachineGeometry == machineGeometryIdentity,
+      resetPlan == learningVacatePlan(from: resetPlan.anchor),
+      let measurement = latestAxisMetricMeasurement, proposal.validates(measurement: measurement),
+      measurement.sourceCheckpoint.semanticIdentity == currentLearningPathSemanticIdentity else {
+      throw AxisMetricLearningTransitionError.staleProposal
+    }
+    // This callback runs only after the lower owner has obtained a fresh matching
+    // controller context, while it still excludes every other controller effect.
+    drawingEvidenceArchive = try await drawingEvidencePort.prepareAxisCalibration(
+      ControllerAxisCalibrationAttempt(proposal: proposal))
+    guard applicationAdmissionIsOpen, !Task.isCancelled else { throw CancellationError() }
+    let accepted = await artifactResetRuntime.submit(
+      .reset(artifactResetPlan(resetPlan, axisCalibration: proposal)), facts: admission)
+    markSemanticPresentationChanged()
+    guard accepted, machineGeometryIdentity == proposal.proposedMachineGeometry,
+      activeMachineArtifactCheckpoint == nil, tipCameraRegistration == nil,
+      activeStageFourCheckpoint == nil else {
+      throw AxisMetricLearningTransitionError.incompleteReset(
+        artifactResetRuntime.snapshot().phase.detail ?? learningAuthorityError ?? "Dependent Learning did not reset.")
+    }
+    await synchronizeDrawingDraft()
+    await synchronizeDrawingRunProjection()
+    guard applicationAdmissionIsOpen, !Task.isCancelled else { throw CancellationError() }
+    axisMetricStatus = "Prior geometry retained as evidence; dependent Learning reset. Applying the reviewed settings."
+  }
+
+  private func retainAxisCalibrationTerminal(_ proposal: ControllerAxisCalibrationProposal,
+    outcome: ControllerAxisCalibrationOutcome) async throws {
+    // A preflight refusal has no prepared transaction. The immutable measurement
+    // remains available; it is never converted into a claim of firmware change.
+    let terminal = ControllerAxisCalibrationTerminal(proposalID: proposal.proposalID, outcome: outcome)
+    pendingAxisCalibrationTerminal = terminal
+    let latest = await drawingEvidencePort.load()
+    guard case .loaded(let archive) = latest else {
+      throw AxisMetricLearningTransitionError.evidenceRejected("Calibration archive unavailable while retaining the terminal outcome.")
+    }
+    guard archive.axisCalibrationAttempts.contains(where: { $0.proposal == proposal }) else {
+      pendingAxisCalibrationTerminal = nil
+      return
+    }
+    do {
+      drawingEvidenceArchive = try await drawingEvidencePort.appendAxisCalibrationTerminal(terminal)
+      pendingAxisCalibrationTerminal = nil
+    } catch {
+      axisMetricStatus = "Firmware outcome retained in this session; durable publication failed: \(error). Retry evidence only."
+      throw error
+    }
+  }
+
+  func retryAxisMetricEvidencePublication() async {
+    guard let terminal = pendingAxisCalibrationTerminal else { return }
+    do {
+      drawingEvidenceArchive = try await drawingEvidencePort.appendAxisCalibrationTerminal(terminal)
+      pendingAxisCalibrationTerminal = nil
+      axisMetricStatus = terminal.outcome.reason + " Terminal evidence retained; no settings were replayed."
+    } catch { axisMetricStatus = "Terminal evidence retry failed: \(error)." }
+  }
+
+  var axisMetricHasPendingPublication: Bool { pendingAxisCalibrationTerminal != nil }
 }

@@ -8,18 +8,22 @@ public enum DrawingRunEvidenceArchiveError: Error, Equatable, Sendable {
   case duplicateRecordID(DrawingEvidenceRecordID)
   case duplicateRunID(RunID)
   case invalidAttempt(RunID)
+  case invalidAxisCalibrationEvidence(String)
 }
 
 /// Append-only value persisted by `DrawingRunEvidenceStore`. Existing facts
 /// are never replaced; a new record creates a new archive revision.
 public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
-  public static let schemaVersion: UInt16 = 2
+  public static let schemaVersion: UInt16 = 3
 
   public let schemaVersion: UInt16
   public let archiveID: UUID
   public let revision: UInt64
   public let records: [DrawingRunEvidenceRecord]
   public let attempts: [DrawingRunAttemptState]
+  public let axisMetricMeasurements: [ControllerAxisMetricMeasurement]
+  public let axisCalibrationAttempts: [ControllerAxisCalibrationAttempt]
+  public let axisCalibrationTerminals: [ControllerAxisCalibrationTerminal]
   public var incompleteAttempts: [DrawingRunAttemptState] {
     let sealed = Set(records.map(\.runID))
     return attempts.filter { !sealed.contains($0.intent.runID) }
@@ -29,7 +33,10 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
     archiveID: UUID = UUID(),
     revision: UInt64,
     records: [DrawingRunEvidenceRecord],
-    attempts: [DrawingRunAttemptState] = []
+    attempts: [DrawingRunAttemptState] = [],
+    axisMetricMeasurements: [ControllerAxisMetricMeasurement] = [],
+    axisCalibrationAttempts: [ControllerAxisCalibrationAttempt] = [],
+    axisCalibrationTerminals: [ControllerAxisCalibrationTerminal] = []
   ) throws {
     guard revision == UInt64(records.count) else {
       throw DrawingRunEvidenceArchiveError.revisionMismatch(
@@ -84,6 +91,11 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
         throw DrawingRunEvidenceArchiveError.invalidAttempt(record.runID)
       }
     }
+    try Self.validateAxisEvidence(measurements: axisMetricMeasurements,
+      attempts: axisCalibrationAttempts, terminals: axisCalibrationTerminals, records: records)
+    self.axisMetricMeasurements = axisMetricMeasurements
+    self.axisCalibrationAttempts = axisCalibrationAttempts
+    self.axisCalibrationTerminals = axisCalibrationTerminals
     schemaVersion = Self.schemaVersion
     self.archiveID = archiveID
     self.revision = revision
@@ -97,6 +109,9 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
     revision = 0
     records = []
     attempts = []
+    axisMetricMeasurements = []
+    axisCalibrationAttempts = []
+    axisCalibrationTerminals = []
   }
 
   public func appending(_ record: DrawingRunEvidenceRecord) throws -> Self {
@@ -104,23 +119,72 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
       archiveID: archiveID,
       revision: revision + 1,
       records: records + [record],
-      attempts: attempts
+      attempts: attempts, axisMetricMeasurements: axisMetricMeasurements,
+      axisCalibrationAttempts: axisCalibrationAttempts, axisCalibrationTerminals: axisCalibrationTerminals
     )
   }
 
-  private enum CodingKeys: String, CodingKey { case schemaVersion, archiveID, revision, records, attempts }
+  private static func validateAxisEvidence(measurements: [ControllerAxisMetricMeasurement],
+    attempts: [ControllerAxisCalibrationAttempt], terminals: [ControllerAxisCalibrationTerminal],
+    records: [DrawingRunEvidenceRecord]) throws {
+    func require(_ value: Bool, _ reason: String) throws {
+      if !value { throw DrawingRunEvidenceArchiveError.invalidAxisCalibrationEvidence(reason) }
+    }
+    var retained = [UUID: ControllerAxisMetricMeasurement]()
+    for measurement in measurements {
+      try require(retained[measurement.measurementID] == nil, "Duplicate measurement identity")
+      try require(records.contains(measurement.geometry.record), "Measurement source record differs from archive")
+      if let previous = measurement.supersedesMeasurementID {
+        try require(retained[previous]?.geometry == measurement.geometry,
+          "Measurement correction must name an earlier observation of the same exact frame")
+      }
+      retained[measurement.measurementID] = measurement
+    }
+    var prepared = [UUID: ControllerAxisCalibrationProposal]()
+    for attempt in attempts {
+      let proposal = attempt.proposal
+      try require(attempt.recordedAt.timeIntervalSinceReferenceDate.isFinite,
+        "Invalid calibration timestamp")
+      try require(prepared[proposal.proposalID] == nil, "Duplicate calibration preparation")
+      guard let measurement = retained[proposal.measurementID], proposal.validates(measurement: measurement) else {
+        throw DrawingRunEvidenceArchiveError.invalidAxisCalibrationEvidence("Proposal does not derive from its retained measurement")
+      }
+      try require(!prepared.values.contains { $0.proposedMachineGeometry == proposal.proposedMachineGeometry },
+        "Geometry revision reused")
+      prepared[proposal.proposalID] = proposal
+    }
+    var terminalIDs = Set<UUID>()
+    for terminal in terminals {
+      guard let proposal = prepared[terminal.proposalID], terminalIDs.insert(terminal.proposalID).inserted,
+        terminal.recordedAt.timeIntervalSinceReferenceDate.isFinite else {
+        throw DrawingRunEvidenceArchiveError.invalidAxisCalibrationEvidence("Terminal has no unique prepared calibration")
+      }
+      let outcome = terminal.outcome
+      try require(Array(proposal.commands.prefix(outcome.attemptedCommands.count)) == outcome.attemptedCommands,
+        "Terminal attempted commands differ from proposal")
+      if outcome.status == .applied {
+        try require(outcome.verifiedContext.map(proposal.validatesReadback) == true,
+          "Applied calibration has no matching settings readback")
+      }
+    }
+  }
+
+  private enum CodingKeys: String, CodingKey { case schemaVersion, archiveID, revision, records, attempts, axisMetricMeasurements, axisCalibrationAttempts, axisCalibrationTerminals }
 
   public init(from decoder: any Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     let decodedSchema = try values.decode(UInt16.self, forKey: .schemaVersion)
-    guard decodedSchema == 1 || decodedSchema == Self.schemaVersion else {
+    guard (1...Self.schemaVersion).contains(decodedSchema) else {
       throw DrawingRunEvidenceArchiveError.unsupportedSchema(decodedSchema)
     }
     try self.init(
       archiveID: values.decode(UUID.self, forKey: .archiveID),
       revision: values.decode(UInt64.self, forKey: .revision),
       records: values.decode([DrawingRunEvidenceRecord].self, forKey: .records),
-      attempts: values.decodeIfPresent([DrawingRunAttemptState].self, forKey: .attempts) ?? []
+      attempts: values.decodeIfPresent([DrawingRunAttemptState].self, forKey: .attempts) ?? [],
+      axisMetricMeasurements: values.decodeIfPresent([ControllerAxisMetricMeasurement].self, forKey: .axisMetricMeasurements) ?? [],
+      axisCalibrationAttempts: values.decodeIfPresent([ControllerAxisCalibrationAttempt].self, forKey: .axisCalibrationAttempts) ?? [],
+      axisCalibrationTerminals: values.decodeIfPresent([ControllerAxisCalibrationTerminal].self, forKey: .axisCalibrationTerminals) ?? []
     )
   }
 }
@@ -165,7 +229,11 @@ public actor DrawingRunEvidenceStore {
     self.fileURL = fileURL
   }
 
-  public func load() -> DrawingRunEvidenceStoreLoadResult {
+  public func load() -> DrawingRunEvidenceStoreLoadResult { loadSnapshot() }
+
+  /// Startup reads the same atomic archive before installing Saved Learning.
+  /// It never mutates the store or bypasses checksum/semantic validation.
+  public nonisolated func loadSnapshot() -> DrawingRunEvidenceStoreLoadResult {
     Self.load(from: fileURL)
   }
 
@@ -265,9 +333,47 @@ public actor DrawingRunEvidenceStore {
       current = try DrawingRunEvidenceArchive(archiveID: current.archiveID,
         revision: current.revision, records: current.records,
         attempts: current.attempts + [DrawingRunAttemptState(intent: evidence.intent,
-          baselines: evidence.baselines)])
+          baselines: evidence.baselines)],
+        axisMetricMeasurements: current.axisMetricMeasurements,
+        axisCalibrationAttempts: current.axisCalibrationAttempts,
+        axisCalibrationTerminals: current.axisCalibrationTerminals)
     }
     let updated = try current.appending(record)
+    try save(updated)
+    return updated
+  }
+
+  @discardableResult
+  public func appendAxisMetricMeasurement(_ measurement: ControllerAxisMetricMeasurement) throws -> DrawingRunEvidenceArchive {
+    let current = try currentArchive()
+    if current.axisMetricMeasurements.contains(measurement) { return current }
+    return try savingAxisEvidence(current, measurements: current.axisMetricMeasurements + [measurement],
+      attempts: current.axisCalibrationAttempts, terminals: current.axisCalibrationTerminals)
+  }
+
+  @discardableResult
+  public func prepareAxisCalibration(_ attempt: ControllerAxisCalibrationAttempt) throws -> DrawingRunEvidenceArchive {
+    let current = try currentArchive()
+    if current.axisCalibrationAttempts.contains(attempt) { return current }
+    return try savingAxisEvidence(current, measurements: current.axisMetricMeasurements,
+      attempts: current.axisCalibrationAttempts + [attempt], terminals: current.axisCalibrationTerminals)
+  }
+
+  @discardableResult
+  public func appendAxisCalibrationTerminal(_ terminal: ControllerAxisCalibrationTerminal) throws -> DrawingRunEvidenceArchive {
+    let current = try currentArchive()
+    if current.axisCalibrationTerminals.contains(terminal) { return current }
+    return try savingAxisEvidence(current, measurements: current.axisMetricMeasurements,
+      attempts: current.axisCalibrationAttempts, terminals: current.axisCalibrationTerminals + [terminal])
+  }
+
+  private func savingAxisEvidence(_ current: DrawingRunEvidenceArchive,
+    measurements: [ControllerAxisMetricMeasurement], attempts: [ControllerAxisCalibrationAttempt],
+    terminals: [ControllerAxisCalibrationTerminal]) throws -> DrawingRunEvidenceArchive {
+    let updated = try DrawingRunEvidenceArchive(archiveID: current.archiveID,
+      revision: current.revision, records: current.records, attempts: current.attempts,
+      axisMetricMeasurements: measurements, axisCalibrationAttempts: attempts,
+      axisCalibrationTerminals: terminals)
     try save(updated)
     return updated
   }
@@ -283,7 +389,10 @@ public actor DrawingRunEvidenceStore {
   private func saving(_ current: DrawingRunEvidenceArchive,
     attempts: [DrawingRunAttemptState]) throws -> DrawingRunEvidenceArchive {
     let updated = try DrawingRunEvidenceArchive(archiveID: current.archiveID,
-      revision: current.revision, records: current.records, attempts: attempts)
+      revision: current.revision, records: current.records, attempts: attempts,
+      axisMetricMeasurements: current.axisMetricMeasurements,
+      axisCalibrationAttempts: current.axisCalibrationAttempts,
+      axisCalibrationTerminals: current.axisCalibrationTerminals)
     try save(updated)
     return updated
   }

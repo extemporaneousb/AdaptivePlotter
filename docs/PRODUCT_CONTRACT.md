@@ -20,7 +20,7 @@ In scope:
 
 - one persistent controller owner and one persistent camera owner;
 - typed controller requests and typed observations;
-- explicit operator-owned alarm inspection and alarm-lock clearing;
+- explicit operator-owned alarm inspection, alarm-lock clearing, and independently measured X/Y steps calibration;
 - one camera-first operator workbench;
 - current-session discovery and observed drawing trials;
 - sparse operator-selected contact evidence and an atomic accepted pen-tip calibration;
@@ -33,13 +33,50 @@ Out of scope:
 
 - a web server, Python bridge, remote backend, or second product process;
 - arbitrary G-code or natural-language-to-motion translation;
-- homing, controller reset, or firmware/configuration writes;
+- homing, controller reset, or arbitrary firmware/configuration writes;
 - entered bounds treated as measured workspace authority;
 - automatic resend, resume, retap, continuation, or redraw after ambiguity;
 - Learning Path completion or model confidence as a general motion gate;
 - automatic trial selection, online model promotion, or model-mismatch policy
   in the current curriculum;
 - simulator state as physical evidence.
+
+## Independent axis metric
+
+The Learning frame measurement form retains exact completed Border geometry,
+controller completion, the historical full controller configuration and accepted
+Learning checkpoint, independent ruler readings for each signed edge, explicit
+uncertainty, instrument/method and operator axis association. Planned spans are
+not serial-transmission receipts. Their separate nominal encoding allowance is
+0.001 mm; neither that allowance nor the camera affine measures actual travel.
+Partial readings are durable. Only confirmed, compatible opposite-edge intervals
+on both axes can produce a reviewed proposal. Source photographs and overlays do
+not establish physical millimetres or orthogonality.
+
+Apply Axis Calibration is an explicit typed controller action. Each proposed
+steps/mm value is historical steps/mm divided by independently measured physical
+length per planned controller length, rounded to the displayed three-decimal
+setting. Under its existing exclusive lane the controller verifies fresh Idle
+and the complete historical context before durable preparation and either write.
+It writes each exact setting once, preserving actual transfer counts, received
+bytes, acknowledgements and full readback. A failed second write retains the first
+acknowledgement; cancellation and shutdown join the admitted operation. Ambiguity
+never causes a retry or hardware rollback. Readback confirms reported settings,
+not physical proportions.
+
+Before any setting may change, the existing drawing archive retains the proposal
+and old complete Learning package. The existing reset/persistence transaction
+reserves Boundary reset, saves a new semantic machine-geometry identity and
+Pen-only prefix, then commits dependent invalidation. Boundary, camera/cap, tip
+and Border must be reacquired; old registrations are never rescaled. Startup
+reconciles interrupted preparation from durable evidence before exposing Saved
+Learning, without replaying firmware writes. Terminal persistence can be retried
+independently of hardware. Historical portraits, training checkpoints and physical
+images remain immutable. Possible ink under old geometry cannot be relocated by
+new controller coordinates: the existing drawing owner requires a recorded new
+sheet for that marked paper, rather than treating a moved target as clean.
+Independent holdout lengths, angles, locations and material measurements remain
+separate attended acceptance. This calibration cannot repair skew or slipping.
 
 ## Runtime authority
 

@@ -32,6 +32,7 @@ struct PlotterControllerSessionFacts: Sendable {
   let alarmClearInProgress: Bool
   let motionActionInProgress: Bool
   let lowerSessionAvailable: Bool
+  var axisCalibrationProposal: ControllerAxisCalibrationProposal? = nil
 }
 
 struct PlotterControllerSessionProjection: Sendable {
@@ -76,7 +77,13 @@ enum PlotterControllerSessionDisposition: Sendable {
   case cancelled
 }
 
+struct PlotterAxisCalibrationCallbacks: Sendable {
+  let prepare: @Sendable (ControllerAxisCalibrationProposal) async throws -> Void
+  let retainTerminal: @Sendable (ControllerAxisCalibrationProposal, ControllerAxisCalibrationOutcome) async throws -> Void
+}
+
 enum PlotterControllerSessionEffectResult: Sendable {
+  case axisCalibrated(UUID, ControllerAxisCalibrationOutcome, RunInterpreterSnapshot?, persistenceError: String?)
   case discovered([MachineLinkDescriptor], retiredLowerSession: Bool)
   case selected(MachineLinkDescriptor, retiredLowerSession: Bool)
   case liveSession(snapshot: RunInterpreterSnapshot?, probe: PassiveProbeResult?, error: String?)
@@ -128,6 +135,19 @@ enum PlotterControllerSessionRules {
     let projection = project(facts)
     if facts.admissionClosed { return "The controller-session runtime is shut down." }
     switch intent {
+    case .applyAxisCalibration(let proposalID):
+      guard facts.environment == .live, facts.lowerSessionAvailable,
+        facts.axisCalibrationProposal?.proposalID == proposalID else {
+        return "Review a current independently measured axis calibration first."
+      }
+      if let reason = facts.controllerBusyReason { return reason }
+      if facts.foreignOperationInFlight || facts.motionActionInProgress || facts.frameModeSwitchInProgress {
+        return "Wait for the current machine or Learning operation."
+      }
+      guard sessionEstablished(facts), facts.machineSnapshot?.currentOperation == .idle else {
+        return "Connect and inspect the idle controller before applying axis calibration."
+      }
+      return nil
     case .refreshSerialDevices:
       if let reason = facts.controllerBusyReason { return reason }
       return facts.foreignOperationInFlight ? "Wait for the current controller operation." : nil
@@ -389,6 +409,7 @@ enum PlotterControllerSessionRules {
     case .idle: return "idle"
     case .passiveProbe: return "controller inspection"
     case .alarmClear: return "clearing controller alarm"
+    case .axisCalibration: return "applying measured axis calibration"
     case .relativeJog: return "relative jog"
     case .boundaryMotion: return "Boundary Discovery motion"
     case .drawingStroke: return "single drawing stroke"
@@ -503,7 +524,8 @@ actor PlotterControllerSessionRuntime {
 
   func submit(
     _ request: PlotterControllerSessionRequest,
-    facts: PlotterControllerSessionFacts
+    facts: PlotterControllerSessionFacts,
+    axisCalibrationCallbacks: PlotterAxisCalibrationCallbacks? = nil
   ) async -> PlotterControllerSessionDisposition {
     guard !admissionClosed, request.reference == facts.reference else {
       return .refused("The controller-session projection changed; use the current action.")
@@ -526,7 +548,8 @@ actor PlotterControllerSessionRuntime {
         facts: facts,
         lowerSession: lowerSession,
         simulatedSession: simulatedSession,
-        serialDeviceDiscovery: serialDeviceDiscovery
+        serialDeviceDiscovery: serialDeviceDiscovery,
+        axisCalibrationCallbacks: axisCalibrationCallbacks
       )
     }
     activeOperationID = operationID
@@ -555,10 +578,24 @@ actor PlotterControllerSessionRuntime {
     facts: PlotterControllerSessionFacts,
     lowerSession: (any PlotterMachineSession)?,
     simulatedSession: SimulatedLearningRuntime,
-    serialDeviceDiscovery: any PlotterControllerSerialDeviceDiscoveryPort
+    serialDeviceDiscovery: any PlotterControllerSerialDeviceDiscoveryPort,
+    axisCalibrationCallbacks: PlotterAxisCalibrationCallbacks?
   ) async -> PlotterControllerSessionEffectResult? {
     guard !Task.isCancelled else { return nil }
     switch intent {
+    case .applyAxisCalibration(let proposalID):
+      guard let lowerSession, let proposal = facts.axisCalibrationProposal,
+        proposal.proposalID == proposalID, let callbacks = axisCalibrationCallbacks else { return nil }
+      let outcome = await lowerSession.applyAxisCalibration(proposal) {
+        try await callbacks.prepare(proposal)
+      }
+      // Publication is part of this retained operation, including shutdown and
+      // cancellation after possible transmission. No caller guard can skip it.
+      let persistenceError: String?
+      do { try await callbacks.retainTerminal(proposal, outcome); persistenceError = nil }
+      catch { persistenceError = String(describing: error) }
+      return .axisCalibrated(proposalID, outcome, await lowerSession.snapshot(),
+        persistenceError: persistenceError)
     case .refreshSerialDevices:
       let devices = serialDeviceDiscovery.discoverSerialDevices()
       let retires = facts.selectedSerialDevice.map { selected in

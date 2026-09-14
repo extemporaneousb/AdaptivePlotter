@@ -100,6 +100,18 @@ actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort {
     self.store = store
   }
 
+  nonisolated func loadSnapshot() -> DrawingRunEvidenceStoreLoadResult { store.loadSnapshot() }
+
+  func appendAxisMetricMeasurement(_ measurement: ControllerAxisMetricMeasurement) async throws -> DrawingRunEvidenceArchive {
+    try await store.appendAxisMetricMeasurement(measurement)
+  }
+  func prepareAxisCalibration(_ attempt: ControllerAxisCalibrationAttempt) async throws -> DrawingRunEvidenceArchive {
+    try await store.prepareAxisCalibration(attempt)
+  }
+  func appendAxisCalibrationTerminal(_ terminal: ControllerAxisCalibrationTerminal) async throws -> DrawingRunEvidenceArchive {
+    try await store.appendAxisCalibrationTerminal(terminal)
+  }
+
   func load() async -> DrawingRunEvidenceStoreLoadResult {
     loadCount += 1
     return await store.load()

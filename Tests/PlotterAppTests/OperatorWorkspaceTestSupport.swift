@@ -435,6 +435,7 @@ struct TestApplicationStatePersistencePort: PlotterApplicationStatePersistencePo
   let saveCheckpoint: @Sendable (AcceptedLearningPathCheckpoint) throws -> Void
   let clearCheckpoint: @Sendable () throws -> Void
   let savePaperContext: @Sendable (PaperRevisionContext) throws -> Void
+  let saveMachineGeometry: @Sendable (MachineGeometryIdentity) throws -> Void
 
   init(
     loadCheckpoint: @escaping @Sendable () -> AcceptedLearningPathCheckpointLoadResult = {
@@ -442,12 +443,16 @@ struct TestApplicationStatePersistencePort: PlotterApplicationStatePersistencePo
     },
     saveCheckpoint: @escaping @Sendable (AcceptedLearningPathCheckpoint) throws -> Void = { _ in },
     clearCheckpoint: @escaping @Sendable () throws -> Void = {},
-    savePaperContext: @escaping @Sendable (PaperRevisionContext) throws -> Void = { _ in }
+    savePaperContext: @escaping @Sendable (PaperRevisionContext) throws -> Void = { _ in },
+    saveMachineGeometry: @escaping @Sendable (MachineGeometryIdentity) throws -> Void = { _ in
+      throw AxisMetricLearningTransitionError.persistenceUnavailable
+    }
   ) {
     self.loadCheckpoint = loadCheckpoint
     self.saveCheckpoint = saveCheckpoint
     self.clearCheckpoint = clearCheckpoint
     self.savePaperContext = savePaperContext
+    self.saveMachineGeometry = saveMachineGeometry
   }
 
   func loadAcceptedLearningPathCheckpoint() -> AcceptedLearningPathCheckpointLoadResult {
@@ -466,6 +471,9 @@ struct TestApplicationStatePersistencePort: PlotterApplicationStatePersistencePo
 
   func persistPaperRevisionContext(_ context: PaperRevisionContext) throws {
     try savePaperContext(context)
+  }
+  func persistMachineGeometryIdentity(_ identity: MachineGeometryIdentity) throws {
+    try saveMachineGeometry(identity)
   }
 }
 
@@ -1455,6 +1463,9 @@ struct PlotterApplicationFixture {
   }
 }
 
+typealias TestAxisCalibrationAction = @Sendable (ControllerAxisCalibrationProposal,
+  @Sendable () async throws -> Void) async -> ControllerAxisCalibrationOutcome
+
 @MainActor
 func plotterApplicationRuntime(
   machine: LowerMachineSessionFixture,
@@ -1462,6 +1473,7 @@ func plotterApplicationRuntime(
   observationSessionOverride: (any PlotterObservationCameraSessionPort)? = nil,
   portraitStudio: PortraitStudioModel? = nil,
   drawingPlanBegin: (@Sendable (DrawingPlanRequest) async -> DrawingPlanAdmission)? = nil,
+  axisCalibration: TestAxisCalibrationAction? = nil,
   drawingRunRuntimeAccess: ((PlotterDrawingRunRuntime) -> Void)? = nil,
   drawingRunClock: any RuntimeClock = SystemRuntimeClock(),
   boundaryMotionBegin:
@@ -1539,7 +1551,7 @@ func plotterApplicationRuntime(
     },
     beginBoundaryMotion: beginBoundaryMotion,
     requestJogCancel: requestJogCancel,
-    disconnect: {}
+    disconnect: {}, axisCalibration: axisCalibration
   )
   let resolvedObservationPort =
     observationSessionOverride ?? camera.map { resolvedObservationSession($0) }
@@ -2127,6 +2139,7 @@ actor ClosurePlotterMachineSession: PlotterMachineSession {
       -> BoundaryMotionAdmission
   private let cancelAction: @Sendable (JogCancelIntent) async -> JogCancelOutcome
   private let disconnectAction: @Sendable () async -> Void
+  private let axisCalibrationAction: TestAxisCalibrationAction?
 
   init(
     select: @escaping @Sendable (MachineLinkDescriptor) async throws -> RunInterpreterSnapshot,
@@ -2145,7 +2158,8 @@ actor ClosurePlotterMachineSession: PlotterMachineSession {
       BoundaryMotionRequest, BoundaryMotionRenewalPlanner?
     ) async -> BoundaryMotionAdmission,
     requestJogCancel: @escaping @Sendable (JogCancelIntent) async -> JogCancelOutcome,
-    disconnect: @escaping @Sendable () async -> Void
+    disconnect: @escaping @Sendable () async -> Void,
+    axisCalibration: TestAxisCalibrationAction? = nil
   ) {
     selectAction = select
     snapshotAction = snapshot
@@ -2161,10 +2175,18 @@ actor ClosurePlotterMachineSession: PlotterMachineSession {
     boundaryAction = beginBoundaryMotion
     cancelAction = requestJogCancel
     disconnectAction = disconnect
+    axisCalibrationAction = axisCalibration
   }
 
   func select(_ descriptor: MachineLinkDescriptor) async throws -> RunInterpreterSnapshot {
     try await selectAction(descriptor)
+  }
+  func applyAxisCalibration(_ proposal: ControllerAxisCalibrationProposal,
+    beforeSettingsWrite: @escaping @Sendable () async throws -> Void) async -> ControllerAxisCalibrationOutcome {
+    guard let axisCalibrationAction else {
+      return try! ControllerAxisCalibrationOutcome(status: .refused, reason: "Axis calibration not installed in this fixture.")
+    }
+    return await axisCalibrationAction(proposal, beforeSettingsWrite)
   }
   func snapshot() async -> RunInterpreterSnapshot? { await snapshotAction() }
   func requestPassiveProbe() async throws -> PassiveProbeResult { try await probeAction() }

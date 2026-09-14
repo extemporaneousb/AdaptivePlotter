@@ -158,6 +158,7 @@ public enum PlotterDrawingRunRemedy: Hashable, Sendable {
   case waitForActiveRun
   case beginNewPlan
   case movePlanAwayFromPossibleInk
+  case replaceMarkedPaper
   case useExactStopCapability
   case retainExactPostFrame
   case useExactRunIdentity
