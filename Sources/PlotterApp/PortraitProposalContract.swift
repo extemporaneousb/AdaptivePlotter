@@ -26,13 +26,14 @@ enum PortraitExplorationFamily: String, Codable, CaseIterable, Hashable, Sendabl
   }
 }
 
-enum PortraitProposalKind: String, Codable, Hashable, Sendable { case broad, local }
+enum PortraitProposalKind: String, Codable, Hashable, Sendable { case broad, local, semanticTraining }
 
 struct PortraitProposalMetadata: Codable, Hashable, Sendable {
   let policyRevision: String
   let kind: PortraitProposalKind
   let seed: UInt64
   let family: PortraitExplorationFamily
+  var trainingSelection: PortraitTrainingSelection? = nil
 }
 
 struct PortraitRecipeProposal: Hashable, Sendable {

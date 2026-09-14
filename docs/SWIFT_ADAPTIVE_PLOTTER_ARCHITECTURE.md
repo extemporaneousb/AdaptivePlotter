@@ -2136,7 +2136,23 @@ prompt; revised labels retain previous IDs. Source/candidate deletion and label
 withdrawal preserve tombstone identity. Export encodes a frozen Sendable snapshot off
 MainActor. Complete successful camera/program/Fit acceptance retains the exact candidate
 captured before awaiting; failed acceptance does not qualify it. Physical attempt
-retention is a typed reason awaiting DS-06 runtime integration. Training remains DS-07.
+retention joins the exact candidate archive before DS-06 dispatch.
+
+`PortraitTrainingContract` owns frozen scope/dataset/model/checkpoint values.
+`PortraitPreferenceDatasetBuilder` resolves label revisions and groups retained
+source/session/ancestry before splitting. `PortraitTrainingFeatures` defines fixed
+normalization; `PortraitOrdinalTrainer` fits cumulative-logit likelihood with
+ordered thresholds and cancellable bounded optimization. `PortraitCheckpointStore`
+installs digest-addressed manifests before atomic index association; installation
+and activation are separate operations. `PortraitTrainingLibrary` owns one detached
+fit and joins it at cancellation/shutdown, preserving the active completed model.
+Updates declare deterministic full refit/reset optimizer and compatible parent.
+`PortraitTrainingProposalPolicy` renders eight candidates inside the Studio's
+existing joined renderer lifetime, then selects by captured checkpoint utility,
+diversity and exploration. The candidate records exact checkpoint and selection
+provenance; pool siblings remain transient. Quiet `PortraitTrainingControls` reads
+only the Studio/training owners. Corrupt assets preserve healthy verified state and
+block index replacement; absent active assets explicitly use the renderer prior.
 
 Versioned `PortraitRaster` retains typed source/decoded/crop/sample geometry and the
 actual applied mask alpha, mask outcome and preprocessing bounds. Legacy/synthetic

@@ -92,7 +92,8 @@ extension PlotterApplicationRuntime {
     let resultImages = attempt.terminalFrames.filter { $0.frame.captureNanoseconds > latestBaseline }
     guard !resultImages.isEmpty else { return "No original result image newer than the baseline is available for a physical rating." }
     do {
-      let scope = PortraitStyleScope(id: UUID(uuidString: "ACB37180-7DCB-4E6C-A4AD-90DC10F50171")!,
+      let scope = portraitStudio.selectedStyleScope.objective == .physicalRealization
+        ? portraitStudio.selectedStyleScope : PortraitStyleScope(id: UUID(uuidString: "ACB37180-7DCB-4E6C-A4AD-90DC10F50171")!,
         name: "Physical drawing quality", revision: 1, objective: .physicalRealization,
         allowedFamilies: PortraitStyle.allCases, activeParameters: [], frozenParameters: [])
       let context = try PortraitPresentationContext(

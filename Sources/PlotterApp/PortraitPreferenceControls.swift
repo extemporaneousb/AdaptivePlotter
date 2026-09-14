@@ -24,7 +24,7 @@ struct PortraitPreferenceControls: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Rate this candidate · \(model.selectedStyleScope.name)").font(.caption).bold()
-      Text("Screen appearance · scope revision \(model.selectedStyleScope.revision)")
+      Text("\(model.selectedStyleScope.objective == .screenAesthetic ? "Screen appearance" : "Physical drawing") · scope revision \(model.selectedStyleScope.revision)")
         .font(.caption2).foregroundStyle(.secondary)
       HStack(spacing: 6) {
         ForEach(1...5, id: \.self) { rating in
@@ -39,7 +39,10 @@ struct PortraitPreferenceControls: View {
           .frame(maxWidth: .infinity)
           .accessibilityLabel("Rate current drawing \(rating) out of 5")
         }
-      }.disabled(!model.canRateSelection || presentation == nil)
+      }.disabled(!model.canRateSelection || presentation == nil || model.selectedStyleScope.objective != .screenAesthetic)
+      if model.selectedStyleScope.objective == .physicalRealization {
+        Text("Rate physical execution from the linked attempt images in the physical gallery.").font(.caption2)
+      }
       Text("1 = poor likeness / drawing · 5 = keep drawing like this. Every score retains the candidate.")
         .font(.caption2).foregroundStyle(.secondary)
       if let message { Text(message).font(.caption).foregroundStyle(.secondary) }

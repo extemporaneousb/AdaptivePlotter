@@ -1563,8 +1563,25 @@ geometry, recipe/seed, immutable vectors and provenance. Labels are immutable
 revisions pinned to the selected style scope and actual displayed size/ink estimate.
 Retention events are not scores; screen labels are not physical evidence. Candidate
 or source deletion and label withdrawal explicitly affect future eligible data.
-Export is an additional copy. Operational fitting and physical-attempt retention
-integration remain later campaign work; these labels do not yet train a model.
+Export is an additional copy. Physical attempts also retain their exact projected
+candidate and own raw images through the drawing evidence store.
+
+Named style training fits scoped 1–5 ratings with a regularized ordinal-logistic
+model. The scope records its objective, allowed families and active/frozen recipe
+parameters. Semantic Big Head exploration varies head amplitudes while preserving
+the selected source, crop and line style. Completed fits are saved pending explicit
+activation; activation affects future generation through a seeded pool of eight
+real rendered proposals, with 20 percent exploration. Comparison uses the same
+source and proposal pool for the prior and selected checkpoint. Updates reload the
+completed parent and refit the revised dataset deterministically with a reset
+optimizer, retaining exact parent lineage. Cancellation preserves the active model;
+rollback selects its completed parent or the renderer prior. Historical manifests
+retain exact labels/features and expose missing candidate assets after deletion.
+Source, capture-session and ancestry groups remain intact across training and
+holdout. Scarce, degenerate or corrupt data has explicit unavailable evidence and
+never constitutes a successful fit. Screen and photographed physical objectives
+remain separate. Synthetic fitting and held-out label metrics do not establish
+human likeness or attended physical drawing quality.
 
 The portrait editor retains recent captures and the authored draft across panel
 navigation. Only qualified candidates persist raw source/analysis assets, outside

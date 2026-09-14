@@ -29,6 +29,8 @@ final class PortraitStudioModel {
   var vectorOptions = PortraitVectorOptions()
   let sketches: PortraitSketchCollection
   let preferences: PortraitPreferenceCollection
+  let training: PortraitTrainingLibrary
+  private(set) var trainingComparison: PortraitTrainingComparison?
   let history = PortraitExplorationHistory()
   private(set) var explorationStatus: String?
   var selectedStyleScope: PortraitStyleScope = .screenSketch
@@ -99,7 +101,7 @@ final class PortraitStudioModel {
   @ObservationIgnored private let camera: CameraCapture
   @ObservationIgnored private var frameTask: Task<Void, Never>?
   @ObservationIgnored private var workTask: Task<Void, Never>?
-  @ObservationIgnored private var renderWorker: Task<PortraitRenderResult, Error>?
+  @ObservationIgnored private var renderWorker: Task<RenderWorkResult, Error>?
   @ObservationIgnored private let renderer: any PortraitRendering
   @ObservationIgnored private let photoAcquirer: any PortraitPhotoAcquiring
   @ObservationIgnored private var acquisitionWorker: Task<[PortraitBurstSample], Error>?
@@ -110,6 +112,10 @@ final class PortraitStudioModel {
   @ObservationIgnored private var pendingAcquisition: PhotoAcquisition?
   @ObservationIgnored private var acquisitionRevision: UInt64 = 0
   @ObservationIgnored private(set) var acquisitionDiagnostics = PortraitRenderDiagnostics()
+  private enum RenderWorkResult: Sendable {
+    case ordinary(PortraitRenderResult)
+    case trained(PortraitTrainingRenderOutput)
+  }
   private struct PendingRender: Sendable {
     let revision: UInt64
     let key: PortraitRenderCacheKey
@@ -120,6 +126,7 @@ final class PortraitStudioModel {
     let proposal: PortraitProposalMetadata?
     let checkpointID: String?
     let ownsSource: Bool
+    var trainingRequest: PortraitTrainingProposalRequest? = nil
   }
   @ObservationIgnored private var pendingRender: PendingRender?
   @ObservationIgnored private var renderRevision: UInt64 = 0
@@ -135,11 +142,13 @@ final class PortraitStudioModel {
     frameSource: (any PortraitFrameAcquiring)? = nil,
     captureClock: any PortraitCaptureClock = PortraitSystemCaptureClock(),
     photoRetention: PortraitPhotoRetention = PortraitPhotoRetention(),
-    candidateStore: PortraitCandidateStore? = nil
+    candidateStore: PortraitCandidateStore? = nil,
+    checkpointStore: PortraitCheckpointStore? = nil
   ) {
     let collection = PortraitSketchCollection(store: candidateStore)
     sketches = collection
     preferences = PortraitPreferenceCollection(collection: collection)
+    training = PortraitTrainingLibrary(store: checkpointStore)
     self.camera = camera
     self.renderer = renderer
     self.photoAcquirer = photoAcquirer
@@ -229,6 +238,7 @@ final class PortraitStudioModel {
     acquisitionDiagnostics.requestedWorkCount += 1
     acquisitionWorker?.cancel()
     renderRevision &+= 1
+    trainingComparison = nil
     renderWorker?.cancel()
     pendingRender = nil
     requestedKey = nil
@@ -428,7 +438,8 @@ final class PortraitStudioModel {
   }
 
   func render(strokeStyle: StrokeStyle, parent: PortraitCandidate? = nil,
-    proposal: PortraitProposalMetadata? = nil, exactRaster: PortraitRaster? = nil) {
+    proposal: PortraitProposalMetadata? = nil, exactRaster: PortraitRaster? = nil,
+    trainingRequest: PortraitTrainingProposalRequest? = nil, generationCheckpointID: String? = nil) {
     guard !isShutdown else { return }
     renderRevision &+= 1
     renderWorker?.cancel()
@@ -447,10 +458,10 @@ final class PortraitStudioModel {
     let lineage = parent.map { PortraitCandidateLineage(parentID: $0.id,
       parentProgramHash: $0.program.contentHash.description, parentRecipe: $0.recipe,
       ancestryGroupID: $0.lineage.ancestryGroupID) }
-    if exactRaster == nil, let result = cache.result(for: key) {
+    if trainingRequest == nil, exactRaster == nil, let result = cache.result(for: key) {
       renderCacheHits += 1
       publish(result, key: key, photo: photo, recipe: currentRecipe,
-        lineage: lineage, proposal: proposal, checkpointID: parent?.checkpointID)
+        lineage: lineage, proposal: proposal, checkpointID: generationCheckpointID)
       return
     }
     isProcessing = true
@@ -464,8 +475,8 @@ final class PortraitStudioModel {
       data: photo.data, pose: photo.pose, style: style, options: options,
       cachedRaster: raster, strokeStyle: strokeStyle, vectorOptions: vectorOptions,
       sourcePixelExtent: photo.sourcePixelExtent), photo: photo, recipe: currentRecipe,
-      lineage: lineage, proposal: proposal, checkpointID: parent?.checkpointID,
-      ownsSource: retainedEditSource?.id == photo.id)
+      lineage: lineage, proposal: proposal, checkpointID: generationCheckpointID,
+      ownsSource: retainedEditSource?.id == photo.id, trainingRequest: trainingRequest)
 
     startWorkIfNeeded()
   }
@@ -477,7 +488,10 @@ final class PortraitStudioModel {
       let renderer = renderer
       let worker = Task.detached(priority: .userInitiated) {
         try Task.checkCancellation()
-        return try await renderer.render(pending.request)
+        if let request = pending.trainingRequest {
+          return RenderWorkResult.trained(try await PortraitTrainingProposalPolicy.generate(request, renderer: renderer))
+        }
+        return RenderWorkResult.ordinary(try await renderer.render(pending.request))
       }
       renderWorker = worker
       workerStarted()
@@ -494,9 +508,26 @@ final class PortraitStudioModel {
         let result = try await worker.value
         guard pending.revision == renderRevision, selectedPhotoID == pending.key.photoID,
           (pending.ownsSource || recentPhotos.contains(where: { $0.id == pending.key.photoID })), !isShutdown else { continue }
-        cache.insert(result, for: pending.key)
-        publish(result, key: pending.key, photo: pending.photo, recipe: pending.recipe,
-          lineage: pending.lineage, proposal: pending.proposal, checkpointID: pending.checkpointID)
+        switch result {
+        case .ordinary(let rendered):
+          cache.insert(rendered, for: pending.key)
+          publish(rendered, key: pending.key, photo: pending.photo, recipe: pending.recipe,
+            lineage: pending.lineage, proposal: pending.proposal, checkpointID: pending.checkpointID)
+        case .trained(let output):
+          let candidate = output.candidate
+          installRecipe(candidate.recipe)
+          let key = PortraitRenderCacheKey(photoID: candidate.photoID,
+            configuration: renderConfiguration, strokeStyle: pending.key.strokeStyle)
+          cache.insert(.init(raster: candidate.raster, program: candidate.program,
+            warpManifest: candidate.warpManifest), for: key)
+          requestedKey = key; completedKey = key; completedCandidate = candidate
+          program = candidate.program; trainingComparison = output.comparison
+          history.record(candidate)
+          if let comparison = output.comparison { history.record(comparison.prior); history.record(candidate) }
+          summary = candidate.recipe.title + " · " + String(candidate.program.strokes.count)
+            + " strokes · " + (candidate.checkpointID == nil ? "renderer prior" : "fitted checkpoint")
+          isProcessing = false
+        }
       } catch {
         guard pending.revision == renderRevision, !isShutdown else { continue }
         if !(error is CancellationError) { summary = error.localizedDescription }
@@ -586,7 +617,25 @@ final class PortraitStudioModel {
     sketches.selectedID = nil
   }
 
+  /// A superseding proposal reuses the exact completed source already captured
+  /// in history while the current worker is joined. It never changes models just
+  /// because the in-flight render has temporarily cleared the preview.
+  private var trainingProposalParent: PortraitCandidate? {
+    selectedCandidate ?? (history.current?.photoID == selectedPhotoID ? history.current : nil)
+  }
+
   func randomStyle(strokeStyle: StrokeStyle, bigHead: Bool = false, seed: UInt64? = nil) {
+    if let scope = training.scope(selectedStyleScope.id),
+      training.activeCheckpoint(for: scope.id) != nil,
+      (scope.mode == .semanticBigHead) == bigHead {
+      guard trainingProposalParent != nil else {
+        explorationStatus = "Wait for the source analysis to finish before exploring the active fitted style."
+        return
+      }
+      startTrainingProposal(scope: scope, kind: bigHead ? .semanticHead : .broad,
+        checkpoint: training.activeCheckpoint(for: scope.id), seed: seed, compare: false)
+      return
+    }
     let parent = selectedCandidate ?? (history.current?.photoID == selectedPhotoID ? history.current : nil)
     // Retain a manually adjusted recipe before the first surprise, so Back
     // always returns to the drawing the operator was comparing.
@@ -624,6 +673,17 @@ final class PortraitStudioModel {
   }
 
   func moreLikeThis(seed: UInt64? = nil) {
+    var priorReason: String?
+    if let scope = training.scope(selectedStyleScope.id), scope.mode == .drawingStyle,
+      let checkpoint = training.activeCheckpoint(for: scope.id), let parent = selectedCandidate {
+      do {
+        try PortraitTrainingFeatures.validateCandidate(parent, scope: scope)
+        startTrainingProposal(scope: scope, kind: .local, checkpoint: checkpoint, seed: seed, compare: false)
+        return
+      } catch {
+        priorReason = "Local renderer prior: the selected candidate does not match the active style's frozen parameters."
+      }
+    }
     guard let parent = selectedCandidate, let pose = parent.renderPose,
       let strokeStyle = parent.program.strokes.first?.style else {
       explorationStatus = "Select a completed drawing with recorded source pose before exploring."
@@ -644,7 +704,7 @@ final class PortraitStudioModel {
     history.record(parent)
     installCandidateSource(parent, pose: pose)
     installRecipe(proposal.recipe)
-    explorationStatus = nil
+    explorationStatus = priorReason
     // Reuse the exact parent's analysis, including its original Vision result.
     render(strokeStyle: strokeStyle, parent: parent, proposal: proposal.metadata, exactRaster: parent.raster)
   }
@@ -741,9 +801,118 @@ final class PortraitStudioModel {
     selectPhoto(recentPhotos[index].id, strokeStyle: strokeStyle)
   }
 
+  func createTrainingScope(name: String, mode: PortraitTrainingScopeDefinition.Mode,
+    objective: PortraitLabelObjective) async -> String? {
+    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty, name.count <= 80, let parent = selectedCandidate else {
+      return "Name the style and select a completed drawing as its frozen reference."
+    }
+    if mode == .semanticBigHead, parent.recipe.vectorOptions.semanticHead == nil {
+      return "Generate a semantic Big Head first so the style has exact landmark and warp provenance."
+    }
+    let semantic: Set<PortraitTrainableParameter> = [.foreheadWidth, .foreheadHeight, .eyeScale, .lateralScale]
+    let active = PortraitTrainableParameter.allCases.filter {
+      mode == .semanticBigHead ? semantic.contains($0) : $0 != .headScale && !semantic.contains($0)
+    }
+    let scope = PortraitStyleScope(id: UUID(), name: name, revision: 1, objective: objective,
+      allowedFamilies: mode == .semanticBigHead ? [parent.recipe.style] : PortraitStyle.allCases,
+      activeParameters: active, frozenParameters: PortraitTrainableParameter.allCases.filter { !active.contains($0) }.map {
+        .init(parameter: $0, value: PortraitTrainingFeatures.value($0, in: parent.recipe.vectorOptions))
+      })
+    let definition = PortraitTrainingScopeDefinition(scope: scope, mode: mode,
+      referenceRecipe: parent.recipe, schemaRevision: PortraitTrainingScopeDefinition.currentRevision)
+    do {
+      try await training.saveScope(definition)
+      selectedStyleScope = scope
+      return nil
+    } catch { return error.localizedDescription }
+  }
+
+  var canTrainSelectedStyle: Bool {
+    training.scope(selectedStyleScope.id) != nil
+      || (selectedStyleScope.id == PortraitStyleScope.screenSketch.id
+        && (selectedCandidate != nil || !sketches.entries.isEmpty))
+  }
+
+  func trainSelectedStyle() async {
+    let selected = selectedStyleScope
+    do {
+      if training.scope(selected.id) == nil {
+        guard selected.id == PortraitStyleScope.screenSketch.id,
+          let reference = selectedCandidate ?? sketches.entries.first?.candidate else {
+          explorationStatus = "Create a named training scope before fitting."; return
+        }
+        var options = reference.recipe.vectorOptions
+        options.headScale = 1; options.semanticHead = nil
+        let recipe = PortraitStyleRecipe(id: "screen-scope-reference", title: selected.name,
+          seed: 0, style: reference.recipe.style, vectorOptions: options,
+          analysisOptions: reference.recipe.analysisOptions)
+        try await training.saveScope(.init(scope: selected, mode: .drawingStyle,
+          referenceRecipe: recipe, schemaRevision: PortraitTrainingScopeDefinition.currentRevision))
+      }
+      await sketches.awaitPersistence()
+      guard case .saved = sketches.persistenceState else {
+        explorationStatus = "Save the qualified candidate archive successfully before fitting."; return
+      }
+      explorationStatus = nil
+      await training.train(scopeID: selected.id, archive: sketches.archive)
+    } catch { explorationStatus = error.localizedDescription }
+  }
+
+  func activateStyleCheckpoint(_ id: String?) async {
+    await training.activate(id, scopeID: selectedStyleScope.id)
+  }
+
+  func rollbackStyleCheckpoint() async { await training.rollback(scopeID: selectedStyleScope.id) }
+
+  func exploreSelectedStyle(seed: UInt64? = nil) {
+    guard let scope = training.scope(selectedStyleScope.id) else {
+      explorationStatus = "Create or save the named scope before exploring it."; return
+    }
+    startTrainingProposal(scope: scope, kind: scope.mode == .semanticBigHead ? .semanticHead : .broad,
+      checkpoint: training.activeCheckpoint(for: scope.id), seed: seed, compare: false)
+  }
+
+  func compareSelectedStyle(checkpointID: String?, seed: UInt64? = nil) {
+    guard let scope = training.scope(selectedStyleScope.id),
+      let checkpoint = training.checkpoint(checkpointID ?? training.pendingCheckpointID)
+        ?? training.activeCheckpoint(for: scope.id), checkpoint.scopeID == scope.id else {
+      explorationStatus = "Choose a saved checkpoint in this scope to compare."; return
+    }
+    startTrainingProposal(scope: scope, kind: scope.mode == .semanticBigHead ? .semanticHead : .broad,
+      checkpoint: checkpoint, seed: seed, compare: true)
+  }
+
+  func selectTrainingComparison(current: Bool) {
+    guard let comparison = trainingComparison else { return }
+    let candidate = current ? comparison.current : comparison.prior
+    history.record(candidate); restoreCandidate(candidate)
+  }
+
+  private func startTrainingProposal(scope: PortraitTrainingScopeDefinition,
+    kind: PortraitTrainingProposalRequest.Kind, checkpoint: PortraitPreferenceCheckpoint?,
+    seed: UInt64?, compare: Bool) {
+    guard let parent = trainingProposalParent, let pose = parent.renderPose,
+      let pen = parent.program.strokes.first?.style else {
+      explorationStatus = "Choose a complete source drawing before exploring a trained style."; return
+    }
+    let request = PortraitTrainingProposalRequest(parent: parent, scope: scope, checkpoint: checkpoint,
+      priorCheckpoint: compare ? training.checkpoint(checkpoint?.payload.parentCheckpointID) : nil,
+      presentation: .init(drawingHeightMM: parent.recipe.vectorOptions.materialContext?.drawingHeightMM ?? 100,
+        inkWidthMM: parent.recipe.vectorOptions.materialContext?.profile.conservativeWidthMM ?? pen.nominalLineWidth,
+        inkWidthIsMeasured: parent.recipe.vectorOptions.materialContext?.profile.independentlyMeasured == true),
+      seed: seed ?? UInt64.random(in: 0...UInt64.max),
+      kind: kind, comparesPrior: compare)
+    acquisitionRevision &+= 1; pendingAcquisition = nil; acquisitionWorker?.cancel(); finishCapture()
+    history.record(parent); installCandidateSource(parent, pose: pose); installRecipe(parent.recipe)
+    explorationStatus = nil
+    render(strokeStyle: pen, parent: parent, exactRaster: parent.raster,
+      trainingRequest: request, generationCheckpointID: checkpoint?.id)
+  }
+
   var canRateSelection: Bool { selectedCandidate != nil }
 
-  func loadArchive() async { await sketches.load() }
+  func loadArchive() async { await sketches.load(); await training.load() }
 
   func keepSelection() -> String? {
     guard let candidate = selectedCandidate else { return "Wait for the selected drawing to finish rendering." }
@@ -810,5 +979,6 @@ final class PortraitStudioModel {
     await cancelRendering()
     await stopCamera()
     await sketches.awaitPersistence()
+    await training.shutdown()
   }
 }

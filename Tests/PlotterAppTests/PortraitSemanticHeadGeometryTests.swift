@@ -167,7 +167,7 @@ struct PortraitSemanticHeadGeometryTests {
       y: y*Double(basis.rasterHeight)/basis.cropHeightSourcePixels-0.5)
   }
 
-  private func fixture(width: Int = 160, height: Int = 160, roll: Double = 0,
+  func fixture(width: Int = 160, height: Int = 160, roll: Double = 0,
     yaw: Double? = 0, pitch: Double? = 0, confidence: Double = 0.95,
     omitted: PortraitFaceRegion? = nil, originY: Double = 170) throws -> PortraitRaster {
     let angle = roll*Double.pi/180

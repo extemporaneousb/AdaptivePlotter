@@ -142,7 +142,7 @@ reviewed, but cannot complete the whole row.
 | DS-04 | Semantic Big Head and retained pose analysis; depends on DS-01 and DS-02. | Task `task-8037d07cff77461cae9104933de40a3a`; frozen semantic contract; disjoint transform and analysis workers; coordinator schemas/model/producer integration. | PARTIAL: native/likeness open | COMPLETE: G04 software; 25 final integration, 1155 quick; signed app; one-shot ACCEPT | PENDING | PENDING |
 | DS-05 | Effective material profile, measurement and final-scale feasibility; depends on DS-01/DS-02 and frozen C3. Consumes DS-06 media in integration. | Task `task-e8792f04a5ad4066bd8375db8831128d`; coordinator C3 types/shared integration; disjoint measurement, library/UI and feasibility workers. | PARTIAL: DS-06 raw media and G10 physical widths open | COMPLETE: 50 initial focused, 54 repair focused, 1202 strict serial quick (5 skips), separate-process archive verification; one-shot F1/F2 repaired directly. Unrestricted parallel timing failures retained. Strict signed app/launcher/negative-bundle gates passed; documentation receipts accompany release. | PENDING | PENDING |
 | DS-06 | Durable run images, recoverable attempts and observation coverage; depends on DS-01/DS-02 and frozen C3 material references. | Task `task-1807468af632464ba4628a3817c9b6c2`, primary main `be5a772659dd21f8cb48548c55f890e3c2201601`, target main. Bounded store/evidence, run-runtime and observation-geometry/coverage workers; coordinator C2 projection association, C3 interface freeze and app consumers. | PARTIAL: software complete; native/attended coverage and physical metric open | COMPLETE: 170 strict focused, 51 clock-consumer tests, 1247 strict serial quick (5 skips), 10 journeys; signed app/launcher/negative-bundle gates passed. One-shot F1/F2/F3 repaired and directly verified; failed receipts retained. | PENDING | PENDING |
-| DS-07 | Operational scoped preference fitting/proposals/checkpoints; depends on DS-02/DS-03/DS-04/DS-05 and frozen C4. | Training worker: new adjacent typed preference-training, dataset and checkpoint files/tests; coordinator leases shared recipe/model consumers after exploration integration. | PENDING | PENDING | PENDING | PENDING |
+| DS-07 | Operational scoped preference fitting/proposals/checkpoints; depends on DS-02/DS-03/DS-04/DS-05 and frozen C4. | Task `task-2754912f55f24764920aa06ddc61cde3`, clean primary main `9e13d4b5bd8f91e52b6f9836818344ce502d1d83`, recorded target main. Coordinator C4/interfaces and production consumers; bounded learner/dataset and checkpoint-store workers. | PARTIAL: real grouped holdout / likeness open | COMPLETE: 38 initial focused, 1271 strict serial, 10 journeys, 37 direct repair and 19 final supersession consumers; signed-app gate, two one-shot P2 findings repaired directly | PENDING | PENDING |
 | DS-08 | Integrated authoring/gallery/training/material/Draw layout; depends on DS-02/DS-03/DS-04/DS-05/DS-06/DS-07 APIs. | UI worker: `PlotterApplicationRuntimeView.swift`, `PortraitStudioView.swift`, `PortraitPreferenceControls.swift`, `PortraitRecentItemsView.swift`, `DrawingStudioPresentation.swift`, focused UI tests; coordinator owns semantic intent/projection integration. | PENDING | PENDING | PENDING | PENDING |
 | DS-09 | Full software/native journey, stable artifact, fresh requirements critic and integration repairs; depends on DS-01 through DS-08. | Coordinator plus fresh critic: cross-feature tests, exact build/provenance artifacts, current product/architecture/evidence docs; no concurrent full builds on a changing tree. | PENDING | PENDING | PENDING | PENDING |
 | DS-10 | Attended geometry, likeness, material and realized drawing closure; depends on DS-09 and explicit attended authorization. | Coordinator with operator: runbook/evidence receipts, independently measured geometry/material and source-grouped comparisons; corrective source work returns to its owning task. | PENDING | PENDING | PENDING | PENDING |
@@ -2113,3 +2113,20 @@ bytes remain owned by the existing failed-publication state until installation
 and sealing succeed. Recovery replays persistence only, never acquisition or
 motion. The optional capture boundary preserves old reference encodings while
 requiring every new pose-bound image to follow settlement in its clock domain.
+
+DS-06 landed as `9e13d4b5bd8f91e52b6f9836818344ce502d1d83` on local main.
+Immutable signed unlaunched app: `.build/StudioTestApps/AdaptivePlotter-DS06-180746.app`;
+exact build-input, signature and gate receipts: `.build/studio-ds06-180746-evidence/`.
+All previous apps and the running session were preserved.
+
+### DS-07 frozen preference contract (C4)
+
+`PortraitTrainingContract.swift` owns immutable scope definitions, fixed-version
+feature normalization, exact label/dataset/group snapshots, ordinal model and
+checkpoint manifests, activation index projection and proposal-selection receipts.
+Updates declare deterministic full refit with reset optimizer and exact compatible
+parent lineage. The existing candidate archive retains rated content; the adjacent
+checkpoint store owns only scope/model/dataset payloads and active selection.
+The coordinator owns proposal rendering and checkpoint capture at generation time;
+models affect future candidates only. Native, real held-out learning quality and
+attended physical outcomes remain distinct from synthetic numerical validation.

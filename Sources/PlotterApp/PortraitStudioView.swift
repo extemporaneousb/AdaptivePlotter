@@ -86,6 +86,7 @@ struct PortraitStudioView: View {
       }
       PortraitPreferenceControls(model: model, presentation: presentationContext)
       PortraitArchiveStatus(collection: model.sketches)
+      PortraitTrainingControls(model: model)
       PortraitSketchStrip(collection: model.sketches)
       if let error = submissionError {
         Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)

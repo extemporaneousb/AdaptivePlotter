@@ -8,6 +8,61 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DS-07 operational named-style training, 2026-09-13
+
+Task `task-2754912f55f24764920aa06ddc61cde3` began from clean primary `main`
+at `9e13d4b5bd8f91e52b6f9836818344ce502d1d83`, recorded target `main`.
+The coordinator owns C4, production proposal integration and lifecycle; bounded
+workers own features/dataset/ordinal fitting, checkpoint storage, and the quiet
+training controls. Checkpoints contain exact immutable label revisions, grouped
+source/session/ancestry splits, fixed normalization, configuration and model state.
+The cumulative-logit fit uses four ordered thresholds, regularization, finite
+bounds and cancellable optimization/evaluation. Continued fitting is explicitly a
+deterministic full refit with reset optimizer and exact compatible completed parent.
+
+The production renderer creates a seeded pool of eight actual candidates. Fitted
+utility, bounded diversity and 20 percent exploration choose the result. Ordinary
+local exploration freezes source/crop/family/head; semantic training varies only
+head amplitudes in the selected branch. Generation captures the checkpoint before
+asynchronous rendering; activation cannot relabel existing candidates or projected
+programs. Installation never activates a checkpoint automatically. Durable named
+scopes, activation, prior/current comparison, update and rollback use the same
+candidate and training owners. Historical manifests expose missing candidate assets.
+Screen appearance and photographed physical-attempt objectives remain distinct.
+
+Validation is in progress. Initial compile receipts retain repaired Swift type
+inference and test-comment issues. The first executing focused suite ran 38 tests
+in 25.876 seconds: ordinary and semantic production learning, changed rankings and
+paths, grouped held-out evaluation, continued fitting, cancellation, captured
+checkpoint identity and rollback passed. Three checks in a forged-index fixture
+used JSONSerialization instead of the store's typed canonical encoding, so the
+checksum rejected the input before the intended semantic association checks.
+The typed canonical fixture repair preserves those exact rejection assertions.
+All 38 focused tests now pass in 25.598 seconds. Documentation checks passed.
+The reviewed tree passed 1269 strict serial quick tests in 361.108 seconds,
+10 retained journeys and strict signed-app/launcher/negative-bundle gates. The
+one-shot critic reviewed frozen patch SHA256
+`a2df24a352ad7d59267b9e22d61a17af85380bdb1c028444310bc83a0d38788a`. Two P2 findings were
+accepted: default-scope fitting was disabled despite its supported initialization
+path, and an incompatible active ordinary checkpoint rejected local Big Head
+branching after clearing the preview. The coordinator repaired both directly:
+existing default-scope label identity is preserved, and incompatible local
+requests use explicit renderer-prior provenance while retaining the exact head.
+Both regressions and 35 adjacent training/browsing/branch tests passed in
+30.037 seconds. The repaired tree passed 1271 strict serial tests in 364.894 seconds and
+strict signed-app/launcher/negative-bundle gates. No critic recheck was performed.
+A subsequent coordinator consumer check found rapid Random could bypass the active
+checkpoint while a render temporarily cleared its completed candidate. Superseding
+proposals now reuse the exact same-source history and retain their captured model;
+an initial unavailable source analysis reports pending instead of silently changing
+policy. The held-renderer regression and all 19 affected production, semantic,
+browsing and branching tests passed in 22.944 seconds. The full-suite receipt
+above precedes only this localized supersession repair; its final focused and
+strict signed-app receipts identify the release tree. Receipts remain in `.build/studio-ds07-275491-evidence/`.
+No DS-07 app has been staged or launched. Synthetic preference fitting, native
+operation, real held-out learning quality and attended physical outcomes remain
+separate gates.
+
 ## DS-06 durable physical attempts and original images, 2026-09-13
 
 Task `task-1807468af632464ba4628a3817c9b6c2` began from clean primary `main`
@@ -60,8 +115,9 @@ skips), 10 retained journeys in 3.321 seconds, and the strict signed debug app,
 launcher and negative bundle validation. Final documentation/whitespace receipts
 accompany landing. Frozen review patch SHA256 is
 `97bde386c20d4fbf15f5c076950eeee4498b65db4badf3cfdf6011d39b5ca601`, with
-receipts in `.build/studio-ds06-180746-evidence/`. Final validation will replace
-this pending status before landing.
+receipts in `.build/studio-ds06-180746-evidence/`. Landed commit
+`9e13d4b5bd8f91e52b6f9836818344ce502d1d83`; immutable signed unlaunched app
+`.build/StudioTestApps/AdaptivePlotter-DS06-180746.app`.
 
 ## DS-05 material measurement and placed-scale adaptation, 2026-09-13
 
