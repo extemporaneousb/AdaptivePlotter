@@ -303,6 +303,8 @@ struct DrawingWorkbenchApplicationFixture {
   let runRuntime: PlotterDrawingRunRuntime
 
   static func make(releasePlanOnStop: Bool = true,
+    portraitStudio: PortraitStudioModel? = nil,
+    drawingMaterials: DrawingMaterialLibrary? = nil,
     verifyPhysicalPose: Bool = true,
     checkpointSaveFails: Bool = false,
     holdsManualJog: Bool = false,
@@ -327,6 +329,7 @@ struct DrawingWorkbenchApplicationFixture {
     let checkpointStore = stores.checkpointStore
     var runRuntime: PlotterDrawingRunRuntime?
     let app = plotterApplicationRuntime(machine: machine, observationSessionOverride: camera,
+      portraitStudio: portraitStudio, drawingMaterials: drawingMaterials,
       drawingPlanBegin: { request in
         .admitted(DrawingPlanOperation(id: request.operationID, planRevisionID: request.plan.revisionID,
           task: Task { drawingRunOutcome(await planGate.wait(request), request: request) }))

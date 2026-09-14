@@ -513,6 +513,22 @@ struct DrawingStudioView<BeforeRun: View>: View {
   private var placement: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Placement").font(.headline)
+      Menu("Test Target") {
+        ForEach([DrawingCatalogEntryID.metricSquare40, .metricRectangle40x20], id: \.self) { id in
+          Button(DrawingProgramCatalog.entry(for: id).displayName) {
+            WorkbenchRequestTelemetry.nativeActionHandled("drawing.testTarget." + id.rawValue)
+            submitDraft(.selectCatalogItem(id))
+          }
+          .disabled(!presentation.authoringIsEnabled || draftRequest(.selectCatalogItem(id)) == nil)
+          .accessibilityIdentifier("drawing.testTarget." + id.rawValue)
+        }
+        Divider()
+        Button("Show Target") { submitDraft(.showTarget) }
+          .disabled(draftRequest(.showTarget) == nil)
+          .accessibilityIdentifier("drawing.testTarget.show")
+      }
+      .accessibilityIdentifier("drawing.testTarget")
+      .help("Select a metric holdout target, then set 100% and review placement before drawing.")
       Toggle("Draw border", isOn: Binding(
         get: { presentation.drawBorder },
         set: { submitDraft(.setDrawBorder($0)) }))
@@ -590,6 +606,16 @@ struct DrawingStudioView<BeforeRun: View>: View {
 
   @ViewBuilder
   private var placementActions: some View {
+    Button("100%") {
+      WorkbenchRequestTelemetry.nativeActionHandled("drawing.scale100")
+      scaleDraft = nil
+      submitDraft(.setUniformScale(1))
+    }
+    .disabled(!presentation.authoringIsEnabled
+      || !presentation.canvas.placement.allowedScale.contains(1)
+      || draftRequest(.setUniformScale(1)) == nil)
+    .accessibilityIdentifier("drawing.scale100")
+    .help("Set the target to its declared dimensions in controller millimeters. Physical accuracy requires measurement.")
     Button {
       submitDraft(.centerInDrawableRegion)
     } label: {

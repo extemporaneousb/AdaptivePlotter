@@ -4774,6 +4774,15 @@ final class PlotterApplicationRuntime:
           intent: .drawingDraft(control.intent), unavailableReason: control.unavailableReason,
           owner: "PlotterDrawingDraftRuntime"))
       }
+      for id in [DrawingCatalogEntryID.metricSquare40, .metricRectangle40x20] {
+        let intent = PlotterDrawingDraftIntent.selectCatalogItem(id)
+        candidates.append(uiCandidate(
+          id: PlotterAppUIActionID.drawingDraft(intent),
+          title: DrawingProgramCatalog.entry(for: id).displayName,
+          intent: .drawingDraft(intent),
+          unavailableReason: drawing.authoringUnavailableReason,
+          owner: "PlotterDrawingDraftRuntime"))
+      }
       if let pendingDrawingProgram {
         let intent = PlotterDrawingDraftIntent.selectProgram(pendingDrawingProgram)
         candidates.append(uiCandidate(

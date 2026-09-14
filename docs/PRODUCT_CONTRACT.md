@@ -1430,6 +1430,18 @@ comparison, shape evaluation, and typed readiness work defined in the Roadmap.
 
 ## Direct Drawing Studio boundary
 
+Drawing's **Test Target** menu selects an exact 40 x 40 unit square with two
+separate diagonals or a 40 x 20 unit rectangle. The explicit **100%** placement
+action sets uniform scale to one through the ordinary Draft request; selection
+preserves the prior scale and rotation, so neither the name nor selection alone
+asserts physical size. Rotate explicitly to 0 or 90 degrees and verify the current
+plan. Use **Show Target** in that menu when the overlay is hidden. Selection
+preserves overlay visibility, creates an ordinary drawing revision
+and sends no motion. Fit changes size and is inappropriate for an unchanged
+40 mm holdout. Existing containment, current Learning, paper and Draw admission
+remain authoritative. Physical millimetres require independently accepted metric
+evidence; these deterministic targets prepare that measurement.
+
 Ordinary drawings expose **Draw border**, defaulting off for each new drawing.
 Edits retain the current drawing's explicit choice; **New Drawing** or a new-sheet
 plan handoff resets it off. This draft choice controls physical ink only: accepted Learning and the displayed calibrated
@@ -1460,7 +1472,9 @@ The session toolbar owns controller selection, amber Connect/Disconnect and
 Enable/Disable Motion actions, the diagnostic export tool, and the far-right
 red Achtung! control. Existing typed Stop requests and Escape routing are
 preserved; passive status badges and the separate command strip are removed.
-Voice remains unchanged and its input/output split is deferred in the Roadmap.
+The application-owned Voice control gates both listening and spoken output.
+Voice off drains queued/active cues; Voice on permits the existing Pen-only Stop
+route during an advisory cue. Hiding a pane does not own microphone lifetime.
 
 Motion displays the existing controller owner's latest report in an isolated
 readout, refreshing while visible at about 5 Hz. Controller state, MPos, and limit
@@ -1647,9 +1661,9 @@ Camera-role changes cancel a burst and remove its illumination; hiding a pane re
 its state. Shutdown cancels and joins remaining work. None of these authoring
 features changes calibration, Learning completion, paper authority, or run locks.
 
-Initial placement and Fit compare upright and 90-degree candidates and select
-the larger valid uniform fit, preferring upright on ties. The same fitting
-calculation supplies scale limits; manual placement remains available. Planned
+Fit retains the authored rotation and selects a valid uniform scale and centre.
+The same fitting calculation supplies scale limits; explicit rotation and manual
+placement remain available. Planned
 geometry remains visible across advancing compatible frames and changes with
 program, placement, registration, Drawing Boundary, or optics. Measured ink and
 exact-frame point selections keep their exact identity requirements. The displayed

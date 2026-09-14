@@ -806,6 +806,7 @@ public actor PlotterDrawingDraftRuntime {
     case .selectCatalogItem(let id):
       state.selectedCatalogItemID = id
       state.suppliedProgram = nil
+      state.evidenceRole = .ordinaryDrawing
       state.placementID = UUID()
     case .selectProgram(let program):
       state.isTargetVisible = true

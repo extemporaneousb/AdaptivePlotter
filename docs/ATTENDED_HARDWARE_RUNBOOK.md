@@ -379,6 +379,267 @@ pixels and is not a complete replay archive. Direct operator observations and
 attended ink evidence remain separate. A complete canonical archive is no
 longer a prerequisite for this diagnostic check.
 
+## Trainable Drawing Studio campaign — DS-10 acceptance
+
+This section is the attended procedure for the 2026-09-13 campaign. It is a
+procedure, not an execution receipt. Keep four outcomes separate: delivered
+software, observed native interaction, learned preference quality, and attended
+physical behavior. A completed fit or controller run does not close the latter
+two. Record `not run`, `passed`, `failed`, or `insufficient evidence` for each
+applicable row; explain a skipped or dependent row explicitly.
+
+### Bind the test artifact and preserve the current session
+
+1. Select one immutable signed campaign test app and its release receipt from
+   [Current Evidence](CURRENT_EVIDENCE.md). Record the full landed commit, absolute
+   app path, source-tree/build-input identity, executable SHA-256, signing identity,
+   macOS version and launch arguments. Verify that the app's SourceCommit agrees
+   with the release receipt. Do not rebuild over, re-sign, replace or edit this app
+   or any previous test app to conduct acceptance.
+2. Inspect the running AdaptivePlotter PID, bundle path and available loaded-artifact
+   evidence. Preserve that process, its cameras and in-memory captures. If a
+   different app must run, obtain authorization naming the exact existing session
+   to close and exact immutable app to launch; explain that transient photos may
+   be lost. An earlier authorization to launch another increment does not select
+   this one. The generic build/launch steps above do not override this requirement.
+3. Record separate authorization for native camera/microphone capture, controller
+   settings application, and each attended motion/ink procedure being performed.
+   Code implementation or permission to launch an app is not settings or motion
+   authorization. Do independent imported-photo/native checks while physical work
+   remains unavailable. Use an unlocked desktop and the ordinary native controls;
+   do not change OS permissions or activation policy to manufacture a passing run.
+4. Create a dated acceptance record outside mutable app state. For each comparison
+   retain candidate ID, source-byte hash, crop/raster and recipe/seed identity,
+   source-program ID/hash, placement/plan ID/hash, active checkpoint and dataset/split
+   IDs, registration and geometry identity, material revision/applicability, feed,
+   Pen profile, paper instance/contact plane, and drawing record/run IDs. Capture
+   unavailable fields as unavailable; do not substitute a current selection for a
+   historical identity. The coordinator can read full IDs from existing durable
+   archives when the UI shows shortened labels.
+
+### Native Studio and durable authoring sequence
+
+Use an imported photo first. Real burst capture is a separate authorized native
+camera check. Record actual mouse/keyboard events and visible results, with the
+exact artifact above; offscreen hosting, programmatic scrolling, synthetic input
+into model methods and screenshots alone are not native interaction evidence.
+
+1. Open the Portrait Studio and Drawing panels. At the production minimum width
+   and a normal wider arrangement, inspect the ordering: source and exploration,
+   preview and ratings/gallery, named training, projection; then placement,
+   material/paper, and Draw. Dock, move and resize the panels through the native
+   workbench controls. Scroll both long galleries and expanded training controls.
+   Check that selected content, labels and action buttons remain reachable and
+   unclipped, including the prior/checkpoint comparison at narrow widths.
+2. With the operator's normal macOS keyboard-navigation setting recorded, traverse
+   focus with Tab/Shift-Tab and activate supported buttons with the keyboard.
+   Inspect focus visibility, selection changes, photo-import cancellation, image
+   inspection dismissal and return to the originating control. If the platform's
+   accessibility host cannot expose a control, record the exact unavailable
+   evidence; bitmap appearance cannot fill that gap. Never use keyboard activation
+   of Draw or calibration Apply as an incidental navigation check.
+3. Choose a photo, run **Random Style**, and inspect the source and proportions through
+   the preview. Explicitly select contour, tonal-contour, clean-line, hatch,
+   crosshatch and sketch choices where offered. Retain the seeds/recipes for the
+   agreed sample. A few plausible Random results establish operation, not a
+   statistical claim about family balance.
+4. On one exact candidate choose **More Like This**, **Parent**, **Back**,
+   **Forward**, and a visible child variation. Confirm restored candidates recover
+   the same source/crop, geometry and recipe; ordinary local variations keep source,
+   crop, family and head treatment fixed. Navigate photos independently, then use
+   **Return to Current Edit** after inspecting a retained drawing. Deleting an
+   unneeded recent photo must not destroy an already qualified candidate's source.
+5. Test the distinct retention triggers on identified candidates: **Keep Sketch**,
+   a rating of 1, a rating of 5, and accepted **Show on Plotter Video**. Mere
+   generation or history navigation must not create a durable rated/kept sibling.
+   Record scope, objective, presentation size/width and label revision for each
+   rating. A low rating is retained evidence; Keep/projection is not a score.
+   Observe pending/saved/error presentation and retained size. Do not deliberately
+   corrupt the operator's archive to test recovery.
+6. Compare supported **Big Head** treatment with its exact parent on frontal and
+   non-frontal sources. Inspect forehead/eye-region expansion, taper and protected
+   mouth/chin recognition, clipping and orientation. Record landmark/pose support
+   and unsupported-region reasons. Do not describe estimated forehead bounds or
+   unavailable ears/hairline as measured landmarks. Recognition is assessed in the
+   held-out human procedure below, not inferred from the semantic warp metadata.
+7. Under **Named style training**, create a named screen-appearance scope from the
+   selected drawing and inspect its active/fixed parameters and allowed families.
+   Rate identified candidates in that scope, then **Train Style**. Record the frozen
+   dataset, group split, optimization outcome and pending checkpoint. Check that a
+   completed pending fit does not activate itself. Use **Compare with Prior**, then
+   **Activate**, and **Explore This Style** on the fixed source. Compare exact actual
+   generated candidates and shared seed, rather than only a weight summary.
+8. Add or revise scoped labels, **Update Style**, and inspect the completed child,
+   parent checkpoint and deterministic full-refit/reset-optimizer semantics.
+   Activate the child, compare, **Roll Back**, and **Use Renderer Prior**. Check that
+   each affects future proposals while prior candidates, labels and drawings remain
+   unchanged. Repeat the named-scope flow using **Semantic Big Head** and **Vary Big
+   Head** on supported source evidence. Cancel one fit and verify that the previous
+   completed checkpoint remains usable; insufficient labels must remain explicit.
+9. Once saves have settled, perform durable restart/reload only with the specific
+   session-switch authorization above. Reopen retained candidates, linked physical
+   images when available, scopes and checkpoints; recover the exact source, labels,
+   activation and lineage. If no restart is authorized, mark restart verification
+   pending and continue the other checks. Never discard captures to finish this row.
+10. On an authorized attended run, inspect run status and global **Stop** while the
+    Studio is scrolled and another panel has focus. Exercise the native Stop action
+    only under the separately agreed physical procedure, and record controller
+    terminal facts and direct motion observation. A stopped or ambiguous run must
+    not automatically reposition for photography. A synthetic held-run Stop test
+    and live inkless Stop check support different claims.
+
+### Independent axis calibration and frozen geometry holdouts
+
+The provisional report of X 159.5 mm and Y 177 mm is not an accepted four-edge
+measurement. Do not populate missing opposite sides, uncertainty or axis
+association from that report. A camera affine cannot supply the independent
+physical ruler measurement.
+
+1. Associate the existing completed Learning Border record with the actual paper
+   and historical accepted Learning package. In **Physical Axis Calibration**, match
+   all four numbered segments to the signed controller axes: 1 +Y, 2 +X, 3 −Y,
+   4 −X. Record which physical endpoints define each ink centreline span, the
+   independent instrument and calibration/resolution, repeat readings, uncertainty
+   and paper/region identity. The diagram shows planned controller geometry with
+   controller completion, not exact transmitted wire or physical dimensions.
+2. Enter only observed lengths and explicit uncertainties, describe the method,
+   and confirm axis association only when established. **Save Measurements** may
+   retain a partial observation without moving the plotter. Opposite-edge intervals
+   must be compatible before a proposal exists. The separate ±0.001 mm nominal
+   command-encoding allowance is not ruler precision or proof of actual travel.
+   Conflicting sides, missing association or inadequate precision are insufficient
+   evidence; do not average them into a passing calibration.
+3. Review the exact measurement/proposal IDs, historical and freshly probed
+   controller context, separate X/Y factors, and proposed `$100`/`$101` commands.
+   Obtain settings authorization for those exact commands before **Apply Axis
+   Calibration**. Verify the terminal preserves attempted versus written bytes,
+   acknowledgements and settings readback. A partial, interrupted or ambiguous
+   result is not applied calibration; preserve it and inspect the real controller
+   before deciding recovery. **Retry calibration evidence save** retries retained facts,
+   not settings. Never replay Apply to fill a missing receipt.
+4. After a successful settings change, complete the required Boundary, camera,
+   tip/contact and Drawing Border Learning again. Verify the new geometry identity
+   and registration/material applicability and retain the old full package as
+   historical evidence. Scale calibration does not repair skew, backlash or slip.
+5. Before any held-out ink, freeze a manifest containing the exact test programs,
+   placements, location list, orientation, instrument/error model, measurement
+   repeats and intended comparisons. Use a 40 mm square and measure its four
+   sides and both diagonals, plus a 40 × 20 mm rectangle at explicit 0° and 90°,
+   at the centre and representative permitted locations. Diagonals are independent
+   centreline corner-to-corner measurements; distinguish the separate diagonal
+   strokes from pooled ink at vertices when locating endpoints.
+   Calibration frame edges cannot be reused as held-out results; identify independent
+   held-out locations before calibration and keep those locations out of fitting.
+6. Select **Metric square 40 × 40 mm + diagonals (100%)** (`metricSquare40`) and
+   **Metric rectangle 40 × 20 mm (100%)** (`metricRectangle40x20`) through the ordinary
+   Drawing **Test Target** menu, then **Show Target** there if the overlay is hidden.
+   Select the **100%** placement action explicitly: source
+   selection preserves the previous scale, which may be 0.25×. Confirm the resulting
+   **Size 1.00×**, exact source-program and plan endpoints, explicit 0° or 90° rotation,
+   and the predeclared centre/location before Draw. The separate
+   diagonal strokes belong to the square's same immutable source/plan. Record the
+   exact catalog identifiers from that artifact; selecting a source is not motion
+   authorization. **Fit to Drawing Area** changes scale and therefore changes the
+   physical target. Do not use Fit after freezing these target dimensions.
+   The older generic square's 96-unit ink span and generic rectangle's 96 × 66-unit
+   spans are different targets. If the delivered app lacks the exact holdout
+   entries or cannot place them within the accepted region, record preparation
+   unavailable and stop this physical row. Do not inject raw controller commands,
+   approximate the Size slider or add an independent stretching path to bypass it.
+7. Keep the predeclared acceptance fixed: **the entire propagated uncertainty
+   interval must lie within 2% of each intended segment ratio and within 1° of
+   orthogonality; length uncertainty must be no more than 0.2 mm on 40 mm targets**.
+   Compare the square's axis ratio with 1:1 and the rectangle with 2:1 in each
+   orientation, alongside absolute side lengths. Record both diagonals and derive
+   angle intervals using the predeclared endpoint/measurement model, or use an
+   independently calibrated angle measurement. Preserve correlated uncertainties;
+   do not assume independent errors merely to narrow an interval.
+8. If targets do not fit or the instrument cannot resolve them, declare smaller
+   targets and appropriate uncertainty **before acquisition**, retaining the same
+   ratio/angle tolerances. An unresolved interval is insufficient evidence, not a
+   pass. Never loosen tolerances or substitute a favourable location after a failed
+   result. A correction begins a new calibration revision and new held-out drawings;
+   preserve failed originals and explain the change.
+
+### Measured material and photographed physical drawings
+
+1. Predeclare the pen/tool/mount, paper stock/contact plane, actuation profile,
+   feed, final physical size and material revision for each comparison. Record the
+   measurement instrument, spatial resolution and uncertainty before evaluating
+   deposited widths, gaps or merged details. Separate a material change from a
+   geometry correction; changed applicability needs a new applicable observation.
+2. Use **Inspect Material Measurement Images** on the existing Border segments or
+   existing 2 mm-radius, 16-chord marks. Inspect original pixels and paper on both
+   sides in every frozen image. Confirm the declared material/settings and absence
+   of obstruction only when directly established. Single-image existing ink has
+   unknown deposition time; a matched before/after pair has stronger temporal
+   provenance but does not by itself prove unobstructed coverage.
+3. Retain width distributions, direction, sample/exclusion counts, uncertainty and
+   the actual qualification. Filled holes, overlaps, pooled vertices, blurred
+   edges, occlusion or inadequate resolution must remain excluded, bounded or
+   unavailable. Do not upgrade an estimate in controller coordinates to an
+   independently measured width after axis calibration. Compare with independent
+   instrument measurements where resolvable; do not invent a quality threshold
+   finer than the instrument or image can support.
+4. At the accepted final placement scale, apply the material to the portrait and
+   inspect the new candidate/plan identity, hatch spacing, minimum gaps and detail
+   feasibility. Compare nominal and measured preview meaning. A rating's preview
+   height does not change actual placement. Resizing or changing material requires
+   a newly accepted adapted candidate; previously rated and drawn candidates stay
+   immutable. Record intended and realized features, including lost/merged detail.
+5. For each separately authorized drawing, confirm current paper coverage against
+   the exact frame and inspect the immutable plan before clicking Draw once. Check
+   durable intent and raw baseline, actual Pen/motion chronology, controller outcome,
+   and terminal images. Prefer the recorded reachable pen-up observation pose
+   clearing the whole region. If bounded multi-pose capture is used, retain each
+   original, pose/registration, composite coverage and per-pixel provenance.
+   Unknown masks or uncovered pixels cannot count as observed ink.
+6. Open the linked physical drawing images in the gallery and compare them with
+   the exact candidate and planned features. Record obstruction and missing-coverage
+   reasons alongside the raw images. A direct independent photograph may supplement
+   the attended receipt, with its time, view and record association; it does not
+   silently replace missing app-owned originals. A failed or cancelled attempt
+   remains a physical attempt, without automatic redraw or photo repositioning.
+7. Rate the linked photographed attempt under a **Physical drawing** objective.
+   Keep these labels separate from screen appearance, operator visibility assertions,
+   material measurements and Keep/projection retention events.
+
+### Grouped likeness and training-quality evaluation
+
+Before looking at evaluation results, freeze the scope/objective and active/fixed
+parameter mask, training dataset and checkpoint IDs, source/session/ancestry group
+IDs, training/holdout partition, evaluation source list, seeds, presentation sizes,
+material conditions, rater instructions and planned aggregation. Declare sample
+and rater counts, rating anchors, missing-data handling, comparison order and the
+uncertainty method appropriate to those counts. If a quality pass criterion is
+needed, declare it with a defensible resolution before evaluation; this runbook
+adds no arbitrary numeric likeness or physical-quality threshold.
+
+Use the actual **Compare with Prior** candidates for matched source and seed, or
+record equally explicit frozen prior/checkpoint pairs. Counterbalance presentation
+order and conceal which member used the checkpoint from the rater when feasible;
+record when blinding was impossible. Evaluate screen aesthetics, recognizable
+likeness/Big Head treatment and photographed physical realization as distinct
+objectives. Use source/session/ancestry groups, not near-duplicate variants, as the
+independent unit. Keep physical comparisons at matched final scale and applicable
+material conditions or report that confound explicitly.
+
+Retain every included and excluded comparison, individual label revisions and
+group-level results. Report the model's training/holdout ordinal loss and comparable
+pair counts separately from independent human results and physical feature results.
+No usable holdout groups, no comparable pairs, uniform/degenerate labels, excessive
+missing coverage, instrument limits or confidence intervals that cannot resolve the
+predeclared criterion yield **insufficient evidence**. Do not select only successful
+faces or reassign evaluation groups after fitting. New or revised labels used in
+an update form a new frozen dataset/child checkpoint; evaluation examples consumed
+by that update are no longer independent evidence for that child.
+
+Finish with a per-row receipt linking raw evidence and exact artifact identities.
+Leave pending native, learning-quality or physical rows open in the canonical
+ledger even when all software gates pass. A blocker in physical metric, material
+resolution or attended access blocks the dependent claim, not unrelated authoring
+or persistence verification.
+
 ## Evidence record
 
 For each section record `passed`, `failed`, or `skipped`, plus exact identities

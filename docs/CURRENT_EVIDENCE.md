@@ -8,6 +8,121 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DS-09 integrated campaign acceptance, 2026-09-13
+
+Task `task-99b539b9170e46b3b15ff5610768739e` began from clean primary main
+`3e1f353109a4fd26820d1b8131204824650fa19e`, recorded target main. The coordinator
+owns the complete production journey, worker acceptance, one final cross-feature
+critic, repairs and landing. Bounded workers own the existing view-action extraction
+and fixture plumbing, paired material pixels through the current registration, and
+the attended runbook. The projection/material handlers move to the application owner
+so the UI and integration test use the same typed actions and final-scale checks.
+No alternate renderer, planner, machine owner or evidence archive is introduced.
+
+Runbook preparation found a concrete target gap: the old square and rectangle do
+not express the predeclared 40 mm holdouts and the catalog had no visible source
+selector. Exact square-with-diagonals and 40 x 20 rectangle entries, a Test Target
+menu and explicit 100% action now prepare those plans through ordinary Draft
+intents. Selection does not dispatch motion or bypass containment/paper/Draw.
+The first strict compile rejected coordinator test comparisons against a
+non-Equatable candidate; tests now compare complete serialized payloads. The first
+journey requested a scale between the UI's 0.01 steps; it now submits an actual
+available step. The complete journey then passed in 8.689 seconds (two journey
+tests in 9.925 seconds). Broader affected-consumer validation exposed the
+coordinator's visibility regression: catalog edits must preserve a hidden target.
+That behavior is restored, with a separate existing Show Target intent in the menu.
+These are coordinator repairs before the single aggregate critic, not repeat reviews.
+All 65 focused tests now pass in 29.463 seconds, including the complete journey,
+actual typed target preparation, existing hidden-target behavior, and affected
+catalog/Draft/material/training/native-hosted consumers. The optional
+`journey-verified/` receipt retains the synthetic authoring/training/material and
+drawing stores, exact plan and terminal record, checkpoint/dataset/candidate IDs,
+scoped label and original-frame hashes, and explicit unobserved coverage. These
+are software fixture artifacts, not physical ink or human quality evidence.
+The single aggregate critic reviewed R01-R36 against frozen patch SHA256
+`ff9880e77fded36e575ea7e691bb6ef4963e655b4ba7200ea928379b811c57a9` and the retained
+journey. It returned one P2 documentation finding, F1/R35: DS-02 and DS-05 still
+listed delivered DS-06 software associations as open. The coordinator corrected
+both canonical rows to acknowledge pre-dispatch candidate association and measured
+material/raw-media integration through DS-09, while retaining all native/attended
+limits. Direct receipt/row comparison verifies the repair; no critic recheck or
+replacement review is performed. The critic found no actionable production
+integration defect and explicitly retained the zero-covered-pixel and bounded-width
+limitations. Final validation passed all 1337 strict serial quick tests in 392.765
+seconds with six explicit skips, all ten journeys in 3.232 seconds, and the signed
+app, launcher, negative-bundle, documentation and diff gates. The post-review
+repair changes documentation only; reviewed production source is unchanged.
+The immutable unlaunched DS09-99b539 app's exact landed commit, source-input binding,
+binary digest and signature are recorded in `release.json`; its short procedure is
+`DS09-TEST.md`. Receipts belong in
+`.build/studio-ds09-99b539-evidence/`.
+
+The canonical R01-R36 register remains in the campaign plan. This evidence map
+binds its software claims to delivered slices and the final journey; it does not
+promote any pending native, real-label or attended result. Existing slice receipts
+below remain authoritative for their respective runs. DS-09 references are
+verified by the final focused and serial runs recorded above.
+
+| Requirement | Software evidence path | Remaining non-software acceptance |
+| --- | --- | --- |
+| R01 | DS-01 transform trace; PortraitGeometryTests; DS-09 per-segment actual-plan checks | Physical transform trace |
+| R02 | DS-01 proportional placement/catalog tests; DS-09 segment lengths at 0/90 degrees | Independent physical proportions |
+| R03 | PortraitGeometryTests extreme/minimum raster sampling cases | None for sampling contract |
+| R04 | DS-01 explicit rotation/hash invalidation; DS-09 exact target placement | Native rotation interaction and ink |
+| R05 | ControllerAxisMetric/Store/Calibration tests; AxisMetric production/startup tests; exact targets | Axis association, uncertainty, real firmware and independent holdouts |
+| R06 | PortraitPreferenceCollection/CandidateStore tests; DS-09 transient branch then rating/projection/attempt | Native qualifying interactions |
+| R07 | PortraitCandidateStore/AnalysisEvidence tests; DS-09 exact source/raster/program reload | Actual capture provenance |
+| R08 | PortraitPreferenceDataset/Collection tests; DS-09 label revisions and candidate lineage | Real labeled dataset |
+| R09 | CandidateStore/CheckpointStore/MaterialPersistence tests; DS-09 durable reload and raw assets | Native restart/recovery interaction |
+| R10 | DS-02 no-FIFO/persistence failure tests; DS-08 retained-size UI | Native storage feedback |
+| R11 | PortraitProposalPolicyTests declared family distribution | Human contour/style balance |
+| R12 | PortraitExplorationHistory/Integration tests; DS-09 exact parent/branch recovery | Native branch navigation |
+| R13 | PortraitBrowsing/ExplorationHistory and DS-08 composition | Native photo/style distinction |
+| R14 | PortraitSemanticHeadGeometry/Integration tests | Blind human likeness and supported-feature review |
+| R15 | SemanticHeadGeometry/Compatibility and FaceLandmarkAnalysis tests | Real pose/landmark/warp evaluation |
+| R16 | PortraitSemanticTrainingProduction and TrainingProduction tests; DS-09 named scope | Real Big Head/scoped labels |
+| R17 | TrainingProduction/CheckpointStore; DS-09 reload, revised labels, full-refit child, activate/compare/rollback | Native lifecycle and human quality |
+| R18 | PortraitPreferenceDataset source/session/ancestry grouping; immutable checkpoint manifests | Frozen real source-grouped holdouts |
+| R19 | OrdinalTraining/CheckpointStore/TrainingProduction failure and cancellation cases | Native recovery feedback |
+| R20 | PreferenceCollection; DS-09 distinct screen and physical presentation contexts | Actual displayed/physical ratings |
+| R21 | DS-06 attempt context; DS-09 adapted candidate/program/plan/material linkage | Attended physical run |
+| R22 | DrawingRun evidence/episode tests; DS-09 pre-dispatch staged attempt | Real partial/Stop outcome |
+| R23 | DS-06 media tests; DS-09 paired material and realization raw-byte reload | Actual before/after images |
+| R24 | DS-06 observation-pose planning and capture-boundary tests | Physical reachable clear pose |
+| R25 | DS-06 bounded coverage/mask/provenance tests | Actual observed coverage |
+| R26 | DS-06 cancellation/ambiguity no-reposition/no-redraw tests | Attended Stop behavior |
+| R27 | DrawingMaterialContract/Library tests; DS-09 current applicability binding | Actual tool/mount/paper/feed |
+| R28 | DrawingMaterialMeasurement tests; DS-09 actual estimator on paired pixels | Independent width measurement |
+| R29 | Measurement filled-hole/pooling/occlusion/resolution cases | Real exclusion/uncertainty review |
+| R30 | MaterialFeasibility/PortraitMaterialIntegration; DS-09 current-plan-scale adaptation | Actual gaps/detail/deposited width |
+| R31 | Immutable candidate/checkpoint/plan tests; DS-09 original/parent/child retained bytes | Native edit expectations |
+| R32 | DS-08 layout; DS-09 shared production projection/material actions | Actual native control sequence |
+| R33 | DS-06 physical gallery; DS-09 retained candidate, record, originals and rating reload | Native gallery/image interaction |
+| R34 | DrawingWorkbenchComposition camera locality/held Stop; DS-08 hosted layout; DS-09 held Draw Stop | Keyboard/scroll/resize and live camera workload |
+| R35 | Exact slice releases; DS-09 complete journey and final critic F1 directly repaired | Full native and attended acceptance |
+| R36 | Separate release receipts and pending columns; DS-10 predeclared runbook | Real-label/physical evidence remains pending |
+
+### DS-10 attended acceptance remains pending
+
+Software implementation and target preparation are delivered. No native keyboard,
+scroll/resize, live-camera workload, independently measured geometry/material,
+attended drawing or real source-grouped likeness/learning-quality result is claimed.
+The current live session and transient captures have not been replaced by the
+coordinator. Replacing/restarting that session requires the operator's authorization
+for the exact retained app; physical settings/motion require their own reviewed
+attended action. Previously reported two border lengths still lack confirmed exact
+axis/sample association, opposite-side measurements and uncertainty.
+
+The next dependent action is authorized native acceptance on the exact release,
+followed by the campaign section of the Attended Hardware Runbook: retain measured
+frame edges, review any resulting settings proposal, reacquire dependent Learning
+if applied, and evaluate distinct 40 mm/diagonal/40 x 20 mm holdouts. Collect actual
+material/image/likeness evidence with frozen IDs, methods and tolerances. The
+operator supplies attendance and independent measurements; the coordinator binds
+receipts, diagnoses actual failures and implements any resulting correction. These
+external evidence gaps remain open R05/G08/G10 and real-quality acceptance, rather
+than being relabeled complete from synthetic software checks.
+
 ## R05 independent axis metric implementation, 2026-09-13
 
 Task `task-9935a6df0be84c4bb2d9a07ffbcf49ac` began from clean primary main
@@ -39,7 +154,11 @@ journeys in 3.291 seconds, and signed-app/launcher/negative-bundle, documentatio
 and diff gates. Native operator interaction, actual firmware transfer, independently
 measured metric and attended drawing remain unverified. All ten prior test apps
 were checked read-only: source commit, binary digest, signature and write protection
-remain intact. The metric app will be staged unlaunched after the exact landing.
+remain intact. The increment landed as `3e1f353109a4fd26820d1b8131204824650fa19e`.
+Its immutable signed unlaunched app is
+`.build/StudioTestApps/AdaptivePlotter-Metric-9935a6.app`; all 376 build inputs match
+that exact commit. Binary SHA256:
+`92a4f733b9d93240b31328872cb022a594ba85bc063ec56d0ae8af6738d79ece`.
 Receipts are retained in `.build/studio-metric-9935a6-evidence/`.
 
 ## Unified Voice feedback repair, 2026-09-13
@@ -119,8 +238,9 @@ matching that exact commit. Binary SHA256:
 Exact landing/source/signature receipts remain in `.build/studio-boundary-33f100-evidence/`.
 The test app remains unlaunched and the live session is unchanged.
 
-Next independent deliveries are R05 measured-axis calibration, then DS-09 aggregate integration and DS-10 attended readiness. Native
-recovery, physical dimensions and realized ink remain unverified.
+Remaining work is DS-09 final software acceptance and DS-10 native/attended acceptance.
+R05 software is delivered; native recovery, independent physical dimensions and
+realized ink remain unverified.
 
 ### Physical metric feedback retained for the R05 correction
 
@@ -151,7 +271,7 @@ The checkpoint retains $100=40.18235 and $101=45.09100. Exact ruler association,
 opposite-side observations and measurement uncertainty still require the operator.
 Read-only extracts are retained as `reported-border-wire-readonly.json` and
 `reported-border-record-readonly.json` in the metric task evidence directory.
-This remains R05 corrective work before aggregate campaign acceptance.
+R05 independent physical acceptance remains open; its software correction is delivered.
 
 ## DS-08 integrated Studio workflow, 2026-09-13
 

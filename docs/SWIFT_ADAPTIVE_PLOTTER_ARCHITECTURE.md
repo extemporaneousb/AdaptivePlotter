@@ -2069,6 +2069,23 @@ prove attended controller, camera, motion, Pen, paper, click, or ink behavior.
 
 ## Drawing Studio ownership
 
+`PortraitDrawingActions` composes the existing application owners for projection
+and final-scale material adaptation. Both the native view and integrated journey
+call `projectPortrait` and `applyPortraitMaterial`; each obtains fresh typed UI
+requests. Projection retains its exact candidate only after camera selection,
+program admission and Fit. Material adaptation rechecks the source plan and active
+profile after rendering, creates a child and preserves exact placement. The view
+retains only its local portrait-canvas presentation change.
+
+The two metric holdout entries live in `DrawingProgramCatalog` and resolve to
+ordinary line strokes. `OperatorWorkspace` projects their existing
+`selectCatalogItem` intents; the Placement Test Target menu and 100% action submit
+those capabilities. The menu's separate Show Target uses the existing overlay
+intent. Catalog selection selects ordinary drawing evidence while preserving
+overlay visibility and authored scale/rotation. It does not dispatch
+the runner or change metric acceptance. Historical catalog source identifiers,
+paths and hashes remain unchanged.
+
 `PlotterDrawingDraftRuntime` is the single source-indexed draft owner. Each
 `PlotterDrawingDraftSubmission` binds a `PlotterDrawingDraftRequestID`, one
 immutable authored `PlotterDrawingDraftRevision`, environment, and typed

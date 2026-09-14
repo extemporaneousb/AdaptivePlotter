@@ -13,6 +13,8 @@ public enum DrawingCatalogEntryID: String, Codable, Sendable, CaseIterable {
   case star
   case pyramid
   case elephant
+  case metricSquare40
+  case metricRectangle40x20
 }
 
 extension DrawingCatalogEntryID: CanonicalEncodable {
@@ -138,6 +140,8 @@ public enum DrawingProgramCatalog {
     entry(.star, "Star", 100, 100),
     entry(.pyramid, "Pyramid", 100, 100),
     entry(.elephant, "Elephant", 140, 100),
+    entry(.metricSquare40, "Metric square 40 × 40 mm + diagonals (100%)", 40, 40),
+    entry(.metricRectangle40x20, "Metric rectangle 40 × 20 mm (100%)", 40, 20),
   ]
 
   public static func entry(for id: DrawingCatalogEntryID) -> DrawingProgramCatalogEntry {
@@ -174,6 +178,14 @@ public enum DrawingProgramCatalog {
       paths = try pyramidPaths()
     case .elephant:
       paths = try elephantPaths()
+    case .metricSquare40:
+      paths = [
+        try polyline([(0, 0), (40, 0), (40, 40), (0, 40), (0, 0)]),
+        try polyline([(0, 0), (40, 40)]),
+        try polyline([(40, 0), (0, 40)]),
+      ]
+    case .metricRectangle40x20:
+      paths = [try polyline([(0, 0), (40, 0), (40, 20), (0, 20), (0, 0)])]
     }
 
     let curveSuffix =

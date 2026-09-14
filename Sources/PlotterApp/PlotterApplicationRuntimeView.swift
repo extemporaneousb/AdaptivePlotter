@@ -261,43 +261,12 @@ struct PlotterApplicationRuntimeView: View {
   }
 
   private func usePortraitProgram(_ candidate: PortraitCandidate) async -> String? {
-    await application.portraitStudio.acceptProjection(candidate) {
-      let program = candidate.program
-      if let error = await selectCamera(.plotter) { return error }
-      if let error = await submit(PlotterAppUIActionID.drawingDraft(.selectProgram(program)), program: program) {
-        return error
-      }
-      return await submit(PlotterAppUIActionID.drawingDraft(.fitInDrawableRegion))
-    }
+    canvasShowsPortraitPhoto = false
+    return await application.projectPortrait(candidate)
   }
 
   private func applyPortraitMaterial(_ profile: DrawingMaterialProfileRevision) async -> String? {
-    guard let prior = application.portraitStudio.selectedCandidate,
-      let program = application.drawingDraftSnapshot.program,
-      program.contentHash == prior.program.contentHash,
-      let plan = application.drawingDraftSnapshot.plan
-    else { return "Project the selected portrait before adapting it to the current drawing scale." }
-    if profile.qualification != .nominal && profile.qualification != .unavailable,
-      application.drawingMaterials.activeRecord?.applicability != application.currentMaterialApplicability {
-      return "The measured material's calibration, paper or actuation has changed. Measure it again or select nominal settings."
-    }
-    if let error = await application.portraitStudio.applyMaterial(profile,
-      drawingHeightMM: program.fieldExtent.height * plan.placement.uniformScale) { return error }
-    guard application.drawingDraftSnapshot.plan?.contentHash == plan.contentHash,
-      application.drawingMaterials.activeKey == profile.key,
-      let candidate = application.portraitStudio.selectedCandidate
-    else { return "Drawing placement or material changed during adaptation. The generated candidate is retained; review it before projection." }
-    let projectionError = await application.portraitStudio.acceptProjection(candidate) {
-      if let error = await submit(PlotterAppUIActionID.drawingDraft(.selectProgram(candidate.program)), program: candidate.program) {
-        return error
-      }
-      guard application.drawingDraftSnapshot.plan?.placement == plan.placement else {
-        return "The adapted drawing could not retain its exact placement. Review its scale before drawing."
-      }
-      return nil
-    }
-    if let projectionError { return projectionError }
-    return await application.assessCurrentMaterial()
+    await application.applyPortraitMaterial(profile)
   }
 
   private func submit(_ action: PlotterUIActionID, program: DrawingProgram? = nil) async -> String? {
