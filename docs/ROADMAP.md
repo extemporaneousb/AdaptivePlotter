@@ -26,6 +26,83 @@ native interaction, sustained workload, and attended physical requirements.
 The physical model experiments below remain separate from the campaign's aesthetic
 style learner and ordinary portrait drawing.
 
+## Parking lot: Portrait Studio UI refresh and guided exploration
+
+Saved September 13, 2026 at the operator's request. **Deferred: planning only;
+implementation is not authorized by this entry.** This records future product
+work and open decisions; it does not select, schedule, or change the execution
+register of the
+[Trainable Drawing Studio campaign](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#trainable-drawing-studio-campaign-2026-09-13).
+Reconcile the affected campaign requirements when the operator resumes this work.
+
+### Proposed experience and future work
+
+- **Nonlinear authoring:** organize setup, capture, and exploration into distinct
+  tabs or sections that can be revisited independently. Studio experimentation
+  must be available without plotter information or a connected plotter.
+- **Plotter setup:** obtain available dimensions and model details from the
+  plotter and its existing model authority. When unavailable, offer a small set
+  of aspect ratios and explicit pen/marker thickness for authoring. Identify
+  assumed inputs separately from device-derived values. Center on Target, zoom,
+  and related placement/view controls belong outside setup. Authoring defaults
+  do not establish physical calibration or drawing readiness.
+- **Capture series:** retain the set of images acquired during each capture
+  series, allowing more than 25 images. Group each series as a collapsible unit
+  and support deleting a whole series in one action. The proposed example is
+  "For 5 I can imagine 30 images max"; its duration/unit and limit semantics
+  remain open below. A global 25-image limit must not silently truncate a series.
+- **Paired exploration view:** show the selected source photo beside its drawing,
+  with the same aspect ratio. This comparison could occupy the main frame in
+  place of the live camera image; define how capture/live view is revisited.
+- **Separate feedback axes:** keep keyboard-driven exploration and apply the
+  exact mapping below. Each action assesses only its named subject; the other
+  subject receives no assessment from that action. Absence of assessment must
+  not become a negative or positive label, or erase an earlier explicit label.
+- **Adaptive exploration:** use these choices to change the subsequent drawing
+  proposals and where exploration concentrates. Distinguish source-image
+  preference from generated-drawing preference so a rejected photo is not
+  treated as a rejected rendering style. Retain enough source/candidate context
+  to attribute each choice. These are screen preferences, separate from physical
+  drawing outcomes.
+
+| Arrow | Source image assessment | Drawing assessment |
+| --- | --- | --- |
+| Left | None | Dislike |
+| Right | None | Like |
+| Down | Dislike | None |
+| Up | Like | None |
+
+### Decisions to resolve when work resumes
+
+- Tabs versus sections, placement/view control grouping, and switching between
+  live capture and paired comparison.
+- What "For 5" means (possibly five seconds, not yet confirmed), the capture
+  cadence, whether 30 is a per-series maximum or an example, and how series are
+  bounded. Also specify reload persistence, storage visibility and deletion
+  behavior for source images referenced by retained candidates or run evidence;
+  reconcile this with the campaign's qualified-evidence retention policy.
+- Fallback aspect-ratio presets, thickness units/defaults, and how manually
+  supplied authoring inputs behave when plotter information becomes available.
+- Whether each rating automatically advances, how unrated browsing remains
+  available, key handling while editing controls, and undo/reassessment.
+- How image and drawing feedback separately affect proposal selection, including
+  continued exploration and how to verify that choices change later proposals.
+
+Future acceptance should demonstrate disconnected Studio use, complete capture
+series above 25 images, collapse and bulk deletion, matched-aspect comparison,
+independent four-arrow labels, and observable changes in exploration. These are
+future checks, not implementation or validation evidence.
+
+### Original operator proposal (verbatim)
+
+> The Portrait studio needs a UI refresh/redo. One issue is that the workflow is not entirely linear and one might not have the information from the plotter and still want to play in the studio.
+>
+> I'm thinking that the way to do this is to have maybe tabs or better org of the elements. There should be a plotter setup tab and that should basically get the dimensions and model details from the plotter itself and whatever information is necessary if it is absent then we can use one of a few aspect ratios and pen/marker thickness. Those are the main details that will effect the drawing at the studio level. Things like center on target zoom and things like that should not be next to the setup section.The next tab or section will be for capturing photos with the camera - we should allow more than 25 images, we should just store the set of images that are acquired during one capture series, whatever that is. For 5 I can imagine 30 images **max**. Capture sequences should be deletable en masse and should be collapsable.
+>
+> Ideally, we would have something like the photo next to the drawing same aspect ratio - these could go in the main frame instead of a live image. The arrow keys for moving through items are great and I only want to make that better by making the arrows do the following: left means i don't like the drawing, the image is not assessed. right means that i like the drawing and the image is not assessed. down means i don't like image and the drawing not assessed, up means like image drawing not assessed.
+>
+> Those choices change the sequence of drawings that we explore - so this way, I can influence where in the space to explore more of.
+
 ## Parking lot: voice input and speech output
 
 Deferred by the operator on September 12, 2026. The current Voice switch controls
