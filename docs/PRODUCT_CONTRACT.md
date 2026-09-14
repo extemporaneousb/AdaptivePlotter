@@ -1613,9 +1613,16 @@ Exact candidate history is separate from recipe and photo navigation. Completed
 candidate admission binds selection/configuration and frozen proposal context;
 superseded work cannot replace the current drawing or label target.
 
-The preview estimates ink width at an explicitly chosen drawing height. These
-preview settings do not alter the tool profile or actual placement; Fit to Drawing
-Area and existing placement controls determine the real drawing. Shortlisting, any
+The main portrait viewer uses the current drawing region aspect ratio and one
+uniform screen scale. Only the selected candidate’s matching admitted artwork plan
+supplies rotation, scale, offset and intrinsic artwork dimensions. The height and
+ink-width override sliders are removed. Applicable active material supplies marker
+width; otherwise the program nominal width is explicitly an estimate. Missing or
+mismatched placement shows a reference preview with no actual-size claim. Reference
+ratings and training remain available, retaining their typed display context.
+Historical labels and thumbnails retain their original renderer and values. Fit to
+Drawing Area and existing placement controls determine the real drawing; changed
+size or material still requires explicit material readaptation. Shortlisting, any
 1–5 rating, and complete successful projection acceptance qualify the exact candidate
 for automatic local retention. Generation and navigation alone remain transient.
 Qualified drawings have no silent count/byte eviction and remain selectable and

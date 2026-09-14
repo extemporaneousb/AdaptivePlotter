@@ -90,6 +90,14 @@ func makeStudioCampaignMeasuredMaterial(
   #expect(await fixture.machine.requestedFeeds.count == feedsBefore)
   #expect(await fixture.machine.requestedPenCommands.count == penCommandsBefore)
   #expect(await fixture.camera.poseCaptureCount == capturesBefore)
+  // Material selection queues the existing Draft synchronization. Establish its
+  // material-bound plan before callers start an operation that deliberately
+  // refuses changes to plan identity during asynchronous rendering.
+  await app.drawingDraftSynchronizationTask?.value
+  if let plan = app.drawingDraftSnapshot.plan {
+    try #require(plan.provenance.materialContextHash == app.currentDrawingMaterialContextHash,
+      "Measured material must be reflected by the admitted plan before adaptation.")
+  }
   return activated
 }
 

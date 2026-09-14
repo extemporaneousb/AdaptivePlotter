@@ -260,6 +260,9 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
   public let placementID: UUID
   public let program: DrawingProgram?
   public let plan: ExecutionPlanRevision?
+  /// The existing planner's artwork result before optional border composition.
+  /// Presentation consumers must still match its source program and region.
+  public let artworkPlan: ExecutionPlanRevision?
   public let planningRefusal: PlotterDrawingDraftRefusal?
   public let preview: PlotterDrawingDraftPreview?
   public let paperCoverageObservation: PaperCoverageObservation?
@@ -308,6 +311,7 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
       placementID: UUID(),
       program: nil,
       plan: nil,
+      artworkPlan: nil,
       planningRefusal: nil,
       preview: nil,
       paperCoverageObservation: nil,
@@ -335,6 +339,7 @@ public struct PlotterDrawingDraftPlanBuild: Hashable, Sendable {
   public let center: Point2<MachineSpace>?
   public let allowedScale: ClosedRange<Double>
   public let plan: ExecutionPlanRevision?
+  public let artworkPlan: ExecutionPlanRevision?
   public let failure: String?
 }
 
@@ -380,6 +385,7 @@ public enum PlotterDrawingPlanningAdapter {
         provenance: try planningProvenance(for: registration, materialContextHash: materialContextHash)
       )
       var executionProgram = program
+      let artworkPlan = plan
       if drawBorder {
         guard let drawingBorderBounds else {
           throw PlotterModelError.invalidValue("The calibrated Drawing Border is unavailable.")
@@ -395,6 +401,7 @@ public enum PlotterDrawingPlanningAdapter {
         center: center,
         allowedScale: allowedScale,
         plan: plan,
+        artworkPlan: artworkPlan,
         failure: nil
       )
     } catch {
@@ -403,6 +410,7 @@ public enum PlotterDrawingPlanningAdapter {
         center: machineCenter,
         allowedScale: allowedScale,
         plan: nil,
+        artworkPlan: nil,
         failure: String(describing: error)
       )
     }
@@ -504,6 +512,8 @@ public actor PlotterDrawingDraftRuntime {
     var placementID = UUID()
     var program: DrawingProgram?
     var plan: ExecutionPlanRevision?
+    var artworkPlan: ExecutionPlanRevision?
+    var artworkExecutionPlanHash: PlotterModel.Digest?
     var planningRefusal: PlotterDrawingDraftRefusal?
     var preview: PlotterDrawingDraftPreview?
     var paperCoverageObservation: PaperCoverageObservation?
@@ -1181,6 +1191,8 @@ public actor PlotterDrawingDraftRuntime {
     state.machineCenter = built.center ?? state.machineCenter
     state.program = built.program
     state.plan = built.plan
+    state.artworkPlan = built.artworkPlan
+    state.artworkExecutionPlanHash = built.plan?.contentHash
     if let failure = built.failure {
       state.planningRefusal = issue(
         requestID: requestID,
@@ -1348,6 +1360,9 @@ public actor PlotterDrawingDraftRuntime {
       placementID: state.placementID,
       program: state.program,
       plan: state.plan,
+      artworkPlan: state.plan.flatMap {
+        $0.contentHash == state.artworkExecutionPlanHash ? state.artworkPlan : nil
+      },
       planningRefusal: state.planningRefusal,
       preview: state.preview,
       paperCoverageObservation: state.paperCoverageObservation,

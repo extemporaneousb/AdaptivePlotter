@@ -442,7 +442,13 @@ into model methods and screenshots alone are not native interaction evidence.
    the preview. Explicitly select contour, tonal-contour, clean-line, hatch,
    crosshatch and sketch choices where offered. Retain the seeds/recipes for the
    agreed sample. A few plausible Random results establish operation, not a
-   statistical claim about family balance.
+   statistical claim about family balance. Verify the main viewer has the current
+   drawing region aspect ratio and explicit reference status before projection.
+   After projection, compare its rotation, uniform scale and offset with existing
+   placement controls; artwork dimensions must be readouts, with no height or ink
+   override sliders. Check the material-width source and re-adaptation warning.
+   Switch to an unprojected candidate: ratings remain available and actual size is
+   unavailable. Revisit saved ratings to verify their historical display context.
 4. On one exact candidate choose **More Like This**, **Parent**, **Back**,
    **Forward**, and a visible child variation. Confirm restored candidates recover
    the same source/crop, geometry and recipe; ordinary local variations keep source,

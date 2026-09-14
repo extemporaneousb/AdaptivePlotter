@@ -56,13 +56,28 @@ struct PortraitPreferenceControls: View {
             HStack {
               PortraitPhotoThumbnail(data: example.photoData, id: example.id)
                 .frame(width: 36, height: 40)
-              PortraitProgramPreview(program: example.program,
-                inkWidth: example.label.presentation.inkWidthMM,
-                drawingHeight: example.label.presentation.drawingHeightMM).frame(width: 40, height: 44)
+              if example.label.presentation.displayEvidence != nil {
+                PortraitPlaneProgramPreview(preview: PortraitPlanePreview.historical(
+                  program: example.program, presentation: example.label.presentation))
+                  .frame(width: 40, height: 44)
+              } else {
+                PortraitProgramPreview(program: example.program,
+                  inkWidth: example.label.presentation.inkWidthMM,
+                  drawingHeight: example.label.presentation.drawingHeightMM).frame(width: 40, height: 44)
+              }
               VStack(alignment: .leading, spacing: 2) {
                 Text("\(example.recipe.title) · \(example.rating)/5").lineLimit(2)
                 Text("\(example.label.scope.name) · revision \(example.label.scope.revision)")
-                Text("\(example.label.presentation.drawingHeightMM, specifier: "%.0f") mm high · \(example.label.presentation.inkWidthMM, specifier: "%.2f") mm ink \(example.label.presentation.inkWidthIsMeasured ? "measured" : "estimated")")
+                if let evidence = example.label.presentation.displayEvidence {
+                  if evidence.mode == .reference {
+                    Text("Unplaced · reference preview")
+                  } else {
+                    Text("Saved controller height \(example.label.presentation.drawingHeightMM, specifier: "%.2f") mm")
+                  }
+                  Text("\(example.label.presentation.inkWidthMM, specifier: "%.2f") mm ink · \(evidence.widthSource == .applicableMaterial ? "applicable material" : "nominal program width")")
+                } else {
+                  Text("\(example.label.presentation.drawingHeightMM, specifier: "%.0f") mm high · \(example.label.presentation.inkWidthMM, specifier: "%.2f") mm ink \(example.label.presentation.inkWidthIsMeasured ? "measured" : "estimated")")
+                }
                 if example.label.previousRevisionID != nil { Text("Revised score; earlier label retained") }
               }.font(.caption2)
               Spacer(minLength: 0)

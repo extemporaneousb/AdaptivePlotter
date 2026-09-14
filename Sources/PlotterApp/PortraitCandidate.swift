@@ -46,16 +46,18 @@ struct PortraitPresentationContext: Codable, Hashable, Sendable {
   let physicalAttemptID: UUID?
   let physicalRecordID: UUID?
   let physicalMediaSHA256s: [String]?
+  /// Nil preserves the original preview contract and its historical encoding.
+  let displayEvidence: PortraitDisplayEvidence?
 
   init(drawingHeightMM: Double = 100, inkWidthMM: Double = 0.4,
     inkWidthIsMeasured: Bool = false, materialRevision: String? = nil,
     objective: PortraitLabelObjective = .screenAesthetic,
     prompt: String = "Rate likeness and drawing quality as displayed",
     physicalAttemptID: UUID? = nil, physicalRecordID: UUID? = nil,
-    physicalMediaSHA256s: [String]? = nil) throws {
+    physicalMediaSHA256s: [String]? = nil, displayEvidence: PortraitDisplayEvidence? = nil) throws {
     guard drawingHeightMM.isFinite, drawingHeightMM > 0,
       inkWidthMM.isFinite, inkWidthMM > 0 else { throw PortraitCandidateError.invalidPresentation }
-    rendererRevision = "portrait-preview-v1"
+    rendererRevision = displayEvidence == nil ? "portrait-preview-v1" : "portrait-plane-preview-v2"
     self.drawingHeightMM = drawingHeightMM
     self.inkWidthMM = inkWidthMM
     self.inkWidthIsMeasured = inkWidthIsMeasured
@@ -65,6 +67,7 @@ struct PortraitPresentationContext: Codable, Hashable, Sendable {
     self.physicalAttemptID = physicalAttemptID
     self.physicalRecordID = physicalRecordID
     self.physicalMediaSHA256s = physicalMediaSHA256s
+    self.displayEvidence = displayEvidence
     if objective == .physicalRealization {
       guard physicalAttemptID != nil, physicalRecordID != nil,
         let hashes = physicalMediaSHA256s, !hashes.isEmpty,
@@ -73,6 +76,28 @@ struct PortraitPresentationContext: Codable, Hashable, Sendable {
       }
     } else if physicalAttemptID != nil || physicalRecordID != nil || physicalMediaSHA256s != nil {
       throw PortraitCandidateError.invalidPresentation
+    }
+    try validateDisplayEvidence()
+  }
+
+  func validateDisplayEvidence(program: DrawingProgram? = nil) throws {
+    guard let evidence = displayEvidence else { return }
+    try evidence.validate()
+    guard objective == .screenAesthetic, rendererRevision == "portrait-plane-preview-v2",
+      evidence.mode != .reference || drawingHeightMM == 100 else {
+      throw PortraitCandidateError.invalidPresentation
+    }
+    if let program {
+      guard evidence.programContentHash == program.contentHash.description else {
+        throw PortraitCandidateError.invalidPresentation
+      }
+      if let placement = evidence.placement {
+        let height = program.fieldExtent.height * placement.uniformScale
+        guard height.isFinite, height > 0,
+          abs(drawingHeightMM - height) <= max(1e-9, abs(height) * 1e-9) else {
+          throw PortraitCandidateError.invalidPresentation
+        }
+      }
     }
   }
 }
@@ -230,6 +255,7 @@ struct PortraitLabelRevision: Identifiable, Codable, Hashable, Sendable {
     id: UUID = UUID(), createdAt: Date = Date()) throws {
     guard (1...5).contains(rating) else { throw PortraitCandidateError.invalidRating }
     guard scope.objective == presentation.objective else { throw PortraitCandidateError.incompatibleScope }
+    try presentation.validateDisplayEvidence(program: candidate.program)
     self.id = id; self.previousRevisionID = previousRevisionID
     candidateID = candidate.id; programContentHash = candidate.program.contentHash.description
     self.rating = rating; self.scope = scope; self.presentation = presentation; self.createdAt = createdAt

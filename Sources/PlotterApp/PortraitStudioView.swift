@@ -6,17 +6,20 @@ import UniformTypeIdentifiers
 struct PortraitStudioView<Gallery: View>: View {
   @Bindable var model: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
+  let previewSource: PortraitPlanePreviewSource
   let showOnPlotter: (PortraitCandidate) async -> String?
   let selectCamera: () async -> String?
   let showPhoto: () -> Void
   private let gallery: Gallery
 
   init(model: PortraitStudioModel, strokeStyle: PlotterModel.StrokeStyle,
+    previewSource: PortraitPlanePreviewSource = .init(),
     showOnPlotter: @escaping (PortraitCandidate) async -> String?,
     selectCamera: @escaping () async -> String? = { nil },
     showPhoto: @escaping () -> Void = {}, @ViewBuilder gallery: () -> Gallery) {
     self.model = model
     self.strokeStyle = strokeStyle
+    self.previewSource = previewSource
     self.showOnPlotter = showOnPlotter
     self.selectCamera = selectCamera
     self.showPhoto = showPhoto
@@ -25,16 +28,20 @@ struct PortraitStudioView<Gallery: View>: View {
   @State private var importing = false
   @State private var submissionError: String?
   @State private var isSubmitting = false
-  @State private var previewInkWidth: Double?
-  @State private var previewHeight: Double?
 
   private var displayedProgram: DrawingProgram? { model.selectedCandidate?.program }
   private var materialContext: PortraitMaterialContext? { model.selectedCandidate?.recipe.vectorOptions.materialContext }
-  private var effectivePreviewHeight: Double { previewHeight ?? materialContext?.drawingHeightMM ?? 100 }
-  private var effectivePreviewInkWidth: Double { previewInkWidth ?? materialContext?.profile.conservativeWidthMM ?? strokeStyle.nominalLineWidth }
-  private var presentationContext: PortraitPresentationContext? {
-    PortraitPreviewPresentation.context(material: materialContext, nominalWidthMM: strokeStyle.nominalLineWidth,
-      widthOverrideMM: previewInkWidth, heightOverrideMM: previewHeight)
+  private var planePreview: PortraitPlanePreview {
+    previewSource.resolve(program: displayedProgram, nominalWidth: strokeStyle.nominalLineWidth)
+  }
+  private var needsMaterialReadaptation: Bool {
+    guard displayedProgram != nil else { return false }
+    guard let materialContext else { return planePreview.materialProfile != nil }
+    if let height = planePreview.actualDrawingHeightMM {
+      return !materialContext.matches(drawingHeightMM: height,
+        profileKey: planePreview.materialProfile?.key)
+    }
+    return materialContext.profile.key != planePreview.materialProfile?.key
   }
 
   var body: some View {
@@ -61,39 +68,39 @@ struct PortraitStudioView<Gallery: View>: View {
         if model.sketches.selected == nil {
           DisclosureGroup("Adjust this style") { PortraitRenderControls(model: model) }
         }
-        PortraitProgramPreview(program: displayedProgram,
-          inkWidth: effectivePreviewInkWidth, drawingHeight: effectivePreviewHeight)
-          .frame(minHeight: 220, idealHeight: 300)
+        PortraitPlaneProgramPreview(preview: planePreview)
+          .aspectRatio(planePreview.aspectRatio, contentMode: .fit)
           .overlay { if model.isProcessing && model.sketches.selected == nil { ProgressView() } }
+        Text(planePreview.statusText)
+          .font(.caption).foregroundStyle(.secondary)
+          .accessibilityIdentifier("portrait.preview.status")
+        Text(planePreview.dimensionsText)
+          .font(.caption).textSelection(.enabled)
+          .accessibilityIdentifier("portrait.preview.dimensions")
         DisclosureGroup("Marker preview") {
           VStack(alignment: .leading, spacing: 8) {
-            PortraitAdjustmentSlider("Marker width", value: Binding(
-              get: { effectivePreviewInkWidth }, set: { previewInkWidth = $0 }),
-              range: 0.2...5, step: 0.1, unit: "mm")
-            PortraitAdjustmentSlider("Drawing height", value: Binding(
-              get: { effectivePreviewHeight }, set: { previewHeight = $0 }),
-              range: 50...250, step: 5, unit: "mm")
-            if previewInkWidth != nil || previewHeight != nil {
-              Button("Use Drawing Preview Defaults") { previewInkWidth = nil; previewHeight = nil }
-                .accessibilityIdentifier("portrait.resetMaterialPreview")
+            Text(planePreview.inkDescription)
+              .font(.caption).foregroundStyle(.secondary)
+              .accessibilityIdentifier("portrait.preview.ink")
+            if let profile = planePreview.materialProfile {
+              Text("Active material: \(profile.name), revision \(profile.revision).")
+                .font(.caption).foregroundStyle(.secondary)
+              materialLimits(profile, title: "Material measurement limits")
             }
             if let materialContext {
-              Text("Preview defaults: \(materialContext.profile.name), revision \(materialContext.profile.revision), at its adapted drawing height.")
+              Text("Detail spacing adapted with \(materialContext.profile.name), revision \(materialContext.profile.revision).")
                 .font(.caption).foregroundStyle(.secondary)
-              if !materialContext.profile.measurementLimitations.isEmpty {
-                DisclosureGroup("Material measurement limits") {
-                  ForEach(Array(materialContext.profile.measurementLimitations.enumerated()), id: \.offset) { _, limit in
-                    Text(limit).font(.caption2).foregroundStyle(.secondary)
-                  }
-                }
-              }
-              if !materialContext.matches(drawingHeightMM: effectivePreviewHeight, profileKey: materialContext.profile.key) {
-                Text("This preview height differs from the material adaptation. Apply the material again at the new final drawing height to adapt detail spacing.")
-                  .font(.caption).foregroundStyle(.secondary)
+              if materialContext.profile.key != planePreview.materialProfile?.key {
+                materialLimits(materialContext.profile, title: "Prior adaptation measurement limits")
               }
             }
-            Text("Ink estimate at this size. Preview overrides affect the displayed rating context. Set actual size with Fit to Drawing Area on the plotter video.")
-              .font(.caption).foregroundStyle(.secondary)
+            if needsMaterialReadaptation {
+              Text(planePreview.actualDrawingHeightMM == nil
+                ? "Project this drawing to check material adaptation at its actual size."
+                : "The selected material or actual drawing height differs from this candidate’s material adaptation. Apply the material at the current drawing height to update detail spacing.")
+                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("portrait.preview.readapt")
+            }
           }
         }
         Text(model.sketches.selected.map { "Retained: \($0.title)" } ?? model.summary)
@@ -105,7 +112,7 @@ struct PortraitStudioView<Gallery: View>: View {
             .disabled(model.currentProgram == nil || model.isProcessing)
             .accessibilityIdentifier("portrait.keepSketch")
         }
-        PortraitPreferenceControls(model: model, presentation: presentationContext)
+        PortraitPreferenceControls(model: model, presentation: planePreview.presentationContext)
         PortraitArchiveStatus(collection: model.sketches)
       }.accessibilityElement(children: .contain).accessibilityIdentifier("portrait.section.ratings")
       VStack(alignment: .leading, spacing: 10) {
@@ -159,6 +166,17 @@ struct PortraitStudioView<Gallery: View>: View {
     }
   }
 
+  @ViewBuilder
+  private func materialLimits(_ profile: DrawingMaterialProfileRevision, title: String) -> some View {
+    if !profile.measurementLimitations.isEmpty {
+      DisclosureGroup(title) {
+        ForEach(Array(profile.measurementLimitations.enumerated()), id: \.offset) { _, limit in
+          Text(limit).font(.caption2).foregroundStyle(.secondary)
+        }
+      }
+    }
+  }
+
   private func render() {
     model.renderIfNeeded(strokeStyle: strokeStyle)
   }
@@ -207,9 +225,11 @@ struct PortraitStudioView<Gallery: View>: View {
 
 extension PortraitStudioView where Gallery == EmptyView {
   init(model: PortraitStudioModel, strokeStyle: PlotterModel.StrokeStyle,
+    previewSource: PortraitPlanePreviewSource = .init(),
     showOnPlotter: @escaping (PortraitCandidate) async -> String?,
     selectCamera: @escaping () async -> String? = { nil }, showPhoto: @escaping () -> Void = {}) {
-    self.init(model: model, strokeStyle: strokeStyle, showOnPlotter: showOnPlotter,
+    self.init(model: model, strokeStyle: strokeStyle, previewSource: previewSource,
+      showOnPlotter: showOnPlotter,
       selectCamera: selectCamera, showPhoto: showPhoto) { EmptyView() }
   }
 }

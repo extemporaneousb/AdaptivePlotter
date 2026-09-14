@@ -157,6 +157,7 @@ struct PlotterApplicationRuntimeView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 12) {
           PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
+            previewSource: application.portraitPlanePreviewSource,
             showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) },
             showPhoto: { canvasShowsPortraitPhoto = true }) {
               DrawingStudioPhysicalGallery(application: application)

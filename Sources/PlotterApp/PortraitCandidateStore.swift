@@ -70,6 +70,11 @@ enum PortraitArchiveValidation {
       scope.frozenParameters.allSatisfy({ $0.value.isFinite }) else {
       throw PortraitCandidateError.incompatibleScope
     }
+    try presentation.validateDisplayEvidence(program: candidate?.program)
+    if let evidence = presentation.displayEvidence,
+      evidence.programContentHash != label.programContentHash {
+      throw PortraitCandidateError.invalidPresentation
+    }
     if presentation.objective == .physicalRealization {
       guard presentation.physicalAttemptID != nil, presentation.physicalRecordID != nil,
         let hashes = presentation.physicalMediaSHA256s, !hashes.isEmpty,

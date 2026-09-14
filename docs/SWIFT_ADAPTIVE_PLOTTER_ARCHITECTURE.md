@@ -2293,9 +2293,18 @@ bind recipe, raster, recomputed manifest and program provenance. Explicit semant
 generation refreshes analysis absent from an older raster; local proposals reuse the
 exact parent analysis and freeze every head parameter. Legacy rasters without
 a source metric retain explicitly identified sample-lattice interpretation.
-`PortraitProgramPreview` draws round-capped strokes at estimated physical marker
-width for a selected preview height; those display values do not mutate geometry or
-calibration. It has no controller, planner, or Learning dependencies. The existing
+`PortraitProgramPreview` remains the unchanged historical thumbnail renderer.
+The main `PortraitPlanePreview` consumes a passive projection of the existing
+Draft artwork plan, retained before optional border composition, with no second
+planner invocation. Candidate ID/hash and current region must match. Machine
+points and applicable material width share a uniform region-to-screen transform.
+Actual dimensions come from artwork field extent times admitted uniform scale.
+Missing placement uses explicitly typed reference presentation; its 100-unit
+normalization supports existing preference features and is never an actual-size
+readout. Optional `PortraitDisplayEvidence` records reference/planned mode, exact
+program hash, region, placement, plan hash and width source. New labels use renderer
+v2; absent evidence preserves legacy encoding, hashes, feature values and renderer.
+This read-only view adds no controller, planner, calibration or Learning owner. The existing
 `PlotterSceneAnalysisPipeline` continues to retain its cancelled drain until completion
 before starting replacement Vision work.
 

@@ -8,6 +8,58 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Portrait drawing-plane correction, 2026-09-13
+
+Task `task-d53998adea1f4068b350adbddd8d93ae` began from clean primary main
+`f2a26618ede6dc4f33195166a3460d8b00ec8495` and recorded target main. The relayed
+operator request identified that the main viewer's independent height/ink sliders
+were display estimates rather than actual placement. They are removed. The current
+region controls viewer aspect ratio; the exact selected candidate's matching
+admitted artwork plan supplies placement and intrinsic dimensions. Draft exposes
+its already computed artwork plan before optional border composition, guarded by
+the current execution-plan hash. No extra plan or execution owner is introduced.
+
+Missing/mismatched placement remains an explicit reference preview, preserving
+screen ratings and training. New labels retain validated optional display evidence;
+legacy labels, thumbnail rendering and training feature semantics remain unchanged.
+Applicable active material supplies marker width, otherwise an identified program
+nominal estimate. Actual size/profile changes retain the existing readaptation gate.
+The coordinator owns contracts/integration; bounded workers own Studio controls,
+label compatibility and pure/production-fixture regressions. Validation and review
+receipts are retained in `.build/studio-plane-d53998-evidence/`.
+
+The one-shot critic reviewed immutable patch
+`b5d3e5bd538ea7ae893d328280b6a058a57d06ab9698e96335a3b36b68f2b3d5` and found
+one P2 compilation issue: ambiguous CGFloat/Double infinity in a new test. The
+coordinator qualified CGFloat directly. No additional production defect was found;
+there was no repair recheck or repeat aggregate review. The first compiled focused
+run passed the new preview tests but the existing full journey refused material
+adaptation, causing downstream assertion failures. The original assertion did not
+retain the refusal string. Isolated diagnostic and full diagnostic reruns passed;
+therefore the initial refusal's exact cause is not claimed as proven. The fixture
+had no explicit join between material selection and its queued Draft update. It
+now joins that existing task and requires the plan's material hash before returning;
+the journey also stops and records the actual refusal if adaptation fails.
+
+The strict diagnostic run passed 76 tests in 33.177 seconds, with the existing
+opt-in native AX test skipped. After the fixture change, all 8 final plane and
+complete campaign integration tests passed in 12.227 seconds. These exercise
+real planner points at 0/90/37 degrees, translated non-square regions, uniform
+line width, exact source/region mismatch handling, border composition, stale
+material applicability, reference rating persistence, historical display stability,
+legacy bytes and operational training/activation/update/rollback through the
+existing production journey. Failed and passing receipts are retained. The strict
+signed-app build, launcher checks and negative-bundle validation passed. Final
+ledger edits are checked by the documentation and diff gates before landing.
+Exact landed commit, build-input binding, signature and binary hash are recorded
+in `release.json`; the immutable `AdaptivePlotter-Plane-d53998.app` and
+`PLANE-TEST.md` provide the staged native test increment.
+
+The previously repaired native app remains running as PID 81462 during this task.
+The new preview artifact will be staged without launch or session replacement.
+Native acceptance of this viewer, independent physical dimensions, material/ink
+outcomes and real human learning quality remain pending.
+
 ## DS-09 native startup failure and split delegate repair, 2026-09-13
 
 The operator explicitly authorized closing the live session and launching the
@@ -44,14 +96,19 @@ the final aggregate campaign review was not repeated. Documentation and diff
 checks passed; the final receipt update is verified by the same documentation gate.
 Exact landing, source-input binding, signature and binary identity for the retained
 `AdaptivePlotter-Native-b3361e.app` are recorded in the repair `release.json`.
-These probes do not replace acceptance of the actual repaired app.
+The exact repaired commit `f2a26618ede6dc4f33195166a3460d8b00ec8495` was then
+launched as PID 81462. Native accessibility actions selected the retained Tonal
+contour drawing (42 strokes), created More Like This (34 strokes), and used Parent
+to restore the exact original. The retained archive remained two drawings / 3.3 MB.
+The actual 1680 × 932 window and responsive controls were recorded. This is partial
+native acceptance; it does not cover the complete G08 sequence or human quality.
 
 Exact launch, accessibility and crash receipts are retained in
 `.build/studio-ds09-99b539-evidence/native-acceptance/`; new repair receipts belong
 in `.build/studio-native-b3361e-evidence/`, including `native-acceptance/` for any
 subsequent exact-release native checks. No physical drawing, controller settings,
 camera selection, rating or training action was issued. The original immutable
-DS09 app remains unchanged. Native interaction, physical metric/material/ink and
+DS09 app remains unchanged. Full native interaction, physical metric/material/ink and
 real human learning-quality acceptance remain open.
 
 ## DS-09 integrated campaign acceptance, 2026-09-13
