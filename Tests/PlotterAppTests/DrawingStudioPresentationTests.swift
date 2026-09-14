@@ -5,6 +5,7 @@ import PlotterModel
 import PlotterRuntime
 import PlotterUI
 import Testing
+import SwiftUI
 
 @testable import PlotterApp
 
@@ -16,7 +17,7 @@ struct DrawingStudioPresentationTests {
     let f = try await DrawingWorkbenchApplicationFixture.make(verifyPhysicalPose: false)
     defer { f.stores.remove() }
     let app = f.application
-    func currentView() -> DrawingStudioView {
+    func currentView() -> DrawingStudioView<EmptyView> {
       DrawingStudioView(presentation: app.drawingStudioPresentation,
         plotterUIProjection: app.testPlotterUIProjection().semantic, plotterUIIntentSink: app)
     }
@@ -183,6 +184,26 @@ struct DrawingStudioPresentationTests {
     #expect(lateResponse.currentMessage(in: recovered) == nil)
     #expect(!recovered.runState.detail.isEmpty)
     await app.shutdown()
+  }
+
+  @Test("pinned drawing status appears only for unsettled execution or publication")
+  func activeRunStatusVisibility() {
+    let runID = RunID()
+    let inactive: [DrawingStudioRunState] = [
+      .unavailable(reason: "Confirm paper."), .ready(detail: "Ready."),
+      .terminal(runID: runID, detail: "Ended."),
+      .reviewAvailable(runID: runID, detail: "Review available."),
+      .reviewing(runID: runID, detail: "Reviewing.")
+    ]
+    #expect(inactive.allSatisfy { !$0.showsActiveRunStatus })
+    let active: [DrawingStudioRunState] = [
+      .running(capabilityID: PlotterDrawingRunStopCapabilityID(), detail: "Drawing."),
+      .processing(detail: "Saving evidence."),
+      .publicationFailed(
+        recoveryCapabilityID: PlotterDrawingRunPublicationRecoveryCapabilityID(),
+        detail: "Retry evidence publication.")
+    ]
+    #expect(active.allSatisfy { $0.showsActiveRunStatus })
   }
 
   @Test("run and Stop controls preserve the exact typed owner capability")

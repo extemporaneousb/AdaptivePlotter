@@ -29,7 +29,7 @@ struct DrawingMaterialControls: View {
         }
       }
       .accessibilityIdentifier("drawing.material.selection")
-      HStack {
+      PortraitAdaptiveRow {
         TextField("Material name", text: $materialName)
           .accessibilityIdentifier("drawing.material.name")
         TextField("Nominal width, mm", value: $nominalWidthMM, format: .number.precision(.fractionLength(2)))
@@ -59,11 +59,11 @@ struct DrawingMaterialControls: View {
                 Text(limitation).font(.caption2).foregroundStyle(.secondary)
               }
             }
-            Text("This material archive retains measurement references and geometry. Durable raw-image retention for these measurements is pending the drawing-run archive integration; references alone do not retain images.")
+            Text("Material measurements retain exact source references and geometry. The original-image verification status below reports whether their owned image bytes are available; older reference-only records do not imply retained images.")
               .font(.caption2).foregroundStyle(.secondary)
           }
         }
-        HStack {
+        PortraitAdaptiveRow {
           Button("Measure Existing Ink") { perform { await measure() } }
             .disabled(actionInProgress || !canMeasureExistingInk)
             .accessibilityIdentifier("drawing.material.measure")
@@ -85,7 +85,7 @@ struct DrawingMaterialControls: View {
       if let mediaStatus { Text(mediaStatus).font(.caption).foregroundStyle(.secondary) }
       if let measurementStatus { Text(measurementStatus).font(.caption).foregroundStyle(.secondary) }
       if let actionStatus { Text(actionStatus).font(.caption).foregroundStyle(.secondary) }
-      HStack {
+      PortraitAdaptiveRow {
         Text(library.storageStatus).font(.caption2).foregroundStyle(.secondary)
         if library.persistenceError != nil {
           Button("Retry Save") { Task { await library.retry() } }

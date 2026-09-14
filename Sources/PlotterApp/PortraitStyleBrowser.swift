@@ -17,7 +17,7 @@ struct PortraitStyleBrowser: View {
         if model.currentRecipe.id == "custom" { Text("Custom").tag("custom") }
         ForEach(model.styleRecipes) { Text($0.title).tag($0.id) }
       }.accessibilityIdentifier("portrait.recipe")
-      HStack {
+      PortraitAdaptiveRow {
         Button { model.moveStyle(by: -1, strokeStyle: strokeStyle) } label: {
           Image(systemName: "chevron.left").frame(minWidth: 24, minHeight: 24)
         }.accessibilityLabel("Previous style, same frame")

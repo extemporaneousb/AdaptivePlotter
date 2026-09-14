@@ -42,6 +42,10 @@ private struct DrawingStudioPhysicalImages: View {
   @State private var status: String?
   @State private var loading = true
   @State private var originalPixels = false
+  private var physicalScopeName: String {
+    let selected = application.portraitStudio.selectedStyleScope
+    return selected.objective == .physicalRealization ? selected.name : "Physical drawing quality"
+  }
   private var baselineCount: Int { record.attemptEvidence?.baselines.count ?? 0 }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -68,7 +72,7 @@ private struct DrawingStudioPhysicalImages: View {
       }
       if loading { ProgressView("Verifying original image assets") }
       HStack {
-        Text("Physical realization")
+        Text("Physical realization · " + physicalScopeName)
         ForEach(1...5, id: \.self) { rating in
           Button("\(rating)") { status = application.ratePhysicalAttempt(record, rating: rating) ?? "Physical rating queued; screen ratings are unchanged." }
             .disabled(loading || images.count <= baselineCount)

@@ -24,6 +24,8 @@ struct PortraitPreferenceControls: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Rate this candidate · \(model.selectedStyleScope.name)").font(.caption).bold()
+      Text(model.sketches.selected == nil ? "Current edit" : "Selected retained drawing")
+        .font(.caption2).foregroundStyle(.secondary)
       Text("\(model.selectedStyleScope.objective == .screenAesthetic ? "Screen appearance" : "Physical drawing") · scope revision \(model.selectedStyleScope.revision)")
         .font(.caption2).foregroundStyle(.secondary)
       HStack(spacing: 6) {
@@ -63,7 +65,7 @@ struct PortraitPreferenceControls: View {
                 Text("\(example.label.presentation.drawingHeightMM, specifier: "%.0f") mm high · \(example.label.presentation.inkWidthMM, specifier: "%.2f") mm ink \(example.label.presentation.inkWidthIsMeasured ? "measured" : "estimated")")
                 if example.label.previousRevisionID != nil { Text("Revised score; earlier label retained") }
               }.font(.caption2)
-              Spacer()
+              Spacer(minLength: 0)
               Button { model.preferences.remove(example.id) } label: {
                 Image(systemName: "xmark").frame(width: 24, height: 24)
               }.accessibilityLabel("Withdraw \(example.rating) out of 5 label for \(example.recipe.title)")

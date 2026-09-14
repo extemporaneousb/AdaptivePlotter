@@ -8,6 +8,72 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DS-08 integrated Studio workflow, 2026-09-13
+
+Task `task-67ebf411bd1f4f56b784700168f26799` began from clean primary `main`
+at `73b27535bcfb368d72e565d75ecda697c2591758`, recorded target `main`.
+The coordinator owns application composition, material/paper presentation and
+acceptance. Bounded workers own authoring/gallery/training layout, drawing
+presentation/status, and actual hosted native-panel tests. The composition now
+places creative work and galleries before projection, then placement/material,
+paper and bottom Draw. The global Stop path remains in the toolbar. A quiet
+Equatable run-status leaf receives only existing semantic run state outside the
+scrolling panels. Generic content slots preserve the existing local drawing and
+authoring state owners; all actions continue through their existing callbacks.
+Initial strict compilation found a Swift Testing key-path macro issue and a
+private hosted-panel test seam; both were corrected. The focused run executed 46
+tests in 25.447 seconds, with one new native fixture failing because it omitted
+the pending program required to project a typed selection request. All adjacent
+tests passed. After that fixture repair, the hosted native test reached the panel
+but its accessibility traversal exposed no section nodes. The host first shrank
+to 128 x 0 after controller attachment; disabling host sizing and setting the
+requested content size repaired that fixture. A separate known SwiftUI button
+still exposed no accessibility identifier in this process, even after local
+AppKit finishLaunching. Thus native AX workflow acceptance remains pending;
+hosted geometry/selection and optional bitmaps are separate software checks.
+All 47 focused tests now pass in 27.759 seconds, including actual hosted geometry,
+retained selection and programmatic scrolling at 300, 390 and 600 points. The
+strict AX workflow is explicitly opt-in (`PORTRAIT_NATIVE_AX_CHECK=1`) and skipped
+by default; it is not a passed native receipt. Optional viewport/full-document
+bitmaps exist at all three widths, but cacheDisplay omits some native button label
+rendering, so those are not complete visual interaction evidence. Failed receipts
+remain in `.build/studio-ds08-67ebf4-evidence/`. Documentation
+checks passed. Offscreen native layout/AX evidence supplements rather than
+replaces attended resizing, keyboard, capture, training and drawing interaction.
+The one-shot critic accepted frozen patch SHA256
+`f3cc2f3a89dc13f5db8c0709908203173d87b401fa1611e51ff6d4fff041b4cb` with no actionable
+findings. Its coverage limits remain explicit: default geometry checks cover
+retained selection rather than complete current-edit, keyboard, expanded training
+comparison or physical-image-sheet interaction. The frozen source passed 1274
+strict serial quick tests in 424.783 seconds, with six explicit skips including
+the AX prerequisite, plus all 10 retained journeys in 3.543 seconds. Strict signed
+app, launcher, negative-bundle, documentation and diff checks passed. No critic
+recheck was performed. Source inputs and the unlaunched bundle are staged before
+Blackdog landing; exact landed commit/signature receipts are recorded externally
+in `.build/studio-ds08-67ebf4-evidence/` and incorporated at the next increment.
+The live app/session and previous signed test apps remain preserved.
+
+### Reported live feedback retained for separate repair increments
+
+Read-only triage on main `73b27535bcfb368d72e565d75ecda697c2591758` confirms
+the Boundary persistence adapter combines a fresh machine candidate with inactive
+saved camera/tip artifacts. Checkpoint dependency validation rejects the merge;
+publication retry repeats it and reset correctly remains blocked while publication
+is pending. Incident `/tmp/adaptiveplotter-boundary-reset-20260913-141958/` retains
+the intact complete package `AE50D319-8A2B-4954-A07D-E371A5CF174A`, coordinate
+revision 2. The rejected fresh revision remains unverified. Repair belongs in
+staged checkpoint construction and existing retained-package policy, preserving
+persist-before-publication and exact retry ownership. A later successful restart
+does not establish a fix.
+
+The user also requires one Voice switch: off means no talking or listening; on
+means both. The current window-local controller disables input but does not gate
+all shared workflow speech. A separate projected Pen Stop-only transition may
+cancel enabled Pen cues; that overlap needs a production-consumer regression.
+These code paths predate the campaign; the running binary and exact introducing
+commit have not been established. Both feedback repairs remain outstanding and
+must preserve the live session, advisory speech and physical authority boundaries.
+
 ## DS-07 operational named-style training, 2026-09-13
 
 Task `task-2754912f55f24764920aa06ddc61cde3` began from clean primary `main`
@@ -59,9 +125,13 @@ policy. The held-renderer regression and all 19 affected production, semantic,
 browsing and branching tests passed in 22.944 seconds. The full-suite receipt
 above precedes only this localized supersession repair; its final focused and
 strict signed-app receipts identify the release tree. Receipts remain in `.build/studio-ds07-275491-evidence/`.
-No DS-07 app has been staged or launched. Synthetic preference fitting, native
-operation, real held-out learning quality and attended physical outcomes remain
-separate gates.
+DS-07 landed as `73b27535bcfb368d72e565d75ecda697c2591758`. Its immutable
+signed unlaunched app is `.build/StudioTestApps/AdaptivePlotter-DS07-275491.app`;
+all 362 build inputs match the landed commit. Binary SHA256:
+`33799f41c2d0af98b11e5a194faa962c88abfecb18a264d2da98378a7f59dc7a`.
+Release receipts and the test procedure are in `.build/studio-ds07-275491-evidence/`.
+Synthetic preference fitting, native operation, real held-out learning quality and
+attended physical outcomes remain separate gates.
 
 ## DS-06 durable physical attempts and original images, 2026-09-13
 

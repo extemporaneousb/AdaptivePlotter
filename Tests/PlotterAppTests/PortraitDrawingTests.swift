@@ -497,7 +497,7 @@ private actor PortraitAcquisitionDriver: CameraCaptureDriver {
 }
 
 @MainActor
-private func portraitEditorImage(_ view: PortraitStudioView, width: Int = 760) async throws -> CGImage {
+private func portraitEditorImage<Gallery: View>(_ view: PortraitStudioView<Gallery>, width: Int = 760) async throws -> CGImage {
   _ = NSApplication.shared
   let host = NSHostingView(rootView: ScrollView { view.padding(12) }
     .frame(width: CGFloat(width), height: 610)

@@ -15,7 +15,7 @@ struct PortraitExplorationControls: View {
       .disabled(!model.canExploreSelection)
       .accessibilityIdentifier("portrait.moreLikeThis")
       .help("Create a nearby variation from the displayed drawing, including a retained drawing.")
-      HStack {
+      PortraitAdaptiveRow {
         Button {
           WorkbenchRequestTelemetry.nativeActionHandled("portrait.historyBack")
           model.historyBack()

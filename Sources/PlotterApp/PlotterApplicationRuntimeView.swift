@@ -55,6 +55,7 @@ struct PlotterApplicationRuntimeView: View {
           }
         }.padding(.horizontal, 10).padding(.vertical, 4)
       }
+      DrawingStudioActiveRunStatus(runState: ui.drawingStudio.runState).equatable()
       WorkbenchPanels(layout: layout, select: { panel in Task { await preparePanel(panel) } },
         autosavePrefix: RunningAppPreviewPerformanceGate.isRequested ? nil : "AdaptivePlotter.workbench.v2",
         content: panelContent) {
@@ -106,7 +107,7 @@ struct PlotterApplicationRuntimeView: View {
     else { reveal(panel) }
   }
 
-  @ViewBuilder private func panelContent(_ panel: WorkbenchPanel) -> some View {
+  @ViewBuilder func panelContent(_ panel: WorkbenchPanel) -> some View {
     // Resolve the cached projection at the rendering boundary. The retained
     // dock closure holds the application reference and local bindings, never
     // the frame-bearing aggregate projection.
@@ -139,53 +140,64 @@ struct PlotterApplicationRuntimeView: View {
     case .portraitStudio:
       ScrollView {
         VStack(alignment: .leading, spacing: 12) {
-          if application.workbenchCameraRole == .plotter {
-            paperControls(ui, showsExplanation: false)
-            DrawingStudioView(presentation: ui.drawingStudio, plotterUIProjection: ui.semantic,
-              plotterUIIntentSink: application, panel: .portraitStudio)
-          }
           PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
             showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) },
-            showPhoto: { canvasShowsPortraitPhoto = true })
-          DrawingStudioPhysicalGallery(application: application)
-          TextField("Paper stock for material measurement", text: $application.materialPaperStock)
-          Picker("Existing ink source", selection: $application.materialUsesBorderImages) {
-            Text("Drawing Border before/after").tag(true)
-            Text("Calibration marks in current plotter frame").tag(false)
+            showPhoto: { canvasShowsPortraitPhoto = true }) {
+              DrawingStudioPhysicalGallery(application: application)
+            }
+          if application.workbenchCameraRole == .plotter {
+            DrawingStudioView(presentation: ui.drawingStudio, plotterUIProjection: ui.semantic,
+              plotterUIIntentSink: application, panel: .portraitStudio) {
+                studioMaterialControls
+                paperControls(ui, showsExplanation: false)
+              }
+          } else {
+            studioMaterialControls
           }
-          DrawingMaterialControls(library: application.drawingMaterials,
-            currentApplicability: application.currentMaterialApplicability,
-            measurementStatus: application.materialMeasurementStatus,
-            canMeasureExistingInk: application.currentMaterialApplicability != nil,
-            canApply: application.drawingDraftSnapshot.plan != nil,
-            measure: { await application.prepareMaterialInspection() }, apply: applyPortraitMaterial,
-            verifyMedia: { await application.verifyMaterialMedia($0) })
-          .onChange(of: application.drawingMaterials.activeKey) { _, _ in
-            application.drawingMaterialSelectionDidChange()
-          }
-          .sheet(item: $application.materialInspection) { inspection in
-            DrawingMaterialInspectionView(inspection: inspection,
-              confirm: { await application.confirmMaterialInspection(inspection) },
-              cancel: { application.materialInspection = nil })
-          }
-          Button("Assess Material at Current Scale") {
-            Task { panelError = await application.assessCurrentMaterial() }
-          }.accessibilityIdentifier("drawing.material.assess")
-          if let status = application.materialFeasibilityStatus {
-            Text(status).font(.caption).foregroundStyle(.secondary)
-          }
-          if let context = application.portraitStudio.selectedCandidate?.recipe.vectorOptions.materialContext,
-            let program = application.drawingDraftSnapshot.program,
-            let plan = application.drawingDraftSnapshot.plan,
-            !context.matches(drawingHeightMM: program.fieldExtent.height * plan.placement.uniformScale,
-              profileKey: application.drawingMaterials.activeKey) {
-            Text("Material or drawing scale changed. Apply the current material to create a newly adapted candidate.")
-              .font(.caption).foregroundStyle(.secondary)
-          }
-
         }.padding(12)
       }
     }
+  }
+
+  private var studioMaterialControls: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      TextField("Paper stock for material measurement", text: $application.materialPaperStock)
+      Picker("Existing ink source", selection: $application.materialUsesBorderImages) {
+        Text("Drawing Border before/after").tag(true)
+        Text("Calibration marks in current plotter frame").tag(false)
+      }
+      DrawingMaterialControls(library: application.drawingMaterials,
+        currentApplicability: application.currentMaterialApplicability,
+        measurementStatus: application.materialMeasurementStatus,
+        canMeasureExistingInk: application.currentMaterialApplicability != nil,
+        canApply: application.drawingDraftSnapshot.plan != nil,
+        measure: { await application.prepareMaterialInspection() }, apply: applyPortraitMaterial,
+        verifyMedia: { await application.verifyMaterialMedia($0) })
+      .onChange(of: application.drawingMaterials.activeKey) { _, _ in
+        application.drawingMaterialSelectionDidChange()
+      }
+      .sheet(item: $application.materialInspection) { inspection in
+        DrawingMaterialInspectionView(inspection: inspection,
+          confirm: { await application.confirmMaterialInspection(inspection) },
+          cancel: { application.materialInspection = nil })
+      }
+      Button("Assess Material at Current Scale") {
+        Task { panelError = await application.assessCurrentMaterial() }
+      }.accessibilityIdentifier("drawing.material.assess")
+      if let status = application.materialFeasibilityStatus {
+        Text(status).font(.caption).foregroundStyle(.secondary)
+      }
+      if let context = application.portraitStudio.selectedCandidate?.recipe.vectorOptions.materialContext,
+        let program = application.drawingDraftSnapshot.program,
+        let plan = application.drawingDraftSnapshot.plan,
+        !context.matches(drawingHeightMM: program.fieldExtent.height * plan.placement.uniformScale,
+          profileKey: application.drawingMaterials.activeKey) {
+        Text("Material or drawing scale changed. Apply the current material to create a newly adapted candidate.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("drawing.section.material")
   }
 
   private func paperControls(_ ui: PlotterAppUIProjection, showsExplanation: Bool = true) -> some View {
@@ -209,6 +221,8 @@ struct PlotterApplicationRuntimeView: View {
         }.disabled(ui.paperManagementUnavailableReason != nil)
       }
     }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("drawing.section.paper")
   }
 
   private func reveal(_ panel: WorkbenchPanel) {

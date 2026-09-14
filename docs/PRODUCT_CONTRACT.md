@@ -1477,8 +1477,11 @@ and external-fact identity, including the displayed frame. Experiment selection
 also binds its relevant Learning, geometry, and evidence facts. The sheet control
 prepares that exact reference when the operator clicks, because ambient analysis
 does not refresh the cached controls. A context change during preparation still
-refuses confirmation. Sheet confirmation and run status precede portrait
-preparation controls when the plotter camera is selected. A stale authored
+refuses confirmation. Creative authoring, previews, ratings, galleries and training
+precede projection. When the plotter camera is selected, placement and material
+setup follow, then paper confirmation and Draw at the bottom. Active drawing and
+evidence-processing status remains outside the scroll area alongside the global
+Stop path. A stale authored
 revision or environment refuses the edit; fresh Learning, registration, region,
 paper, camera or run facts are not by themselves a stale-authoring refusal.
 Those current facts still determine whether a plan can be derived, whether an

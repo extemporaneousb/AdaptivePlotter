@@ -336,17 +336,32 @@ struct DrawingStudioRequestRefusal: Equatable {
 /// Selection and transform shell for an already-projected drawing program.
 /// Every mutation is returned as a typed intent; the view owns no planner,
 /// controller, evidence store, or readiness decision.
-struct DrawingStudioView: View {
+struct DrawingStudioView<BeforeRun: View>: View {
   let presentation: DrawingStudioPresentation
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
-  var panel: WorkbenchPanel = .activeLearning
+  let panel: WorkbenchPanel
+  private let beforeRun: BeforeRun
   @State private var requestRefusal: DrawingStudioRequestRefusal?
   @State private var draftFeedback = OperatorRequestFeedback()
   @State private var scaleDraft: Double?
   @State private var rotationDraft: Double?
   @State private var scaleIsEditing = false
   @State private var rotationIsEditing = false
+
+  init(
+    presentation: DrawingStudioPresentation,
+    plotterUIProjection: PlotterUIProjection,
+    plotterUIIntentSink: any PlotterUIIntentSink,
+    panel: WorkbenchPanel = .activeLearning,
+    @ViewBuilder beforeRun: () -> BeforeRun
+  ) {
+    self.presentation = presentation
+    self.plotterUIProjection = plotterUIProjection
+    self.plotterUIIntentSink = plotterUIIntentSink
+    self.panel = panel
+    self.beforeRun = beforeRun()
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -369,11 +384,22 @@ struct DrawingStudioView: View {
         retrospectiveLearning.disabled(draftFeedback.isPending)
       }
       if panel == .portraitStudio || presentation.coverageExperiment != nil {
-        runStatus
-        controls
         if presentation.coverageExperiment == nil {
-          placement.disabled(draftFeedback.isPending)
+          VStack(alignment: .leading, spacing: 0) {
+            placement.disabled(draftFeedback.isPending)
+          }
+          .accessibilityElement(children: .contain)
+          .accessibilityIdentifier("drawing.section.placement")
         }
+        if panel == .portraitStudio {
+          beforeRun
+        }
+        VStack(alignment: .leading, spacing: 8) {
+          runStatus
+          controls
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("drawing.section.run")
       }
     }
     .accessibilityElement(children: .contain)
@@ -552,25 +578,33 @@ struct DrawingStudioView: View {
             .setRotationDegrees(presentation.canvas.placement.rotationDegrees)
           ) == nil
       )
-      Button {
-        submitDraft(.centerInDrawableRegion)
-      } label: {
-        Label("Center Target", systemImage: "scope")
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 8) { placementActions }
+        VStack(alignment: .leading, spacing: 8) { placementActions }
       }
-      .operatorButton(.neutral)
-      .disabled(
-        !presentation.authoringIsEnabled || draftRequest(.centerInDrawableRegion) == nil
-      )
-      Button("Fit to Drawing Area") {
-        WorkbenchRequestTelemetry.nativeActionHandled("drawing.fit")
-        submitDraft(.fitInDrawableRegion)
-      }
-        .disabled(draftRequest(.fitInDrawableRegion) == nil)
-        .accessibilityIdentifier("drawing.fit")
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("drawing.placement")
     .accessibilityValue("\(presentation.canvas.placement.locationText); scale \(presentation.canvas.placement.uniformScale); rotation \(presentation.canvas.placement.rotationDegrees) degrees")
+  }
+
+  @ViewBuilder
+  private var placementActions: some View {
+    Button {
+      submitDraft(.centerInDrawableRegion)
+    } label: {
+      Label("Center Target", systemImage: "scope")
+    }
+    .operatorButton(.neutral)
+    .disabled(
+      !presentation.authoringIsEnabled || draftRequest(.centerInDrawableRegion) == nil
+    )
+    Button("Fit to Drawing Area") {
+      WorkbenchRequestTelemetry.nativeActionHandled("drawing.fit")
+      submitDraft(.fitInDrawableRegion)
+    }
+    .disabled(draftRequest(.fitInDrawableRegion) == nil)
+    .accessibilityIdentifier("drawing.fit")
   }
 
   private var runStatus: some View {
@@ -605,30 +639,37 @@ struct DrawingStudioView: View {
   }
 
   private var controls: some View {
-    HStack(spacing: 8) {
+    VStack(alignment: .leading, spacing: 8) {
       if positionRecoveryButton != nil {
         positionPenPreparation
       }
       if let positionRecoveryButton {
         positionRecoveryButton.accessibilityIdentifier("drawing.reestablishPosition")
       }
-      if case .unavailable(let reason) = presentation.runState {
-        OperatorRequestButton(title: "Draw", role: .affirmative, request: nil,
-          unavailableReason: reason, sink: plotterUIIntentSink, showsUnavailableReason: false)
-          .accessibilityIdentifier("drawing.draw")
-      }
-      ForEach(presentation.controls) { control in
-        let intent = PlotterUIIntent.drawingRun(control.intent)
-        let request = plotterUIProjection.request(matching: intent)
-        OperatorRequestButton(
-          title: control.intent == .start ? "Draw" : control.title, role: control.role,
-          request: control.isEnabled ? request : nil,
-          unavailableReason: request == nil ? "Refresh the current Drawing Studio control." : nil,
-          sink: plotterUIIntentSink,
-          nativeActionIdentifier: control.intent == .start ? "drawing.draw" : nil
-        )
-        .accessibilityIdentifier(control.intent == .start ? "drawing.draw" : "drawing.\(control.title)")
-      }
+      // Keep each request button at one structural identity across resizing;
+      // its pending/result feedback must survive a narrow panel.
+      runActions
+    }
+  }
+
+  @ViewBuilder
+  private var runActions: some View {
+    if case .unavailable(let reason) = presentation.runState {
+      OperatorRequestButton(title: "Draw", role: .affirmative, request: nil,
+        unavailableReason: reason, sink: plotterUIIntentSink, showsUnavailableReason: false)
+        .accessibilityIdentifier("drawing.draw")
+    }
+    ForEach(presentation.controls) { control in
+      let intent = PlotterUIIntent.drawingRun(control.intent)
+      let request = plotterUIProjection.request(matching: intent)
+      OperatorRequestButton(
+        title: control.intent == .start ? "Draw" : control.title, role: control.role,
+        request: control.isEnabled ? request : nil,
+        unavailableReason: request == nil ? "Refresh the current Drawing Studio control." : nil,
+        sink: plotterUIIntentSink,
+        nativeActionIdentifier: control.intent == .start ? "drawing.draw" : nil
+      )
+      .accessibilityIdentifier(control.intent == .start ? "drawing.draw" : "drawing.\(control.title)")
     }
   }
 
@@ -671,6 +712,18 @@ struct DrawingStudioView: View {
     }
   }
 
+}
+
+extension DrawingStudioView where BeforeRun == EmptyView {
+  init(
+    presentation: DrawingStudioPresentation,
+    plotterUIProjection: PlotterUIProjection,
+    plotterUIIntentSink: any PlotterUIIntentSink,
+    panel: WorkbenchPanel = .activeLearning
+  ) {
+    self.init(presentation: presentation, plotterUIProjection: plotterUIProjection,
+      plotterUIIntentSink: plotterUIIntentSink, panel: panel) { EmptyView() }
+  }
 }
 
 /// Both recovery surfaces forward the same current finite Manual pen operation.

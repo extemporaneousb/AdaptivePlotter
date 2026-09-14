@@ -3,12 +3,25 @@ import PlotterRuntime
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct PortraitStudioView: View {
+struct PortraitStudioView<Gallery: View>: View {
   @Bindable var model: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
   let showOnPlotter: (PortraitCandidate) async -> String?
-  var selectCamera: () async -> String? = { nil }
-  var showPhoto: () -> Void = {}
+  let selectCamera: () async -> String?
+  let showPhoto: () -> Void
+  private let gallery: Gallery
+
+  init(model: PortraitStudioModel, strokeStyle: PlotterModel.StrokeStyle,
+    showOnPlotter: @escaping (PortraitCandidate) async -> String?,
+    selectCamera: @escaping () async -> String? = { nil },
+    showPhoto: @escaping () -> Void = {}, @ViewBuilder gallery: () -> Gallery) {
+    self.model = model
+    self.strokeStyle = strokeStyle
+    self.showOnPlotter = showOnPlotter
+    self.selectCamera = selectCamera
+    self.showPhoto = showPhoto
+    self.gallery = gallery()
+  }
   @State private var importing = false
   @State private var submissionError: String?
   @State private var isSubmitting = false
@@ -26,86 +39,102 @@ struct PortraitStudioView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      if model.recentPhotos.isEmpty || model.isCapturing {
-        sourcePanel
-      } else {
-        DisclosureGroup("Capture or import another photo") { sourcePanel.padding(.top, 6) }
-      }
-      PortraitPhotoStrip(model: model, strokeStyle: strokeStyle)
+      VStack(alignment: .leading, spacing: 10) {
+        if model.recentPhotos.isEmpty || model.isCapturing {
+          sourcePanel
+        } else {
+          DisclosureGroup("Capture or import another photo") { sourcePanel.padding(.top, 6) }
+        }
+        PortraitPhotoStrip(model: model, strokeStyle: strokeStyle)
+      }.accessibilityElement(children: .contain).accessibilityIdentifier("portrait.section.source")
       Divider()
-      if model.sketches.selected == nil {
-        PortraitStyleBrowser(model: model, strokeStyle: strokeStyle)
-        DisclosureGroup("Adjust this style") { PortraitRenderControls(model: model) }
-      } else {
-        Button("Return to Current Edit") { model.sketches.selectedID = nil }
-      }
-      PortraitExplorationControls(model: model)
-      PortraitProgramPreview(program: displayedProgram,
-        inkWidth: effectivePreviewInkWidth, drawingHeight: effectivePreviewHeight)
-        .frame(minHeight: 220, idealHeight: 300)
-        .overlay { if model.isProcessing && model.sketches.selected == nil { ProgressView() } }
-      DisclosureGroup("Marker preview") {
-        VStack(alignment: .leading, spacing: 8) {
-          PortraitAdjustmentSlider("Marker width", value: Binding(
-            get: { effectivePreviewInkWidth }, set: { previewInkWidth = $0 }),
-            range: 0.2...5, step: 0.1, unit: "mm")
-          PortraitAdjustmentSlider("Drawing height", value: Binding(
-            get: { effectivePreviewHeight }, set: { previewHeight = $0 }),
-            range: 50...250, step: 5, unit: "mm")
-          if previewInkWidth != nil || previewHeight != nil {
-            Button("Use Drawing Preview Defaults") { previewInkWidth = nil; previewHeight = nil }
-              .accessibilityIdentifier("portrait.resetMaterialPreview")
-          }
-          if let materialContext {
-            Text("Preview defaults: \(materialContext.profile.name), revision \(materialContext.profile.revision), at its adapted drawing height.")
-              .font(.caption).foregroundStyle(.secondary)
-            if !materialContext.profile.measurementLimitations.isEmpty {
-              DisclosureGroup("Material measurement limits") {
-                ForEach(Array(materialContext.profile.measurementLimitations.enumerated()), id: \.offset) { _, limit in
-                  Text(limit).font(.caption2).foregroundStyle(.secondary)
+      VStack(alignment: .leading, spacing: 8) {
+        if model.sketches.selected == nil {
+          PortraitStyleBrowser(model: model, strokeStyle: strokeStyle)
+        } else {
+          Text("Inspecting a retained drawing").font(.caption).foregroundStyle(.secondary)
+          Button("Return to Current Edit") { model.sketches.selectedID = nil }
+        }
+        PortraitExplorationControls(model: model)
+      }.accessibilityElement(children: .contain).accessibilityIdentifier("portrait.section.exploration")
+      VStack(alignment: .leading, spacing: 8) {
+        if model.sketches.selected == nil {
+          DisclosureGroup("Adjust this style") { PortraitRenderControls(model: model) }
+        }
+        PortraitProgramPreview(program: displayedProgram,
+          inkWidth: effectivePreviewInkWidth, drawingHeight: effectivePreviewHeight)
+          .frame(minHeight: 220, idealHeight: 300)
+          .overlay { if model.isProcessing && model.sketches.selected == nil { ProgressView() } }
+        DisclosureGroup("Marker preview") {
+          VStack(alignment: .leading, spacing: 8) {
+            PortraitAdjustmentSlider("Marker width", value: Binding(
+              get: { effectivePreviewInkWidth }, set: { previewInkWidth = $0 }),
+              range: 0.2...5, step: 0.1, unit: "mm")
+            PortraitAdjustmentSlider("Drawing height", value: Binding(
+              get: { effectivePreviewHeight }, set: { previewHeight = $0 }),
+              range: 50...250, step: 5, unit: "mm")
+            if previewInkWidth != nil || previewHeight != nil {
+              Button("Use Drawing Preview Defaults") { previewInkWidth = nil; previewHeight = nil }
+                .accessibilityIdentifier("portrait.resetMaterialPreview")
+            }
+            if let materialContext {
+              Text("Preview defaults: \(materialContext.profile.name), revision \(materialContext.profile.revision), at its adapted drawing height.")
+                .font(.caption).foregroundStyle(.secondary)
+              if !materialContext.profile.measurementLimitations.isEmpty {
+                DisclosureGroup("Material measurement limits") {
+                  ForEach(Array(materialContext.profile.measurementLimitations.enumerated()), id: \.offset) { _, limit in
+                    Text(limit).font(.caption2).foregroundStyle(.secondary)
+                  }
                 }
               }
+              if !materialContext.matches(drawingHeightMM: effectivePreviewHeight, profileKey: materialContext.profile.key) {
+                Text("This preview height differs from the material adaptation. Apply the material again at the new final drawing height to adapt detail spacing.")
+                  .font(.caption).foregroundStyle(.secondary)
+              }
             }
-            if !materialContext.matches(drawingHeightMM: effectivePreviewHeight, profileKey: materialContext.profile.key) {
-              Text("This preview height differs from the material adaptation. Apply the material again at the new final drawing height to adapt detail spacing.")
-                .font(.caption).foregroundStyle(.secondary)
-            }
+            Text("Ink estimate at this size. Preview overrides affect the displayed rating context. Set actual size with Fit to Drawing Area on the plotter video.")
+              .font(.caption).foregroundStyle(.secondary)
           }
-          Text("Ink estimate at this size. Preview overrides affect the displayed rating context. Set actual size with Fit to Drawing Area on the plotter video.")
-            .font(.caption).foregroundStyle(.secondary)
         }
-      }
-      Text(model.sketches.selected.map { "Saved \($0.title)" } ?? model.summary)
-        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-      if model.sketches.selected == nil {
-        Button("Keep Sketch") {
-          submissionError = model.keepSelection()
+        Text(model.sketches.selected.map { "Retained: \($0.title)" } ?? model.summary)
+          .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+      }.accessibilityElement(children: .contain).accessibilityIdentifier("portrait.section.preview")
+      VStack(alignment: .leading, spacing: 8) {
+        if model.sketches.selected == nil {
+          Button("Keep Sketch") { submissionError = model.keepSelection() }
+            .disabled(model.currentProgram == nil || model.isProcessing)
+            .accessibilityIdentifier("portrait.keepSketch")
         }
-        .disabled(model.currentProgram == nil || model.isProcessing)
-        .accessibilityIdentifier("portrait.keepSketch")
-      }
-      PortraitPreferenceControls(model: model, presentation: presentationContext)
-      PortraitArchiveStatus(collection: model.sketches)
-      PortraitTrainingControls(model: model)
-      PortraitSketchStrip(collection: model.sketches)
-      if let error = submissionError {
-        Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
-      }
-      Button("Show on Plotter Video") {
-        guard let candidate = model.selectedCandidate else { return }
-        WorkbenchRequestTelemetry.nativeActionHandled("portrait.showOnPlotter")
-        isSubmitting = true
-        submissionError = nil
-        Task {
-          submissionError = await showOnPlotter(candidate)
-          isSubmitting = false
+        PortraitPreferenceControls(model: model, presentation: presentationContext)
+        PortraitArchiveStatus(collection: model.sketches)
+      }.accessibilityElement(children: .contain).accessibilityIdentifier("portrait.section.ratings")
+      VStack(alignment: .leading, spacing: 10) {
+        PortraitSketchStrip(collection: model.sketches, scope: model.selectedStyleScope)
+        gallery
+      }.accessibilityElement(children: .contain).accessibilityIdentifier("portrait.section.gallery")
+      VStack(alignment: .leading, spacing: 8) {
+        PortraitTrainingControls(model: model)
+      }.accessibilityElement(children: .contain).accessibilityIdentifier("portrait.section.training")
+      VStack(alignment: .leading, spacing: 8) {
+        if let error = submissionError {
+          Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
         }
-      }
-      .buttonStyle(.borderedProminent)
-      .disabled(displayedProgram == nil || (model.isProcessing && model.sketches.selected == nil) || isSubmitting)
-      .accessibilityIdentifier("portrait.showOnPlotter")
-      .accessibilityValue(isSubmitting ? "Preparing plotter preview" : submissionError ?? "Ready")
-      if isSubmitting { ProgressView("Preparing plotter preview").controlSize(.small) }
+        Button("Show on Plotter Video") {
+          guard let candidate = model.selectedCandidate else { return }
+          WorkbenchRequestTelemetry.nativeActionHandled("portrait.showOnPlotter")
+          isSubmitting = true
+          submissionError = nil
+          Task {
+            submissionError = await showOnPlotter(candidate)
+            isSubmitting = false
+          }
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(displayedProgram == nil || (model.isProcessing && model.sketches.selected == nil) || isSubmitting)
+        .accessibilityIdentifier("portrait.showOnPlotter")
+        .accessibilityValue(isSubmitting ? "Preparing plotter preview" : submissionError ?? "Ready")
+        if isSubmitting { ProgressView("Preparing plotter preview").controlSize(.small) }
+      }.accessibilityElement(children: .contain).accessibilityIdentifier("portrait.section.projection")
     }
     .onChange(of: model.selectedPhotoID) { _, selected in
       if selected != nil {
@@ -136,7 +165,7 @@ struct PortraitStudioView: View {
 
   private var sourcePanel: some View {
     VStack(alignment: .leading, spacing: 10) {
-      HStack {
+      PortraitAdaptiveRow {
         Picker("Camera", selection: $model.selectedDeviceID) {
           Text("Choose camera").tag(Optional<CameraDeviceID>.none)
           ForEach(model.devices) { Text($0.name).tag(Optional($0.id)) }
@@ -145,7 +174,7 @@ struct PortraitStudioView: View {
           Task { submissionError = await selectCamera() }
         }.disabled(model.cameraIsStarting || model.selectedDeviceID == nil)
       }
-      HStack {
+      PortraitAdaptiveRow {
         if model.isCapturing {
           Button("Cancel Capture") { Task { await model.cancelRendering() } }
             .accessibilityIdentifier("portrait.cancelCapture")
@@ -173,6 +202,29 @@ struct PortraitStudioView: View {
         Text(status).font(.caption).foregroundStyle(.orange)
       }
     }
+  }
+}
+
+extension PortraitStudioView where Gallery == EmptyView {
+  init(model: PortraitStudioModel, strokeStyle: PlotterModel.StrokeStyle,
+    showOnPlotter: @escaping (PortraitCandidate) async -> String?,
+    selectCamera: @escaping () async -> String? = { nil }, showPhoto: @escaping () -> Void = {}) {
+    self.init(model: model, strokeStyle: strokeStyle, showOnPlotter: showOnPlotter,
+      selectCamera: selectCamera, showPhoto: showPhoto) { EmptyView() }
+  }
+}
+
+/// Preserve native controls and their shortcuts while moving whole actions onto
+/// separate rows when their intrinsic widths exceed the available panel width.
+struct PortraitAdaptiveRow<Content: View>: View {
+  private let content: Content
+  init(@ViewBuilder content: () -> Content) { self.content = content() }
+  var body: some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(alignment: .center, spacing: 8) { content }.fixedSize(horizontal: true, vertical: false)
+      VStack(alignment: .leading, spacing: 8) { content }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 

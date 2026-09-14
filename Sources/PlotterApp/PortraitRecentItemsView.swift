@@ -79,10 +79,15 @@ struct PortraitPhotoThumbnail: View {
 
 struct PortraitSketchStrip: View {
   let collection: PortraitSketchCollection
+  var scope: PortraitStyleScope? = nil
   var body: some View {
     if !collection.sketches.isEmpty {
       VStack(alignment: .leading, spacing: 5) {
         Text("Retained drawings · \(collection.sketches.count)").font(.caption).foregroundStyle(.secondary)
+        Text(collection.selected == nil
+          ? "Current edit selected. Choose a retained drawing to inspect its exact saved candidate."
+          : "Retained drawing selected. Return to Current Edit above to resume the working recipe.")
+          .font(.caption2).foregroundStyle(.secondary)
         ScrollView(.horizontal) {
           LazyHStack(alignment: .top, spacing: 10) {
             ForEach(collection.sketches) { sketch in
@@ -108,6 +113,12 @@ struct PortraitSketchStrip: View {
                 Text(sketch.title).font(.caption2).lineLimit(2).frame(width: 140, alignment: .leading)
                 Text(retentionSummary(for: sketch.id)).font(.caption2).foregroundStyle(.secondary)
                   .frame(width: 140, alignment: .leading)
+                Text(labelSummary(for: sketch.id)).font(.caption2).foregroundStyle(.secondary)
+                  .frame(width: 140, alignment: .leading)
+                if collection.selectedID == sketch.id {
+                  Text("Selected retained drawing").font(.caption2).bold()
+                    .frame(width: 140, alignment: .leading)
+                }
               }
             }
           }.padding(3)
@@ -116,6 +127,17 @@ struct PortraitSketchStrip: View {
           .font(.caption2).foregroundStyle(.secondary)
       }
     }
+  }
+
+  private func labelSummary(for id: String) -> String {
+    guard let label = collection.labels.last(where: {
+      $0.candidateID == id && (scope == nil || $0.scope.id == scope?.id)
+    }) else { return scope.map { "No rating in \($0.name)" } ?? "Not rated" }
+    let objective = label.presentation.objective == .screenAesthetic ? "screen" : "physical"
+    if collection.archive.withdrawnLabelIDs.contains(label.id.uuidString) {
+      return "Latest \(objective) label withdrawn · \(label.scope.name)"
+    }
+    return "Latest \(objective) rating: \(label.rating)/5 · \(label.scope.name)"
   }
 
   private func retentionSummary(for id: String) -> String {

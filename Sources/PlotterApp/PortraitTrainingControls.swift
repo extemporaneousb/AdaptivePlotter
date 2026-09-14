@@ -46,6 +46,7 @@ struct PortraitTrainingControls: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       Text("Named style training").font(.headline)
+      Text("Rating and training scope").font(.caption)
       Picker("Rating and training scope", selection: Binding(
         get: { model.selectedStyleScope.id },
         set: { id in
@@ -57,11 +58,12 @@ struct PortraitTrainingControls: View {
         })) {
           ForEach(scopes) { scope in Text(scope.name).tag(scope.id) }
         }
+        .labelsHidden()
         .disabled(busy)
         .accessibilityIdentifier("portrait.training.scope")
       scopeDetails
       creationControls
-      HStack {
+      PortraitAdaptiveRow {
         Button(active == nil ? "Train Style" : "Update Style") {
           perform { await model.trainSelectedStyle() }
         }
@@ -130,14 +132,16 @@ struct PortraitTrainingControls: View {
       VStack(alignment: .leading, spacing: 8) {
         TextField("Style name", text: $newName)
           .accessibilityIdentifier("portrait.training.newName")
+        Text("Parameters to explore").font(.caption)
         Picker("Parameters to explore", selection: $newMode) {
           Text("Drawing style").tag(PortraitTrainingScopeDefinition.Mode.drawingStyle)
           Text("Semantic Big Head").tag(PortraitTrainingScopeDefinition.Mode.semanticBigHead)
-        }.accessibilityIdentifier("portrait.training.newMode")
+        }.labelsHidden().accessibilityIdentifier("portrait.training.newMode")
+        Text("Rating objective").font(.caption)
         Picker("Rating objective", selection: $newObjective) {
           Text("Screen appearance").tag(PortraitLabelObjective.screenAesthetic)
           Text("Physical drawing").tag(PortraitLabelObjective.physicalRealization)
-        }.accessibilityIdentifier("portrait.training.newObjective")
+        }.labelsHidden().accessibilityIdentifier("portrait.training.newObjective")
         Text(newObjective == .screenAesthetic
           ? "Fit the ratings of the displayed candidates in this scope."
           : "Fit ratings linked to photographed physical attempts. Screen ratings stay separate.")
@@ -154,7 +158,7 @@ struct PortraitTrainingControls: View {
           || newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .accessibilityIdentifier("portrait.training.create")
       }.padding(.top, 5)
-    }
+    }.accessibilityIdentifier("portrait.training.createDisclosure")
   }
 
   private var checkpointControls: some View {
@@ -167,6 +171,7 @@ struct PortraitTrainingControls: View {
           .font(.caption).foregroundStyle(.secondary)
       }
       if !checkpoints.isEmpty {
+        Text("Checkpoint to inspect").font(.caption)
         Picker("Checkpoint to inspect", selection: Binding(
           get: { picked?.id ?? "" }, set: { selectedCheckpointID = $0 })) {
             ForEach(checkpoints) { checkpoint in
@@ -174,8 +179,9 @@ struct PortraitTrainingControls: View {
             }
           }
           .disabled(busy)
+          .labelsHidden()
           .accessibilityIdentifier("portrait.training.checkpoint")
-        HStack {
+        PortraitAdaptiveRow {
           Button("Compare with Prior") {
             guard let picked else { return }
             model.compareSelectedStyle(checkpointID: picked.id)
@@ -194,7 +200,7 @@ struct PortraitTrainingControls: View {
             .font(.caption).foregroundStyle(.secondary)
         }
       }
-      HStack {
+      PortraitAdaptiveRow {
         Button("Use Renderer Prior") { perform { await model.activateStyleCheckpoint(nil) } }
           .disabled(busy || !library.canWrite || active == nil)
           .accessibilityIdentifier("portrait.training.prior")
@@ -237,17 +243,17 @@ struct PortraitTrainingControls: View {
   private func comparisonControls(_ comparison: PortraitTrainingComparison) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       Text("Prior / checkpoint comparison").font(.caption).bold()
-      HStack(alignment: .top, spacing: 10) {
+      PortraitAdaptiveRow {
         VStack {
           PortraitProgramPreview(program: comparison.prior.program).frame(minHeight: 130, maxHeight: 180)
           Button("Select Prior Candidate") { model.selectTrainingComparison(current: false) }
             .accessibilityIdentifier("portrait.training.selectPrior")
-        }
+        }.frame(minWidth: 200, maxWidth: .infinity)
         VStack {
           PortraitProgramPreview(program: comparison.current.program).frame(minHeight: 130, maxHeight: 180)
           Button("Select Checkpoint Candidate") { model.selectTrainingComparison(current: true) }
             .accessibilityIdentifier("portrait.training.selectCurrent")
-        }
+        }.frame(minWidth: 200, maxWidth: .infinity)
       }.disabled(busy)
       Text(comparison.summary).font(.caption).foregroundStyle(.secondary)
       Text("Checkpoint \(shortID(comparison.checkpointID)) · shared seed \(String(comparison.seed))")

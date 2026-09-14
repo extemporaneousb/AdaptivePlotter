@@ -2151,7 +2151,13 @@ Updates declare deterministic full refit/reset optimizer and compatible parent.
 existing joined renderer lifetime, then selects by captured checkpoint utility,
 diversity and exploration. The candidate records exact checkpoint and selection
 provenance; pool siblings remain transient. Quiet `PortraitTrainingControls` reads
-only the Studio/training owners. Corrupt assets preserve healthy verified state and
+only the Studio/training owners. `PortraitStudioView<Gallery>` keeps authoring,
+ratings and galleries before training/projection. `DrawingStudioView<BeforeRun>`
+preserves its draft/refusal/slider state while placing material and paper setup
+between placement and run controls. `DrawingStudioActiveRunStatus` receives only
+semantic run state outside `WorkbenchPanels`; global Stop remains the existing
+toolbar capability. Adaptive native rows fit the minimum panel width without
+changing action ownership or source/style keyboard bindings. Corrupt assets preserve healthy verified state and
 block index replacement; absent active assets explicitly use the renderer prior.
 
 Versioned `PortraitRaster` retains typed source/decoded/crop/sample geometry and the
