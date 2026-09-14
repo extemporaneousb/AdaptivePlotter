@@ -8,6 +8,52 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DS-09 native startup failure and split delegate repair, 2026-09-13
+
+The operator explicitly authorized closing the live session and launching the
+immutable DS09 app at `69551f0092aaaf543bd7aa1c05f4f122ac763d47`. PID 56095 completed
+a normal application quit. The launcher verified the exact signed bundle and
+executable as PID 77465, with regular activation policy and foreground activation.
+The subsequent native accessibility read exposed the Studio controls and two
+retained drawings, but the process crashed before any test control action ran.
+The crash report records `EXC_BAD_ACCESS / SIGSEGV` on the main thread, with
+repeated `NSSplitView(NSSplitViewSidebar) respondsToSelector:` frames: a stack
+overflow. Startup/launch success does not satisfy native acceptance.
+
+`WorkbenchNativeSplit.NativeView` assigned itself as its delegate. AppKit's
+optional sidebar-selector forwarding could therefore return to the same split.
+Repair task `task-b3361e346e9e469a9251a0112e34a5b4` began from clean primary main
+at the DS09 commit and recorded target main. A separate retained NSObject delegate
+now forwards resize and divider constraints to its weakly referenced split owner;
+membership, host identity, autosave and layout calculations remain with that owner.
+The coordinator owns production and lifecycle; one bounded worker owns the native
+split regressions. A bounded windowless reproduction distinguishes the selector:
+an unknown selector returns normally on the old self-delegate, while querying
+`toggleSidebar:` terminates that subprocess with SIGILL before returning. The
+same sidebar query returns false normally with a separate NSObject delegate.
+The retained reproducer crash report has the same recursive NSSplitViewSidebar
+stack as the actual app. The first strict focused run passed all 15 tests in
+20.031 seconds, including the complete production campaign journey, hosted Studio
+and workbench layout, delegate lifetime, nested resizing and divider constraints.
+The coordinator then added the exact fatal `toggleSidebar:` query to both split
+regressions. All 15 final strict focused tests passed in 18.957 seconds; signed-app,
+launcher and negative-bundle checks passed. The fresh one-shot repair critic
+accepted frozen patch `ed14029b9d55ccf0a30f1e1068867d6ad0341beaf70f367507cf2cf5dca400c5`
+with no findings. It reviewed only the new split repair and affected consumers;
+the final aggregate campaign review was not repeated. Documentation and diff
+checks passed; the final receipt update is verified by the same documentation gate.
+Exact landing, source-input binding, signature and binary identity for the retained
+`AdaptivePlotter-Native-b3361e.app` are recorded in the repair `release.json`.
+These probes do not replace acceptance of the actual repaired app.
+
+Exact launch, accessibility and crash receipts are retained in
+`.build/studio-ds09-99b539-evidence/native-acceptance/`; new repair receipts belong
+in `.build/studio-native-b3361e-evidence/`, including `native-acceptance/` for any
+subsequent exact-release native checks. No physical drawing, controller settings,
+camera selection, rating or training action was issued. The original immutable
+DS09 app remains unchanged. Native interaction, physical metric/material/ink and
+real human learning-quality acceptance remain open.
+
 ## DS-09 integrated campaign acceptance, 2026-09-13
 
 Task `task-99b539b9170e46b3b15ff5610768739e` began from clean primary main

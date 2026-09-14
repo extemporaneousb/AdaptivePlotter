@@ -1263,6 +1263,9 @@ replaces the oldest visible control. `WorkbenchPanels` mounts the canvas outside
 this membership model. `WorkbenchNativeSplit` wraps native `NSSplitView` instances only
 for native dividers, minimum sizes, and autosaved dimensions; it retains hosting
 views across sibling changes. SwiftUI remains the sole visibility owner.
+Each split retains a separate NSObject delegate with a weak reference back to the
+split for resize and divider constraints. The split is never its own delegate:
+AppKit sidebar-selector forwarding would recurse through that self-delegation.
 `WorkbenchCommands` binds native View-menu commands to the focused window's
 layout. Video Settings replaces the old closable Video panel. Native toolbar
 Stop dispatches existing Learning, manual motion and Drawing Run capabilities.

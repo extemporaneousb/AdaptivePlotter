@@ -75,7 +75,26 @@ struct WorkbenchNativeSplit: NSViewRepresentable {
 
   /// Native split views own frame-based geometry and divider events. Only the
   /// leaves host SwiftUI, so no intermediate hosting view imposes a fitting size.
-  final class NativeView: NSSplitView, NSSplitViewDelegate {
+  final class NativeView: NSSplitView {
+    /// NSSplitView forwards optional sidebar selectors to its delegate. Using
+    /// the split itself as delegate recurses in AppKit's responds(to:) lookup.
+    @MainActor
+    private final class SplitDelegate: NSObject, NSSplitViewDelegate {
+      weak var owner: NativeView?
+
+      func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        owner?.splitView(splitView, resizeSubviewsWithOldSize: oldSize)
+      }
+      func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool { false }
+      func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposed: CGFloat, ofSubviewAt index: Int) -> CGFloat {
+        owner?.splitView(splitView, constrainMinCoordinate: proposed, ofSubviewAt: index) ?? proposed
+      }
+      func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposed: CGFloat, ofSubviewAt index: Int) -> CGFloat {
+        owner?.splitView(splitView, constrainMaxCoordinate: proposed, ofSubviewAt: index) ?? proposed
+      }
+    }
+
+    private let splitDelegate = SplitDelegate()
     var hosts: [String: NSView] = [:]
     var items: [Child] = []
     var identities: [String] { items.map(\.id) }
@@ -86,7 +105,8 @@ struct WorkbenchNativeSplit: NSViewRepresentable {
       super.init(frame: .zero)
       isVertical = vertical
       dividerStyle = .thin
-      delegate = self
+      splitDelegate.owner = self
+      delegate = splitDelegate
       autoresizingMask = [.width, .height]
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
@@ -172,7 +192,6 @@ struct WorkbenchNativeSplit: NSViewRepresentable {
       }
     }
 
-    func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool { false }
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposed: CGFloat, ofSubviewAt index: Int) -> CGFloat {
       let frame = subviews[index].frame
       return max(proposed, (isVertical ? frame.minX : frame.minY) + items[index].minimum)
