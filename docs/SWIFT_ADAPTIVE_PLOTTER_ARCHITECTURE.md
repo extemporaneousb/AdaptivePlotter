@@ -1483,8 +1483,16 @@ cancels retained speech before `shutdown()` joins the operation task. Stop or
 shutdown during suspended speech therefore settles without lower admission.
 SIMULATED skips the advisory step and is unchanged.
 
-The runtime persists an exact accepted LIVE candidate before publication.
-Persistence failure retains an identity-bound recovery capability and staged
+The runtime submits an exact staged LIVE candidate to its persistence port before
+publication. The application relay constructs it through the same accepted-prefix
+and retained-package policy as other Learning checkpoint writes. A changed Boundary
+dependency excludes camera/tip/Stage Four descendants. An inactive complete package
+is verified against disk and preserved until its replacement reaches the existing
+completeness threshold; the partial replacement then remains session-only. Other
+candidates are saved before publication. After an accepted terminal, the application
+reconciles the saved-state projection only when the stored machine artifacts exactly
+match the published owner snapshot. No new checkpoint store or publication latch is
+introduced. Persistence failure retains an identity-bound recovery capability and staged
 candidate; recovery retries publication only and never resends motion.
 `PlotterBoundaryProjectionSink` is Sendable and the runtime-owned weak sink
 publishes immutable snapshots without a workspace observer Task, latch, retry,

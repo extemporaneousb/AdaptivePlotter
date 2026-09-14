@@ -1669,6 +1669,7 @@ final class PlotterApplicationRuntime:
 
   func installBoundarySnapshot(_ snapshot: PlotterBoundaryRuntimeSnapshot) {
     guard !positionRebasePublicationIsPending else { return }
+    let priorTerminal = liveBoundarySnapshot?.projection.terminal
     if snapshot.projection.reference.environment == .simulated {
       simulatedBoundarySnapshot = snapshot
     } else {
@@ -1676,6 +1677,11 @@ final class PlotterApplicationRuntime:
     }
     if snapshot.projection.reference.environment == penInteractionEnvironment {
       installBoundaryDependencyProjection(snapshot)
+    }
+    if snapshot.projection.reference.environment == .live,
+      snapshot.projection.terminal?.disposition == .accepted,
+      snapshot.projection.terminal != priorTerminal {
+      reconcilePublishedBoundaryCheckpoint(snapshot)
     }
     markSemanticPresentationChanged()
   }
@@ -12232,32 +12238,12 @@ final class PlotterApplicationRuntime:
     // accepted dependency revision and grows from that canonical graph.
     guard !learningArtifactGraph.revisions.isEmpty else { return true }
     do {
-      let retainedTip = clearTip
-        ? nil
-        : tipCalibration ?? acceptedLearningPathCheckpoint?.tipCalibration
-          ?? recoverableTipCalibrationCheckpoint
-      let retainedStage = clearStageFour
-        ? nil
-        : stageFour ?? acceptedLearningPathCheckpoint?.stageFour
-          ?? activeStageFourCheckpoint
-      let checkpoint = try AcceptedLearningPathCheckpoint(
-        semanticIdentity: currentLearningPathSemanticIdentity,
-        penInteraction: currentAcceptedPenInteractionCheckpoint(),
+      let checkpoint = try makeAcceptedLearningPathCheckpoint(
         machineArtifacts: activeMachineArtifactCheckpoint,
-        machineCamera: machineCamera ?? currentAcceptedMachineCameraCheckpoint()
-          ?? activeMachineCameraCheckpoint,
-        tipCalibration: retainedTip,
-        stageFour: retainedStage,
-        penCapAppearance: try livePenCapAppearanceSelection?.acceptedCheckpoint()
-          ?? acceptedLearningPathCheckpoint?.penCapAppearance,
-        referenceFrame: currentAcceptedLearningReferenceFrame()
-          ?? acceptedLearningPathCheckpoint?.referenceFrame
+        machineCamera: machineCamera, tipCalibration: tipCalibration, stageFour: stageFour,
+        clearTip: clearTip, clearStageFour: clearStageFour
       )
-      if case .retainedForLater(let retained) = savedLearningState,
-        !replacementCheckpoint(checkpoint, hasReachedCompletenessOf: retained)
-      {
-        return true
-      }
+      if try shouldPreserveRetainedLearning(checkpoint, using: actions) { return true }
       try actions.saveAcceptedLearningPathCheckpoint(checkpoint)
       artifactResetRuntime.installSavedLearningFact(.applied(
         checkpoint,
@@ -12270,6 +12256,87 @@ final class PlotterApplicationRuntime:
       learningAuthorityError = "Learning Path checkpoint could not be saved: \(error)"
       return false
     }
+  }
+
+  /// Build the staged Boundary prefix without publishing any candidate authority.
+  /// Inactive Saved Learning remains a separate retained package, never a source
+  /// of camera/tip descendants for the replacement session.
+  func persistStagedBoundaryCheckpoint(_ candidate: PlotterBoundaryPersistenceCandidate,
+    using actions: any PlotterApplicationStatePersistencePort) throws {
+    guard candidate.environment == .live, frameMode == .live,
+      candidate.semanticIdentity == currentLearningPathSemanticIdentity else {
+      throw LearningPathOperationError.requiredState("Boundary checkpoint context changed before persistence.")
+    }
+    if case .retainedForLater = savedLearningState {
+      // The shared policy below verifies the exact retained disk package before
+      // either preserving it or allowing its completed replacement.
+    } else {
+      switch actions.loadAcceptedLearningPathCheckpoint() {
+      case .absent: break
+      case .loaded(let existing):
+        guard existing.semanticIdentity == candidate.semanticIdentity else {
+          throw LearningPathOperationError.requiredState("Saved Learning identity changed before Boundary persistence.")
+        }
+      case .rejected(let detail):
+        throw LearningPathOperationError.requiredState("Boundary checkpoint is unavailable: \(detail)")
+      }
+    }
+    let preservesDescendants = activeMachineArtifactCheckpoint.map {
+      $0.coordinateRevision == candidate.machineArtifacts.coordinateRevision
+        && Set($0.acceptedRevisions.map(\.id)) == Set(candidate.machineArtifacts.acceptedRevisions.map(\.id))
+    } ?? false
+    let checkpoint = try makeAcceptedLearningPathCheckpoint(
+      machineArtifacts: candidate.machineArtifacts, retainingMachineDescendants: preservesDescendants)
+    if try shouldPreserveRetainedLearning(checkpoint, using: actions) { return }
+    try actions.saveAcceptedLearningPathCheckpoint(checkpoint)
+  }
+
+  private func makeAcceptedLearningPathCheckpoint(
+    machineArtifacts: AcceptedMachineArtifactCheckpoint?,
+    retainingMachineDescendants: Bool = true,
+    machineCamera: AcceptedMachineCameraCheckpoint? = nil,
+    tipCalibration: AcceptedTipCalibrationCheckpoint? = nil,
+    stageFour: AcceptedStageFourCheckpoint? = nil,
+    clearTip: Bool = false, clearStageFour: Bool = false
+  ) throws -> AcceptedLearningPathCheckpoint {
+    let retainedCamera = retainingMachineDescendants
+      ? machineCamera ?? currentAcceptedMachineCameraCheckpoint() ?? activeMachineCameraCheckpoint : nil
+    let retainedTip = clearTip || !retainingMachineDescendants ? nil
+      : tipCalibration ?? acceptedLearningPathCheckpoint?.tipCalibration ?? recoverableTipCalibrationCheckpoint
+    let retainedStage = clearStageFour || !retainingMachineDescendants ? nil
+      : stageFour ?? acceptedLearningPathCheckpoint?.stageFour ?? activeStageFourCheckpoint
+    return try AcceptedLearningPathCheckpoint(
+      semanticIdentity: currentLearningPathSemanticIdentity,
+      penInteraction: currentAcceptedPenInteractionCheckpoint(), machineArtifacts: machineArtifacts,
+      machineCamera: retainedCamera, tipCalibration: retainedTip, stageFour: retainedStage,
+      penCapAppearance: try livePenCapAppearanceSelection?.acceptedCheckpoint()
+        ?? acceptedLearningPathCheckpoint?.penCapAppearance,
+      referenceFrame: currentAcceptedLearningReferenceFrame() ?? acceptedLearningPathCheckpoint?.referenceFrame)
+  }
+
+  private func shouldPreserveRetainedLearning(_ replacement: AcceptedLearningPathCheckpoint,
+    using actions: any PlotterApplicationStatePersistencePort) throws -> Bool {
+    guard case .retainedForLater(let retained) = savedLearningState else { return false }
+    guard case .loaded(let stored) = actions.loadAcceptedLearningPathCheckpoint(), stored == retained else {
+      throw LearningPathOperationError.requiredState("The retained Saved Learning package changed or is unavailable on disk.")
+    }
+    // Existing single-package policy: incomplete replacement progress remains
+    // session-only while the previously complete package is retained durably.
+    return !replacementCheckpoint(replacement, hasReachedCompletenessOf: retained)
+  }
+
+  private func reconcilePublishedBoundaryCheckpoint(_ snapshot: PlotterBoundaryRuntimeSnapshot) {
+    guard frameMode == .live, let actions = activeStatePersistencePort,
+      let accepted = snapshot.acceptedMachineArtifacts,
+      case .loaded(let stored) = actions.loadAcceptedLearningPathCheckpoint(),
+      stored.semanticIdentity == currentLearningPathSemanticIdentity,
+      stored.machineArtifacts == accepted else { return }
+    // This runs only after the Boundary owner has installed accepted authority.
+    // A preserved inactive package cannot match the new Boundary artifacts.
+    artifactResetRuntime.installSavedLearningFact(.applied(stored,
+      opticalComparison: "Saved from the current accepted Learning prefix."))
+    activeMachineCameraCheckpoint = stored.machineCamera
+    activeStageFourCheckpoint = stored.stageFour
   }
 
   private func replacementCheckpoint(

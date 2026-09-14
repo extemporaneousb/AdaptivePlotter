@@ -144,8 +144,10 @@ struct MotionAuthorizationPenPreparationTests {
     }
     do {
       try await waitUntilAsync {
-        if await gate.isHeld { return true }
-        return result != nil
+        if result != nil { return true }
+        // Lower execution starts before submit returns the admission snapshot
+        // to the application. Observe both owners before asserting its UI.
+        return await gate.isHeld && app.manualMotionEpisodeSnapshot?.activeOperation != nil
       }
       try #require(await gate.isHeld, "Enable completed without entering lower Pen hold: \(String(describing: result))")
       _ = await app.refreshControllerSessionSnapshot()

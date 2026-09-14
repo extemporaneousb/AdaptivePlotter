@@ -11,6 +11,14 @@ final class PlotterApplicationRuntimeBoundaryRelay: PlotterBoundaryFactSource,
 {
   weak var application: PlotterApplicationRuntime?
 
+  func persistBoundaryCandidate(_ candidate: PlotterBoundaryPersistenceCandidate,
+    using actions: any PlotterApplicationStatePersistencePort) throws {
+    guard let application else {
+      throw LearningPathOperationError.requiredState("Boundary persistence requires its installed application owner.")
+    }
+    try application.persistStagedBoundaryCheckpoint(candidate, using: actions)
+  }
+
   func currentBoundaryFacts(for environment: PlotterEnvironment) async
     -> PlotterBoundaryExternalFacts
   {
@@ -63,7 +71,7 @@ struct PlotterBoundaryComposition: Sendable {
         speechEffectRuntime: speechEffectRuntime
       ),
       persistencePort: PlotterApplicationRuntimeBoundaryPersistencePort(
-        statePersistencePort: statePersistencePort
+        statePersistencePort: statePersistencePort, relay: relay
       ),
       projectionSink: relay
     )
@@ -362,38 +370,12 @@ private actor PlotterApplicationRuntimeBoundaryEffectPort: PlotterBoundaryEffect
 
 private struct PlotterApplicationRuntimeBoundaryPersistencePort: PlotterBoundaryPersistencePort {
   let statePersistencePort: any PlotterApplicationStatePersistencePort
+  let relay: PlotterApplicationRuntimeBoundaryRelay
 
   func persistBoundaryCandidate(_ candidate: PlotterBoundaryPersistenceCandidate) async throws {
     guard candidate.environment == .live else { return }
-    let existing: AcceptedLearningPathCheckpoint?
-    switch statePersistencePort.loadAcceptedLearningPathCheckpoint() {
-    case .absent:
-      existing = nil
-    case .loaded(let checkpoint):
-      existing = checkpoint
-    case .rejected(let detail):
-      throw PlotterBoundaryCompositionError.checkpointUnavailable(detail)
-    }
-    if let existing, existing.semanticIdentity != candidate.semanticIdentity {
-      throw PlotterBoundaryCompositionError.semanticIdentityChanged
-    }
-    let checkpoint = try AcceptedLearningPathCheckpoint(
-      semanticIdentity: candidate.semanticIdentity,
-      penInteraction: existing?.penInteraction,
-      machineArtifacts: candidate.machineArtifacts,
-      machineCamera: existing?.machineCamera,
-      tipCalibration: existing?.tipCalibration,
-      stageFour: existing?.stageFour,
-      penCapAppearance: existing?.penCapAppearance,
-      referenceFrame: existing?.referenceFrame
-    )
-    try statePersistencePort.saveAcceptedLearningPathCheckpoint(checkpoint)
+    try await relay.persistBoundaryCandidate(candidate, using: statePersistencePort)
   }
-}
-
-private enum PlotterBoundaryCompositionError: Error {
-  case checkpointUnavailable(String)
-  case semanticIdentityChanged
 }
 
 private extension BoundaryDirection {

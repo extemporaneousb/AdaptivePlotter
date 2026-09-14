@@ -8,6 +8,75 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Boundary replacement checkpoint repair, 2026-09-13
+
+Task `task-33f1006713d949a9b9102709fa11ccfa` began from clean primary main
+`1ced9c31e740766f653f33a4766bd23e6a21c69d`, recorded target main. This is the
+reported campaign feedback repair, not a historical migration selection. The
+coordinator owns staged checkpoint construction, retained-package policy and
+post-publication Saved Learning reconciliation; a bounded worker owns the new
+production regression tests.
+
+Boundary persistence now constructs its staged machine checkpoint with the current
+accepted Pen prefix. Changed Boundary revisions exclude dependent camera/tip/Stage
+Four fields; inactive disk descendants are never borrowed. The shared retention
+policy verifies the complete stored package before preserving it or replacing it
+at the existing completeness threshold. An incomplete replacement is accepted for
+this session while the old complete package remains durable. This single-package
+policy does not claim that both packages survive restart. Exact persistence/retry
+and reset reservation ordering stay in the existing Boundary owner. The saved-state
+projection is reconciled only after an accepted terminal and an exact match to the
+persisted machine artifacts. All 43 focused Boundary/checkpoint tests pass under
+strict concurrency in 9.465 seconds. Initial fixture failures are retained: the
+historical package now uses coherent machine/camera/tip rebasing so its coordinate
+revision actually differs, and reset assertions retain invalidated graph history.
+Additional cases cover a changed retained disk package, restoration and exact retry
+without repeated motion, and staging-only descendant pruning without publication.
+
+The one-shot critic accepted frozen patch SHA256
+`e05b43709477560773b0ca551e4e98b4b930869828e80e7d432688a73dc68861` with no actionable
+findings. No critic recheck is requested. The first full serial run executed 1277
+tests in 382.971 seconds with only two assertions failing in an existing Pen
+preparation fixture. The lower Pen hold begins before `submit` returns its admission
+snapshot to the application; the fixture now waits for both owned observations
+before asserting UI state. All duplicate-operation/cancellation/settlement checks
+remain intact. The coordinator directly verified the repair with 12 focused tests
+in 19.381 seconds. The final frozen source passed all 1277 strict serial quick
+tests in 380.188 seconds, with six explicit skips, and all 10 journeys in 3.371
+seconds. Strict signed-app, launcher, negative-bundle, documentation and diff checks
+passed. The reviewed production patch is unchanged; the coordinator's additional
+change only synchronizes the Pen fixture with its existing admission publication.
+No critic recheck was performed. Exact landed commit/signature and source-input
+receipts are staged externally in `.build/studio-boundary-33f100-evidence/` and
+will be incorporated at the next increment. The test app remains unlaunched and
+the live session is unchanged.
+
+Next independent deliveries are the unified Voice repair, R05 measured-axis
+calibration, then DS-09 aggregate integration and DS-10 attended readiness. Native
+recovery, physical dimensions and realized ink remain unverified.
+
+### Physical metric feedback retained for the R05 correction
+
+The operator reports physical border sides X 159.5 mm and Y 177 mm, with axis and
+sample association awaiting explicit confirmation. A separate read-only diagnostic
+task reports border record `6C9814D1-1942-47A3-BB94-0E0D941021A8` and actual
+transmitted controller spans X 159.133 and Y 225.991 mm in session
+`47eac855-9a89-4db5-ab8e-2658ef3a9642` (2026-09-13 21:46:36 UTC onward).
+These imply provisional actual/controller scale factors 1.00230625 and 0.78321703.
+The camera fit alone does not establish physical millimetres. Reported firmware
+steps/mm already differ by axis; the missing product contract is independent
+measured travel scale, not a hard-coded equal-step count.
+
+Evidence ingress must identify the exact drawn frame and commanded axis spans,
+retain independent measured lengths and uncertainty, and apply correction in one
+canonical machine geometry owner. Opposite sides and a second length distinguish
+consistent scale from backlash or slipping; two lengths do not prove orthogonality.
+No factors are accepted from this report, no controller settings are written, and
+no motion or live-app restart is authorized by it. Source evidence is retained at
+`/tmp/adaptiveplotter-camera-metric-20260913-181418/`; receipt contents reported by
+the diagnostic task have not yet been independently rebound by this coordinator.
+This remains R05 corrective work before aggregate campaign acceptance.
+
 ## DS-08 integrated Studio workflow, 2026-09-13
 
 Task `task-67ebf411bd1f4f56b784700168f26799` began from clean primary `main`
@@ -48,9 +117,12 @@ comparison or physical-image-sheet interaction. The frozen source passed 1274
 strict serial quick tests in 424.783 seconds, with six explicit skips including
 the AX prerequisite, plus all 10 retained journeys in 3.543 seconds. Strict signed
 app, launcher, negative-bundle, documentation and diff checks passed. No critic
-recheck was performed. Source inputs and the unlaunched bundle are staged before
-Blackdog landing; exact landed commit/signature receipts are recorded externally
-in `.build/studio-ds08-67ebf4-evidence/` and incorporated at the next increment.
+recheck was performed. DS-08 landed as
+`1ced9c31e740766f653f33a4766bd23e6a21c69d`. Its immutable signed, unlaunched
+bundle is `.build/StudioTestApps/AdaptivePlotter-DS08-67ebf4.app`; all 364 build
+inputs match the landed commit. Binary SHA256:
+`766c82b5cc86cd1a877e00825ac9d4b85a28cc5d518c85272050a20d6f34ee2b`.
+Exact source/signature/Blackdog receipts remain in `.build/studio-ds08-67ebf4-evidence/`.
 The live app/session and previous signed test apps remain preserved.
 
 ### Reported live feedback retained for separate repair increments

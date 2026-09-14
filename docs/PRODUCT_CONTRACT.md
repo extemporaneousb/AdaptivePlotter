@@ -915,8 +915,14 @@ Idle/final MPos truth. SIMULATED uses the retained EA-07 causal simulator seam,
 is explicitly nonphysical, invokes no LIVE persistence or effect, and claims no
 attended evidence.
 
-Accepted LIVE Boundary and center facts are saved before publication. A failed
-save retains an identity-bound publication-recovery capability; recovery retries
+Accepted LIVE Boundary and center facts are saved before publication when the
+existing retained-package policy permits replacing the disk prefix. Construction
+uses the current accepted Pen/machine prefix, never
+inactive saved camera/tip descendants. When Start New Learning retains an older
+complete package, the app verifies that exact disk package and keeps an incomplete
+replacement session-only until the existing completeness policy permits replacement.
+Otherwise the staged prefix is saved before publication. A failed save or retained
+package identity check retains an identity-bound publication-recovery capability; recovery retries
 only that staged save and never resends Pen or motion. A runtime-owned weak
 Sendable projection sink publishes immutable admitted, moving, cancelling,
 recovery, and terminal state without a workspace task, latch, retry, unchecked
@@ -1256,6 +1262,9 @@ index with the exact stored revisions and installs the accepted values without
 motion, Pen-pose restoration, or command replay. Start New Learning applies no
 saved value and retains the last complete package until a newer dependency-
 complete package can replace it atomically. The operator owns this decision.
+Incomplete replacement progress remains session-only during this preservation;
+the one saved slot does not retain both packages across restart. Fresh Boundary
+acceptance cannot implicitly apply the inactive package's camera or tip calibration.
 Binary/process restoration and controller continuity loss cannot prove current
 physical carriage position. The unpowered armature can move under gravity while
 controller MPos remains unchanged. A restored machine/cap map therefore
