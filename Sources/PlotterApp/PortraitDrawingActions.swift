@@ -21,8 +21,8 @@ extension PlotterApplicationRuntime {
   /// accepting the new candidate. Rendering does not independently authorize Draw.
   func applyPortraitMaterial(_ profile: DrawingMaterialProfileRevision) async -> String? {
     guard let prior = portraitStudio.selectedCandidate,
-      let program = drawingDraftSnapshot.program,
-      program.contentHash == prior.program.contentHash,
+      let artworkPlan = drawingDraftSnapshot.artworkPlan,
+      artworkPlan.sourceProgramContentHash == prior.program.contentHash,
       let plan = drawingDraftSnapshot.plan
     else { return "Project the selected portrait before adapting it to the current drawing scale." }
     if profile.qualification != .nominal && profile.qualification != .unavailable,
@@ -30,7 +30,7 @@ extension PlotterApplicationRuntime {
       return "The measured material's calibration, paper or actuation has changed. Measure it again or select nominal settings."
     }
     if let error = await portraitStudio.applyMaterial(profile,
-      drawingHeightMM: program.fieldExtent.height * plan.placement.uniformScale) { return error }
+      drawingHeightMM: prior.program.fieldExtent.height * artworkPlan.placement.minimumScale) { return error }
     guard drawingDraftSnapshot.plan?.contentHash == plan.contentHash,
       drawingMaterials.activeKey == profile.key,
       let candidate = portraitStudio.selectedCandidate
@@ -39,7 +39,7 @@ extension PlotterApplicationRuntime {
       if let error = await submitPortraitDrawingAction(
         PlotterAppUIActionID.drawingDraft(.selectProgram(candidate.program)), program: candidate.program
       ) { return error }
-      guard drawingDraftSnapshot.plan?.placement == plan.placement else {
+      guard drawingDraftSnapshot.artworkPlan?.placement == artworkPlan.placement else {
         return "The adapted drawing could not retain its exact placement. Review its scale before drawing."
       }
       return nil

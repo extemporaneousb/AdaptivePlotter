@@ -57,7 +57,9 @@ struct PortraitPresentationContext: Codable, Hashable, Sendable {
     physicalMediaSHA256s: [String]? = nil, displayEvidence: PortraitDisplayEvidence? = nil) throws {
     guard drawingHeightMM.isFinite, drawingHeightMM > 0,
       inkWidthMM.isFinite, inkWidthMM > 0 else { throw PortraitCandidateError.invalidPresentation }
-    rendererRevision = displayEvidence == nil ? "portrait-preview-v1" : "portrait-plane-preview-v2"
+    rendererRevision = displayEvidence == nil ? "portrait-preview-v1"
+      : displayEvidence?.placement?.cameraGeometry == nil ? "portrait-plane-preview-v2"
+      : "portrait-camera-preview-v3"
     self.drawingHeightMM = drawingHeightMM
     self.inkWidthMM = inkWidthMM
     self.inkWidthIsMeasured = inkWidthIsMeasured
@@ -83,7 +85,9 @@ struct PortraitPresentationContext: Codable, Hashable, Sendable {
   func validateDisplayEvidence(program: DrawingProgram? = nil) throws {
     guard let evidence = displayEvidence else { return }
     try evidence.validate()
-    guard objective == .screenAesthetic, rendererRevision == "portrait-plane-preview-v2",
+    let expectedRenderer = evidence.placement?.cameraGeometry == nil
+      ? "portrait-plane-preview-v2" : "portrait-camera-preview-v3"
+    guard objective == .screenAesthetic, rendererRevision == expectedRenderer,
       evidence.mode != .reference || drawingHeightMM == 100 else {
       throw PortraitCandidateError.invalidPresentation
     }
@@ -92,7 +96,7 @@ struct PortraitPresentationContext: Codable, Hashable, Sendable {
         throw PortraitCandidateError.invalidPresentation
       }
       if let placement = evidence.placement {
-        let height = program.fieldExtent.height * placement.uniformScale
+        let height = try placement.controllerEdgeLengths(for: program.fieldExtent).height
         guard height.isFinite, height > 0,
           abs(drawingHeightMM - height) <= max(1e-9, abs(height) * 1e-9) else {
           throw PortraitCandidateError.invalidPresentation

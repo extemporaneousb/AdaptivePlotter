@@ -30,7 +30,10 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(plan.sourceProgramContentHash == bordered.program?.contentHash)
     #expect(plan.strokes.count == original.strokes.count + 1)
     #expect(plan.checkpoints.count == plan.strokes.count)
-    #expect(Array(plan.strokes.dropLast()).map(\.path) == original.strokes.map(\.path))
+    for (composed, source) in zip(plan.strokes.dropLast(), original.strokes) {
+      #expect(composed.path.points.count == source.path.points.count)
+      #expect(zip(composed.path.points, source.path.points).allSatisfy { $0.distance(to: $1) < 1e-10 })
+    }
     #expect(plan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
     #expect(bordered.preview?.strokes.count == plan.strokes.count)
     let border = try #require(plan.strokes.last)
@@ -141,7 +144,7 @@ struct PlotterDrawingDraftEpisodeTests {
       from: JSONEncoder().encode(plan)) == plan)
   }
 
-  @Test("every primitive preserves segment metric through rotated fit and optional border")
+  @Test("artwork preserves camera proportions and metric targets preserve command distances through Fit and border")
   func primitiveMetricThroughPlanAndBorder() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let style = try StrokeStyle(nominalLineWidth: 0.4,
@@ -153,9 +156,10 @@ struct PlotterDrawingDraftEpisodeTests {
         minX: -20, minY: 50, maxX: -40 + size.0, maxY: 30 + size.1)
       for entry in DrawingCatalogEntryID.allCases {
         let program = try DrawingProgramCatalog.program(for: entry, style: style)
+        let cameraGeometry = try PlotterDrawingPlanningAdapter.cameraGeometry(for: program, registration: fixture.registration)
         for angle in [0.0, 30.0, 90.0, -45.0] {
           let scale = PlotterDrawingPlanningAdapter.scaleRange(extent: program.fieldExtent,
-            rotationDegrees: angle, region: region).upperBound
+            rotationDegrees: angle, region: region, cameraGeometry: cameraGeometry).upperBound
           let plain = PlotterDrawingPlanningAdapter.buildDraft(program: program,
             machineCenter: nil, uniformScale: scale, rotationDegrees: angle,
             drawableRegion: region, registration: fixture.registration)
@@ -165,6 +169,20 @@ struct PlotterDrawingDraftEpisodeTests {
             drawableRegion: region, registration: fixture.registration,
             drawBorder: true, drawingBorderBounds: border)
           let borderPlan = try #require(bordered.plan)
+          let reference = DrawingRunCandidateReference(candidateID: program.contentHash.description,
+            contentHash: program.contentHash, sourceProgram: program)
+          let executionProgram = try #require(bordered.program)
+          #expect(reference.matches(executionProgram))
+          if entry == .rectangle && angle == 0 {
+            let first = executionProgram.strokes[0]
+            var points = first.path.points
+            points[2] = try Point2(x: points[2].x + 0.1, y: points[2].y)
+            let distorted = LogicalStroke(id: first.id, path: try Polyline(points: points), style: first.style,
+              semanticRole: first.semanticRole, ordering: first.ordering)
+            let forged = try DrawingProgram(id: executionProgram.id, fieldExtent: executionProgram.fieldExtent,
+              strokes: [distorted] + executionProgram.strokes.dropFirst(), source: executionProgram.source)
+            #expect(!reference.matches(forged))
+          }
           #expect(borderPlan.strokes.count == plan.strokes.count + 1)
           for (plainStroke, borderedStroke) in zip(plan.strokes, borderPlan.strokes) {
             #expect(plainStroke.path.points.count == borderedStroke.path.points.count)
@@ -173,16 +191,22 @@ struct PlotterDrawingDraftEpisodeTests {
             }
           }
           #expect(borderPlan.contentHash != plan.contentHash)
-          let origin = try plan.placement.applying(to: Point2(x: 0, y: 0))
-          let x = try plan.placement.applying(to: Point2(x: 1, y: 0))
-          let y = try plan.placement.applying(to: Point2(x: 0, y: 1))
-          #expect(abs(origin.distance(to: x) - scale) < 1e-10)
-          #expect(abs(origin.distance(to: y) - scale) < 1e-10)
+          #expect(plan.placement.cameraGeometry == cameraGeometry)
+          func observed(_ point: Point2<MachineSpace>) throws -> Point2<CameraPixelSpace> {
+            if let cameraGeometry { return try cameraGeometry.cameraFromMachine.applying(to: point) }
+            return try Point2(x: point.x, y: point.y)
+          }
+          let imageScale = scale * (cameraGeometry?.referencePixelsPerUnit ?? 1)
+          let origin = try observed(plan.placement.applying(to: Point2(x: 0, y: 0)))
+          let x = try observed(plan.placement.applying(to: Point2(x: 1, y: 0)))
+          let y = try observed(plan.placement.applying(to: Point2(x: 0, y: 1)))
+          #expect(abs(origin.distance(to: x) - imageScale) < 1e-10)
+          #expect(abs(origin.distance(to: y) - imageScale) < 1e-10)
           #expect(abs((x.x-origin.x)*(y.x-origin.x) + (x.y-origin.y)*(y.y-origin.y)) < 1e-10)
           for (source, placed) in zip(program.strokes, plan.strokes) {
             for index in source.path.points.indices.dropFirst() {
-              let expected = source.path.points[index-1].distance(to: source.path.points[index]) * scale
-              let actual = placed.path.points[index-1].distance(to: placed.path.points[index])
+              let expected = source.path.points[index-1].distance(to: source.path.points[index]) * imageScale
+              let actual = try observed(placed.path.points[index-1]).distance(to: observed(placed.path.points[index]))
               #expect(abs(actual - expected) < 1e-9)
             }
           }
@@ -210,8 +234,9 @@ struct PlotterDrawingDraftEpisodeTests {
       penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue))
     let program = try PortraitVectorizer.program(from: raster, pose: .front,
       style: .contours, strokeStyle: style)
-    let scale = PlotterDrawingPlanningAdapter.scaleRange(extent: program.fieldExtent,
-      rotationDegrees: 0, region: fixture.drawableRegion).upperBound
+    let scale = try PlotterDrawingPlanningAdapter.scaleRange(extent: program.fieldExtent,
+      rotationDegrees: 0, region: fixture.drawableRegion,
+      cameraGeometry: PlotterDrawingPlanningAdapter.cameraGeometry(for: program, registration: fixture.registration)).upperBound
     let build = PlotterDrawingPlanningAdapter.buildDraft(program: program, machineCenter: nil,
       uniformScale: scale, rotationDegrees: 0, drawableRegion: fixture.drawableRegion,
       registration: fixture.registration)
@@ -796,7 +821,8 @@ struct PlotterDrawingDraftEpisodeTests {
     let plan = try #require(snapshot.plan)
     #expect(snapshot.machineCenter == expectedCenter)
     #expect(plan.placement.machineAnchor == expectedCenter)
-    #expect(plan.placement.uniformScale == snapshot.allowedScale.upperBound)
+    #expect(plan.placement.uniformScale == snapshot.uniformScale)
+    #expect(abs(plan.placement.uniformScale - snapshot.allowedScale.upperBound) < 1e-12)
     #expect(abs(plan.placement.rotationRadians - .pi / 2) < 1e-12)
   }
 

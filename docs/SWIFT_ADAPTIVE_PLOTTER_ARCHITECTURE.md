@@ -1340,6 +1340,16 @@ evidence authority.
 `DrawingProgramCatalog` produces deterministic field-space geometry. A
 `DrawingPlacement` is the only field-to-machine transform, and `DrawingPlanner`
 is the only producer of content-addressed `ExecutionPlanRevision` values.
+Ordinary artwork retains `DrawingCameraGeometry` from the accepted tip registration.
+For command-to-image linear response A = Q S (polar decomposition), placement uses
+K = sqrt(abs(det A)) S^-1 before the authored rotation and Size multiplier:
+field-to-command linear geometry is K R scale. A K is a similarity, so the camera
+sees authored proportions while nominal command area and orientation are retained.
+The complete affine is retained for exact historical projection; new placement
+hashes bind it. Absent camera geometry preserves legacy canonical bytes and JSON.
+The planning adapter excludes explicit metric catalog targets and coverage
+experiments; retained Learning/Border planning remains controller-relative.
+Neither controller settings nor accepted calibration artifacts are mutated.
 `DrawingRegionContainmentPolicy` owns axis-aligned closed-Boundary containment
 under revision `acceptedBoundaryNumericalEpsilonV1`; its 1e-9 mm epsilon absorbs
 floating-point residue without admitting physically meaningful geometry beyond
@@ -2136,9 +2146,11 @@ Predicted preview binds compatible source, camera configuration, pixel layout,
 program content hash and plan revision. It remains visible as frame identity
 advances; measured overlays and operator clicks retain exact-frame requirements.
 `.fitInDrawableRegion` retains the explicitly authored rotation, chooses one
-uniform scale within the drawable region, and centers the result. Fit never
-chooses a different orientation.
-The same rotated extent calculation supplies the scale slider's bounds.
+Size multiplier within the drawable region, and centers the result. Fit never
+chooses a different orientation. The same camera-corrected, rotated field bounds
+supply the scale slider's bounds. A changed accepted registration rebuilds the
+placement through the existing derivation key; invalid response geometry refuses
+planning rather than reverting ordinary artwork to equal controller travel.
 Registration/configuration mismatch is unavailable; outside-region planning
 shows no clipped strokes; outside-applicability projection is diagnostic-only.
 None is camera/ink or physical evidence.
@@ -2297,13 +2309,24 @@ a source metric retain explicitly identified sample-lattice interpretation.
 The main `PortraitPlanePreview` consumes a passive projection of the existing
 Draft artwork plan, retained before optional border composition, with no second
 planner invocation. Candidate ID/hash and current region must match. Machine
-points and applicable material width share a uniform region-to-screen transform.
-Actual dimensions come from artwork field extent times admitted uniform scale.
+points use a uniform region-to-screen transform for legacy controller placements.
+Camera placements project exact planned points and the region polygon through
+the saved affine, then fit that image with one screen scale. The ink preview uses
+a conservative maximum camera-axis width envelope. Displayed artwork dimensions
+are controller-space authored edge lengths, not independent physical dimensions.
+Material adaptation and freshness use field height times the placement's minimum
+singular scale; geometric feasibility examines the actual transformed segments.
 Missing placement uses explicitly typed reference presentation; its 100-unit
 normalization supports existing preference features and is never an actual-size
 readout. Optional `PortraitDisplayEvidence` records reference/planned mode, exact
 program hash, region, placement, plan hash and width source. New labels use renderer
-v2; absent evidence preserves legacy encoding, hashes, feature values and renderer.
+v2 for legacy/reference placements and camera renderer v3 for camera placements;
+absent evidence preserves legacy encoding, hashes, feature values and renderer.
+Border composition retains its artwork hash suffix and a camera-geometry-v1 marker.
+Existing physical rating metadata recovers authored controller height from the
+retained response and corresponding source/executed geometry, rather than assuming
+that the first stroke's command scale applies to every direction. This changes no
+automatic grading or feedback-to-motion-model policy.
 This read-only view adds no controller, planner, calibration or Learning owner. The existing
 `PlotterSceneAnalysisPipeline` continues to retain its cancelled drain until completion
 before starting replacement Vision work.

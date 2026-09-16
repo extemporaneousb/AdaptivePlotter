@@ -16,14 +16,17 @@ public struct DrawingRunCandidateReference: Codable, Hashable, Sendable {
   }
 
   /// The one known compositor preserves all artwork stroke identities and maps
-  /// every point with the same orientation-preserving similarity transform.
+  /// every point with the same orientation-preserving transform. Legacy border
+  /// programs require a similarity; camera-corrected compositions require affine.
   public func matches(_ executionProgram: DrawingProgram) -> Bool {
     guard candidateID == contentHash.description,
       sourceProgram.contentHash == programContentHash else { return false }
     if executionProgram == sourceProgram { return true }
+    let suffix = "|draw-border-v1|artwork=\(programContentHash)"
+    let cameraComposition = executionProgram.source.sourceIdentifier
+      == sourceProgram.source.sourceIdentifier + "|camera-geometry-v1" + suffix
     guard executionProgram.source.kind == sourceProgram.source.kind,
-      executionProgram.source.sourceIdentifier
-        == sourceProgram.source.sourceIdentifier + "|draw-border-v1|artwork=\(programContentHash)",
+      cameraComposition || executionProgram.source.sourceIdentifier == sourceProgram.source.sourceIdentifier + suffix,
       executionProgram.strokes.count == sourceProgram.strokes.count + 1 else { return false }
     let pairs = zip(sourceProgram.strokes, executionProgram.strokes)
     var sourcePoints: [Point2<FieldSpace>] = []
@@ -44,10 +47,22 @@ public struct DrawingRunCandidateReference: Codable, Hashable, Sendable {
     let a = (dx * tx + dy * ty) / lengthSquared
     let b = (dx * ty - dy * tx) / lengthSquared
     guard a.isFinite, b.isFinite, hypot(a, b) > 0 else { return false }
+    var m11 = a, m12 = -b, m21 = b, m22 = a
+    if cameraComposition, let second = sourcePoints.indices.first(where: {
+      let x = sourcePoints[$0].x - origin.x, y = sourcePoints[$0].y - origin.y
+      return abs(dx * y - dy * x) > 1e-9 * sqrt(lengthSquared) * hypot(x, y)
+    }) {
+      let x = sourcePoints[second].x - origin.x, y = sourcePoints[second].y - origin.y
+      let u = targetPoints[second].x - targetOrigin.x, v = targetPoints[second].y - targetOrigin.y
+      let determinant = dx * y - dy * x
+      m11 = (tx * y - u * dy) / determinant; m12 = (dx * u - x * tx) / determinant
+      m21 = (ty * y - v * dy) / determinant; m22 = (dx * v - x * ty) / determinant
+      guard [m11, m12, m21, m22].allSatisfy(\.isFinite), m11 * m22 - m12 * m21 > 0 else { return false }
+    }
     for index in sourcePoints.indices {
       let x = sourcePoints[index].x - origin.x, y = sourcePoints[index].y - origin.y
-      guard hypot(targetOrigin.x + a * x - b * y - targetPoints[index].x,
-        targetOrigin.y + b * x + a * y - targetPoints[index].y) <= 1e-7 else { return false }
+      guard hypot(targetOrigin.x + m11 * x + m12 * y - targetPoints[index].x,
+        targetOrigin.y + m21 * x + m22 * y - targetPoints[index].y) <= 1e-7 else { return false }
     }
     return true
   }

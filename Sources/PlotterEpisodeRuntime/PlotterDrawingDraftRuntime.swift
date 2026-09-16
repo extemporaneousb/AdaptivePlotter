@@ -357,9 +357,11 @@ public enum PlotterDrawingPlanningAdapter {
     drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil,
     materialContextHash: PlotterModel.Digest? = nil
   ) -> PlotterDrawingDraftPlanBuild {
-    let allowedScale = scaleRange(extent: program.fieldExtent,
-      rotationDegrees: rotationDegrees, region: drawableRegion)
+    var allowedScale = 0.02...1.0
     do {
+      let cameraGeometry = try cameraGeometry(for: program, registration: registration)
+      allowedScale = scaleRange(extent: program.fieldExtent,
+        rotationDegrees: rotationDegrees, region: drawableRegion, cameraGeometry: cameraGeometry)
       let center: Point2<MachineSpace>
       if let machineCenter {
         center = machineCenter
@@ -376,7 +378,8 @@ public enum PlotterDrawingPlanningAdapter {
         ),
         machineAnchor: center,
         uniformScale: uniformScale,
-        rotationRadians: rotationDegrees * .pi / 180
+        rotationRadians: rotationDegrees * .pi / 180,
+        cameraGeometry: cameraGeometry
       )
       var plan = try DrawingPlanner.plan(
         program: program,
@@ -438,6 +441,7 @@ public enum PlotterDrawingPlanningAdapter {
       Point2(x: bounds.minX, y: bounds.minY),
     ]
     let boundsHash = try canonicalDigest(of: bounds)
+    let cameraMarker = artworkPlan.placement.cameraGeometry == nil ? "" : "|camera-geometry-v1"
     let seed = "ordinary-drawing-border-v1|\(program.contentHash)|\(artworkPlan.contentHash)|\(boundsHash)"
     let bytes = Array(SHA256.hash(data: Data(seed.utf8)).prefix(16))
     let id = UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
@@ -450,19 +454,39 @@ public enum PlotterDrawingPlanningAdapter {
     return (try DrawingProgram(id: ProgramID(id),
       fieldExtent: Size2(width: origin.maxX - origin.minX, height: origin.maxY - origin.minY),
       strokes: strokes, source: DrawingSourceProvenance(kind: program.source.kind,
-        sourceIdentifier: "\(program.source.sourceIdentifier)|draw-border-v1|artwork=\(program.contentHash)")),
+        sourceIdentifier: "\(program.source.sourceIdentifier)\(cameraMarker)|draw-border-v1|artwork=\(program.contentHash)")),
       try DrawingPlacement(fieldAnchor: Point2(x: 0, y: 0),
         machineAnchor: Point2(x: origin.minX, y: origin.minY), uniformScale: 1))
   }
 
-  /// The same rotated field bounds drive the slider and automatic fit.
+  /// Explicit command-distance targets and the coverage experiment retain their
+  /// authored controller geometry. Guided Learning has its own planning route.
+  public static func cameraGeometry(
+    for program: DrawingProgram?, catalogItemID: DrawingCatalogEntryID? = nil,
+    registration: TipCameraRegistration
+  ) throws -> DrawingCameraGeometry? {
+    let controllerTargets: [DrawingCatalogEntryID] = [.metricSquare40, .metricRectangle40x20]
+    if let program {
+      if program.source.kind == "adaptive-coverage-v1" { return nil }
+      if program.source.kind == "built-in-vector-catalog",
+        controllerTargets.contains(where: {
+          program.source.sourceIdentifier == DrawingProgramCatalog.entry(for: $0).sourceIdentifier
+        }) { return nil }
+    } else if let catalogItemID, controllerTargets.contains(catalogItemID) { return nil }
+    return try DrawingCameraGeometry(cameraFromMachine: registration.cameraFromMachine)
+  }
+
+  /// The same corrected and rotated field bounds drive the slider and Fit.
   public static func scaleRange(
-    extent: Size2<FieldSpace>, rotationDegrees: Double, region: DrawableMachineRegion
+    extent: Size2<FieldSpace>, rotationDegrees: Double, region: DrawableMachineRegion,
+    cameraGeometry: DrawingCameraGeometry? = nil
   ) -> ClosedRange<Double> {
     let angle = rotationDegrees * .pi / 180
-    let c = abs(cos(angle)), s = abs(sin(angle))
-    let width = extent.width * c + extent.height * s
-    let height = extent.width * s + extent.height * c
+    let c = cos(angle), s = sin(angle)
+    let k = cameraGeometry?.commandCorrection
+    let a = k?.m11 ?? 1, b = k?.m12 ?? 0, d = k?.m21 ?? 0, e = k?.m22 ?? 1
+    let width = extent.width * abs(a * c + b * s) + extent.height * abs(-a * s + b * c)
+    let height = extent.width * abs(d * c + e * s) + extent.height * abs(-d * s + e * c)
     let bounds = region.effectiveBounds
     let maximum = min((bounds.maxX - bounds.minX) / width,
       (bounds.maxY - bounds.minY) / height) * 0.9
@@ -882,12 +906,9 @@ public actor PlotterDrawingDraftRuntime {
         return refuse(submission, state: &state, facts: facts, owner: Authority.region,
           reason: .drawableRegionUnavailable, remedy: "Restore the Drawing Boundary before fitting the target.")
       }
-      let extent = state.suppliedProgram?.fieldExtent
-        ?? DrawingProgramCatalog.entry(for: state.selectedCatalogItemID).fieldExtent
       // Fit changes size and position only. Rotation is authored intent and
       // must never change merely because another orientation occupies more area.
-      state.uniformScale = PlotterDrawingPlanningAdapter.scaleRange(
-        extent: extent, rotationDegrees: state.rotationDegrees, region: region).upperBound
+      state.uniformScale = allowedScale(state: state, facts: facts).upperBound
       let bounds = region.effectiveBounds
       state.machineCenter = try? Point2(x: (bounds.minX + bounds.maxX) / 2,
         y: (bounds.minY + bounds.maxY) / 2)
@@ -1387,8 +1408,14 @@ public actor PlotterDrawingDraftRuntime {
     guard let region = facts.revisions.drawableRegion else { return 0.02...1 }
     let extent = state.suppliedProgram?.fieldExtent
       ?? DrawingProgramCatalog.entry(for: state.selectedCatalogItemID).fieldExtent
+    // An invalid response leaves only a provisional slider range. buildDraft
+    // refuses the plan instead of silently using uncorrected artwork geometry.
+    let cameraGeometry = facts.registration.flatMap {
+      try? PlotterDrawingPlanningAdapter.cameraGeometry(for: state.suppliedProgram,
+        catalogItemID: state.selectedCatalogItemID, registration: $0)
+    }
     return PlotterDrawingPlanningAdapter.scaleRange(extent: extent,
-      rotationDegrees: state.rotationDegrees, region: region)
+      rotationDegrees: state.rotationDegrees, region: region, cameraGeometry: cameraGeometry)
   }
 
   private func issue(

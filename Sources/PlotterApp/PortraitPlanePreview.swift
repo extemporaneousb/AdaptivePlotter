@@ -26,7 +26,9 @@ struct PortraitPlanePreviewSource {
     let width = profile?.conservativeWidthMM ?? program?.strokes.first?.style.nominalLineWidth ?? nominalWidth
     let reason = region == nil ? "Drawing region unavailable · reference preview"
       : matched == nil ? "Unplaced reference preview · project this drawing for actual placement"
-      : "Current drawing placement · physical dimensions unverified"
+      : matched?.placement.cameraGeometry != nil
+        ? "Camera-proportioned drawing · physical dimensions unverified"
+        : "Current drawing placement · physical dimensions unverified"
     let evidence = program.flatMap { program in
       try? PortraitDisplayEvidence(mode: matched == nil ? .reference : .planned,
         programContentHash: program.contentHash.description, region: region,
@@ -44,6 +46,7 @@ struct PortraitPlanePreviewSource {
 
 struct PortraitPlaneRenderGeometry {
   let regionRect: CGRect
+  var regionOutline: [CGPoint]? = nil
   let paths: [[CGPoint]]
   let lineWidth: Double
   let screenScale: Double
@@ -66,13 +69,27 @@ struct PortraitPlanePreview {
 
   var actualDrawingHeightMM: Double? {
     guard evidence?.mode == .planned, let program, let placement = evidence?.placement else { return nil }
-    return program.fieldExtent.height * placement.uniformScale
+    return try? placement.controllerEdgeLengths(for: program.fieldExtent).height
   }
   var actualDrawingWidthMM: Double? {
     guard evidence?.mode == .planned, let program, let placement = evidence?.placement else { return nil }
-    return program.fieldExtent.width * placement.uniformScale
+    return try? placement.controllerEdgeLengths(for: program.fieldExtent).width
+  }
+  var materialReferenceHeight: Double? {
+    guard evidence?.mode == .planned, let program, let placement = evidence?.placement else { return nil }
+    return program.fieldExtent.height * placement.minimumScale
+  }
+  private var cameraRegion: [Point2<CameraPixelSpace>]? {
+    guard let camera = evidence?.placement?.cameraGeometry?.cameraFromMachine,
+      let bounds = evidence?.region?.effectiveBounds else { return nil }
+    return try? bounds.corners.map { try camera.applying(to: $0) }
   }
   var aspectRatio: Double {
+    if let points = cameraRegion,
+      let minX = points.map(\.x).min(), let maxX = points.map(\.x).max(),
+      let minY = points.map(\.y).min(), let maxY = points.map(\.y).max() {
+      return (maxX - minX) / (maxY - minY)
+    }
     if let bounds = region?.effectiveBounds {
       return (bounds.maxX - bounds.minX) / (bounds.maxY - bounds.minY)
     }
@@ -87,7 +104,8 @@ struct PortraitPlanePreview {
     guard let width = actualDrawingWidthMM, let height = actualDrawingHeightMM else {
       return region + " · drawing size unavailable"
     }
-    return String(format: "Artwork %.1f × %.1f · ", width, height) + region
+    let label = evidence?.placement?.cameraGeometry == nil ? "Artwork" : "Artwork edges (controller units)"
+    return String(format: "\(label) %.1f × %.1f · ", width, height) + region
   }
   var inkDescription: String {
     let source: String
@@ -143,6 +161,23 @@ struct PortraitPlanePreview {
       let paths = plannedStrokes?.map { $0.path.points }
         ?? (try? program.strokes.map { try placement.applying(to: $0.path).points })
       guard let paths else { return nil }
+      if let camera = placement.cameraGeometry, let corners = cameraRegion,
+        let minX = corners.map(\.x).min(), let maxX = corners.map(\.x).max(),
+        let minY = corners.map(\.y).min() {
+        let pixelScale = width / (maxX - minX)
+        func screen(_ point: Point2<CameraPixelSpace>) -> CGPoint {
+          CGPoint(x: rect.minX + (point.x - minX) * pixelScale,
+            y: rect.minY + (point.y - minY) * pixelScale)
+        }
+        guard let projected = try? paths.map({ points in
+          try points.map { screen(try camera.cameraFromMachine.applying(to: $0)) }
+        }) else { return nil }
+        // Material width is a conservative controller-coordinate envelope. It
+        // does not establish a physical circular pen footprint in camera space.
+        return .init(regionRect: rect, regionOutline: corners.map(screen), paths: projected,
+          lineWidth: inkWidthMM * camera.maximumPixelsPerControllerUnit * pixelScale,
+          screenScale: pixelScale)
+      }
       return .init(regionRect: rect, paths: paths.map { points in points.map { point in
         CGPoint(x: rect.minX + (point.x - bounds.minX) * scale,
           y: rect.maxY - (point.y - bounds.minY) * scale)
@@ -163,7 +198,14 @@ struct PortraitPlaneProgramPreview: View {
   var body: some View {
     Canvas { context, size in
       guard let geometry = preview.geometry(in: size) else { return }
-      context.clip(to: Path(geometry.regionRect))
+      let outline = geometry.regionOutline.map { points in
+        Path { path in
+          if let first = points.first { path.move(to: first) }
+          for point in points.dropFirst() { path.addLine(to: point) }
+          path.closeSubpath()
+        }
+      } ?? Path(geometry.regionRect)
+      context.clip(to: outline)
       for points in geometry.paths {
         var path = Path()
         for (index, point) in points.enumerated() {
@@ -172,7 +214,7 @@ struct PortraitPlaneProgramPreview: View {
         context.stroke(path, with: .color(.black),
           style: SwiftUI.StrokeStyle(lineWidth: geometry.lineWidth, lineCap: .round, lineJoin: .round))
       }
-      context.stroke(Path(geometry.regionRect), with: .color(.gray.opacity(0.5)), lineWidth: 1)
+      context.stroke(outline, with: .color(.gray.opacity(0.5)), lineWidth: 1)
     }
     .background(.white)
     .accessibilityLabel("Portrait drawing plane preview")

@@ -8,7 +8,8 @@ public struct DrawingMaterialFeasibilityReport: Codable, Hashable, Sendable, Can
   public let programHash: String
   public let placementHash: String
   public let conservativeWidthMM: Double
-  /// Authored field height after uniform scale, independent of rotation.
+  /// Authored field height at the minimum controller-space scale. For camera
+  /// placements this is a conservative spacing reference, not a physical height.
   public let drawingHeightMM: Double
   public let minimumClearGapMM: Double
   public let minimumUsefulLengthMM: Double
@@ -60,9 +61,9 @@ public enum DrawingMaterialFeasibility {
       throw PlotterModelError.invalidValue("Invalid material feasibility work budget")
     }
     let width = profile.conservativeWidthMM
-    let height = program.fieldExtent.height * placement.uniformScale
+    let height = program.fieldExtent.height * placement.minimumScale
     let centerlineRequirement = width * 1.5
-    let fieldDiagonal = hypot(program.fieldExtent.width * placement.uniformScale, height)
+    let fieldDiagonal = hypot(program.fieldExtent.width, program.fieldExtent.height) * placement.maximumScale
     guard height.isFinite, height > 0, fieldDiagonal.isFinite, centerlineRequirement.isFinite else {
       throw PlotterModelError.invalidValue("Material feasibility geometry overflow")
     }
@@ -154,7 +155,7 @@ public enum DrawingMaterialFeasibility {
       shortStrokeCount: shortStrokes, closeSegmentPairCount: closePairs,
       examinedSegmentCount: examinedSegments, analysisIsComplete: complete,
       limitations: limitations + profile.measurementLimitations,
-      summary: "\(qualification). Conservative width \(width) mm at authored height \(height) mm. \(result).")
+      summary: "\(qualification). Conservative width \(width) mm at spacing reference height \(height) controller units. \(result).")
   }
 
   private struct Segment {

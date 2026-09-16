@@ -37,7 +37,7 @@ struct PortraitStudioView<Gallery: View>: View {
   private var needsMaterialReadaptation: Bool {
     guard displayedProgram != nil else { return false }
     guard let materialContext else { return planePreview.materialProfile != nil }
-    if let height = planePreview.actualDrawingHeightMM {
+    if let height = planePreview.materialReferenceHeight {
       return !materialContext.matches(drawingHeightMM: height,
         profileKey: planePreview.materialProfile?.key)
     }

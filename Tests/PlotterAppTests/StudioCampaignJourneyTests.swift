@@ -178,7 +178,7 @@ struct StudioCampaignJourneyTests {
       #expect(adapted.rasterSHA256 == trained.rasterSHA256)
       #expect(adapted.recipe.vectorOptions.materialContext?.profile == measured.profile)
       #expect(adapted.recipe.vectorOptions.materialContext?.drawingHeightMM
-        == trained.program.fieldExtent.height * beforeMaterial.placement.uniformScale)
+        == trained.program.fieldExtent.height * beforeMaterial.placement.minimumScale)
       #expect(finalPlan.placement == beforeMaterial.placement)
       try assertStudioCandidate(model.projectedCandidate, equals: adapted)
       #expect(model.sketches.labels == labelsBeforeDraw)
@@ -298,8 +298,13 @@ private func assertStudioProportions(program: DrawingProgram, plan: ExecutionPla
     for index in source.path.points.indices.dropFirst() {
       let a = source.path.points[index - 1], b = source.path.points[index]
       let c = executed.path.points[index - 1], d = executed.path.points[index]
-      let expected = hypot(b.x - a.x, b.y - a.y) * plan.placement.uniformScale
-      #expect(abs(hypot(d.x - c.x, d.y - c.y) - expected) < 1e-8)
+      let camera = plan.placement.cameraGeometry
+      let expected = hypot(b.x - a.x, b.y - a.y) * plan.placement.uniformScale * (camera?.referencePixelsPerUnit ?? 1)
+      let actual: Double
+      if let camera {
+        actual = try camera.cameraFromMachine.applying(to: c).distance(to: camera.cameraFromMachine.applying(to: d))
+      } else { actual = c.distance(to: d) }
+      #expect(abs(actual - expected) < 1e-8)
     }
   }
 }

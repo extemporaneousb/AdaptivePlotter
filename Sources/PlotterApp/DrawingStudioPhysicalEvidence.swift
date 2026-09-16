@@ -109,21 +109,48 @@ extension PlotterApplicationRuntime {
   }
 }
 
-/// Derive the actual uniform artwork scale from corresponding source/executed
-/// segments. This also handles the border compositor whose own placement is 1:1.
+/// A controller-coordinate authored height, not independent physical measurement.
+/// Border composition has controller-local placement, so recover the original
+/// rotation and size from corresponding segments and its retained camera response.
 private func physicalArtworkHeight(candidate: PortraitCandidate, attempt: DrawingRunAttemptEvidence) -> Double {
+  if attempt.intent.plan.placement.cameraGeometry != nil,
+    let size = try? attempt.intent.plan.placement.controllerEdgeLengths(for: candidate.program.fieldExtent) {
+    return size.height
+  }
+  let camera = attempt.intent.context.program.source.sourceIdentifier.contains("|camera-geometry-v1|draw-border-v1|")
+    ? try? DrawingCameraGeometry(cameraFromMachine: attempt.intent.context.registration.cameraFromMachine) : nil
   for (source, executed) in zip(candidate.program.strokes, attempt.intent.plan.strokes) {
-    guard source.id == executed.logicalStrokeID else { continue }
+    guard source.id == executed.logicalStrokeID, source.path.points.count == executed.path.points.count else { continue }
     for index in 1..<source.path.points.count {
       let a = source.path.points[index - 1], b = source.path.points[index]
       let c = executed.path.points[index - 1], d = executed.path.points[index]
       let sourceLength = hypot(b.x - a.x, b.y - a.y)
       if sourceLength > 1e-9 {
+        if let camera, let height = try? cameraArtworkControllerHeight(
+          sourceDelta: a.vector(to: b), machineDelta: c.vector(to: d),
+          fieldHeight: candidate.program.fieldExtent.height, camera: camera) { return height }
         return candidate.program.fieldExtent.height * hypot(d.x - c.x, d.y - c.y) / sourceLength
       }
     }
   }
   return candidate.program.fieldExtent.height * attempt.intent.plan.placement.uniformScale
+}
+
+/// Removing K restores the authored similarity, so one nonzero corresponding
+/// segment identifies its scale/rotation without assuming equal command travel.
+func cameraArtworkControllerHeight(sourceDelta: Vector2<FieldSpace>, machineDelta: Vector2<MachineSpace>,
+  fieldHeight: Double, camera: DrawingCameraGeometry) throws -> Double {
+  let inverse = try camera.commandCorrection.inverted()
+  let x = inverse.m11 * machineDelta.dx + inverse.m12 * machineDelta.dy
+  let y = inverse.m21 * machineDelta.dx + inverse.m22 * machineDelta.dy
+  let squaredLength = sourceDelta.dx * sourceDelta.dx + sourceDelta.dy * sourceDelta.dy
+  guard squaredLength > 0 else { throw PortraitCandidateError.invalidPresentation }
+  let p = (x * sourceDelta.dx + y * sourceDelta.dy) / squaredLength
+  let q = (y * sourceDelta.dx - x * sourceDelta.dy) / squaredLength
+  let k = camera.commandCorrection
+  let height = fieldHeight * hypot(-k.m11 * q + k.m12 * p, -k.m21 * q + k.m22 * p)
+  guard height.isFinite, height > 0 else { throw PortraitCandidateError.invalidPresentation }
+  return height
 }
 
 private func physicalMaterialMeasurementApplies(_ context: DrawingRunAttemptContext) -> Bool {

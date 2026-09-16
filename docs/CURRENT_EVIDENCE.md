@@ -8,6 +8,45 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Camera-proportioned drawing placement, 2026-09-15
+
+Task `task-e4ee383c033e45ff85f827daef18e4e2` began from `c1b769b` with target
+`main`. Ordinary artwork now uses the accepted Guided Learning command-to-image
+response to compensate unequal axis travel and shear in its canonical placement.
+The implementation uses no ruler inputs and writes no controller settings.
+Initial Guided Learning is retained; normal-drawing feedback does not yet update
+the motion model. Camera foreshortening is part of the accepted camera-relative
+objective, and physical metric accuracy remains independently unverified.
+
+The strict focused SwiftPM run passed 82 tests in 12.531 seconds. Coverage includes
+anisotropy, shear, reflection, authored rotation, corrected Fit bounds, unchanged
+controller metric targets, canonical plan compatibility, border composition and
+candidate identity, saved camera preview replay, conservative material spacing,
+and the complete portrait projection/material/Draw/persistence journey. These are
+software and synthetic execution checks, not attended camera or ink evidence.
+
+Three medium-reasoning subagents reviewed the implementation. Their two findings
+were stale material freshness comparisons and direction-dependent physical-rating
+height metadata. Both were repaired. Coordinator tracing also found the border
+candidate matcher's similarity assumption; camera compositions now verify one
+affine across every source/target point while legacy compositions keep their old
+contract. A bounded repair review found no remaining concrete defect. Focused
+failure receipts include test compilation corrections and two floating-point
+exact-equality assumptions; the final focused run above passed.
+
+The complete strict quick-test selection passed 1,361 tests sequentially in
+405.977 seconds, with six opt-in native/reference-input/performance tests skipped. Its
+first parallel run completed with two unrelated speech/cancellation timeouts;
+both affected suites then passed all 17 tests in isolation in 0.011 seconds.
+No production speech code was changed. Stable local signing, bundle validation,
+launcher logic/identity checks and negative-bundle validation passed. The final
+documentation and diff gates are recorded alongside these receipts.
+
+Validation receipts and the immutable signed test app are staged under
+`.build/camera-proportions-e4ee383c-evidence/` and `.build/StudioTestApps/`.
+The running application is preserved. Native acceptance, the next Guided Learning
+run, and actual face/ink quality remain pending the operator's attended test.
+
 ## Pen-cap failure feedback and Learning reset recovery, 2026-09-15
 
 Task `task-a4da8fb0915c4a03a706e08ac9d8ea33` began from `3f6c1ca` with target

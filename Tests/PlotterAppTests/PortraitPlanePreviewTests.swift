@@ -10,6 +10,65 @@ import Testing
 @Suite("Portrait drawing plane preview", .serialized)
 @MainActor
 struct PortraitPlanePreviewTests {
+  @Test("Camera Fit contains corrected field corners in a translated narrow region",
+    arguments: [0.0, 90.0, 37.0])
+  func cameraFit(rotation: Double) throws {
+    let camera = try DrawingCameraGeometry(cameraFromMachine: .init(
+      m11: -1.7, m12: 0.2, m21: 0.04, m22: -1.34, tx: 1600, ty: 280))
+    let region = try DrawableMachineRegion(bounds: AxisAlignedBounds(minX: 100, minY: -90, maxX: 310, maxY: -10))
+    let extent = try Size2<FieldSpace>(width: 100, height: 160)
+    let scale = PlotterDrawingPlanningAdapter.scaleRange(extent: extent, rotationDegrees: rotation,
+      region: region, cameraGeometry: camera).upperBound
+    let placement = try DrawingPlacement(fieldAnchor: Point2(x: 50, y: 80), machineAnchor: Point2(x: 205, y: -50),
+      uniformScale: scale, rotationRadians: rotation * .pi / 180, cameraGeometry: camera)
+    let field = try AxisAlignedBounds<FieldSpace>(minX: 0, minY: 0, maxX: 100, maxY: 160)
+    let points = try field.corners.map { try placement.applying(to: $0) }
+    #expect(points.allSatisfy { region.effectiveBounds.contains($0) })
+    let width = try #require(points.map(\.x).max()) - #require(points.map(\.x).min())
+    let height = try #require(points.map(\.y).max()) - #require(points.map(\.y).min())
+    #expect(abs(max(width / 210, height / 80) - 0.9) < 1e-12)
+  }
+
+  @Test("Camera preview preserves proportions, shows the projected region, and replays its saved mapping",
+    arguments: [0.0, 90.0, 37.0])
+  func cameraGeometryAndHistoricalReplay(rotation: Double) throws {
+    let camera = try DrawingCameraGeometry(cameraFromMachine: .init(
+      m11: -1.7, m12: 0.2, m21: 0.04, m22: -1.34, tx: 1600, ty: 280))
+    let fixture = try PlanePreviewFixture(rotation: rotation, cameraGeometry: camera)
+    let preview = fixture.source.resolve(program: fixture.program, nominalWidth: 0.4)
+    let size = CGSize(width: 600, height: 600)
+    let rendered = try #require(preview.geometry(in: size))
+    #expect(rendered.regionOutline?.count == 4)
+    #expect(preview.statusText.contains("Camera-proportioned"))
+    let scale = fixture.plan.placement.uniformScale * camera.referencePixelsPerUnit * rendered.screenScale
+    for (source, screen) in zip(fixture.program.strokes, rendered.paths) {
+      for index in screen.indices.dropFirst() {
+        let expected = source.path.points[index - 1].distance(to: source.path.points[index]) * scale
+        #expect(abs(hypot(screen[index].x - screen[index - 1].x,
+          screen[index].y - screen[index - 1].y) - expected) < 1e-9)
+      }
+    }
+    let context = try #require(preview.presentationContext)
+    #expect(context.rendererRevision == "portrait-camera-preview-v3")
+    try context.validateDisplayEvidence(program: fixture.program)
+    let saved = try JSONDecoder().decode(PortraitPresentationContext.self, from: JSONEncoder().encode(context))
+    let replay = try #require(PortraitPlanePreview.historical(program: fixture.program, presentation: saved).geometry(in: size))
+    #expect(replay.paths == rendered.paths)
+    #expect(replay.regionOutline == rendered.regionOutline)
+    #expect(replay.lineWidth == rendered.lineWidth)
+    #expect(preview.materialReferenceHeight == fixture.program.fieldExtent.height * fixture.plan.placement.minimumScale)
+    let sourcePoints: [Point2<FieldSpace>] = try [Point2(x: 0, y: 0), Point2(x: 40, y: 0),
+      Point2(x: 0, y: 40), Point2(x: 30, y: 20)]
+    let origin = try fixture.plan.placement.applying(to: sourcePoints[0])
+    let expectedHeight = try #require(preview.actualDrawingHeightMM)
+    for point in sourcePoints.dropFirst() {
+      let target = try fixture.plan.placement.applying(to: point)
+      let recoveredHeight = try cameraArtworkControllerHeight(sourceDelta: sourcePoints[0].vector(to: point),
+        machineDelta: origin.vector(to: target), fieldHeight: fixture.program.fieldExtent.height, camera: camera)
+      #expect(abs(recoveredHeight - expectedHeight) < 1e-9)
+    }
+  }
+
   @Test("Translated non-square region maps exact planned points with one scale at every authored rotation",
     arguments: [0.0, 90.0, 37.0])
   func plannedGeometry(rotation: Double) throws {
@@ -211,12 +270,13 @@ private struct PlanePreviewFixture {
   let region: DrawableMachineRegion
   let plan: ExecutionPlanRevision
   var source: PortraitPlanePreviewSource { .init(region: region, artworkPlan: plan) }
-  init(rotation: Double = 0, program: DrawingProgram? = nil) throws {
+  init(rotation: Double = 0, program: DrawingProgram? = nil, cameraGeometry: DrawingCameraGeometry? = nil) throws {
     self.program = try program ?? DrawingProgramCatalog.program(for: .rectangle,
       style: StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID()))
     region = try DrawableMachineRegion(bounds: AxisAlignedBounds(minX: -310, minY: -210, maxX: -90, maxY: -70), edgeClearance: 10)
     let placement = try DrawingPlacement(fieldAnchor: Point2(x: self.program.fieldExtent.width / 2, y: self.program.fieldExtent.height / 2),
-      machineAnchor: Point2(x: -185, y: -135), uniformScale: 0.5, rotationRadians: rotation * .pi / 180)
+      machineAnchor: Point2(x: -185, y: -135), uniformScale: 0.5, rotationRadians: rotation * .pi / 180,
+      cameraGeometry: cameraGeometry)
     let hash = self.program.contentHash
     plan = try DrawingPlanner.plan(program: self.program, placement: placement, drawableRegion: region,
       provenance: DrawingPlanningProvenance(modelRevisionID: DrawingModelRevisionID(), modelContentHash: hash,

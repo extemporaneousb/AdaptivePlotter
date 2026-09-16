@@ -514,6 +514,15 @@ struct DrawingStudioView<BeforeRun: View>: View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Placement").font(.headline)
       Menu("Test Target") {
+        ForEach([DrawingCatalogEntryID.square, .circle], id: \.self) { id in
+          Button("Camera " + DrawingProgramCatalog.entry(for: id).displayName) {
+            WorkbenchRequestTelemetry.nativeActionHandled("drawing.testTarget." + id.rawValue)
+            submitDraft(.selectCatalogItem(id))
+          }
+          .disabled(!presentation.authoringIsEnabled || draftRequest(.selectCatalogItem(id)) == nil)
+          .accessibilityIdentifier("drawing.testTarget." + id.rawValue)
+        }
+        Divider()
         ForEach([DrawingCatalogEntryID.metricSquare40, .metricRectangle40x20], id: \.self) { id in
           Button(DrawingProgramCatalog.entry(for: id).displayName) {
             WorkbenchRequestTelemetry.nativeActionHandled("drawing.testTarget." + id.rawValue)
@@ -528,7 +537,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
           .accessibilityIdentifier("drawing.testTarget.show")
       }
       .accessibilityIdentifier("drawing.testTarget")
-      .help("Select a metric holdout target, then set 100% and review placement before drawing.")
+      .help("Camera square and circle use Guided Learning to preserve visible proportions. Metric targets retain controller distances; at 100% they test commanded dimensions.")
       Toggle("Draw border", isOn: Binding(
         get: { presentation.drawBorder },
         set: { submitDraft(.setDrawBorder($0)) }))

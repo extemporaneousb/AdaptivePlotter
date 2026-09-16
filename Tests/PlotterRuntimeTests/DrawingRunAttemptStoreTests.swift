@@ -194,6 +194,34 @@ struct DrawingRunAttemptStoreTests {
     #expect(!valid.matches(different))
   }
 
+  @Test("Camera border candidate matching accepts affine placement but rejects reflection and nonlinear edits")
+  func cameraBorderCandidateIdentity() throws {
+    let program = try DrawingProgramCatalog.program(for: .rectangle,
+      style: StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID()))
+    let reference = DrawingRunCandidateReference(candidateID: program.contentHash.description,
+      contentHash: program.contentHash, sourceProgram: program)
+    func composed(cameraMarker: Bool, reflected: Bool = false, distorted: Bool = false) throws -> DrawingProgram {
+      var strokes = try program.strokes.map { source in
+        let points = try source.path.points.enumerated().map { index, point in
+          try Point2<FieldSpace>(x: 250 + (reflected ? -2 : 2) * point.x + 0.2 * point.y,
+            y: 50 + point.y + (distorted && index == 2 ? 1 : 0))
+        }
+        return LogicalStroke(id: source.id, path: try Polyline(points: points), style: source.style,
+          semanticRole: source.semanticRole, ordering: source.ordering)
+      }
+      strokes.append(LogicalStroke(id: StrokeID(), path: try Polyline(points: [Point2(x: 0, y: 0), Point2(x: 500, y: 500)]),
+        style: program.strokes[0].style, ordering: UInt32(strokes.count)))
+      let marker = cameraMarker ? "|camera-geometry-v1" : ""
+      return try DrawingProgram(id: ProgramID(), fieldExtent: Size2(width: 500, height: 500), strokes: strokes,
+        source: DrawingSourceProvenance(kind: program.source.kind,
+          sourceIdentifier: "\(program.source.sourceIdentifier)\(marker)|draw-border-v1|artwork=\(program.contentHash)"))
+    }
+    #expect(try reference.matches(composed(cameraMarker: true)))
+    #expect(try !reference.matches(composed(cameraMarker: false)))
+    #expect(try !reference.matches(composed(cameraMarker: true, reflected: true)))
+    #expect(try !reference.matches(composed(cameraMarker: true, distorted: true)))
+  }
+
   @Test("Checksummed composite pixels must equal their retained raw provenance on restart")
   func derivedPixelIntegrity() async throws {
     let original = try fixture()

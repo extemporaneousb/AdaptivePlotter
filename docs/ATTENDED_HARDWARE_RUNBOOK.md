@@ -294,6 +294,27 @@ Up and observe the existing stroke, but it must not redraw it.
 
 ## 6. Portrait Studio — two distinct physical plans
 
+### Camera-proportioned drawing increment
+
+For the camera-based proportion check, rerun initial Guided Learning in the new
+build with the intended camera position. No ruler measurements or controller
+steps-per-mm changes are inputs. In Drawing Studio, **Test Target → Camera Square**
+or **Camera Circle**, then **Show Target** and **Fit**, uses the same corrected
+placement as the face. Inspect the plotter video and the portrait preview: the
+square should have equal visible sides and right angles; the circle should be
+round. The region outline may remain skewed because it represents the learned
+controller boundary. **Metric** targets intentionally retain controller distances
+and are not the proportion check for this increment.
+
+Then project the selected face with **Show on Plotter Video**, inspect placement,
+and draw through the ordinary attended path below. Record whether the actual ink
+matches the prediction and whether the face proportions look right. Existing
+ratings retain their stated screen/physical objective; this increment does not
+feed those ratings back into the motion model. Camera agreement remains separate
+from independent physical dimensions. Native and ink acceptance must be recorded
+after this attended run, not inferred from software tests or a signed bundle.
+
+
 1. Show **Guided Learning**, **Video Settings**, **Motion**, and **Portrait Studio**
    from native **View** Show/Hide commands. Panes fill right, left, lower-right,
    lower-left around the permanent canvas; native dividers resize them.
@@ -311,7 +332,7 @@ Up and observe the existing stroke, but it must not redraw it.
    Stop acceptance before deliberately held lower work settles; it supplies no
    native input or actual-controller Stop evidence.
 4. Import the face reference in Portrait Studio, choose the portrait style,
-   and use **Show on Plotter Video**. Fit uses the better 0° or 90° orientation.
+   and use **Show on Plotter Video**. Fit retains the explicitly authored rotation.
    Adjust scale/placement so the first portrait occupies one half of the region.
    Inspect the complete immutable plan and exact plotter frame before **Draw**.
    No pre-run Learning/evidence-role selector is required.

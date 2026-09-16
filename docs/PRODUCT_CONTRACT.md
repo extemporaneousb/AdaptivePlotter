@@ -1703,14 +1703,20 @@ this ordinary-drawing path. The candidate does not change the active model.
 Portrait proportions derive from the actual cropped source pixel dimensions, not
 from clamped or rounded analyzed-raster dimensions. New render identity includes
 that source metric; previously accepted programs remain immutable. Fit preserves
-the authored rotation and applies a single uniform scale, leaving unused area as
-needed. Rotation remains explicit in the placement controls.
+the authored rotation and leaves unused area as needed. Rotation remains explicit
+in the placement controls.
 
-Placement is one immutable field-to-machine
-transform. Controller coordinates currently provide the nominal millimetre metric;
-the camera affine is a projection and is not independent physical-axis calibration.
-Independent physical ratios and orthogonality remain unverified until attended
-measurement; a proportional software plan alone does not establish them. `DrawingPlanner` clips nothing: every planned stroke must fit inside
+Ordinary artwork uses the accepted Guided Learning command-to-camera affine to
+preserve proportions in the plotter image. Unequal axis response and shear are
+compensated in one immutable `DrawingPlacement`, before planning every stroke.
+This first increment retains initial Guided Learning, requires no ruler inputs or
+controller calibration, and does not update the mapping from later drawing grades.
+Camera foreshortening is accepted as part of this camera-relative drawing objective;
+physical ratios, orthogonality, and millimeters remain independently unverified.
+The Size multiplier preserves nominal command area; Fit uses the corrected rotated
+field bounds. Explicit metric square/rectangle targets, coverage experiments and
+Guided Learning marks retain their authored controller-distance geometry. Camera
+square/circle targets exercise the same compensated placement as portraits. `DrawingPlanner` clips nothing: every planned stroke must fit inside
 the effective `DrawableMachineRegion`, or planning is refused. The resulting
 `ExecutionPlanRevision` is content-addressed and binds program, placement,
 region, calibration/model provenance, ordered strokes, and one checkpoint per

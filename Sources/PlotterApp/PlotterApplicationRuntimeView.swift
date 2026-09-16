@@ -205,9 +205,9 @@ struct PlotterApplicationRuntimeView: View {
         Text(status).font(.caption).foregroundStyle(.secondary)
       }
       if let context = application.portraitStudio.selectedCandidate?.recipe.vectorOptions.materialContext,
-        let program = application.drawingDraftSnapshot.program,
-        let plan = application.drawingDraftSnapshot.plan,
-        !context.matches(drawingHeightMM: program.fieldExtent.height * plan.placement.uniformScale,
+        let height = application.portraitPlanePreviewSource.resolve(
+          program: application.portraitStudio.selectedCandidate?.program, nominalWidth: 0.4).materialReferenceHeight,
+        !context.matches(drawingHeightMM: height,
           profileKey: application.drawingMaterials.activeKey) {
         Text("Material or drawing scale changed. Apply the current material to create a newly adapted candidate.")
           .font(.caption).foregroundStyle(.secondary)
