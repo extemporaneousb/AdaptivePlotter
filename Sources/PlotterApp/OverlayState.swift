@@ -125,7 +125,7 @@ enum OverlayStatusGrammar {
     "Analyzing — latest requested frame \(frame) …"
   }
   static let notFound =
-    "Not found — no pixels passed the selected pen-cap color thresholds."
+    "No pen cap detected — no pixels matched the selected cap color."
   static func ambiguous(candidateSizes: [Int]) -> String {
     "Ambiguous — \(candidateSizes.map(String.init).joined(separator: ", ")); refusing to choose."
   }
@@ -173,6 +173,21 @@ struct OverlayChannelResult: Hashable, Sendable {
   }
 }
 
+extension OverlayChannelResult {
+  /// Diagnostics may describe an older analyzed frame, with that age explicit.
+  /// This never makes its geometry eligible for rendering on the live frame.
+  func diagnosticStatus(for overlay: UserSceneOverlay, displayedFrame: DisplayedFrame) -> OverlayLayerStatus? {
+    guard provenance.source == displayedFrame.source,
+      provenance.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID,
+      provenance.captureNanoseconds <= displayedFrame.frame.captureNanoseconds,
+      let status = statuses[overlay]
+    else { return nil }
+    return OverlayLayerStatus(state: status.state,
+      message: "Last analyzed frame \(provenance.frameSequence): \(status.message)",
+      provenance: status.provenance)
+  }
+}
+
 enum WorkflowOverlayOwner: Int, CaseIterable, Hashable, Sendable {
   case cameraCalibration
   case drawingStudio
@@ -187,6 +202,10 @@ struct OverlayResultChannels: Hashable, Sendable {
 
   mutating func publishScene(_ result: OverlayChannelResult) {
     scene = result
+  }
+
+  mutating func clearScene() {
+    scene = nil
   }
 
   mutating func publishWorkflow(

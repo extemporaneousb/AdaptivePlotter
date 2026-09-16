@@ -139,6 +139,12 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
     // request. Otherwise the same green control remains clickable while the
     // lower camera/controller effect is suspended.
     phase = .preparing
+    if intent == .buildFivePositionProposal {
+      // A previous attempt may have stopped after moving away from its
+      // reference. Every operator retry binds a new frame and current pose.
+      anchorFrame = nil; referencePosition = nil; referenceCapAnchor = nil
+      correspondenceEvidence = []; proposedRegistration = nil; failure = nil
+    }
     publishStateChange()
     let task: Task<PlotterCameraCalibrationSubmissionOutcome, Never> = Task { @MainActor [weak self, effectPort] in
       guard let self, self.canExecute(operationID: operationID) else { return .cancelled }

@@ -141,6 +141,24 @@ struct LearningPathPresentationTests {
     #expect(selection.selected == .stage(.humanGuidedDiscovery))
   }
 
+  @Test("reset completion follows the runtime destination before or after its publication")
+  func resetCompletionFollowsPublishedCurrent() {
+    let old = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let reset = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    for publicationFirst in [true, false] {
+      var selection = LearningPathSelectionState(current: old)
+      selection.select(.humanGuidedDiscovery(.calibratePenContactFromSparseMarks))
+      if publicationFirst { selection.updateCurrent(reset) }
+      // The reset dialog must only return to current, never write its captured
+      // pre-submit `old` value over a newer runtime publication.
+      selection.returnToCurrent()
+      if !publicationFirst { selection.updateCurrent(reset) }
+      #expect(selection.current == reset)
+      #expect(selection.selected == reset)
+      #expect(!selection.isReviewingAnotherItem)
+    }
+  }
+
   @Test("critical cues carry explicit visible and accessible values")
   func typedCues() {
     #expect(PresentationCue.up.visibleText == "UP")

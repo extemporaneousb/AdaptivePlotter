@@ -38,7 +38,7 @@ struct WorkbenchInteractionRenderingTests {
       resetSurface: base.resetSurface, menu: base.menu)
     let view = LearningPathView(selection: .constant(.init(current: item)), projection: projection,
       learningMode: workspace.testLearningModePresentation,
-      currentLearningPathItemID: item, plotterUIProjection: semantic,
+      plotterUIProjection: semantic,
       plotterUIIntentSink: workspace)
     _ = NSApplication.shared
     for (scheme, name) in [(ColorScheme.light, "light"), (.dark, "dark")] {

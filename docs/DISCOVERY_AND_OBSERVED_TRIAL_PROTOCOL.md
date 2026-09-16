@@ -136,7 +136,9 @@ If no LIVE appearance has been accepted, the persisted Pen cap and Armature
 envelope overlay choices do not change, but both layers report Unavailable and
 no LIVE geometry is rendered. An armature envelope is available only from an
 accepted cap result and remains explicitly inferred, not independently
-segmented.
+segmented. The Video settings show each enabled overlay's analysis status. A
+missing cap reports **No pen cap detected**; a learned color alone is not proof
+that the cap remains detectable.
 
 The accepted values become the current Up and Down settings consumed by later
 pen operations. They are not required to remain constant across the run.
@@ -244,6 +246,12 @@ The ordered positions and roles are:
    nothing. Installing the registration and its fitted presentation bounds
    preserves the exact visible camera-pixel rectangle and any compatible locked
    analysis region.
+
+Camera-calibration failures remain visible in the Learning instructions with
+the detector's concrete reason. After changing a cap, use **Reset All Learning**
+and identify the replacement cap. Each operator-started calibration retry
+captures a new reference frame and current machine pose; it does not reuse the
+reference from a failed attempt that may have stopped at another position.
 
 The cap landmark is not the hidden paper-contact point. Three non-collinear
 samples without the two holdouts cannot become authority.
@@ -606,7 +614,9 @@ shows the exact suffix and rejects a stale summary. Reset All Learning is always
 available from the Learning Path menu. It cancels and settles a current
 Learning-owned operation through its typed owner, then clears all accepted
 Learning authority for the current source, including the durable accepted
-checkpoint, and returns progression to Exercise 1.1. Reset itself admits no
+checkpoint, and returns progression to Exercise 1.1. Reset also clears the selected cap appearance for the current source and stops
+analysis with that old color, so Exercise 1.1 requires a new exact-frame cap
+selection. Reset itself admits no
 new motion, changes no pen state merely to reset, never resends or redraws, and
 does not claim to erase ink. It preserves the controller session, Motion
 authorization, and selected camera so direct manual controls remain independent.

@@ -12,6 +12,20 @@ import Testing
 struct PlotterLearningPresentationCompilerTests {
   private let normalizer = PlotterLearningDetailedPresentationNormalizer()
 
+  @Test("camera failure and retry progress are visible in the Learning instructions")
+  func cameraFailureIsVisible() {
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let failure = PlotterCameraCalibrationFailure(
+      code: .requiredStateMissing, detail: "No pen cap detected.", recovery: .resolveNamedFailure)
+    let failed = project(postBoundarySnapshot(camera: .init(failure: failure)), selectedItemID: owner)
+    #expect(failed.selectedAction.instructions.accessibilityText.contains("No pen cap detected."))
+    #expect(failed.selectedAction.instructions.accessibilityText.contains("Reset All Learning"))
+    let retrying = project(postBoundarySnapshot(camera: .init(phase: .preparing, failure: failure)), selectedItemID: owner)
+    #expect(retrying.selectedAction.instructions.accessibilityText == "Preparing bounded calibration")
+    let refused = project(postBoundarySnapshot(camera: .init(lastOutcome: .refused("Camera unavailable."))), selectedItemID: owner)
+    #expect(refused.selectedAction.instructions.accessibilityText.contains("Camera unavailable."))
+  }
+
   @Test("same snapshot and review selection are deterministic")
   func deterministicProjection() {
     let snapshot = PlotterLearningPresentationFacts()

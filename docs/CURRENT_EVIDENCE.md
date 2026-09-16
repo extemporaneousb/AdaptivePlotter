@@ -8,6 +8,36 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Pen-cap failure feedback and Learning reset recovery, 2026-09-15
+
+Task `task-a4da8fb0915c4a03a706e08ac9d8ea33` began from `3f6c1ca` with target
+`main`. Read-only inspection used machine session
+`fc532bfb-72dd-4bd8-b739-4f92f873e6ca` and the app's UI-action log. The last
+five-position calibration ran from 21:40:38 to 21:41:58 PDT: all four sampling
+moves and the return completed, ending Idle at X 247.770, Y -25.881 with no
+controller alarm/error lines during the attempt. The UI then reported the
+calibration request refused. The timing and runtime sequence place the failure
+after return, in fit/holdout validation; the retained log does not establish the
+exact rejection detail or prove that zero matching cap pixels caused it.
+Cancel, Restart, Cancel and Reset All Learning were subsequently accepted.
+
+The Learning presentation omitted the retained camera failure, and its reset
+sheet completion could overwrite newly published progression with a captured
+pre-reset exercise. Both are corrected. Resetting from Exercise 1.1 also clears
+the current source's cap appearance and stops its old automatic color analysis.
+A new calibration attempt reacquires its reference frame and current pose.
+Video settings expose frame-qualified detector diagnostics; a zero-match frame
+reports **No pen cap detected**. Older diagnostic text never authorizes stale
+geometry. Existing holdout, exact-frame, settlement and no-redraw checks remain.
+
+The 64-test focused SwiftPM run passed, covering reset completion in either
+publication order, clearing a selected LIVE cap, missing-cap failure and lease
+release, diagnostic camera identity, visible failure detail, and fresh-reference
+retry. Validation receipts are retained under `.build/cap-recovery-a4da8f-evidence/`.
+The first cold compilation was interrupted by an additional source fix; the
+stable-source rebuild and focused tests passed. No hardware commands, live app
+restart, or attended physical cap/reset validation were performed by this task.
+
 ## Portrait drawing-plane correction, 2026-09-13
 
 Task `task-d53998adea1f4068b350adbddd8d93ae` began from clean primary main

@@ -110,6 +110,31 @@ extension PlotterApplicationRuntimeTests {
     await workspace.shutdown()
   }
 
+  @Test("Reset All removes the selected LIVE cap appearance and stops its old color analysis")
+  func resetAllClearsUntrackableCapAppearance() async throws {
+    let log = EventLog()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
+    let selection = testPenCapAppearanceSelection(color: PenCapColor(red: 190, green: 30, blue: 170))
+    let workspace = plotterApplicationRuntime(
+      machine: machine, camera: camera, loadPenCapAppearanceSelection: { selection }, log: log)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    #expect(workspace.penCapAppearanceSelection == selection)
+    let preferences = workspace.overlayPreferenceState
+    let plan = try #require(workspace.resetAllLearningPlan)
+
+    #expect(await workspace.submitResetAllLearning(plan))
+
+    #expect(workspace.penCapAppearanceSelection == nil)
+    #expect(workspace.persistedPenCapAppearanceLoadState == .absent)
+    #expect(workspace.overlayPreferenceState == preferences)
+    #expect(camera.recordedAutomaticInspectionRequests.last == .some(nil))
+    #expect(camera.recordedAutomaticFeatureRequests.last == [])
+    #expect(workspace.testCurrentLearningPathItemID == .humanGuidedDiscovery(.penInteraction))
+    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.title) == ["Identify Pen Cap"])
+    await workspace.shutdown()
+  }
+
   @Test("Reset All settles camera work without permanently closing its green action")
   func resetAllKeepsCameraCalibrationReusable() async throws {
     let harness = makeCausalSimulatorAppFixture()

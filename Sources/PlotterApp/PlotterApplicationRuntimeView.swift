@@ -115,7 +115,7 @@ struct PlotterApplicationRuntimeView: View {
     switch panel {
     case .guidedLearning:
       LearningPathView(selection: $selection, projection: ui.learningPath, learningMode: ui.learningMode,
-        currentLearningPathItemID: ui.currentLearningPathItemID, plotterUIProjection: ui.semantic,
+        plotterUIProjection: ui.semantic,
         plotterUIIntentSink: application)
     case .videoSettings:
       WorkbenchVideoSettings(application: application, projection: ui.observationConfiguration,

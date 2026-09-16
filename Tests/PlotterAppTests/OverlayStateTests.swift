@@ -8,6 +8,21 @@ import Testing
 @Suite("Overlay ownership and state")
 @MainActor
 struct OverlayStateTests {
+  @Test("missing-cap diagnostics retain their analyzed frame and reject another camera")
+  func missingCapDiagnosticIsFrameQualified() throws {
+    let configuration = CameraConfigurationID()
+    let analyzed = try displayedFrame(id: "analyzed", source: .simulated, configuration: configuration)
+    let current = try displayedFrame(id: "newer", source: .simulated, configuration: configuration, sequence: 2)
+    let result = OverlayChannelResult(displayedFrame: analyzed, overlays: [], statuses: [
+      .penCap: OverlayLayerStatus(state: .unavailable, message: OverlayStatusGrammar.notFound,
+        provenance: ExactFrameOverlayProvenance(analyzed))
+    ])
+    #expect(result.diagnosticStatus(for: .penCap, displayedFrame: current)?.message
+      == "Last analyzed frame 1: No pen cap detected — no pixels matched the selected cap color.")
+    let other = try displayedFrame(id: "other", source: .simulated, configuration: CameraConfigurationID())
+    #expect(result.diagnosticStatus(for: .penCap, displayedFrame: other) == nil)
+  }
+
   @Test("exactly two operator overlay preferences are retained without result cards")
   func exactGlobalControls() {
     #expect(UserSceneOverlay.allCases == [.penCap, .armatureEnvelope])

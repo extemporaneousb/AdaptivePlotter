@@ -65,6 +65,9 @@ struct WorkbenchVideoSettings: View {
             Toggle(overlay.title, isOn: Binding(
               get: { projection.enabledOverlays.contains(overlay) },
               set: { submit(PlotterAppUIActionID.observationOverlay(overlay.rawValue, enabled: $0)) }))
+            if projection.enabledOverlays.contains(overlay) {
+              VideoOverlayStatus(application: application, overlay: overlay)
+            }
           }
         }
         Picker("Analysis rate", selection: Binding(get: { projection.cadence }, set: {
@@ -119,5 +122,21 @@ struct WorkbenchVideoSettings: View {
       }
       if case .refused(let refusal) = await application.submitPlotterUIRequest(request) { requestError = refusal.remedy }
     }
+  }
+}
+
+/// Observe analysis updates only inside the video diagnostics leaf.
+private struct VideoOverlayStatus: View {
+  let application: PlotterApplicationRuntime
+  let overlay: UserSceneOverlay
+
+  var body: some View {
+    let _ = application.actionSurfacePreview.presentationRevision
+    let status = application.overlayDiagnosticStatus(for: overlay)
+    Text(status.message)
+      .font(.caption)
+      .foregroundStyle(status.state == .unavailable || status.state == .failed ? .orange : .secondary)
+      .textSelection(.enabled)
+      .accessibilityIdentifier("workbench.video.\(overlay.rawValue).status")
   }
 }

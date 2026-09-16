@@ -3405,6 +3405,15 @@ final class PlotterApplicationRuntime:
     ).statuses[overlay]!
   }
 
+  func overlayDiagnosticStatus(for overlay: UserSceneOverlay) -> OverlayLayerStatus {
+    let exact = overlayStatus(for: overlay)
+    guard exact.state == .stale || exact.state == .analyzing,
+      let frame = frozenPointSelectionFrame ?? displayedFrame,
+      let diagnostic = overlayResultChannels.scene?.diagnosticStatus(for: overlay, displayedFrame: frame)
+    else { return exact }
+    return diagnostic
+  }
+
   private var sceneOverlayIsAvailable: Bool {
     guard frameMode == .live, case .running = cameraSnapshot?.state else { return false }
     return true
@@ -12574,6 +12583,17 @@ final class PlotterApplicationRuntime:
   }
 
   private func clearPenLearningForRewind() async {
+    // The selected appearance is part of Exercise 1.1, including when its
+    // sampled color was accepted but could not be tracked in later frames.
+    switch frameMode {
+    case .live:
+      livePenCapAppearanceSelection = nil
+      persistedPenCapAppearanceLoadState = .absent
+    case .simulated:
+      simulatedPenCapAppearanceSelection = nil
+    }
+    overlayResultChannels.clearScene()
+    await reconcileAutomaticVisionAnalysis()
     frozenPointSelectionFrame = nil
     pendingToolContactEvidence = []
     pendingToolContactClickFrame = nil

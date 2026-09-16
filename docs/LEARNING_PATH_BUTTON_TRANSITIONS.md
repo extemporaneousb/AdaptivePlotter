@@ -251,3 +251,10 @@ they are not forward gates. **Accept Camera Calibration** commits the
 five-position camera calibration. **Accept Pen-Tip Calibration** commits the
 four-click pen-tip calibration. Exercises 1.3 and 1.4 begin directly with their
 physical actions.
+
+Camera-calibration failure detail is rendered in the selected exercise, including
+**No pen cap detected** when no pixels match the selected color. The existing
+retry action captures a fresh reference frame and pose. **Reset All Learning**
+clears the current source's cap appearance as well as accepted Learning, returns
+to **Identify Pen Cap**, and preserves controller, camera selection, and Motion
+authorization. Enabled Video overlays expose their analysis status.

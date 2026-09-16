@@ -723,6 +723,21 @@ extension PlotterLearningDetailedPresentationNormalizer {
         actionStrip: actionStrip
       )
     case .humanGuidedDiscovery(let step):
+      if step == .calibrateCameraAndVisibleCap {
+        let camera = snapshot.cameraCalibration
+        let detail: String? = if let phase = camera.phase {
+          phase.description
+        } else if let failure = camera.failure {
+          "Camera calibration stopped: \(failure.detail) If the cap color changed, use Learning Path Actions → Reset All Learning, then Identify Pen Cap with a clearly visible colored cap."
+        } else if case .refused(let reason) = camera.lastOutcome {
+          "Camera calibration refused: \(reason)"
+        } else { nil }
+        if let detail {
+          return OperatorActionPresentation(
+            itemID: itemID, instructions: [.text(detail)], actionStrip: actionStrip
+          )
+        }
+      }
       if step == .calibratePenContactFromSparseMarks,
         case .possibleInkBlacklisted(_, let reason) = snapshot.sparseCalibration.phase {
         return OperatorActionPresentation(

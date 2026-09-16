@@ -312,9 +312,13 @@ struct CameraStableWorkflowCapLeaseOperation: CameraSourceSessionVisionLeaseOper
         throw LearningPathOperationError.freshFrameUnavailable
       }
       guard case .found(let cap, _) = inspection.measurement.penCap else {
-        throw LearningPathOperationError.requiredState(
-          "Pen-cap measurement refused: \(inspection.measurement.penCap.diagnosticReason)."
-        )
+        let detail: String
+        if case .notFound = inspection.measurement.penCap {
+          detail = "No pen cap detected. No pixels matched the selected cap color; check cap visibility and lighting, or reset Learning and identify a more distinct colored cap."
+        } else {
+          detail = "Pen-cap measurement refused: \(inspection.measurement.penCap.diagnosticReason)."
+        }
+        throw LearningPathOperationError.requiredState(detail)
       }
       samples.append(StableWorkflowCapInspection(inspection: inspection, cap: cap))
       boundary = inspection.displayedFrame.frame.captureNanoseconds

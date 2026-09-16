@@ -363,6 +363,37 @@ struct CameraCompositionVisionLifecycleTests {
     _ = await session.stop()
   }
 
+  @Test("missing cap reports detection failure and releases exact Vision ownership")
+  func missingCapReportsActionableFailure() async throws {
+    let device = CameraDevice(id: CameraDeviceID(rawValue: "missing-cap-camera"), name: "Missing Cap")
+    let driver = VisionLifecycleCameraDriver(device: device)
+    let capture = CameraCapture(driver: driver)
+    let worker = VisionWorker()
+    let pipeline = PlotterSceneAnalysisPipeline(worker: worker, clock: DeterministicRuntimeClock())
+    let session = CameraSourceSession(live: capture, vision: worker,
+      analysisPipeline: pipeline, plannedDrawingObserver: worker)
+    _ = await session.discover()
+    _ = await session.start()
+    let request = Task {
+      try await session.captureStableWorkflowCap(StableWorkflowCapCaptureRequest(newerThanNanoseconds: 100))
+    }
+    try await waitUntilStableCap("missing cap lease") {
+      await session.visionDiagnostics().activeExclusiveLeaseCount == 1
+    }
+    await driver.emit(value: 128, captureNanoseconds: 200)
+    do {
+      _ = try await request.value
+      Issue.record("A gray frame must not produce a cap measurement")
+    } catch LearningPathOperationError.requiredState(let detail) {
+      #expect(detail.contains("No pen cap detected"))
+      #expect(detail.contains("selected cap color"))
+    }
+    let diagnostics = await session.visionDiagnostics()
+    #expect(diagnostics.activeExclusiveLeaseCount == 0)
+    #expect(diagnostics.capture.previewPauseReleaseCount == 1)
+    _ = await session.stop()
+  }
+
   @Test("cap variation is diagnostic and cancellation settles its exclusive lifecycle")
   func capVariationAndCancellationSettle() async throws {
     let device = CameraDevice(

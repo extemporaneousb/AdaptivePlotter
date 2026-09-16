@@ -10,7 +10,6 @@ struct LearningPathView: View {
   @Binding var selection: LearningPathSelectionState
   let projection: LearningPathProjection?
   let learningMode: LearningModePresentation
-  let currentLearningPathItemID: LearningPathItemID
   let plotterUIProjection: PlotterUIProjection
   let plotterUIIntentSink: any PlotterUIIntentSink
   @State private var pendingResetPlan: LearningVacatePlan?
@@ -97,7 +96,8 @@ struct LearningPathView: View {
         plan: plan, authorityError: projection.resetSurface.authorityError,
         plotterUIProjection: plotterUIProjection, plotterUIIntentSink: plotterUIIntentSink,
         completed: {
-          selection.updateCurrent(currentLearningPathItemID)
+          // The runtime may have published its new current item while this
+          // sheet awaited reset. Never restore the pre-submit captured item.
           selection.returnToCurrent()
           pendingResetPlan = nil
         }

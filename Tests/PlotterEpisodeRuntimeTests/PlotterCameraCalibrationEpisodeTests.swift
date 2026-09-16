@@ -1,3 +1,6 @@
+import Foundation
+import PlotterModel
+import PlotterRuntime
 import PlotterEpisodeRuntime
 import Testing
 
@@ -15,6 +18,18 @@ struct PlotterCameraCalibrationEpisodeTests {
     #expect(snapshot.failure?.detail == "Vision did not return five exact cap samples.")
     #expect(snapshot.terminalHistory.last?.outcome == outcome)
     #expect(await port.calls == [.capture])
+  }
+
+  @Test("retry after cap acquisition failure captures a new reference instead of reusing the old pose")
+  func retryRefreshesReference() async throws {
+    let port = try RetryCameraCalibrationPortFixture()
+    let runtime = await PlotterCameraCalibrationRuntime(effectPort: port)
+    #expect(await runtime.submit(.buildFivePositionProposal) == .failed("No pen cap detected."))
+    #expect(await runtime.snapshot().referencePosition == (try MachinePosition(x: 0, y: 0)))
+    #expect(await runtime.submit(.buildFivePositionProposal) == .failed("No pen cap detected."))
+    #expect(await port.referenceCaptures == 2)
+    #expect(await runtime.snapshot().referencePosition == (try MachinePosition(x: 24, y: 0)))
+    #expect(await port.plannedReferences == [try MachinePosition(x: 0, y: 0), try MachinePosition(x: 24, y: 0)])
   }
 
   @Test("shutdown closes admission without invoking a lower effect")
@@ -104,5 +119,41 @@ private actor CameraCalibrationPortFixture: PlotterCameraCalibrationEffectPort {
       detail: "Vision did not return five exact cap samples.",
       recovery: .resolveNamedFailure
     ))
+  }
+}
+
+private actor RetryCameraCalibrationPortFixture: PlotterCameraCalibrationEffectPort {
+  let frame: DisplayedFrame
+  let cap: ToolCapAnchorEstimate
+  private(set) var referenceCaptures = 0
+  private(set) var plannedReferences: [MachinePosition] = []
+
+  init() throws {
+    let configuration = CameraConfigurationID()
+    let frameID = FrameID(rawValue: "retry-reference")
+    frame = DisplayedFrame(source: .simulated, frame: try StampedFrame(
+      id: frameID, sequence: 1, captureNanoseconds: 10, cameraConfigurationID: configuration,
+      width: 4, height: 4, rowBytes: 4, pixelFormat: .gray8,
+      bytes: OwnedFrameBytes(Array(repeating: 0, count: 16))))
+    cap = try ToolCapAnchorEstimate(
+      componentCentroid: Point2(x: 2, y: 2),
+      componentBounds: AxisAlignedBounds(minX: 1, minY: 1, maxX: 3, maxY: 3),
+      confidence: 0.9, estimatorRevision: "retry-test", source: .simulated,
+      frameID: frameID, cameraConfigurationID: configuration)
+  }
+
+  func execute(_ request: PlotterCameraCalibrationEffectRequest) async -> PlotterCameraCalibrationEffectResult {
+    switch request {
+    case .captureReference:
+      let x = Double(referenceCaptures * 24)
+      referenceCaptures += 1
+      return .completed(.reference(frame: frame, position: try! MachinePosition(x: x, y: 0), capAnchor: cap))
+    case .fivePositionPlan(_, let reference):
+      plannedReferences.append(reference)
+      return .failed(.init(code: .requiredStateMissing, detail: "No pen cap detected.", recovery: .resolveNamedFailure))
+    default:
+      Issue.record("Unexpected effect after failed acquisition")
+      return .cancelled
+    }
   }
 }
