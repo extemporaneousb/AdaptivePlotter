@@ -48,6 +48,16 @@ struct WorkbenchVideoSettings: View {
         .disabled(application.workbenchCameraRole == .plotter && projection.regionLock != nil)
         .accessibilityIdentifier("workbench.video.zoom")
       if application.workbenchCameraRole == .plotter {
+        OperatorRequestButton(
+          title: application.drawingTargetIsVisible ? "Hide Drawing" : "Show Drawing",
+          request: semantic.request(matching: .drawingDraft(
+            application.drawingTargetIsVisible ? .hideTarget : .showTarget)),
+          unavailableReason: nil,
+          sink: application,
+          nativeActionIdentifier: "workbench.video.drawingVisibility"
+        )
+        .help("Show or hide the current drawing preview on the video. Its placement is retained.")
+        .accessibilityIdentifier("workbench.video.drawingVisibility")
         HStack {
           Picker("Source", selection: Binding(
             get: { projection.frameMode == .simulated ? "simulated" : projection.selectedCameraID?.rawValue ?? "" },

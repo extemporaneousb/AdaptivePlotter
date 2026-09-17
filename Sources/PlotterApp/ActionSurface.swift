@@ -811,6 +811,20 @@ struct ActionSurface: View {
           .padding(8)
         }
       }
+      .overlay(alignment: .topTrailing) {
+        if overlayContent.targetPreview != nil {
+          OperatorRequestButton(
+            title: "Hide Drawing",
+            request: plotterUIProjection.request(matching: .drawingDraft(.hideTarget)),
+            unavailableReason: nil,
+            sink: plotterUIIntentSink,
+            nativeActionIdentifier: "drawing.hideTarget"
+          )
+          .help("Clear the drawing preview from the video. Keep its placement for Show Drawing.")
+          .accessibilityIdentifier("drawing.hideTarget")
+          .padding(8)
+        }
+      }
       .overlay(alignment: .bottomTrailing) {
         if presentation.completedComparisonReview.isPresentedOnCanvas {
           CompletedComparisonReviewControls(
@@ -890,6 +904,12 @@ struct ActionSurface: View {
       )
       .onChange(of: presentation.viewportContext, initial: true) { _, context in
         viewport.synchronize(with: context)
+      }
+      .onChange(of: presentation.drawingStudioCanvas == nil, initial: true) { _, hidden in
+        if hidden {
+          pendingDrawingPlacement = nil
+          drawingPlacementRefusal = nil
+        }
       }
       .onChange(of: pointSelectionPendingIdentity, initial: true) { prior, current in
         guard let pendingPointSelection else { return }

@@ -655,15 +655,15 @@ struct SavedLearningPhysicalPoseTests {
     let overlays = restarted.testActionSurfacePresentation.overlays
     #expect(overlays.first { $0.provenance.kind == .acceptedBoundary }?.geometry == expectedBoundary)
     #expect(overlays.first { $0.provenance.kind == .drawingBorder }?.geometry == expectedBorder)
-    #expect(!overlays.contains { $0.provenance.algorithmRevision == "saved-drawing-plan-projection-v1" })
+    #expect(!overlays.contains { $0.provenance.kind == .intendedPath })
     guard case .loaded(let archive) = await f.stores.evidenceStore.load() else {
       Issue.record("Historical plan disappeared instead of being excluded from current projection")
       await restarted.shutdown(); return
     }
     #expect(archive.records == [oldRecord])
 
-    // The exclusion is specific to old-coordinate history. An ordinary fresh
-    // program still obtains a preview from the rebased accepted geometry.
+    // Archived history is independent of authoring. An ordinary fresh program
+    // still obtains a preview from the rebased accepted geometry.
     try await applyCompleteSavedLearning(restarted)
     let program = try PortraitVectorizer.program(from: portraitTestRaster(), pose: .front,
       style: .contours, strokeStyle: restarted.drawingStrokeStyle)

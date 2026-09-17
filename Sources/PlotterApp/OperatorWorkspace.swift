@@ -3221,38 +3221,9 @@ final class PlotterApplicationRuntime:
         )
       )
     }
-    if let savedCandidate {
-      for record in drawingEvidenceArchive.records
-      where Self.savedDrawingEvidenceIsCurrentForPresentation(
-        record.paper,
-        savedIdentity: savedCandidate.semanticIdentity,
-        exactPointSelectionIsActive: pointSelectionRequest != nil
-      ) {
-        // Immutable records retain their original machine-coordinate frame.
-        // A current translated map must never reinterpret those old numbers.
-        guard record.tipCalibration.applicability == registration.applicability,
-          let plan = record.plan.executionPlan else { continue }
-        for stroke in plan.strokes {
-          guard let projected = try? Polyline(
-            points: stroke.path.points.map {
-              try registration.diagnosticProjection(at: $0).cameraPoint
-            }
-          ) else { continue }
-          overlays.append(
-            CameraOverlayMeasurement(
-              frameID: displayedFrame.frame.id,
-              cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
-              geometry: .polyline(projected),
-              provenance: CameraMeasurementProvenance(
-                kind: .intendedPath,
-                source: .diagnostic,
-                algorithmRevision: "saved-drawing-plan-projection-v1"
-              )
-            )
-          )
-        }
-      }
-    }
+    // Saved Learning supplies calibrated guides, not a selection of artwork.
+    // Archived plans retain their original placement and evidence context;
+    // projecting them all here bypasses Draft visibility and duplicates targets.
     if let coverage = drawingDraftSnapshot.paperCoverageDisplay,
       coverage.source == displayedFrame.source,
       coverage.frame == ExactFrameProvenance(frame: displayedFrame.frame),
@@ -3272,16 +3243,6 @@ final class PlotterApplicationRuntime:
       )
     }
     return overlays
-  }
-
-  nonisolated static func savedDrawingEvidenceIsCurrentForPresentation(
-    _ recordPaper: PaperRevisionContext,
-    savedIdentity: LearningPathSemanticIdentity,
-    exactPointSelectionIsActive: Bool
-  ) -> Bool {
-    !exactPointSelectionIsActive
-      && recordPaper.instance == savedIdentity.paperInstance
-      && recordPaper.contactPlane == savedIdentity.paperContactPlane
   }
 
   var completedComparisonReviewPresentation: CompletedComparisonReviewPresentation {

@@ -1823,11 +1823,11 @@ identity.
 Loading produces one exhaustive saved-package candidate and mutates no
 `LearningDependencyGraph` or registration owner. `PlotterApplicationRuntime` projects
 compatible saved geometry and uses the package's one bounded reference frame to
-produce an advisory integer-shift/background-MAD report. The saved-plan overlay
-requires each record's typed calibration applicability to equal the selected
-registration's applicability. A coordinate-frame change therefore excludes old
-numeric archived strokes from current projection while preserving the record
-and current calibrated Boundary/Border. Fresh programs still plan and preview
+produce an advisory integer-shift/background-MAD report. Saved Learning projects
+calibrated Boundary/Border guides, never archived drawing strokes. Archive records
+retain their own placement and evidence context without becoming live targets;
+this also prevents stale numeric coordinates from being reinterpreted through a
+different registration. Fresh programs still plan and preview
 against the rebased registration. Drawing placement uses one compact action-kind
 identity per pending projection; full exact-frame/point intent equality and current
 revisions remain authoritative at submission. Embedding the frame's description
@@ -2121,6 +2121,12 @@ retained authoring overlay. They do not change execution revision and are not
 panel lifecycle commands. The cancelled-waiter path removes queued draft
 mutations promptly and resumes each continuation once, including when an older
 paper save remains suspended at its lower persistence boundary.
+`ActionSurface` exposes **Hide Drawing** beside a visible target;
+`WorkbenchVideoSettings` exposes the matching show/hide request independently
+of the Studio panel. Both submit the existing Draft capability. Hiding retires
+the canvas's staged drag, leaves execution/paper/evidence authority unchanged,
+and cannot reveal an archive overlay behind the target. Startup retains the
+Draft owner's hidden default.
 
 `PlotterDrawingPlanningAdapter` is the sole upper-layer route into the retained
 lower pure `DrawingPlanner`. The draft route produces deterministic catalog,

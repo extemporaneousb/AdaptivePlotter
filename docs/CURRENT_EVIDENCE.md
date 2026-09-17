@@ -8,6 +8,41 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing overlay restart and visibility repair, 2026-09-16
+
+Task `task-4b6387a818c942d8958ab043292ab569` began from `835e65e` with target
+`main`. Read-only inspection of the operator's 13-record drawing archive found
+four plans accepted by the previous automatic overlay filter. Two were portraits:
+the cancelled `18D9D6AA` plan projects to camera X 1688–2059, partly beyond the
+1920-pixel frame, while `94E2198F` projects to X 981–1230. The code projected every
+matching saved plan through the selected registration independently of Draft
+target visibility. These calculated bounds explain the screenshot's separated
+copies; they are not physical alignment measurements.
+
+The automatic archive-to-video loop and its obsolete filter are removed.
+Saved Learning retains calibrated Boundary/Border guides. The current Draft
+preview has a direct **Hide Drawing** control on the video and a **Show Drawing** /
+**Hide Drawing** control in Video Settings. Both use existing typed Draft
+requests; hiding also clears an unapplied canvas drag. Programs, placements,
+paper assertions, Learning, archived evidence and possible-ink protection retain
+their existing owners. Restart begins with no selected drawing overlay.
+
+The focused strict SwiftPM selection passed 62 tests. The strengthened production
+fixture additionally verifies hiding/showing after a stopped possible-ink run
+while disconnected, including unchanged plan, paper, archive and ink protection.
+The initial parallel quick-test run reported timing failures in recording,
+speech, voice and photo-shutdown fixtures and was stopped before completion for
+sequential verification. No production code in those areas was changed.
+The final strict sequential quick-test selection passed 1,362 tests in 428.426
+seconds, with six opt-in native/reference/performance tests skipped. Every
+previously failing test passed in that run. Documentation and diff checks passed.
+
+The signed debug bundle passes strict signature/bundle validation and is staged
+as `.build/StudioTestApps/AdaptivePlotter-Overlay-4b6387.app`; receipts are retained
+under `.build/drawing-overlay-4b6387-evidence/`. The user-owned running application
+is preserved. Native button/drag interaction, camera alignment and physical ink
+behavior remain unverified; no LIVE app restart or hardware action was performed.
+
 ## Camera-proportioned drawing placement, 2026-09-15
 
 Task `task-e4ee383c033e45ff85f827daef18e4e2` began from `c1b769b` with target

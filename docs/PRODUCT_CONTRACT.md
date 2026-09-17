@@ -1283,15 +1283,14 @@ legacy files after successful save.
 Loading creates one presentation-only Saved Learning candidate. It cannot restore Motion authorization,
 current Pen pose, workflow state, operation ownership, a Stop capability, a
 pending command, a current camera frame, or a continuation. Before any choice,
-the app projects compatible saved frame/tip/cap/drawing geometry onto the
+the app projects compatible saved calibrated Boundary, Border and cap geometry onto the
 current frame and reports bounded integer shift plus background mean absolute
 difference when a compatible saved reference exists. That report is advisory;
-it has no threshold and cannot accept or reject the package. Archived numeric
-paths are projected only when their recorded typed applicability matches the
-current registration. After a coordinate rebase, old-coordinate records remain
-immutable history but their paths are omitted from the current camera overlay;
-the rebased calibrated Boundary and Border remain visible. The app cannot
-reinterpret old numeric paths through a new map as if their frame were current.
+it has no threshold and cannot accept or reject the package. Archived drawing
+paths are never automatically projected onto live video, even when paper and
+calibration applicability match. Records retain their original placement and
+evidence context for review and ink protection; they do not select the current
+target. The calibrated Boundary and Border remain visible.
 
 The startup candidate exposes exactly **Use Saved Learning** and **Start New
 Learning**. Use Saved Learning atomically rebuilds the process-local dependency
@@ -1532,6 +1531,11 @@ and authored draft revision; the owner derives their plan against current facts,
 including facts whose publication follows Apply Saved. Target visibility belongs to the
 draft presentation and does not alter execution identity. Panel visibility is
 separate window state and never submits target show/hide.
+**Hide Drawing** is directly available on the video while a target preview is
+visible, and **Show Drawing** / **Hide Drawing** is available in Video Settings.
+Hiding clears the preview and any staged drag, retaining the program, placement,
+paper assertion, Learning and ink protection. It works while disconnected and
+requires no paper replacement. Startup begins with the authoring target hidden.
 Exact-frame placement and paper assertion require the complete projected draft
 and external-fact identity, including the displayed frame. Experiment selection
 also binds its relevant Learning, geometry, and evidence facts. The sheet control
