@@ -28,11 +28,13 @@ public struct DrawingRunCandidateReference: Codable, Hashable, Sendable {
     guard executionProgram.source.kind == sourceProgram.source.kind,
       cameraComposition || executionProgram.source.sourceIdentifier == sourceProgram.source.sourceIdentifier + suffix,
       executionProgram.strokes.count == sourceProgram.strokes.count + 1 else { return false }
-    let pairs = zip(sourceProgram.strokes, executionProgram.strokes)
+    // The ordinary border compositor may place its one extra stroke first or
+    // last. Match retained source identities, never assume execution order.
+    let targets = Dictionary(uniqueKeysWithValues: executionProgram.strokes.map { ($0.id, $0) })
     var sourcePoints: [Point2<FieldSpace>] = []
     var targetPoints: [Point2<FieldSpace>] = []
-    for (source, target) in pairs {
-      guard source.id == target.id, source.style == target.style,
+    for source in sourceProgram.strokes {
+      guard let target = targets[source.id], source.style == target.style,
         source.semanticRole == target.semanticRole,
         source.path.points.count == target.path.points.count else { return false }
       sourcePoints += source.path.points; targetPoints += target.path.points

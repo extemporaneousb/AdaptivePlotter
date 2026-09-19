@@ -40,12 +40,15 @@ struct PortraitStudioNativeLayoutTests {
       let model = application.portraitStudio
       let pen = application.drawingStrokeStyle
       model.options = .init(cropToFace: false, removeBackground: false)
-      model.renderIfNeeded(strokeStyle: pen)
+      model.setStyleComparisonExpanded(true, strokeStyle: pen)
       model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: pen)
       await model.awaitRendering()
       #expect(model.algorithmCandidates.count == PortraitStyle.allCases.count)
       model.selectAlgorithm(.hatch, strokeStyle: pen)
-      for size in [NSSize(width: 1000, height: 550), NSSize(width: 1280, height: 650)] {
+      let sizes = [NSSize(width: 1000, height: 550), NSSize(width: 1280, height: 650)]
+      for (size, expanded) in sizes.flatMap({ size in [false, true].map { (size, $0) } }) {
+        model.setStyleComparisonExpanded(false, strokeStyle: pen)
+        await model.awaitRendering()
         let host = NSHostingController(rootView:
           PlotterApplicationRuntimeView(application: application).panelContent(.portraitStudio)
             .background(Color(nsColor: .windowBackgroundColor))
@@ -60,9 +63,15 @@ struct PortraitStudioNativeLayoutTests {
         window.setContentSize(size)
         window.orderFront(nil)
         await settle(host.view)
+        // Open Styles only after this actual host has appeared and the prior
+        // window's onDisappear has finished removing its comparison demand.
+        model.setStyleComparisonExpanded(expanded, strokeStyle: pen)
+        await model.awaitRendering()
+        await settle(host.view)
         #expect(abs(host.view.bounds.width - size.width) < 2)
         #expect(abs(host.view.bounds.height - size.height) < 2)
         #expect(!window.isKeyWindow)
+        #expect(model.isStyleComparisonExpanded == expanded)
         for scroll in views(host.view).compactMap({ $0 as? NSScrollView }) {
           let document = try #require(scroll.documentView)
           #expect(document.bounds.height <= scroll.contentView.bounds.height + 2,
@@ -77,7 +86,7 @@ struct PortraitStudioNativeLayoutTests {
           #expect(host.view.bounds.insetBy(dx: -2, dy: -2).contains(rect),
             "Production Portrait control was clipped: \(rect) in \(host.view.bounds)")
         }
-        try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: "workspace")
+        try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: "workspace-\(expanded ? "expanded" : "folded")")
         window.close()
       }
       await application.shutdown()
@@ -122,6 +131,8 @@ struct PortraitStudioNativeLayoutTests {
   }
 
   private func inspectPanel(application: PlotterApplicationRuntime, width: Int, alternateSelection: String, requiresAX: Bool) async throws {
+    let drawingPreview = try #require(application.drawingStudioPresentation.drawingPreview)
+    #expect(drawingPreview.plane.geometry(in: CGSize(width: width - 24, height: 160)) != nil)
     let panel = PlotterApplicationRuntimeView(application: application).panelContent(.drawing)
     let host = NSHostingController(rootView: panel
       .background(Color(nsColor: .windowBackgroundColor))
@@ -150,10 +161,13 @@ struct PortraitStudioNativeLayoutTests {
     application.portraitStudio.sketches.selectedID = alternateSelection
     await settle(host.view)
     #expect(application.portraitStudio.selectedCandidate?.id == alternateSelection)
+    #expect(application.drawingStudioPresentation.drawingPreview == drawingPreview,
+      "Browsing a saved Studio drawing must not substitute the Drawing panel's program or plan.")
     try assertHostedGeometry(host: host.view, window: window, width: width)
     try captureOptionalSnapshots(host: host.view, width: width, stage: "selected")
+    let outerScroll = try #require(views(host.view).compactMap { $0 as? NSScrollView }.first)
+    let pinnedPreview = try pinnedPreviewPixels(host: host.view, controls: outerScroll)
     guard requiresAX else {
-      let outerScroll = try #require(views(host.view).compactMap { $0 as? NSScrollView }.first)
       let document = try #require(outerScroll.documentView)
       let before = outerScroll.contentView.bounds.origin
       let bottomY = document.isFlipped ? max(0, document.bounds.maxY - outerScroll.contentView.bounds.height) : document.bounds.minY
@@ -168,11 +182,20 @@ struct PortraitStudioNativeLayoutTests {
         #expect(outerScroll.contentView.bounds.origin == before,
           "A complete Drawing panel should stay visible without scrolling at \(width) pt.")
       }
+      #expect(try pinnedPreviewPixels(host: host.view, controls: outerScroll) == pinnedPreview,
+        "The production drawing preview must remain fixed while the Drawing controls scroll.")
+      try captureOptionalSnapshots(host: host.view, width: width, stage: "scrolled")
       // This proves document geometry and conditional scrolling; the opt-in
       // AX test additionally identifies Draw and checks its visible frame.
       return
     }
     try assertSectionOrder(in: window, width: width)
+    let preview = try requiredElement("drawing.previewSection", in: window)
+    #expect(descendants(window).filter { $0.accessibilityIdentifier() == "drawing.previewSection" }.count == 1)
+    #expect(containingScrollViews(preview, in: window).isEmpty,
+      "The sole Drawing preview must be outside the control scroller.")
+    let previewFrame = preview.accessibilityFrame()
+    #expect(window.frame.contains(previewFrame))
 
     // The material and run owners are generic; Portrait authoring and its
     // former rating/training sections do not belong to this scroll document.
@@ -190,6 +213,8 @@ struct PortraitStudioNativeLayoutTests {
     }
     reveal(draw, in: window)
     await settle(host.view)
+    #expect(preview.accessibilityFrame() == previewFrame)
+    #expect(try pinnedPreviewPixels(host: host.view, controls: outerScroll) == pinnedPreview)
     let frame = draw.accessibilityFrame()
     #expect(frame.width > 0 && frame.height > 0)
     for scroll in scrolls {
@@ -228,6 +253,11 @@ struct PortraitStudioNativeLayoutTests {
     for control in controls {
       #expect(control.bounds.width <= clip.bounds.width + 2,
         "Native \(String(reflecting: type(of: control))) exceeds panel width \(width): \(control.bounds).")
+      if !control.isDescendant(of: document) {
+        #expect(host.bounds.insetBy(dx: -2, dy: -2).contains(control.convert(control.bounds, to: host)),
+          "A pinned Drawing preview control must remain inside its viewport.")
+        continue
+      }
       let rect = control.convert(control.bounds, to: document)
       #expect(rect.minX >= document.bounds.minX - 2 && rect.maxX <= document.bounds.maxX + 2,
         "Native control extends beyond the hosted document at \(width) pt: \(rect).")
@@ -237,6 +267,18 @@ struct PortraitStudioNativeLayoutTests {
           "A compact Drawing panel control is outside the visible viewport at \(width) pt: \(viewportRect).")
       }
     }
+  }
+
+  private func pinnedPreviewPixels(host: NSView, controls: NSScrollView) throws -> Data {
+    let controlsFrame = controls.convert(controls.bounds, to: host)
+    let top = host.isFlipped ? host.bounds.minY : controlsFrame.maxY
+    let height = host.isFlipped ? controlsFrame.minY - host.bounds.minY
+      : host.bounds.maxY - controlsFrame.maxY
+    try #require(height > 40, "The actual production panel must retain a visible preview above its scroller.")
+    let rect = CGRect(x: host.bounds.minX, y: top, width: host.bounds.width, height: height)
+    let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: rect))
+    host.cacheDisplay(in: rect, to: bitmap)
+    return try #require(bitmap.representation(using: .png, properties: [:]))
   }
 
   private func assertSectionOrder(in window: NSWindow, width: Int) throws {

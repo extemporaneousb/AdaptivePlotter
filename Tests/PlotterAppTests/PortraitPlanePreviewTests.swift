@@ -10,6 +10,66 @@ import Testing
 @Suite("Portrait drawing plane preview", .serialized)
 @MainActor
 struct PortraitPlanePreviewTests {
+  @Test("sealed plans render stored machine paths without borrowing the current authored program",
+    arguments: [0.0, 90.0, 37.0])
+  func exactPlanOnlyGeometry(rotation: Double) throws {
+    let fixture = try PlanePreviewFixture(rotation: rotation)
+    let first = try #require(fixture.plan.strokes.first)
+    let start = first.path.points[0], end = first.path.points[1]
+    // A shortened admitted segment must remain shortened in the preview. The
+    // authored rectangle still contains its full original stroke.
+    let midpoint = try Point2<MachineSpace>(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+    let shortened = PlannedMachineStroke(logicalStrokeID: first.logicalStrokeID,
+      path: try Polyline(points: [start, midpoint]), style: first.style,
+      semanticRole: first.semanticRole, ordering: first.ordering,
+      endingCheckpointID: first.endingCheckpointID)
+    let plan = try ExecutionPlanRevision(sourceProgramID: fixture.plan.sourceProgramID,
+      sourceProgramContentHash: fixture.plan.sourceProgramContentHash,
+      placement: fixture.plan.placement, drawableRegion: fixture.region,
+      provenance: fixture.plan.provenance,
+      strokes: [shortened] + Array(fixture.plan.strokes.dropFirst()), checkpoints: fixture.plan.checkpoints)
+    let preview = PortraitPlanePreview.planned(plan)
+    #expect(preview.program == nil)
+    #expect(preview.plannedStrokes == plan.strokes)
+    #expect(preview.evidence?.planContentHash == plan.contentHash.description)
+    let geometry = try #require(preview.geometry(in: CGSize(width: 600, height: 600)))
+    let bounds = fixture.region.effectiveBounds
+    for (path, stroke) in zip(geometry.paths, plan.strokes) {
+      #expect(path.count == stroke.path.points.count)
+      for (screen, machine) in zip(path, stroke.path.points) {
+        #expect(abs(screen.x - (machine.x - bounds.minX) * 3) < 1e-10)
+        #expect(abs(screen.y - (480 - (machine.y - bounds.minY) * 3)) < 1e-10)
+      }
+    }
+    #expect(geometry.paths.first?.count == 2)
+    #expect(geometry.regionRect == CGRect(x: 0, y: 120, width: 600, height: 360))
+  }
+
+  @Test("Drawing preview prefers retained run geometry over later draft and authoring changes")
+  func retainedRunPreviewOwnership() throws {
+    let run = try PlanePreviewFixture(rotation: 37)
+    let newerDraft = try PlanePreviewFixture(rotation: 90)
+    let retained = try #require(DrawingStudioPreview.resolve(draftProgram: newerDraft.program,
+      draftPlan: newerDraft.plan, retainedPlan: run.plan, runOwnsPlan: true))
+    #expect(retained.title == "Run drawing")
+    #expect(retained.plan == run.plan)
+    #expect(retained.plane.plannedStrokes == run.plan.strokes)
+    #expect(retained.plane.evidence?.placement == run.plan.placement)
+    #expect(DrawingStudioPreview.resolve(draftProgram: newerDraft.program,
+      draftPlan: newerDraft.plan, retainedPlan: nil, runOwnsPlan: true) == nil)
+    let idle = try #require(DrawingStudioPreview.resolve(draftProgram: newerDraft.program,
+      draftPlan: newerDraft.plan, retainedPlan: run.plan, runOwnsPlan: false))
+    #expect(idle.title == "Planned drawing")
+    #expect(idle.plan == newerDraft.plan)
+    let reference = try #require(DrawingStudioPreview.resolve(draftProgram: newerDraft.program,
+      draftPlan: nil, retainedPlan: nil, runOwnsPlan: false))
+    #expect(reference.title == "Reference drawing")
+    #expect(reference.plan == nil)
+    #expect(reference.plane.evidence?.mode == .reference)
+    #expect(reference.plane.actualDrawingHeightMM == nil)
+    #expect(reference.plane.geometry(in: CGSize(width: 270, height: 160)) != nil)
+  }
+
   @Test("Camera Fit contains corrected field corners in a translated narrow region",
     arguments: [0.0, 90.0, 37.0])
   func cameraFit(rotation: Double) throws {

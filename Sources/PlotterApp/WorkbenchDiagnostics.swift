@@ -1,6 +1,9 @@
 import AppKit
 import Foundation
 import PlotterEpisodeModel
+import PlotterModel
+import PlotterRuntime
+import ImageIO
 import PlotterUI
 import Observation
 
@@ -25,6 +28,8 @@ struct WorkbenchDebugSnapshot: Codable, Identifiable, Sendable {
   let id: UUID
   let format: String
   let capturedAt: Date
+  let processID: Int32
+  let executablePath: String?
   let source: String
   let semanticRevision: UInt64
   let uiRevision: UInt64
@@ -34,6 +39,8 @@ struct WorkbenchDebugSnapshot: Codable, Identifiable, Sendable {
   let actions: [Action]
   let diagnostics: [String]
   let limitations: [String]
+  let camera: WorkbenchDiagnosticCamera?
+  let drawing: WorkbenchDiagnosticDrawing
 
   @MainActor
   init(application: PlotterApplicationRuntime, projection: PlotterUIProjection) {
@@ -42,8 +49,10 @@ struct WorkbenchDebugSnapshot: Codable, Identifiable, Sendable {
 
   init(capture: WorkbenchDiagnosticCapture) {
     id = capture.id
-    format = "adaptiveplotter.debug-snapshot.v1"
+    format = "adaptiveplotter.debug-snapshot.v2"
     capturedAt = capture.capturedAt
+    processID = capture.processID
+    executablePath = capture.executablePath
     source = capture.source
     semanticRevision = capture.semanticRevision
     uiRevision = capture.projection.revision.rawValue
@@ -64,10 +73,14 @@ struct WorkbenchDebugSnapshot: Codable, Identifiable, Sendable {
              unavailableReason: $0.unavailableReason)
     }
     diagnostics = capture.diagnostics
+    camera = capture.frame.map { WorkbenchDiagnosticCamera(frame: $0, visibleRegion: capture.visibleRegion, stem: capture.fileStem) }
+    drawing = capture.drawing
     limitations = [
       "Snapshot of current owners and the existing bounded Learning record (up to 128 retained transitions).",
       "Feature journals retain their own identities; no unrelated journals are merged.",
-      "Raw controller traffic, camera pixels, audio, and older or in-flight Learning transitions are not included.",
+      "Only the displayed camera pixels are copied on demand; no camera capture, analysis, or motion is requested.",
+      "A displayed frame may be frozen or stale. Its monotonic capture time and source are retained; export time is not capture time.",
+      "Raw controller traffic, audio, and older or in-flight Learning transitions are not included.",
       "This diagnostic snapshot is not a replay archive or a claim of attended physical evidence."
     ]
   }
@@ -85,14 +98,28 @@ struct WorkbenchDebugSnapshot: Codable, Identifiable, Sendable {
 struct WorkbenchDiagnosticCapture: Sendable {
   let id = UUID()
   let capturedAt = Date()
+  let processID = ProcessInfo.processInfo.processIdentifier
+  let executablePath = Bundle.main.executableURL?.path
   let source: String
   let semanticRevision: UInt64
   let projection: PlotterUIProjection
   let record: PlotterLearningEpisodeRecord
   let diagnostics: [String]
+  let frame: DisplayedFrame?
+  let visibleRegion: PixelRect?
+  let drawing: WorkbenchDiagnosticDrawing
+
+  var fileStem: String {
+    let stamp = ISO8601DateFormatter().string(from: capturedAt).replacingOccurrences(of: ":", with: "-")
+    return "diagnostics-\(stamp)-\(id.uuidString)"
+  }
 
   @MainActor
-  init(application: PlotterApplicationRuntime, projection: PlotterUIProjection) {
+  init(application: PlotterApplicationRuntime, projection: PlotterUIProjection,
+       viewport: ActionSurfaceViewportState = .init()) {
+    frame = application.actionSurfacePreview.displayedFrame
+    visibleRegion = frame.flatMap { viewport.visibleRegion(frameWidth: $0.frame.width, frameHeight: $0.frame.height) }
+    drawing = WorkbenchDiagnosticDrawing(application: application)
     source = application.frameMode == .live ? "LIVE" : "SIMULATED"
     semanticRevision = application.semanticPresentationRevision
     self.projection = projection
@@ -118,10 +145,21 @@ struct WorkbenchDiagnosticCapture: Sendable {
 enum WorkbenchDiagnosticFileWriter {
   static func write(_ capture: WorkbenchDiagnosticCapture, directory: URL) async throws -> URL {
     try await Task.detached(priority: .utility) {
-      let data = try WorkbenchDebugSnapshot(capture: capture).encoded()
+      let snapshot = WorkbenchDebugSnapshot(capture: capture)
+      let data = try snapshot.encoded()
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-      let stamp = ISO8601DateFormatter().string(from: capture.capturedAt).replacingOccurrences(of: ":", with: "-")
-      let url = directory.appendingPathComponent("diagnostics-\(stamp)-\(capture.id.uuidString).json")
+      // Publish JSON last: a successful manifest never points at half-written assets.
+      if let frame = capture.frame, let camera = snapshot.camera {
+        try frame.frame.bytes.data.write(to: directory.appendingPathComponent(camera.pixelsFile), options: .atomic)
+        guard let image = FrameImageFactory.image(from: frame.frame),
+          let png = CFDataCreateMutable(nil, 0),
+          let destination = CGImageDestinationCreateWithData(png, "public.png" as CFString, 1, nil)
+        else { throw CocoaError(.fileWriteUnknown) }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        try (png as Data).write(to: directory.appendingPathComponent(camera.imageFile), options: .atomic)
+      }
+      let url = directory.appendingPathComponent(capture.fileStem + ".json")
       try data.write(to: url, options: .atomic)
       return url
     }.value

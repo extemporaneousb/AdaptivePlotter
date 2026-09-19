@@ -1273,7 +1273,15 @@ Stop dispatches existing Learning, manual motion and Drawing Run capabilities.
 
 `WorkbenchDiagnosticCapture` copies bounded immutable existing facts on MainActor;
 `WorkbenchDiagnosticFileWriter` formats transitions, encodes JSON and writes
-atomically on a detached utility task. `WorkbenchDiagnosticExporter` owns only
+atomically on a detached utility task. Its v2 snapshot binds process identity,
+the exact displayed `DisplayedFrame` and viewport region, Draft program/plan and
+Run identity/progress/retained plan. The worker seals the raw pixel hash and writes
+pixels plus PNG before publishing the JSON manifest. No camera port or new stream
+is involved. `Scripts/inspect_running_app.py` reads native window/Accessibility
+state and existing archives; its optional action invokes only the existing Export
+Diagnostics button, verifies a fresh process-matched export and its pixel hash,
+and preserves independent timestamps rather than inventing synchronization.
+`WorkbenchDiagnosticExporter` owns only
 one export's UI progress/result. It creates no journal or operational authority.
 `WorkbenchCameraCanvas` owns the local freshness read and camera/portrait/fallback
 presentation. `SimulatedLearningRuntime.previewSceneFrame()` uses the existing
@@ -1356,11 +1364,20 @@ under revision `acceptedBoundaryNumericalEpsilonV1`; its 1e-9 mm epsilon absorbs
 floating-point residue without admitting physically meaningful geometry beyond
 the accepted Boundary. `MachinePositionAcceptancePolicy` separately owns
 revision `controllerQuantizedEuclideanV2`, the Euclidean residual metric, and
-the 1 mm requested-pose settlement tolerance. Planning refuses geometry
-outside its own epsilon and neither App nor Runtime clips it.
+the 1 mm requested-pose settlement tolerance. Strict planning refuses geometry outside its own epsilon. Ordinary Draft
+artwork opts into `DrawingBoundaryPolicy.clipToDrawableRegion` in the same planner;
+segment clipping emits separate deterministic fragments/checkpoints at exits and
+re-entries. Metric targets, Learning marks and coverage retain strict planning.
 `RunInterpreter` owns a whole plan as one `RunOperation`, with
 subordinate Pen-Up travel, pen actuation, finite drawing segments, Stop, and one
-checkpoint per logical stroke. `PlannedDrawingObservation` operates only after
+checkpoint per planned stroke. `DrawingWireSchedule` derives distinct rounded
+cumulative positions from each immutable stroke using the shared
+`MachineWirePrecision` policy. It retains source-segment ranges, refuses an
+unrepresentable whole stroke before lower pen execution, and bounds component
+rounding error to half a wire unit in the interior. Feasible cumulative integer
+intervals constrain boundary rounding inward to less than one wire unit, without
+extending the admitted region. Submitted/completed progress counts are actual
+wire requests; archived intended geometry is unchanged. `PlannedDrawingObservation` operates only after
 execution and returns exact-frame observed/residual evidence or a typed
 rejection; it has no motion, resend, or promotion capability.
 `PlotterMotionThroughput.applicationXYFeedMMPerMinute` is the single model value
@@ -1770,9 +1787,12 @@ frame through coverage admission and downstream readiness.
 The application's existing `drawingBorderBounds(for:acceptedBoundary:)` geometry
 owner supplies `drawingBorderBounds` to `PlotterDrawingDraftExternalFacts`.
 The draft's `.setDrawBorder(Bool)` choice and that geometry participate in the
-revision/derivation identity. `PlotterDrawingPlanningAdapter` composes the placed
-artwork and requested closed border into one machine-aligned local
-`DrawingProgram`, then submits it to `DrawingPlanner`. The resulting single plan
+revision/derivation identity. `PlotterDrawingPlanningAdapter` maps the border
+back through the existing placement and composes it before the original artwork
+in one `DrawingProgram`, then submits it to `DrawingPlanner`. Original artwork
+points/IDs remain available for candidate identity even when final paths clip.
+The no-redraw geometry comparison matches paths independent of order, so changing
+border order cannot authorize the same ink again. The resulting single plan
 feeds preview, `PlotterDrawingRunRuntime`, checkpoints, Stop, possible ink, and
 ordinary evidence. Original artwork remains the editable source for Fit/Center;
 the Learning border owner is unchanged. Every canonical `.beginNewPlan`
@@ -2135,7 +2155,10 @@ program, placement, and content-addressed `ExecutionPlanRevision` identity.
 Its package-only `planRetainedDrawingBorder` route lets the explicitly retained
 EA-10E Border workflow reuse the same pure planner without granting draft
 authority or moving Border sequencing, motion, evidence, or outcome semantics.
-Planning clips nothing: one outside-region point refuses the complete plan.
+Ordinary artwork explicitly opts into clipping through that same planner. A path
+that exits and re-enters the effective region becomes separate strokes/checkpoints;
+fully excluded artwork has no runnable plan. Retained Border, metric targets,
+Learning marks and coverage experiments keep strict containment by default.
 
 The runtime derives the drawable region from the accepted Drawing Boundary and
 projects it through a typed diagnostic affine value, including the area between
@@ -2158,8 +2181,9 @@ chooses a different orientation. The same camera-corrected, rotated field bounds
 supply the scale slider's bounds. A changed accepted registration rebuilds the
 placement through the existing derivation key; invalid response geometry refuses
 planning rather than reverting ordinary artwork to equal controller travel.
-Registration/configuration mismatch is unavailable; outside-region planning
-shows no clipped strokes; outside-applicability projection is diagnostic-only.
+Registration/configuration mismatch is unavailable. Ordinary preview uses the
+admitted clipped plan; an empty result has no planned preview. Strict targets
+still refuse outside-region geometry; outside-applicability projection is diagnostic-only.
 None is camera/ink or physical evidence.
 
 `PaperCoverageObservation` is a separate paper-instance assertion.
@@ -2203,8 +2227,10 @@ source/configuration-keyed render caches and immutable authored candidates. Its
 existing serial acquisition/render drain also renders the five deterministic
 algorithm comparisons; there is no second renderer task owner. A comparison binds
 source, analysis/vector configuration and pen identity. The selected algorithm is
-rendered first, sibling algorithms reuse analysis, and supersession cancels/joins
-workers before stale output can publish. Selecting a tile installs its exact
+the only render demand while the Styles disclosure is closed. When opened,
+missing sibling algorithms reuse analysis and exact caches. Closing drops queued
+siblings and cancels only an active alternative; supersession cancels/joins workers
+before stale output can publish. Selecting a tile installs its exact
 candidate. Framing and tuning regenerate comparisons through that same drain.
 Ordinary Studio has no random, local-exploration, semantic-head or checkpoint-driven
 generation entrypoint. Historical formats remain readable; fitted checkpoints are
@@ -2213,7 +2239,8 @@ not loaded by the normal `loadArchive` path.
 `PortraitStudioView` fills the editing workspace instead of a scrolling control
 column. Its fixed toolbar owns capture/import/settings, frame navigation, explicit
 handoff, Save Drawing and reviewer presentation. Photo and drawing use the same
-candidate source, while algorithm tiles and framing/style parameters remain visible.
+candidate source. Framing/style parameters remain visible; algorithm tiles render
+only when their existing section is expanded.
 `StudioHelpButton` exposes explanatory text in accessible question-mark popovers.
 Pen & material presents applicable width provenance; measuring and adapting it
 remain separate explicit actions. `WorkbenchLayoutState` stores Studio presentation
@@ -2221,7 +2248,11 @@ separately from its dock slots, migrating old saved portrait slots without repla
 another control panel. Closing Studio restores the existing workbench docks.
 
 The shared Drawing panel uses `DrawingStudioView` for the same canonical Draft/Run
-requests regardless of drawing producer. Material setup and paper coverage remain
+requests regardless of drawing producer. Its plan preview selects the sealed
+`PlotterDrawingRunSnapshot.retainedExecutionPlan` during active/terminal review,
+otherwise the admitted Draft plan. That value is derived from existing owner/record
+geometry, never a second mutable plan. The global status retains terminal outcomes
+and exact reason until the existing RunID-bound new-run handoff. Material setup and paper coverage remain
 before Draw. `DrawingReviewerView` is source-independent and selects archive items
 locally; browsing never replaces the Studio candidate or runtime selection. Its
 Delete Result operation writes `deletedReviewRecordIDs` into schema-4
@@ -2321,7 +2352,7 @@ This read-only view adds no controller, planner, calibration or Learning owner. 
 `PlotterSceneAnalysisPipeline` continues to retain its cancelled drain until completion
 before starting replacement Vision work.
 
-Show on Plotter Video selects the plotter role and opens the shared Drawing panel.
+Send to Drawing selects the plotter role and opens the shared Drawing panel.
 A matching admitted program uses `.showTarget` and preserves placement; a new
 program supplies `.selectProgram(DrawingProgram)` and `.fitInDrawableRegion` to
 the existing draft runtime. The root projection binds program

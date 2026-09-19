@@ -2785,7 +2785,12 @@ final class PlotterApplicationRuntime:
   var drawingStudioPresentation: DrawingStudioPresentation {
     let draft = drawingDraftSnapshot
     let run = drawingRunSnapshot
-    let editingIsEnabled = run?.activeRunID == nil && run?.terminal == nil
+    let hasUnresolvedAttempt: Bool
+    if case .intentPublicationIncomplete = run?.evidencePersistence {
+      hasUnresolvedAttempt = true
+    } else { hasUnresolvedAttempt = false }
+    let runOwnsPlan = run?.activeRunID != nil || run?.terminal != nil || hasUnresolvedAttempt
+    let editingIsEnabled = !runOwnsPlan
     let placement = DrawingStudioPlacementPresentation(
       centerCameraPixel: draft.centerCameraPixel,
       uniformScale: draft.uniformScale,
@@ -2809,7 +2814,10 @@ final class PlotterApplicationRuntime:
       residualRecords: draft.residualRecords,
       residualAnalysis: draft.residualAnalysis,
       drawBorder: draft.drawBorder,
-      paperReplacementStatus: paperReplacementStatus
+      paperReplacementStatus: paperReplacementStatus,
+      drawingPreview: DrawingStudioPreview.resolve(draftProgram: draft.program, draftPlan: draft.plan,
+        retainedPlan: run?.retainedExecutionPlan,
+        runOwnsPlan: runOwnsPlan)
     )
   }
 
@@ -2837,7 +2845,7 @@ final class PlotterApplicationRuntime:
       )
     }
     if case .intentPublicationIncomplete(_, let detail) = snapshot.evidencePersistence {
-      return .unavailable(reason: "The durable attempt remains unresolved: " + detail)
+      return .publicationIncomplete(detail: "The durable attempt remains unresolved: " + detail)
     }
     if let terminal = snapshot.terminal {
       let detail = drawingRunTerminalDetail(terminal)
@@ -2888,10 +2896,10 @@ final class PlotterApplicationRuntime:
   }
 
   private func drawingRunTerminalDetail(_ terminal: PlotterDrawingRunTerminal) -> String {
-    switch terminal.disposition {
+    let summary: String = switch terminal.disposition {
     case .refused: "The request was refused before attributable ink evidence."
     case .cancelled: "Operator Stop settled the run. The plan will not be redrawn."
-    case .ambiguous: "Controller settlement is ambiguous. The plan will not be redrawn."
+    case .ambiguous: "The run stopped with an ambiguous outcome. The plan will not be redrawn."
     case .possibleInk: "The run may contain ink. The plan will not be redrawn."
     case .nonAttributable:
       "Controller execution completed outside tip applicability; no camera/ink attribution was claimed."
@@ -2900,6 +2908,16 @@ final class PlotterApplicationRuntime:
     case .publicationIncomplete:
       "The terminal fact is retained, but successful publication is incomplete."
     }
+    let executionReason: String?
+    switch terminal.record.executionDisposition {
+    case .completed: executionReason = nil
+    case .refused(let reason), .cancelled(let reason), .ambiguous(let reason), .failed(let reason):
+      executionReason = reason
+    }
+    let progress = terminal.record.executionFrontiers
+    let counts = "\(progress.controllerCompletedStrokeCount) of \(progress.plannedStrokeCount) strokes completed."
+    return [summary, counts, executionReason,
+      "Review this result in Drawing, then use Prepare Next Drawing to acknowledge it."].compactMap { $0 }.joined(separator: " ")
   }
 
   private func tipApplicabilityDiagnosticDetail(

@@ -322,9 +322,11 @@ public struct DrawingPlanRequest: Codable, Hashable, Sendable {
 }
 
 /// Latest controller-execution progress. Submitted segments are requests that
-/// entered `MachineController`. A commanded stroke has submitted its first
-/// nondegenerate segment. A controller-completed stroke has completed every
-/// segment, even when its subsequent Pen Up or checkpoint commit fails. Only a
+/// entered `MachineController`; planned segments count the coalesced wire
+/// schedule for an executable plan. The immutable plan retains intended source
+/// geometry, and activeSegmentIndex identifies a source segment, not a wire
+/// ordinal. A commanded stroke has submitted its first nonzero wire segment.
+/// A controller-completed stroke has completed every scheduled segment, even when its subsequent Pen Up or checkpoint commit fails. Only a
 /// successful Pen Up commits the logical stroke and checkpoint IDs.
 public struct DrawingPlanProgressSnapshot: Codable, Hashable, Sendable {
   public let operationID: DrawingPlanOperationID
@@ -417,6 +419,10 @@ public enum DrawingPlanRefusal: Codable, Hashable, Sendable {
   case initialPenRaise(PenRefusal)
   case travel(MotionRefusal)
   case penLower(PenRefusal)
+  /// No representable XY displacement exists for this entire logical stroke.
+  /// Preflight refuses before any plan travel or Pen actuation.
+  case unrepresentableStroke(StrokeID)
+  case invalidWireGeometry(StrokeID)
 }
 
 public enum DrawingPlanAmbiguity: Codable, Hashable, Sendable {

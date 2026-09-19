@@ -12,6 +12,98 @@ import Testing
 @Suite("Drawing Studio draft episode", .serialized)
 @MainActor
 struct PlotterDrawingDraftEpisodeTests {
+  @Test("clipped bordered portraits preserve candidate source identity")
+  func clippedBorderRetainsOriginalArtwork() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let style = try StrokeStyle(nominalLineWidth: 0.4,
+      penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue))
+    let program = try DrawingProgramCatalog.program(for: .square, style: style)
+    let bounds = fixture.drawableRegion.effectiveBounds
+    let built = PlotterDrawingPlanningAdapter.buildDraft(program: program,
+      machineCenter: try Point2(x: bounds.minX, y: (bounds.minY + bounds.maxY) / 2),
+      uniformScale: 0.02, rotationDegrees: 30, drawableRegion: fixture.drawableRegion,
+      registration: fixture.registration, drawBorder: true, drawingBorderBounds: bounds)
+    let execution = try #require(built.program)
+    let plan = try #require(built.plan)
+    let reference = DrawingRunCandidateReference(candidateID: program.contentHash.description,
+      contentHash: program.contentHash, sourceProgram: program)
+    #expect(reference.matches(execution))
+    #expect(execution.strokes.dropFirst().map(\.id) == program.strokes.map(\.id))
+    #expect(execution.strokes.dropFirst().map { $0.path.points.count } == program.strokes.map { $0.path.points.count })
+    #expect(plan.sourceProgramContentHash == execution.contentHash)
+    #expect(plan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
+    #expect(plan.strokes.first?.path.points.count == 5)
+    #expect(plan.strokes.dropFirst().contains { $0.logicalStrokeID != program.strokes[0].id })
+  }
+
+  @Test("metric and coverage targets retain strict boundary rejection")
+  func calibrationTargetsDoNotClip() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let style = try StrokeStyle(nominalLineWidth: 0.4,
+      penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue))
+    let metric = try DrawingProgramCatalog.program(for: .metricSquare40, style: style)
+    let coverage = try DrawingProgram(id: ProgramID(), fieldExtent: metric.fieldExtent,
+      strokes: metric.strokes, source: .init(kind: "adaptive-coverage-v1", sourceIdentifier: "strict-test"))
+    let bounds = fixture.drawableRegion.effectiveBounds
+    for program in [metric, coverage] {
+      let built = PlotterDrawingPlanningAdapter.buildDraft(program: program,
+        machineCenter: try Point2(x: bounds.minX, y: (bounds.minY + bounds.maxY) / 2),
+        uniformScale: 0.2, rotationDegrees: 30, drawableRegion: fixture.drawableRegion,
+        registration: fixture.registration)
+      #expect(built.plan == nil)
+      #expect(built.failure != nil)
+    }
+  }
+
+  @Test("Center uses un-clipped ink bounds and repeats without position drift", arguments: [false, true])
+  func centerInkBounds(drawBorder: Bool) async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let facts = fixture.facts()
+    var snapshot = try await open(runtime, facts: facts)
+    let style = try #require(snapshot.program?.strokes.first?.style)
+    let program = try DrawingProgram(id: ProgramID(), fieldExtent: .init(width: 100, height: 100),
+      strokes: [.init(id: StrokeID(), path: .init(points: [Point2(x: 60, y: 20),
+        Point2(x: 90, y: 25), Point2(x: 65, y: 30)]), style: style, ordering: 0)],
+      source: .init(kind: "test", sourceIdentifier: "asymmetric-ink"))
+    let intents: [PlotterDrawingDraftIntent] = [.selectProgram(program), .setRotationDegrees(47),
+      .setDrawBorder(drawBorder), .centerInDrawableRegion]
+    for intent in intents {
+      snapshot = try applied(await runtime.submit(.init(projection: snapshot.projection, intent: intent), facts: facts))
+    }
+    let plan = try #require(snapshot.artworkPlan)
+    let points = try program.strokes.flatMap { try plan.placement.applying(to: $0.path).points }
+    let bounds = fixture.drawableRegion.effectiveBounds
+    #expect(abs(points.map(\.x).min()! + points.map(\.x).max()! - bounds.minX - bounds.maxX) < 1e-9)
+    #expect(abs(points.map(\.y).min()! + points.map(\.y).max()! - bounds.minY - bounds.maxY) < 1e-9)
+    let repeated = try applied(await runtime.submit(.init(projection: snapshot.projection,
+      intent: .centerInDrawableRegion), facts: facts))
+    #expect(repeated.machineCenter == snapshot.machineCenter)
+    #expect(repeated.artworkPlan == snapshot.artworkPlan)
+    #expect(repeated.uniformScale == snapshot.uniformScale)
+    #expect(repeated.rotationDegrees == 47)
+  }
+
+  @Test("rotation retains authored size and exposes a drawable cropped plan at every angle")
+  func rotationRetainsSizeWithClipping() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let facts = fixture.facts()
+    var snapshot = try await open(runtime, facts: facts)
+    snapshot = try applied(await runtime.submit(.init(projection: snapshot.projection,
+      intent: .fitInDrawableRegion), facts: facts))
+    let scale = snapshot.uniformScale
+    for degrees in stride(from: -180.0, through: 180.0, by: 15.0) {
+      snapshot = try applied(await runtime.submit(.init(projection: snapshot.projection,
+        intent: .setRotationDegrees(degrees)), facts: facts))
+      let plan = try #require(snapshot.plan)
+      #expect(snapshot.uniformScale == scale)
+      #expect(snapshot.allowedScale.contains(scale))
+      #expect(plan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
+      #expect(snapshot.planningRefusal == nil)
+    }
+  }
+
   @Test("optional border shares plan identity, preview and containment while calibration stays independent")
   func optionalBorderIsCanonicalOrdinaryGeometry() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
@@ -30,18 +122,18 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(plan.sourceProgramContentHash == bordered.program?.contentHash)
     #expect(plan.strokes.count == original.strokes.count + 1)
     #expect(plan.checkpoints.count == plan.strokes.count)
-    for (composed, source) in zip(plan.strokes.dropLast(), original.strokes) {
+    for (composed, source) in zip(plan.strokes.dropFirst(), original.strokes) {
       #expect(composed.path.points.count == source.path.points.count)
       #expect(zip(composed.path.points, source.path.points).allSatisfy { $0.distance(to: $1) < 1e-10 })
     }
     #expect(plan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
     #expect(bordered.preview?.strokes.count == plan.strokes.count)
-    let border = try #require(plan.strokes.last)
+    let border = try #require(plan.strokes.first)
     #expect(border.path.points.first == border.path.points.last)
     #expect(border.semanticRole == .drawing)
     let fitted = try applied(await runtime.submit(.init(projection: bordered.projection,
       intent: .fitInDrawableRegion), facts: facts))
-    #expect(fitted.plan?.strokes.last?.path == border.path)
+    #expect(zip(fitted.plan!.strokes.first!.path.points, border.path.points).allSatisfy { $0.distance(to: $1) < 1e-9 })
     let restored = try applied(await runtime.submit(.init(projection: fitted.projection,
       intent: .setDrawBorder(false)), facts: facts))
     #expect(restored.program == opened.program)
@@ -174,17 +266,17 @@ struct PlotterDrawingDraftEpisodeTests {
           let executionProgram = try #require(bordered.program)
           #expect(reference.matches(executionProgram))
           if entry == .rectangle && angle == 0 {
-            let first = executionProgram.strokes[0]
+            let first = executionProgram.strokes[1]
             var points = first.path.points
             points[2] = try Point2(x: points[2].x + 0.1, y: points[2].y)
             let distorted = LogicalStroke(id: first.id, path: try Polyline(points: points), style: first.style,
               semanticRole: first.semanticRole, ordering: first.ordering)
             let forged = try DrawingProgram(id: executionProgram.id, fieldExtent: executionProgram.fieldExtent,
-              strokes: [distorted] + executionProgram.strokes.dropFirst(), source: executionProgram.source)
+              strokes: [executionProgram.strokes[0], distorted] + executionProgram.strokes.dropFirst(2), source: executionProgram.source)
             #expect(!reference.matches(forged))
           }
           #expect(borderPlan.strokes.count == plan.strokes.count + 1)
-          for (plainStroke, borderedStroke) in zip(plan.strokes, borderPlan.strokes) {
+          for (plainStroke, borderedStroke) in zip(plan.strokes, borderPlan.strokes.dropFirst()) {
             #expect(plainStroke.path.points.count == borderedStroke.path.points.count)
             for (a, b) in zip(plainStroke.path.points, borderedStroke.path.points) {
               #expect(a.distance(to: b) < 1e-10)
@@ -819,15 +911,18 @@ struct PlotterDrawingDraftEpisodeTests {
       y: (bounds.minY + bounds.maxY) / 2
     )
     let plan = try #require(snapshot.plan)
-    #expect(snapshot.machineCenter == expectedCenter)
-    #expect(plan.placement.machineAnchor == expectedCenter)
+    let machineCenter = try #require(snapshot.machineCenter)
+    #expect(abs(machineCenter.x - expectedCenter.x) < 1e-9)
+    #expect(abs(machineCenter.y - expectedCenter.y) < 1e-9)
+    #expect(abs(plan.placement.machineAnchor.x - expectedCenter.x) < 1e-9)
+    #expect(abs(plan.placement.machineAnchor.y - expectedCenter.y) < 1e-9)
     #expect(plan.placement.uniformScale == snapshot.uniformScale)
     #expect(abs(plan.placement.uniformScale - snapshot.allowedScale.upperBound) < 1e-12)
     #expect(abs(plan.placement.rotationRadians - .pi / 2) < 1e-12)
   }
 
-  @Test("outside-region planning refuses the complete plan without clipping strokes")
-  func outsideRegionRefusesWithoutClipping() async throws {
+  @Test("ordinary artwork crossing the boundary produces only contained executable fragments")
+  func outsideRegionClipsOrdinaryArtwork() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let runtime = PlotterDrawingDraftRuntime()
     let facts = fixture.facts()
@@ -862,20 +957,12 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(abs(preservedCenter.x - outsideCenter.x) <= 1e-9)
     #expect(abs(preservedCenter.y - outsideCenter.y) <= 1e-9)
     #expect(snapshot.program != nil)
-    #expect(snapshot.plan == nil)
-    guard let planningReason = snapshot.planningRefusal?.reason,
-      case .planningFailed = planningReason
-    else {
-      Issue.record("Expected typed planningFailed refusal for the unclipped plan.")
-      return
-    }
-    guard let previewStatus = snapshot.preview?.status,
-      case .outsideDrawableRegion = previewStatus
-    else {
-      Issue.record("Expected an outside-region diagnostic preview.")
-      return
-    }
-    #expect(snapshot.preview?.strokes.isEmpty == true)
+    let plan = try #require(snapshot.plan)
+    #expect(snapshot.planningRefusal == nil)
+    #expect(plan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
+    #expect(plan.strokes.flatMap(\.path.points).contains { abs($0.x - bounds.minX) < 1e-9 })
+    #expect(snapshot.preview?.strokes.count == plan.strokes.count)
+    #expect(plan.sourceProgramContentHash == snapshot.program?.contentHash)
   }
 
   @Test("retained Drawing Border planning uses the adapter without draft mutation authority")
@@ -1256,7 +1343,7 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(await harness.simulator.persistentInk() == inkBefore)
     #expect(workspace.visionAnalysisSnapshot == visionBefore)
     let retainedRunSideEffect: Bool = switch workspace.testDrawingStudioPresentation.runState {
-    case .running, .processing, .terminal, .publicationFailed, .reviewAvailable, .reviewing: true
+    case .running, .processing, .terminal, .publicationFailed, .publicationIncomplete, .reviewAvailable, .reviewing: true
     case .unavailable, .ready: false
     }
     #expect(!retainedRunSideEffect)

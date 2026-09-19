@@ -1446,8 +1446,9 @@ Edits retain the current drawing's explicit choice; **New Drawing** or a new-she
 plan handoff resets it off. This draft choice controls physical ink only: accepted Learning and the displayed calibrated
 outline remain available regardless. The border is the existing calibrated
 Drawing Border (10 mm inside the accepted Boundary for current calibration),
-not a repeat of Exercise 2.1. When selected, it joins the artwork in one immutable
-`DrawingProgram` and plan. Its geometry participates in preview, identity,
+not a repeat of Exercise 2.1. When selected, it precedes the artwork in one immutable
+`DrawingProgram` and plan, so an interrupted portrait can still have its frame.
+Previously retained plans keep their original order. Its geometry participates in preview, identity,
 containment, checkpoints/progress, cancellation, possible-ink handling, and the
 ordinary drawing's evidence. Initial Learning validation keeps its original
 exercise and evidence meaning. A replacement sheet needs new coverage, not
@@ -1471,6 +1472,15 @@ The session toolbar owns controller selection, amber Connect/Disconnect and
 Enable/Disable Motion actions, the diagnostic export tool, and the far-right
 red Achtung! control. Existing typed Stop requests and Escape routing are
 preserved; passive status badges and the separate command strip are removed.
+The existing diagnostic export copies the exact displayed camera pixels, their
+source/configuration/capture identity and digest, visible camera region, selected
+program, admitted draft plan, sealed run plan, current tip registration, progress
+and terminal detail. A retained plan must match that registration before its
+camera projection can be compared. Raw
+pixels and an unoverlaid PNG accompany the JSON, published last on a background
+worker. Process identity distinguishes multiple running builds. Export never
+starts a camera, moves hardware, refreshes stale evidence or turns a screenshot
+into a raw frame. A retained/frozen frame remains explicitly timestamped.
 The application-owned Voice control gates both listening and spoken output.
 Voice off drains queued/active cues; Voice on permits the existing Pen-only Stop
 route during an advisory cue. Hiding a pane does not own microphone lifetime.
@@ -1501,7 +1511,7 @@ camera or physical ink evidence.
 
 Only the selected camera captures and analyzes. Explicit portrait camera selection displays the
 face camera in the permanent canvas and suspends plotter acquisition/analysis.
-**Show on Plotter Video** retains portrait controls, images, and program, settles
+**Send to Drawing** retains portrait controls, images, and program, settles
 face capture, and returns the canvas to the plotter camera. Restarting the
 same physical plotter optics preserves accepted Learning; ephemeral capture
 identity is not optical change. Video processing must not update panel text or
@@ -1543,9 +1553,13 @@ prepares that exact reference when the operator clicks, because ambient analysis
 does not refresh the cached controls. A context change during preparation still
 refuses confirmation. Creative authoring, previews, ratings, galleries and training
 precede projection. When the plotter camera is selected, placement and material
-setup follow, then paper confirmation and Draw at the bottom. Active drawing and
-evidence-processing status remains outside the scroll area alongside the global
-Stop path. A stale authored
+setup follow, then paper confirmation and Draw at the bottom. Active drawing, evidence-processing and retained terminal status remain outside
+the scroll area alongside the global Stop path. Failed and interrupted outcomes
+retain their exact execution reason behind the existing question-mark help. The
+existing RunID-bound **Prepare Next Drawing** handoff acknowledges the result;
+hiding a pane, exporting diagnostics or reviewing images does not clear it.
+An unresolved durable attempt also remains visible, without inventing a recovery
+capability or permitting a new-run handoff. A stale authored
 revision or environment refuses the edit; fresh Learning, registration, region,
 paper, camera or run facts are not by themselves a stale-authoring refusal.
 Those current facts still determine whether a plan can be derived, whether an
@@ -1569,14 +1583,17 @@ Opening and closing it preserves those dock placements. The shared Drawing panel
 owns placement, pen/material setup, paper coverage, Draw, Stop and result review.
 Studio authoring remains available with an imported photo while disconnected.
 
-Portrait Studio presents one source photo beside its drawing, with five selectable
-rendered algorithm tiles: Tonal contours, Hatch, Crosshatch, Sketch, and Sketch +
+Portrait Studio presents one source photo beside its drawing. Its existing Styles
+section is collapsed by default and names the chosen algorithm; opening it shows
+five selectable rendered algorithm tiles: Tonal contours, Hatch, Crosshatch, Sketch, and Sketch +
 hatch. Each tile uses the same identified source and framing. Selecting it installs
 that exact completed candidate; it does not roll another variation or invoke a
 trained model. The existing renderer and one cancel-and-join work drain own every
 render, including algorithm comparisons. Changed source, framing, pen or tuning
-invalidates stale tiles and results. The selected algorithm renders first and the
-remaining algorithms reuse its analyzed raster. Framing and current algorithm
+invalidates stale tiles and results. Only the selected algorithm renders while Styles is collapsed. Opening Styles
+requests missing alternatives through that same drain and reuses analyzed rasters
+and exact cached candidates. Closing it drops queued alternatives and cancels an
+in-flight alternative without cancelling the chosen render. Framing and current algorithm
 parameters remain beside the visible drawing without vertical scrolling at the
 supported desktop workspace sizes. Crop to face, head margin and background removal
 belong to Framing; line/tone controls and detail presets belong to Style.
@@ -1616,11 +1633,17 @@ The same `PortraitPlaneProgramPreview` renders Studio, algorithm tiles and retai
 vector previews. Planned presentation uses only an exact candidate/program/region
 match to the admitted artwork plan; otherwise the view is explicitly a reference
 preview. Reference presentation does not invent physical size. The legacy thumbnail
-renderer is no longer a production UI path. Show on Plotter Video explicitly installs
+renderer is no longer a production UI path. **Send to Drawing** explicitly installs
 a selected immutable program through the existing draft intent sink and initially
 fits it. Re-showing the same admitted program preserves its current placement.
-A successful handoff reveals shared Drawing controls. Later Studio edits do not
-mutate the placed program until another explicit handoff.
+A successful handoff saves the exact candidate and reveals shared Drawing controls;
+**Save Drawing** is optional library storage, not a prerequisite. The workflow is
+Studio → Send to Drawing → placement/material/paper setup → Draw. Sending invokes
+no motion. Later Studio edits do not mutate the placed program until another
+explicit handoff. The existing Drawing panel keeps the exact admitted plan visible above its
+scrolling controls in its region frame, including rotation, clipping and optional border. While a run
+or terminal is retained it uses that sealed run plan; it never substitutes a later
+Studio candidate. Without an admitted plan, an authored preview is labeled reference.
 
 Drawing Reviewer lists saved candidates and all ordinary/portrait run results from
 the existing evidence archive. It provides Fit/100% images, Close, explicit program
@@ -1633,8 +1656,10 @@ resurrected by a delayed archive load. Candidate/source deletion continues to us
 the qualified portrait archive's existing tombstones.
 
 Fit retains the authored rotation and selects a valid uniform scale and centre.
-The same fitting calculation supplies scale limits; explicit rotation and manual
-placement remain available. Planned
+The same fitting calculation supplies scale limits; rotating ordinary artwork
+retains the current scale and clips at the accepted region. Center moves the
+transformed, un-clipped ink bounds midpoint to the region midpoint without changing
+scale or rotation; it does not center empty margins of the authored field. Planned
 geometry remains visible across advancing compatible frames and changes with
 program, placement, registration, Drawing Boundary, or optics. Measured ink and
 exact-frame point selections keep their exact identity requirements. The displayed
@@ -1680,8 +1705,11 @@ physical ratios, orthogonality, and millimeters remain independently unverified.
 The Size multiplier preserves nominal command area; Fit uses the corrected rotated
 field bounds. Explicit metric square/rectangle targets, coverage experiments and
 Guided Learning marks retain their authored controller-distance geometry. Camera
-square/circle targets exercise the same compensated placement as portraits. `DrawingPlanner` clips nothing: every planned stroke must fit inside
-the effective `DrawableMachineRegion`, or planning is refused. The resulting
+square/circle targets exercise the same compensated placement as portraits. `DrawingPlanner` remains the single planner. Ordinary artwork explicitly opts
+into clipping at the effective `DrawableMachineRegion`; exits and re-entries split
+into deterministic separate strokes and checkpoints, with no pen-down bridge.
+Fully excluded artwork produces no runnable plan. Strict containment remains the
+default for calibration, explicit metric targets and coverage experiments. The resulting
 `ExecutionPlanRevision` is content-addressed and binds program, placement,
 region, calibration/model provenance, ordered strokes, and one checkpoint per
 logical stroke. The video preview projects that exact plan through the current
@@ -1734,7 +1762,18 @@ physical boundary. It issues idempotent Pen Up normalization, supervised travel
 to the observation pose when required, and an exact baseline capture before
 delegating the whole immutable plan to `RunInterpreter`. The lower interpreter
 remains the execution owner for Pen actuation, finite segments, Stop, and
-checkpoints. App-generated travel and Pen-Down drawing both request the canonical
+checkpoints. Before lower drawing execution actuates the pen, `RunInterpreter`
+derives one per-stroke schedule by rounding cumulative displacement to the existing
+three-decimal controller format and subtracting successive distinct rounded
+positions. Wire-zero source edges coalesce; residuals carry forward within that
+stroke. Interior component error is at most 0.0005 controller units. At a non-grid
+boundary the nearest contained command is chosen inward, with error below 0.001
+units. Neither bound accumulates with segment count; the admitted region is not
+enlarged for rounding. Wholly unrepresentable strokes are explicit
+preflight refusals, not silent success or pen taps. Intended plan hashes and source
+segment indices remain retained; submitted/completed counts describe actual wire
+requests. This is serialization precision, not measured physical accuracy.
+App-generated travel and Pen-Down drawing both request the canonical
 500 mm/min XY feed; the existing controller-reported feed ceiling remains the
 lower admission authority. Controller completion is not ink verification. After clean
 completion, the runtime requires exact final MPos and a strictly newer

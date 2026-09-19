@@ -7,6 +7,131 @@ import Testing
 @Suite("Portrait algorithm comparison")
 @MainActor
 struct PortraitAlgorithmComparisonTests {
+  @Test("folded Styles render only the chosen algorithm for source, tuning and pen changes")
+  func foldedWorkload() async throws {
+    let renderer = ComparisonRenderer()
+    let model = PortraitStudioModel(renderer: renderer)
+    let pen = try portraitTestStyle()
+    model.style = .sketch
+    #expect(!model.isStyleComparisonExpanded)
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    #expect(await renderer.requests.count == 1)
+    model.vectorOptions.simplificationTolerance += 0.2
+    model.renderIfConfigurationChanged(strokeStyle: pen)
+    await model.awaitRendering()
+    #expect(await renderer.requests.count == 2)
+    let wider = try StrokeStyle(nominalLineWidth: 1.2, penProfileID: pen.penProfileID)
+    model.renderIfNeeded(strokeStyle: wider)
+    await model.awaitRendering()
+    #expect(await renderer.requests.count == 3)
+    model.setPhoto(Data([2]), for: .front, strokeStyle: wider)
+    await model.awaitRendering()
+    let requests = await renderer.requests
+    #expect(requests.count == 4)
+    #expect(requests.allSatisfy { $0.style == .sketch })
+    #expect(requests[1].cachedRaster != nil && requests[2].cachedRaster != nil)
+    #expect(model.algorithmCandidates.map(\.recipe.style) == [.sketch])
+    #expect(model.selectedCandidate?.sourceData == Data([2]))
+    #expect(!model.isComparingAlgorithms)
+    await model.shutdown()
+  }
+
+  @Test("opening renders four missing alternatives and reopening preserves cached candidate identities")
+  func demandAndCacheReuse() async throws {
+    let renderer = ComparisonRenderer()
+    let model = PortraitStudioModel(renderer: renderer)
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    let selected = try #require(model.selectedCandidate)
+    model.setStyleComparisonExpanded(true, strokeStyle: pen)
+    #expect(model.selectedCandidate?.id == selected.id)
+    #expect(!model.isProcessing)
+    await model.awaitRendering()
+    let identities = model.algorithmCandidates.map(\.id)
+    #expect(identities.count == 5)
+    let requests = await renderer.requests
+    #expect(requests.count == 5)
+    #expect(requests.dropFirst().allSatisfy { $0.cachedRaster != nil })
+    model.selectAlgorithm(.sketch, strokeStyle: pen)
+    let chosen = try #require(model.selectedCandidate)
+    model.setStyleComparisonExpanded(false, strokeStyle: pen)
+    model.setStyleComparisonExpanded(true, strokeStyle: pen)
+    await model.awaitRendering()
+    #expect(await renderer.requests.count == 5)
+    #expect(model.algorithmCandidates.map(\.id) == identities)
+    #expect(model.selectedCandidate?.id == chosen.id)
+    model.setStyleComparisonExpanded(false, strokeStyle: pen)
+    model.vectorOptions.sketchThreshold += 0.002
+    model.renderIfConfigurationChanged(strokeStyle: pen)
+    await model.awaitRendering()
+    #expect(await renderer.requests.count == 6)
+    #expect(model.algorithmCandidates.map(\.recipe.style) == [.sketch])
+    #expect(model.selectedCandidate?.recipe.style == .sketch)
+    await model.shutdown()
+  }
+
+  @Test("folding cancels an active alternative and late results cannot publish", arguments: [false, true])
+  func foldingHeldAlternative(reopenBeforeSettlement: Bool) async throws {
+    let renderer = ComparisonRenderer(heldCall: 2)
+    let model = PortraitStudioModel(renderer: renderer)
+    let pen = try portraitTestStyle()
+    model.setStyleComparisonExpanded(true, strokeStyle: pen)
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    try await renderer.waitUntilHeld()
+    let selected = try #require(model.selectedCandidate)
+    model.setStyleComparisonExpanded(false, strokeStyle: pen)
+    #expect(!model.isComparingAlgorithms)
+    #expect(!model.isProcessing)
+    #expect(model.selectedCandidate?.id == selected.id)
+    if reopenBeforeSettlement {
+      // Repeated disclosure changes must not reuse the cancelled worker or
+      // create a second expensive task while it is still settling.
+      for _ in 0..<3 {
+        model.setStyleComparisonExpanded(true, strokeStyle: pen)
+        model.setStyleComparisonExpanded(false, strokeStyle: pen)
+      }
+      model.setStyleComparisonExpanded(true, strokeStyle: pen)
+    }
+    await renderer.release()
+    await model.awaitRendering()
+    #expect(await renderer.cancelledStyles == [.hatch])
+    #expect(model.selectedCandidate?.id == selected.id)
+    if !reopenBeforeSettlement {
+      #expect(await renderer.requests.count == 2)
+      #expect(model.algorithmCandidates.map(\.recipe.style) == [.contours])
+      model.setStyleComparisonExpanded(true, strokeStyle: pen)
+      await model.awaitRendering()
+    }
+    #expect(await renderer.requests.count == 6)
+    #expect(model.algorithmCandidates.map(\.recipe.style) == PortraitStyle.allCases)
+    #expect(model.selectedCandidate?.id == selected.id)
+    #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
+    #expect(model.workDiagnostics.startedWorkerCount == model.workDiagnostics.settledWorkerCount)
+    await model.shutdown()
+  }
+
+  @Test("folding while the selected render is held preserves that worker and drops alternatives")
+  func foldingHeldSelection() async throws {
+    let renderer = ComparisonRenderer(heldCall: 1)
+    let model = PortraitStudioModel(renderer: renderer)
+    let pen = try portraitTestStyle()
+    model.setStyleComparisonExpanded(true, strokeStyle: pen)
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    try await renderer.waitUntilHeld()
+    model.setStyleComparisonExpanded(false, strokeStyle: pen)
+    #expect(model.isProcessing)
+    await renderer.release()
+    await model.awaitRendering()
+    #expect(await renderer.requests.count == 1)
+    #expect(await renderer.cancelledStyles.isEmpty)
+    #expect(model.selectedCandidate?.recipe.style == .contours)
+    #expect(!model.isProcessing)
+    #expect(!model.isComparingAlgorithms)
+    await model.shutdown()
+  }
+
   @Test("five deterministic algorithms share one source analysis and selecting installs the exact tile")
   func exactSelectionAndSharedAnalysis() async throws {
     let renderer = ComparisonRenderer()
@@ -14,7 +139,7 @@ struct PortraitAlgorithmComparisonTests {
     let pen = try portraitTestStyle()
     model.vectorOptions.headScale = 1.4
     model.vectorOptions.semanticHead = .init()
-    model.renderIfNeeded(strokeStyle: pen)
+    model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
     #expect(model.algorithmCandidates.map(\.recipe.style) == PortraitStyle.allCases)
@@ -27,11 +152,10 @@ struct PortraitAlgorithmComparisonTests {
     let requests = await renderer.requests
     #expect(requests.count == PortraitStyle.allCases.count)
     #expect(requests.filter { $0.cachedRaster == nil }.count == 1)
-    #expect(!model.hasSelectedAlgorithm)
+    #expect(model.selectedAlgorithm == .contours)
     for tile in model.algorithmCandidates {
       model.selectAlgorithm(tile.recipe.style, strokeStyle: pen)
       model.renderIfConfigurationChanged(strokeStyle: pen)
-      #expect(model.hasSelectedAlgorithm)
       #expect(model.selectedCandidate?.id == tile.id)
       #expect(model.selectedCandidate?.createdAt == tile.createdAt)
       #expect(model.currentProgram == tile.program)
@@ -53,7 +177,7 @@ struct PortraitAlgorithmComparisonTests {
     let renderer = ComparisonRenderer(heldCall: 1)
     let model = PortraitStudioModel(renderer: renderer)
     let pen = try portraitTestStyle()
-    model.renderIfNeeded(strokeStyle: pen)
+    model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     try await renderer.waitUntilHeld()
     model.options.cropToFace = false
@@ -83,7 +207,7 @@ struct PortraitAlgorithmComparisonTests {
     let renderer = ComparisonRenderer(heldCall: 3)
     let model = PortraitStudioModel(renderer: renderer)
     let pen = try portraitTestStyle()
-    model.renderIfNeeded(strokeStyle: pen)
+    model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     try await renderer.waitUntilHeld()
     let tile = try #require(model.algorithmCandidates.first { $0.recipe.style == .hatch })
@@ -104,7 +228,7 @@ struct PortraitAlgorithmComparisonTests {
     let renderer = ComparisonRenderer()
     let model = PortraitStudioModel(renderer: renderer)
     let pen = try portraitTestStyle()
-    model.renderIfNeeded(strokeStyle: pen)
+    model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
     let oldIDs = model.algorithmCandidates.map(\.id)
@@ -175,6 +299,7 @@ struct PortraitAlgorithmComparisonTests {
 
 private actor ComparisonRenderer: PortraitRendering {
   private(set) var requests: [PortraitRenderRequest] = []
+  private(set) var cancelledStyles: [PortraitStyle] = []
   private let heldCall: Int?
   private var waiter: CheckedContinuation<Void, Never>?
 
@@ -189,6 +314,7 @@ private actor ComparisonRenderer: PortraitRendering {
     if requests.count == heldCall {
       await withCheckedContinuation { waiter = $0 }
     }
+    if Task.isCancelled { cancelledStyles.append(request.style) }
     // Return an already-completed result even after cancellation, so these
     // tests exercise the model's revision/source publication guards.
     return result

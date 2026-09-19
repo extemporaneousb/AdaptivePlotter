@@ -186,24 +186,39 @@ struct DrawingStudioPresentationTests {
     await app.shutdown()
   }
 
-  @Test("pinned drawing status appears only for unsettled execution or publication")
+  @Test("drawing outcomes remain visible through review until the run handoff")
   func activeRunStatusVisibility() {
     let runID = RunID()
     let inactive: [DrawingStudioRunState] = [
-      .unavailable(reason: "Confirm paper."), .ready(detail: "Ready."),
+      .unavailable(reason: "Confirm paper."), .ready(detail: "Ready.")
+    ]
+    #expect(inactive.allSatisfy { !$0.showsActiveRunStatus })
+    let retained: [DrawingStudioRunState] = [
       .terminal(runID: runID, detail: "Ended."),
       .reviewAvailable(runID: runID, detail: "Review available."),
       .reviewing(runID: runID, detail: "Reviewing.")
     ]
-    #expect(inactive.allSatisfy { !$0.showsActiveRunStatus })
+    #expect(retained.allSatisfy { $0.showsActiveRunStatus })
     let active: [DrawingStudioRunState] = [
       .running(capabilityID: PlotterDrawingRunStopCapabilityID(), detail: "Drawing."),
       .processing(detail: "Saving evidence."),
+      .publicationIncomplete(detail: "Attempt retained; terminal record construction failed."),
       .publicationFailed(
         recoveryCapabilityID: PlotterDrawingRunPublicationRecoveryCapabilityID(),
         detail: "Retry evidence publication.")
     ]
     #expect(active.allSatisfy { $0.showsActiveRunStatus })
+  }
+
+  @Test("an unresolved durable attempt stays visible without a fabricated recovery or handoff")
+  func unresolvedPublicationStatus() throws {
+    let state = DrawingStudioRunState.publicationIncomplete(detail: "Exact retained error")
+    let presentation = try studioPresentation(runState: state, editingIsEnabled: false)
+    #expect(state.showsActiveRunStatus)
+    #expect(state.title == "Drawing evidence unresolved")
+    #expect(state.detail == "Exact retained error")
+    #expect(presentation.controls.isEmpty)
+    #expect(!presentation.authoringIsEnabled)
   }
 
   @Test("run and Stop controls preserve the exact typed owner capability")

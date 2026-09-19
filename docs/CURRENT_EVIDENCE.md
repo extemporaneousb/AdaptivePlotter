@@ -8,6 +8,117 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing precision, retained outcomes and inspection, 2026-09-18
+
+Task `task-87b9fefb7ac94c54a13362a568f81a7f` began from `80abee3c` with
+target `main`. This is the corrective follow-up to the Studio control audit,
+not selection of an episode migration or attended-physical package. Three
+existing subagents implemented bounded runtime/geometry/UI portions; the
+coordinator owns integration, validation and delivery.
+
+Read-only incident inspection found run `1EA98CC1-E0F5-4BBF-B400-B5E10EF9A7F7`
+stopped after 1,026 completed segments. Its next intended displacement
+(0.0003610523, 0.0002440407) serialized to zero on both controller axes. The
+trace records Pen Up cleanup and no controller alarm. The border was last of
+83 strokes, explaining its absence before this failure. Reconstructing the
+archived placement after removing the single camera correction recovered an
+authored rotation of approximately -39 degrees; the reason for that operator
+selection is not established. The visible-patch camera comparison suggested
+translation, but neither its physical cause nor physical registration is fixed
+or proven by this task. Incident artifacts remain in
+`.build/live-inspection-51360-evidence/`.
+
+`RunInterpreter` now derives a controller schedule from cumulative positions
+within each immutable stroke, retaining displacement residue, source segment
+mapping and checkpoint boundaries. It preflights all strokes before lower pen
+actuation, refuses wholly unrepresentable strokes, and constrains rounding to
+the admitted region. Ordinary artwork uses clipping in the existing planner;
+metric/calibration targets retain strict containment. Center uses transformed
+un-clipped ink bounds. New selected borders run first. The no-redraw comparison
+now tolerates stroke reordering and regenerated identifiers while preserving
+one-to-one path multiplicity and existing coordinate-frame restrictions.
+
+The existing Drawing panel pins the exact plan above its scrolling controls;
+an active or retained run owns that preview instead of a later authoring draft.
+Global run status retains the terminal reason until the existing RunID-bound
+Prepare Next Drawing handoff. Incomplete durable publication remains visible
+without an invented recovery or handoff capability. Styles starts folded and
+renders only the selected algorithm; expanding it requests missing alternatives
+through the existing render drain. Send to Drawing saves, hands off the exact
+candidate and opens Drawing. Save Drawing is optional; only Draw requests motion.
+
+The existing diagnostic export now includes process identity, selected and
+retained plans, current registration, progress, terminal reason, and the exact
+displayed camera pixels with capture identity and digest. Raw bytes and an
+unoverlaid PNG are written before the JSON manifest on a background worker.
+The inspection scripts combine this export with a matched native window/AX
+snapshot and a read-only SQLite backup including committed WAL state. Sampled
+frames retain independent timestamps and may be frozen; they are not continuous
+video, an automatic final-image mosaic, or proof of newly deposited ink.
+
+Cross-review found and repaired boundary rounding outside non-grid limits,
+floating-point clipping joins that split a small tail, order/ID-sensitive
+no-redraw matching, and a hidden unresolved-publication outcome. The final
+focused strict sequential selection passed 174 tests in 71.117 seconds, with
+two opt-in reference/native tests skipped. Coverage includes the incident delta,
+3,000 accumulated small moves, reversal and boundary containment, Stop,
+clipped rotations and Center, retained run preview identity, result handoff,
+render cancellation and exact diagnostic pixels. Twenty style/size/folded-state
+hosted combinations and production Studio at 1000 x 550 / 1280 x 650 fit without
+vertical scrolling. Drawing previews remain fixed while controls scroll at
+300/390/600 points. Coordinator/worker bitmap inspection uses synthetic fixtures,
+not a live camera or physical portrait likeness receipt.
+
+A final ownership review also repaired unresolved terminal-record construction:
+only the matching staged intent can supply its retained plan, including diagnostic
+run ID/hash, while editing and new-run handoff remain blocked. The 61-test strict
+retention/preview/diagnostic selection passed in 16.605 seconds after that repair.
+Inspector fixtures passed 19 tests; requested export failure or incomplete sample
+sequences now produce a nonzero result while preserving partial artifacts.
+
+Earlier receipts are retained: one source-review-interrupted build, one missing
+exhaustive test case, one optional-unwrapping test compilation error, and a
+174-test run with 14 issues from three fixture assumptions (displayed Stop text,
+exact floating-point Center equality, and delayed previous-host disappearance
+resetting Styles). Production behavior and layout assertions were not weakened
+to clear those fixture issues. One broad run was interrupted for the final
+ownership review. The next 1,376-test run completed in 418.094 seconds with seven
+issues in two obsolete fixtures: eager rendering of all styles and selection of
+the last stroke as border. The fixtures now check chosen-style cache behavior and
+all five ordered points of the first border stroke, using the existing numerical
+geometry tolerance. The documentation checker was also updated from its obsolete
+blanket no-clipping phrase to require ordinary-art clipping, excluded-art refusal,
+and strict metric/calibration containment.
+
+The coordinator launched only the staged signed build in simulation (PID 15940),
+after confirming no AdaptivePlotter process was running. Native inspection found
+Screen Recording and Accessibility authorized but the macOS console locked, with
+loginwindow foreground. Window capture failed and AX supplied no window geometry.
+The helper now identifies that exact condition through the read-only active-console
+lock flag, skips unusable capture/export, and reports the unlock remedy. Two final
+locked-session samples retained the correct process identity and explicit failure;
+there was no AX export action. The owned simulation process then terminated
+gracefully, and its exit was verified. The inspector's final 20 fixture tests pass. A
+positive unlocked-window/raw-export integration receipt remains pending; these
+locked-session checks do not establish that result. No physical camera, controller,
+pen/paper/ink operation or calibration change was performed.
+
+The final strict sequential quick-test selection passed 1,376 tests in 412.972
+seconds, with six opt-in native/reference/performance tests skipped. All ten
+retained causal journeys passed in 3.150 seconds. Source/test/build-script hashes
+were unchanged throughout this final validation. Stable local signing, strict
+bundle validation, launcher identity/logic checks and negative-bundle checks
+passed. Documentation and diff checks pass; the final ledger is checked again
+before landing.
+
+The immutable signed debug bundle is
+`.build/StudioTestApps/AdaptivePlotter-Drawing-87b9fefb.app`; release identity,
+input hashes, complete/failed receipts, hosted images and locked-session evidence
+are retained in `.build/drawing-repair-87b9fefb-evidence/`. The bundle's executable
+SHA-256 is `a72dd5cd804625d360fa52693ecb667dba236f4ad436da5b7d661626834a7fb9`.
+A future unlocked native inspection can use the documented one-command collector;
+no automatic image reconstruction or physical alignment correction is claimed.
+
 ## Deterministic Portrait Studio and generic review, 2026-09-18
 
 Task `task-9e64f2ffa4544ecea34e9867f8b5944c` began from `11bbb5b` with target

@@ -57,7 +57,26 @@ input, including on subsequent Boundary legs. A partial “stop” submits
 immediately using the current cancellation capability; telemetry revision changes
 do not veto that Stop. Ordinary questions pause recognition during playback.
 **Diagnostics** (⇧⌘D) exports existing owner revisions, actions/refusals, and
-Learning transition history without another event stream.
+Learning transition history, exact selected/run plans and the displayed raw camera
+frame without another event stream. PNG and original pixel sidecars retain capture
+identity and hash; a frozen frame is not relabeled as a fresh capture.
+
+For agent inspection, run `python3 Scripts/inspect_running_app.py --output /tmp/plotter-inspection --export-diagnostics`.
+The output directory must be new. This captures the current native window and
+Accessibility state, invokes only the existing diagnostic export, verifies its
+process identity and raw pixels, and snapshots existing controller/archive records.
+Use `--pid` if multiple copies run. `--samples 12 --interval 5` retains a bounded
+sequence of timestamped inspection frames during a run. It neither starts/restarts
+the app nor issues motion; missing permissions, absent app and stale exports are
+reported explicitly. Native pixels and Accessibility require an unlocked macOS
+console session even when both permissions are granted. A confirmed lock skips
+capture/export and asks you to unlock the existing desktop; the inspector never
+unlocks or activates the app. Exit status is 0 only when every requested sample is complete,
+2 when no native sample is complete, and 3 for partial inspection or export failure;
+partial evidence remains in the output directory. With `--export-diagnostics`, each
+sample requires a fresh, process-matched v2 export. An export with no displayed
+camera frame succeeds and explicitly records that raw pixels are unavailable.
+Samples are not a completed drawing reconstruction.
 
 Presentation zoom is available after Exercise 1.2. Zoom, pan, and **Fit Learned Plotter
 Bounds** change only the view transform. They never change camera-pixel evidence,
@@ -265,12 +284,15 @@ diagnostic; automatic batch execution, corrected physical holdouts, and explicit
 model acceptance are still required before adaptive drawing readiness.
 
 Open **Portrait Studio** through **View** to capture a burst or import a photo.
-The full workspace keeps the current photo, drawing, five rendered style choices,
-and the selected algorithm's framing and tuning controls visible together.
+The full workspace keeps the current photo, drawing and the selected algorithm's
+framing and tuning controls visible together. Styles starts folded; opening it
+renders the five style choices, while a closed section renders only the chosen style.
 Contour, Hatch, Crosshatch, Sketch and Sketch + Hatch share one deterministic
-render pipeline. **Show on Plotter Video** hands the immutable drawing to the
+render pipeline. **Send to Drawing** saves and hands the immutable drawing to the
 shared **Drawing** panel; an unchanged drawing retains its existing placement.
-**Save Drawing** retains a candidate for the source-independent **Drawing Reviewer**.
+**Save Drawing** is optional library storage for the source-independent **Drawing
+Reviewer**. To execute: Send to Drawing, adjust placement and confirm paper, then
+press **Draw**. Sending and saving do not move hardware.
 The reviewer can browse and delete saved drawings and physical results. Deleting a
 physical result hides it from review and residual selection while retaining the
 execution records needed for possible-ink and no-redraw safety.
@@ -280,7 +302,9 @@ rectangle, square, triangle, regular polygon, circle, ellipse, star, pyramid and
 elephant. **Pen & Material** identifies the applicable ink width; explicit material
 measurement and detail adaptation operate in Drawing, outside algorithm tuning.
 With current calibration, place the target on the video, resize it, rotate it,
-and inspect the projected plan. Curves are deterministically tessellated before
+and inspect the same exact plan in Drawing and on the video. Ordinary artwork
+clips at the drawable boundary as it rotates; Center aligns the un-clipped ink
+bounds, and Fit changes scale. Curves are deterministically tessellated before
 execution. Running still requires completed Exercise 2.1 validation, the current
 calibration, paper coverage, and explicit motion authorization. Learning
 completion does not establish adaptive training.
@@ -291,15 +315,16 @@ Paper is a separate operator fact:
 outlined region before Run can become eligible. **New Sheet — Same Contact
 Plane** preserves accepted calibration and completed Learning but requires fresh
 exact-frame coverage confirmation. Select **Draw border** (initially off) only
-when this ordinary drawing should ink the calibrated border; its outline remains
-visible either way. **Contact Plane Changed** invalidates dependent tip calibration
+when this ordinary drawing should ink the calibrated border first; its outline
+remains visible either way. **Contact Plane Changed** invalidates dependent tip calibration
 while retaining unrelated valid machine/camera Learning. If only active
 calibration was lost, **Use Saved Learning** can reapply a compatible retained
 package after its initial startup application.
 
-`DrawingPlanner` refuses any transformed stroke outside the accepted Drawing Boundary
-and emits an immutable content-addressed execution-plan revision with one
-checkpoint per logical stroke. `RunInterpreter` owns Pen-Up travel, lowering,
+`DrawingPlanner` clips ordinary artwork at the accepted Drawing Boundary and
+keeps strict containment for calibration and metric targets. Its immutable plan
+contains separate strokes/checkpoints for clipped fragments, without bridges
+across excluded geometry. `RunInterpreter` owns Pen-Up travel, lowering,
 every finite drawing segment, raising, Stop, and checkpoint progress as one
 operation. A completed run returns to the preselected observation pose, captures
 a newer exact frame, compares arbitrary planned polylines with new ink, and

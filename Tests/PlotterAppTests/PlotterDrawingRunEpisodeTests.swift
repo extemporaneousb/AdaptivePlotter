@@ -1,6 +1,6 @@
 import Foundation
 import PlotterEpisodeModel
-import PlotterEpisodeRuntime
+@testable import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterUI
 import Testing
@@ -11,6 +11,89 @@ import Testing
 @Suite("Drawing Studio run episode", .serialized)
 @MainActor
 struct PlotterDrawingRunEpisodeTests {
+  @Test("unresolved terminal construction retains staged geometry instead of a later draft")
+  func unresolvedAttemptRetainsStagedPlan() async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let gate = DrawingRunPlanGate()
+    let harness = await drawingRunHarness(fixture: fixture, planGate: gate)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    #expect(ready.retainedExecutionPlan == nil)
+    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    await gate.waitUntilStarted()
+    let request = try #require(await gate.request)
+    // Inject a malformed lower frontier: self-consistent progress for a larger
+    // plan must fail terminal construction against this run's sealed intent.
+    let count = request.plan.strokes.count + 1
+    let invalid = DrawingPlanProgressSnapshot(operationID: request.operationID,
+      planRevisionID: request.plan.revisionID, plannedStrokeCount: count, plannedSegmentCount: count,
+      commandedStrokeCount: count, controllerCompletedStrokeCount: 0,
+      submittedSegmentCount: count, controllerCompletedSegmentCount: 0,
+      completedStrokeIDs: [], completedCheckpointIDs: [], activeStrokeID: nil, activeSegmentIndex: nil)
+    await harness.interpreter.overrideDrawingOutcome(.possibleInk(progress: invalid,
+      reason: .strokeRefused(.controllerRejected("synthetic malformed frontier")),
+      penRaiseOutcome: .commandedAndSettled(command: .raise, commandedState: .up)))
+    await gate.release(.possibleInk)
+    let failed = await run.value
+    guard case .intentPublicationIncomplete(let runID, _) = failed.snapshot.evidencePersistence else {
+      Issue.record("Malformed lower progress did not preserve an unresolved durable attempt")
+      return
+    }
+    #expect(failed.snapshot.activeRunID == nil)
+    #expect(failed.snapshot.terminal == nil)
+    #expect(failed.snapshot.retainedExecutionPlan == request.plan)
+    #expect(await harness.evidence.archive.incompleteAttempts.first?.intent.plan == request.plan)
+    let newer = try fixture.makePlan(catalogItemID: .circle, role: .ordinaryDrawing)
+    #expect(newer.plan != request.plan)
+    await harness.facts.replace(fixture.facts(plan: newer))
+    let synchronized = await harness.runtime.synchronize(environment: .live)
+    #expect(synchronized.retainedExecutionPlan == request.plan)
+    let handoff = await harness.runtime.submit(.init(projection: synchronized.projection,
+      intent: .beginNewRun(runID)))
+    #expect(try drawingRunRefusal(handoff).reason == .runIdentityMismatch)
+    #expect(handoff.snapshot.retainedExecutionPlan == request.plan)
+    #expect(handoff.snapshot.noRedraw == failed.snapshot.noRedraw)
+
+    let appFixture = try await DrawingWorkbenchApplicationFixture.make()
+    defer { appFixture.stores.remove() }
+    let app = appFixture.application
+    await app.drawingDraftSynchronizationTask?.value
+    #expect(app.drawingDraftSnapshot.plan != request.plan)
+    app.installDrawingRunSnapshot(failed.snapshot)
+    #expect(app.drawingRunSnapshot == failed.snapshot)
+    let presentation = app.drawingStudioPresentation
+    #expect(presentation.drawingPreview?.plan == request.plan)
+    #expect(!presentation.authoringIsEnabled)
+    #expect(presentation.runState.showsActiveRunStatus)
+    let diagnostics = WorkbenchDebugSnapshot(application: app, projection: app.testPlotterUIProjection().semantic)
+    #expect(diagnostics.drawing.runID == runID)
+    #expect(diagnostics.drawing.runPlanContentHash == request.plan.contentHash.description)
+    #expect(diagnostics.drawing.retainedExecutionPlan == request.plan)
+    #expect(diagnostics.drawing.terminalDisposition == "publicationIncomplete")
+    if case .publicationIncomplete = presentation.runState {} else {
+      Issue.record("The unresolved attempt did not retain its visible status")
+    }
+    await app.shutdown()
+  }
+
+  @Test("unordered ink matching preserves duplicates and resolves ambiguous epsilon matches")
+  func inkPathMultiplicity() throws {
+    let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
+    func stroke(y: Double) throws -> PlannedMachineStroke {
+      try PlannedMachineStroke(logicalStrokeID: StrokeID(),
+        path: Polyline(points: [Point2(x: 0, y: y), Point2(x: 1, y: y)]),
+        style: style, semanticRole: .drawing, ordering: 0, endingCheckpointID: PlanCheckpointID())
+    }
+    let original = try [stroke(y: 0), stroke(y: 0), stroke(y: 2)]
+    let same = try [stroke(y: 2), stroke(y: 0), stroke(y: 0)]
+    let differentMultiplicity = try [stroke(y: 0), stroke(y: 2), stroke(y: 2)]
+    #expect(PlotterDrawingRunRuntime.equivalentInkPaths(original, same))
+    #expect(!PlotterDrawingRunRuntime.equivalentInkPaths(original, differentMultiplicity))
+    let epsilon = DrawingRegionContainmentPolicy.numericalEpsilonMM
+    let ambiguous = try [stroke(y: 0), stroke(y: 0.9 * epsilon)]
+    let resolvable = try [stroke(y: 0.9 * epsilon), stroke(y: -0.9 * epsilon)]
+    #expect(PlotterDrawingRunRuntime.equivalentInkPaths(ambiguous, resolvable))
+  }
+
   @Test("synthetic run fixture preserves registration pixel geometry and exact optical identity")
   func fixtureOpticalIdentityMatchesOwnedFrames() async throws {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
@@ -69,19 +152,95 @@ struct PlotterDrawingRunEpisodeTests {
       acceptedMovementBounds: fixture.drawableRegion.bounds))
     let ready = await harness.runtime.synchronize(environment: .live)
     #expect(ready.readiness == .ready)
+    #expect(ready.retainedExecutionPlan == nil)
     let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilHeld()
     #expect(await harness.events.values == ["stage-intent", "normalize"])
     let active = await harness.runtime.snapshot(environment: .live)
+    #expect(active.retainedExecutionPlan == fixture.plan.plan)
     if case .unavailable(let issue) = active.readiness { #expect(issue.reason == .activeRunOwnsWorkflow) }
     else { Issue.record("Active run retained stale Ready admission") }
     await gate.release()
     let result = await run.value
     #expect(result.snapshot.terminal?.disposition == .succeeded)
+    #expect(result.snapshot.retainedExecutionPlan == fixture.plan.plan)
+    #expect(result.snapshot.retainedExecutionPlan == result.snapshot.terminal?.record.plan.executionPlan)
     let events = await harness.events.values
     #expect(Array(events.prefix(3)) == ["stage-intent", "normalize", "travel"])
     if case .unavailable(let issue) = result.snapshot.readiness { #expect(issue.reason == .terminalRequiresNewRunHandoff) }
     else { Issue.record("Terminal run retained stale Ready admission") }
+  }
+
+  @Test("border-first plans cannot redraw retained border-last ink on the same sheet",
+    arguments: [false, true], [false, true])
+  func borderReorderingRetainsNoRedraw(restored: Bool, regenerated: Bool) async throws {
+    let fixture = try await DrawingRunEpisodeFixtureCache.load()
+    let program = try DrawingProgramCatalog.program(for: .rectangle,
+      style: StrokeStyle(nominalLineWidth: 0.4,
+        penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue)))
+    let built = PlotterDrawingPlanningAdapter.buildDraft(program: program, machineCenter: nil,
+      uniformScale: 0.02, rotationDegrees: 0, drawableRegion: fixture.drawableRegion,
+      registration: fixture.registration, drawBorder: true,
+      drawingBorderBounds: fixture.registration.applicabilityRectangle)
+    let borderFirstProgram = try #require(built.program)
+    let borderFirstPlan = try #require(built.plan)
+    let reordered = Array(borderFirstProgram.strokes.dropFirst()) + [borderFirstProgram.strokes[0]]
+    let borderLastProgram = try DrawingProgram(id: ProgramID(), fieldExtent: borderFirstProgram.fieldExtent,
+      strokes: reordered.enumerated().map { index, stroke in
+        LogicalStroke(id: stroke.id, path: stroke.path, style: stroke.style,
+          semanticRole: stroke.semanticRole, ordering: UInt32(index))
+      }, source: borderFirstProgram.source)
+    let borderLastPlan = try DrawingPlanner.plan(program: borderLastProgram,
+      placement: borderFirstPlan.placement, drawableRegion: fixture.drawableRegion,
+      provenance: borderFirstPlan.provenance)
+    func owned(_ program: DrawingProgram, _ plan: ExecutionPlanRevision) -> PlotterDrawingRunPlan {
+      PlotterDrawingRunPlan(draftRevision: PlotterDrawingDraftRevision(rawValue: 2), program: program,
+        placementID: UUID(), plan: plan, evidenceRole: .ordinaryDrawing,
+        paperCoverage: fixture.plan.paperCoverage, registration: fixture.registration)
+    }
+    let before = owned(borderLastProgram, borderLastPlan)
+    let after: PlotterDrawingRunPlan
+    if regenerated {
+      let style = try StrokeStyle(nominalLineWidth: 0.8,
+        penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue))
+      let regeneratedProgram = try DrawingProgram(id: ProgramID(), fieldExtent: borderFirstProgram.fieldExtent,
+        strokes: borderFirstProgram.strokes.map {
+          LogicalStroke(id: StrokeID(), path: $0.path, style: style,
+            semanticRole: $0.semanticRole, ordering: $0.ordering)
+        }, source: borderFirstProgram.source)
+      let regeneratedPlan = try DrawingPlanner.plan(program: regeneratedProgram,
+        placement: borderFirstPlan.placement, drawableRegion: fixture.drawableRegion,
+        provenance: borderFirstPlan.provenance)
+      #expect(Set(regeneratedPlan.strokes.map(\.logicalStrokeID)).isDisjoint(with: before.plan.strokes.map(\.logicalStrokeID)))
+      #expect(regeneratedPlan.strokes.allSatisfy { $0.style.nominalLineWidth == 0.8 })
+      after = owned(regeneratedProgram, regeneratedPlan)
+    } else {
+      after = owned(borderFirstProgram, borderFirstPlan)
+    }
+    let harness = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: before), outcome: .cancelled)
+    let ready = await harness.runtime.synchronize(environment: .live)
+    let run = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let terminal = try #require(run.snapshot.terminal)
+    #expect(run.snapshot.retainedExecutionPlan == before.plan)
+    if restored {
+      let archive = await harness.evidence.archive
+      let reopened = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: after),
+        archiveLoadResult: .loaded(archive))
+      let blocked = await reopened.runtime.synchronize(environment: .live)
+      let result = await reopened.runtime.submit(.init(projection: blocked.projection, intent: .start))
+      #expect(try drawingRunRefusal(result).reason == .planMayAlreadyContainInk)
+      #expect(await reopened.events.values.isEmpty)
+    } else {
+      await harness.facts.replace(fixture.facts(plan: after))
+      let held = await harness.runtime.synchronize(environment: .live)
+      #expect(held.retainedExecutionPlan == before.plan)
+      let next = await harness.runtime.submit(.init(projection: held.projection, intent: .beginNewRun(terminal.runID)))
+      #expect(next.snapshot.retainedExecutionPlan == nil)
+      let blocked = await harness.runtime.synchronize(environment: .live)
+      let result = await harness.runtime.submit(.init(projection: blocked.projection, intent: .start))
+      #expect(try drawingRunRefusal(result).reason == .planMayAlreadyContainInk)
+      #expect(await harness.interpreter.planRequests.count == 1)
+    }
   }
   @Test("authored plans do not bypass Learning or paper prerequisites")
   func authoringDoesNotAuthorizeRun() async throws {

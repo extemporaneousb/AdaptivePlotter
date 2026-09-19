@@ -432,6 +432,7 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
   private let releasePlanOnStop: Bool
   private var nextSnapshotGate: DrawingRunHoldGate?
   private var drawingProgress: DrawingPlanProgressSnapshot?
+  private var drawingOutcomeOverride: DrawingPlanOutcome?
   private var heldTravel: (ordinal: Int, gate: DrawingRunHoldGate)?
   private var travelCount = 0
   private(set) var planRequests: [DrawingPlanRequest] = []
@@ -466,6 +467,8 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
   func holdNextSnapshot(at gate: DrawingRunHoldGate) { nextSnapshotGate = gate }
 
   func setDrawingProgress(_ progress: DrawingPlanProgressSnapshot) { drawingProgress = progress }
+
+  func overrideDrawingOutcome(_ outcome: DrawingPlanOutcome) { drawingOutcomeOverride = outcome }
 
   func setPenState(_ state: PenState) {
     ready = drawingRunReadySnapshot(position: ready.machine.position!, penState: state)
@@ -507,7 +510,7 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
       planRevisionID: request.plan.revisionID,
       task: Task {
         let kind = await gate?.wait(request) ?? fallback
-        let result = drawingRunOutcome(kind, request: request)
+        let result = self.drawingOutcomeOverride ?? drawingRunOutcome(kind, request: request)
         if case .completed(_, let position) = result { self.setPosition(position) }
         return result
       }

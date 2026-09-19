@@ -37,7 +37,7 @@ struct DrawingReviewerView: View {
     VStack(spacing: 12) {
       HStack {
         Text("Drawing Reviewer").font(.title2)
-        StudioHelpButton("Drawing Reviewer", text: "Saved drawings and physical results share this reviewer. Viewing an item does not replace the current Studio edit or change the plotter. Fit shows the whole image; 100% shows each original image pixel.")
+        StudioHelpButton("Drawing Reviewer", text: "Saved drawings and physical results share this reviewer. Viewing an item does not replace the current Studio edit or change the plotter. Fit shows the whole image; 100% shows each original image pixel. Send to Drawing keeps the exact selected result and opens Drawing with it placed on the plotter video. Adjust placement there. Sending does not move the plotter; Draw starts execution.")
         Spacer()
         Picker("Image size", selection: $originalPixels) {
           Text("Fit").tag(false)
@@ -111,7 +111,7 @@ struct DrawingReviewerView: View {
           StudioHelpButton("Delete Saved Drawing", text: "Delete Drawing removes this saved drawing and its ratings. Delete Source and Its Drawings removes all saved drawings from this source photo. Unreferenced portrait image assets are deleted. Physical execution results and the current working Studio edit are separate.")
         }
         if let candidate, let showOnPlotter {
-          Button("Show on Plotter Video", systemImage: "video") {
+          Button("Send to Drawing", systemImage: "video") {
             busy = true
             Task { @MainActor in
               failure = await showOnPlotter(candidate)

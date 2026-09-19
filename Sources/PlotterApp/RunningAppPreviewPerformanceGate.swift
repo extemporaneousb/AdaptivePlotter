@@ -175,7 +175,7 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
   }
 
   static let requiredPortraitControls = ["workbench.camera.portrait", "workbench.camera.plotter",
-    "portrait.showOnPlotter", "drawing.scale", "drawing.rotation", "drawing.fit",
+    "portrait.stylesDisclosure", "portrait.showOnPlotter", "drawing.scale", "drawing.rotation", "drawing.fit",
     "workbench.toggle.motion", "workbench.scroll", "workbench.resize", "learning.analyzeDrawings"]
       + PortraitStyle.allCases.map { "portrait.algorithm.\($0.id)" }
 }
@@ -578,6 +578,12 @@ enum RunningAppPreviewPerformanceGate {
     if role == .portrait {
       let model = application.portraitStudio
       revealPanel(.portraitStudio)
+      if !model.isStyleComparisonExpanded {
+        samples.append(try await probe.click("portrait.stylesDisclosure", fractionX: 0.02) {
+          model.isStyleComparisonExpanded
+            && RunningAppNativeInputProbe.controlFrame("portrait.algorithms") != nil
+        })
+      }
       await model.awaitRendering()
       let index = ((PortraitStyle.allCases.firstIndex(of: model.style) ?? 0) + 1) % PortraitStyle.allCases.count
       let nextStyle = PortraitStyle.allCases[index]
@@ -627,7 +633,7 @@ enum RunningAppPreviewPerformanceGate {
         && RunningAppNativeInputProbe.controlFrame("workbench.panel.drawing") != nil
         && RunningAppNativeInputProbe.controlFrame("workbench.video.canvas") != nil
     })
-    try await awaitWorkload("Show on Plotter Video did not expose the current portrait plan.") {
+    try await awaitWorkload("Send to Drawing did not expose the current portrait plan.") {
       application.drawingDraftSnapshot.program?.contentHash == application.portraitStudio.program?.contentHash
         && application.drawingTargetIsVisible && application.drawingDraftSnapshot.plan != nil
     }

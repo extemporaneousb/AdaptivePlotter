@@ -191,6 +191,39 @@ struct DrawingWorkbenchCompositionTests {
     await app.shutdown()
   }
 
+  @Test("failed and stopped runs remain visible with the actual reason until exact handoff",
+    arguments: [DrawingRunOutcomeKind.possibleInk, .cancelled])
+  func interruptedStatusSurvivesHiddenPanel(_ kind: DrawingRunOutcomeKind) async throws {
+    let f = try await DrawingWorkbenchApplicationFixture.make()
+    defer { f.stores.remove() }
+    let app = f.application
+    try await f.submit(.fitInDrawableRegion)
+    try await f.submit(.assertPaperCoverage)
+    try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }
+    let projection = app.testPlotterUIProjection().semantic
+    let request = try #require(projection.request(matching: .drawingRun(.start)))
+    let task = Task { await app.submitPlotterUIRequest(request) }
+    await f.planGate.waitUntilStarted()
+    await f.planGate.release(kind)
+    _ = await task.value
+    let terminal = try #require(app.drawingRunSnapshot?.terminal)
+    let state = app.drawingStudioPresentation.runState
+    #expect(state.showsActiveRunStatus)
+    #expect(state.detail.contains("0 of"))
+    #expect(state.detail.contains(kind == .possibleInk ? "fixture" : "Operator Stop"))
+    let status = DrawingStudioActiveRunStatus(runState: state, terminalDisposition: terminal.disposition)
+    #expect(status.statusTitle == (kind == .possibleInk ? "Drawing interrupted" : "Drawing stopped"))
+    // Export and panel visibility never acknowledge a failure or release ink protection.
+    let before = app.drawingRunSnapshot?.noRedraw
+    _ = WorkbenchDebugSnapshot(application: app, projection: app.testPlotterUIProjection().semantic)
+    #expect(app.drawingRunSnapshot?.noRedraw == before)
+    let handoff = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.beginNewRun(terminal.runID))))
+    #expect(await app.submitPlotterUIRequest(handoff) == .accepted(requestID: handoff.id))
+    try await waitUntil { app.drawingRunSnapshot?.terminal == nil }
+    #expect(!app.drawingStudioPresentation.runState.showsActiveRunStatus)
+    await app.shutdown()
+  }
+
   @Test("quiescence baseline joins the retained nested publication while paper persistence is held")
   func quiescenceBaselineWaitsForNestedPublication() async throws {
     let loadGate = DrawingRunHoldGate()

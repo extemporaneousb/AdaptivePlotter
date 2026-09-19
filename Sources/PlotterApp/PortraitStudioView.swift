@@ -54,26 +54,26 @@ struct PortraitStudioView: View {
           if !model.recentPhotos.isEmpty {
             PortraitPhotoStrip(model: model, strokeStyle: strokeStyle)
           }
-          HStack {
-            Text("Styles").font(.headline)
-            Spacer()
-            StudioHelpButton("Style algorithms", text: "Each tile renders this photo with a different algorithm using the current framing and tuning. Select a portrait to use that exact result and reveal its adjustment controls.")
+          DisclosureGroup(isExpanded: Binding(
+            get: { model.isStyleComparisonExpanded },
+            set: {
+              WorkbenchRequestTelemetry.nativeActionHandled("portrait.stylesDisclosure")
+              model.setStyleComparisonExpanded($0, strokeStyle: strokeStyle)
+            })) {
+            PortraitStyleBrowser(model: model, strokeStyle: strokeStyle, material: previewSource.material)
+              .frame(height: 112)
+          } label: {
+            HStack {
+              Text("Styles · \(model.selectedAlgorithm.rawValue)").font(.headline)
+              Spacer()
+              StudioHelpButton("Style algorithms", text: "The selected algorithm renders as you adjust the drawing. Open Styles to render the other algorithms with this photo and its current framing and tuning. Select a portrait to use that exact result. Closing Styles stops unfinished alternatives and keeps the selected drawing.")
+            }
           }
-          PortraitStyleBrowser(model: model, strokeStyle: strokeStyle, material: previewSource.material)
-            .frame(height: 112)
+          .accessibilityIdentifier("portrait.stylesDisclosure")
         }
         VStack(alignment: .leading, spacing: 12) {
-          if model.hasSelectedAlgorithm {
-            PortraitRenderControls(model: model)
-              .disabled(model.selectedPhoto == nil || model.isCapturing)
-          } else {
-            HStack {
-              Text("Adjustments").font(.headline)
-              Spacer()
-              StudioHelpButton("Adjustments", text: "Select one of the five rendered portraits below to show its framing and style controls here.")
-            }
-            Text("Select a style").font(.caption).foregroundStyle(.secondary)
-          }
+          PortraitRenderControls(model: model)
+            .disabled(model.selectedPhoto == nil || model.isCapturing)
           Spacer(minLength: 0)
           Divider()
           penAndMaterial
@@ -106,6 +106,7 @@ struct PortraitStudioView: View {
     .onAppear {
       model.renderIfNeeded(strokeStyle: strokeStyle)
     }
+    .onDisappear { model.setStyleComparisonExpanded(false, strokeStyle: strokeStyle) }
     .task { await model.loadArchive() }
     .onChange(of: model.renderConfiguration) { _, _ in
       model.renderIfConfigurationChanged(strokeStyle: strokeStyle)
@@ -157,7 +158,7 @@ struct PortraitStudioView: View {
         .accessibilityLabel("Camera settings")
         .help("Camera settings")
         .popover(isPresented: $cameraSettings, arrowEdge: .bottom) { cameraSettingsPanel }
-      StudioHelpButton("Portrait capture", text: "Capture Burst starts the selected camera and takes several frames. Turn slowly for different angles. The display becomes white during capture. Import adds an existing photo. Frame and burst deletion remove recent photos; saved drawings keep their own source copy.")
+      StudioHelpButton("Portrait Studio", text: "Capture Burst starts the selected camera and takes several frames. Turn slowly for different angles. The display becomes white during capture. Import adds an existing photo. Frame and burst deletion remove recent photos; saved drawings keep their own source copy. Save Drawing keeps this exact result in Drawing Reviewer while you continue editing. Send to Drawing also saves the result and opens Drawing with it placed on the plotter video. Sending does not move the plotter; the Draw control in Drawing starts execution.")
       if model.isCapturing {
         ProgressView(value: model.captureProgress).frame(width: 60)
           .accessibilityLabel("Portrait capture progress")
@@ -189,7 +190,7 @@ struct PortraitStudioView: View {
       .menuStyle(.borderlessButton).fixedSize()
       .disabled(model.selectedPhotoID == nil)
       .accessibilityLabel("Delete captured photos")
-      Button("Show on Plotter Video") {
+      Button("Send to Drawing") {
         guard let candidate else { return }
         WorkbenchRequestTelemetry.nativeActionHandled("portrait.showOnPlotter")
         isSubmitting = true

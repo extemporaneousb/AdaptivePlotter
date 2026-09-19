@@ -28,15 +28,15 @@ struct PortraitStyleBrowser: View {
           .background(.background, in: RoundedRectangle(cornerRadius: 6))
           .overlay {
             RoundedRectangle(cornerRadius: 6)
-              .stroke((model.hasSelectedAlgorithm && model.selectedAlgorithm == style) ? Color.accentColor : Color.secondary.opacity(0.25),
-                lineWidth: (model.hasSelectedAlgorithm && model.selectedAlgorithm == style) ? 2 : 1)
+              .stroke(model.selectedAlgorithm == style ? Color.accentColor : Color.secondary.opacity(0.25),
+                lineWidth: model.selectedAlgorithm == style ? 2 : 1)
           }
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(candidate == nil || model.isCapturing)
         .accessibilityLabel("Select \(style.rawValue) style")
-        .accessibilityValue((model.hasSelectedAlgorithm && model.selectedAlgorithm == style) ? "Selected" : "")
+        .accessibilityValue(model.selectedAlgorithm == style ? "Selected" : "")
         .accessibilityIdentifier("portrait.algorithm.\(style.id)")
       }
     }

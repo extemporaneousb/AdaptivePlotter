@@ -532,13 +532,13 @@ separate facts; completion does not assert general adaptive-drawing readiness.
 
 ## Portrait Studio — prepare, place, draw, and observe
 
-1. Reveal **Portrait Studio** from **Panels**, including before Learning
-   completion. Selecting its title chooses face capture in the shared **Video**
-   panel and settles plotter capture/analysis. Choose a camera and Capture, or
-   Choose Photo, then select pose, crop/background options and drawing style.
-   **Show on Plotter Video** retains those controls and images, switches the same
-   Video panel to the plotter, installs the program, and fits upright or sideways
-   according to the larger valid uniform scale. Complete Exercise 2.1 before drawing.
+1. Reveal **Portrait Studio** from **View**, including before Learning completion.
+   Use the persistent camera button for a burst or import a photo, then adjust
+   framing and the chosen style. Expand Styles to compare the five existing
+   algorithms; folded Styles renders only the chosen algorithm.
+   **Send to Drawing** saves the candidate, installs its immutable program,
+   selects the plotter camera role and opens Drawing. **Save Drawing** is optional
+   library storage. Neither action moves hardware. Complete Exercise 2.1 before drawing.
    Use **Review Comparison** in **Video Settings** to return to the pinned exact
    post-frame. Close its canvas box with **×**, or use **Resume Live Preview** in
    Video Settings before placement. Closing retains the comparison and removes
@@ -547,14 +547,17 @@ separate facts; completion does not assert general adaptive-drawing readiness.
    physical sheet over it and choose **Sheet Covers Target**. The assertion
    cites the current paper instance, contact plane, source, exact frame, and
    camera configuration. It does not change calibration.
-3. Review the retained portrait target. **Fit to Drawing Area** recomputes the
-   upright/sideways fit; the generated polylines and plan remain deterministic.
+3. Review the retained portrait target. **Fit to Drawing Area** recomputes uniform
+   scale while preserving rotation. **Center Drawing** centers transformed ink
+   bounds without changing scale or rotation. The plan remains deterministic.
    Active Learning separately supplies sealed coverage-experiment programs.
 4. Click the video to place its center, then set uniform scale and rotation.
    The workspace creates a new immutable placement and content-addressed plan on
-   each change. A stroke outside the accepted Drawing Boundary refuses planning; no
-   clipping or machine request occurs.
-5. Review the target on advancing compatible plotter frames. Ordinary portrait
+   each change. Ordinary artwork is clipped at the accepted Drawing Boundary;
+   exits and re-entries become separate strokes without bridges. Fully excluded
+   artwork has no runnable plan. Metric/calibration targets retain strict containment.
+5. Review the exact plan in Drawing and on advancing compatible plotter frames.
+   The Drawing image remains visible above scrolling controls. Ordinary portrait
    drawing has no pre-run learning-role selector. Active Learning assigns its
    predeclared experimental roles internally.
 6. Press **Draw** only when LIVE controller admission, Motion, current
@@ -562,7 +565,8 @@ separate facts; completion does not assert general adaptive-drawing readiness.
    commands and settles Pen Up before observation-position travel; prior Pen
    command knowledge is not trusted. It then selects the plan's final point as
    the same-pose observation location and captures the local pre-drawing baseline there.
-7. One `RunInterpreter` owner redundantly normalizes Pen Up again, performs plan travel, lower, each finite segment,
+7. One `RunInterpreter` owner preflights the controller-precision schedule, then
+   redundantly normalizes Pen Up again, performs plan travel, lower, each finite segment,
    raise, and the logical-stroke checkpoint sequence. **Stop** is capability-
    bound to that owner. Competing plans are refused without replacing active
    progress. The command-bar Stop remains reachable when Motion, Portrait Studio,
@@ -579,7 +583,9 @@ separate facts; completion does not assert general adaptive-drawing readiness.
    extrapolation defect documented at `DOC-01`; it is not a current evidence path.
 9. Append the terminal record even when execution is refused, cancelled,
    ambiguous, possible-ink, or Vision-unclear. Never resend or redraw after a
-   terminal result. In **Active Learning**, select retained attributable ordinary
+   terminal result. Retained outcomes stay visible until **Prepare Next Drawing**
+   acknowledges the exact run; an unresolved evidence publication remains visible
+   and blocks handoff. In **Active Learning**, select retained attributable ordinary
    or training drawings and choose **Analyze for Learning**. This fits only
    identifiable constant X/Y translation from stroke normals, shows the result
    or insufficiency reason, and neither changes the archived role nor applies

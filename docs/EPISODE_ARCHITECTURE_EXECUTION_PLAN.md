@@ -42,6 +42,22 @@ Camera/native input and attended physical evidence remain separate from hosted
 layout and synthetic software receipts. Preserve the user's running app and stage
 an immutable test bundle for this source instead of replacing its session.
 
+Follow-up corrective task `task-87b9fefb7ac94c54a13362a568f81a7f`, based on
+`80abee3`, retains target `main` and the same owners. It repairs the observed
+wire-zero abort with cumulative command-precision coalescing, keeps retained
+failures visible, permits ordinary artwork rotation through canonical boundary
+clipping, centers ink bounds, and executes an enabled border first. Existing
+Drawing presentation gains the exact sealed-plan preview; the existing Styles
+section becomes demand-driven and folded by default. The existing diagnostic
+export gains exact displayed pixels and plan/mapping identity, with a bounded
+native inspection helper. No calibration update, motion, automatic retry, new
+panel or parallel renderer/planner/run owner is authorized by these changes.
+Acceptance includes the incident delta, non-grid boundary rounding, clipping
+continuity, no-redraw across reordered/regenerated stroke IDs, sticky terminal and
+publication failure, selected-vs-retained preview identity, lazy render demand,
+fresh process-attributed export, hosted pinned-preview geometry and signed build.
+Validation and live/native/physical limits are recorded in Current Evidence.
+
 ### Control audit and final disposition
 
 | Existing control or content | Decision and owner |
@@ -50,23 +66,26 @@ an immutable test bundle for this source instead of replacing its session.
 | Camera choice, burst duration | Camera settings popover beside capture. |
 | Import / choose photo | Keep in the toolbar as another source for the same acquisition/render pipeline. |
 | Show photo / marker preview | Remove these competing display modes. Photo and the single canonical drawing preview remain framed together. |
-| Frame arrows and source strip | Keep compact arrows beside Show on Plotter Video, a frame counter, and one horizontal strip grouped by burst. |
+| Frame arrows and source strip | Keep compact arrows beside Send to Drawing, a frame counter, and one horizontal strip grouped by burst. |
 | Delete frame / burst | Keep explicit deletion in the source toolbar; superseded workers cannot restore removed sources. |
 | Random, More Like This, Back, Forward, Return to Current Edit | Remove controls and unreachable authoring owners. Algorithm comparison replaces exploration/history as the normal selection model. |
-| Style picker | Replace with five rendered portraits of the current photo. Selection installs that exact candidate and reveals its algorithm controls. |
+| Style picker | Keep the five rendered portraits in the existing Styles disclosure, folded by default. Closed renders only the selected algorithm; opening computes missing alternatives through the same renderer. Selection installs that exact candidate. |
 | Crop, head margin, background removal | Studio Framing, beside the selected drawing; shared by all five algorithm comparisons. |
 | Contour/hatch/sketch parameters and detail presets | Studio adjustments, below Framing, with only the selected algorithm's relevant parameters. |
 | Big Head | Remove from ordinary authoring. Preserve historical candidate decoding and integrity verification. |
 | Marker thickness | Pen & Material shows the current width and provenance. Style controls change drawing detail, not the calibration estimate. |
 | Buttons 1–4 / preference examples / ratings / named style training | Remove UI and inactive runtime generation owners. Preserve existing immutable archive formats. |
-| Save Drawing | Retain an immutable candidate without switching the working edit. |
+| Save Drawing | Optional library storage; retain an immutable candidate without switching the working edit. Send to Drawing also saves and performs the explicit handoff; Draw remains a separate physical action. |
 | Physical drawing gallery | Replace with source-independent Drawing Reviewer for saved drawings and ordinary physical results, with Close and explicit deletion. |
-| Placement, scale, rotation, Center, Fit | Shared Drawing panel using the existing Draft/placement planner. Re-showing an unchanged program retains its placement. |
+| Placement, scale, rotation, Center, Fit | Shared Drawing panel with a pinned exact-plan preview. Rotation clips ordinary artwork through the canonical planner; Center moves un-clipped ink bounds; Fit changes scale. Re-sending an unchanged program retains its placement. Calibration and metric targets retain strict containment. |
 | Ink source / paper stock | Material measurement setup popover in Drawing; these configure measurement evidence, not source-photo authoring. |
 | Assess material at current scale | Rename Check Detail at This Size; explain feasibility findings behind its question mark. |
 | Adapt material | Explicit Adapt Detail at admitted scale, separate from measuring width; output still uses the existing deterministic render pipeline. |
 | Sheet Confirmed / paper replacement | Keep as explicit physical paper facts in Drawing. Help explains the distinction from plan reset and deletion. |
-| New Drawing | Rename Prepare Next Drawing; retain the canonical terminal-to-next-plan transition. |
+| New Drawing | Prepare Next Drawing acknowledges a retained outcome through the canonical RunID-bound transition, preserving same-sheet no-redraw. |
+| Draw border | Keep the existing choice; new plans draw an enabled border first. Prior archived order stays immutable. |
+| Drawing status | Keep terminal outcomes visible in the existing global strip until the exact handoff; unresolved publication remains visible without fabricated recovery. |
+| Diagnostics | Extend the existing export with raw displayed pixels, source/capture/process identity, current mapping and selected/sealed plan. Native inspection is a bounded external helper, not another UI or recorder. |
 | Review Run | Open Drawing Reviewer. Browsing/deleting cannot clear possible-ink truth or replay a run. |
 | Draw / Stop | Keep the existing typed run admission and Stop owners. Studio authoring grants no motion authority. |
 | Explanatory paragraphs and technical provenance | Question-mark popovers; compact titles, values, progress and actionable failure state stay visible. |

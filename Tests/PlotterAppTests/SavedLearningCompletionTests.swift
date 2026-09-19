@@ -164,9 +164,13 @@ extension SavedLearningCompletionTests {
         let envelope = try SparseTipBatchMarkPlan.boundaryEnvelope(for: originalBoundary)
         let bounds = try SparseTipBatchMarkPlan.drawingBorderBounds(for: envelope)
         let expected = try DrawingBorderPlan(bounds: bounds).pathPositions.map(\.point)
-        let path = try #require(executedPlan.strokes.last).path.points
+        let path = try #require(executedPlan.strokes.first).path.points
         #expect(path.count == expected.count)
-        #expect(Set(path) == Set(expected))
+        #expect(path.first == path.last)
+        for (actual, corner) in zip(path, expected) {
+          #expect(abs(actual.x - corner.x) <= DrawingRegionContainmentPolicy.numericalEpsilonMM)
+          #expect(abs(actual.y - corner.y) <= DrawingRegionContainmentPolicy.numericalEpsilonMM)
+        }
       }
       records.append(terminal.record)
       if index == 0 {

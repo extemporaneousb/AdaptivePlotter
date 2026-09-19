@@ -297,12 +297,20 @@ public struct ExecutionPlanRevision: Hashable, Codable, Sendable, CanonicalEncod
   }
 }
 
+public enum DrawingBoundaryPolicy: Equatable, Sendable {
+  /// Calibration and measured targets must retain every authored point.
+  case rejectOutside
+  /// Ordinary artwork may be cropped to the admitted region before execution.
+  case clipToDrawableRegion
+}
+
 public enum DrawingPlanner {
   public static func plan(
     program: DrawingProgram,
     placement: DrawingPlacement,
     drawableRegion: DrawableMachineRegion,
-    provenance: DrawingPlanningProvenance
+    provenance: DrawingPlanningProvenance,
+    boundaryPolicy: DrawingBoundaryPolicy = .rejectOutside
   ) throws -> ExecutionPlanRevision {
     let placementHash = try canonicalDigest(of: placement)
     let regionHash = try canonicalDigest(of: drawableRegion)
@@ -313,30 +321,44 @@ public enum DrawingPlanner {
     checkpoints.reserveCapacity(program.strokes.count)
 
     for stroke in program.strokes {
-      let checkpointID = PlanCheckpointID(
-        stablePlanUUID(
-          seed: [
-            program.contentHash.description,
-            placementHash.description,
-            regionHash.description,
-            provenanceHash.description,
-            stroke.id.description,
-          ].joined(separator: ":")))
-      planned.append(
-        PlannedMachineStroke(
-          logicalStrokeID: stroke.id,
-          path: try placement.applying(to: stroke.path),
-          style: stroke.style,
-          semanticRole: stroke.semanticRole,
-          ordering: stroke.ordering,
-          endingCheckpointID: checkpointID
-        ))
-      checkpoints.append(
-        ExecutionCheckpoint(
-          id: checkpointID,
-          afterStrokeID: stroke.id,
-          ordering: stroke.ordering
-        ))
+      let transformed = try placement.applying(to: stroke.path)
+      let paths: [Polyline<MachineSpace>]
+      switch boundaryPolicy {
+      case .rejectOutside: paths = [transformed]
+      case .clipToDrawableRegion:
+        paths = try clippedPaths(transformed, to: drawableRegion.effectiveBounds)
+      }
+      let unchanged = paths.count == 1 && paths[0] == transformed
+      for (fragmentIndex, path) in paths.enumerated() {
+        let strokeID = unchanged || boundaryPolicy == .rejectOutside ? stroke.id : StrokeID(
+          stablePlanUUID(seed: "drawing-clip-v1:\(stroke.id):\(fragmentIndex)"))
+        // Keep legacy identities exactly when no clipping was requested.
+        let ordering = boundaryPolicy == .rejectOutside ? stroke.ordering : UInt32(planned.count)
+        let checkpointID = PlanCheckpointID(
+          stablePlanUUID(
+            seed: [
+              program.contentHash.description,
+              placementHash.description,
+              regionHash.description,
+              provenanceHash.description,
+              strokeID.description,
+            ].joined(separator: ":")))
+        planned.append(
+          PlannedMachineStroke(
+            logicalStrokeID: strokeID,
+            path: path,
+            style: stroke.style,
+            semanticRole: stroke.semanticRole,
+            ordering: ordering,
+            endingCheckpointID: checkpointID
+          ))
+        checkpoints.append(
+          ExecutionCheckpoint(
+            id: checkpointID,
+            afterStrokeID: strokeID,
+            ordering: ordering
+          ))
+      }
     }
 
     return try ExecutionPlanRevision(
@@ -348,6 +370,54 @@ public enum DrawingPlanner {
       strokes: planned,
       checkpoints: checkpoints
     )
+  }
+
+  /// Segment clipping emits a new pen-down fragment after every excursion
+  /// outside the region. A boundary intersection never creates a bridge across
+  /// omitted artwork. Final ExecutionPlanRevision validation remains mandatory.
+  static func clippedPaths(
+    _ path: Polyline<MachineSpace>, to bounds: AxisAlignedBounds<MachineSpace>
+  ) throws -> [Polyline<MachineSpace>] {
+    if DrawingRegionContainmentPolicy.contains(path, in: bounds) { return [path] }
+    var fragments: [Polyline<MachineSpace>] = []
+    var current: [Point2<MachineSpace>] = []
+    func finish() throws {
+      if current.count >= 2 { fragments.append(try Polyline(points: current)) }
+      current.removeAll(keepingCapacity: true)
+    }
+    for (start, end) in zip(path.points, path.points.dropFirst()) {
+      let dx = end.x - start.x, dy = end.y - start.y
+      if dx == 0 && dy == 0 { continue }
+      var lower = 0.0, upper = 1.0
+      var visible = true
+      for (p, q) in [(-dx, start.x - bounds.minX), (dx, bounds.maxX - start.x),
+        (-dy, start.y - bounds.minY), (dy, bounds.maxY - start.y)] {
+        if p == 0 {
+          if q < 0 { visible = false; break }
+        } else {
+          let ratio = q / p
+          if p < 0 { lower = max(lower, ratio) } else { upper = min(upper, ratio) }
+          if lower >= upper { visible = false; break }
+        }
+      }
+      guard visible else { try finish(); continue }
+      func point(_ fraction: Double) throws -> Point2<MachineSpace> {
+        // Recomputing an unchanged endpoint can add one ULP, separating it
+        // from the identical start of the next source segment.
+        if fraction == 0 { return start }
+        if fraction == 1 { return end }
+        // Clamp roundoff at the admitted edge, never enlarge the region.
+        return try Point2(x: min(bounds.maxX, max(bounds.minX, start.x + fraction * dx)),
+          y: min(bounds.maxY, max(bounds.minY, start.y + fraction * dy)))
+      }
+      let first = try point(lower), last = try point(upper)
+      guard first != last else { try finish(); continue }
+      if current.last != first { try finish(); current.append(first) }
+      current.append(last)
+      if upper < 1 { try finish() }
+    }
+    try finish()
+    return fragments
   }
 }
 

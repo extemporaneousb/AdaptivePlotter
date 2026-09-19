@@ -1,5 +1,8 @@
 import Foundation
 import PlotterEpisodeModel
+import PlotterModel
+import PlotterRuntime
+import ImageIO
 import PlotterUI
 import Testing
 @testable import PlotterApp
@@ -29,7 +32,7 @@ struct WorkbenchDiagnosticsTests {
     let snapshot = WorkbenchDebugSnapshot(application: workspace, projection: projection)
     let encoded = try snapshot.encoded()
     let decoded = try JSONDecoder().decode([String: JSONValue].self, from: encoded)
-    #expect(decoded["format"] == .string("adaptiveplotter.debug-snapshot.v1"))
+    #expect(decoded["format"] == .string("adaptiveplotter.debug-snapshot.v2"))
     #expect(snapshot.learningEpisodeID == record.episodeID.rawValue)
     #expect(snapshot.transitions.map(\.sequence) == record.entries.map(\.sequence))
     #expect(snapshot.transitions.last?.result.contains("staleUIRevision") == true)
@@ -101,6 +104,46 @@ struct WorkbenchDiagnosticsTests {
     await gate.release()
     try await awaitExport(exporter)
     #expect(exporter.savedURL?.lastPathComponent == "held.json")
+    await application.shutdown()
+  }
+
+  @Test("export retains exact displayed bytes and capture identity without another camera request")
+  func rawFrameExport() async throws {
+    let application = makeCausalSimulatorAppFixture().workspace
+    let metrics = FrameContentHashMetrics()
+    let pixels = Data([0, 0, 255, 255, 0, 255, 0, 255, 7, 8, 9, 10,
+                       255, 0, 0, 255, 255, 255, 255, 255, 11, 12, 13, 14])
+    let frame = try StampedFrame(sequence: 42, captureNanoseconds: 123456,
+      cameraConfigurationID: CameraConfigurationID(), width: 2, height: 2, rowBytes: 12,
+      pixelFormat: .bgra8, bytes: OwnedFrameBytes(copying: pixels),
+      eagerlyMaterializeContentHash: false, contentHashMetrics: metrics)
+    application.actionSurfacePreview.publish(DisplayedFrame(source: .simulated, frame: frame))
+    let revision = application.semanticPresentationRevision
+    let capture = WorkbenchDiagnosticCapture(application: application,
+      projection: application.testPlotterUIProjection(includesLearningPath: true).semantic)
+    #expect(metrics.snapshot.totalComputationCount == 0) // Immutable capture does not hash on MainActor.
+    application.actionSurfacePreview.publish(nil) // Export keeps the exact original capture.
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = try await WorkbenchDiagnosticFileWriter.write(capture, directory: directory)
+    let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+    let snapshot = try decoder.decode(WorkbenchDebugSnapshot.self, from: Data(contentsOf: url))
+    let camera = try #require(snapshot.camera)
+    #expect(snapshot.processID == ProcessInfo.processInfo.processIdentifier)
+    #expect(camera.frameID == frame.id && camera.sequence == 42)
+    #expect(camera.captureNanoseconds == 123456)
+    #expect(camera.source == .simulated)
+    #expect(camera.rowBytes == 12 && camera.width == 2 && camera.height == 2)
+    #expect(camera.contentSHA256 == frame.contentSHA256)
+    #expect(try Data(contentsOf: directory.appendingPathComponent(camera.pixelsFile)) == pixels)
+    let imageSource = try #require(CGImageSourceCreateWithURL(directory.appendingPathComponent(camera.imageFile) as CFURL, nil))
+    let image = try #require(CGImageSourceCreateImageAtIndex(imageSource, 0, nil))
+    #expect(image.width == 2 && image.height == 2)
+    #expect(snapshot.drawing.draftRevision == application.drawingDraftSnapshot.projection.draftRevision.rawValue)
+    #expect(snapshot.drawing.draftPlan == application.drawingDraftSnapshot.plan)
+    #expect(application.semanticPresentationRevision == revision)
+    #expect(application.actionSurfacePreview.displayedFrame == nil)
+    #expect(metrics.snapshot.serializationComputationCount == 1)
     await application.shutdown()
   }
 

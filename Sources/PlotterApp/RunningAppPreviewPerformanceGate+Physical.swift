@@ -250,7 +250,7 @@ extension RunningAppPreviewPerformanceGate {
         RunningAppNativeInputProbe.controlValue("portrait.showOnPlotter")?.contains("Preparing") == true
           || application.workbenchCameraRole == .plotter
       })
-      try await awaitWorkload("Show on Plotter Video did not settle with the imported portrait plan.") {
+      try await awaitWorkload("Send to Drawing did not settle with the imported portrait plan.") {
         application.workbenchCameraRole == .plotter && !application.cameraRoleIsTransitioning
           && application.drawingDraftSnapshot.program?.contentHash == program.contentHash
           && application.drawingDraftSnapshot.plan != nil

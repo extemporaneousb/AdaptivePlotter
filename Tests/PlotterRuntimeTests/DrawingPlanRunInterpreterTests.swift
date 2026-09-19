@@ -23,6 +23,176 @@ struct DrawingPlanRunInterpreterTests {
     #expect(fixture.link.completedWriteCount == exchanges.count)
   }
 
+  @Test("interior sub-wire geometry coalesces without aborting or changing the immutable plan")
+  func interiorSubWireSegment() async throws {
+    let request = try drawingPlanRequest([[
+      (0, 0), (1, 1), (1.000361052301912, 1.000244040715259),
+      (2.000361052301912, 2.000244040715259),
+    ]])
+    let original = try JSONEncoder().encode(request.plan)
+    var exchanges = drawingPlanProbeExchanges(position: (0, 0))
+    exchanges += penExchanges(.raise, at: (0, 0), profile: request.penActuationProfile)
+    exchanges += penExchanges(.lower, at: (0, 0), profile: request.penActuationProfile)
+    exchanges += strokeExchanges(try strokeRequest(from: (0, 0), to: (1, 1), request: request),
+      from: (0, 0), to: (1, 1))
+    exchanges += strokeExchanges(try strokeRequest(from: (1, 1), to: (2, 2), request: request),
+      from: (1, 1), to: (2, 2))
+    exchanges += penExchanges(.raise, at: (2, 2), profile: request.penActuationProfile)
+    let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
+    guard case .completed(let progress, let position) = await fixture.interpreter.requestDrawingPlan(request) else {
+      Issue.record("The reproduced interior wire-zero segment should coalesce and finish")
+      return
+    }
+    #expect(position == (try MachinePosition(x: 2, y: 2)))
+    #expect(progress.planRevisionID == request.plan.revisionID)
+    #expect(progress.plannedSegmentCount == 2)
+    #expect(progress.submittedSegmentCount == 2)
+    #expect(progress.controllerCompletedSegmentCount == 2)
+    #expect(progress.completedCheckpointIDs == request.plan.checkpoints.map(\.id))
+    #expect(try JSONDecoder().decode(ExecutionPlanRevision.self, from: original) == request.plan)
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+  }
+
+  @Test("a wholly sub-wire stroke refuses the entire plan before travel or Pen Down")
+  func whollySubWireStrokeRefusesBeforeActuation() async throws {
+    let request = try drawingPlanRequest([[(0, 0), (1, 0)], [(2, 2), (2.000361, 2.000244)]])
+    let exchanges = drawingPlanProbeExchanges(position: (0, 0))
+    let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
+    guard case .refused(let progress, .unrepresentableStroke(let id)) =
+      await fixture.interpreter.requestDrawingPlan(request) else {
+      Issue.record("No plan actuation is allowed when a whole stroke cannot be represented")
+      return
+    }
+    #expect(id == request.plan.strokes[1].logicalStrokeID)
+    #expect(progress.commandedStrokeCount == 0)
+    #expect(progress.submittedSegmentCount == 0)
+    #expect(progress.completedCheckpointIDs.isEmpty)
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+  }
+
+  @Test("cumulative rounding preserves thousands of tiny displacements and source mapping")
+  func cumulativeWireDisplacement() throws {
+    let points = (0...3_000).map { (Double($0) * 0.0004, -Double($0) * 0.000244040715259) }
+    let request = try drawingPlanRequest([points])
+    let schedule = try DrawingWireSchedule(plan: request.plan)
+    let segments = try #require(schedule.strokes.first?.segments)
+    #expect(segments.count < points.count - 1)
+    var xUnits: Int64 = 0, yUnits: Int64 = 0
+    var coveredSourceCount = 0
+    for segment in segments {
+      xUnits += try #require(MachineWirePrecision.units(segment.delta.dx))
+      yUnits += try #require(MachineWirePrecision.units(segment.delta.dy))
+      #expect(segment.delta.dx != 0 || segment.delta.dy != 0)
+      #expect(segment.sourceSegmentRange.lowerBound == coveredSourceCount)
+      coveredSourceCount = segment.sourceSegmentRange.upperBound + 1
+      #expect(abs(Double(xUnits) / 1_000 - segment.intendedEndpoint.x) <= 0.000500000001)
+      #expect(abs(Double(yUnits) / 1_000 - segment.intendedEndpoint.y) <= 0.000500000001)
+    }
+    #expect(coveredSourceCount == 3_000)
+    #expect(xUnits == 1_200)
+    #expect(yUnits == -732)
+  }
+
+  @Test("closed and inverse paths retain reversals and terminal residue without bridging strokes")
+  func reversalsAndTerminalResidue() throws {
+    let request = try drawingPlanRequest([
+      [(0, 0), (0.0004, 0.0002), (1.0006, -1.0006), (0, 0), (0.0003, -0.0002)],
+      [(3, 3), (2.0006, 3.0004), (3, 3)],
+    ])
+    let schedule = try DrawingWireSchedule(plan: request.plan)
+    #expect(schedule.strokes.map(\.strokeID) == request.plan.strokes.map(\.logicalStrokeID))
+    for stroke in schedule.strokes {
+      #expect(stroke.segments.count == 2)
+      #expect(stroke.segments.reduce(0) { $0 + $1.delta.dx } == 0)
+      #expect(stroke.segments.reduce(0) { $0 + $1.delta.dy } == 0)
+    }
+    #expect(schedule.strokes[0].segments[0].sourceSegmentRange == 0...1)
+    #expect(schedule.strokes[0].segments[1].sourceSegmentRange == 2...3)
+    #expect(schedule.strokes[0].segments[1].intendedEndpoint == request.plan.strokes[0].path.end)
+    #expect(MachineWirePrecision.number(-0.0001)?.text == "0.000")
+  }
+
+  @Test("near-boundary wire endpoints round inward from either stroke-start origin",
+    arguments: [-1.0, 1.0])
+  func boundaryRoundingBound(sign: Double) throws {
+    let request = try drawingPlanRequest([[(sign * 9.0004, 0), (sign * 10, 0)]])
+    let schedule = try DrawingWireSchedule(plan: request.plan)
+    let segment = try #require(schedule.strokes.first?.segments.first)
+    let wireEnd = request.plan.strokes[0].path.start.x + segment.delta.dx
+    #expect(abs(wireEnd - sign * 10) < 0.001)
+    #expect(abs(wireEnd - sign * 10) > 0.0005)
+    #expect(request.plan.drawableRegion.contains(try Point2(x: wireEnd, y: 0)))
+    #expect(abs(wireEnd) <= 10)
+  }
+
+  @Test("non-grid minimum maximum and corner targets remain contained with inverse displacement",
+    arguments: [-1.0, 1.0])
+  func nonGridBoundaryWireSchedule(sign: Double) throws {
+    let region = try DrawableMachineRegion(bounds: .init(minX: -10.0006, minY: -10.0006,
+      maxX: 10.0006, maxY: 10.0006))
+    let request = try drawingPlanRequest([[
+      (0, 0), (sign * 10.0006, 0), (sign * 10.0006, -sign * 10.0006), (0, 0),
+    ]], region: region)
+    let schedule = try DrawingWireSchedule(plan: request.plan)
+    var xUnits: Int64 = 0, yUnits: Int64 = 0
+    for segment in schedule.strokes[0].segments {
+      xUnits += try #require(MachineWirePrecision.units(segment.delta.dx))
+      yUnits += try #require(MachineWirePrecision.units(segment.delta.dy))
+      let endpoint = try Point2<MachineSpace>(x: Double(xUnits) / 1_000, y: Double(yUnits) / 1_000)
+      #expect(region.contains(endpoint))
+      #expect(abs(endpoint.x - segment.intendedEndpoint.x) < 0.001)
+      #expect(abs(endpoint.y - segment.intendedEndpoint.y) < 0.001)
+    }
+    #expect(xUnits == 0 && yUnits == 0)
+    #expect(schedule.strokes[0].segments.count == 3)
+  }
+
+  @Test("a negative displacement from a non-grid maximum respects the opposite minimum")
+  func boundaryOriginNegativeDisplacement() throws {
+    let region = try DrawableMachineRegion(bounds: .init(minX: 0, minY: 0, maxX: 10.0006, maxY: 10.0006))
+    let request = try drawingPlanRequest([[(10.0006, 10.0006), (0, 0)]], region: region)
+    let schedule = try DrawingWireSchedule(plan: request.plan)
+    let segment = try #require(schedule.strokes.first?.segments.first)
+    let endpoint = try Point2<MachineSpace>(x: 10.0006 + segment.delta.dx, y: 10.0006 + segment.delta.dy)
+    #expect(region.contains(endpoint))
+    #expect(endpoint.x >= 0 && endpoint.x < 0.001)
+    #expect(endpoint.y >= 0 && endpoint.y < 0.001)
+  }
+
+  @Test("a whole thin stroke with no nonzero contained wire displacement refuses without actuation")
+  func thinRegionCannotRoundOutside() async throws {
+    let region = try DrawableMachineRegion(bounds: .init(minX: 0, minY: 0, maxX: 0.0006, maxY: 0.0006))
+    let request = try drawingPlanRequest([[(0, 0), (0.0006, 0.0006)]], region: region)
+    let exchanges = drawingPlanProbeExchanges(position: (0, 0))
+    let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
+    guard case .refused(let progress, .unrepresentableStroke(let id)) =
+      await fixture.interpreter.requestDrawingPlan(request) else {
+      Issue.record("A tiny non-grid region cannot authorize an outward rounded stroke")
+      return
+    }
+    #expect(id == request.plan.strokes[0].logicalStrokeID)
+    #expect(progress.submittedSegmentCount == 0)
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+  }
+
+  @Test("nonfinite cumulative displacement and wire-integer overflow refuse before motion",
+    arguments: [0, 1])
+  func wireScheduleOverflowRefuses(caseIndex: Int) async throws {
+    let points: [(Double, Double)] = caseIndex == 0
+      ? [(-1e308, 0), (1e308, 0)] : [(0, 0), (9e15, 0), (-9e15, 0)]
+    let request = try drawingPlanRequest([points], boundary: caseIndex == 0 ? 1e308 : 9e15)
+    let exchanges = drawingPlanProbeExchanges(position: (0, 0))
+    let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
+    guard case .refused(let progress, .invalidWireGeometry(let id)) =
+      await fixture.interpreter.requestDrawingPlan(request) else {
+      Issue.record("Unrepresentable finite-range arithmetic must fail before actuation")
+      return
+    }
+    #expect(id == request.plan.strokes[0].logicalStrokeID)
+    #expect(progress.submittedSegmentCount == 0)
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+  }
+
   @Test("portrait stroke gaps within settlement tolerance command Pen-Up travel",
     arguments: [-0.4, 0.001, 0.4, 1.0])
   func submillimetreStrokeTravel(gap: Double) async throws {
@@ -129,7 +299,7 @@ struct DrawingPlanRunInterpreterTests {
 
   @Test("Stop cancels one plan owner, rejects competitors, and never resends a segment")
   func stopAndNoResend() async throws {
-    let request = try drawingPlanRequest([[(0, 0), (2, 0)]])
+    let request = try drawingPlanRequest([[(0, 0), (0.000361, 0.000244), (2, 0)]])
     let segment = try strokeRequest(from: (0, 0), to: (2, 0), request: request)
     var exchanges = drawingPlanProbeExchanges(position: (0, 0))
     exchanges += penExchanges(.raise, at: (0, 0), profile: request.penActuationProfile)
@@ -190,6 +360,8 @@ struct DrawingPlanRunInterpreterTests {
     let ownedSnapshot = await interpreter.snapshot()
     #expect(ownedSnapshot.currentOperation == .drawingPlan(request.operationID))
     #expect(ownedSnapshot.drawingPlanProgress?.operationID == request.operationID)
+    #expect(ownedSnapshot.drawingPlanProgress?.plannedSegmentCount == 1)
+    #expect(ownedSnapshot.drawingPlanProgress?.activeSegmentIndex == 1)
 
     let cancelTask = Task { await interpreter.requestJogCancel(.operatorStop) }
     await waitForPlanWriteCount(base, atLeast: exchanges.count - 3)
@@ -447,7 +619,7 @@ private func readyDrawingPlanInterpreter(
 }
 
 private func drawingPlanRequest(
-  _ strokePoints: [[(Double, Double)]]
+  _ strokePoints: [[(Double, Double)]], boundary: Double = 10, region: DrawableMachineRegion? = nil
 ) throws -> DrawingPlanRequest {
   let programHash = try planDigest(1)
   let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
@@ -482,8 +654,8 @@ private func drawingPlanRequest(
       machineAnchor: Point2(x: 0, y: 0),
       uniformScale: 1
     ),
-    drawableRegion: DrawableMachineRegion(
-      bounds: AxisAlignedBounds(minX: -10, minY: -10, maxX: 10, maxY: 10)
+    drawableRegion: region ?? DrawableMachineRegion(
+      bounds: AxisAlignedBounds(minX: -boundary, minY: -boundary, maxX: boundary, maxY: boundary)
     ),
     provenance: DrawingPlanningProvenance(
       modelRevisionID: DrawingModelRevisionID(),

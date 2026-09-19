@@ -1753,9 +1753,9 @@ public actor MachineController {
     guard request.feedMMPerMinute.isFinite else {
       return (nil, .nonPositiveFeed(request.feedMMPerMinute))
     }
-    let x = quantizedWireNumber(request.delta.dx)
-    let y = quantizedWireNumber(request.delta.dy)
-    let feed = quantizedWireNumber(request.feedMMPerMinute)
+    let x = MachineWirePrecision.number(request.delta.dx)
+    let y = MachineWirePrecision.number(request.delta.dy)
+    let feed = MachineWirePrecision.number(request.feedMMPerMinute)
     guard let x, let y, let feed else { return (nil, .nonFiniteDelta) }
     guard x.value != 0 || y.value != 0 else { return (nil, .zeroDelta) }
     guard feed.value > 0 else { return (nil, .nonPositiveFeed(feed.value)) }
@@ -2682,17 +2682,6 @@ private struct PassiveReplyValidator {
     guard components.count >= 3 else { return false }
     return components.prefix(3).allSatisfy { Double($0)?.isFinite == true }
   }
-}
-
-private func quantizedWireNumber(_ value: Double) -> (value: Double, text: String)? {
-  guard value.isFinite else { return nil }
-  let text = String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), value)
-  guard let quantized = Double(text), quantized.isFinite else { return nil }
-  let normalized = quantized == 0 ? 0 : quantized
-  return (
-    normalized,
-    normalized == 0 ? "0.000" : text
-  )
 }
 
 private func addingClamped(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {

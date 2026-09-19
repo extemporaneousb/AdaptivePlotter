@@ -67,6 +67,20 @@ struct PortraitPlanePreview {
   let materialUnavailableReason: String?
   let savedPresentation: PortraitPresentationContext?
 
+  /// A sealed execution plan is sufficient to draw its exact machine paths.
+  /// No current authoring program or second planning pass participates.
+  static func planned(_ plan: ExecutionPlanRevision) -> Self {
+    let evidence = try? PortraitDisplayEvidence(mode: .planned,
+      programContentHash: plan.sourceProgramContentHash.description,
+      region: plan.drawableRegion, placement: plan.placement,
+      planContentHash: plan.contentHash.description, widthSource: .nominalProgram)
+    return Self(program: nil, region: plan.drawableRegion, evidence: evidence,
+      plannedStrokes: plan.strokes, inkWidthMM: plan.strokes.first?.style.nominalLineWidth ?? 0.4,
+      inkWidthIsMeasured: false, materialProfile: nil, materialRevision: nil,
+      statusText: "Exact planned drawing · physical dimensions unverified",
+      materialUnavailableReason: nil, savedPresentation: nil)
+  }
+
   var actualDrawingHeightMM: Double? {
     guard evidence?.mode == .planned, let program, let placement = evidence?.placement else { return nil }
     return try? placement.controllerEdgeLengths(for: program.fieldExtent).height
@@ -151,7 +165,7 @@ struct PortraitPlanePreview {
   }
 
   func geometry(in size: CGSize) -> PortraitPlaneRenderGeometry? {
-    guard let program, size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return nil }
+    guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return nil }
     let ratio = aspectRatio
     let width = min(size.width, size.height * ratio), height = width / ratio
     let rect = CGRect(x: (size.width - width) / 2, y: (size.height - height) / 2, width: width, height: height)
@@ -159,7 +173,9 @@ struct PortraitPlanePreview {
       let placement = evidence?.placement {
       let scale = width / (bounds.maxX - bounds.minX)
       let paths = plannedStrokes?.map { $0.path.points }
-        ?? (try? program.strokes.map { try placement.applying(to: $0.path).points })
+        ?? program.flatMap { program in
+          try? program.strokes.map { try placement.applying(to: $0.path).points }
+        }
       guard let paths else { return nil }
       if let camera = placement.cameraGeometry, let corners = cameraRegion,
         let minX = corners.map(\.x).min(), let maxX = corners.map(\.x).max(),
@@ -184,6 +200,7 @@ struct PortraitPlanePreview {
       } }, lineWidth: inkWidthMM * scale, screenScale: scale)
     }
     // Reference fit has no claimed machine placement or actual millimeter size.
+    guard let program else { return nil }
     let scale = min(width / program.fieldExtent.width, height / program.fieldExtent.height) * 0.9
     let origin = CGPoint(x: rect.midX - program.fieldExtent.width * scale / 2,
       y: rect.midY + program.fieldExtent.height * scale / 2)

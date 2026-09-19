@@ -8,18 +8,21 @@ import Testing
 @Suite("Portrait Studio bounded workspace", .serialized)
 @MainActor
 struct PortraitStudioWorkspaceLayoutTests {
-  @Test("all algorithm controls fit without vertical scrolling at supported workspace sizes")
-  func controlsFit() async throws {
+  @Test("all algorithm controls fit with Styles folded or expanded", arguments: [false, true])
+  func controlsFit(expanded: Bool) async throws {
     _ = NSApplication.shared
     let model = PortraitStudioModel(renderer: WorkspaceLayoutRenderer())
     let stroke = try portraitTestStyle()
+    model.setStyleComparisonExpanded(expanded, strokeStyle: stroke)
     model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: stroke)
     await model.awaitRendering()
-    try #require(model.algorithmCandidates.count == 5)
+    try #require(model.algorithmCandidates.count == (expanded ? 5 : 1))
     for size in [CGSize(width: 1000, height: 550), CGSize(width: 1280, height: 650)] {
       for style in PortraitStyle.allCases {
-        model.selectAlgorithm(style, strokeStyle: stroke)
-        try #require(model.hasSelectedAlgorithm)
+        model.setStyleComparisonExpanded(false, strokeStyle: stroke)
+        model.style = style
+        model.renderIfNeeded(strokeStyle: stroke)
+        await model.awaitRendering()
         let host = NSHostingController(rootView: PortraitStudioView(model: model,
           strokeStyle: stroke, showOnPlotter: { _ in nil })
           .padding(12)
@@ -36,8 +39,15 @@ struct PortraitStudioWorkspaceLayoutTests {
         window.setContentSize(size)
         window.orderFront(nil)
         try await settle(host.view)
+        // Close the previous host before simulating disclosure input on this
+        // one; its delayed onDisappear otherwise legitimately folds the model.
+        model.setStyleComparisonExpanded(expanded, strokeStyle: stroke)
+        await model.awaitRendering()
+        try await settle(host.view)
         defer { window.close() }
         #expect(!window.isKeyWindow)
+        #expect(model.isStyleComparisonExpanded == expanded)
+        #expect(model.selectedCandidate?.recipe.style == style)
         #expect(abs(host.view.bounds.width - size.width) < 1)
         #expect(abs(host.view.bounds.height - size.height) < 1)
         let views = descendants(host.view)
@@ -63,7 +73,7 @@ struct PortraitStudioWorkspaceLayoutTests {
           let image = try #require(bitmap.cgImage)
           let index = try #require(PortraitStyle.allCases.firstIndex(of: style))
           try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: directory)
-            .appendingPathComponent("studio-\(Int(size.width))-style-\(index).png"))
+            .appendingPathComponent("studio-\(Int(size.width))-style-\(index)-\(expanded ? "expanded" : "folded").png"))
         }
       }
     }

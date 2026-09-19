@@ -90,6 +90,7 @@ enum DrawingStudioRunState: Hashable, Sendable {
   case terminal(runID: RunID, detail: String)
   case reviewAvailable(runID: RunID, detail: String)
   case reviewing(runID: RunID, detail: String)
+  case publicationIncomplete(detail: String)
   case publicationFailed(
     recoveryCapabilityID: PlotterDrawingRunPublicationRecoveryCapabilityID,
     detail: String
@@ -104,6 +105,7 @@ enum DrawingStudioRunState: Hashable, Sendable {
     case .terminal: "Drawing run ended"
     case .reviewAvailable: "Run review available"
     case .reviewing: "Reviewing drawing run"
+    case .publicationIncomplete: "Drawing evidence unresolved"
     case .publicationFailed: "Evidence publication failed"
     }
   }
@@ -113,7 +115,7 @@ enum DrawingStudioRunState: Hashable, Sendable {
     case .unavailable(let reason), .ready(let reason), .running(_, let reason),
       .processing(let reason),
       .terminal(_, let reason), .reviewAvailable(_, let reason),
-      .reviewing(_, let reason), .publicationFailed(_, let reason):
+      .reviewing(_, let reason), .publicationIncomplete(let reason), .publicationFailed(_, let reason):
       reason
     }
   }
@@ -145,6 +147,7 @@ struct DrawingStudioControl: Hashable, Identifiable, Sendable {
 
 struct DrawingStudioPresentation: Hashable, Sendable {
   let canvas: DrawingStudioCanvasPresentation
+  let drawingPreview: DrawingStudioPreview?
   let paperReplacementStatus: String?
   let drawBorder: Bool
   let editingIsEnabled: Bool
@@ -191,7 +194,8 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     residualRecords: [DrawingResidualRecordSummary] = [],
     residualAnalysis: DrawingRetrospectiveResidualAnalysis? = nil,
     drawBorder: Bool = false,
-    paperReplacementStatus: String? = nil
+    paperReplacementStatus: String? = nil,
+    drawingPreview: DrawingStudioPreview? = nil
   ) {
     self.canvas = DrawingStudioCanvasPresentation(
       draftProjection: canvas.draftProjection,
@@ -205,6 +209,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
       targetPreview: canvas.targetPreview
     )
     self.paperReplacementStatus = paperReplacementStatus
+    self.drawingPreview = drawingPreview
     self.drawBorder = drawBorder
     self.editingIsEnabled = editingIsEnabled
     self.runProjection = runProjection
@@ -219,7 +224,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
 
   var controls: [DrawingStudioControl] {
     switch runState {
-    case .unavailable:
+    case .unavailable, .publicationIncomplete:
       return []
     case .ready:
       return [

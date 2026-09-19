@@ -11,6 +11,7 @@ struct PortraitBrowsingTests {
     let renderer = BrowsingRenderer()
     let model = PortraitStudioModel(renderer: renderer)
     let pen = try portraitTestStyle()
+    model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
     let firstID = try #require(model.selectedPhotoID)

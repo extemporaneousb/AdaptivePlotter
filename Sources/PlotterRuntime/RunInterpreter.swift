@@ -195,6 +195,8 @@ public actor RunInterpreter {
   private struct ActiveDrawingPlan {
     let request: DrawingPlanRequest
     let plannedSegmentCount: Int
+    let wireSchedule: DrawingWireSchedule?
+    let wireScheduleRefusal: DrawingPlanRefusal?
     var commandedStrokeCount = 0
     var controllerCompletedStrokeCount = 0
     var submittedSegmentCount = 0
@@ -210,8 +212,19 @@ public actor RunInterpreter {
 
     init(request: DrawingPlanRequest) {
       self.request = request
-      plannedSegmentCount = request.plan.strokes.reduce(0) { count, stroke in
-        count + zip(stroke.path.points, stroke.path.points.dropFirst()).filter { $0 != $1 }.count
+      do {
+        let schedule = try DrawingWireSchedule(plan: request.plan)
+        wireSchedule = schedule
+        wireScheduleRefusal = nil
+        plannedSegmentCount = schedule.segmentCount
+      } catch {
+        wireSchedule = nil
+        wireScheduleRefusal = error.refusal
+        // A refused plan has no controller schedule. Preserve its intended
+        // segment count in the zero-dispatch refusal snapshot.
+        plannedSegmentCount = request.plan.strokes.reduce(0) { count, stroke in
+          count + zip(stroke.path.points, stroke.path.points.dropFirst()).filter { $0 != $1 }.count
+        }
       }
     }
 
@@ -610,6 +623,13 @@ public actor RunInterpreter {
       }
     }
 
+    if let refusal = activeDrawingPlan?.wireScheduleRefusal {
+      return finishDrawingPlan(.refused(progress: currentDrawingPlanProgress(request), reason: refusal))
+    }
+    guard let wireSchedule = activeDrawingPlan?.wireSchedule else {
+      return finishDrawingPlan(.refused(progress: currentDrawingPlanProgress(request),
+        reason: .invalidWireGeometry(request.plan.strokes[0].logicalStrokeID)))
+    }
     var lastKnownPosition = await machineController.snapshot().position
     if activeDrawingPlan?.cancelIntent != nil {
       return await finishDrawingPlanCancellation(
@@ -646,7 +666,7 @@ public actor RunInterpreter {
       )
     }
 
-    for stroke in request.plan.strokes {
+    for (stroke, wireStroke) in zip(request.plan.strokes, wireSchedule.strokes) {
       activeDrawingPlan?.activeStrokeID = stroke.logicalStrokeID
       activeDrawingPlan?.activeSegmentIndex = nil
       publishDrawingPlanProgress()
@@ -762,13 +782,9 @@ public actor RunInterpreter {
         )
       }
 
-      let segments = Array(zip(
-        stroke.path.points,
-        stroke.path.points.dropFirst()
-      ).enumerated()).filter { $0.element.0 != $0.element.1 }
-      for (strokeSegmentOrdinal, indexedPair) in segments.enumerated() {
-        let segmentIndex = indexedPair.offset
-        let pair = indexedPair.element
+      let segments = wireStroke.segments
+      for (strokeSegmentOrdinal, wireSegment) in segments.enumerated() {
+        let segmentIndex = wireSegment.sourceSegmentRange.upperBound
         if activeDrawingPlan?.cancelIntent != nil {
           let raise = await executePlanPen(.raise, request: request)
           if case .ambiguous(let ambiguity) = raise {
@@ -790,7 +806,7 @@ public actor RunInterpreter {
         activeDrawingPlan?.submittedSegmentCount += 1
         publishDrawingPlanProgress()
         let segment = DrawingStrokeRequest(
-          delta: try! pair.0.vector(to: pair.1),
+          delta: wireSegment.delta,
           feedMMPerMinute: request.drawingFeedMMPerMinute
         )
         let outcome = await machineController.requestDrawingStroke(segment)
@@ -803,7 +819,7 @@ public actor RunInterpreter {
           }
           publishDrawingPlanProgress()
           lastKnownPosition = evidence.finalPosition
-          let target = MachinePosition(point: pair.1)
+          let target = MachinePosition(point: wireSegment.intendedEndpoint)
           guard MachinePositionAcceptancePolicy.accepts(evidence.finalPosition, target: target)
           else {
             let raise = await executePlanPen(.raise, request: request)
@@ -816,7 +832,7 @@ public actor RunInterpreter {
             return finishDrawingPlan(.possibleInk(
               progress: currentDrawingPlanProgress(request),
               reason: .controllerCompletedOutsidePlannedPoint(
-                expected: pair.1,
+                expected: wireSegment.intendedEndpoint,
                 actual: evidence.finalPosition
               ),
               penRaiseOutcome: raise

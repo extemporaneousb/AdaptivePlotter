@@ -57,7 +57,8 @@ struct PlotterApplicationRuntimeView: View {
           }
         }.padding(.horizontal, 10).padding(.vertical, 4)
       }
-      DrawingStudioActiveRunStatus(runState: ui.drawingStudio.runState).equatable()
+      DrawingStudioActiveRunStatus(runState: ui.drawingStudio.runState,
+        terminalDisposition: application.drawingRunSnapshot?.terminal?.disposition).equatable()
       if layout.wrappedValue.isPresented(.portraitStudio) {
         VStack(spacing: 0) {
           HStack {
@@ -128,7 +129,7 @@ struct PlotterApplicationRuntimeView: View {
 
   private func exportDiagnostics() {
     diagnosticExporter.export(WorkbenchDiagnosticCapture(application: application,
-      projection: currentProjection().semantic))
+      projection: currentProjection().semantic, viewport: actionSurfaceViewport))
   }
 
   private func togglePanel(_ panel: WorkbenchPanel) {
@@ -196,21 +197,31 @@ struct PlotterApplicationRuntimeView: View {
         }.padding(12)
       }
     case .drawing:
-      ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-          HStack {
-            Button("Drawings", systemImage: "square.grid.2x2") { reviewerIsPresented = true }
-              .accessibilityIdentifier("drawing.openReviewer")
-            Spacer()
-            Button("Portrait Studio", systemImage: "person.crop.rectangle") { reveal(.portraitStudio) }
+      GeometryReader { geometry in
+        VStack(spacing: 0) {
+          if let preview = ui.drawingStudio.drawingPreview {
+            DrawingStudioPlanPreviewView(preview: preview,
+              imageHeight: min(160, max(24, geometry.size.height * 0.22)))
+              .padding(.horizontal, 12).padding(.vertical, 8)
+            Divider()
           }
-          DrawingStudioView(presentation: ui.drawingStudio, plotterUIProjection: ui.semantic,
-            plotterUIIntentSink: application, panel: .drawing,
-            openReviewer: { reviewerIsPresented = true }) {
-              studioMaterialControls
-              paperControls(ui, showsExplanation: false)
-            }
-        }.padding(12)
+          ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+              HStack {
+                Button("Drawings", systemImage: "square.grid.2x2") { reviewerIsPresented = true }
+                  .accessibilityIdentifier("drawing.openReviewer")
+                Spacer()
+                Button("Portrait Studio", systemImage: "person.crop.rectangle") { reveal(.portraitStudio) }
+              }
+              DrawingStudioView(presentation: ui.drawingStudio, plotterUIProjection: ui.semantic,
+                plotterUIIntentSink: application, panel: .drawing,
+                openReviewer: { reviewerIsPresented = true }) {
+                  studioMaterialControls
+                  paperControls(ui, showsExplanation: false)
+                }
+            }.padding(12)
+          }
+        }
       }
     case .portraitStudio:
       PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,

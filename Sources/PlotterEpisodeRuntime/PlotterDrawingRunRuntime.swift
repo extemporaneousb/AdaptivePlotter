@@ -229,6 +229,9 @@ public struct PlotterDrawingRunSnapshot: Hashable, Sendable {
   public let phase: PlotterDrawingRunPhase
   public let activeRunID: RunID?
   public let planIdentity: PlotterDrawingRunPlanIdentity?
+  /// Exact geometry sealed by the active owner, or its retained terminal record.
+  /// This never borrows the currently editable draft.
+  public let retainedExecutionPlan: ExecutionPlanRevision?
   public let progress: DrawingPlanProgressSnapshot?
   public let stopCapabilityID: PlotterDrawingRunStopCapabilityID?
   public let terminal: PlotterDrawingRunTerminal?
@@ -1732,11 +1735,21 @@ public actor PlotterDrawingRunRuntime {
     _ state: SourceState,
     environment: PlotterEnvironment
   ) -> PlotterDrawingRunSnapshot {
-    PlotterDrawingRunSnapshot(
+    let unresolvedPlan: ExecutionPlanRevision?
+    if case .intentPublicationIncomplete(let runID, _) = state.evidencePersistence,
+      let intent = state.stagedIntent, intent.runID == runID {
+      unresolvedPlan = intent.plan
+    } else {
+      // A completed new-run handoff may leave historical staged evidence in
+      // memory. It must never regain current-preview ownership.
+      unresolvedPlan = nil
+    }
+    return PlotterDrawingRunSnapshot(
       projection: projection(state, environment: environment),
       phase: state.phase,
       activeRunID: state.active?.runID,
       planIdentity: state.active?.plan.identity ?? state.currentPlanIdentity,
+      retainedExecutionPlan: state.active?.plan.plan ?? state.terminal?.record.plan.executionPlan ?? unresolvedPlan,
       progress: state.progress,
       stopCapabilityID: state.active?.stopCapabilityID,
       terminal: state.terminal,
@@ -1897,16 +1910,10 @@ public actor PlotterDrawingRunRuntime {
       guard previous.machineGeometry == applicability.machineGeometry,
         prior.strokes.count == current.plan.strokes.count else { continue }
       let sameCoordinates = previous.machineCoordinateFrame == applicability.machineCoordinateFrame
-      let samePaths = zip(prior.strokes, current.plan.strokes).allSatisfy { before, after in
-        before.path.points.count == after.path.points.count
-          && zip(before.path.points, after.path.points).allSatisfy { a, b in
-            close(a.x, b.x) && close(a.y, b.y)
-          }
-      }
       // Ink location survives changes to generator IDs, pen/material styling,
       // optical provenance and registration revision within the same machine
       // coordinate frame. None of those changes establishes clean paper.
-      if sameCoordinates && samePaths {
+      if sameCoordinates && Self.equivalentInkPaths(prior.strokes, current.plan.strokes) {
         state.blockedPlanHashes.insert(current.plan.contentHash)
         return
       }
@@ -1921,18 +1928,78 @@ public actor PlotterDrawingRunRuntime {
         priorSource.sourceIdentifier.components(separatedBy: "|draw-border-v1").first == sourceIdentity,
         close(old.maxX - old.minX, region.maxX - region.minX),
         close(old.maxY - old.minY, region.maxY - region.minY) else { continue }
-      let checkpointTranslatedPaths = zip(prior.strokes, current.plan.strokes).allSatisfy { before, after in
-        before.ordering == after.ordering && before.style == after.style
-          && before.semanticRole == after.semanticRole && before.path.points.count == after.path.points.count
-          && zip(before.path.points, after.path.points).allSatisfy { a, b in
-            close(a.x - old.minX, b.x - region.minX) && close(a.y - old.minY, b.y - region.minY)
-          }
-      }
-      if checkpointTranslatedPaths {
+      if Self.equivalentInkPaths(prior.strokes, current.plan.strokes,
+        previousOrigin: (old.minX, old.minY), currentOrigin: (region.minX, region.minY),
+        requiresMatchingStyle: true) {
         state.blockedPlanHashes.insert(current.plan.contentHash)
         return
       }
     }
+  }
+
+  /// Ink is a multiset of paths, independent of generated IDs or execution order.
+  /// A perfect one-to-one match preserves duplicate-path multiplicity. The
+  /// augmenting step handles ambiguous epsilon matches without a greedy miss.
+  static func equivalentInkPaths(
+    _ previous: [PlannedMachineStroke], _ current: [PlannedMachineStroke],
+    previousOrigin: (Double, Double) = (0, 0), currentOrigin: (Double, Double) = (0, 0),
+    requiresMatchingStyle: Bool = false
+  ) -> Bool {
+    guard previous.count == current.count else { return false }
+    let epsilon = DrawingRegionContainmentPolicy.numericalEpsilonMM
+    func matches(_ before: PlannedMachineStroke, _ after: PlannedMachineStroke) -> Bool {
+      (!requiresMatchingStyle || before.style == after.style && before.semanticRole == after.semanticRole)
+        && before.path.points.count == after.path.points.count
+        && zip(before.path.points, after.path.points).allSatisfy { a, b in
+          abs((a.x - previousOrigin.0) - (b.x - currentOrigin.0)) <= epsilon
+            && abs((a.y - previousOrigin.1) - (b.y - currentOrigin.1)) <= epsilon
+        }
+    }
+    if zip(previous, current).allSatisfy({ matches($0, $1) }) { return true }
+    // Index by point count and starting X to avoid a quadratic scan over
+    // unrelated retained portrait paths during ordinary draft synchronization.
+    let grouped = Dictionary(grouping: current.indices, by: { current[$0].path.points.count })
+      .mapValues { indices in indices.sorted { current[$0].path.start.x < current[$1].path.start.x } }
+    var candidates: [[Int]] = []
+    for before in previous {
+      guard let group = grouped[before.path.points.count] else { return false }
+      let x = before.path.start.x - previousOrigin.0
+      var lower = 0, upper = group.count
+      while lower < upper {
+        let middle = lower + (upper - lower) / 2
+        if current[group[middle]].path.start.x - currentOrigin.0 < x - epsilon {
+          lower = middle + 1
+        } else { upper = middle }
+      }
+      var found: [Int] = []
+      while lower < group.count,
+        current[group[lower]].path.start.x - currentOrigin.0 <= x + epsilon {
+        if matches(before, current[group[lower]]) { found.append(group[lower]) }
+        lower += 1
+      }
+      guard !found.isEmpty else { return false }
+      candidates.append(found)
+    }
+    var matchedPrevious = Array(repeating: -1, count: current.count)
+    func assign(_ index: Int, seen: inout Set<Int>) -> Bool {
+      // Consume free matches first; duplicate paths need no recursive chain.
+      for candidate in candidates[index] where matchedPrevious[candidate] == -1 {
+        matchedPrevious[candidate] = index
+        return true
+      }
+      for candidate in candidates[index] where seen.insert(candidate).inserted {
+        if assign(matchedPrevious[candidate], seen: &seen) {
+          matchedPrevious[candidate] = index
+          return true
+        }
+      }
+      return false
+    }
+    for index in previous.indices {
+      var seen: Set<Int> = []
+      if !assign(index, seen: &seen) { return false }
+    }
+    return true
   }
 
   private func readiness(

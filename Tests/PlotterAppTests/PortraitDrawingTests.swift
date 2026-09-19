@@ -202,8 +202,8 @@ struct PortraitDrawingTests {
     await renderer.release()
     await model.awaitRendering()
     #expect(model.renderDiagnostics.maximumConcurrentWorkerCount == 1)
-    #expect(model.renderDiagnostics.startedWorkerCount == 6)
-    #expect(model.renderDiagnostics.settledWorkerCount == 6)
+    #expect(model.renderDiagnostics.startedWorkerCount == 2)
+    #expect(model.renderDiagnostics.settledWorkerCount == 2)
     #expect(await renderer.maximumConcurrentCount == 1)
     #expect(model.program?.source.sourceIdentifier.contains("pose=Left|style=Crosshatch") == true)
     #expect(!model.isProcessing)
@@ -235,7 +235,7 @@ struct PortraitDrawingTests {
     model.style = .crosshatch
     model.render(strokeStyle: style)
     #expect(model.program == program)
-    #expect(model.renderDiagnostics.startedWorkerCount == 6)
+    #expect(model.renderDiagnostics.startedWorkerCount == 2)
   }
 
   @Test("pose switching and rapid style changes publish only the selected portrait")

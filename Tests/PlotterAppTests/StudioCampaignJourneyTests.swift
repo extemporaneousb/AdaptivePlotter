@@ -62,6 +62,7 @@ struct StudioCampaignJourneyTests {
     let firstModel = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL))
     await firstModel.loadArchive()
     firstModel.options = .init(cropToFace: false, removeBackground: false)
+    firstModel.setStyleComparisonExpanded(true, strokeStyle: try portraitTestStyle())
     firstModel.setPhoto(try portraitTestImage(), for: .front, strokeStyle: try portraitTestStyle())
     await firstModel.awaitRendering()
     #expect(firstModel.algorithmCandidates.count == PortraitStyle.allCases.count)

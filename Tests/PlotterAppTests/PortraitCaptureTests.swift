@@ -182,27 +182,31 @@ struct PortraitCaptureTests {
     #expect(model.retainedPhotoBytes <= 4)
   }
 
-  @Test("vector edits reuse the selected raster while analysis edits invalidate it")
+  @Test("folded vector edits reuse the selected raster while analysis edits invalidate it")
   @MainActor
   func selectedRasterCache() async throws {
     let renderer = BurstRenderer()
     let model = PortraitStudioModel(renderer: renderer)
     let style = try portraitTestStyle()
+    #expect(!model.isStyleComparisonExpanded)
     model.setPhoto(Data([1]), for: .front, strokeStyle: style)
     await model.awaitRendering()
-    model.vectorOptions.hatchSpacing = 10
+    #expect(await renderer.cacheHits == [false])
+    model.vectorOptions.contourLevels = 10
     model.render(strokeStyle: style)
     await model.awaitRendering()
-    #expect(await renderer.cacheHits == ([false] + Array(repeating: true, count: 9)))
+    #expect(await renderer.cacheHits == [false, true])
+    let tunedProgram = try #require(model.currentProgram)
     model.options.cropToFace.toggle()
     model.renderIfNeeded(strokeStyle: style)
     await model.awaitRendering()
-    #expect(await renderer.cacheHits == ([false] + Array(repeating: true, count: 9) + [false] + Array(repeating: true, count: 4)))
+    #expect(await renderer.cacheHits == [false, true, false])
     model.options.cropToFace.toggle()
     model.renderIfNeeded(strokeStyle: style)
-    #expect(model.currentProgram != nil)
+    #expect(model.currentProgram == tunedProgram)
     #expect(!model.isProcessing)
-    #expect(await renderer.cacheHits == ([false] + Array(repeating: true, count: 9) + [false] + Array(repeating: true, count: 4)))
+    #expect(await renderer.cacheHits == [false, true, false])
+    await model.shutdown()
   }
 }
 
