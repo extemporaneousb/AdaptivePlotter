@@ -2,6 +2,7 @@ import PlotterModel
 import PlotterRuntime
 import SwiftUI
 
+/// Select the pen here; measuring it and adapting artwork remain explicit actions.
 struct DrawingMaterialControls: View {
   let library: DrawingMaterialLibrary
   let currentApplicability: DrawingMaterialApplicability?
@@ -16,80 +17,56 @@ struct DrawingMaterialControls: View {
   @State private var nominalWidthMM = 0.8
   @State private var actionStatus: String?
   @State private var actionInProgress = false
+  @State private var managesMaterials = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("Drawing Material").font(.headline)
-      Picker("Material", selection: Binding(get: { library.activeKey ?? "" }, set: { key in
-        actionStatus = key.isEmpty ? library.deactivate() : library.activate(key: key)
-      })) {
-        Text("No active material — use nominal pen settings").tag("")
-        ForEach(library.records, id: \.profile.key) { record in
-          Text("\(record.profile.name) · revision \(record.profile.revision)").tag(record.profile.key)
-        }
-      }
-      .accessibilityIdentifier("drawing.material.selection")
-      PortraitAdaptiveRow {
-        TextField("Material name", text: $materialName)
-          .accessibilityIdentifier("drawing.material.name")
-        TextField("Nominal width, mm", value: $nominalWidthMM, format: .number.precision(.fractionLength(2)))
-          .frame(width: 90)
-          .accessibilityIdentifier("drawing.material.nominalWidth")
-        Button("Create Nominal") {
-          actionStatus = library.createNominal(name: materialName, widthMM: nominalWidthMM)
-          if actionStatus == nil { materialName = "" }
-        }
-        .disabled(materialName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !nominalWidthMM.isFinite || nominalWidthMM <= 0)
-        .accessibilityIdentifier("drawing.material.createNominal")
+    VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        Picker("Pen", selection: Binding(get: { library.activeKey ?? "" }, set: { key in
+          actionStatus = key.isEmpty ? library.deactivate() : library.activate(key: key)
+        })) {
+          Text("Program nominal width").tag("")
+          ForEach(library.records, id: \.profile.key) { record in
+            Text(record.profile.name).tag(record.profile.key)
+          }
+        }.accessibilityIdentifier("drawing.material.selection")
+        Button { managesMaterials = true } label: { Image(systemName: "ellipsis.circle") }
+          .accessibilityLabel("Manage materials")
+          .popover(isPresented: $managesMaterials) { management }
       }
       if let record = library.activeRecord {
-        Text("\(qualification(record.profile.qualification)) · nominal \(record.profile.nominalWidthMM, format: .number.precision(.fractionLength(2))) mm")
-          .font(.caption)
-        Text(applicability(record)).font(.caption).foregroundStyle(.secondary)
-        if let distribution = record.profile.depositedWidth {
-          Text("Deposited width \(distribution.lowerBoundMM, format: .number.precision(.fractionLength(2)))–\(distribution.upperBoundMM, format: .number.precision(.fractionLength(2))) mm; uncertainty ±\(distribution.uncertaintyMM, format: .number.precision(.fractionLength(2))) mm; \(distribution.sampleCount) samples")
-            .font(.caption)
-          DisclosureGroup("Directional widths and evidence") {
-            ForEach(Array(distribution.directional.enumerated()), id: \.offset) { _, direction in
-              Text("\(direction.directionRadians * 180 / .pi, format: .number.precision(.fractionLength(0)))°: \(direction.medianMM, format: .number.precision(.fractionLength(2))) ±\(direction.uncertaintyMM, format: .number.precision(.fractionLength(2))) mm (\(direction.sampleCount) samples)")
-                .font(.caption2)
-            }
-            if let measurement = record.measurement {
-              ForEach(Array(measurement.limitations.enumerated()), id: \.offset) { _, limitation in
-                Text(limitation).font(.caption2).foregroundStyle(.secondary)
-              }
-            }
-            Text("Material measurements retain exact source references and geometry. The original-image verification status below reports whether their owned image bytes are available; older reference-only records do not imply retained images.")
-              .font(.caption2).foregroundStyle(.secondary)
-          }
-        }
+        HStack {
+          Text("\(record.profile.conservativeWidthMM, specifier: "%.2f") mm")
+            .monospacedDigit()
+          Text(qualification(record.profile.qualification)).foregroundStyle(.secondary)
+          Spacer()
+          StudioHelpButton("Marker thickness", text: details(record))
+        }.font(.caption)
         PortraitAdaptiveRow {
-          Button("Measure Existing Ink") { perform { await measure() } }
+          Button("Measure Ink") { perform { await measure() } }
             .disabled(actionInProgress || !canMeasureExistingInk)
             .accessibilityIdentifier("drawing.material.measure")
-            .help("Inspect exact existing images before confirming unobstructed mark visibility. This does not move the plotter or draw a new mark.")
-          Button("Apply to Drawing at Current Scale") {
+          Button("Adapt Detail") {
             let profile = record.profile
             perform { await apply(profile) }
           }
           .disabled(actionInProgress || !canApply)
           .accessibilityIdentifier("drawing.material.apply")
+          StudioHelpButton("Pen and drawing", text: "Measure Ink estimates deposited width from existing images after inspection. Adapt Detail creates a new portrait drawing with spacing suited to that width at its current size. It changes the artwork, not the learned calibration.")
         }
-        Button("Delete This Material Revision", role: .destructive) {
-          actionStatus = library.delete(key: record.profile.key)
-        }
-        .font(.caption)
-        .accessibilityIdentifier("drawing.material.delete")
-        .help("Remove this library entry and clear its active selection. Retained drawings preserve their own material revision.")
       }
-      if let mediaStatus { Text(mediaStatus).font(.caption).foregroundStyle(.secondary) }
-      if let measurementStatus { Text(measurementStatus).font(.caption).foregroundStyle(.secondary) }
-      if let actionStatus { Text(actionStatus).font(.caption).foregroundStyle(.secondary) }
-      PortraitAdaptiveRow {
-        Text(library.storageStatus).font(.caption2).foregroundStyle(.secondary)
-        if library.persistenceError != nil {
+      if actionInProgress { ProgressView().controlSize(.small) }
+      if let actionStatus {
+        HStack {
+          Text("Material action needs attention").font(.caption)
+          StudioHelpButton("Material action", text: actionStatus)
+        }
+      }
+      if library.persistenceError != nil {
+        HStack {
           Button("Retry Save") { Task { await library.retry() } }
             .accessibilityIdentifier("drawing.material.retry")
+          StudioHelpButton("Material storage", text: library.storageStatus)
         }
       }
     }
@@ -103,29 +80,64 @@ struct DrawingMaterialControls: View {
     }
   }
 
-  private func perform(_ operation: @escaping () async -> String?) {
-    actionInProgress = true
-    Task {
-      actionStatus = await operation()
-      actionInProgress = false
-    }
+  private var management: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Materials").font(.headline)
+      TextField("Name", text: $materialName).accessibilityIdentifier("drawing.material.name")
+      HStack {
+        Text("Nominal width (mm)")
+        TextField("Width", value: $nominalWidthMM, format: .number.precision(.fractionLength(2)))
+          .frame(width: 80).accessibilityIdentifier("drawing.material.nominalWidth")
+      }
+      Button("Create Nominal") {
+        actionStatus = library.createNominal(name: materialName, widthMM: nominalWidthMM)
+        if actionStatus == nil { materialName = ""; managesMaterials = false }
+      }
+      .disabled(materialName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || !nominalWidthMM.isFinite || nominalWidthMM <= 0)
+      .accessibilityIdentifier("drawing.material.createNominal")
+      if let record = library.activeRecord {
+        Button("Delete Selected Revision", role: .destructive) {
+          actionStatus = library.delete(key: record.profile.key)
+          if actionStatus == nil { managesMaterials = false }
+        }.accessibilityIdentifier("drawing.material.delete")
+      }
+      StudioHelpButton("Material revisions", text: "Nominal width is an estimate. Measured width is bound to its recorded calibration, paper and pen settings. Deleting a library revision leaves immutable drawings and execution evidence unchanged.")
+    }.padding(16).frame(width: 320)
   }
 
-  private func applicability(_ record: DrawingMaterialRecord) -> String {
-    guard let bound = record.applicability else { return "Unbound nominal settings. No measured material behavior is established." }
-    guard let currentApplicability else { return "Applicability unavailable: current calibration, paper and actuation inputs are incomplete." }
-    return bound == currentApplicability
-      ? "Declared measurement settings match the current calibration, paper and actuation."
-      : "Measurement applicability has expired for the current calibration, paper or actuation."
+  private func perform(_ operation: @escaping () async -> String?) {
+    actionInProgress = true
+    Task { actionStatus = await operation(); actionInProgress = false }
+  }
+
+  private func details(_ record: DrawingMaterialRecord) -> String {
+    var values = ["\(record.profile.name), revision \(record.profile.revision)."]
+    if let bound = record.applicability {
+      values.append(bound == currentApplicability
+        ? "Measurement settings match the current calibration, paper and actuation."
+        : "Measurement applicability has expired or is unavailable for the current setup.")
+    } else { values.append("Nominal settings; deposited behavior has not been measured.") }
+    if let distribution = record.profile.depositedWidth {
+      values.append(String(format: "Deposited width %.2f–%.2f mm; uncertainty ±%.2f mm; %d samples.",
+        distribution.lowerBoundMM, distribution.upperBoundMM, distribution.uncertaintyMM, distribution.sampleCount))
+      values += distribution.directional.map {
+        String(format: "%.0f°: %.2f ±%.2f mm (%d samples).", $0.directionRadians * 180 / .pi,
+          $0.medianMM, $0.uncertaintyMM, $0.sampleCount)
+      }
+    }
+    values += record.measurement?.limitations ?? []
+    values += [measurementStatus, mediaStatus].compactMap { $0 }
+    return values.joined(separator: "\n\n")
   }
 
   private func qualification(_ value: MaterialWidthQualification) -> String {
     switch value {
-    case .nominal: "Nominal width"
-    case .controllerCoordinateEstimate: "Estimated in controller coordinates"
-    case .independentlyMeasured: "Independently measured width"
-    case .bounded: "Bounded width"
-    case .unavailable: "Measured width unavailable"
+    case .nominal: "estimated"
+    case .controllerCoordinateEstimate: "camera estimate"
+    case .independentlyMeasured: "measured"
+    case .bounded: "bounded estimate"
+    case .unavailable: "unavailable"
     }
   }
 }

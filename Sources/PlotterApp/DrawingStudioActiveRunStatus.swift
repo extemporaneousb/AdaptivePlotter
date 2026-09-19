@@ -18,15 +18,9 @@ struct DrawingStudioActiveRunStatus: View, Equatable {
 
   var body: some View {
     if runState.showsActiveRunStatus {
-      VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 6) {
         Text(runState.title).font(.headline)
-        Text(runState.detail)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .lineLimit(2)
-          .help(runState.detail)
-          .fixedSize(horizontal: false, vertical: true)
-          .textSelection(.enabled)
+        StudioHelpButton(runState.title, text: runState.detail)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, 12).padding(.vertical, 6)

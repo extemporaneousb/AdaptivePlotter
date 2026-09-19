@@ -28,8 +28,7 @@ struct PortraitDisplayEvidenceTests {
     #expect(model.sketches.retain(candidate: candidate, reason: .shortlisted) == nil)
     model.sketches.selectedID = candidate.id
     #expect(model.projectedCandidate == nil)
-    #expect(model.canRateSelection)
-    #expect(model.rateSelection(4, presentation: context) == nil)
+    #expect(model.sketches.rate(candidate: candidate, rating: 4, scope: .screenSketch, presentation: context) == nil)
     let label = try #require(model.sketches.labels.last)
     try PortraitArchiveValidation.label(label, candidate: candidate)
     #expect(label.presentation.rendererRevision == "portrait-plane-preview-v2")

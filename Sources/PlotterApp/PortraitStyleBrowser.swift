@@ -1,46 +1,46 @@
 import PlotterModel
-import PlotterRuntime
 import SwiftUI
 
+/// The five algorithm tiles display the exact candidates selected by a click.
 struct PortraitStyleBrowser: View {
   let model: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
+  var material: DrawingMaterialProfileRevision?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Picker("Style recipe", selection: Binding(get: { model.currentRecipe.id }, set: { id in
-        if let recipe = model.styleRecipes.first(where: { $0.id == id }) {
-          WorkbenchRequestTelemetry.nativeActionHandled("portrait.recipe")
-          model.applyRecipe(recipe, strokeStyle: strokeStyle)
+    HStack(spacing: 8) {
+      ForEach(PortraitStyle.allCases) { style in
+        let candidate = model.algorithmCandidates.first { $0.recipe.style == style }
+        Button {
+          WorkbenchRequestTelemetry.nativeActionHandled("portrait.algorithm.\(style.id)")
+          model.selectAlgorithm(style, strokeStyle: strokeStyle)
+        } label: {
+          VStack(spacing: 5) {
+            PortraitPlaneProgramPreview(preview: PortraitPlanePreviewSource(material: material).resolve(
+              program: candidate?.program, nominalWidth: strokeStyle.nominalLineWidth))
+              .overlay {
+                if candidate == nil && (model.isProcessing || model.isComparingAlgorithms) { ProgressView().controlSize(.small) }
+              }
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Text(style.rawValue).font(.caption).lineLimit(1)
+          }
+          .padding(5)
+          .background(.background, in: RoundedRectangle(cornerRadius: 6))
+          .overlay {
+            RoundedRectangle(cornerRadius: 6)
+              .stroke((model.hasSelectedAlgorithm && model.selectedAlgorithm == style) ? Color.accentColor : Color.secondary.opacity(0.25),
+                lineWidth: (model.hasSelectedAlgorithm && model.selectedAlgorithm == style) ? 2 : 1)
+          }
+          .contentShape(Rectangle())
         }
-      })) {
-        if model.currentRecipe.id == "custom" { Text("Custom").tag("custom") }
-        ForEach(model.styleRecipes) { Text($0.title).tag($0.id) }
-      }.accessibilityIdentifier("portrait.recipe")
-      PortraitAdaptiveRow {
-        Button { model.moveStyle(by: -1, strokeStyle: strokeStyle) } label: {
-          Image(systemName: "chevron.left").frame(minWidth: 24, minHeight: 24)
-        }.accessibilityLabel("Previous style, same frame")
-          .keyboardShortcut(.upArrow, modifiers: [.option])
-        Button("Random Style") {
-          WorkbenchRequestTelemetry.nativeActionHandled("portrait.randomStyle")
-          model.randomStyle(strokeStyle: strokeStyle)
-        }
-          .accessibilityIdentifier("portrait.randomStyle")
-        Button { model.moveStyle(by: 1, strokeStyle: strokeStyle) } label: {
-          Image(systemName: "chevron.right").frame(minWidth: 24, minHeight: 24)
-        }.accessibilityLabel("Next style, same frame")
-          .keyboardShortcut(.downArrow, modifiers: [.option])
+        .buttonStyle(.plain)
+        .disabled(candidate == nil || model.isCapturing)
+        .accessibilityLabel("Select \(style.rawValue) style")
+        .accessibilityValue((model.hasSelectedAlgorithm && model.selectedAlgorithm == style) ? "Selected" : "")
+        .accessibilityIdentifier("portrait.algorithm.\(style.id)")
       }
-      Button("New Big-head Candidate") {
-        WorkbenchRequestTelemetry.nativeActionHandled("portrait.bigHeadCandidate")
-        model.randomStyle(strokeStyle: strokeStyle, bigHead: true)
-      }
-        .accessibilityIdentifier("portrait.bigHeadCandidate")
-      Text("Random explores contour, tonal, and clean-line styles. Choose a hatch recipe deliberately from the picker.")
-        .font(.caption).foregroundStyle(.secondary)
-      Text("Same frame · ⌥↑ / ⌥↓ to browse recipes. Recipe navigation and drawing history are independent.")
-        .font(.caption2).foregroundStyle(.secondary)
     }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("portrait.algorithms")
   }
 }

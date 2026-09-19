@@ -4,32 +4,87 @@ import SwiftUI
 import Testing
 @testable import PlotterApp
 
-/// Actual production panel hosted in an owned, offscreen test window. This
+/// Production Studio and Drawing panels hosted in owned, offscreen test windows. This
 /// exercises hosted geometry and programmatic document scrolling by default.
 /// Strict accessibility workflow assertions require the explicit
 /// PORTRAIT_NATIVE_AX_CHECK=1 environment prerequisite; they remain pending in
 /// SwiftPM hosts that cannot expose a known standalone SwiftUI AX control.
 /// This is not an attended input, signed-launch, camera, motion, or ink receipt.
-@Suite("Native Portrait Studio panel layout", .serialized)
+@Suite("Native Studio and shared Drawing panel routing", .serialized)
 @MainActor
 struct PortraitStudioNativeLayoutTests {
   private let sectionOrder = [
-    "portrait.section.source", "portrait.section.exploration", "portrait.section.preview",
-    "portrait.section.ratings", "portrait.section.gallery", "portrait.section.training",
-    "portrait.section.projection", "drawing.section.placement", "drawing.section.material",
+    "drawing.section.placement", "drawing.section.material",
     "drawing.section.paper", "drawing.section.run",
   ]
 
-  @Test("production Studio hosts bounded geometry and retained selection at three panel widths")
+  @Test("production shared Drawing panel hosts placement and run geometry at three dock widths")
   func productionPanelGeometryAndSelection() async throws {
     try await runPanelChecks(requiresAX: false)
   }
 
-  @Test("native AX Studio order, controls and Draw reachability require an AX-capable host",
+  @Test("native AX shared Drawing order and Draw reachability require an AX-capable host",
     .enabled(if: ProcessInfo.processInfo.environment["PORTRAIT_NATIVE_AX_CHECK"] == "1"))
   func productionPanelAXOrderAndReachability() async throws {
     await diagnoseKnownSwiftUIControl()
     try await runPanelChecks(requiresAX: true)
+  }
+
+  @Test("production Portrait routing hosts all drawing adjustments without vertical scrolling")
+  func productionPortraitWorkspace() async throws {
+    _ = NSApplication.shared
+    let fixture = try await DrawingWorkbenchApplicationFixture.make()
+    defer { fixture.stores.remove() }
+    let application = fixture.application
+    do {
+      let model = application.portraitStudio
+      let pen = application.drawingStrokeStyle
+      model.options = .init(cropToFace: false, removeBackground: false)
+      model.renderIfNeeded(strokeStyle: pen)
+      model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: pen)
+      await model.awaitRendering()
+      #expect(model.algorithmCandidates.count == PortraitStyle.allCases.count)
+      model.selectAlgorithm(.hatch, strokeStyle: pen)
+      for size in [NSSize(width: 1000, height: 550), NSSize(width: 1280, height: 650)] {
+        let host = NSHostingController(rootView:
+          PlotterApplicationRuntimeView(application: application).panelContent(.portraitStudio)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, .light))
+        host.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
+          styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = .windowBackgroundColor
+        window.contentViewController = host
+        window.setContentSize(size)
+        window.orderFront(nil)
+        await settle(host.view)
+        #expect(abs(host.view.bounds.width - size.width) < 2)
+        #expect(abs(host.view.bounds.height - size.height) < 2)
+        #expect(!window.isKeyWindow)
+        for scroll in views(host.view).compactMap({ $0 as? NSScrollView }) {
+          let document = try #require(scroll.documentView)
+          #expect(document.bounds.height <= scroll.contentView.bounds.height + 2,
+            "Production Portrait route introduced vertical scrolling: \(document.bounds), \(scroll.contentView.bounds)")
+        }
+        let controls = views(host.view).compactMap { $0 as? NSControl }.filter {
+          !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
+        }
+        #expect(!controls.isEmpty)
+        for control in controls {
+          let rect = control.convert(control.bounds, to: host.view)
+          #expect(host.view.bounds.insetBy(dx: -2, dy: -2).contains(rect),
+            "Production Portrait control was clipped: \(rect) in \(host.view.bounds)")
+        }
+        try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: "workspace")
+        window.close()
+      }
+      await application.shutdown()
+    } catch {
+      await application.shutdown()
+      throw error
+    }
   }
 
   private func runPanelChecks(requiresAX: Bool) async throws {
@@ -67,12 +122,16 @@ struct PortraitStudioNativeLayoutTests {
   }
 
   private func inspectPanel(application: PlotterApplicationRuntime, width: Int, alternateSelection: String, requiresAX: Bool) async throws {
-    let panel = PlotterApplicationRuntimeView(application: application).panelContent(.portraitStudio)
-    let host = NSHostingController(rootView: panel)
+    let panel = PlotterApplicationRuntimeView(application: application).panelContent(.drawing)
+    let host = NSHostingController(rootView: panel
+      .background(Color(nsColor: .windowBackgroundColor))
+      .environment(\.colorScheme, .light))
     host.sizingOptions = []
     let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: CGFloat(width), height: 700),
       styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
+    window.appearance = NSAppearance(named: .aqua)
+    window.backgroundColor = .windowBackgroundColor
     window.contentViewController = host
     window.setContentSize(NSSize(width: width, height: 700))
     // Ordering the owned offscreen window materializes native accessibility;
@@ -102,33 +161,33 @@ struct PortraitStudioNativeLayoutTests {
         width: outerScroll.contentView.bounds.width, height: outerScroll.contentView.bounds.height))
       outerScroll.reflectScrolledClipView(outerScroll.contentView)
       await settle(host.view)
-      #expect(outerScroll.contentView.bounds.origin != before,
-        "The hosted Studio document must allow programmatic vertical scrolling at \(width) pt.")
-      // This proves document scroll geometry, not identification or native
-      // interaction with Draw. The opt-in AX test retains those assertions.
+      if document.bounds.height > outerScroll.contentView.bounds.height + 2 {
+        #expect(outerScroll.contentView.bounds.origin != before,
+          "An overflowing Drawing document must allow vertical scrolling at \(width) pt.")
+      } else {
+        #expect(outerScroll.contentView.bounds.origin == before,
+          "A complete Drawing panel should stay visible without scrolling at \(width) pt.")
+      }
+      // This proves document geometry and conditional scrolling; the opt-in
+      // AX test additionally identifies Draw and checks its visible frame.
       return
     }
     try assertSectionOrder(in: window, width: width)
 
-    let disclosure = try requiredElement("portrait.training.createDisclosure", in: window)
-    reveal(disclosure, in: window)
-    #expect(disclosure.accessibilityPerformPress(), "Create Named Style disclosure refused its local accessibility action at \(width) pt.")
-    await settle(host.view)
-    for identifier in ["portrait.training.newName", "portrait.training.newMode", "portrait.training.newObjective", "portrait.training.create"] {
-      _ = try requiredElement(identifier, in: window)
-    }
-    // An active nominal record expands the real material section while making
-    // no measurement or physical-width assertion.
+    // The material and run owners are generic; Portrait authoring and its
+    // former rating/training sections do not belong to this scroll document.
     _ = try requiredElement("drawing.material.apply", in: window)
-    _ = try requiredElement("drawing.material.delete", in: window)
-    try captureOptionalSnapshots(host: host.view, width: width, stage: "expanded")
-    try assertSectionOrder(in: window, width: width)
     try assertControlsFitHorizontally(in: window, width: width)
 
     let draw = try requiredElement("drawing.draw", in: window)
     let scrolls = containingScrollViews(draw, in: window)
     #expect(!scrolls.isEmpty, "Draw must remain inside the real panel scroll view.")
     let before = scrolls.map { $0.contentView.bounds.origin }
+    let requiredScrolling = scrolls.contains { scroll in
+      let clip = window.convertToScreen(scroll.contentView.convert(scroll.contentView.bounds, to: nil))
+      return (scroll.documentView?.bounds.height ?? 0) > scroll.contentView.bounds.height + 2
+        && !clip.insetBy(dx: -2, dy: -2).contains(draw.accessibilityFrame())
+    }
     reveal(draw, in: window)
     await settle(host.view)
     let frame = draw.accessibilityFrame()
@@ -137,8 +196,10 @@ struct PortraitStudioNativeLayoutTests {
       let clip = window.convertToScreen(scroll.contentView.convert(scroll.contentView.bounds, to: nil)).insetBy(dx: -2, dy: -2)
       #expect(clip.contains(frame), "Draw is clipped after scrolling at \(width) pt: target=\(frame), clip=\(clip).")
     }
-    #expect(zip(before, scrolls).contains { $0.0 != $0.1.contentView.bounds.origin },
-      "The full Studio content should require vertical scrolling to reach Draw at \(width) pt.")
+    if requiredScrolling {
+      #expect(zip(before, scrolls).contains { $0.0 != $0.1.contentView.bounds.origin },
+        "An initially clipped Draw action must be reachable by scrolling at \(width) pt.")
+    }
     let run = try requiredElement("drawing.section.run", in: window)
     #expect(descendants(run).contains { $0.accessibilityIdentifier() == "drawing.draw" },
       "Draw must belong to the final run section.")
@@ -157,9 +218,9 @@ struct PortraitStudioNativeLayoutTests {
     #expect(clip.bounds.width > 0 && clip.bounds.width <= CGFloat(width) + 1)
     #expect(clip.bounds.height > 0 && clip.bounds.height <= 701)
     #expect(document.bounds.width <= clip.bounds.width + 2,
-      "Production Studio unexpectedly overflows horizontally at \(width) pt: document=\(document.bounds), clip=\(clip.bounds).")
-    #expect(document.bounds.height > clip.bounds.height,
-      "The actual Studio workflow should exceed the viewport height.")
+      "Production Drawing unexpectedly overflows horizontally at \(width) pt: document=\(document.bounds), clip=\(clip.bounds).")
+    #expect(document.bounds.height > 0,
+      "The Drawing document must have a nonempty layout.")
     let controls = nativeViews.compactMap { $0 as? NSControl }.filter {
       !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
     }
@@ -170,6 +231,11 @@ struct PortraitStudioNativeLayoutTests {
       let rect = control.convert(control.bounds, to: document)
       #expect(rect.minX >= document.bounds.minX - 2 && rect.maxX <= document.bounds.maxX + 2,
         "Native control extends beyond the hosted document at \(width) pt: \(rect).")
+      if document.bounds.height <= clip.bounds.height + 2 {
+        let viewportRect = control.convert(control.bounds, to: clip)
+        #expect(clip.bounds.insetBy(dx: -2, dy: -2).contains(viewportRect),
+          "A compact Drawing panel control is outside the visible viewport at \(width) pt: \(viewportRect).")
+      }
     }
   }
 
@@ -184,12 +250,12 @@ struct PortraitStudioNativeLayoutTests {
       indices.append(match.offset)
       frames.append(match.element.accessibilityFrame())
     }
-    #expect(zip(indices, indices.dropFirst()).allSatisfy { $0 < $1 }, "Native accessibility reading order differs from Studio workflow at \(width) pt: \(indices).")
+    #expect(zip(indices, indices.dropFirst()).allSatisfy { $0 < $1 }, "Native accessibility reading order differs from Drawing workflow at \(width) pt: \(indices).")
     #expect(frames.allSatisfy { $0.width > 0 && $0.height > 0 }, "Section frame is empty at \(width) pt: \(frames).")
     // Screen coordinates increase upwards; successive vertical sections must
     // appear below their predecessors even when outside the current viewport.
     #expect(zip(frames, frames.dropFirst()).allSatisfy { $0.minY >= $1.maxY - 3 },
-      "Studio sections overlap or reverse visual order at \(width) pt: \(frames).")
+      "Drawing sections overlap or reverse visual order at \(width) pt: \(frames).")
   }
 
   private func assertControlsFitHorizontally(in window: NSWindow, width: Int) throws {
@@ -258,11 +324,15 @@ struct PortraitStudioNativeLayoutTests {
       Text("Known SwiftUI accessibility control")
       Button("Sanity button") { }.accessibilityIdentifier(identifier)
     }.padding(12)
-    let host = NSHostingController(rootView: content)
+    let host = NSHostingController(rootView: content
+      .background(Color(nsColor: .windowBackgroundColor))
+      .environment(\.colorScheme, .light))
     host.sizingOptions = []
     let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 160),
       styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
+    window.appearance = NSAppearance(named: .aqua)
+    window.backgroundColor = .windowBackgroundColor
     window.contentViewController = host
     window.setContentSize(NSSize(width: 300, height: 160))
     window.orderFront(nil)
@@ -340,9 +410,13 @@ struct PortraitStudioNativeLayoutTests {
   }
 
   private func settle(_ view: NSView) async {
-    view.window?.layoutIfNeeded()
-    view.layoutSubtreeIfNeeded()
-    try? await Task.sleep(for: .milliseconds(60))
+    for _ in 0..<8 {
+      view.window?.layoutIfNeeded()
+      view.layoutSubtreeIfNeeded()
+      view.window?.displayIfNeeded()
+      view.displayIfNeeded()
+      try? await Task.sleep(for: .milliseconds(50))
+    }
     view.layoutSubtreeIfNeeded()
     view.window?.displayIfNeeded()
     view.displayIfNeeded()

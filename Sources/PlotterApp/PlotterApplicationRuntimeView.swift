@@ -12,7 +12,8 @@ struct PlotterApplicationRuntimeView: View {
   @State private var gateLayout: WorkbenchLayoutState?
   @State private var selection = LearningPathSelectionState(current: .humanGuidedDiscovery(.penInteraction))
   @State private var actionSurfaceViewport = ActionSurfaceViewportState()
-  @State private var canvasShowsPortraitPhoto = false
+  @State private var reviewerIsPresented = false
+  @State private var materialSettingsPresented = false
   @State private var manualMotionDraft = ManualMotionDraft()
   @State private var diagnosticExporter = WorkbenchDiagnosticExporter()
   @State private var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
@@ -37,7 +38,8 @@ struct PlotterApplicationRuntimeView: View {
     VStack(spacing: 0) {
       if let panelError {
         HStack {
-          Text(panelError).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+          Text("Action needs attention").font(.caption).foregroundStyle(.orange)
+          StudioHelpButton("Action needs attention", text: panelError)
           Spacer()
           Button("Dismiss") { self.panelError = nil }.buttonStyle(.borderless)
         }.padding(.horizontal, 10).padding(.vertical, 4)
@@ -56,13 +58,29 @@ struct PlotterApplicationRuntimeView: View {
         }.padding(.horizontal, 10).padding(.vertical, 4)
       }
       DrawingStudioActiveRunStatus(runState: ui.drawingStudio.runState).equatable()
-      WorkbenchPanels(layout: layout, select: { panel in Task { await preparePanel(panel) } },
-        autosavePrefix: RunningAppPreviewPerformanceGate.isRequested ? nil : "AdaptivePlotter.workbench.v2",
-        content: panelContent) {
-        WorkbenchCameraCanvas(application: application, semantic: ui.semantic,
-          showsPortraitPhoto: canvasShowsPortraitPhoto,
-          viewport: $actionSurfaceViewport, pendingDrawingPlacement: $pendingDrawingPlacement,
-          pendingPointSelection: $pendingPointSelection)
+      if layout.wrappedValue.isPresented(.portraitStudio) {
+        VStack(spacing: 0) {
+          HStack {
+            Label("Portrait Studio", systemImage: "person.crop.rectangle").font(.headline)
+            Spacer()
+            Button("Plotter", systemImage: "video") {
+              WorkbenchRequestTelemetry.nativeActionHandled("workbench.hide.portraitStudio")
+              closePortraitStudio()
+            }
+            .accessibilityIdentifier("workbench.hide.portraitStudio")
+          }.padding(.horizontal, 12).padding(.vertical, 6)
+          panelContent(.portraitStudio)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("workbench.panel.portraitStudio")
+      } else {
+        WorkbenchPanels(layout: layout, select: { panel in Task { await preparePanel(panel) } },
+          autosavePrefix: RunningAppPreviewPerformanceGate.isRequested ? nil : "AdaptivePlotter.workbench.v2",
+          content: panelContent) {
+          WorkbenchCameraCanvas(application: application, semantic: ui.semantic,
+            viewport: $actionSurfaceViewport, pendingDrawingPlacement: $pendingDrawingPlacement,
+            pendingPointSelection: $pendingPointSelection)
+        }
       }
       Divider()
       WorkbenchVoiceView(
@@ -74,6 +92,15 @@ struct PlotterApplicationRuntimeView: View {
         }, controller: application.workbenchVoiceController)
         .padding(.horizontal, 12).padding(.vertical, 6)
     }
+    .background {
+      PortraitScreenIllumination(isActive: application.portraitStudio.screenIlluminationActive) {
+        Task { await application.portraitStudio.cancelRendering() }
+      }
+    }
+    .sheet(isPresented: $reviewerIsPresented) {
+      DrawingReviewerView(application: application, close: { reviewerIsPresented = false },
+        showOnPlotter: usePortraitProgram)
+    }
     .onChange(of: ui.currentLearningPathItemID, initial: true) { _, item in selection.updateCurrent(item) }
     .toolbar {
       WorkbenchToolbar(controllerSession: ui.controllerSession, plotterUIProjection: ui.semantic,
@@ -82,7 +109,7 @@ struct PlotterApplicationRuntimeView: View {
     }
     .toolbarRole(.editor)
     .focusedSceneValue(\.workbenchMenu, WorkbenchMenuContext(layout: layout.wrappedValue,
-      toggle: togglePanel, restore: { layout.wrappedValue = WorkbenchLayoutState() }))
+      toggle: togglePanel, restore: restoreDefaultLayout))
     .task {
       let launch = RunningAppPreviewPerformanceGate.usesSimulatedWorkbench
         ? AdaptivePlotterLaunchPolicy(arguments: [AdaptivePlotterLaunchPolicy.simulatedArgument, "YES"])
@@ -92,7 +119,10 @@ struct PlotterApplicationRuntimeView: View {
         gateLayout = WorkbenchLayoutState(presented: [.guidedLearning, .motion, .activeLearning, .portraitStudio])
       }
       await RunningAppPreviewPerformanceGate.runIfRequested(application: application,
-        revealPanel: { panel in layout.wrappedValue.setPresented(panel, true) }, workbenchLayout: layout)
+        revealPanel: { panel in
+          if panel != .portraitStudio { layout.wrappedValue.setPresented(.portraitStudio, false) }
+          layout.wrappedValue.setPresented(panel, true)
+        }, workbenchLayout: layout)
     }
   }
 
@@ -103,8 +133,20 @@ struct PlotterApplicationRuntimeView: View {
 
   private func togglePanel(_ panel: WorkbenchPanel) {
     WorkbenchRequestTelemetry.nativeActionHandled("workbench.toggle.\(panel.rawValue)")
-    if layout.wrappedValue.isPresented(panel) { layout.wrappedValue.setPresented(panel, false) }
+    if panel == .portraitStudio && layout.wrappedValue.isPresented(panel) { closePortraitStudio() }
+    else if layout.wrappedValue.isPresented(panel) { layout.wrappedValue.setPresented(panel, false) }
     else { reveal(panel) }
+  }
+
+  private func closePortraitStudio() {
+    layout.wrappedValue.setPresented(.portraitStudio, false)
+    Task { panelError = await selectCamera(.plotter) }
+  }
+
+  private func restoreDefaultLayout() {
+    let leavesPortrait = layout.wrappedValue.isPresented(.portraitStudio)
+    layout.wrappedValue = WorkbenchLayoutState()
+    if leavesPortrait { Task { panelError = await selectCamera(.plotter) } }
   }
 
   @ViewBuilder func panelContent(_ panel: WorkbenchPanel) -> some View {
@@ -120,7 +162,7 @@ struct PlotterApplicationRuntimeView: View {
     case .videoSettings:
       WorkbenchVideoSettings(application: application, projection: ui.observationConfiguration,
         semantic: ui.semantic, viewport: $actionSurfaceViewport,
-        cameraSelected: { canvasShowsPortraitPhoto = false })
+        cameraSelected: {})
     case .motion:
       ScrollView {
         MotionPanel(draft: $manualMotionDraft, presentation: ui.manualMotion,
@@ -153,41 +195,61 @@ struct PlotterApplicationRuntimeView: View {
           }
         }.padding(12)
       }
-    case .portraitStudio:
+    case .drawing:
       ScrollView {
         VStack(alignment: .leading, spacing: 12) {
-          PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
-            previewSource: application.portraitPlanePreviewSource,
-            showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) },
-            showPhoto: { canvasShowsPortraitPhoto = true }) {
-              DrawingStudioPhysicalGallery(application: application)
-            }
-          if application.workbenchCameraRole == .plotter {
-            DrawingStudioView(presentation: ui.drawingStudio, plotterUIProjection: ui.semantic,
-              plotterUIIntentSink: application, panel: .portraitStudio) {
-                studioMaterialControls
-                paperControls(ui, showsExplanation: false)
-              }
-          } else {
-            studioMaterialControls
+          HStack {
+            Button("Drawings", systemImage: "square.grid.2x2") { reviewerIsPresented = true }
+              .accessibilityIdentifier("drawing.openReviewer")
+            Spacer()
+            Button("Portrait Studio", systemImage: "person.crop.rectangle") { reveal(.portraitStudio) }
           }
+          DrawingStudioView(presentation: ui.drawingStudio, plotterUIProjection: ui.semantic,
+            plotterUIIntentSink: application, panel: .drawing,
+            openReviewer: { reviewerIsPresented = true }) {
+              studioMaterialControls
+              paperControls(ui, showsExplanation: false)
+            }
         }.padding(12)
       }
+    case .portraitStudio:
+      PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
+        previewSource: application.portraitPlanePreviewSource,
+        showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) },
+        openReviewer: { reviewerIsPresented = true })
+        .padding(12)
+        .task(id: application.observationConfigurationProjection.selectedCameraID) {
+          await application.portraitStudio.discover(excluding: application.observationConfigurationProjection.selectedCameraID)
+        }
     }
   }
 
   private var studioMaterialControls: some View {
     VStack(alignment: .leading, spacing: 10) {
-      TextField("Paper stock for material measurement", text: $application.materialPaperStock)
-      Picker("Existing ink source", selection: $application.materialUsesBorderImages) {
-        Text("Drawing Border before/after").tag(true)
-        Text("Calibration marks in current plotter frame").tag(false)
+      HStack {
+        Text("Pen & material").font(.headline)
+        Spacer()
+        Button("Measurement setup", systemImage: "slider.horizontal.3") { materialSettingsPresented = true }
+          .labelStyle(.iconOnly)
+          .popover(isPresented: $materialSettingsPresented) {
+            VStack(alignment: .leading, spacing: 12) {
+              Text("Material measurement").font(.headline)
+              TextField("Paper stock", text: $application.materialPaperStock)
+              Picker("Image source", selection: $application.materialUsesBorderImages) {
+                Text("Drawing Border before/after").tag(true)
+                Text("Calibration marks").tag(false)
+              }
+              StudioHelpButton("Measurement source", text: "Choose the existing images used to estimate deposited ink width. This does not select or change the drawing's source photo.")
+            }.padding(16).frame(width: 320)
+          }
       }
       DrawingMaterialControls(library: application.drawingMaterials,
         currentApplicability: application.currentMaterialApplicability,
         measurementStatus: application.materialMeasurementStatus,
         canMeasureExistingInk: application.currentMaterialApplicability != nil,
-        canApply: application.drawingDraftSnapshot.plan != nil,
+        canApply: application.drawingDraftSnapshot.artworkPlan?.sourceProgramContentHash
+          == application.portraitStudio.selectedCandidate?.program.contentHash
+          && application.portraitStudio.selectedCandidate != nil,
         measure: { await application.prepareMaterialInspection() }, apply: applyPortraitMaterial,
         verifyMedia: { await application.verifyMaterialMedia($0) })
       .onChange(of: application.drawingMaterials.activeKey) { _, _ in
@@ -198,19 +260,21 @@ struct PlotterApplicationRuntimeView: View {
           confirm: { await application.confirmMaterialInspection(inspection) },
           cancel: { application.materialInspection = nil })
       }
-      Button("Assess Material at Current Scale") {
+      Button("Check Detail at This Size") {
         Task { panelError = await application.assessCurrentMaterial() }
       }.accessibilityIdentifier("drawing.material.assess")
       if let status = application.materialFeasibilityStatus {
-        Text(status).font(.caption).foregroundStyle(.secondary)
+        StudioHelpButton("Detail check", text: status)
       }
       if let context = application.portraitStudio.selectedCandidate?.recipe.vectorOptions.materialContext,
         let height = application.portraitPlanePreviewSource.resolve(
           program: application.portraitStudio.selectedCandidate?.program, nominalWidth: 0.4).materialReferenceHeight,
         !context.matches(drawingHeightMM: height,
           profileKey: application.drawingMaterials.activeKey) {
-        Text("Material or drawing scale changed. Apply the current material to create a newly adapted candidate.")
-          .font(.caption).foregroundStyle(.secondary)
+        HStack {
+          Text("Detail adaptation out of date").font(.caption)
+          StudioHelpButton("Detail adaptation", text: "The drawing scale or pen changed. Adapt Detail creates a new drawing with spacing adjusted for the current width; it does not change calibration.")
+        }
       }
     }
     .accessibilityElement(children: .contain)
@@ -220,14 +284,18 @@ struct PlotterApplicationRuntimeView: View {
   private func paperControls(_ ui: PlotterAppUIProjection, showsExplanation: Bool = true) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       if showsExplanation && !application.paperCoverageIsCurrent {
-        Text(ui.workbenchCapability.paper.detail).font(.caption).foregroundStyle(.secondary)
+        StudioHelpButton("Paper coverage", text: ui.workbenchCapability.paper.detail)
       }
       HStack {
         OperatorRequestButton(title: application.paperCoverageIsCurrent ? "Sheet Confirmed" : "Sheet Covers Target",
           request: ui.semantic.request(for: PlotterAppUIActionID.drawingDraft(.assertPaperCoverage)),
-          unavailableReason: ui.paperManagementUnavailableReason, sink: application)
+          unavailableReason: ui.paperManagementUnavailableReason, sink: application,
+          showsUnavailableReason: false)
           .accessibilityIdentifier("drawing.confirmSheet")
           .help("Confirm that this sheet covers the outlined Drawing Boundary.")
+        if let reason = ui.paperManagementUnavailableReason {
+          StudioHelpButton("Paper coverage unavailable", text: reason)
+        }
         Menu("Paper") {
           Button("New Sheet — Same Contact Plane") {
             Task { panelError = await submit(PlotterAppUIActionID.paperNewSheet) }
@@ -243,27 +311,35 @@ struct PlotterApplicationRuntimeView: View {
   }
 
   private func reveal(_ panel: WorkbenchPanel) {
+    let leavesPortrait = panel != .portraitStudio && layout.wrappedValue.isPresented(.portraitStudio)
+    if panel != .portraitStudio { layout.wrappedValue.setPresented(.portraitStudio, false) }
     layout.wrappedValue.setPresented(panel, true)
-    if panel == .portraitStudio { Task { await application.portraitStudio.discover(excluding: application.observationConfigurationProjection.selectedCameraID) } }
+    Task { await preparePanel(panel, leavingPortrait: leavesPortrait) }
   }
 
-  private func preparePanel(_ panel: WorkbenchPanel) async {
+  private func preparePanel(_ panel: WorkbenchPanel, leavingPortrait: Bool = false) async {
     panelError = nil
     switch panel {
-    case .guidedLearning, .activeLearning: panelError = await selectCamera(.plotter)
-    case .portraitStudio: panelError = await selectCamera(.portrait)
-    case .motion, .videoSettings: break
+    case .guidedLearning, .activeLearning, .drawing:
+      layout.wrappedValue.setPresented(.portraitStudio, false)
+      panelError = await selectCamera(.plotter)
+    case .portraitStudio: break
+    case .motion, .videoSettings:
+      if leavingPortrait { panelError = await selectCamera(.plotter) }
     }
   }
 
   private func selectCamera(_ role: WorkbenchCameraRole) async -> String? {
-    canvasShowsPortraitPhoto = false
     return await submit(PlotterAppUIActionID.observationCameraRole(role))
   }
 
   private func usePortraitProgram(_ candidate: PortraitCandidate) async -> String? {
-    canvasShowsPortraitPhoto = false
-    return await application.projectPortrait(candidate)
+    let error = await application.projectPortrait(candidate)
+    if error == nil {
+      layout.wrappedValue.setPresented(.portraitStudio, false)
+      layout.wrappedValue.setPresented(.drawing, true)
+    }
+    return error
   }
 
   private func applyPortraitMaterial(_ profile: DrawingMaterialProfileRevision) async -> String? {

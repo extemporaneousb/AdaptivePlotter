@@ -17,7 +17,7 @@ passed full strict run 31: 997 Swift functions passed, five opt-in skips, zero
 failures, with release/signing/launcher/bundle and documentation checks passing.
 Independent critic 9 found no remaining blocking software issue, and the exact
 tested signed app was delivered without launching. The descriptions below reflect
-the five panels, exclusive camera ownership, accepted-completion restoration,
+the current workbench surfaces, exclusive camera ownership, accepted-completion restoration,
 persistent target, canonical Draw readiness and retrospective analysis. Native
 attempts reached no controls in the locked GUI; actual camera workload and physical
 acceptance remain unverified. Current Evidence owns exact receipts and limits;
@@ -28,7 +28,8 @@ software acceptance and delivery do not assert Git landing or attended success.
 `ControllerAxisMetric` in PlotterRuntime owns validated immutable frame geometry,
 ruler observations, independent axis factors and exact setting proposals. An exact
 Stage Four checkpoint and matching registration bind the historical controller
-context. `DrawingRunEvidenceArchive` schema 3 reads schemas 1–3 and retains metric
+context. `DrawingRunEvidenceArchive` schema 4 reads schemas 1–4 and retains review deletion
+tombstones, metric
 measurements, prepared calibration attempts and separate terminal receipts alongside
 existing drawing records/attempts. Record revision still equals record count;
 supplementary facts do not reinterpret historical revision semantics. All mutations
@@ -147,7 +148,7 @@ PlotterApp -> EpisodeRuntime + PlotterEpisodeRuntime + PlotterUI + retained appl
   explicitly attributed retained simulator workflow commands for later semantic packages
   copied PlotterUICompilerInput facts and one immutable PlotterUIProjection
   pane/window/viewport and unsubmitted manual text retained as UI-local state
-  SwiftUI Guided Learning, Video, Motion, Active Learning and Portrait Studio
+  SwiftUI Guided Learning, Video, Motion, Active Learning and Drawing docks, plus the Portrait Studio workspace
   production checkpoint/evidence stores and semantic identity composition
 
 PlotterTestSupport
@@ -2183,7 +2184,7 @@ reconstructs an experiment from the existing drawing archive, and projects
 `DrawingCoverageAssessment`. Only archive/provenance changes recompute that
 assessment; ambient video does not enter it. Each proposed trial is planned by
 `PlotterDrawingPlanningAdapter` and run by the unchanged drawing-run owner.
-Terminal review and its exact New Drawing handoff remain required between trials.
+Terminal review and its exact Prepare Next Drawing handoff remain required between trials.
 
 The assessment validates attributable record frontiers, exact program/placement/
 plan geometry, paper, tip evidence hash and applicability, observation source,
@@ -2198,62 +2199,45 @@ readiness, or new persistence authority. Automatic batch execution and corrected
 physical holdout evaluation remain unfinished product work.
 
 `PortraitStudioModel` owns optional portrait capture, UUID-selected recent photos,
-raster caches, and the existing immutable authored program. The recent-photo store
-is bounded by 24 entries and 32 MiB of encoded pixels; eviction/deletion releases
-associated rasters and rendered variants. `PortraitRenderCache` keys results by photo
-identity, exact analysis/vector configuration and pen style; its LRU bounds are 24
-renders / 200,000 vector points and 32 analyzed rasters. `PortraitStyleRecipe` supplies
-named and seeded variants; `PortraitStyleBrowser` keeps frame navigation independent
-of a bounded 24-recipe history. `PortraitProposalPolicy` declares weighted broad
-exploration and bounded local neighborhoods; local requests consume the parent
-raster directly. `PortraitProposalMetadata` binds policy revision/seed/family/kind,
-and optional typed pose/proposal fields preserve legacy C2 decoding/identity.
-`PortraitExplorationHistory` holds completed immutable transient payloads independently
-of the render cache, bounded to 24 candidates / 96 MiB of encoded content and a
-finite visit path. Exact parent/back/forward/child restoration reinstalls candidate
-content and completed request identity synchronously, without a renderer call.
-Expired payloads have explicit unavailable recovery; the qualified archive is not
-evicted by history pressure.
-`PortraitCandidate` freezes exact source bytes,
-source extent, analyzed raster, recipe, program, capture-session and lineage metadata
-at render completion. Content identity deduplicates identical candidates independently
-of capture UUID/time; a selected retained candidate does not depend on recent photos.
-`PortraitSketchCollection` is the sole observable qualified-archive owner;
-`PortraitCandidateStore` serializes content-addressed source/raster installation
-before atomic checksummed index association. Production injects Application Support
-storage; tests explicitly use isolated stores or memory. Failed writes retain ordered
-pending mutations for retry; damaged assets/index block replacement while healthy
-records remain recoverable. Qualified records have no FIFO limit. Explicit deletion
-commits tombstones before removing unreferenced payloads.
-`PortraitPreferenceCollection` projects immutable scoped labels from that same archive.
-Labels bind displayed drawing height, estimated/measured ink context, objective and
-prompt; revised labels retain previous IDs. Source/candidate deletion and label
-withdrawal preserve tombstone identity. Export encodes a frozen Sendable snapshot off
-MainActor. Complete successful camera/program/Fit acceptance retains the exact candidate
-captured before awaiting; failed acceptance does not qualify it. Physical attempt
-retention joins the exact candidate archive before DS-06 dispatch.
+source/configuration-keyed render caches and immutable authored candidates. Its
+existing serial acquisition/render drain also renders the five deterministic
+algorithm comparisons; there is no second renderer task owner. A comparison binds
+source, analysis/vector configuration and pen identity. The selected algorithm is
+rendered first, sibling algorithms reuse analysis, and supersession cancels/joins
+workers before stale output can publish. Selecting a tile installs its exact
+candidate. Framing and tuning regenerate comparisons through that same drain.
+Ordinary Studio has no random, local-exploration, semantic-head or checkpoint-driven
+generation entrypoint. Historical formats remain readable; fitted checkpoints are
+not loaded by the normal `loadArchive` path.
 
-`PortraitTrainingContract` owns frozen scope/dataset/model/checkpoint values.
-`PortraitPreferenceDatasetBuilder` resolves label revisions and groups retained
-source/session/ancestry before splitting. `PortraitTrainingFeatures` defines fixed
-normalization; `PortraitOrdinalTrainer` fits cumulative-logit likelihood with
-ordered thresholds and cancellable bounded optimization. `PortraitCheckpointStore`
-installs digest-addressed manifests before atomic index association; installation
-and activation are separate operations. `PortraitTrainingLibrary` owns one detached
-fit and joins it at cancellation/shutdown, preserving the active completed model.
-Updates declare deterministic full refit/reset optimizer and compatible parent.
-`PortraitTrainingProposalPolicy` renders eight candidates inside the Studio's
-existing joined renderer lifetime, then selects by captured checkpoint utility,
-diversity and exploration. The candidate records exact checkpoint and selection
-provenance; pool siblings remain transient. Quiet `PortraitTrainingControls` reads
-only the Studio/training owners. `PortraitStudioView<Gallery>` keeps authoring,
-ratings and galleries before training/projection. `DrawingStudioView<BeforeRun>`
-preserves its draft/refusal/slider state while placing material and paper setup
-between placement and run controls. `DrawingStudioActiveRunStatus` receives only
-semantic run state outside `WorkbenchPanels`; global Stop remains the existing
-toolbar capability. Adaptive native rows fit the minimum panel width without
-changing action ownership or source/style keyboard bindings. Corrupt assets preserve healthy verified state and
-block index replacement; absent active assets explicitly use the renderer prior.
+`PortraitStudioView` fills the editing workspace instead of a scrolling control
+column. Its fixed toolbar owns capture/import/settings, frame navigation, explicit
+handoff, Save Drawing and reviewer presentation. Photo and drawing use the same
+candidate source, while algorithm tiles and framing/style parameters remain visible.
+`StudioHelpButton` exposes explanatory text in accessible question-mark popovers.
+Pen & material presents applicable width provenance; measuring and adapting it
+remain separate explicit actions. `WorkbenchLayoutState` stores Studio presentation
+separately from its dock slots, migrating old saved portrait slots without replacing
+another control panel. Closing Studio restores the existing workbench docks.
+
+The shared Drawing panel uses `DrawingStudioView` for the same canonical Draft/Run
+requests regardless of drawing producer. Material setup and paper coverage remain
+before Draw. `DrawingReviewerView` is source-independent and selects archive items
+locally; browsing never replaces the Studio candidate or runtime selection. Its
+Delete Result operation writes `deletedReviewRecordIDs` into schema-4
+`DrawingRunEvidenceArchive`. `reviewRecords` excludes those IDs for browsing and
+subsequent Draft residual analysis, while raw `records`, attempts and media retain
+execution and possible-ink truth. App archive installation preserves known deletion
+tombstones against delayed loads and does not restore/reset runtime during deletion.
+
+`PortraitSketchCollection` remains the qualified candidate archive owner. Save and
+projection retain source bytes, exact raster, recipe, immutable program and provenance
+without switching editor modes. Archive candidate/source tombstones and immutable
+historical labels remain intact. Historical training contracts and decoding are
+separate from the current authoring UI; obsolete rating/training/exploration views
+have been deleted. `PortraitPlaneProgramPreview` is the single production vector
+preview renderer; the former thumbnail renderer exists only as a historical test
+fixture.
 
 Versioned `PortraitRaster` retains typed source/decoded/crop/sample geometry and the
 actual applied mask alpha, mask outcome and preprocessing bounds. Legacy/synthetic
@@ -2269,8 +2253,8 @@ storage preserves individual poses without unregistered averaging. Camera-role
 changes and cancellation settle acquisition and clear illumination. The narrow AppKit
 light bridge owns one borderless white window over the host screen, restores key-window
 focus, dismisses on deactivation/host loss, and suppresses reopening until the model
-acknowledges cancellation. It changes no hardware brightness setting. The permanent
-canvas's `PortraitCameraPreview` alone observes changing preview frames; the root
+acknowledges cancellation. It changes no hardware brightness setting. The Studio
+workspace's `PortraitCameraPreview` alone observes changing preview frames; the root
 semantic projection does not receive this traffic.
 
 `PortraitImageAnalyzer` normalizes image orientation/size, performs adjustable face
@@ -2307,11 +2291,11 @@ includes that metric and all bounded authoring parameters. Semantic programs use
 and bind the exact manifest digest. Raster schema 3 adds retained face analysis while
 decoded older rasters keep their original encoded version; absent optional semantic
 recipe/candidate fields preserve DS-02/DS-03 archive hashes. Candidate integrity checks
-bind recipe, raster, recomputed manifest and program provenance. Explicit semantic
-generation refreshes analysis absent from an older raster; local proposals reuse the
-exact parent analysis and freeze every head parameter. Legacy rasters without
+bind recipe, raster, recomputed manifest and program provenance. Historical semantic
+contracts retain exact analysis and head parameters for archive verification;
+ordinary Studio algorithms do not expose semantic generation or local proposals. Legacy rasters without
 a source metric retain explicitly identified sample-lattice interpretation.
-`PortraitProgramPreview` remains the unchanged historical thumbnail renderer.
+`PortraitProgramPreview` is retained only in historical test fixtures; production previews use `PortraitPlaneProgramPreview`.
 The main `PortraitPlanePreview` consumes a passive projection of the existing
 Draft artwork plan, retained before optional border composition, with no second
 planner invocation. Candidate ID/hash and current region must match. Machine
@@ -2337,9 +2321,10 @@ This read-only view adds no controller, planner, calibration or Learning owner. 
 `PlotterSceneAnalysisPipeline` continues to retain its cancelled drain until completion
 before starting replacement Vision work.
 
-Show on Plotter Video selects the plotter role, supplies
-`.selectProgram(DrawingProgram)` and `.fitInDrawableRegion` to the existing draft
-runtime, and leaves portrait controls visible. The root projection binds program
+Show on Plotter Video selects the plotter role and opens the shared Drawing panel.
+A matching admitted program uses `.showTarget` and preserves placement; a new
+program supplies `.selectProgram(DrawingProgram)` and `.fitInDrawableRegion` to
+the existing draft runtime. The root projection binds program
 selection to the program digest rather than
 serializing its points into an action identifier. The planning adapter now
 consumes a program directly, and catalog selection remains a program producer.

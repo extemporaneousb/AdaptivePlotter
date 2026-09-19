@@ -72,9 +72,12 @@ struct PortraitDrawingTests {
       strokeStyle: try portraitTestStyle(), showOnPlotter: { _ in nil }))
     try PortraitImageAnalyzer.encodedImage(editorImage).write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-populated.png"))
     let narrow = try await portraitEditorImage(PortraitStudioView(model: model,
-      strokeStyle: portraitTestStyle(), showOnPlotter: { _ in nil }), width: 320)
+      strokeStyle: portraitTestStyle(), showOnPlotter: { _ in nil }), width: 1000)
     try PortraitImageAnalyzer.encodedImage(narrow).write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-style-narrow.png"))
-    let recipes = PortraitStyleRecipe.catalog(penWidthMM: 1.2)
+    let recipes = PortraitStyle.allCases.map {
+      PortraitStyleRecipe(id: "algorithm-\($0.rawValue)", title: $0.rawValue, seed: 0,
+        style: $0, vectorOptions: PortraitVectorPreset.broadMarker.options, analysisOptions: .init())
+    }
     let results = try await Task.detached(priority: .userInitiated) {
       var results: [PortraitRenderResult] = []
       for recipe in recipes {
@@ -199,8 +202,8 @@ struct PortraitDrawingTests {
     await renderer.release()
     await model.awaitRendering()
     #expect(model.renderDiagnostics.maximumConcurrentWorkerCount == 1)
-    #expect(model.renderDiagnostics.startedWorkerCount == 2)
-    #expect(model.renderDiagnostics.settledWorkerCount == 2)
+    #expect(model.renderDiagnostics.startedWorkerCount == 6)
+    #expect(model.renderDiagnostics.settledWorkerCount == 6)
     #expect(await renderer.maximumConcurrentCount == 1)
     #expect(model.program?.source.sourceIdentifier.contains("pose=Left|style=Crosshatch") == true)
     #expect(!model.isProcessing)
@@ -232,7 +235,7 @@ struct PortraitDrawingTests {
     model.style = .crosshatch
     model.render(strokeStyle: style)
     #expect(model.program == program)
-    #expect(model.renderDiagnostics.startedWorkerCount == 2)
+    #expect(model.renderDiagnostics.startedWorkerCount == 6)
   }
 
   @Test("pose switching and rapid style changes publish only the selected portrait")
@@ -358,7 +361,7 @@ struct PortraitDrawingTests {
     #expect(model.acquisitionDiagnostics.activeWorkerCount == 0)
   }
 
-  @Test("portrait panel renders in narrow and wide docks", arguments: [320, 760])
+  @Test("portrait workspace renders without a vertical scroll container", arguments: [1000, 1280])
   @MainActor
   func editorLayout(width: Int) async throws {
     let view = PortraitStudioView(model: PortraitStudioModel(),
@@ -497,9 +500,9 @@ private actor PortraitAcquisitionDriver: CameraCaptureDriver {
 }
 
 @MainActor
-private func portraitEditorImage<Gallery: View>(_ view: PortraitStudioView<Gallery>, width: Int = 760) async throws -> CGImage {
+private func portraitEditorImage(_ view: PortraitStudioView, width: Int = 1280) async throws -> CGImage {
   _ = NSApplication.shared
-  let host = NSHostingView(rootView: ScrollView { view.padding(12) }
+  let host = NSHostingView(rootView: view.padding(12)
     .frame(width: CGFloat(width), height: 610)
     .environment(\.colorScheme, .light)
     .background(Color(nsColor: .windowBackgroundColor)))

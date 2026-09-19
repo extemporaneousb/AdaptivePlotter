@@ -10,6 +10,9 @@ extension PlotterApplicationRuntime {
       if let error = await submitPortraitDrawingAction(PlotterAppUIActionID.observationCameraRole(.plotter)) {
         return error
       }
+      if drawingDraftSnapshot.artworkPlan?.sourceProgramContentHash == program.contentHash {
+        return await submitPortraitDrawingAction(PlotterAppUIActionID.drawingDraft(.showTarget))
+      }
       if let error = await submitPortraitDrawingAction(
         PlotterAppUIActionID.drawingDraft(.selectProgram(program)), program: program
       ) { return error }

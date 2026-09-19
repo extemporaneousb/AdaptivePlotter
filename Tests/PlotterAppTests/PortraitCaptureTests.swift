@@ -39,6 +39,30 @@ struct PortraitCaptureTests {
     #expect(model.program != nil)
   }
 
+  @Test("burst deletion removes its entire capture session while retaining a separate import and saved drawing")
+  @MainActor
+  func groupedBurstDeletion() async throws {
+    let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: BurstPhotoAcquirer(),
+      frameSource: try RepeatingPortraitFrames(), captureClock: AdvancingPortraitClock())
+    let pen = try portraitTestStyle()
+    model.renderIfNeeded(strokeStyle: pen)
+    await model.importPhoto(URL(fileURLWithPath: "/tmp/99"), strokeStyle: pen)
+    let imported = try #require(model.recentPhotos.first)
+    await model.capture(strokeStyle: pen)
+    let burst = try #require(model.recentPhotos.last?.captureSessionID)
+    #expect(model.recentPhotos.filter { $0.captureSessionID == burst }.count > 1)
+    let retained = try #require(model.selectedCandidate)
+    #expect(model.keepSelection() == nil)
+    model.removeSelectedBurst(strokeStyle: pen)
+    await model.awaitRendering()
+    #expect(model.recentPhotos.map(\.id) == [imported.id])
+    #expect(model.selectedPhotoID == imported.id)
+    #expect(model.algorithmCandidates.allSatisfy { $0.photoID == imported.id })
+    #expect(model.sketches.entries.map(\.id) == [retained.id])
+    #expect(model.sketches.entries.first?.candidate.sourceData == retained.sourceData)
+    await model.shutdown()
+  }
+
   @Test("recent imports are bounded by both count and bytes and deletion selects a surviving source")
   @MainActor
   func importRetentionAndSelection() async throws {
@@ -169,16 +193,16 @@ struct PortraitCaptureTests {
     model.vectorOptions.hatchSpacing = 10
     model.render(strokeStyle: style)
     await model.awaitRendering()
-    #expect(await renderer.cacheHits == [false, true])
+    #expect(await renderer.cacheHits == ([false] + Array(repeating: true, count: 9)))
     model.options.cropToFace.toggle()
     model.renderIfNeeded(strokeStyle: style)
     await model.awaitRendering()
-    #expect(await renderer.cacheHits == [false, true, false])
+    #expect(await renderer.cacheHits == ([false] + Array(repeating: true, count: 9) + [false] + Array(repeating: true, count: 4)))
     model.options.cropToFace.toggle()
     model.renderIfNeeded(strokeStyle: style)
     #expect(model.currentProgram != nil)
     #expect(!model.isProcessing)
-    #expect(await renderer.cacheHits == [false, true, false])
+    #expect(await renderer.cacheHits == ([false] + Array(repeating: true, count: 9) + [false] + Array(repeating: true, count: 4)))
   }
 }
 

@@ -117,6 +117,10 @@ actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort {
     return await store.load()
   }
 
+  func deleteReview(recordID: DrawingEvidenceRecordID) async throws -> DrawingRunEvidenceArchive {
+    try await store.deleteReview(recordID: recordID)
+  }
+
   func stageIntent(_ intent: DrawingRunIntent) async throws -> DrawingRunEvidenceArchive {
     try await store.stageIntent(intent)
   }

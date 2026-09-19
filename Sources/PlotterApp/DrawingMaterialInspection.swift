@@ -57,15 +57,10 @@ struct DrawingMaterialInspectionView: View {
       Text("Inspect Material Measurement Images").font(.title2)
       Text("\(inspection.profile.name) · revision \(inspection.profile.revision) · \(inspection.paths.count) measured paths")
         .font(.subheadline)
-      Text(inspection.baseline == nil
-        ? "Existing ink: one frozen image, measured against local paper contrast. Deposition time and attempt attribution remain unknown."
-        : "New ink: a frozen baseline and result captured at the same controller pose.")
-        .font(.caption).foregroundStyle(.secondary)
-      Text("Inspect every measured mark and the paper on both sides. Confirm only when no pen, armature, hand or other object hides any part of those regions in either image. This action measures existing images and sends no motion commands.")
-        .font(.callout)
-      Text("Declared conditions: \(inspection.applicability.paperStock) · \(inspection.applicability.drawingFeedMMPerMinute) mm/min · pen actuation \(inspection.applicability.penActuationProfile.revision). The original drawing request is not recovered here.")
-        .font(.caption).foregroundStyle(.secondary)
-      Toggle("These marks were drawn with this material, paper and pen settings", isOn: $conditionsConfirmed)
+      StudioHelpButton("Inspect measurement images", text: "Inspect every mark and the paper on both sides in these exact images. No pen, armature, hand or other object may obscure them. Confirm the material and paper settings before measuring. This action sends no motion commands. " + (inspection.baseline == nil
+        ? "A single image estimates width against local paper contrast; deposition time is unknown."
+        : "The baseline and result were captured at the same controller pose."))
+      Toggle("Material and paper settings match", isOn: $conditionsConfirmed)
         .toggleStyle(.checkbox)
         .accessibilityIdentifier("drawing.material.inspection.confirmConditions")
       Toggle("Show original pixels", isOn: $showOriginalPixels)
@@ -81,8 +76,6 @@ struct DrawingMaterialInspectionView: View {
         }
       }
       .frame(minHeight: 240)
-      Text("If visibility is uncertain or a region is obscured, cancel. Deposited width remains unavailable without a valid visibility assertion for these exact images.")
-        .font(.caption).foregroundStyle(.secondary)
       if let status {
         Text(status).font(.callout).textSelection(.enabled)
           .accessibilityIdentifier("drawing.material.inspection.status")
@@ -104,7 +97,7 @@ struct DrawingMaterialInspectionView: View {
             status = error ?? "Measurement completed for these exact images."
           }
         } label: {
-          Text("All measured marks and both sides are unobstructed in these exact images")
+          Text("Confirm Visible Marks & Measure")
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -123,8 +116,7 @@ struct DrawingMaterialInspectionView: View {
   private func imagePanel(title: String, sample: SamePoseFrameSample, image: CGImage?) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       Text(title).font(.headline)
-      Text("Frame \(sample.frame.id.rawValue) · \(sample.frame.width) × \(sample.frame.height) · captured \(sample.frame.captureNanoseconds) ns")
-        .font(.caption.monospaced()).textSelection(.enabled)
+      StudioHelpButton("Image identity", text: "Frame \(sample.frame.id.rawValue), \(sample.frame.width) × \(sample.frame.height), captured \(sample.frame.captureNanoseconds) ns")
       if let image {
         if showOriginalPixels {
           ScrollView([.horizontal, .vertical]) {
@@ -139,8 +131,10 @@ struct DrawingMaterialInspectionView: View {
             .frame(maxWidth: .infinity, maxHeight: 420)
         }
       } else {
-        ContentUnavailableView("Image unavailable", systemImage: "photo",
-          description: Text("The frozen image could not be displayed. Visibility cannot be confirmed."))
+        VStack {
+          ContentUnavailableView("Image unavailable", systemImage: "photo")
+          StudioHelpButton("Image unavailable", text: "The frozen image could not be displayed. Visibility cannot be confirmed.")
+        }
       }
     }
   }

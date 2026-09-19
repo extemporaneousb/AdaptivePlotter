@@ -69,8 +69,8 @@ struct LearningWorkbenchLayoutTests {
 
   @Test("controls fill right left lower-right lower-left and replace the oldest")
   func slotAllocationAndReplacement() throws {
-    let panels = WorkbenchPanel.allCases
-    #expect(panels.map(\.title) == ["Guided Learning", "Video Settings", "Motion", "Active Learning", "Portrait Studio"])
+    let panels = WorkbenchPanel.dockPanels
+    #expect(panels.map(\.title) == ["Guided Learning", "Video Settings", "Motion", "Active Learning", "Drawing"])
     // Each control can be the first, last, or displaced one.
     for offset in panels.indices {
       let order = Array(panels[offset...] + panels[..<offset])
@@ -108,10 +108,24 @@ struct LearningWorkbenchLayoutTests {
     let legacy = Data(#"{"placements":["video",{"position":"bottom","isPresented":false},"guidedLearning",{"position":"left","isPresented":false},"motion",{"position":"bottom","isPresented":true},"portraitStudio",{"position":"right","isPresented":true}]}"#.utf8)
     let layout = WorkbenchLayoutState.restored(from: legacy)
     #expect(layout.slot(of: .motion) == .right)
-    #expect(layout.slot(of: .portraitStudio) == .left)
+    #expect(layout.slot(of: .portraitStudio) == nil)
+    #expect(layout.isPresented(.portraitStudio))
     #expect(!layout.isPresented(.videoSettings))
     #expect(!layout.isPresented(.guidedLearning))
     #expect(WorkbenchLayoutState.restored(from: Data("broken".utf8)) == WorkbenchLayoutState())
+  }
+
+  @Test("Portrait workspace preserves every dock and restores old portrait slots")
+  func portraitWorkspacePreservesDocks() {
+    var layout = WorkbenchLayoutState(presented: [.motion, .guidedLearning, .videoSettings, .drawing])
+    let before = layout
+    layout.setPresented(.portraitStudio, true)
+    #expect(layout.isPresented(.portraitStudio))
+    for panel in WorkbenchPanel.dockPanels { #expect(layout.slot(of: panel) == before.slot(of: panel)) }
+    layout = .restored(from: layout.encoded)
+    #expect(layout.isPresented(.portraitStudio))
+    layout.setPresented(.portraitStudio, false)
+    for panel in WorkbenchPanel.dockPanels { #expect(layout.slot(of: panel) == before.slot(of: panel)) }
   }
 
   @Test("exercise actions preserve readable button widths")

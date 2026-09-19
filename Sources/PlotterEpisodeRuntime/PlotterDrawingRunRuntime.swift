@@ -2001,7 +2001,7 @@ public actor PlotterDrawingRunRuntime {
     }
     if state.terminal != nil {
       return .unavailable(.init(owner: Authority.run, reason: .terminalRequiresNewRunHandoff,
-        remedy: .beginNewPlan, detail: "Choose New Drawing to prepare the next drawing."))
+        remedy: .beginNewPlan, detail: "Choose Prepare Next Drawing to prepare the next drawing."))
     }
     return nil
   }

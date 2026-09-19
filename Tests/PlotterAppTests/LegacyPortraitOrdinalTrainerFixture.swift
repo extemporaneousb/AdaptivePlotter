@@ -1,4 +1,5 @@
 import Foundation
+@testable import PlotterApp
 
 enum PortraitOrdinalTrainer {
   static func utility(model: PortraitPreferenceModel, features: [Double]) throws -> Double {

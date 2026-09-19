@@ -70,7 +70,7 @@ struct RunningAppPreviewPerformanceGateTests {
     let complete = completeNativeWorkbenchReport()
     #expect(complete.verificationFailures.isEmpty)
     var missingWidth = complete
-    missingWidth.placements.removeAll { $0.panel == .portraitStudio && $0.width == 1_000 }
+    missingWidth.portraitWorkspaces.removeAll { $0.width == 1_000 }
     #expect(!missingWidth.verificationFailures.isEmpty)
     var headerOnly = complete
     let first = headerOnly.placements[0]
@@ -78,8 +78,8 @@ struct RunningAppPreviewPerformanceGateTests {
       header: first.header, body: first.header)
     #expect(headerOnly.verificationFailures.contains { $0.contains("substitutes a header") })
     var noNestedScroll = complete
-    // Programmatic body reveal and genuine outer-wheel receipts remain present.
-    // Neither can replace movement of the named inner clip by its native event.
+    // Programmatic body reveal cannot replace a named clip receipt for a
+    // genuinely overflowing document.
     noNestedScroll.inputs = complete.inputs.map { sample in
       var sample = sample
       if sample.targetIdentifier == "workbench.scroll.inner", let evidence = sample.scrollEvidence {
@@ -130,8 +130,58 @@ struct RunningAppPreviewPerformanceGateTests {
     onlyOn.learningStates = [true, true]
     #expect(!onlyOn.verificationFailures.isEmpty)
     let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(complete)) as? [String: Any])
-    #expect(json["schema"] as? String == "adaptiveplotter.native-workbench.v2")
+    #expect(json["schema"] as? String == "adaptiveplotter.native-workbench.v3")
     #expect((json["provenance"] as? String)?.contains("simulated startup") == true)
+  }
+
+  @Test("a fitting Drawing body needs complete native hit evidence instead of invented wheel movement")
+  func nativeFittingDrawingBodyProofRequirements() throws {
+    let complete = completeNativeWorkbenchReport()
+    let wheelInputs = complete.inputs.filter { $0.targetIdentifier == "workbench.scroll.inner" }
+    var fitting = complete
+    fitting.inputs.removeAll { $0.targetIdentifier == "workbench.scroll.inner" }
+    fitting.nativeCounts.removeValue(forKey: "workbench.scroll.inner")
+    fitting.fittingDrawingBodies = try wheelInputs.map { sample in
+      let evidence = try #require(sample.scrollEvidence)
+      let context = try #require(evidence.context)
+      return WorkbenchNativeFittingBodyEvidence(context: context,
+        control: .init(identifier: "drawing.draw", frame: CGRect(x: 20, y: 550, width: 150, height: 30),
+          containingClipCount: 1, scrolledClipCount: 0,
+          panelIdentifier: "workbench.panel.drawing", fitsEveryContainingClip: true),
+        clipIdentity: evidence.clipIdentity, clipBounds: CGRect(x: 0, y: 0, width: 300, height: 700),
+        documentFrameInClip: CGRect(x: 0, y: 0, width: 300, height: 572))
+    }
+    #expect(fitting.verificationFailures.isEmpty)
+    var mixed = fitting
+    mixed.fittingDrawingBodies.removeFirst()
+    mixed.inputs.append(wheelInputs[0])
+    mixed.nativeCounts["workbench.scroll.inner"] = .init(posted: 1, dispatched: 1, handled: 1, acknowledged: 1)
+    #expect(mixed.verificationFailures.isEmpty)
+
+    let first = try #require(fitting.fittingDrawingBodies.first)
+    var overflowing = fitting
+    overflowing.fittingDrawingBodies[0] = .init(context: first.context, control: first.control,
+      clipIdentity: first.clipIdentity, clipBounds: first.clipBounds,
+      documentFrameInClip: CGRect(x: 0, y: 0, width: 300, height: 750))
+    #expect(overflowing.verificationFailures.contains { $0.contains("Control-body") })
+    var clipped = fitting
+    var clippedControl = first.control
+    clippedControl.fitsEveryContainingClip = false
+    clipped.fittingDrawingBodies[0] = .init(context: first.context, control: clippedControl,
+      clipIdentity: first.clipIdentity, clipBounds: first.clipBounds, documentFrameInClip: first.documentFrameInClip)
+    #expect(clipped.verificationFailures.contains { $0.contains("Control-body") })
+    var wrongOwner = fitting
+    var wrongControl = first.control
+    wrongControl.panelIdentifier = "workbench.panel.motion"
+    wrongOwner.fittingDrawingBodies[0] = .init(context: first.context, control: wrongControl,
+      clipIdentity: first.clipIdentity, clipBounds: first.clipBounds, documentFrameInClip: first.documentFrameInClip)
+    #expect(wrongOwner.verificationFailures.contains { $0.contains("Control-body") })
+    var duplicate = mixed
+    duplicate.fittingDrawingBodies.append(first)
+    #expect(duplicate.verificationFailures.contains { $0.contains("Control-body") })
+    var missing = fitting
+    missing.fittingDrawingBodies.removeFirst()
+    #expect(missing.verificationFailures.contains { $0.contains("Control-body") })
   }
 
   @Test("native resize has an available direction at the production minimum and both tested widths")
@@ -167,7 +217,7 @@ struct RunningAppPreviewPerformanceGateTests {
 
   private func completeNativeWorkbenchReport() -> NativeWorkbenchReport {
     var result = NativeWorkbenchReport()
-    for panel in WorkbenchPanel.allCases {
+    for panel in WorkbenchPanel.dockPanels {
       for slot in WorkbenchSlot.allCases {
         for width in [1_000, 1_600] {
           result.placements.append(.init(panel: panel, slot: slot, width: width,
@@ -180,7 +230,16 @@ struct RunningAppPreviewPerformanceGateTests {
         }
       }
     }
-    result.bitmaps = (0..<8).map { "layout-\($0).png" }
+    result.portraitWorkspaces = [1_000, 1_600].map { width in
+      .init(width: width,
+        header: .init(identifier: "workbench.hide.portraitStudio",
+          frame: CGRect(x: 20, y: 20, width: 80, height: 30), containingClipCount: 0, scrolledClipCount: 0,
+          panelIdentifier: "workbench.panel.portraitStudio", fitsEveryContainingClip: true),
+        capture: .init(identifier: "portrait.capture",
+          frame: CGRect(x: 20, y: 60, width: 30, height: 30), containingClipCount: 0, scrolledClipCount: 0,
+          panelIdentifier: "workbench.panel.portraitStudio", fitsEveryContainingClip: true))
+    }
+    result.bitmaps = (0..<10).map { "layout-\($0).png" }
     result.learningStates = [false, true]
     result.acceptedArtifactsUnchanged = true
     result.windowPreferencesUnchanged = true
@@ -189,7 +248,7 @@ struct RunningAppPreviewPerformanceGateTests {
     result.canvasOnlyWidths = [1_000, 1_600]
     result.viewMenuWasPresent = true
     for id in NativeWorkbenchReport.requiredControlIdentifiers {
-      let count = id == "learning.mode" ? 2 : 8
+      let count = id == "learning.mode" || id.hasSuffix(".portraitStudio") ? 2 : 8
       result.nativeCounts[id] = .init(posted: count, dispatched: count, handled: count, acknowledged: count)
       for index in 0..<count {
         let identity = Int64(result.inputs.count + 1)
@@ -200,7 +259,7 @@ struct RunningAppPreviewPerformanceGateTests {
         if id == "workbench.scroll.inner" {
           let contexts = WorkbenchSlot.allCases.flatMap { slot in [1_000, 1_600].map { "\(slot.rawValue).\($0)" } }
           sample.scrollEvidence = .init(context: contexts[index], controlIdentifier: "drawing.draw",
-            clipIdentity: "inner-\(index)", outerClipIdentities: ["outer-\(index)"],
+            clipIdentity: "inner-\(index)", outerClipIdentities: [],
             beforeBounds: CGRect(x: 0, y: 400, width: 300, height: 200),
             afterBounds: CGRect(x: 0, y: 280, width: 300, height: 200),
             documentBounds: CGRect(x: 0, y: 0, width: 300, height: 600))

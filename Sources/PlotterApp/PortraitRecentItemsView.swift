@@ -5,57 +5,66 @@ import SwiftUI
 struct PortraitPhotoStrip: View {
   let model: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
+
+  private var bursts: [CaptureGroup] {
+    var seen: Set<UUID> = []
+    return model.recentPhotos.compactMap { photo in
+      guard seen.insert(photo.captureSessionID).inserted else { return nil }
+      return CaptureGroup(id: photo.captureSessionID,
+        photos: model.recentPhotos.filter { $0.captureSessionID == photo.captureSessionID })
+    }
+  }
+
   var body: some View {
-    if !model.recentPhotos.isEmpty {
-      VStack(alignment: .leading, spacing: 5) {
-        HStack {
-          Button { model.movePhoto(by: -1, strokeStyle: strokeStyle) } label: {
-            Image(systemName: "chevron.left").frame(minWidth: 24, minHeight: 24)
-          }.accessibilityLabel("Previous frame, same style")
-            .keyboardShortcut(.leftArrow, modifiers: [.option])
-          Text(model.framePosition).font(.caption).monospacedDigit()
-          Button { model.movePhoto(by: 1, strokeStyle: strokeStyle) } label: {
-            Image(systemName: "chevron.right").frame(minWidth: 24, minHeight: 24)
-          }.accessibilityLabel("Next frame, same style")
-            .keyboardShortcut(.rightArrow, modifiers: [.option])
-          Spacer(minLength: 0)
-        }
-        Text("Same style · ⌥← / ⌥→ to browse frames").font(.caption2).foregroundStyle(.secondary)
-        ScrollView(.horizontal) {
-          LazyHStack(alignment: .top, spacing: 10) {
-            ForEach(model.recentPhotos) { photo in
-              VStack(spacing: 4) {
-                ZStack(alignment: .topTrailing) {
-                  Button { model.selectPhoto(photo.id, strokeStyle: strokeStyle) } label: {
-                    PortraitPhotoThumbnail(data: photo.data, id: photo.id)
-                      .frame(width: 104, height: 100)
-                      .contentShape(Rectangle())
+    ScrollView(.horizontal) {
+      HStack(spacing: 8) {
+        ForEach(bursts) { burst in
+          HStack(spacing: 4) {
+            ForEach(burst.photos) { photo in
+              Button { model.selectPhoto(photo.id, strokeStyle: strokeStyle) } label: {
+                PortraitPhotoThumbnail(data: photo.data, id: photo.id)
+                  .frame(width: 40, height: 40)
+                  .background(.black.opacity(0.05))
+                  .overlay {
+                    RoundedRectangle(cornerRadius: 3)
+                      .stroke(model.selectedPhotoID == photo.id ? Color.accentColor : .clear, lineWidth: 2)
                   }
-                  .buttonStyle(.plain)
-                  .accessibilityLabel("Select \(photo.label)")
-                  .overlay { Rectangle().stroke(model.selectedPhotoID == photo.id ? Color.accentColor : .clear, lineWidth: 3) }
-                  Button { model.removePhoto(photo.id, strokeStyle: strokeStyle) } label: {
-                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
-                      .frame(width: 26, height: 26).background(.regularMaterial, in: Circle())
-                  }
-                  .buttonStyle(.plain).padding(4)
-                  .accessibilityLabel("Remove \(photo.label)")
+                  .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .accessibilityLabel("Select \(photo.label)")
+              .contextMenu {
+                Button("Delete Frame", role: .destructive) {
+                  model.removePhoto(photo.id, strokeStyle: strokeStyle)
                 }
-                Text(photo.label).font(.caption2).lineLimit(1).frame(width: 104)
+                Button("Delete Burst", role: .destructive) {
+                  model.removeCaptureSession(photo.captureSessionID, strokeStyle: strokeStyle)
+                }
               }
             }
-          }.padding(3)
+          }
+          .padding(3)
+          .overlay { RoundedRectangle(cornerRadius: 5).stroke(.quaternary) }
+          .accessibilityElement(children: .contain)
+          .accessibilityLabel("Capture burst, \(burst.photos.count) frames")
         }
-        Text("Recent frames: up to 24 / 32 MB this session. × removes this recent frame; retained drawings keep their own source.")
-          .font(.caption2).foregroundStyle(.secondary)
-      }
+      }.padding(.horizontal, 1)
     }
+    .scrollIndicators(.hidden)
+    .frame(height: 48)
+    .accessibilityIdentifier("portrait.frames")
+  }
+
+  private struct CaptureGroup: Identifiable {
+    let id: UUID
+    let photos: [PortraitPhoto]
   }
 }
 
 struct PortraitPhotoThumbnail: View {
   let data: Data
   let id: UUID
+  var maximumPixelSize = 208
   @State private var image: CGImage?
   var body: some View {
     Group {
@@ -64,95 +73,16 @@ struct PortraitPhotoThumbnail: View {
     }
     .task(id: id) {
       let data = data
+      let maximumPixelSize = maximumPixelSize
       let decoded = await Task.detached(priority: .utility) {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil as CGImage? }
         return CGImageSourceCreateThumbnailAtIndex(source, 0, [
           kCGImageSourceCreateThumbnailFromImageAlways: true,
           kCGImageSourceCreateThumbnailWithTransform: true,
-          kCGImageSourceThumbnailMaxPixelSize: 208,
+          kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
         ] as CFDictionary)
       }.value
       if !Task.isCancelled { image = decoded }
     }
-  }
-}
-
-struct PortraitSketchStrip: View {
-  let collection: PortraitSketchCollection
-  var scope: PortraitStyleScope? = nil
-  var body: some View {
-    if !collection.sketches.isEmpty {
-      VStack(alignment: .leading, spacing: 5) {
-        Text("Retained drawings · \(collection.sketches.count)").font(.caption).foregroundStyle(.secondary)
-        Text(collection.selected == nil
-          ? "Current edit selected. Choose a retained drawing to inspect its exact saved candidate."
-          : "Retained drawing selected. Return to Current Edit above to resume the working recipe.")
-          .font(.caption2).foregroundStyle(.secondary)
-        ScrollView(.horizontal) {
-          LazyHStack(alignment: .top, spacing: 10) {
-            ForEach(collection.sketches) { sketch in
-              VStack(alignment: .leading, spacing: 5) {
-                ZStack(alignment: .topTrailing) {
-                  Button { collection.selectedID = sketch.id } label: {
-                    PortraitProgramPreview(program: sketch.program).frame(width: 140, height: 150)
-                  }.buttonStyle(.plain).accessibilityLabel("Select saved \(sketch.title)")
-                    .overlay { Rectangle().stroke(collection.selectedID == sketch.id ? Color.accentColor : .clear, lineWidth: 3) }
-                  Menu {
-                    Button("Delete This Retained Drawing", role: .destructive) {
-                      collection.remove(sketch.id)
-                    }
-                    Button("Delete Source and All Its Retained Drawings", role: .destructive) {
-                      collection.deleteSource(sketch.candidate.sourceSHA256)
-                    }
-                  } label: {
-                    Image(systemName: "ellipsis").font(.system(size: 11, weight: .bold))
-                      .frame(width: 26, height: 26).background(.regularMaterial, in: Circle())
-                  }.menuStyle(.borderlessButton).fixedSize().padding(4)
-                    .accessibilityLabel("Manage retained \(sketch.title)")
-                }
-                Text(sketch.title).font(.caption2).lineLimit(2).frame(width: 140, alignment: .leading)
-                Text(retentionSummary(for: sketch.id)).font(.caption2).foregroundStyle(.secondary)
-                  .frame(width: 140, alignment: .leading)
-                Text(labelSummary(for: sketch.id)).font(.caption2).foregroundStyle(.secondary)
-                  .frame(width: 140, alignment: .leading)
-                if collection.selectedID == sketch.id {
-                  Text("Selected retained drawing").font(.caption2).bold()
-                    .frame(width: 140, alignment: .leading)
-                }
-              }
-            }
-          }.padding(3)
-        }
-        Text("Deleting a retained drawing removes its payload from future datasets. Deleting its source removes every retained drawing from that source. Earlier record identities remain as deletion history.")
-          .font(.caption2).foregroundStyle(.secondary)
-      }
-    }
-  }
-
-  private func labelSummary(for id: String) -> String {
-    guard let label = collection.labels.last(where: {
-      $0.candidateID == id && (scope == nil || $0.scope.id == scope?.id)
-    }) else { return scope.map { "No rating in \($0.name)" } ?? "Not rated" }
-    let objective = label.presentation.objective == .screenAesthetic ? "screen" : "physical"
-    if collection.archive.withdrawnLabelIDs.contains(label.id.uuidString) {
-      return "Latest \(objective) label withdrawn · \(label.scope.name)"
-    }
-    return "Latest \(objective) rating: \(label.rating)/5 · \(label.scope.name)"
-  }
-
-  private func retentionSummary(for id: String) -> String {
-    guard let entry = collection.entries.first(where: { $0.id == id }) else { return "" }
-    var labels: [String] = []
-    for event in entry.reasons {
-      let label: String
-      switch event.reason {
-      case .shortlisted: label = "Shortlisted"
-      case .rated: label = "Rated"
-      case .projectionAccepted: label = "Accepted on plotter video"
-      case .physicalAttempt: label = "Physical attempt"
-      }
-      if !labels.contains(label) { labels.append(label) }
-    }
-    return labels.joined(separator: " · ")
   }
 }

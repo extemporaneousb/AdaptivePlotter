@@ -13,10 +13,69 @@ or competing architecture plan is authority. Accepted conclusions must be
 integrated here and the source note deleted. Git history and Blackdog prompt
 artifacts are history, not current design.
 
+## Deterministic Portrait Studio correction, 2026-09-18
+
+The operator authorized implementation and coordinator-owned validation of the
+September 18 control audit with these corrections: no random action; compare the
+same photo in the five existing algorithms; click a rendered tile to select it and
+show parameters; keep framing and all current style controls beside the drawing
+without vertical scrolling; marker width belongs to Pen & material as a measured
+or estimated input; explanatory text belongs behind question-mark items.
+
+This corrective delivery supersedes the active UI requirements for random/local
+exploration, candidate-history navigation, semantic Big Head, preference ratings and
+named training in DS-03/04/07/08. Their historical software receipts and archive
+formats remain historical evidence, not requirements to restore removed controls.
+The prior roadmap's arrow-feedback/adaptive-exploration proposal is superseded.
+No historical episode migration package is selected, reopened or reclassified.
+
+Implementation task `task-9e64f2ffa4544ecea34e9867f8b5944c` targets local `main`.
+The coordinator owns integration and validation; bounded workers own deterministic
+algorithm comparison, full-workspace UI, and generic review/deletion. Existing
+acquisition, rendering, Draft, placement, planner, Run and evidence owners remain
+canonical. Completion requires exact tile/selection identity and supersession tests,
+framing/source pairing, grouped source deletion, unchanged placement on repeated
+handoff, generic review deletion/reload without changing live authority, hosted
+no-scroll/control geometry and inspected bitmaps, affected/full software checks,
+strict signed build, one independent frozen-diff review and clean canonical landing.
+Camera/native input and attended physical evidence remain separate from hosted
+layout and synthetic software receipts. Preserve the user's running app and stage
+an immutable test bundle for this source instead of replacing its session.
+
+### Control audit and final disposition
+
+| Existing control or content | Decision and owner |
+| --- | --- |
+| Camera / capture burst | One always-visible camera action in the Studio toolbar; it selects the configured camera and captures. During acquisition it becomes Cancel Capture. |
+| Camera choice, burst duration | Camera settings popover beside capture. |
+| Import / choose photo | Keep in the toolbar as another source for the same acquisition/render pipeline. |
+| Show photo / marker preview | Remove these competing display modes. Photo and the single canonical drawing preview remain framed together. |
+| Frame arrows and source strip | Keep compact arrows beside Show on Plotter Video, a frame counter, and one horizontal strip grouped by burst. |
+| Delete frame / burst | Keep explicit deletion in the source toolbar; superseded workers cannot restore removed sources. |
+| Random, More Like This, Back, Forward, Return to Current Edit | Remove controls and unreachable authoring owners. Algorithm comparison replaces exploration/history as the normal selection model. |
+| Style picker | Replace with five rendered portraits of the current photo. Selection installs that exact candidate and reveals its algorithm controls. |
+| Crop, head margin, background removal | Studio Framing, beside the selected drawing; shared by all five algorithm comparisons. |
+| Contour/hatch/sketch parameters and detail presets | Studio adjustments, below Framing, with only the selected algorithm's relevant parameters. |
+| Big Head | Remove from ordinary authoring. Preserve historical candidate decoding and integrity verification. |
+| Marker thickness | Pen & Material shows the current width and provenance. Style controls change drawing detail, not the calibration estimate. |
+| Buttons 1–4 / preference examples / ratings / named style training | Remove UI and inactive runtime generation owners. Preserve existing immutable archive formats. |
+| Save Drawing | Retain an immutable candidate without switching the working edit. |
+| Physical drawing gallery | Replace with source-independent Drawing Reviewer for saved drawings and ordinary physical results, with Close and explicit deletion. |
+| Placement, scale, rotation, Center, Fit | Shared Drawing panel using the existing Draft/placement planner. Re-showing an unchanged program retains its placement. |
+| Ink source / paper stock | Material measurement setup popover in Drawing; these configure measurement evidence, not source-photo authoring. |
+| Assess material at current scale | Rename Check Detail at This Size; explain feasibility findings behind its question mark. |
+| Adapt material | Explicit Adapt Detail at admitted scale, separate from measuring width; output still uses the existing deterministic render pipeline. |
+| Sheet Confirmed / paper replacement | Keep as explicit physical paper facts in Drawing. Help explains the distinction from plan reset and deletion. |
+| New Drawing | Rename Prepare Next Drawing; retain the canonical terminal-to-next-plan transition. |
+| Review Run | Open Drawing Reviewer. Browsing/deleting cannot clear possible-ink truth or replay a run. |
+| Draw / Stop | Keep the existing typed run admission and Stop owners. Studio authoring grants no motion authority. |
+| Explanatory paragraphs and technical provenance | Question-mark popovers; compact titles, values, progress and actionable failure state stay visible. |
+
 ## Trainable Drawing Studio campaign, 2026-09-13
 
-This is the canonical implementation plan for the operator's Drawing/Portrait
-Studio correction and trainable-style request. Planning task
+This is the historical implementation plan for the operator's September 13
+Drawing/Portrait Studio correction and trainable-style request. The September 18
+correction above supersedes its retired authoring/UI requirements. Planning task
 `task-2cc60c7340414b9ebcbec83e275333ec` assessed base
 `69ba9df7b752516780d98c051bc966316f970f13`. Implementation and evidence states are recorded independently in the ledger below. This named product corrective campaign does not select, reorder,
 complete, or reopen any historical episode migration package; do not invoke

@@ -128,6 +128,21 @@ struct DrawingRetrospectiveResidualTests {
     #expect(analyzed.snapshot.placementID == original.placementID)
     #expect(archived == record)
     #expect(archived.role == .ordinaryDrawing)
+
+    // Removing a result from the eligible archive also withdraws its prior fit.
+    let deletedFacts = PlotterDrawingDraftExternalFacts(environment: .live,
+      interactiveLearningIsComplete: true, displayedFrame: f.previewFrame,
+      opticalConfiguration: f.registration.applicability.opticalConfiguration,
+      registration: f.registration, drawableRegion: f.drawableRegion,
+      toolAssemblyRevision: f.registration.applicability.toolAssembly, paper: f.paper,
+      runInProgress: false, terminalRequiresNewPlan: true, coverageRecords: [])
+    let afterDeletion = await runtime.synchronize(deletedFacts)
+    #expect(afterDeletion.residualRecords.isEmpty)
+    #expect(afterDeletion.residualAnalysis == nil)
+    #expect(afterDeletion.plan?.contentHash == analyzed.snapshot.plan?.contentHash)
+    let reintroduced = await runtime.synchronize(facts)
+    #expect(reintroduced.residualRecords.first?.isSelected == false)
+    #expect(reintroduced.residualAnalysis == nil)
   }
 
   @Test("single-direction observations retain residuals and report unidentifiable XY")

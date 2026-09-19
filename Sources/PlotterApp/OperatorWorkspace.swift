@@ -2533,6 +2533,32 @@ final class PlotterApplicationRuntime:
     } catch { return error.localizedDescription }
   }
 
+  /// Review deletion changes archive eligibility, never the live run or paper facts.
+  func deleteDrawingReview(recordID: DrawingEvidenceRecordID) async throws {
+    drawingEvidenceReloadTask?.cancel()
+    await drawingEvidenceReloadTask?.value
+    let archive = try await drawingEvidencePort.deleteReview(recordID: recordID)
+    installDrawingEvidenceArchive(archive)
+    commitSemanticPresentationChange(invalidatesActionSurface: false)
+  }
+
+  /// Delayed archive reads cannot resurrect a deleted review or an older record set.
+  func installDrawingEvidenceArchive(_ archive: DrawingRunEvidenceArchive) {
+    var next = archive
+    if archive.archiveID == drawingEvidenceArchive.archiveID {
+      guard archive.revision >= drawingEvidenceArchive.revision else { return }
+      do {
+        for id in drawingEvidenceArchive.deletedReviewRecordIDs where !next.deletedReviewRecordIDs.contains(id) {
+          next = try next.deletingReview(recordID: id)
+        }
+      } catch {
+        drawingEvidenceError = "Drawing review state could not be reconciled: \(error)"
+        return
+      }
+    }
+    drawingEvidenceArchive = next
+  }
+
   func assessCurrentMaterial() async -> String? {
     guard let profile = drawingMaterials.activeRecord?.profile,
       let program = drawingDraftSnapshot.program, let plan = drawingDraftSnapshot.plan
@@ -2573,7 +2599,7 @@ final class PlotterApplicationRuntime:
       paper: currentPaperRevisionContext,
       runInProgress: drawingRunIsActive,
       terminalRequiresNewPlan: drawingRunRequiresNewPlan,
-      coverageRecords: drawingEvidenceArchive.records,
+      coverageRecords: drawingEvidenceArchive.reviewRecords,
       drawingArchiveIsAvailable: manualMotionEnvironment == .simulated || {
         guard let snapshot = drawingRunSnapshot,
           case .available = snapshot.evidenceArchiveAvailability else { return false }
@@ -3042,7 +3068,7 @@ final class PlotterApplicationRuntime:
         case .loaded(let archive):
           guard !Task.isCancelled, self.applicationAdmissionIsOpen,
             archive != self.drawingEvidenceArchive else { return }
-          self.drawingEvidenceArchive = archive
+          self.installDrawingEvidenceArchive(archive)
           self.drawingEvidenceError = nil
           self.scheduleDrawingDraftSynchronization()
         case .absent:
@@ -9944,7 +9970,7 @@ final class PlotterApplicationRuntime:
     installDrawingRunSnapshot(restored.snapshot)
     switch restored.disposition {
     case .available(let archive):
-      drawingEvidenceArchive = archive
+      installDrawingEvidenceArchive(archive)
       drawingEvidenceError = nil
       restoreInteractiveLearningCompletionFromEvidence()
       restoreAxisMetricProposal()
@@ -9971,7 +9997,7 @@ final class PlotterApplicationRuntime:
         registration: registration, paper: currentPaperRevisionContext,
         nowNanoseconds: nowNanoseconds()
       ) else { return }
-      drawingEvidenceArchive = try await drawingEvidencePort.append(record)
+      installDrawingEvidenceArchive(try await drawingEvidencePort.append(record))
       let stageFourCheckpoint = AcceptedStageFourCheckpoint(
         recordID: record.recordID,
         tipCalibrationRevisionID: registration.acceptedRevisionID,
@@ -14008,7 +14034,7 @@ extension PlotterApplicationRuntime {
           facts: drawingDraftExternalFacts)
         installDrawingDraftSnapshot(newPlan.snapshot)
         guard case .applied = newPlan.disposition else {
-          return .failed("Paper was recorded, but the settled Drawing Run could not prepare its next plan. Review New Drawing.")
+          return .failed("Paper was recorded, but the settled Drawing Run could not prepare its next plan. Review Prepare Next Drawing.")
         }
         await synchronizeDrawingRunProjection()
         learningAuthorityError = nil
@@ -14398,7 +14424,7 @@ extension PlotterApplicationRuntime {
         sourceCheckpoint: checkpoint, edges: edges, method: method,
         operatorAxisAssociationConfirmed: axesConfirmed,
         supersedesMeasurementID: latestAxisMetricMeasurement?.measurementID)
-      drawingEvidenceArchive = try await drawingEvidencePort.appendAxisMetricMeasurement(measurement)
+      installDrawingEvidenceArchive(try await drawingEvidencePort.appendAxisMetricMeasurement(measurement))
       guard applicationAdmissionIsOpen else { return }
       axisCalibrationProposal = nil
       do {
@@ -14435,8 +14461,8 @@ extension PlotterApplicationRuntime {
     }
     // This callback runs only after the lower owner has obtained a fresh matching
     // controller context, while it still excludes every other controller effect.
-    drawingEvidenceArchive = try await drawingEvidencePort.prepareAxisCalibration(
-      ControllerAxisCalibrationAttempt(proposal: proposal))
+    installDrawingEvidenceArchive(try await drawingEvidencePort.prepareAxisCalibration(
+      ControllerAxisCalibrationAttempt(proposal: proposal)))
     guard applicationAdmissionIsOpen, !Task.isCancelled else { throw CancellationError() }
     let accepted = await artifactResetRuntime.submit(
       .reset(artifactResetPlan(resetPlan, axisCalibration: proposal)), facts: admission)
@@ -14468,7 +14494,7 @@ extension PlotterApplicationRuntime {
       return
     }
     do {
-      drawingEvidenceArchive = try await drawingEvidencePort.appendAxisCalibrationTerminal(terminal)
+      installDrawingEvidenceArchive(try await drawingEvidencePort.appendAxisCalibrationTerminal(terminal))
       pendingAxisCalibrationTerminal = nil
     } catch {
       axisMetricStatus = "Firmware outcome retained in this session; durable publication failed: \(error). Retry evidence only."
@@ -14479,7 +14505,7 @@ extension PlotterApplicationRuntime {
   func retryAxisMetricEvidencePublication() async {
     guard let terminal = pendingAxisCalibrationTerminal else { return }
     do {
-      drawingEvidenceArchive = try await drawingEvidencePort.appendAxisCalibrationTerminal(terminal)
+      installDrawingEvidenceArchive(try await drawingEvidencePort.appendAxisCalibrationTerminal(terminal))
       pendingAxisCalibrationTerminal = nil
       axisMetricStatus = terminal.outcome.reason + " Terminal evidence retained; no settings were replayed."
     } catch { axisMetricStatus = "Terminal evidence retry failed: \(error)." }

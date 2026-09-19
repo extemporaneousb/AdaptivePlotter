@@ -9,7 +9,7 @@ struct PortraitPreferenceCollectionTests {
   @Test("export preserves exact source, analyzed raster, vectors and label presentation")
   func exactSnapshot() throws {
     let archive = PortraitSketchCollection()
-    let preferences = PortraitPreferenceCollection(collection: archive)
+    let preferences = LegacyPortraitPreferenceExportFixture(collection: archive)
     let candidate = try portraitPersistenceCandidate()
     let presentation = try PortraitPresentationContext(drawingHeightMM: 150, inkWidthMM: 1.2)
     #expect(archive.rate(candidate: candidate, rating: 1, scope: .screenSketch, presentation: presentation) == nil)
@@ -30,7 +30,7 @@ struct PortraitPreferenceCollectionTests {
   @Test("rerating appends immutable label revisions with distinct scale/ink context")
   func labelHistory() throws {
     let archive = PortraitSketchCollection()
-    let preferences = PortraitPreferenceCollection(collection: archive)
+    let preferences = LegacyPortraitPreferenceExportFixture(collection: archive)
     let candidate = try portraitPersistenceCandidate()
     #expect(archive.rate(candidate: candidate, rating: 2, scope: .screenSketch,
       presentation: try .init(drawingHeightMM: 100, inkWidthMM: 0.4)) == nil)
@@ -48,7 +48,7 @@ struct PortraitPreferenceCollectionTests {
   @Test("withdrawing a label updates eligible examples but preserves historical identity")
   func withdrawLabel() throws {
     let archive = PortraitSketchCollection()
-    let preferences = PortraitPreferenceCollection(collection: archive)
+    let preferences = LegacyPortraitPreferenceExportFixture(collection: archive)
     let candidate = try portraitPersistenceCandidate()
     _ = archive.rate(candidate: candidate, rating: 3, scope: .screenSketch, presentation: try .init())
     let original = try #require(preferences.examples.first)
@@ -61,7 +61,7 @@ struct PortraitPreferenceCollectionTests {
     #expect(archive.tombstones.contains { $0.kind == .label && $0.identity == original.id.uuidString })
     #expect(throws: PortraitPreferenceError.self) { try preferences.exportData() }
     let historical = try JSONDecoder().decode(PortraitPreferenceExport.self,
-      from: PortraitPreferenceCollection.exportData(examples: exportSnapshot))
+      from: LegacyPortraitPreferenceExportFixture.exportData(examples: exportSnapshot))
     #expect(historical.examples[0].id == original.id)
   }
 
@@ -71,7 +71,7 @@ struct PortraitPreferenceCollectionTests {
       let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-deletion-\(UUID().uuidString)")
       defer { try? FileManager.default.removeItem(at: directory) }
       let archive = PortraitSketchCollection(store: .init(directoryURL: directory))
-      let preferences = PortraitPreferenceCollection(collection: archive)
+      let preferences = LegacyPortraitPreferenceExportFixture(collection: archive)
       let candidate = try portraitPersistenceCandidate()
       _ = archive.rate(candidate: candidate, rating: 4, scope: .screenSketch, presentation: try .init())
       await archive.awaitPersistence()
@@ -89,7 +89,7 @@ struct PortraitPreferenceCollectionTests {
       #expect(preferences.examples[0].id != deletedLabel.id)
       let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
       await restored.load()
-      #expect(PortraitPreferenceCollection(collection: restored).examples.count == 1)
+      #expect(LegacyPortraitPreferenceExportFixture(collection: restored).examples.count == 1)
       #expect(restored.labels.count == 2)
     }
   }
@@ -119,7 +119,7 @@ struct PortraitPreferenceCollectionTests {
   @Test("export has no former session limit and remains independent of later withdrawals")
   func unboundedExportSnapshot() async throws {
     let archive = PortraitSketchCollection()
-    let preferences = PortraitPreferenceCollection(collection: archive)
+    let preferences = LegacyPortraitPreferenceExportFixture(collection: archive)
     let candidate = try portraitPersistenceCandidate()
     for rating in 0...39 {
       #expect(archive.rate(candidate: candidate, rating: rating % 5 + 1,
@@ -128,7 +128,7 @@ struct PortraitPreferenceCollectionTests {
     let snapshot = preferences.examples
     preferences.remove(snapshot[0].id)
     let data = try await Task.detached {
-      try PortraitPreferenceCollection.exportData(examples: snapshot)
+      try LegacyPortraitPreferenceExportFixture.exportData(examples: snapshot)
     }.value
     #expect(try JSONDecoder().decode(PortraitPreferenceExport.self, from: data).examples.count == 40)
     #expect(preferences.examples.count == 39)

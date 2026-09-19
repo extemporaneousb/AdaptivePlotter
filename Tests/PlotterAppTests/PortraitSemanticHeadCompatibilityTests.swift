@@ -51,44 +51,6 @@ struct PortraitSemanticHeadCompatibilityTests {
     }
   }
 
-  @Test("legacy head candidates remain exact and local exploration requires an explicit new semantic render")
-  @MainActor
-  func legacyHeadLocalRefusal() async throws {
-    let candidate = try JSONDecoder().decode(PortraitCandidate.self, from: Data(Self.ds03JSON.utf8))
-    let renderer = SemanticCompatibilityUnexpectedRenderer()
-    let model = PortraitStudioModel(renderer: renderer)
-    _ = model.sketches.retain(candidate: candidate, reason: .shortlisted)
-    #expect(model.selectedCandidate?.id == Self.ds03ID)
-    model.moreLikeThis(seed: 93)
-    await model.awaitRendering()
-    #expect(await renderer.callCount == 0)
-    #expect(model.selectedCandidate?.id == Self.ds03ID)
-    #expect(model.selectedCandidate?.program == candidate.program)
-    #expect(model.history.candidates.isEmpty)
-    #expect(model.explorationStatus?.contains("previous head transform") == true)
-    #expect(model.sketches.entries.map(\.id) == [Self.ds03ID])
-    await model.shutdown()
-  }
-
-  @Test("More Like This freezes all semantic head parameters and exact analysis options")
-  func localHeadParametersAreFrozen() throws {
-    var parameters = PortraitSemanticHeadParameters()
-    parameters.foreheadWidth = 0.31
-    parameters.foreheadHeight = 0.29
-    parameters.eyeScale = 0.13
-    parameters.lateralScale = 0.19
-    let parent = try semanticCandidate(parameters: parameters)
-    let before = try PortraitCandidateCoding.encoder().encode(parent)
-    for seed in UInt64(0)..<64 {
-      let proposal = PortraitProposalPolicy.local(parent: parent, seed: seed)
-      #expect(proposal.recipe.vectorOptions.semanticHead == parameters)
-      #expect(proposal.recipe.vectorOptions.headScale == parent.recipe.vectorOptions.headScale)
-      #expect(proposal.recipe.analysisOptions == parent.recipe.analysisOptions)
-      #expect(proposal.metadata.kind == .local)
-    }
-    #expect(try PortraitCandidateCoding.encoder().encode(parent) == before)
-  }
-
   @Test("new semantic parameters and manifest create distinct retained identities without changing legacy payloads")
   func semanticIdentityAndDurability() async throws {
     let legacyBytes = Data(Self.ds03JSON.utf8)
@@ -175,12 +137,4 @@ struct PortraitSemanticHeadCompatibilityTests {
   private static let ds03JSON = #"""
 {"captureSessionID":"00000000-0000-0000-0000-000000000004","createdAt":1,"id":"a089a054701f6dbb36a9ac52e4f8e0cd0a43b4f47e9b8102c2fa7e7c16d77215","lineage":{"ancestryGroupID":"00000000-0000-0000-0000-000000000004"},"photoID":"00000000-0000-0000-0000-000000000005","pose":"Front","producerRevision":"portrait-v3","program":{"contentHash":{"bytes":[151,82,96,68,69,149,226,93,5,104,240,30,243,246,232,35,193,188,32,88,198,194,221,46,191,12,175,245,63,34,235,250]},"fieldExtent":{"height":100,"width":200},"id":{"rawValue":"00000000-0000-0000-0000-000000000002"},"schemaVersion":1,"source":{"kind":"portrait","sourceIdentifier":"portrait-v3|pose=Front|ds03-golden"},"strokes":[{"id":{"rawValue":"00000000-0000-0000-0000-000000000003"},"ordering":0,"path":{"points":[{"x":20,"y":30},{"x":180,"y":60}]},"semanticRole":0,"style":{"nominalLineWidth":0.8,"penProfileID":{"rawValue":"00000000-0000-0000-0000-000000000001"}}}]},"proposal":{"family":"hatch","kind":"broad","policyRevision":"portrait-proposal-v1","seed":73},"raster":{"analysisSummary":"Exact legacy fixture","height":2,"luminance":[0,0.25,0.5,1],"provenance":"ds03-golden-analysis","schemaVersion":2,"sourceCropExtent":{"heightPixels":40,"widthPixels":80},"width":2},"rasterSHA256":"11f11e8169e0d381b7aeaae1ef9b797253b682a9515797f520bbaa164400c84b","recipe":{"analysisOptions":{"cropToFace":true,"faceCropMargin":0.35,"removeBackground":true},"id":"ds03-golden-recipe","seed":73,"style":"Hatch","title":"Legacy Big Head","vectorOptions":{"contourLevels":6,"hatchAngleDegrees":0,"hatchSpacing":4,"headScale":1.4,"minimumContourLength":3,"simplificationTolerance":0.35,"sketchThreshold":0.012,"smoothing":0,"tonalStrength":1}},"recipeSHA256":"68a276eb896cf55942d8f6b736ad9ab0c715c337f173887090893c67431b3d1d","sourceData":"AQIDBA==","sourcePixelExtent":{"heightPixels":40,"widthPixels":80},"sourceSHA256":"9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a"}
 """#
-}
-
-private actor SemanticCompatibilityUnexpectedRenderer: PortraitRendering {
-  private(set) var callCount = 0
-  func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
-    callCount += 1
-    throw PortraitDrawingError.noLines
-  }
 }

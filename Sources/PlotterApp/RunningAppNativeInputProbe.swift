@@ -28,9 +28,10 @@ struct WorkbenchNativeScrollEvidence: Codable, Equatable, Sendable {
   let documentBounds: CGRect
 
   var provesInnerWheelMovement: Bool {
-    !clipIdentity.isEmpty && !outerClipIdentities.isEmpty && !outerClipIdentities.contains(clipIdentity)
+    !clipIdentity.isEmpty && !outerClipIdentities.contains(clipIdentity)
+      && !beforeBounds.isEmpty && !afterBounds.isEmpty
       && beforeBounds.size == afterBounds.size && beforeBounds.origin != afterBounds.origin
-      && documentBounds.height > beforeBounds.height + 30
+      && documentBounds.height > beforeBounds.height + 1
   }
 
   static func wheelDelta(clip: CGRect, document: CGRect, documentIsFlipped: Bool) -> Int32? {
@@ -63,6 +64,24 @@ struct WorkbenchNativeInputCounts: Codable, Equatable, Sendable {
   var dispatched = 0
   var handled = 0
   var acknowledged = 0
+}
+
+/// No wheel receipt is claimed when the complete document already fits its
+/// clip. This preserves native hit/ownership evidence without inventing motion.
+struct WorkbenchNativeFittingBodyEvidence: Codable, Equatable, Sendable {
+  let context: String
+  let control: WorkbenchNativeControlVisibility
+  let clipIdentity: String
+  let clipBounds: CGRect
+  let documentFrameInClip: CGRect
+
+  var provesCompleteDrawingBody: Bool {
+    control.identifier == "drawing.draw" && control.panelIdentifier == "workbench.panel.drawing"
+      && !control.frame.isEmpty && control.containingClipCount > 0
+      && control.scrolledClipCount == 0 && control.fitsEveryContainingClip
+      && !clipIdentity.isEmpty && !clipBounds.isEmpty && !documentFrameInClip.isEmpty
+      && clipBounds.insetBy(dx: -1, dy: -1).contains(documentFrameInClip)
+  }
 }
 
 struct WorkbenchNativeControlVisibility: Codable, Equatable, Sendable {
@@ -176,7 +195,7 @@ final class RunningAppNativeInputProbe {
       let index = WorkbenchPanel.allCases.firstIndex(of: panel) else {
       throw WorkbenchNativeInputError.unavailable("Native View-menu input is unavailable.")
     }
-    let keyCodes: [UInt16] = [18, 19, 20, 21, 23] // 1 ... 5
+    let keyCodes: [UInt16] = [18, 19, 20, 21, 23, 22] // 1 ... 6
     let identifier = "workbench.toggle.\(panel.rawValue)"
     handledEvent = nil
     dispatchEntry = nil
@@ -251,7 +270,7 @@ final class RunningAppNativeInputProbe {
     @MainActor func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
     let scrolls = views(root).compactMap { $0 as? NSScrollView }.filter {
       guard let document = $0.documentView else { return false }
-      return document.bounds.height > $0.contentView.bounds.height + 30
+      return document.bounds.height > $0.contentView.bounds.height + 1
         && window.frame.contains($0.accessibilityFrame())
     }
     let selected: NSScrollView?
@@ -263,8 +282,7 @@ final class RunningAppNativeInputProbe {
       Self.revealControl(target, in: window)
       selected = Self.containingScrollViews(target, in: window).first { scroll in
         guard let document = scroll.documentView else { return false }
-        return document.bounds.height > scroll.contentView.bounds.height + 30
-          && !Self.outerScrollClipIdentities(of: scroll).isEmpty
+        return document.bounds.height > scroll.contentView.bounds.height + 1
       }
     } else { selected = scrolls.max(by: { $0.frame.height < $1.frame.height }) }
     guard let scroll = selected, let document = scroll.documentView else {
@@ -401,7 +419,7 @@ final class RunningAppNativeInputProbe {
   /// A disabled Draw or Pen control must still be fully visible and hit-testable.
   /// This inspection never presses it or counts setup scrolling as native input.
   static func inspectControl(_ identifier: String, in window: NSWindow,
-    panelIdentifier: String? = nil) throws -> WorkbenchNativeControlVisibility {
+    panelIdentifier: String? = nil, reveal: Bool = true) throws -> WorkbenchNativeControlVisibility {
     guard let target = element(identifier: identifier) else {
       throw WorkbenchNativeInputError.unavailable("Missing native body/header control: \(identifier).")
     }
@@ -410,7 +428,7 @@ final class RunningAppNativeInputProbe {
     }
     let scrolls = containingScrollViews(target, in: window)
     let before = scrolls.map { $0.contentView.bounds.origin }
-    revealControl(target, in: window)
+    if reveal { revealControl(target, in: window) }
     let frame = target.accessibilityFrame()
     guard frame.width > 0, frame.height > 0, window.frame.contains(frame),
       NSScreen.screens.contains(where: { $0.visibleFrame.contains(frame) }),
@@ -427,6 +445,26 @@ final class RunningAppNativeInputProbe {
       containingClipCount: scrolls.count,
       scrolledClipCount: zip(scrolls, before).filter { $0.0.contentView.bounds.origin != $0.1 }.count,
       panelIdentifier: panelIdentifier, fitsEveryContainingClip: true)
+  }
+
+  static func inspectFittingDrawingBody(context: String, in window: NSWindow)
+    throws -> WorkbenchNativeFittingBodyEvidence? {
+    guard let target = element(identifier: "drawing.draw"),
+      let scroll = containingScrollViews(target, in: window).first,
+      let document = scroll.documentView else {
+      throw WorkbenchNativeInputError.unavailable("Missing Drawing document or its native clip.")
+    }
+    let clip = scroll.contentView
+    if document.bounds.height > clip.bounds.height + 1 { return nil }
+    let evidence = WorkbenchNativeFittingBodyEvidence(context: context,
+      control: try inspectControl("drawing.draw", in: window,
+        panelIdentifier: "workbench.panel.drawing", reveal: false),
+      clipIdentity: clipIdentity(clip), clipBounds: clip.bounds,
+      documentFrameInClip: document.convert(document.bounds, to: clip))
+    guard evidence.provesCompleteDrawingBody else {
+      throw WorkbenchNativeInputError.unavailable("The nonoverflowing Drawing document is not completely visible in its native clip.")
+    }
+    return evidence
   }
 
   private static func containingScrollViews(_ target: any NSAccessibilityProtocol, in window: NSWindow) -> [NSScrollView] {

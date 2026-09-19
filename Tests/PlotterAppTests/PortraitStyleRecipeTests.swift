@@ -7,31 +7,6 @@ import Testing
 
 @Suite("Portrait recipes and face-anchored geometry")
 struct PortraitStyleRecipeTests {
-  @Test("a seed reproduces the same exportable recipe and different seeds explore the controls")
-  func seededRecipes() throws {
-    let first = PortraitStyleRecipe.seededVariants(seed: 42, count: 12, penWidthMM: 1.4)
-    #expect(first == PortraitStyleRecipe.seededVariants(seed: 42, count: 12, penWidthMM: 1.4))
-    #expect(first != PortraitStyleRecipe.seededVariants(seed: 43, count: 12, penWidthMM: 1.4))
-    #expect(Set(first.map(\.vectorOptions)).count == 12)
-    #expect(Set(first.map(\.style)).count > 1)
-    #expect(first.allSatisfy { $0.vectorOptions.hatchSpacing >= 8 })
-    #expect(first.contains { $0.vectorOptions.headScale > 1 })
-    let data = try JSONEncoder().encode(first)
-    #expect(try JSONDecoder().decode([PortraitStyleRecipe].self, from: data) == first)
-    #expect(PortraitStyleRecipe.seededVariants(seed: .max, count: .max).count == 24)
-  }
-
-  @Test("named recipes cover line, tone, hatch direction and face enlargement")
-  func namedRecipes() {
-    let catalog = PortraitStyleRecipe.catalog(penWidthMM: 2)
-    #expect(catalog.count == 6)
-    #expect(Set(catalog.map(\.id)).count == catalog.count)
-    #expect(catalog.contains { $0.style == .sketch })
-    #expect(catalog.contains { $0.style == .contours })
-    #expect(catalog.contains { $0.style == .crosshatch && $0.vectorOptions.hatchAngleDegrees != 0 })
-    #expect(catalog.contains { $0.vectorOptions.headScale > 1 && $0.analysisOptions.faceCropMargin >= 0.55 })
-  }
-
   @Test("additive recipe options preserve old initializer and decoding defaults")
   func legacyOptions() throws {
     let vectors = try JSONDecoder().decode(PortraitVectorOptions.self, from: Data("{}".utf8))

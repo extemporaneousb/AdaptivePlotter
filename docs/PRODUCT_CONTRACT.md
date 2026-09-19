@@ -1562,115 +1562,75 @@ plan. Size and rotation use continuous native sliders with rounded values and
 submit at release (or on keyboard/accessibility edits), without hundreds of
 native tick marks or planning every pointer movement.
 
-The built-in catalog and portrait authoring are deterministic `DrawingProgram`
-producers, not precomputed machine commands. Portrait authoring accepts an imported
-photo or a 3–5 second burst (four seconds by default) from the selected optional
-face camera. A borderless white surface covers the host display during the burst, including a
-half-second exposure settling period. Cancel/Escape, capture completion, app
-deactivation, and host removal dismiss it; system display brightness is unchanged. Portrait acquisition requests up to 30 fps independently of plotter
-preview cadence and samples distinct frames at up to 8 fps. Actual delivery and
-encoding speed determine the captured count. Individual frames preserve different
-angles; turning faces are not averaged or treated as a reconstructed head.
+The built-in catalog and Portrait Studio produce immutable `DrawingProgram`
+values through the existing draft, placement, planner and drawing runtime.
+Portrait Studio is a full workspace, independent of the plotter control docks.
+Opening and closing it preserves those dock placements. The shared Drawing panel
+owns placement, pen/material setup, paper coverage, Draw, Stop and result review.
+Studio authoring remains available with an imported photo while disconnected.
 
-A thumbnail strip replaces the labeled left/front/right controls. It retains at
-most 24 normalized photos and 32 MiB of photo data in session memory; oldest entries
-are evicted, and each thumbnail has an immediate × removal with no confirmation.
-Selection, deletion, and superseding capture invalidate obsolete render work.
-The selected photo produces Tonal contours, Hatch, Crosshatch, Sketch, or Sketch +
-hatch. Sketch extracts difference-of-Gaussians responses, thins ink to centerlines,
-and joins them into vector paths. Fine, Balanced, and Broad marker presets and
-controls expose contour minimum length, simplification, tonal levels, hatch spacing,
-smoothing, tonal strength, sketch threshold, hatch angle, and semantic head controls. Spatial line settings use analyzed-image
-pixels; their paper footprint depends on final placement scale.
+Portrait Studio presents one source photo beside its drawing, with five selectable
+rendered algorithm tiles: Tonal contours, Hatch, Crosshatch, Sketch, and Sketch +
+hatch. Each tile uses the same identified source and framing. Selecting it installs
+that exact completed candidate; it does not roll another variation or invoke a
+trained model. The existing renderer and one cancel-and-join work drain own every
+render, including algorithm comparisons. Changed source, framing, pen or tuning
+invalidates stale tiles and results. The selected algorithm renders first and the
+remaining algorithms reuse its analyzed raster. Framing and current algorithm
+parameters remain beside the visible drawing without vertical scrolling at the
+supported desktop workspace sizes. Crop to face, head margin and background removal
+belong to Framing; line/tone controls and detail presets belong to Style.
 
-Face localization supplies an adjustable padded crop so the head can occupy more
-of the drawing. Vision person segmentation can remove background. Missing face or
-person detections retain the image with a visible explanation; these detectors do
-not gate drawing creation. Semantic Big Head uses retained facial landmarks and measured
-pose to expand forehead height/width, eyes and upper lateral regions in face-local
-coordinates. The nose transition tapers to an unchanged mouth and chin; compact
-support fixes the image boundary and bounds the Jacobian and displacement. Forehead
-anchors are explicitly estimated; ear landmarks are unavailable. Missing reliable
-parts/pose, profile above 60 degrees yaw, pitch above 30 degrees, or insufficient
-support preserves the base drawing with a visible reason. This deterministic
-caricature does not establish learned likeness or 3D reconstruction. Existing
-archived bounding-box head drawings stay exact; local branching from that older
-transform asks for explicit new semantic generation instead of silently changing it.
+The capture icon stays in the toolbar. With a configured device, one click asks
+the existing observation owner to activate that portrait camera, awaits readiness,
+and captures a 3–5 second burst (four seconds by default). Camera and duration
+settings live in a popover. Cancel/Escape and acquisition settlement dismiss the
+white screen illumination; no display brightness setting changes. Capture samples
+distinct advancing frames at up to 8 Hz. Recent frames are grouped by capture
+session and support individual or whole-burst deletion. They remain session memory
+bounded to 24 photos / 32 MiB; saved candidates own independent source bytes.
+Deleting recent photos cannot revive them through late render results.
 
-The style recipe picker retains named choices, including deliberate hatch styles.
-Broad Random Style uses declared weights: contour, tonal contour and clean line
-receive 30 percent each; hatch, crosshatch and sketch-plus-hatch share 10 percent.
-New Big-head Candidate varies head amplitude and broad ink style for the same frame.
-More Like This preserves the displayed candidate's exact source, analyzed crop/mask,
-family and head configuration while varying relevant nearby line/tone parameters.
-It can start from an archived drawing after recent-photo eviction. Parent, Back,
-Forward and child selection recover exact available completed candidates without
-rerendering. Transient history is bounded by 24 candidates / 96 MiB of encoded
-payloads; expired or oversized history is explicit, and qualified archive records
-remain independent of that limit. No generation or navigation action alone qualifies
-retention. A qualified child records parent metadata without retaining full
-unqualified ancestors or browsing siblings.
+There are no Random, More Like This, history navigation, Big Head, preference-rating
+or named-training controls in ordinary Studio. Historical candidate formats and
+required source, raster, label and checkpoint interpretation remain compatible.
+Existing fitted checkpoints are not loaded or consulted by normal Studio generation.
+Save Drawing retains the exact candidate without switching the editor into another
+selection mode. Browsing saved drawings belongs to Drawing Reviewer and does not
+change the Studio edit. Source photos and vectors shown together come from the same
+candidate, including retained candidates.
 
-Previous/next frame preserves the recipe (Option-left/right); previous/next style
-preserves the frame (Option-up/down). Up to 24 recipes remain in session history.
-Exact candidate history is separate from recipe and photo navigation. Completed
-candidate admission binds selection/configuration and frozen proposal context;
-superseded work cannot replace the current drawing or label target.
+Pen & material displays the current applicable marker width and whether its origin
+is estimated or independently measured. It is an input to drawing appearance, not
+a calibration slider. Material selection and measurement belong to shared Drawing
+setup. Measure Ink inspects frozen existing images before estimating deposited
+width. Adapt Detail explicitly produces a new portrait candidate with final-scale
+spacing suited to the selected material; it never rewrites an old candidate or
+changes physical calibration. Check Detail at This Size diagnoses short strokes
+and crowded parallel segments without measuring ink, changing the program or
+establishing physical drawing quality. Explanatory and provenance text is behind
+accessible question-mark popovers; the default interface retains control labels,
+concise progress and actionable error states.
 
-The main portrait viewer uses the current drawing region aspect ratio and one
-uniform screen scale. Only the selected candidate’s matching admitted artwork plan
-supplies rotation, scale, offset and intrinsic artwork dimensions. The height and
-ink-width override sliders are removed. Applicable active material supplies marker
-width; otherwise the program nominal width is explicitly an estimate. Missing or
-mismatched placement shows a reference preview with no actual-size claim. Reference
-ratings and training remain available, retaining their typed display context.
-Historical labels and thumbnails retain their original renderer and values. Fit to
-Drawing Area and existing placement controls determine the real drawing; changed
-size or material still requires explicit material readaptation. Shortlisting, any
-1–5 rating, and complete successful projection acceptance qualify the exact candidate
-for automatic local retention. Generation and navigation alone remain transient.
-Qualified drawings have no silent count/byte eviction and remain selectable and
-rateable after recent-photo eviction and restart. The archive reports loading,
-pending, saved or failed persistence, retained size, unresolved changes and retry.
-Each candidate owns its source bytes, exact raster, applied mask and preprocessing
-geometry, recipe/seed, immutable vectors and provenance. Labels are immutable
-revisions pinned to the selected style scope and actual displayed size/ink estimate.
-Retention events are not scores; screen labels are not physical evidence. Candidate
-or source deletion and label withdrawal explicitly affect future eligible data.
-Export is an additional copy. Physical attempts also retain their exact projected
-candidate and own raw images through the drawing evidence store.
+The same `PortraitPlaneProgramPreview` renders Studio, algorithm tiles and retained
+vector previews. Planned presentation uses only an exact candidate/program/region
+match to the admitted artwork plan; otherwise the view is explicitly a reference
+preview. Reference presentation does not invent physical size. The legacy thumbnail
+renderer is no longer a production UI path. Show on Plotter Video explicitly installs
+a selected immutable program through the existing draft intent sink and initially
+fits it. Re-showing the same admitted program preserves its current placement.
+A successful handoff reveals shared Drawing controls. Later Studio edits do not
+mutate the placed program until another explicit handoff.
 
-Named style training fits scoped 1–5 ratings with a regularized ordinal-logistic
-model. The scope records its objective, allowed families and active/frozen recipe
-parameters. Semantic Big Head exploration varies head amplitudes while preserving
-the selected source, crop and line style. Completed fits are saved pending explicit
-activation; activation affects future generation through a seeded pool of eight
-real rendered proposals, with 20 percent exploration. Comparison uses the same
-source and proposal pool for the prior and selected checkpoint. Updates reload the
-completed parent and refit the revised dataset deterministically with a reset
-optimizer, retaining exact parent lineage. Cancellation preserves the active model;
-rollback selects its completed parent or the renderer prior. Historical manifests
-retain exact labels/features and expose missing candidate assets after deletion.
-Source, capture-session and ancestry groups remain intact across training and
-holdout. Scarce, degenerate or corrupt data has explicit unavailable evidence and
-never constitutes a successful fit. Screen and photographed physical objectives
-remain separate. Synthetic fitting and held-out label metrics do not establish
-human likeness or attended physical drawing quality.
-
-The portrait editor retains recent captures and the authored draft across panel
-navigation. Only qualified candidates persist raw source/analysis assets, outside
-accepted Learning and machine readiness ownership.
-Show on Plotter Video installs the selected immutable generated program through
-the same draft intent owner as catalog selection and does not start motion.
-Placement, execution, Stop, and observation use the existing drawing path with
-unchanged Draw admission. Program provenance identifies normalized image/raster
-digests, crop, source pose metadata, style, and all bounded vector settings;
-completed runs retain it alongside their reconstructable execution plan in the
-existing drawing evidence archive. Image analysis stays local. Expensive acquisition
-and rendering share one serial drain that cancels and settles superseded work.
-Camera-role changes cancel a burst and remove its illumination; hiding a pane retains
-its state. Shutdown cancels and joins remaining work. None of these authoring
-features changes calibration, Learning completion, paper authority, or run locks.
+Drawing Reviewer lists saved candidates and all ordinary/portrait run results from
+the existing evidence archive. It provides Fit/100% images, Close, explicit program
+handoff and deletion without ratings. Delete Result stores a durable tombstone in
+that archive, removes the result from review and future residual fitting, and
+rejects normal image/rating access to it. Required immutable execution provenance,
+possible-ink/no-redraw facts and shared raw media remain retained. It does not mark
+the sheet clear or erase material evidence. Deleted review identities cannot be
+resurrected by a delayed archive load. Candidate/source deletion continues to use
+the qualified portrait archive's existing tombstones.
 
 Fit retains the authored rotation and selects a valid uniform scale and centre.
 The same fitting calculation supplies scale limits; explicit rotation and manual

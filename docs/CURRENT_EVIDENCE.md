@@ -8,6 +8,67 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Deterministic Portrait Studio and generic review, 2026-09-18
+
+Task `task-9e64f2ffa4544ecea34e9867f8b5944c` began from `11bbb5b` with target
+`main`. The accepted control audit is recorded in the
+[execution plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#control-audit-and-final-disposition).
+Studio now has persistent burst capture, paired photo/drawing frames, five rendered
+algorithm choices and their relevant adjustments, with framing in the same bounded
+workspace. Pen & Material identifies marker width and its provenance. The generic
+Drawing panel owns placement/material/paper/run controls; Drawing Reviewer owns
+local browsing and deletion of saved drawings and ordinary physical results.
+Explanations use question-mark popovers. Random/exploration/history, ratings,
+training generation and normal Big Head authoring owners are removed; historical
+candidate, preference and checkpoint decoding/integrity checks remain.
+
+The final targeted strict SwiftPM run passed 27 tests in 23.471 seconds. It covers
+exact handoff with border on/off, review deletion/reload and unchanged no-redraw
+truth, physical candidate association, hosted layouts and native-report validation.
+Ten style/size combinations fit at 1000 × 550 and 1280 × 650 without vertical
+scrolling. Production Studio panel bindings, Drawing at 300/390/600 points and
+empty/saved/result reviewer states also passed hosted checks. Opaque, settled
+bitmaps were inspected by the coordinator and UI worker; no blocking clipping was
+found. These use synthetic images and fixture ports, not the operator's camera.
+
+Two existing workers each reviewed one portion they did not author from frozen
+patch `6a601b3547129ad61bab1a5114c03a0b0466ce2cb43162fbd8ababe4add31181`.
+The agent limit prevented a fresh fourth critic. Three findings were repaired:
+border composition could cause repeated handoff to reset placement; some Studio
+exit routes retained the portrait camera role; reused image state could display
+the prior selected record. The coordinator owns the repairs and validation;
+there was no second critic pass. The exact shell native-workbench validator also
+passed four fixture tests covering three valid modes and 18 negative mutations.
+
+Earlier failed receipts remain retained: an initial build raced a source edit;
+the first focused compilation found a test snapshot-access typo; a broad focused
+run completed 307 tests with 14 issues in redundant fixture actions, exact floating
+point scale assumptions, obsolete mandatory-scroll expectations, and an outdated
+report schema assertion. The fixtures now use admitted actions and discrete scale
+values; layout checks require actual wheel movement only for overflowing content
+and otherwise require the complete Draw control/body to fit. These are not relaxed
+native event identity or clipping checks. The final targeted run above passed.
+
+Review deletion is a durable archive tombstone, excluded from review and future
+drawing assessment. Raw execution records, attempts and shared media remain
+immutable so deletion cannot clear possible-ink/no-redraw protection or silently
+erase calibration evidence. Archive schema 4 continues to read schemas 1–4.
+
+The complete strict sequential quick-test selection passed 1,346 tests in 414.931
+seconds, with six opt-in native/reference/performance tests skipped. All ten retained
+journey tests passed in 3.186 seconds. Stable local signing, strict bundle validation,
+launcher identity/logic checks and negative-bundle validation passed. Documentation
+and diff checks passed; final ledger edits are checked again before landing.
+
+The immutable debug bundle is staged as
+`.build/StudioTestApps/AdaptivePlotter-Portrait-9e64f2.app`; logs, bitmaps, frozen
+review, source/test input hashes and release identity are retained under
+`.build/portrait-refresh-9e64f2-evidence/`. No app launch/restart, live camera capture,
+native input gate or plotter/pen/paper/ink operation was performed. The signed native
+workbench gate was deliberately not run because production View transitions may
+activate a real camera even after simulated startup. Hosted geometry and report
+fixture tests do not substitute for native event or attended physical proof.
+
 ## Drawing overlay restart and visibility repair, 2026-09-16
 
 Task `task-4b6387a818c942d8958ab043292ab569` began from `835e65e` with target

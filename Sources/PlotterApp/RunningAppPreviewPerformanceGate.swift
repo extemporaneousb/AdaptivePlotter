@@ -109,7 +109,9 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
   var workloadFailures: [String] {
     var reasons = failures
     if !passivePanelTextChanged.isEmpty { reasons.append("Passive video changed panel text: \(passivePanelTextChanged.joined(separator: ", ")).") }
-    if passivePanelsObserved.count != WorkbenchPanel.allCases.count { reasons.append("The gate did not observe all five native panels.") }
+    if Set(passivePanelsObserved) != Set(WorkbenchPanel.allCases.map(\.rawValue)) {
+      reasons.append("The gate did not observe every dock control and the Portrait Studio workspace.")
+    }
     if !stopWasPresent { reasons.append("The native workbench Stop control was not present.") }
     if nativeInputSamples.isEmpty { reasons.append("No native control input and visible acknowledgment was measured.") }
     if submittedNativeInputCount != deliveredNativeInputCount
@@ -173,8 +175,9 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
   }
 
   static let requiredPortraitControls = ["workbench.camera.portrait", "workbench.camera.plotter",
-    "portrait.style", "portrait.showOnPlotter", "drawing.scale", "drawing.rotation", "drawing.fit",
+    "portrait.showOnPlotter", "drawing.scale", "drawing.rotation", "drawing.fit",
     "workbench.toggle.motion", "workbench.scroll", "workbench.resize", "learning.analyzeDrawings"]
+      + PortraitStyle.allCases.map { "portrait.algorithm.\($0.id)" }
 }
 
 struct PlotterAnalysisPerformanceWindow: Codable, Equatable, Sendable {
@@ -293,6 +296,25 @@ enum RunningAppPreviewPerformanceGate {
       do { try await preparePortraitWorkload(application, configuration: configuration, workload: &workload) }
       catch { workload.failures.append(error.localizedDescription) }
     }
+    // The authoring workspace and dock controls occupy different screens.
+    // Observe each real surface while it is visible, rather than claiming that
+    // hidden or unmounted controls were included in one accessibility snapshot.
+    var observedPanels = Set<String>()
+    var passiveChanges = Set<String>()
+    for panel in WorkbenchPanel.allCases {
+      revealPanel(panel)
+      await application.portraitStudio.awaitRendering()
+      try? await clock.sleep(for: .milliseconds(150))
+      var observation = WorkbenchQuietPanelObservation()
+      for _ in 0..<6 {
+        let text = RunningAppNativeInputProbe.panelText()
+        observedPanels.formUnion(text.keys)
+        observation.observe(text)
+        try? await clock.sleep(for: .milliseconds(50))
+      }
+      passiveChanges.formUnion(observation.changed)
+    }
+    revealPanel(.guidedLearning)
     try? await clock.sleep(for: warmupDuration)
     let analysisStart = await analysisCount(application)
 
@@ -333,7 +355,8 @@ enum RunningAppPreviewPerformanceGate {
         } else if configuration.scenario == "learned-portrait", !workload.editorControlsAttempted {
           workload.editorControlsAttempted = true
           revealPanel(.motion)
-          try await measureEditorControls(application, probe: probe, samples: &nativeSamples, workload: &workload)
+          try await measureEditorControls(application, probe: probe, revealPanel: revealPanel,
+            samples: &nativeSamples, workload: &workload)
         } else {
           nativeSamples.append(try await probe.hideMotion(reveal: revealPanel))
         }
@@ -408,10 +431,10 @@ enum RunningAppPreviewPerformanceGate {
     report.measuredAnalysisFrameDelta = subtract(analysisEnd, analysisStart)
     report.portraitMaximumConcurrentWorkers = application.portraitStudio.renderDiagnostics.maximumConcurrentWorkerCount
     report.portraitSettledWorkers = application.portraitStudio.renderDiagnostics.settledWorkerCount
-    report.passivePanelsObserved = panelsBefore.keys.sorted()
-    report.passivePanelTextChanged = Set(panelsBefore.keys).union(panelsAfter.keys).filter {
+    report.passivePanelsObserved = observedPanels.union(panelsBefore.keys).sorted()
+    report.passivePanelTextChanged = passiveChanges.union(Set(panelsBefore.keys).union(panelsAfter.keys).filter {
       panelsBefore[$0] != panelsAfter[$0]
-    }.sorted()
+    }).sorted()
     report.stopWasPresent = RunningAppNativeInputProbe.stopIsPresent
     report.nativeInputSamples = nativeSamples
     report.submittedNativeInputCount = probe.submittedInputCount
@@ -468,6 +491,7 @@ enum RunningAppPreviewPerformanceGate {
     try await selectCamera(.portrait, application: application)
     let model = application.portraitStudio
     model.style = .crosshatch
+    model.renderIfNeeded(strokeStyle: strokeStyle)
     if let photo = configuration.portraitPhotoURL {
       workload.inputSource = "imported photo: \(photo.lastPathComponent)"
       await model.importPhoto(photo, strokeStyle: strokeStyle)
@@ -553,10 +577,17 @@ enum RunningAppPreviewPerformanceGate {
     let analysisBefore = await analysisCount(application)
     if role == .portrait {
       let model = application.portraitStudio
-      let nextStyle = ((PortraitStyle.allCases.firstIndex(of: model.style) ?? 0) + 1) % PortraitStyle.allCases.count
-      let beforeStyle = RunningAppNativeInputProbe.controlValue("portrait.style")
-      samples.append(try await probe.click("portrait.style", menuKeyCodes: [115] + Array(repeating: 125, count: nextStyle) + [36]) {
-        RunningAppNativeInputProbe.controlValue("portrait.style") != beforeStyle
+      revealPanel(.portraitStudio)
+      await model.awaitRendering()
+      let index = ((PortraitStyle.allCases.firstIndex(of: model.style) ?? 0) + 1) % PortraitStyle.allCases.count
+      let nextStyle = PortraitStyle.allCases[index]
+      let identifier = "portrait.algorithm.\(nextStyle.id)"
+      guard let tile = model.algorithmCandidates.first(where: { $0.recipe.style == nextStyle }) else {
+        throw WorkbenchNativeInputError.unavailable("The requested algorithm tile has not rendered.")
+      }
+      samples.append(try await probe.click(identifier) {
+        model.selectedCandidate?.id == tile.id
+          && RunningAppNativeInputProbe.controlValue(identifier) == "Selected"
       })
       samples.append(try await probe.hideMotion(reveal: revealPanel))
       await model.awaitRendering()
@@ -579,24 +610,28 @@ enum RunningAppPreviewPerformanceGate {
   }
 
   private static func measureEditorControls(_ application: PlotterApplicationRuntime,
-    probe: RunningAppNativeInputProbe, samples: inout [WorkbenchNativeInputSample],
-    workload: inout PortraitPerformanceWorkload) async throws {
+    probe: RunningAppNativeInputProbe, revealPanel: @escaping @MainActor (WorkbenchPanel) -> Void,
+    samples: inout [WorkbenchNativeInputSample], workload: inout PortraitPerformanceWorkload) async throws {
+    revealPanel(.portraitStudio)
+    await application.portraitStudio.awaitRendering()
     guard application.portraitStudio.program != nil else {
       throw WorkbenchNativeInputError.unavailable("The measured portrait style edits left no renderable portrait: \(application.portraitStudio.summary)")
     }
-    let priorProgram = application.drawingDraftSnapshot.program?.contentHash
-    var targetPublicationDrawCount: Int?
+    let selectedHash = application.portraitStudio.selectedCandidate?.program.contentHash
     samples.append(try await probe.click("portrait.showOnPlotter") {
-      if RunningAppNativeInputProbe.controlValue("portrait.showOnPlotter")?.contains("Preparing") == true { return true }
-      guard application.drawingDraftSnapshot.program?.contentHash != priorProgram else { return false }
-      if let count = targetPublicationDrawCount { return application.previewIsolationDiagnostics.overlayCanvasDrawCount > count }
-      targetPublicationDrawCount = application.previewIsolationDiagnostics.overlayCanvasDrawCount
-      return false
+      // Re-showing the same drawing intentionally preserves placement. Its
+      // acknowledgment is the actual Studio-to-plotter transition and exact
+      // projected program, not a requirement to manufacture a different hash.
+      application.drawingDraftSnapshot.program?.contentHash == selectedHash
+        && RunningAppNativeInputProbe.controlFrame("workbench.panel.portraitStudio") == nil
+        && RunningAppNativeInputProbe.controlFrame("workbench.panel.drawing") != nil
+        && RunningAppNativeInputProbe.controlFrame("workbench.video.canvas") != nil
     })
     try await awaitWorkload("Show on Plotter Video did not expose the current portrait plan.") {
       application.drawingDraftSnapshot.program?.contentHash == application.portraitStudio.program?.contentHash
         && application.drawingTargetIsVisible && application.drawingDraftSnapshot.plan != nil
     }
+    revealPanel(.drawing)
     for (id, fraction) in [("drawing.scale", 0.4), ("drawing.rotation", 0.65), ("drawing.fit", 0.5)] {
       let before = RunningAppNativeInputProbe.controlValue("drawing.placement")
       samples.append(try await probe.click(id, fractionX: fraction) {
@@ -612,6 +647,7 @@ enum RunningAppPreviewPerformanceGate {
     samples.append(try await probe.scrollWorkbench())
     samples.append(try await probe.resizeWorkbench())
     workload.analysisWindows.append(await observeQuietAnalysis(application, duration: 1.5, context: "portrait and placement edits"))
+    revealPanel(.activeLearning)
     let records = application.drawingDraftSnapshot.residualRecords
     guard records.contains(where: { $0.role == .ordinaryDrawing }) else {
       throw WorkbenchNativeInputError.unavailable("The ordinary drawing archive is empty; retrospective selection requires an observed drawing under the accepted calibration.")

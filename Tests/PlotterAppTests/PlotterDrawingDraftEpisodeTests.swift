@@ -1187,7 +1187,7 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(editRefusal.reason == .terminalRunRequiresHandoff)
     #expect(
       editRefusal.remedy
-        == "Use New Drawing to clear the retained terminal before editing a new plan."
+        == "Use Prepare Next Drawing to clear the retained terminal before editing a new plan."
     )
 
     let directNewPlan = await runtime.submit(

@@ -235,6 +235,30 @@ struct DrawingRunEvidenceTests {
     }
   }
 
+  @Test("Legacy archives remain reviewable and appended records preserve review deletions")
+  func reviewDeletionMigration() throws {
+    let record = try drawingEvidenceFixture(role: .ordinaryDrawing)
+    let archive = try DrawingRunEvidenceArchive(revision: 1, records: [record])
+    var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(archive)) as? [String: Any])
+    object["schemaVersion"] = 3
+    object.removeValue(forKey: "deletedReviewRecordIDs")
+    let legacy = try JSONDecoder().decode(DrawingRunEvidenceArchive.self,
+      from: JSONSerialization.data(withJSONObject: object))
+    #expect(legacy.reviewRecords == [record])
+    #expect(legacy.deletedReviewRecordIDs.isEmpty)
+    let deleted = try legacy.deletingReview(recordID: record.recordID)
+    let next = try drawingEvidenceFixture(role: .ordinaryDrawing)
+    let appended = try deleted.appending(next)
+    #expect(appended.records == [record, next])
+    #expect(appended.reviewRecords == [next])
+    #expect(try JSONDecoder().decode(DrawingRunEvidenceArchive.self,
+      from: JSONEncoder().encode(appended)) == appended)
+    #expect(throws: DrawingRunEvidenceArchiveError.invalidReviewDeletion(record.recordID)) {
+      try DrawingRunEvidenceArchive(revision: 1, records: [record],
+        deletedReviewRecordIDs: [record.recordID, record.recordID])
+    }
+  }
+
   @Test("corrupt existing archive blocks append instead of replacing facts")
   func corruptArchiveBlocksAppend() async throws {
     let directory = FileManager.default.temporaryDirectory

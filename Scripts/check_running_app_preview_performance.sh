@@ -134,45 +134,132 @@ if [ "$scenario" = native-workbench ]; then
     fi
     cp "$runtime_report" "$evidence"
     "$python" - "$evidence" <<'NATIVE_PY'
-import json, pathlib, sys
+import json, math, pathlib, sys
 report = json.loads(pathlib.Path(sys.argv[1]).read_text())
-panels = ['guidedLearning', 'videoSettings', 'motion', 'activeLearning', 'portraitStudio']
+panels = ['guidedLearning', 'videoSettings', 'motion', 'activeLearning', 'drawing']
+all_panels = panels + ['portraitStudio']
 slots = ['right', 'left', 'rightBottom', 'leftBottom']
-expected = {(panel, slot, width) for panel in panels for slot in slots for width in (1000, 1600)}
-actual = {(item.get('panel'), item.get('slot'), item.get('width')) for item in report.get('placements', [])}
+widths = (1000, 1600)
+expected = {(panel, slot, width) for panel in panels for slot in slots for width in widths}
+placements = report.get('placements', [])
+actual = {(item.get('panel'), item.get('slot'), item.get('width')) for item in placements}
 images = report.get('bitmaps', [])
-required = ['learning.mode', 'workbench.scroll.inner', 'workbench.resize']
-required += ['workbench.hide.' + panel for panel in panels]
-required += ['workbench.toggle.' + panel for panel in panels]
+inputs = report.get('inputs', [])
 counts = report.get('nativeCounts', {})
-def required_count(key):
-    return 2 if key == 'learning.mode' else 8
-valid_counts = all(counts.get(key, {}).get('posted', 0) >= required_count(key) and
-                   len({counts[key].get(field, -1) for field in ('posted', 'dispatched', 'handled', 'acknowledged')}) == 1
-                   for key in required)
 body_ids = {'guidedLearning': 'learning.exerciseActions', 'videoSettings': 'workbench.video.cameraRole',
-            'motion': 'motion.penDown', 'activeLearning': 'learning.coverage.prepare', 'portraitStudio': 'drawing.draw'}
-valid_bodies = all(item.get('body', {}).get('identifier') == body_ids.get(item.get('panel'))
-                   and item['body'].get('panelIdentifier') == 'workbench.panel.' + item.get('panel', '')
-                   and item['body'].get('fitsEveryContainingClip') is True
-                   and item.get('header', {}).get('fitsEveryContainingClip') is True
-                   for item in report.get('placements', []))
-scroll_contexts = {sample['scrollEvidence'].get('context') for sample in report.get('inputs', [])
-                  if sample.get('targetIdentifier') == 'workbench.scroll.inner'
-                  and sample.get('scrollEvidence', {}).get('controlIdentifier') == 'drawing.draw'
-                  and sample['scrollEvidence'].get('clipIdentity')
-                  and sample['scrollEvidence'].get('beforeBounds') != sample['scrollEvidence'].get('afterBounds')}
-passed = (report.get('schema') == 'adaptiveplotter.native-workbench.v2'
-          and not report.get('failures') and actual == expected and valid_counts and valid_bodies
-          and scroll_contexts == {slot + '.' + str(width) for slot in slots for width in (1000, 1600)}
-          and len(images) == 8 and len(set(images)) == 8 and all(pathlib.Path(path).is_file() for path in images)
+            'motion': 'motion.penDown', 'activeLearning': 'learning.coverage.prepare', 'drawing': 'drawing.draw'}
+
+
+def rect(value):
+    # Foundation's CGRect Codable representation is [[x, y], [width, height]].
+    if not isinstance(value, list) or len(value) != 2 or any(not isinstance(pair, list) or len(pair) != 2 for pair in value):
+        return None
+    result = tuple(number for pair in value for number in pair)
+    return result if all(isinstance(number, (int, float)) and math.isfinite(number) for number in result) else None
+
+
+def nonempty(value):
+    value = rect(value)
+    return value is not None and value[2] > 0 and value[3] > 0
+
+
+def contains(outer, inner):
+    outer, inner = rect(outer), rect(inner)
+    return (outer is not None and inner is not None and outer[2] > 0 and outer[3] > 0
+            and inner[2] > 0 and inner[3] > 0
+            and outer[0] - 1 <= inner[0] and outer[1] - 1 <= inner[1]
+            and inner[0] + inner[2] <= outer[0] + outer[2] + 1
+            and inner[1] + inner[3] <= outer[1] + outer[3] + 1)
+
+
+def control(value, identifier, panel):
+    return (value.get('identifier') == identifier
+            and value.get('panelIdentifier') == 'workbench.panel.' + panel
+            and nonempty(value.get('frame')) and value.get('fitsEveryContainingClip') is True)
+
+
+valid_bodies = all(control(item.get('body', {}), body_ids.get(item.get('panel')), item.get('panel', ''))
+                   and item['body'].get('containingClipCount', 0) >= 1
+                   and control(item.get('header', {}), 'workbench.hide.' + item.get('panel', ''), item.get('panel', ''))
+                   for item in placements)
+workspaces = report.get('portraitWorkspaces', [])
+valid_workspaces = (len(workspaces) == 2 and {item.get('width') for item in workspaces} == set(widths)
+                    and all(control(item.get('header', {}), 'workbench.hide.portraitStudio', 'portraitStudio')
+                            and control(item.get('capture', {}), 'portrait.capture', 'portraitStudio')
+                            and item['capture'].get('containingClipCount') == 0 for item in workspaces))
+
+
+def wheel_moved(sample):
+    evidence = sample.get('scrollEvidence', {})
+    before, after, document = (rect(evidence.get(key)) for key in ('beforeBounds', 'afterBounds', 'documentBounds'))
+    return (evidence.get('controlIdentifier') == 'drawing.draw' and bool(evidence.get('clipIdentity'))
+            and evidence['clipIdentity'] not in evidence.get('outerClipIdentities', [])
+            and before is not None and after is not None and document is not None
+            and before[2] > 0 and before[3] > 0 and after[2:] == before[2:] and after[:2] != before[:2]
+            and document[3] > before[3] + 1)
+
+
+def complete_body(evidence):
+    body = evidence.get('control', {})
+    return (control(body, 'drawing.draw', 'drawing') and body.get('containingClipCount', 0) > 0
+            and body.get('scrolledClipCount') == 0 and bool(evidence.get('clipIdentity'))
+            and contains(evidence.get('clipBounds'), evidence.get('documentFrameInClip')))
+
+
+wheel_inputs = [sample for sample in inputs if sample.get('targetIdentifier') == 'workbench.scroll.inner']
+scroll_contexts = {sample['scrollEvidence'].get('context') for sample in wheel_inputs if wheel_moved(sample)}
+fitting = report.get('fittingDrawingBodies', [])
+fitting_contexts = {item.get('context') for item in fitting if complete_body(item)}
+expected_contexts = {slot + '.' + str(width) for slot in slots for width in widths}
+valid_reachability = (scroll_contexts.isdisjoint(fitting_contexts)
+                      and scroll_contexts | fitting_contexts == expected_contexts
+                      and len(wheel_inputs) == len(scroll_contexts) and len(fitting) == len(fitting_contexts))
+required = ['learning.mode', 'workbench.scroll.inner', 'workbench.resize']
+required += ['workbench.hide.' + panel for panel in all_panels]
+required += ['workbench.toggle.' + panel for panel in all_panels]
+
+
+def required_count(key):
+    if key == 'workbench.scroll.inner':
+        return len(expected_contexts - fitting_contexts)
+    return 2 if key == 'learning.mode' or key.endswith('.portraitStudio') else 8
+
+
+def count_values(key):
+    return [counts.get(key, {}).get(field, 0) for field in ('posted', 'dispatched', 'handled', 'acknowledged')]
+
+
+valid_counts = (all(count_values(key)[0] >= required_count(key) and len(set(count_values(key))) == 1 for key in required)
+                and len(inputs) == sum(value.get('acknowledged', 0) for value in counts.values())
+                and all(sum(sample.get('targetIdentifier') == key for sample in inputs) == value.get('acknowledged', 0)
+                        for key, value in counts.items()))
+
+
+def correlated(sample):
+    identity = sample.get('postedEventIdentity', 0)
+    posted, dispatched, handled = (sample.get(key, -1) for key in
+                                  ('postedUptimeSeconds', 'dispatchEntryUptimeSeconds', 'handlerUptimeSeconds'))
+    handler_latency = sample.get('handlerLatencyMilliseconds', -1)
+    visible_latency = sample.get('visibleAcknowledgmentLatencyMilliseconds', -1)
+    return (identity > 0 and sample.get('dispatchedEventIdentity') == identity
+            and sample.get('handledEventIdentity') == identity and sample.get('eventUptimeSeconds') is not None
+            and all(math.isfinite(value) for value in (posted, dispatched, handled, handler_latency, visible_latency))
+            and 0 <= posted <= dispatched <= handled and 0 <= handler_latency <= visible_latency)
+
+
+valid_events = (all(correlated(sample) for sample in inputs)
+                and len({sample.get('postedEventIdentity') for sample in inputs}) == len(inputs))
+passed = (report.get('schema') == 'adaptiveplotter.native-workbench.v3'
+          and not report.get('failures') and actual == expected and len(placements) == len(expected)
+          and valid_counts and valid_events and valid_bodies and valid_workspaces and valid_reachability
+          and len(images) == 10 and len(set(images)) == 10 and all(pathlib.Path(path).is_file() for path in images)
           and report.get('applicationWasActive') is True
           and report.get('stopWasVisible') is True
           and report.get('acceptedArtifactsUnchanged') is True
           and report.get('windowPreferencesUnchanged') is True
           and report.get('viewMenuWasPresent') is True
-          and set(report.get('canvasOnlyWidths', [])) == {1000, 1600}
-          and set(report.get('learningStates', [])) == {False, True})
+          and set(report.get('canvasOnlyWidths', [])) == set(widths)
+          and len(report.get('learningStates', [])) == 2 and set(report.get('learningStates', [])) == {False, True})
 print('Native workbench ' + ('passed' if passed else 'failed')
       + '; actual application input with simulated startup, no physical or native-held-Draw Stop claim.')
 for failure in report.get('failures', []):

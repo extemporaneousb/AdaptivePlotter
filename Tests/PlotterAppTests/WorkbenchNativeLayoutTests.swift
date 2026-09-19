@@ -41,7 +41,7 @@ struct WorkbenchNativeLayoutTests {
       await settle(host.view)
       #expect(workspace.identities == ["canvas"])
       #expect(abs(canvas.frame.width - CGFloat(width)) < 2)
-      for panel in WorkbenchPanel.allCases {
+      for panel in WorkbenchPanel.dockPanels {
         model.layout.setPresented(panel, true)
         await settle(host.view)
         #expect(workspace.hosts["canvas"] === canvas)
@@ -64,7 +64,7 @@ struct WorkbenchNativeLayoutTests {
           }
         }
       }
-      for panel in WorkbenchPanel.allCases { model.layout.setPresented(panel, false) }
+      for panel in WorkbenchPanel.dockPanels { model.layout.setPresented(panel, false) }
       await settle(host.view)
       #expect(workspace.hosts["canvas"] === canvas)
       #expect(abs(canvas.frame.width - CGFloat(width)) < 2)

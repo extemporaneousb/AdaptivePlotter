@@ -1,100 +1,338 @@
+import ImageIO
+import PlotterModel
 import PlotterRuntime
 import SwiftUI
 
-/// Physical images are an explicit gallery surface, separate from vector previews.
-struct DrawingStudioPhysicalGallery: View {
+/// Browsing retained drawings does not change the working Studio selection or
+/// the live run. Both drawing producers share the existing evidence archive.
+struct DrawingReviewerView: View {
   let application: PlotterApplicationRuntime
-  @State private var selectedRecord: DrawingRunEvidenceRecord?
-  private var records: [DrawingRunEvidenceRecord] {
-    guard let candidate = application.portraitStudio.selectedCandidate else { return [] }
-    return application.physicalAttempts(candidateID: candidate.id)
+  let close: () -> Void
+  var showOnPlotter: ((PortraitCandidate) async -> String?)? = nil
+  @State private var selection: DrawingReviewSelection?
+  @State private var originalPixels = false
+  @State private var busy = false
+  @State private var failure: String?
+
+  private var drawings: [PortraitSavedSketch] { Array(application.portraitStudio.sketches.sketches.reversed()) }
+  private var results: [DrawingRunEvidenceRecord] { Array(application.drawingReviewRecords.reversed()) }
+  private var selections: [DrawingReviewSelection] {
+    results.map { .result($0.recordID) } + drawings.map { .drawing($0.id) }
   }
+  private var candidate: PortraitCandidate? {
+    switch selection {
+    case .drawing(let id): return drawings.first { $0.id == id }?.candidate
+    case .result:
+      guard let id = record?.attemptEvidence?.intent.context.candidate?.candidateID else { return nil }
+      return drawings.first { $0.id == id }?.candidate
+    case nil: return nil
+    }
+  }
+  private var record: DrawingRunEvidenceRecord? {
+    guard case .result(let id) = selection else { return nil }
+    return results.first { $0.recordID == id }
+  }
+
   var body: some View {
-    if !records.isEmpty {
-      DisclosureGroup("Physical drawings · \(records.count) attempts") {
-        ForEach(records, id: \.recordID) { record in
-          Button {
-            selectedRecord = record
-          } label: {
-            VStack(alignment: .leading) {
-              Text("Attempt \(String(record.runID.description.prefix(8))) · \(physicalExecutionSummary(record.executionDisposition))")
-              Text("\(record.attemptEvidence?.terminalFrames.count ?? 0) available terminal images")
-                .font(.caption).foregroundStyle(.secondary)
+    VStack(spacing: 12) {
+      HStack {
+        Text("Drawing Reviewer").font(.title2)
+        StudioHelpButton("Drawing Reviewer", text: "Saved drawings and physical results share this reviewer. Viewing an item does not replace the current Studio edit or change the plotter. Fit shows the whole image; 100% shows each original image pixel.")
+        Spacer()
+        Picker("Image size", selection: $originalPixels) {
+          Text("Fit").tag(false)
+          Text("100%").tag(true)
+        }.pickerStyle(.segmented).frame(width: 140)
+        Button("Close", action: close).keyboardShortcut(.cancelAction)
+          .accessibilityIdentifier("drawing.reviewer.close")
+      }
+      HSplitView {
+        List(selection: $selection) {
+          if !results.isEmpty {
+            Section("Results") {
+              ForEach(results, id: \.recordID) { result in
+                HStack {
+                  Image(systemName: "photo")
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(resultTitle(result))
+                      .lineLimit(1)
+                    Text(physicalExecutionLabel(result.executionDisposition))
+                      .font(.caption).foregroundStyle(.secondary)
+                  }
+                }.tag(DrawingReviewSelection.result(result.recordID))
+                  .accessibilityIdentifier("drawing.reviewResult.\(result.recordID)")
+              }
             }
-          }.accessibilityIdentifier("portrait.physicalAttempt.\(record.runID)")
+          }
+          if !drawings.isEmpty {
+            Section("Saved drawings") {
+              ForEach(drawings) { drawing in
+                HStack {
+                  PortraitPlaneProgramPreview(preview: referencePreview(drawing.program))
+                    .frame(width: 46, height: 56)
+                  Text(drawing.candidate.recipe.title).lineLimit(2)
+                }.tag(DrawingReviewSelection.drawing(drawing.id))
+                  .accessibilityIdentifier("drawing.reviewSaved.\(drawing.id)")
+              }
+            }
+          }
+        }.frame(minWidth: 190, idealWidth: 220, maxWidth: 280)
+          .accessibilityIdentifier("drawing.reviewer.items")
+        Group {
+          if let record {
+            DrawingReviewResult(application: application, record: record, candidate: candidate,
+              originalPixels: originalPixels)
+              .id(record.recordID)
+          } else if let candidate {
+            HStack(spacing: 12) {
+              reviewPanel("Source") {
+                DrawingReviewSource(candidate: candidate, originalPixels: originalPixels)
+                  .id(candidate.sourceSHA256)
+              }
+              reviewPanel("Drawing") {
+                PortraitPlaneProgramPreview(preview: referencePreview(candidate.program))
+              }
+            }
+          } else {
+            ContentUnavailableView("No saved drawings or results", systemImage: "rectangle.stack")
+          }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+      HStack {
+        if let record {
+          Button("Delete Result", role: .destructive) { deleteResult(record) }
+            .disabled(busy).accessibilityIdentifier("drawing.reviewer.deleteResult")
+          StudioHelpButton("Delete Result", text: "Removes this result from the reviewer and future drawing assessment. Execution provenance, possible-ink and no-redraw facts, and original media shared with calibration or material measurements remain retained. Deletion does not declare the paper clear or permit the drawing to run again.")
+        } else if let candidate {
+          Menu("Delete", systemImage: "trash") {
+            Button("Delete Drawing", role: .destructive) { deleteDrawing(candidate) }
+            Button("Delete Source and Its Drawings", role: .destructive) { deleteSource(candidate) }
+          }.fixedSize().disabled(busy).accessibilityIdentifier("drawing.reviewer.deleteSaved")
+          StudioHelpButton("Delete Saved Drawing", text: "Delete Drawing removes this saved drawing and its ratings. Delete Source and Its Drawings removes all saved drawings from this source photo. Unreferenced portrait image assets are deleted. Physical execution results and the current working Studio edit are separate.")
+        }
+        if let candidate, let showOnPlotter {
+          Button("Show on Plotter Video", systemImage: "video") {
+            busy = true
+            Task { @MainActor in
+              failure = await showOnPlotter(candidate)
+              busy = false
+              if failure == nil { close() }
+            }
+          }.disabled(busy).accessibilityIdentifier("drawing.reviewer.showOnPlotter")
+        }
+        Spacer()
+        if busy { ProgressView().controlSize(.small) }
+        if let failure { Text(failure).font(.caption).foregroundStyle(.red).lineLimit(2) }
+        if case .failed = application.portraitStudio.sketches.persistenceState {
+          Text("Drawing save failed").font(.caption).foregroundStyle(.red)
+          Button("Retry Save") { application.portraitStudio.sketches.retryPersistence() }
         }
       }
-      .sheet(isPresented: Binding(get: { selectedRecord != nil }, set: { if !$0 { selectedRecord = nil } })) {
-        if let record = selectedRecord {
-          DrawingStudioPhysicalImages(application: application, record: record,
-            close: { selectedRecord = nil })
+    }
+    .padding(18).frame(minWidth: 940, minHeight: 660)
+    .onAppear { reconcileSelection() }
+    .onChange(of: selections) { reconcileSelection() }
+    .accessibilityIdentifier("drawing.reviewer")
+  }
+
+  private func resultTitle(_ record: DrawingRunEvidenceRecord) -> String {
+    if let id = record.attemptEvidence?.intent.context.candidate?.candidateID,
+      let saved = drawings.first(where: { $0.id == id }) { return saved.candidate.recipe.title }
+    if record.program.source?.kind == "portrait" { return "Portrait" }
+    if let source = record.program.source?.sourceIdentifier,
+      let entry = DrawingProgramCatalog.entries.first(where: { source.hasPrefix($0.sourceIdentifier) }) {
+      return entry.displayName
+    }
+    return "Drawing"
+  }
+
+  private func reconcileSelection() {
+    if selection.map({ !selections.contains($0) }) ?? true { selection = selections.first }
+  }
+
+  private func deleteResult(_ record: DrawingRunEvidenceRecord) {
+    busy = true; failure = nil
+    Task { @MainActor in
+      do { try await application.deleteDrawingReview(recordID: record.recordID) }
+      catch { failure = "Delete failed: \(error.localizedDescription)" }
+      busy = false
+    }
+  }
+
+  private func deleteDrawing(_ candidate: PortraitCandidate) {
+    application.portraitStudio.sketches.remove(candidate.id)
+  }
+
+  private func deleteSource(_ candidate: PortraitCandidate) {
+    application.portraitStudio.sketches.deleteSource(candidate.sourceSHA256)
+  }
+}
+
+private enum DrawingReviewSelection: Hashable {
+  case drawing(String)
+  case result(DrawingEvidenceRecordID)
+}
+
+private struct DrawingReviewResult: View {
+  let application: PlotterApplicationRuntime
+  let record: DrawingRunEvidenceRecord
+  let candidate: PortraitCandidate?
+  let originalPixels: Bool
+  @State private var images: [CGImage] = []
+  @State private var failure: String?
+  @State private var loading = true
+  @State private var baselineIndex = 0
+  @State private var resultIndex = 0
+  private var baselineCount: Int { record.attemptEvidence?.baselines.count ?? 0 }
+  private var resultCount: Int { max(0, images.count - baselineCount) }
+  private var program: DrawingProgram? {
+    candidate?.program ?? record.attemptEvidence?.intent.context.candidate?.sourceProgram
+      ?? record.attemptEvidence?.intent.context.program
+  }
+
+  var body: some View {
+    VStack(spacing: 12) {
+      HStack {
+        Text(physicalExecutionLabel(record.executionDisposition)).font(.headline)
+        StudioHelpButton("Run details", text: physicalExecutionSummary(record.executionDisposition)
+          + "\nRun \(record.runID)\n" + (record.attemptEvidence?.missingCoverageReason
+            ?? "Coverage is retained per pixel. Raw images do not prove unseen regions are clear."))
+        Spacer()
+      }
+      if let program {
+        HStack(spacing: 12) {
+          if let candidate {
+            reviewPanel("Source") {
+              DrawingReviewSource(candidate: candidate, originalPixels: originalPixels)
+                .id(candidate.sourceSHA256)
+            }
+          }
+          reviewPanel("Drawing") {
+            PortraitPlaneProgramPreview(preview: referencePreview(program))
+          }
+        }.frame(maxHeight: 210)
+      }
+      HStack(spacing: 12) {
+        reviewPanel("Baseline") {
+          if images.indices.contains(baselineIndex), baselineIndex < baselineCount {
+            DrawingReviewImage(image: images[baselineIndex], originalPixels: originalPixels)
+          } else { imageUnavailable }
+        }
+        reviewPanel("Result") {
+          if resultCount > resultIndex, images.indices.contains(baselineCount + resultIndex) {
+            DrawingReviewImage(image: images[baselineCount + resultIndex], originalPixels: originalPixels)
+          } else { imageUnavailable }
         }
       }
+      if baselineCount > 1 || resultCount > 1 {
+        HStack {
+          if baselineCount > 1 {
+            Picker("Baseline", selection: $baselineIndex) {
+              ForEach(0..<baselineCount, id: \.self) { Text("\($0 + 1)").tag($0) }
+            }
+          }
+          if resultCount > 1 {
+            Picker("Result", selection: $resultIndex) {
+              ForEach(0..<resultCount, id: \.self) { Text("\($0 + 1)").tag($0) }
+            }
+          }
+        }
+      }
+      if let failure { Text(failure).font(.caption).foregroundStyle(.red) }
+    }
+    .task(id: record.recordID) {
+      loading = true; images = []; failure = nil; baselineIndex = 0; resultIndex = 0
+      defer { loading = false }
+      guard record.attemptEvidence != nil else { return }
+      do {
+        let originals = try await application.physicalAttemptImages(record)
+        guard !Task.isCancelled else { return }
+        images = try originals.map { frame in
+          guard let image = FrameImageFactory.image(from: frame.frame) else {
+            throw DrawingRunEvidenceError.invalidMediaReference
+          }
+          return image
+        }
+      } catch { if !Task.isCancelled { failure = "Images unavailable: \(error.localizedDescription)" } }
+    }
+  }
+
+  private var imageUnavailable: some View {
+    Group {
+      if loading { ProgressView() }
+      else { ContentUnavailableView("No image", systemImage: "photo") }
+    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+private struct DrawingReviewSource: View {
+  let candidate: PortraitCandidate
+  let originalPixels: Bool
+  @State private var image: CGImage?
+  @State private var loading = true
+  var body: some View {
+    Group {
+      if let image { DrawingReviewImage(image: image, originalPixels: originalPixels) }
+      else if loading { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
+      else { ContentUnavailableView("Source unavailable", systemImage: "photo") }
+    }.task(id: candidate.sourceSHA256) {
+      image = nil; loading = true
+      let data = candidate.sourceData
+      let decoded = await Task.detached(priority: .utility) {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+          let width = properties[kCGImagePropertyPixelWidth] as? Int,
+          let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil as CGImage? }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+          kCGImageSourceThumbnailMaxPixelSize: max(width, height),
+        ] as CFDictionary)
+      }.value
+      if !Task.isCancelled { image = decoded; loading = false }
     }
   }
 }
 
-private struct DrawingStudioPhysicalImages: View {
-  let application: PlotterApplicationRuntime
-  let record: DrawingRunEvidenceRecord
-  let close: () -> Void
-  @State private var images: [CGImage] = []
-  @State private var status: String?
-  @State private var loading = true
-  @State private var originalPixels = false
-  private var physicalScopeName: String {
-    let selected = application.portraitStudio.selectedStyleScope
-    return selected.objective == .physicalRealization ? selected.name : "Physical drawing quality"
-  }
-  private var baselineCount: Int { record.attemptEvidence?.baselines.count ?? 0 }
+private struct DrawingReviewImage: View {
+  let image: CGImage
+  let originalPixels: Bool
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      HStack {
-        Text("Physical drawing · \(String(record.runID.description.prefix(8)))").font(.title2)
-        Spacer()
-        Button("Done", action: close)
-      }
-      Text(physicalExecutionSummary(record.executionDisposition)).font(.subheadline)
-      Text(record.attemptEvidence?.missingCoverageReason ?? "Coverage is retained per pixel; raw images do not prove unseen regions are clear.")
-        .font(.caption).foregroundStyle(.secondary)
-      Toggle("Original image pixels", isOn: $originalPixels).toggleStyle(.checkbox)
-      ScrollView([.horizontal, .vertical]) {
-        VStack(alignment: .leading, spacing: 12) {
-          ForEach(Array(images.enumerated()), id: \.offset) { index, image in
-            VStack(alignment: .leading) {
-              Text(index < baselineCount ? "Baseline \(index + 1)" : "Available terminal image \(index - baselineCount + 1)")
-              Image(decorative: image, scale: 1).resizable()
-                .frame(width: originalPixels ? CGFloat(image.width) : 680,
-                  height: originalPixels ? CGFloat(image.height) : 680 * CGFloat(image.height) / CGFloat(image.width))
-            }
-          }
+    Group {
+      if originalPixels {
+        ScrollView([.horizontal, .vertical]) {
+          Image(decorative: image, scale: 1).resizable()
+            .frame(width: CGFloat(image.width), height: CGFloat(image.height))
         }
+      } else {
+        Image(decorative: image, scale: 1).resizable().scaledToFit()
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
-      if loading { ProgressView("Verifying original image assets") }
-      HStack {
-        Text("Physical realization · " + physicalScopeName)
-        ForEach(1...5, id: \.self) { rating in
-          Button("\(rating)") { status = application.ratePhysicalAttempt(record, rating: rating) ?? "Physical rating queued; screen ratings are unchanged." }
-            .disabled(loading || images.count <= baselineCount)
-            .accessibilityLabel("Rate physical drawing \(rating) of 5")
-        }
-      }
-      PortraitArchiveStatus(collection: application.portraitStudio.sketches)
-      if let status { Text(status).font(.caption).textSelection(.enabled) }
-    }.padding(20).frame(minWidth: 760, minHeight: 640)
-      .task(id: record.recordID) {
-        do {
-          let originals = try await application.physicalAttemptImages(record)
-          guard !Task.isCancelled else { return }
-          images = try originals.map { frame in
-            guard let image = FrameImageFactory.image(from: frame.frame) else {
-              throw DrawingRunEvidenceError.invalidMediaReference
-            }
-            return image
-          }
-        } catch { status = "Original images unavailable: \(error.localizedDescription)" }
-        loading = false
-      }
+    }.clipped()
+  }
+}
+
+private func referencePreview(_ program: DrawingProgram) -> PortraitPlanePreview {
+  PortraitPlanePreviewSource().resolve(program: program,
+    nominalWidth: program.strokes.first?.style.nominalLineWidth ?? 0.4)
+}
+
+private func reviewPanel<Content: View>(_ title: String,
+  @ViewBuilder content: () -> Content) -> some View {
+  VStack(alignment: .leading, spacing: 5) {
+    Text(title).font(.caption).foregroundStyle(.secondary)
+    content().frame(maxWidth: .infinity, maxHeight: .infinity)
+      .background(.white).border(.quaternary)
+  }.frame(maxWidth: .infinity, maxHeight: .infinity)
+}
+
+private func physicalExecutionLabel(_ disposition: DrawingRunExecutionDisposition) -> String {
+  switch disposition {
+  case .completed: "Completed"
+  case .refused: "Refused"
+  case .cancelled: "Stopped"
+  case .ambiguous: "Uncertain"
+  case .failed: "Failed"
   }
 }
 

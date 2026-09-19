@@ -742,7 +742,7 @@ public actor PlotterDrawingDraftRuntime {
         facts: facts,
         owner: Authority.run,
         reason: .terminalRunRequiresHandoff,
-        remedy: "Use New Drawing to clear the retained terminal before editing a new plan."
+        remedy: "Use Prepare Next Drawing to clear the retained terminal before editing a new plan."
       )
     }
 
@@ -1095,6 +1095,13 @@ public actor PlotterDrawingDraftRuntime {
     facts: PlotterDrawingDraftExternalFacts,
     requestID: PlotterDrawingDraftRequestID?
   ) {
+    // A review deletion withdraws the record from future fitting. Do not retain
+    // a cached fit (or hidden selection) that still includes withdrawn evidence.
+    let availableRecordIDs = Set(facts.coverageRecords.map(\.recordID))
+    if !state.selectedResidualRecordIDs.isSubset(of: availableRecordIDs) {
+      state.selectedResidualRecordIDs.formIntersection(availableRecordIDs)
+      state.residualAnalysis = nil
+    }
     let key = DerivationKey(state: state, facts: facts)
     if state.derivationKey == key {
       if let refusal = state.planningRefusal {

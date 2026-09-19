@@ -16,7 +16,7 @@ struct AxisMetricCalibrationProductionTests {
     defer { fixture.stores.remove() }
     do {
       let portraitArchive = app.portraitStudio.sketches.archive
-      let training = app.portraitStudio.training.snapshot
+      let training = (await fixture.portraitCheckpoints.load()).snapshot
       #expect(!portraitArchive.entries.isEmpty)
       #expect(!training.checkpoints.isEmpty)
       let penBefore = await fixture.machine.requestedPenCommands
@@ -50,7 +50,7 @@ struct AxisMetricCalibrationProductionTests {
       #expect(await fixture.machine.requestedDrawingStrokes.isEmpty)
       #expect(await fixture.machine.requestedBoundaryRequests.isEmpty)
       #expect(try axisMetricSnapshotData(app.portraitStudio.sketches.archive) == axisMetricSnapshotData(portraitArchive))
-      #expect(try axisMetricSnapshotData(app.portraitStudio.training.snapshot) == axisMetricSnapshotData(training))
+      #expect(try axisMetricSnapshotData((await fixture.portraitCheckpoints.load()).snapshot) == axisMetricSnapshotData(training))
       await app.applyAxisMetricCalibration()
       #expect(fixture.trace.snapshot().invocations == 1)
       #expect(app.axisMetricApplyUnavailableReason != nil)
@@ -144,6 +144,7 @@ private struct AxisMetricApplicationFixture {
   let stores: CompleteAcceptedLearningStores
   let accepted: CompleteAcceptedLearningFixture
   let trace: AxisMetricApplicationTrace
+  let portraitCheckpoints: PortraitCheckpointStore
 
   static func make(gate: TestInspectionSuspension? = nil, obstructTerminalPublication: Bool = false,
                    withPortraitCheckpoint: Bool = false) async throws -> Self {
@@ -156,18 +157,19 @@ private struct AxisMetricApplicationFixture {
     let clock = ComputationTestClock()
     clock.set(max(clock.read(), accepted.frame.frame.captureNanoseconds))
     let camera = try AcceptedDrawingCameraSession(frame: accepted.frame, clock: clock)
-    let portrait = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: stores.directory.appendingPathComponent("portraits")),
-      checkpointStore: PortraitCheckpointStore(directory: stores.directory.appendingPathComponent("styles")))
+    let portraitCheckpoints = PortraitCheckpointStore(directory: stores.directory.appendingPathComponent("styles"))
+    let portrait = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: stores.directory.appendingPathComponent("portraits")))
     if withPortraitCheckpoint {
       let (scope, archive) = try portraitTrainingFixture()
       let source = PortraitCandidateStore(directoryURL: stores.directory.appendingPathComponent("portraits"))
       try await source.save(snapshot: archive)
       await portrait.loadArchive()
-      try await portrait.training.saveScope(scope)
-      portrait.selectedStyleScope = scope.scope
-      portrait.sketches.selectedID = archive.entries.first?.candidate.id
-      await portrait.trainSelectedStyle()
-      _ = try #require(portrait.training.checkpoint(portrait.training.pendingCheckpointID))
+      _ = await portraitCheckpoints.load()
+      _ = try await portraitCheckpoints.saveScope(scope)
+      let dataset = try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 7)
+      let historical = try await PortraitOrdinalTrainer.fit(dataset: dataset, parent: nil)
+      _ = try await portraitCheckpoints.install(historical)
+      #expect(!(await portraitCheckpoints.load()).snapshot.checkpoints.isEmpty)
     }
     let app = plotterApplicationRuntime(machine: machine, observationSessionOverride: camera, portraitStudio: portrait,
       axisCalibration: { proposal, beforeSettingsWrite in
@@ -208,7 +210,7 @@ private struct AxisMetricApplicationFixture {
       let baseline = try #require(accepted.checkpoint.machineArtifacts).controllerContext
       #expect(try ControllerAxisCalibrationProposal.stepsPerMM(axis: .x, context: baseline) == 80)
       #expect(try ControllerAxisCalibrationProposal.stepsPerMM(axis: .y, context: baseline) == 80)
-      return Self(app: app, machine: machine, stores: stores, accepted: accepted, trace: trace)
+      return Self(app: app, machine: machine, stores: stores, accepted: accepted, trace: trace, portraitCheckpoints: portraitCheckpoints)
     } catch { await app.shutdown(); stores.remove(); throw error }
   }
 

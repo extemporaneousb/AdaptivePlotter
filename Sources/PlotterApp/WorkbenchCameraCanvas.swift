@@ -25,7 +25,6 @@ enum WorkbenchCanvasContent: Equatable {
 struct WorkbenchCameraCanvas: View {
   let application: PlotterApplicationRuntime
   let semantic: PlotterUIProjection
-  var showsPortraitPhoto = false
   @Binding var viewport: ActionSurfaceViewportState
   @Binding var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
   @Binding var pendingPointSelection: PlotterPointSelectionSubmission?
@@ -36,8 +35,7 @@ struct WorkbenchCameraCanvas: View {
       let displayed = surface.usesAmbientPreviewFrame
         ? application.actionSurfacePreview.displayedFrame : surface.displayedFrame
       let portrait = application.portraitStudio
-      let content: WorkbenchCanvasContent = showsPortraitPhoto && portrait.selectedPhoto != nil
-        ? .portraitPhoto : WorkbenchCanvasContent.select(
+      let content = WorkbenchCanvasContent.select(
         portrait: application.workbenchCameraRole == .portrait,
         portraitVideoAvailable: portrait.cameraIsRunning && portrait.preview.frame != nil,
         portraitPhotoAvailable: portrait.selectedPhoto != nil,
@@ -58,11 +56,7 @@ struct WorkbenchCameraCanvas: View {
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background {
-        PortraitScreenIllumination(isActive: portrait.screenIlluminationActive) {
-          Task { await portrait.cancelRendering() }
-        }
-      }
+
     }
     .frame(minWidth: 320, maxWidth: .infinity, minHeight: 180, maxHeight: .infinity)
     .background(.black)

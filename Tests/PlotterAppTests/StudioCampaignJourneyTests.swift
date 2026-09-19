@@ -53,102 +53,29 @@ struct StudioCampaignJourneyTests {
     } catch { await app.shutdown(); throw error }
   }
 
-  @Test("branch, scoped fit, reload/update/rollback, measured projection and Draw retain one immutable lineage")
+  @Test("algorithm selection, durable reload, material adaptation and Draw retain one immutable lineage")
   func completeStudioJourney() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let candidatesURL = directory.appendingPathComponent("candidates")
-    let trainingURL = directory.appendingPathComponent("training")
     let materialsURL = directory.appendingPathComponent("materials")
-    let store = PortraitCandidateStore(directoryURL: candidatesURL)
-    let (scope, seedArchive) = try portraitTrainingFixture()
-    try await store.save(snapshot: seedArchive)
-    let firstModel = PortraitStudioModel(candidateStore: store,
-      checkpointStore: PortraitCheckpointStore(directory: trainingURL))
+    let firstModel = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL))
     await firstModel.loadArchive()
-    try await firstModel.training.saveScope(scope)
-    firstModel.selectedStyleScope = scope.scope
-    let source = try #require(firstModel.sketches.entries.first?.candidate)
-    firstModel.selectHistory(source.id)
-    let initialCount = firstModel.sketches.entries.count
-    firstModel.moreLikeThis(seed: 83)
+    firstModel.options = .init(cropToFace: false, removeBackground: false)
+    firstModel.setPhoto(try portraitTestImage(), for: .front, strokeStyle: try portraitTestStyle())
     await firstModel.awaitRendering()
-    let branch = try #require(firstModel.selectedCandidate)
-    #expect(branch.lineage.parentID == source.id)
-    #expect(branch.sourceSHA256 == source.sourceSHA256 && branch.rasterSHA256 == source.rasterSHA256)
-    #expect(branch.recipe.style == source.recipe.style)
-    #expect(firstModel.sketches.entries.count == initialCount)
-    firstModel.historyParent()
-    try assertStudioCandidate(firstModel.selectedCandidate, equals: source)
-    firstModel.selectHistory(branch.id)
-    try assertStudioCandidate(firstModel.selectedCandidate, equals: branch)
-    #expect(firstModel.rateSelection(1) == nil)
-    await firstModel.sketches.awaitPersistence()
-    #expect(firstModel.sketches.entries.count == initialCount + 1)
-    #expect(firstModel.sketches.labels.last?.scope == scope.scope)
-    await firstModel.trainSelectedStyle()
-    let parent = try #require(firstModel.training.checkpoint(firstModel.training.pendingCheckpointID), "\(firstModel.training.status)")
-    #expect(firstModel.training.activeCheckpoint(for: scope.id) == nil)
-    var priorSpacing: [Int] = [], trainedSpacing: [Int] = []
-    for seed in UInt64(1)...12 {
-      firstModel.selectHistory(source.id)
-      firstModel.exploreSelectedStyle(seed: seed)
-      await firstModel.awaitRendering()
-      let candidate = try #require(firstModel.selectedCandidate)
-      #expect(candidate.checkpointID == nil)
-      priorSpacing.append(candidate.recipe.vectorOptions.hatchSpacing)
-    }
-    await firstModel.activateStyleCheckpoint(parent.id)
-    for seed in UInt64(1)...12 {
-      firstModel.selectHistory(source.id)
-      firstModel.randomStyle(strokeStyle: try #require(source.program.strokes.first?.style), seed: seed)
-      await firstModel.awaitRendering()
-      let candidate = try #require(firstModel.selectedCandidate)
-      #expect(candidate.checkpointID == parent.id)
-      #expect(candidate.proposal?.trainingSelection?.checkpointID == parent.id)
-      trainedSpacing.append(candidate.recipe.vectorOptions.hatchSpacing)
-    }
-    #expect(priorSpacing != trainedSpacing)
-    #expect(trainedSpacing.reduce(0, +) > priorSpacing.reduce(0, +))
-    let trained = try #require(firstModel.selectedCandidate)
-    #expect(firstModel.rateSelection(4) == nil)
+    #expect(firstModel.algorithmCandidates.count == PortraitStyle.allCases.count)
+    firstModel.selectAlgorithm(.hatch, strokeStyle: try portraitTestStyle())
+    let authored = try #require(firstModel.selectedCandidate)
+    #expect(firstModel.keepSelection() == nil)
     await firstModel.sketches.awaitPersistence()
     let beforeReload = firstModel.sketches.archive
-    let immutableParent = try studioJourneyBytes(parent)
     await firstModel.shutdown()
-
-    let model = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL),
-      checkpointStore: PortraitCheckpointStore(directory: trainingURL))
+    let model = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL))
     await model.loadArchive()
-    model.selectedStyleScope = scope.scope
-    #expect(model.training.activeCheckpoint(for: scope.id)?.id == parent.id)
     #expect(try studioJourneyBytes(model.sketches.archive) == studioJourneyBytes(beforeReload))
-    for entry in model.sketches.entries {
-      let label = try #require(beforeReload.labels.last { $0.candidateID == entry.id })
-      #expect(model.sketches.rate(candidate: entry.candidate, rating: 6 - label.rating,
-        scope: scope.scope, presentation: label.presentation) == nil)
-    }
-    await model.sketches.awaitPersistence()
-    await model.trainSelectedStyle()
-    let child = try #require(model.training.checkpoint(model.training.pendingCheckpointID), "\(model.training.status)")
-    #expect(child.payload.parentCheckpointID == parent.id)
-    #expect(child.payload.initialization == .deterministicFullRefit && child.payload.optimizerState == .reset)
-    #expect(child.payload.dataset.id != parent.payload.dataset.id)
-    #expect(child.payload.model != parent.payload.model)
-    #expect(model.training.activeCheckpoint(for: scope.id)?.id == parent.id)
-    await model.activateStyleCheckpoint(child.id)
-    model.selectHistory(trained.id)
-    model.compareSelectedStyle(checkpointID: child.id, seed: 45)
-    await model.awaitRendering()
-    let comparison = try #require(model.trainingComparison)
-    #expect(comparison.current.checkpointID == child.id)
-    #expect(comparison.prior.checkpointID == parent.id)
-    #expect(comparison.current.rasterSHA256 == comparison.prior.rasterSHA256)
-    await model.rollbackStyleCheckpoint()
-    #expect(model.training.activeCheckpoint(for: scope.id)?.id == parent.id)
-    #expect(try studioJourneyBytes(model.training.checkpoint(parent.id)) == studioJourneyBytes(Optional(parent)))
-    model.selectHistory(trained.id)
-    try assertStudioCandidate(model.selectedCandidate, equals: trained)
+    model.sketches.selectedID = authored.id
+    try assertStudioCandidate(model.selectedCandidate, equals: authored)
     let labelsBeforeDraw = model.sketches.labels
     let materials = DrawingMaterialLibrary(store: DrawingMaterialStore(directoryURL: materialsURL))
     await materials.load()
@@ -160,25 +87,25 @@ struct StudioCampaignJourneyTests {
     do {
       app.materialPaperStock = "Synthetic campaign paper"
       app.drawingMaterialSelectionDidChange()
-      #expect(await app.projectPortrait(trained) == nil)
-      try assertStudioCandidate(model.projectedCandidate, equals: trained)
+      #expect(await app.projectPortrait(authored) == nil)
+      try assertStudioCandidate(model.projectedCandidate, equals: authored)
       let fitted = try #require(app.drawingDraftSnapshot.plan)
       try await f.submit(.setUniformScale(floor(fitted.placement.uniformScale * 75) / 100))
       try await f.submit(.setRotationDegrees(90))
       try await f.submit(.centerInDrawableRegion)
       let beforeMaterial = try #require(app.drawingDraftSnapshot.plan)
-      try assertStudioProportions(program: trained.program, plan: beforeMaterial)
+      try assertStudioProportions(program: authored.program, plan: beforeMaterial)
       let measured = try await makeStudioCampaignMeasuredMaterial(f)
       #expect(materials.activeKey == measured.profile.key)
       let adaptationError = await app.applyPortraitMaterial(measured.profile)
       try #require(adaptationError == nil, "Material adaptation refused: \(adaptationError ?? "")")
       let adapted = try #require(model.selectedCandidate)
       let finalPlan = try #require(app.drawingDraftSnapshot.plan)
-      #expect(adapted.id != trained.id && adapted.lineage.parentID == trained.id)
-      #expect(adapted.rasterSHA256 == trained.rasterSHA256)
+      #expect(adapted.id != authored.id && adapted.lineage.parentID == authored.id)
+      #expect(adapted.rasterSHA256 == authored.rasterSHA256)
       #expect(adapted.recipe.vectorOptions.materialContext?.profile == measured.profile)
       #expect(adapted.recipe.vectorOptions.materialContext?.drawingHeightMM
-        == trained.program.fieldExtent.height * beforeMaterial.placement.minimumScale)
+        == authored.program.fieldExtent.height * beforeMaterial.placement.minimumScale)
       #expect(finalPlan.placement == beforeMaterial.placement)
       try assertStudioCandidate(model.projectedCandidate, equals: adapted)
       #expect(model.sketches.labels == labelsBeforeDraw)
@@ -221,25 +148,16 @@ struct StudioCampaignJourneyTests {
       try await waitUntil { app.physicalAttempts(candidateID: adapted.id).contains(terminal.record) }
       let images = try await app.physicalAttemptImages(terminal.record)
       #expect(images.count == attempt.baselines.count + attempt.terminalFrames.count)
-      #expect(app.ratePhysicalAttempt(terminal.record, rating: 3) == nil)
       await model.sketches.awaitPersistence()
-      let physicalLabel = try #require(model.sketches.labels.last)
-      #expect(physicalLabel.scope.objective == .physicalRealization)
-      #expect(physicalLabel.presentation.physicalRecordID == terminal.record.recordID.rawValue)
-      #expect(!physicalLabel.presentation.inkWidthIsMeasured)
-      #expect(model.sketches.labels.filter { $0.scope.objective == .screenAesthetic } == labelsBeforeDraw)
-      try assertStudioCandidate(model.sketches.entries.first { $0.id == trained.id }?.candidate, equals: trained)
-      #expect(try studioJourneyBytes(#require(model.training.checkpoint(parent.id))) == immutableParent)
+      #expect(model.sketches.labels == labelsBeforeDraw)
+      try assertStudioCandidate(model.sketches.entries.first { $0.id == authored.id }?.candidate, equals: authored)
       await app.shutdown()
 
-      let restored = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL),
-        checkpointStore: PortraitCheckpointStore(directory: trainingURL))
+      let restored = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL))
       await restored.loadArchive()
-      #expect(restored.training.activeCheckpoint(for: scope.id)?.id == parent.id)
-      #expect(restored.training.checkpoint(child.id) != nil)
       try assertStudioCandidate(restored.sketches.entries.first { $0.id == adapted.id }?.candidate, equals: adapted)
-      try assertStudioCandidate(restored.sketches.entries.first { $0.id == trained.id }?.candidate, equals: trained)
-      #expect(restored.sketches.labels.contains(physicalLabel))
+      try assertStudioCandidate(restored.sketches.entries.first { $0.id == authored.id }?.candidate, equals: authored)
+      #expect(restored.sketches.labels == labelsBeforeDraw)
       let materialReload = DrawingMaterialLibrary(store: DrawingMaterialStore(directoryURL: materialsURL))
       await materialReload.load()
       #expect(materialReload.activeRecord == measured)
@@ -261,17 +179,13 @@ struct StudioCampaignJourneyTests {
         try studioJourneyBytes(terminal.record).write(to: output.appendingPathComponent("terminal-record.json"))
         try studioJourneyBytes(measured).write(to: output.appendingPathComponent("measured-material.json"))
         let receipt: [String: Any] = [
-          "schema": "adaptiveplotter.studio-campaign-software-journey.v1",
+          "schema": "adaptiveplotter.studio-campaign-software-journey.v2",
           "evidenceClass": "synthetic software composition; no attended or learned-quality claim",
-          "sourceSHA256": source.sourceSHA256, "sourceCandidate": source.id,
-          "branchCandidate": branch.id, "trainedCandidate": trained.id, "adaptedCandidate": adapted.id,
-          "parentCheckpoint": parent.id, "childCheckpoint": child.id,
-          "parentDataset": parent.payload.dataset.id, "childDataset": child.payload.dataset.id,
-          "activeAfterRollback": parent.id, "priorSpacing": priorSpacing, "trainedSpacing": trainedSpacing,
+          "sourceSHA256": authored.sourceSHA256,
+          "authoredCandidate": authored.id, "adaptedCandidate": adapted.id,
           "planHash": finalPlan.contentHash.description, "materialRevision": measured.profile.key,
           "runID": terminal.record.runID.rawValue.uuidString,
           "recordID": terminal.record.recordID.rawValue.uuidString,
-          "physicalLabelID": physicalLabel.id.uuidString,
           "coveredPixels": coverage.coveredPixelCount,
           "unobservedPixels": coveragePixels - coverage.coveredPixelCount,
           "originalFrameHashes": (attempt.baselines + attempt.terminalFrames).map { $0.frame.frameSHA256 }

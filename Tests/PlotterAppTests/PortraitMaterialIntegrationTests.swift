@@ -6,7 +6,7 @@ import Testing
 @Suite("Material adaptation production integration")
 @MainActor
 struct PortraitMaterialIntegrationTests {
-  @Test("explicit material adaptation branches exact retained raster and preserves rated history")
+  @Test("explicit material adaptation retains exact source analysis and preserves saved drawings")
   func immutableAdaptation() async throws {
     let renderer = MaterialRoutingRenderer()
     let model = PortraitStudioModel(renderer: renderer)
@@ -37,9 +37,8 @@ struct PortraitMaterialIntegrationTests {
     let resized = try #require(model.selectedCandidate)
     #expect(resized.id != adapted.id)
     #expect(resized.lineage.parentID == adapted.id)
-    model.historyParent()
-    #expect(model.selectedCandidate?.id == adapted.id)
-    #expect(model.selectedCandidate?.program == adapted.program)
+    #expect(adapted.recipe.vectorOptions.materialContext?.drawingHeightMM == 20)
+    #expect(resized.recipe.vectorOptions.materialContext?.drawingHeightMM == 40)
     #expect(try PortraitCandidateCoding.encoder().encode(model.sketches.entries) == priorArchive)
     await model.shutdown()
   }

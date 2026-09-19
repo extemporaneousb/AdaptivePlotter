@@ -257,22 +257,28 @@ an automatic redraw.
 **Active Learning** in Drawing Studio prepares a sealed coverage experiment:
 32 training lines and 16 reserved holdouts across four regions and four signed
 axis directions. Review and Run each suggested line; after terminal review use
-New Drawing, then Next Experiment Trial. The software selects informative
+Prepare Next Drawing, then Next Experiment Trial. The software selects informative
 remaining locations, fits bounded spatial/direction cross-track candidates, and
 shows training and holdout comparisons. It resumes the same experiment from the
 drawing archive. Failed or ambiguous trials stop selection. Candidates remain
 diagnostic; automatic batch execution, corrected physical holdouts, and explicit
 model acceptance are still required before adaptive drawing readiness.
 
-The main canvas is permanent. Open **Portrait Studio** through **View**
-before calibration to prepare a drawing or use its photo controls to
-import a face photo or capture from a separate camera. **Use Portrait** retains
-the generated program while calibration is unavailable; its plan is built when
-a current pen-tip registration and Drawing Boundary become available.
+Open **Portrait Studio** through **View** to capture a burst or import a photo.
+The full workspace keeps the current photo, drawing, five rendered style choices,
+and the selected algorithm's framing and tuning controls visible together.
+Contour, Hatch, Crosshatch, Sketch and Sketch + Hatch share one deterministic
+render pipeline. **Show on Plotter Video** hands the immutable drawing to the
+shared **Drawing** panel; an unchanged drawing retains its existing placement.
+**Save Drawing** retains a candidate for the source-independent **Drawing Reviewer**.
+The reviewer can browse and delete saved drawings and physical results. Deleting a
+physical result hides it from review and residual selection while retaining the
+execution records needed for possible-ink and no-redraw safety.
 
-The operator can select one of 11 deterministic `DrawingProgram` producers—line,
-polyline, rectangle, square, triangle, regular polygon, circle, ellipse, star,
-pyramid, or elephant—or a portrait in Contour, Hatch, or Crosshatch style.
+Drawing also accepts the 11 deterministic catalog producers: line, polyline,
+rectangle, square, triangle, regular polygon, circle, ellipse, star, pyramid and
+elephant. **Pen & Material** identifies the applicable ink width; explicit material
+measurement and detail adaptation operate in Drawing, outside algorithm tuning.
 With current calibration, place the target on the video, resize it, rotate it,
 and inspect the projected plan. Curves are deterministically tessellated before
 execution. Running still requires completed Exercise 2.1 validation, the current
@@ -314,10 +320,12 @@ future declared coverage/model-comparison/holdout requirements.
 
 ## Workbench and evidence
 
-One singleton window contains the permanent video/portrait/simulation canvas.
-Native **View** Show/Hide commands control Guided Learning, Video Settings,
-Motion, Active Learning and Portrait Studio. Panes fill right, left, lower-right,
-then lower-left; a fifth replaces the oldest. Native dividers resize them.
+One singleton window contains the video/simulation canvas and full Portrait Studio
+workspace. Native **View** Show/Hide commands control Guided Learning, Video
+Settings, Motion, Active Learning, Drawing and Portrait Studio. The five dockable
+panels fill right, left, lower-right, then lower-left; a fifth replaces the oldest.
+Native dividers resize them. Studio temporarily fills the workspace and preserves
+the existing dock arrangement when closed.
 The far-right red **Achtung!** retains current typed Stop requests with all
 panes hidden. Motion displays coherent controller reports at about 5 Hz while
 visible, labels stale/disconnected values, and separates commanded pen state

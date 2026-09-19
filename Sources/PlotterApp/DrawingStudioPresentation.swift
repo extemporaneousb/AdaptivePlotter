@@ -246,7 +246,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
       return [
         DrawingStudioControl(
           intent: .beginNewRun(runID),
-          title: "New Drawing",
+          title: "Prepare Next Drawing",
           systemImage: "plus",
           role: .affirmative
         )
@@ -261,7 +261,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
         ),
         DrawingStudioControl(
           intent: .beginNewRun(runID),
-          title: "New Drawing",
+          title: "Prepare Next Drawing",
           systemImage: "plus",
           role: .affirmative
         ),
@@ -276,7 +276,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
         ),
         DrawingStudioControl(
           intent: .beginNewRun(runID),
-          title: "New Drawing",
+          title: "Prepare Next Drawing",
           systemImage: "plus",
           role: .affirmative
         ),
@@ -342,6 +342,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
   let plotterUIIntentSink: any PlotterUIIntentSink
   let panel: WorkbenchPanel
   private let beforeRun: BeforeRun
+  private let openReviewer: (() -> Void)?
   @State private var requestRefusal: DrawingStudioRequestRefusal?
   @State private var draftFeedback = OperatorRequestFeedback()
   @State private var scaleDraft: Double?
@@ -354,12 +355,14 @@ struct DrawingStudioView<BeforeRun: View>: View {
     plotterUIProjection: PlotterUIProjection,
     plotterUIIntentSink: any PlotterUIIntentSink,
     panel: WorkbenchPanel = .activeLearning,
+    openReviewer: (() -> Void)? = nil,
     @ViewBuilder beforeRun: () -> BeforeRun
   ) {
     self.presentation = presentation
     self.plotterUIProjection = plotterUIProjection
     self.plotterUIIntentSink = plotterUIIntentSink
     self.panel = panel
+    self.openReviewer = openReviewer
     self.beforeRun = beforeRun()
   }
 
@@ -383,7 +386,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
         coverageExperiment.disabled(draftFeedback.isPending)
         retrospectiveLearning.disabled(draftFeedback.isPending)
       }
-      if panel == .portraitStudio || presentation.coverageExperiment != nil {
+      if panel == .drawing || presentation.coverageExperiment != nil {
         if presentation.coverageExperiment == nil {
           VStack(alignment: .leading, spacing: 0) {
             placement.disabled(draftFeedback.isPending)
@@ -391,7 +394,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
           .accessibilityElement(children: .contain)
           .accessibilityIdentifier("drawing.section.placement")
         }
-        if panel == .portraitStudio {
+        if panel == .drawing {
           beforeRun
         }
         VStack(alignment: .leading, spacing: 8) {
@@ -503,7 +506,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
             : control.intent == .nextCoverageTrial ? "learning.coverage.next" : "learning.coverage.leave")
       }
       if presentation.coverageExperiment != nil {
-        Text("Review and Run each proposed line. After its evidence settles, use New Drawing, then Next Experiment Trial. Stop ends the current trial; an inconclusive trial halts the experiment.")
+        Text("Review and Run each proposed line. After its evidence settles, use Prepare Next Drawing, then Next Experiment Trial. Stop ends the current trial; an inconclusive trial halts the experiment.")
           .font(.caption).foregroundStyle(.secondary)
       }
     }
@@ -513,31 +516,35 @@ struct DrawingStudioView<BeforeRun: View>: View {
   private var placement: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Placement").font(.headline)
-      Menu("Test Target") {
-        ForEach([DrawingCatalogEntryID.square, .circle], id: \.self) { id in
-          Button("Camera " + DrawingProgramCatalog.entry(for: id).displayName) {
-            WorkbenchRequestTelemetry.nativeActionHandled("drawing.testTarget." + id.rawValue)
-            submitDraft(.selectCatalogItem(id))
+      HStack {
+        Menu("Geometry", systemImage: "ruler") {
+          nominalScaleAction
+          Divider()
+          ForEach([DrawingCatalogEntryID.square, .circle], id: \.self) { id in
+            Button("Camera " + DrawingProgramCatalog.entry(for: id).displayName) {
+              WorkbenchRequestTelemetry.nativeActionHandled("drawing.testTarget." + id.rawValue)
+              submitDraft(.selectCatalogItem(id))
+            }
+            .disabled(!presentation.authoringIsEnabled || draftRequest(.selectCatalogItem(id)) == nil)
+            .accessibilityIdentifier("drawing.testTarget." + id.rawValue)
           }
-          .disabled(!presentation.authoringIsEnabled || draftRequest(.selectCatalogItem(id)) == nil)
-          .accessibilityIdentifier("drawing.testTarget." + id.rawValue)
-        }
-        Divider()
-        ForEach([DrawingCatalogEntryID.metricSquare40, .metricRectangle40x20], id: \.self) { id in
-          Button(DrawingProgramCatalog.entry(for: id).displayName) {
-            WorkbenchRequestTelemetry.nativeActionHandled("drawing.testTarget." + id.rawValue)
-            submitDraft(.selectCatalogItem(id))
+          Divider()
+          ForEach([DrawingCatalogEntryID.metricSquare40, .metricRectangle40x20], id: \.self) { id in
+            Button(DrawingProgramCatalog.entry(for: id).displayName) {
+              WorkbenchRequestTelemetry.nativeActionHandled("drawing.testTarget." + id.rawValue)
+              submitDraft(.selectCatalogItem(id))
+            }
+            .disabled(!presentation.authoringIsEnabled || draftRequest(.selectCatalogItem(id)) == nil)
+            .accessibilityIdentifier("drawing.testTarget." + id.rawValue)
           }
-          .disabled(!presentation.authoringIsEnabled || draftRequest(.selectCatalogItem(id)) == nil)
-          .accessibilityIdentifier("drawing.testTarget." + id.rawValue)
+          Divider()
+          Button("Show Target") { submitDraft(.showTarget) }
+            .disabled(draftRequest(.showTarget) == nil)
+            .accessibilityIdentifier("drawing.testTarget.show")
         }
-        Divider()
-        Button("Show Target") { submitDraft(.showTarget) }
-          .disabled(draftRequest(.showTarget) == nil)
-          .accessibilityIdentifier("drawing.testTarget.show")
+        .accessibilityIdentifier("drawing.testTarget")
+        StudioHelpButton("Geometry", text: "Nominal Scale sets the selected drawing to its declared controller dimensions. Physical accuracy requires measurement. Camera square and circle use Guided Learning to preserve visible proportions. Metric targets retain controller distances.")
       }
-      .accessibilityIdentifier("drawing.testTarget")
-      .help("Camera square and circle use Guided Learning to preserve visible proportions. Metric targets retain controller distances; at 100% they test commanded dimensions.")
       Toggle("Draw border", isOn: Binding(
         get: { presentation.drawBorder },
         set: { submitDraft(.setDrawBorder($0)) }))
@@ -545,8 +552,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
           || draftRequest(.setDrawBorder(!presentation.drawBorder)) == nil)
         .accessibilityIdentifier("drawing.drawBorder")
         .help("Ink the calibrated Drawing Border as part of this drawing. The outline stays visible when off.")
-      Label(presentation.canvas.placement.locationText, systemImage: "hand.draw")
-        .font(.caption)
+      StudioHelpButton("Placement", text: presentation.canvas.placement.locationText)
       HStack {
         Text("Size")
         Slider(
@@ -613,9 +619,8 @@ struct DrawingStudioView<BeforeRun: View>: View {
     .accessibilityValue("\(presentation.canvas.placement.locationText); scale \(presentation.canvas.placement.uniformScale); rotation \(presentation.canvas.placement.rotationDegrees) degrees")
   }
 
-  @ViewBuilder
-  private var placementActions: some View {
-    Button("100%") {
+  private var nominalScaleAction: some View {
+    Button("Nominal Scale (100%)") {
       WorkbenchRequestTelemetry.nativeActionHandled("drawing.scale100")
       scaleDraft = nil
       submitDraft(.setUniformScale(1))
@@ -625,10 +630,14 @@ struct DrawingStudioView<BeforeRun: View>: View {
       || draftRequest(.setUniformScale(1)) == nil)
     .accessibilityIdentifier("drawing.scale100")
     .help("Set the target to its declared dimensions in controller millimeters. Physical accuracy requires measurement.")
+  }
+
+  @ViewBuilder
+  private var placementActions: some View {
     Button {
       submitDraft(.centerInDrawableRegion)
     } label: {
-      Label("Center Target", systemImage: "scope")
+      Label("Center Drawing", systemImage: "scope")
     }
     .operatorButton(.neutral)
     .disabled(
@@ -646,9 +655,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
     VStack(alignment: .leading, spacing: 4) {
       Text(presentation.paperReplacementStatus == nil ? presentation.runState.title : "Sheet recorded")
         .font(.headline)
-      Text(presentation.paperReplacementStatus ?? presentation.runState.detail)
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      StudioHelpButton("Drawing status", text: presentation.paperReplacementStatus ?? presentation.runState.detail)
     }
   }
 
@@ -661,7 +668,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
       request: plotterUIProjection.request(for: action.id),
       unavailableReason: action.isAvailable ? nil
         : action.unavailableReason ?? "Refresh position verification availability.",
-      sink: plotterUIIntentSink)
+      sink: plotterUIIntentSink, showsUnavailableReason: false)
   }
 
   private var positionPenPreparation: PositionPenPreparationControls {
@@ -697,14 +704,19 @@ struct DrawingStudioView<BeforeRun: View>: View {
     ForEach(presentation.controls) { control in
       let intent = PlotterUIIntent.drawingRun(control.intent)
       let request = plotterUIProjection.request(matching: intent)
-      OperatorRequestButton(
-        title: control.intent == .start ? "Draw" : control.title, role: control.role,
-        request: control.isEnabled ? request : nil,
-        unavailableReason: request == nil ? "Refresh the current Drawing Studio control." : nil,
-        sink: plotterUIIntentSink,
-        nativeActionIdentifier: control.intent == .start ? "drawing.draw" : nil
-      )
-      .accessibilityIdentifier(control.intent == .start ? "drawing.draw" : "drawing.\(control.title)")
+      if case .pinReview = control.intent, let openReviewer {
+        Button("Review Run", action: openReviewer)
+          .accessibilityIdentifier("drawing.Review Run")
+      } else {
+        OperatorRequestButton(
+          title: control.intent == .start ? "Draw" : control.title, role: control.role,
+          request: control.isEnabled ? request : nil,
+          unavailableReason: request == nil ? "Refresh the current Drawing Studio control." : nil,
+          sink: plotterUIIntentSink,
+          nativeActionIdentifier: control.intent == .start ? "drawing.draw" : nil
+        )
+        .accessibilityIdentifier(control.intent == .start ? "drawing.draw" : "drawing.\(control.title)")
+      }
     }
   }
 
@@ -772,7 +784,7 @@ struct PositionPenPreparationControls: View {
     return OperatorRequestButton(title: action.title, role: .affirmative,
       request: plotterUIProjection.request(for: action.id),
       unavailableReason: action.isAvailable ? nil : action.unavailableReason,
-      sink: plotterUIIntentSink)
+      sink: plotterUIIntentSink, showsUnavailableReason: false)
   }
 
   var prerequisiteText: String {
@@ -788,9 +800,10 @@ struct PositionPenPreparationControls: View {
       if let raisePenButton {
         raisePenButton.accessibilityIdentifier("positionRecovery.raisePen")
       }
-      Text(prerequisiteText)
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      HStack {
+        Text("Position verification").font(.caption).foregroundStyle(.secondary)
+        StudioHelpButton("Position verification", text: prerequisiteText)
+      }
     }
   }
 }

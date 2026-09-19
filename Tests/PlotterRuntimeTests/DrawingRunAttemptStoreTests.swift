@@ -69,6 +69,50 @@ struct DrawingRunAttemptStoreTests {
     }
   }
 
+  @Test("Deleting a result persists its exclusion without changing execution facts or shared pixels")
+  func reviewDeletionPreservesExecutionEvidence() async throws {
+    let input = try fixture()
+    let url = temporaryArchive()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let store = DrawingRunEvidenceStore(fileURL: url)
+    try await store.stageIntent(input.intent)
+    let baseline = try await store.installMedia(frame: input.baseline, source: input.source)
+    try await store.stageBaseline(runID: input.intent.runID, media: baseline)
+    try await store.markInkDispatchPossible(runID: input.intent.runID)
+    let terminal = try await store.installMedia(frame: input.terminal, source: input.source)
+    let record = try terminalRecord(input.intent, baseline: baseline, terminal: terminal)
+    let sealed = try await store.append(record)
+    #expect(sealed.reviewRecords == [record])
+
+    let deleted = try await store.deleteReview(recordID: record.recordID)
+    #expect(deleted.reviewRecords.isEmpty)
+    #expect(deleted.deletedReviewRecordIDs == [record.recordID])
+    #expect(deleted.records == sealed.records)
+    #expect(deleted.attempts == sealed.attempts)
+    #expect(deleted.attempts.first?.inkDispatchPossible == true)
+    #expect(deleted.incompleteAttempts.isEmpty)
+    #expect(deleted.revision == sealed.revision)
+    #expect(try await store.deleteReview(recordID: record.recordID) == deleted)
+    #expect(try await store.append(record) == deleted)
+
+    let restarted = DrawingRunEvidenceStore(fileURL: url)
+    guard case .loaded(let restored) = await restarted.load() else {
+      Issue.record("A deleted review must still load its execution archive"); return
+    }
+    #expect(restored == deleted)
+    // Other owners (including material measurements) can still read shared media.
+    #expect(try await restarted.readMedia(baseline) == input.baseline)
+    #expect(try await restarted.readMedia(terminal) == input.terminal)
+    let next = try fixture()
+    let updated = try await restarted.stageIntent(next.intent)
+    #expect(updated.deletedReviewRecordIDs == [record.recordID])
+    #expect(updated.reviewRecords.isEmpty)
+    #expect(updated.records == sealed.records)
+    await #expect(throws: (any Error).self) {
+      try await restarted.deleteReview(recordID: DrawingEvidenceRecordID())
+    }
+  }
+
   @Test("Commanded terminal cannot bypass the durable dispatch marker")
   func noInventedDispatch() async throws {
     let fixture = try fixture()

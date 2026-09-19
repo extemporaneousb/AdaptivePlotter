@@ -1,4 +1,5 @@
 import Foundation
+@testable import PlotterApp
 
 enum PortraitPreferenceDatasetBuilder {
   static func freeze(archive: PortraitCandidateArchive, scope: PortraitTrainingScopeDefinition, seed: UInt64) throws -> PortraitPreferenceDataset {
