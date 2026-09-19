@@ -22,8 +22,11 @@ for name in $canonical_docs; do
     rg -Fq "$name" docs/INDEX.md || fail "docs/INDEX.md does not inventory $name"
 done
 
+rg -Fq '.codex/guidance/adaptiveplotter-workflow.md' AGENTS.md ||
+    fail "AGENTS.md does not route the repository episode refinement"
+
 rg -Fq 'use only for work outside the episode architecture and migration' \
-    .codex/skills/adaptiveplotter/SKILL.md ||
+    .codex/guidance/adaptiveplotter-workflow.md ||
     fail "generic AdaptivePlotter path can bypass episode governance"
 
 for path in docs/*.md; do
@@ -44,8 +47,8 @@ for term in \
 done
 
 target_surfaces='docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md
-.codex/skills/adaptiveplotter/SKILL.md
-.codex/skills/adaptiveplotter/references/episode-migration.md
+.codex/guidance/adaptiveplotter-workflow.md
+.codex/guidance/episode-migration.md
 .codex/skills/run-multi-agent-wave/SKILL.md
 .codex/skills/run-multi-agent-wave/references/wave-coordination.md'
 
@@ -61,7 +64,7 @@ for command in \
     '$adaptiveplotter audit episode migration' \
     '$adaptiveplotter compile episode package <ID>' \
     '$adaptiveplotter execute episode package <ID>'; do
-    rg -Fq "$command" .codex/skills/adaptiveplotter/SKILL.md ||
+    rg -Fq "$command" .codex/guidance/adaptiveplotter-workflow.md ||
         fail "skill is missing explicit command: $command"
 done
 

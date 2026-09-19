@@ -49,7 +49,8 @@ AUTHORITY_PATHS = (
     "docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md",
     "docs/CURRENT_EVIDENCE.md",
     ".codex/skills/adaptiveplotter/SKILL.md",
-    ".codex/skills/adaptiveplotter/references/episode-migration.md",
+    ".codex/guidance/adaptiveplotter-workflow.md",
+    ".codex/guidance/episode-migration.md",
     ".codex/skills/run-multi-agent-wave/SKILL.md",
     ".codex/skills/run-multi-agent-wave/references/wave-coordination.md",
     "Scripts/check_episode_contract.py",
@@ -140,8 +141,8 @@ def validated_contract(
     plan = (root / "docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md").read_text(encoding="utf-8")
     vocabulary = (root / "docs/EPISODE_ARCHITECTURE_VOCABULARY.md").read_text(encoding="utf-8")
     evidence = (root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
-    protocol = (root / ".codex/skills/adaptiveplotter/references/episode-migration.md").read_text(encoding="utf-8")
-    skill = (root / ".codex/skills/adaptiveplotter/SKILL.md").read_text(encoding="utf-8")
+    protocol = (root / ".codex/guidance/episode-migration.md").read_text(encoding="utf-8")
+    skill = (root / ".codex/guidance/adaptiveplotter-workflow.md").read_text(encoding="utf-8")
     wave_skill = (root / ".codex/skills/run-multi-agent-wave/SKILL.md").read_text(encoding="utf-8")
     wave_protocol = (root / ".codex/skills/run-multi-agent-wave/references/wave-coordination.md").read_text(encoding="utf-8")
     contract.validate_vocabulary(vocabulary)
@@ -197,7 +198,7 @@ def summary_task_ref(task: dict[str, object]) -> tuple[str, str]:
 
 def read_blackdog_task_show(root: Path, task: dict[str, object]) -> dict[str, object]:
     task_id, workset = summary_task_ref(task)
-    blackdog = root / ".VE/bin/blackdog"
+    blackdog = "blackdog"
     output = run(
         [
             str(blackdog),
@@ -332,7 +333,7 @@ def classify_blackdog_claims(
 
 
 def read_blackdog_summary(root: Path) -> dict[str, object]:
-    blackdog = root / ".VE/bin/blackdog"
+    blackdog = "blackdog"
     output = run([str(blackdog), "summary", "--project-root", str(root), "--json"], root)
     try:
         value = json.loads(output)
@@ -497,7 +498,7 @@ def package_pointers(
     product_path = "docs/PRODUCT_CONTRACT.md"
     architecture_path = "docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
     evidence_path = "docs/CURRENT_EVIDENCE.md"
-    protocol_path = ".codex/skills/adaptiveplotter/references/episode-migration.md"
+    protocol_path = ".codex/guidance/episode-migration.md"
     wave_path = ".codex/skills/run-multi-agent-wave/references/wave-coordination.md"
     plan = (root / plan_path).read_text(encoding="utf-8")
     vocabulary = (root / vocabulary_path).read_text(encoding="utf-8")
