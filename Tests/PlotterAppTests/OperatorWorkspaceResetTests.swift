@@ -1,5 +1,6 @@
 import Foundation
 import PlotterModel
+import PlotterEpisodeRuntime
 import PlotterUI
 import Testing
 
@@ -7,6 +8,65 @@ import Testing
 @testable import PlotterRuntime
 
 extension PlotterApplicationRuntimeTests {
+  @Test("first Boundary refusal remains historical while current admission enables explicit retry and scoped reset")
+  func firstBoundaryRefusalRecovery() async throws {
+    let identities = TipCalibrationSemanticIdentityState.ephemeral()
+    let box = ArtifactResetCheckpointStoreFixture(checkpoint:
+      try acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity))
+    let machine = try LowerMachineSessionFixture(log: EventLog())
+    let runtimeAccess = TestBoundaryRuntimeAccess()
+    let app = plotterApplicationRuntime(machine: machine,
+      boundaryMotionBegin: { request, _ in
+        .rejected(.needsAttention(ownerID: request.ownerID,
+          terminal: .refusal(.controllerRejected("bounded fixture refusal"))))
+      }, statePersistencePort: ResetStatePersistencePort(checkpointStore: box),
+      tipCalibrationSemanticIdentities: identities, boundaryRuntimeAccess: runtimeAccess,
+      log: EventLog())
+    await app.establishMachineSession(machine.descriptor)
+    await submitControllerSession(app, .requestPassiveProbe)
+    await app.performTestExerciseAction(.applySavedLearning, for: app.testCurrentLearningPathItemID)
+    let pen = try #require(app.learningArtifactGraph.currentRevision(for: .penInteraction))
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    try await submitRenderedBoundaryAcquisition(.positiveX, owner: owner, workspace: app)
+    try await waitUntil { app.currentBoundarySnapshot?.projection.reference.operationID == nil }
+    #expect(app.currentBoundarySnapshot?.acceptedEvidence.isEmpty == true)
+    let terminal = try #require(app.currentBoundarySnapshot?.projection.terminal)
+    // Direct owner ingress exercises a current prerequisite refusal; rendered
+    // controls correctly omit this command while Motion is disabled.
+    await submitControllerSession(app, .toggleMotionAuthorization)
+    try await waitUntil { !app.controllerSessionProjection.motionAuthorized }
+    let runtime = try #require(runtimeAccess.runtime)
+    let blockedReference = try #require(app.currentBoundarySnapshot?.projection.reference)
+    _ = await runtime.submit(.init(projection: blockedReference,
+      intent: .acquire(direction: .positiveX, mode: .normal)))
+    try await waitUntil {
+      app.currentBoundarySnapshot?.projection.lastRefusal != nil
+        && app.currentBoundarySnapshot?.projection.reference.operationID == nil
+    }
+    let historical = try #require(app.currentBoundarySnapshot?.projection.lastRefusal)
+    await submitControllerSession(app, .toggleMotionAuthorization)
+    try await waitUntil { app.controllerSessionProjection.motionAuthorized }
+    #expect(app.currentBoundarySnapshot?.projection.lastRefusal == historical)
+    let refusedOperation = app.currentBoundarySnapshot?.projection.terminal?.operationID
+    let retry = app.testPlotterUIProjection(selectedItemID: owner, includesLearningPath: true).semantic
+    #expect(retry.request(for: learningActionID(.boundary(.acquire(direction: .positiveX, mode: .normal)), owner: owner)) != nil)
+    try await submitRenderedBoundaryAcquisition(.positiveX, owner: owner, workspace: app)
+    try await waitUntil {
+      app.currentBoundarySnapshot?.projection.reference.operationID == nil
+        && app.currentBoundarySnapshot?.projection.terminal?.operationID != refusedOperation
+        && app.currentBoundarySnapshot?.projection.terminal != nil
+    }
+    #expect(app.currentBoundarySnapshot?.projection.terminal?.operationID != terminal.operationID)
+    let plan = try #require(app.learningVacatePlan(from: owner))
+    #expect(app.artifactResetUnavailableReason == nil)
+    #expect(await app.performLearningVacate(plan))
+    #expect(app.learningArtifactGraph.currentRevision(for: .penInteraction)?.id == pen.id)
+    #expect(box.checkpoint?.penInteraction?.revision.id == pen.id)
+    #expect(await machine.requestedBoundaryRequests.isEmpty)
+    #expect(terminal.disposition != .accepted)
+    await app.shutdown()
+  }
+
   @Test("paper persistence failure leaves the workspace graph and paper identity unchanged")
   func paperReplacementDurableWriteFailureIsAtomic() async throws {
     let log = EventLog()

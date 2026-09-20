@@ -8,6 +8,54 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Partial Guided Learning recovery, 2026-09-20
+
+Ordinary product correction in task `task-1931347a34e9462c9550b5e98d92e216`,
+attempt `attempt-6079cfb9422b469a8618ad26aad78b94`, based on `2c8f19d2bc23`.
+One lifecycle executor owns workspace integration and local delivery; bounded
+workers own runtime recovery and UI/presentation, with coordinator acceptance.
+This is not an episode-migration package.
+
+Settled Boundary refusal/cancellation retains historical detail but uses the
+existing owner's current admission assessment for explicit retry. Active work,
+unpublished/reset authority, unknown position, sticky ambiguity and terminal
+shutdown remain guarded; owner-issued retry after a settled center-position miss
+remains center-only and subject to current admission.
+Selecting an unavailable future exercise no longer places another exercise's
+controls beneath its instructions; a necessary active-owner Stop is separately
+named. Camera Redo prepares a fresh proposal with accepted-map fallback, and
+Cancel/Stop discard unaccepted proposals so Restart cannot revive them. A scoped
+reset's surviving Pen prefix preserves its exact compatible cap appearance and
+reference frame without legacy preference dependence or substitute imagery.
+
+The final focused run passed 109 tests in 25.697 seconds (`focused-final.log`),
+covering owner-scoped controls, camera replacement/cancellation, Boundary retry and
+reset, center-only recovery, and disk reload of the retained Pen prefix. An earlier
+fixture compile error passed `Data` where `OwnedFrameBytes` was required; after
+that repair, a 108-test run exposed five issues. Repairs restored the existing
+owner-issued center retry and corrected fixture settlement/baseline expectations.
+Those unsuccessful receipts remain `focused-recovery.log` and
+`focused-recovery-repaired.log` in `.build/guided-recovery-1931347a-evidence/`.
+Strict signed-app validation passed (`signed-app-validation.log`): stable-local
+deep/strict signature verification, launcher logic/refusal checks and bundle
+negative checks. The candidate was not launched. Final configured-check results
+are retained in [the Blackdog validation receipt](../.build/guided-recovery-1931347a-evidence/blackdog-validation.json).
+The exact landed source, build-input match, signed artifact path and hashes belong
+to `artifact-receipt.json` in the same evidence directory.
+
+The investigation was code-based. No app was running at its start; the latest
+saved trace predates the previous release's unlaunched signed build. This is not a
+native reproduction of that old trace. During the first isolated compile, a new
+canonical app process (PID 38196) appeared and the live checkpoint progressed.
+The task build was interrupted before any tests executed; its log had no test-run
+markers. Read-only inspection found isolated fixture persistence and concurrent
+canonical app/build activity whose actor is unknown, not evidence of a test leaking
+into live storage. This task performs no app launch/restart, hardware operation,
+controller-setting change, live Learning reset or sheet acceptance. Software/build
+evidence does not establish physical redraw, speed, placement accuracy or ink
+quality. Validation and exact-source delivery receipts
+belong in `.build/guided-recovery-1931347a-evidence/`.
+
 ## Learning recovery, paper placement and Imaginations, 2026-09-20
 
 Ordinary product correction in Blackdog task

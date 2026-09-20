@@ -932,6 +932,14 @@ public actor PlotterBoundaryRuntime {
     guard states[facts.environment] != nil else {
       return (.environmentChanged, .useCurrentProjection)
     }
+    return Self.admissionRefusal(for: facts)
+  }
+
+  /// Shared external-fact admission policy. The owner separately checks its
+  /// active operation, publication, reset, and terminal shutdown guards.
+  public nonisolated static func admissionRefusal(
+    for facts: PlotterBoundaryExternalFacts
+  ) -> (reason: PlotterBoundaryRefusalReason, remedy: PlotterBoundaryRemedy)? {
     guard facts.learningEnabled else {
       return (.learningDisabled, .enableLearning)
     }

@@ -870,6 +870,29 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       ], mustRemainVisible: true)
     }
     if item.kind == .boundary, let boundary = facts.boundary,
+      case .needsAttention(let detail) = boundary.phase
+    {
+      let settledRetry: Bool = switch boundary.terminal?.disposition {
+      case .cancelled, .refused: true
+      case .ambiguous:
+        boundary.terminal?.activity == .centerArrival
+          && boundary.centerArrivalRetryRequired
+          && facts.boundaryCenterArrivalRetryIsRequired
+      default: false
+      }
+      if !settledRetry {
+        return strip(item.ownerID, [.init(
+          itemID: item.ownerID,
+          action: .start,
+          title: "Boundary needs attention",
+          unavailableReason: "\(detail) Resolve the exact Boundary terminal truth; no acquisition or center motion will be resent automatically."
+        )], mustRemainVisible: true)
+      }
+      // The owner may also retain a center-only retry after a settled position
+      // miss. Current admission still blocks unknown pose or sticky ambiguity;
+      // a side ambiguity or terminal shutdown never gains this exception.
+    }
+    if item.kind == .boundary, let boundary = facts.boundary,
       item.ownerID == current,
       facts.boundaryIsComplete,
       !facts.boundaryHasCenterArrival,
@@ -885,16 +908,6 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
           unavailableReason: facts.startUnavailableReasons[item.ownerID]
         )
       ])
-    }
-    if item.kind == .boundary, let boundary = facts.boundary,
-      case .needsAttention(let detail) = boundary.phase
-    {
-      return strip(item.ownerID, [.init(
-        itemID: item.ownerID,
-        action: .start,
-        title: "Boundary needs attention",
-        unavailableReason: "\(detail) Resolve the exact Boundary terminal truth; no acquisition or center motion will be resent automatically."
-      )], mustRemainVisible: true)
     }
     if facts.savedTrainingCandidateIsPresent {
       guard item.ownerID == current else { return nil }

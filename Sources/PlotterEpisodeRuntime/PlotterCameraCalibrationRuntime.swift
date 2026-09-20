@@ -108,6 +108,11 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
   private let effectPort: any PlotterCameraCalibrationEffectPort
   private let onStateChange: @MainActor @Sendable () -> Void
   private var admissionClosed = false
+  private var shutdownRequested = false
+  private var cancellationDepth = 0
+  private var replacementPrepared = false
+  private var pendingReset = false
+  private var settlementWaiters: [CheckedContinuation<Void, Never>] = []
   private var activeTask: Task<PlotterCameraCalibrationSubmissionOutcome, Never>?
   private var terminalHistory: [PlotterCameraCalibrationTerminalRecord] = []
   public private(set) var revision: UInt64 = 0
@@ -135,6 +140,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
     guard admits(intent) else { return refuse(intent, refusalReason(for: intent)) }
     let operationID = PlotterCameraCalibrationOperationID()
     activeOperationID = operationID; activeIntent = intent
+    defer { finishOperation(operationID) }
     // Admission must immediately replace the action that produced this
     // request. Otherwise the same green control remains clickable while the
     // lower camera/controller effect is suspended.
@@ -157,35 +163,68 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
     }
     activeTask = task
     let outcome = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
-    guard activeOperationID == operationID, activeIntent == intent, !admissionClosed else { return .cancelled }
-    activeTask = nil; activeOperationID = nil; activeIntent = nil; phase = nil
+    guard activeOperationID == operationID, activeIntent == intent, !admissionClosed else {
+      record(operationID: operationID, intent: intent, outcome: .cancelled)
+      return .cancelled
+    }
+    phase = nil
     record(operationID: operationID, intent: intent, outcome: outcome)
     return outcome
   }
 
-  /// Close admission before cancelling so Stop/shutdown cannot admit a late fact.
-  public func shutdown() async {
-    guard !admissionClosed else { return }
-    admissionClosed = true
-    publishStateChange()
-    await cancelActiveOperation()
+  /// Explicit attempt preparation never moves or discards accepted fallback.
+  public func prepareForNewAttempt() async {
+    await settleAttempt(preparingNewAttempt: true)
   }
 
-  /// Cancels and settles only the current calibration operation while keeping
-  /// the runtime reusable. Learning Reset uses this lifecycle; application
-  /// shutdown is the only path that closes admission permanently.
-  public func cancelActiveOperation() async {
-    let operationID = activeOperationID; let intent = activeIntent
-    let task = activeTask
-    guard task != nil else {
-      phase = nil
-      return
+  public func cancelAttempt() async {
+    await settleAttempt(preparingNewAttempt: false)
+  }
+
+  public func stop() async { await cancelAttempt() }
+
+  /// Compatibility entrypoint used by reset; cancellation remains reusable.
+  public func cancelActiveOperation() async { await cancelAttempt() }
+
+  public func shutdown() async {
+    shutdownRequested = true
+    await settleAttempt(preparingNewAttempt: false)
+  }
+
+  private func settleAttempt(preparingNewAttempt: Bool) async {
+    cancellationDepth += 1
+    admissionClosed = true
+    publishStateChange()
+    defer {
+      cancellationDepth -= 1
+      if cancellationDepth == 0, !shutdownRequested { admissionClosed = false }
+      publishStateChange()
     }
-    task?.cancel()
-    _ = await task?.value
-    guard activeOperationID == operationID, activeIntent == intent else { return }
-    activeTask = nil; activeOperationID = nil; activeIntent = nil; phase = nil
-    if let intent { record(operationID: operationID, intent: intent, outcome: .cancelled) }
+    activeTask?.cancel()
+    if activeOperationID != nil {
+      await withCheckedContinuation { settlementWaiters.append($0) }
+    }
+    clearAttemptTransients()
+    replacementPrepared = preparingNewAttempt && !shutdownRequested
+  }
+
+  private func clearAttemptTransients() {
+    anchorFrame = nil; referencePosition = nil; referenceCapAnchor = nil
+    correspondenceEvidence = []; proposedRegistration = nil; phase = nil; failure = nil
+  }
+
+  private func finishOperation(_ operationID: PlotterCameraCalibrationOperationID) {
+    guard activeOperationID == operationID else { return }
+    activeTask = nil; activeOperationID = nil; activeIntent = nil
+    if pendingReset {
+      pendingReset = false
+      clearAttemptTransients()
+      if cancellationDepth == 0, !shutdownRequested { admissionClosed = false }
+    }
+    let waiters = settlementWaiters
+    settlementWaiters.removeAll()
+    for waiter in waiters { waiter.resume() }
+    publishStateChange()
   }
   public func snapshot() -> PlotterCameraCalibrationRuntimeSnapshot {
     .init(revision: revision, admissionClosed: admissionClosed, activeOperationID: activeOperationID, activeIntent: activeIntent,
@@ -196,6 +235,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
   /// Persistence recovery can restore only an already accepted registration.
   public func restoreAcceptedRegistration(_ registration: MachineCameraRegistration?) {
     acceptedRegistration = registration
+    replacementPrepared = false
     proposedRegistration = nil
     correspondenceEvidence = []
     failure = nil
@@ -203,15 +243,21 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
     publishStateChange()
   }
   public func clearForReset() {
-    anchorFrame = nil; referencePosition = nil; referenceCapAnchor = nil; correspondenceEvidence = []
-    proposedRegistration = nil; acceptedRegistration = nil; phase = nil; failure = nil
+    acceptedRegistration = nil
+    replacementPrepared = false
+    clearAttemptTransients()
+    if activeOperationID != nil {
+      pendingReset = true
+      admissionClosed = true
+      activeTask?.cancel()
+    }
     publishStateChange()
   }
 
   private func admits(_ intent: PlotterCameraCalibrationIntent) -> Bool {
     switch intent {
     case .captureReference: return phase == nil
-    case .buildFivePositionProposal: return phase == nil && acceptedRegistration == nil
+    case .buildFivePositionProposal: return phase == nil && (acceptedRegistration == nil || replacementPrepared)
     case .acceptProposal, .rejectProposal: return phase == nil && proposedRegistration != nil
     }
   }
@@ -311,7 +357,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
       correspondenceEvidence = evidence; proposedRegistration = registration; failure = nil; phase = nil; return .completed
     case let (.acceptProposal, .accepted(registration)):
       guard registration == proposedRegistration else { return mismatch("Acceptance returned a registration different from the reviewed proposal.") }
-      acceptedRegistration = registration; proposedRegistration = nil; failure = nil; phase = nil; return .completed
+      acceptedRegistration = registration; replacementPrepared = false; proposedRegistration = nil; failure = nil; phase = nil; return .completed
     case (.rejectProposal, .rejected):
       proposedRegistration = nil; anchorFrame = nil; referencePosition = nil; referenceCapAnchor = nil
       correspondenceEvidence = []; failure = nil; phase = nil; return .completed
@@ -330,7 +376,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
   private func refusalReason(for intent: PlotterCameraCalibrationIntent) -> String {
     switch intent {
     case .captureReference: return "Reference capture is unavailable while calibration is active."
-    case .buildFivePositionProposal: return "Proposal construction requires no accepted machine-camera registration."
+    case .buildFivePositionProposal: return "Prepare an explicit replacement attempt before rebuilding accepted camera calibration."
     case .acceptProposal: return "Acceptance requires one explicit reviewable camera proposal."
     case .rejectProposal: return "Rejection requires one explicit reviewable camera proposal."
     }

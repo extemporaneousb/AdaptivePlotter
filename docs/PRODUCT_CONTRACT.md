@@ -1915,6 +1915,38 @@ batch awaiting clicks. Its disclosure includes calibration marks. Controls belon
 to the selected exercise; a distinct active owner's Stop remains visible. Saved
 position revalidation does not hide a completed exercise's Redo.
 
+A scoped suffix reset that retains accepted Pen Learning also retains the exact
+compatible cap-appearance selection and reference frame in the surviving accepted
+checkpoint. Compatibility checks include tool, camera mount/reframing and available
+current optical/source/frame-format context. The prefix does not borrow a newly
+captured frame or depend on a legacy appearance preference to survive reload.
+Resetting Pen itself clears that appearance and package authority.
+
+For camera calibration, Redo and Restart explicitly prepare the existing owner for
+a fresh proposal while retaining the previous accepted map as fallback. Preparation
+starts no acquisition or movement; **Run Five-Position Camera Calibration** does.
+Cancel/Stop settle that owner and discard unaccepted proposal/reference/failure
+state. Restart cannot revive an abandoned Accept/Reject proposal. Failed or rejected
+replacement preserves accepted calibration; successful Accept installs the reviewed
+replacement through the existing dependency commit. Scoped reset deliberately
+invalidates the disclosed suffix, and shutdown cannot be reopened by preparation.
+
+Selecting another exercise shows only that exercise's instructions and controls.
+An unavailable future exercise cannot borrow the current exercise's buttons. An
+active owner's required Stop remains in a separate, explicitly named exercise row.
+Review navigation neither starts work nor changes the active owner.
+
+A settled Boundary cancellation or refusal retains its historical diagnosis but
+uses the Boundary owner's current admission assessment for explicit retry.
+Repairing a transient prerequisite can therefore re-enable the next side or center
+attempt without discarding accepted sides. A settled refused/cancelled first-side
+attempt is sufficient for selected-step reset even when no side was accepted.
+Pending publication/reset and active operations retain their exact
+recovery/cancellation controls. An owner-issued center-arrival retry after a
+settled position miss remains center-only and subject to current physical-position
+and ambiguity admission. Ambiguous side terminals and shutdown do not become
+ordinary retry actions. No transition retries motion automatically.
+
 For four-circle tip-calibration recovery, Cancel and Stop settle the existing owner
 and clear transient selection and proposal state. Restart/Redo prepare a new
 attempt explicitly; none starts marks automatically. A failed replacement retains the prior accepted calibration where

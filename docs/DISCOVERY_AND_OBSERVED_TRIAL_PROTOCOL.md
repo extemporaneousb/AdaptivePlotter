@@ -151,7 +151,21 @@ If a settled attempt elsewhere exposes **Restart**, select that exercise to use
 its recovery. The recovery row does not replace the current exercise selected
 by the dependency chain and does not hide Exercise 1.1 or the next physical action.
 
+Selecting a future or unavailable exercise does not display another exercise's
+controls beneath its instructions. If work is still active elsewhere, its required
+Stop appears separately under **Active exercise**, naming the exact owner. Return
+to the current exercise to use its ordinary controls.
+
 ## 1.2 Measure and Center the Drawing Boundary
+
+After a settled refusal or cancellation, inspect the previous-attempt diagnosis,
+resolve the current admission blocker, and explicitly retry the allowed side or
+center arrival. The old diagnostic does not disable a now-admissible action.
+Accepted sides remain retained. A settled center-position miss may offer the
+owner-issued **Retry Center Arrival**, still gated by current position and ambiguity
+checks. Active effects, pending publication/reset, unknown position and sticky
+ambiguity retain their owning controls and restrictions; nothing is replayed
+merely because a prerequisite changed.
 
 1. The operator selects any first X or Y direction. Selection is inert.
 2. **Move Toward X−/X+/Y−/Y+** starts one operator-stopped Drawing Boundary search.
@@ -637,9 +651,23 @@ four side aggregates -> center -> center arrival
 -> controller execution -> exact-frame planned-ink observation -> run record
 ```
 
+For Exercise 1.3, **Redo This Step** prepares a fresh camera-calibration attempt
+while retaining the accepted map. Click **Run Five-Position Camera Calibration**
+to acquire a new proposal. Cancel/Stop discard the unaccepted proposal and join the
+current owner; **Restart Attempt** prepares fresh acquisition rather than presenting
+the cancelled proposal's Accept/Reject controls. Failure or rejection retains the
+accepted fallback. Successful acceptance alone replaces it and invalidates affected
+dependents. These preparations never request movement automatically.
+
 Redo invalidates named transitive dependents only after a successful replacement
 commit. Failure preserves the current accepted value. Record Another Attempt
 adds only compatible successful evidence.
+
+When resetting a later suffix, retained Pen Learning includes its original
+compatible cap appearance and reference frame in the saved prefix. Reloading that prefix must
+not require re-identifying the cap or reading a legacy appearance preference.
+Incompatible tool/camera context is not silently reused, and resetting Pen clears
+its appearance authority as before.
 
 Reset From This Step is a separate operator-authored chronological rewind. It
 shows the exact suffix, includes unaccepted circle batches/pending selections and

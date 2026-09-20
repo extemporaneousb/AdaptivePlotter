@@ -27,6 +27,11 @@ Buttons show press, pending, and result feedback. Stop uses its own symbol and
 styling; ordinary choices do not encode Yes/No as green/red. Servo dragging
 commits once on release, with Confirm visibly unavailable during settlement.
 
+The selected exercise never inherits a different current exercise's controls when
+its own controls are unavailable. An active owner's required Stop is displayed
+separately under **Active exercise**, including that owner's number and title.
+Selecting or reviewing a future exercise causes no runtime transition.
+
 The Learning menu exposes **Reset Selected Step…** for accepted or transient state
 in the selected suffix, including a completed unaccepted four-circle batch awaiting
 clicks. Its confirmation names calibration marks and preserves same-sheet possible-
@@ -88,9 +93,17 @@ flowchart TD
     b2["Side recorded<br/>next allowed direction · Move Toward direction"]
     b3["Four sides recorded<br/>Move to Estimated Center<br/>accepted-side repeat actions"]
     bdone["1.2 complete<br/>accepted-side Redo / Record Another actions"]
+    bretry["Settled refusal/cancellation or center-position miss<br/>previous diagnosis retained<br/>explicit side or center retry uses current admission"]
+    bblocked["Ambiguous side terminal / shutdown / unpublished authority<br/>exact owner recovery only; no automatic retry"]
     b0 -->|direction selector — selection only| b0
     b0 -->|Move Toward direction| b1
     b1 -->|Stop Boundary Search and settle| b2
+    b1 -->|Known cancellation or refusal settles| bretry
+    bretry -->|Resolve current blocker; explicitly retry allowed side| b1
+    bretry -->|Four sides retained; explicitly retry center| bdone
+    bretry -->|Reset Selected Step — even with zero accepted sides| b0
+    b1 -->|Ambiguous side terminal or shutdown| bblocked
+    b3 -->|Settled center-position miss; owner permits center-only retry| bretry
     b2 -->|direction selector — selection only| b2
     b2 -->|Move Toward next direction| b1
     b2 -->|after fourth side| b3
@@ -105,19 +118,19 @@ flowchart TD
     c0["Ready<br/>Run Five-Position Camera Calibration"]
     c1["Camera calibration working<br/>Camera calibration is working… — disabled<br/>Stop replaces it during stoppable motion"]
     c2["Calibration review<br/>Accept Camera Calibration<br/>Reject Camera Calibration · Cancel Attempt"]
-    cempty["Stopped or rejected; no proposal<br/>Run Five-Position Camera Calibration · Cancel Attempt"]
+    cempty["Attempt active; no proposal<br/>Run Five-Position Camera Calibration · Cancel Attempt"]
     cdone["1.3 complete<br/>Redo This Step"]
-    ccancel["Attempt settled without acceptance<br/>Restart Attempt"]
+    ccancel["Attempt settled; unaccepted proposal discarded<br/>Restart Attempt — fresh proposal preparation"]
     c0 -->|Run Five-Position Camera Calibration| c1
     c1 -->|three fit and two check measurements pass| c2
-    c1 -->|Stop and settle current motion| cempty
+    c1 -->|Stop settles owner and discards proposal| ccancel
     c2 -->|Accept Camera Calibration| cdone
     c2 -->|Reject Camera Calibration| cempty
     c2 -->|Cancel Attempt| ccancel
     cempty -->|Run Five-Position Camera Calibration| c1
     cempty -->|Cancel Attempt| ccancel
-    ccancel -->|Restart Attempt| c0
-    cdone -->|Redo This Step — replace accepted result| c0
+    ccancel -->|Restart Attempt — prepare fresh acquisition; no motion| c0
+    cdone -->|Redo This Step — prepare replacement; retain accepted fallback| c0
   end
 
   subgraph tip["1.4 Calibrate Pen Tip from Corner Marks"]

@@ -373,6 +373,18 @@ struct LearningPathProjection: Hashable, Sendable {
   let contextualStop: ContextualStopPresentation?
   let resetSurface: LearningResetSurfacePresentation
   let menu: LearningPathMenuPresentation
+
+  var requiredExerciseActions: [PlotterUILearningActionStripDecision] = []
+  var selectedExerciseActions: PlotterUILearningActionStripDecision? { selectedAction.actionStrip }
+  var separateActiveExerciseActions: [PlotterUILearningActionStripDecision] {
+    requiredExerciseActions.filter { $0.ownerID != selectedExerciseActions?.ownerID }
+  }
+  func activeExerciseHeading(for strip: PlotterUILearningActionStripDecision) -> String {
+    guard let item = PlotterLearningActionabilityFactAdapter().itemID(strip.ownerID) else {
+      return "Active exercise: \(strip.ownerID)"
+    }
+    return "Active exercise: \(item.number) \(item.title)"
+  }
 }
 
 /// Copies retained runtime detail into PlotterUI facts and translates canonical
@@ -677,7 +689,9 @@ struct PlotterLearningDetailedPresentationNormalizer: Sendable {
       ),
       menu: LearningPathMenuPresentation(
         resetAllPlan: actionability.resetAllPlanIsReachable ? snapshot.reset.resetAllPlan : nil
-      )
+      ),
+      requiredExerciseActions: actionability.strips.filter(\.mustRemainVisible)
+        .compactMap { adapter.actionStrip($0) }
     )
   }
 
@@ -723,6 +737,18 @@ extension PlotterLearningDetailedPresentationNormalizer {
         actionStrip: actionStrip
       )
     case .humanGuidedDiscovery(let step):
+      if step == .pairedBoundaryDiscoveryAndCentering, let boundary = snapshot.boundary.projection {
+        let detail: String? = if case .needsAttention(let reason) = boundary.phase {
+          reason
+        } else if let refusal = boundary.lastRefusal {
+          "Boundary refused: \(refusal.reason). Remedy: \(refusal.remedy)."
+        } else { nil }
+        if let detail {
+          return OperatorActionPresentation(itemID: itemID,
+            instructions: [.text("Previous Boundary attempt: \(detail)")]
+              + discoveryReviewInstructions(step), actionStrip: actionStrip)
+        }
+      }
       if step == .calibrateCameraAndVisibleCap {
         let camera = snapshot.cameraCalibration
         let detail: String? = if let phase = camera.phase {

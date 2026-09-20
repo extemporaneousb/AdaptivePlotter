@@ -12,6 +12,147 @@ import Testing
 struct PlotterLearningPresentationCompilerTests {
   private let normalizer = PlotterLearningDetailedPresentationNormalizer()
 
+  @Test("partial Boundary review never borrows controls for an unavailable future exercise")
+  func partialBoundarySelectionIsOwnerScoped() {
+    let boundary = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    let camera = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let snapshot = PlotterLearningPresentationFacts(penInteractionCompleted: true,
+      selectedBoundaryDirection: .negativeX,
+      boundary: .init(acceptedDirections: [.positiveX], allowedDirections: [.negativeX]))
+    let review = project(snapshot, selectedItemID: camera)
+    #expect(review.currentItemID == boundary)
+    #expect(review.selectedAction.itemID == camera)
+    #expect(review.selectedExerciseActions == nil)
+    #expect(review.separateActiveExerciseActions.isEmpty)
+    #expect(review.currentActionStrip?.actions.first?.action == .boundary(.acquire(direction: .negativeX, mode: .normal)))
+
+    let capability = ContextualStopCapabilityID()
+    let active = project(PlotterLearningPresentationFacts(penInteractionCompleted: true,
+      operations: .init(activeAttemptOwner: boundary,
+        stopOwner: .exercise(capability, .moveToDrawingBorderStart, boundaryOwner: true))),
+      selectedItemID: camera)
+    #expect(active.selectedExerciseActions == nil)
+    #expect(active.separateActiveExerciseActions.first?.actions.map(\.action) == [.stop(capability)])
+    #expect(active.separateActiveExerciseActions.map { active.activeExerciseHeading(for: $0) }
+      == ["Active exercise: \(boundary.number) \(boundary.title)"])
+    let selectedActive = project(PlotterLearningPresentationFacts(penInteractionCompleted: true,
+      operations: .init(activeAttemptOwner: boundary,
+        stopOwner: .exercise(capability, .moveToDrawingBorderStart, boundaryOwner: true))),
+      selectedItemID: boundary)
+    #expect(selectedActive.selectedExerciseActions?.actions.map(\.action) == [.stop(capability)])
+    #expect(selectedActive.separateActiveExerciseActions.isEmpty)
+  }
+
+  @Test("completed Boundary repeat keeps its own Stop when curriculum current belongs to a later exercise")
+  func completedBoundaryRepeatKeepsExactOwner() throws {
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    let camera = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let tip = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+    let operation = PlotterBoundaryOperationID()
+    let capability = PlotterBoundaryCancellationCapabilityID()
+    let activeBoundary = PlotterBoundaryProjection(
+      reference: .init(environment: .live, revision: .init(rawValue: 2), operationID: operation),
+      phase: .moving(direction: .positiveX), selectedDirection: .positiveX,
+      allowedDirections: [.positiveX], acceptedAggregates: [:], estimatedCenter: nil,
+      centerArrival: .init(xMM: 0, yMM: 0), centerArrivalRetryRequired: false,
+      cancellationCapabilityID: capability, publicationRecoveryCapabilityID: nil,
+      lastRefusal: nil, terminal: nil)
+    let snapshot = PlotterLearningPresentationFacts(penInteractionCompleted: true,
+      boundary: .init(projection: activeBoundary, isComplete: true,
+        centerArrival: try MachinePosition(x: 0, y: 0)))
+    for selection in [camera, tip] {
+      let projected = project(snapshot, selectedItemID: selection)
+      #expect(projected.currentItemID == camera)
+      let strip = try #require(projected.separateActiveExerciseActions.first)
+      #expect(strip.actions.map(\.action) == [.boundary(.stop(capability))])
+      #expect(projected.activeExerciseHeading(for: strip) == "Active exercise: \(owner.number) \(owner.title)")
+      #expect(projected.separateActiveExerciseActions.count == 1)
+    }
+    let selected = project(snapshot, selectedItemID: owner)
+    #expect(selected.selectedExerciseActions?.actions.map(\.action) == [.boundary(.stop(capability))])
+    #expect(selected.separateActiveExerciseActions.isEmpty)
+  }
+
+  @Test("settled Boundary cancellation or refusal exposes explicit retry with current blockers",
+    arguments: [PlotterBoundaryTerminalDisposition.cancelled, .refused("Old connection refusal")])
+  func boundarySettledRetry(disposition: PlotterBoundaryTerminalDisposition) throws {
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    let boundary = boundaryProjection(disposition: disposition)
+    for blocker in [nil, "Connect the controller.", "Sticky ambiguity must be resolved."] {
+      let snapshot = PlotterLearningPresentationFacts(penInteractionCompleted: true,
+        boundary: .init(projection: boundary),
+        startUnavailableReasons: blocker.map { [owner: $0] } ?? [:])
+      let projected = project(snapshot, selectedItemID: owner)
+      let action = try #require(projected.selectedExerciseActions?.actions.first)
+      #expect(action.action == .boundary(.acquire(direction: .positiveX, mode: .normal)))
+      #expect(action.unavailableReason == blocker)
+      #expect(projected.selectedAction.instructions.accessibilityText.contains("Previous Boundary attempt: Previous attempt stopped"))
+    }
+  }
+
+  @Test("ambiguous side or shutdown Boundary terminals never become acquisition",
+    arguments: [PlotterBoundaryTerminalDisposition.ambiguous("Unknown final position"), .shutdown])
+  func boundaryUnsafeTerminalRemainsBlocked(disposition: PlotterBoundaryTerminalDisposition) throws {
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    for completeSides in [false, true] {
+      let projected = project(PlotterLearningPresentationFacts(penInteractionCompleted: true,
+        boundary: .init(projection: boundaryProjection(disposition: disposition),
+          isComplete: completeSides, centerArrivalRetryRequired: false)), selectedItemID: owner)
+      let action = try #require(projected.selectedExerciseActions?.actions.first)
+      #expect(action.title == "Boundary needs attention")
+      #expect(action.unavailableReason != nil)
+      #expect(projected.selectedExerciseActions?.mustRemainVisible == true)
+    }
+  }
+
+  @Test("owner-issued center retry preserves current admission and never reopens shutdown")
+  func centerRetryUsesOwnerAndCurrentAdmission() throws {
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    for blocker in [nil, "Physical position is unknown.", "Sticky ambiguity must be resolved."] {
+      let projected = project(PlotterLearningPresentationFacts(penInteractionCompleted: true,
+        boundary: .init(projection: boundaryProjection(disposition: .ambiguous("Center tolerance miss"),
+          activity: .centerArrival, retryCenter: true), isComplete: true, centerArrivalRetryRequired: true),
+        startUnavailableReasons: blocker.map { [owner: $0] } ?? [:]), selectedItemID: owner)
+      let actions = try #require(projected.selectedExerciseActions?.actions)
+      #expect(actions.map(\.action) == [.boundary(.moveToEstimatedCenter(retry: true))])
+      #expect(actions.first?.unavailableReason == blocker)
+    }
+    let shutdown = project(PlotterLearningPresentationFacts(penInteractionCompleted: true,
+      boundary: .init(projection: boundaryProjection(disposition: .shutdown,
+        activity: .centerArrival, retryCenter: true), isComplete: true,
+        centerArrivalRetryRequired: true)), selectedItemID: owner)
+    #expect(shutdown.selectedExerciseActions?.actions.first?.title == "Boundary needs attention")
+    #expect(shutdown.selectedExerciseActions?.actions.first?.unavailableReason != nil)
+  }
+
+  @Test("completed selected camera retains Redo and active replacement exposes the owner build action")
+  func completedCameraReplacementControls() throws {
+    let owner = "camera"
+    for active in [false, true] {
+      let projected = PlotterUILearningActionabilityCompiler().compile(.init(
+        learning: .init(isEnabled: true, activeOwnerID: active ? owner : nil,
+          orderedMilestones: [.init(ownerID: owner, isComplete: true)]),
+        selectedOwnerID: owner,
+        items: [.init(ownerID: owner, kind: .cameraCalibration, stageID: "discovery",
+          isStage: false, isExercise: true, isComplete: true, isRepeatable: false)],
+        activeOwnerID: active ? owner : nil, cameraState: .readyWithoutProposal))
+      let actions = try #require(projected.strip(ownerID: owner)?.actions)
+      #expect(actions.map(\.action) == (active
+        ? [.cameraCalibration(.buildFivePositionProposal), .cancel] : [.redoThisStep]))
+    }
+  }
+
+  private func boundaryProjection(disposition: PlotterBoundaryTerminalDisposition,
+    activity: PlotterBoundaryActivityKind = .sideAcquisition, retryCenter: Bool = false) -> PlotterBoundaryProjection {
+    .init(reference: .init(environment: .live, revision: .init(rawValue: 1), operationID: nil),
+      phase: .needsAttention("Previous attempt stopped"), selectedDirection: .positiveX,
+      allowedDirections: [.positiveX], acceptedAggregates: [:], estimatedCenter: nil,
+      centerArrival: nil, centerArrivalRetryRequired: retryCenter, cancellationCapabilityID: nil,
+      publicationRecoveryCapabilityID: nil, lastRefusal: nil,
+      terminal: .init(attemptID: .init(), operationID: .init(), activity: activity,
+        direction: .positiveX, disposition: disposition, finalPosition: nil))
+  }
+
   @Test("completed selected tip calibration keeps Redo when saved-position recovery is available")
   func completedTipRedoIsNotMaskedByPositionRecovery() throws {
     let owner = "1.4-tip"

@@ -38,9 +38,7 @@ struct LearningPathView: View {
 
   @ViewBuilder private func learningContent(_ projection: LearningPathProjection) -> some View {
     let selectedPresentation = projection.selectedAction
-    let pinnedActionStrip =
-      selectedPresentation.actionStrip
-      ?? projection.currentActionStrip
+    let pinnedActionStrip = projection.selectedExerciseActions
 
     VStack(alignment: .leading, spacing: 0) {
       HStack {
@@ -84,10 +82,11 @@ struct LearningPathView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 0) {
           selectedDetail(selectedPresentation).padding(16)
-          if let current = projection.currentActionStrip,
-            current.mustRemainVisible,
-            current.ownerID != pinnedActionStrip?.ownerID
-          {
+          ForEach(projection.separateActiveExerciseActions, id: \.ownerID) { current in
+            Text(projection.activeExerciseHeading(for: current))
+              .font(.caption.weight(.semibold))
+              .padding(.horizontal, 12)
+              .accessibilityIdentifier("learning.activeExerciseHeading")
             ExerciseActionStripView(
               presentation: current,
               plotterUIProjection: plotterUIProjection,

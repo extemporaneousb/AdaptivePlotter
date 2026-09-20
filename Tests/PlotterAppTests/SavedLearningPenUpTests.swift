@@ -11,6 +11,73 @@ import Testing
 @MainActor
 @Suite("Saved Learning calibration Pen Up", .serialized)
 struct SavedLearningPenUpTests {
+  @Test("scoped reset preserves compatible Pen optical evidence through disk reload without legacy fallback", arguments: [false, true])
+  func scopedCameraResetRetainsOpticalPrefix(resetTip: Bool) async throws {
+    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: resetTip)
+    defer { fixture.stores.remove() }
+    let app = fixture.app
+    let original = fixture.checkpoint
+    let appearance = try #require(original.penCapAppearance)
+    guard case .loaded(let beforeReset) = fixture.stores.checkpointStore.load() else {
+      Issue.record("Expected accepted prefix before reset"); await app.shutdown(); return
+    }
+    let reference = try #require(beforeReset.referenceFrame)
+    let owner = LearningPathItemID.humanGuidedDiscovery(
+      resetTip ? .calibratePenContactFromSparseMarks : .calibrateCameraAndVisibleCap)
+    let plan = try #require(app.learningVacatePlan(from: owner))
+    #expect(await app.performLearningVacate(plan))
+    guard case .loaded(let saved) = fixture.stores.checkpointStore.load() else {
+      Issue.record("Expected durable scoped prefix"); await app.shutdown(); return
+    }
+    #expect(saved.penInteraction == original.penInteraction)
+    #expect(saved.machineArtifacts == original.machineArtifacts)
+    #expect(saved.machineCamera == (resetTip ? original.machineCamera : nil))
+    #expect(saved.tipCalibration == nil)
+    #expect(saved.penCapAppearance == appearance)
+    #expect(saved.referenceFrame == reference)
+    await app.shutdown()
+    let reloaded = plotterApplicationRuntime(
+      machine: fixture.machine, statePersistencePort: fixture.stores.persistence,
+      tipCalibrationSemanticIdentities: fixture.identities,
+      loadPenCapAppearanceSelection: { nil }, log: fixture.log)
+    #expect(reloaded.penCapAppearanceSelection == nil)
+    await reloaded.performTestExerciseAction(.applySavedLearning, for: reloaded.testCurrentLearningPathItemID)
+    #expect(try reloaded.penCapAppearanceSelection?.acceptedCheckpoint() == appearance)
+    #expect(reloaded.penInteractionCompleted)
+    let penPlan = try #require(reloaded.learningVacatePlan(from: .humanGuidedDiscovery(.penInteraction)))
+    #expect(await reloaded.performLearningVacate(penPlan))
+    #expect(reloaded.penCapAppearanceSelection == nil)
+    await reloaded.shutdown()
+  }
+
+  @Test("scoped Camera reset refuses stale optical prefix after current frame dimensions change")
+  func scopedResetDropsIncompatibleOpticalPrefix() async throws {
+    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up)
+    defer { fixture.stores.remove() }
+    let app = fixture.app
+    let previous = try #require(app.displayedFrame)
+    let width = previous.frame.width + 1
+    let changed = DisplayedFrame(source: previous.source, frame: try StampedFrame(
+      id: FrameID(), sequence: previous.frame.sequence + 1,
+      captureNanoseconds: previous.frame.captureNanoseconds + 1_000,
+      cameraConfigurationID: CameraConfigurationID(), width: width,
+      height: previous.frame.height, rowBytes: width * 4,
+      pixelFormat: previous.frame.pixelFormat,
+      bytes: OwnedFrameBytes(copying: Data(repeating: 0, count: width * 4 * previous.frame.height))))
+    fixture.camera.previewFrames.inject(changed)
+    try await waitUntil { app.actionSurfacePreview.latestFrameSnapshot?.frame.id == changed.frame.id }
+    let plan = try #require(app.learningVacatePlan(from:
+      .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)))
+    #expect(await app.performLearningVacate(plan))
+    guard case .loaded(let saved) = fixture.stores.checkpointStore.load() else {
+      Issue.record("Expected prefix"); await app.shutdown(); return
+    }
+    #expect(saved.penInteraction == fixture.checkpoint.penInteraction)
+    #expect(saved.penCapAppearance == nil)
+    #expect(saved.referenceFrame == nil)
+    await app.shutdown()
+  }
+
   @Test("saved camera calibration admits circles from Unknown or Down and settles Pen Up before travel",
     arguments: [PenState.unknown, .down], [false, true])
   func batchOwnsInitialPenUp(penState: PenState, raiseFails: Bool) async throws {
@@ -152,9 +219,11 @@ private struct SavedCameraCalibrationFixture {
   let stores: CompleteAcceptedLearningStores
   let checkpoint: AcceptedLearningPathCheckpoint
   let log: EventLog
+  let identities: TipCalibrationSemanticIdentityState
+  let camera: AcceptedDrawingCameraSession
 
   static func make(penState: PenState, includeCamera: Bool = true,
-    verifyPhysicalPose: Bool = true) async throws -> Self {
+    verifyPhysicalPose: Bool = true, includeTip: Bool = false) async throws -> Self {
     // Use synthetic accepted artifacts through the production persistence and
     // Apply Saved Learning path, retaining only the prefix before tip marking.
     let accepted = try await CompleteAcceptedLearningFixture.make()
@@ -163,6 +232,7 @@ private struct SavedCameraCalibrationFixture {
       penInteraction: accepted.checkpoint.penInteraction,
       machineArtifacts: accepted.checkpoint.machineArtifacts,
       machineCamera: accepted.checkpoint.machineCamera,
+      tipCalibration: includeTip ? accepted.checkpoint.tipCalibration : nil,
       penCapAppearance: accepted.checkpoint.penCapAppearance,
       referenceFrame: accepted.checkpoint.referenceFrame
     )
@@ -201,7 +271,7 @@ private struct SavedCameraCalibrationFixture {
       _ = await app.refreshControllerSessionSnapshot()
     }
     return Self(app: app, machine: machine, penGate: penGate, stores: stores,
-      checkpoint: checkpoint, log: log)
+      checkpoint: checkpoint, log: log, identities: accepted.identities, camera: camera)
   }
 }
 

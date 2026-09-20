@@ -1684,10 +1684,19 @@ final class PlotterApplicationRuntime:
   func currentBoundaryExternalFacts(
     for environment: PlotterEnvironment
   ) async -> PlotterBoundaryExternalFacts {
-    let isCurrentEnvironment = environment == penInteractionEnvironment
     let liveSnapshot = environment == .live
       ? await refreshControllerSessionSnapshot()
       : nil
+    return boundaryExternalFacts(for: environment, liveSnapshot: liveSnapshot)
+  }
+
+  /// Cached facts are suitable for control availability only. Effect ingress
+  /// above refreshes the lower owner before using the same admission policy.
+  private func boundaryExternalFacts(
+    for environment: PlotterEnvironment,
+    liveSnapshot: RunInterpreterSnapshot?
+  ) -> PlotterBoundaryExternalFacts {
+    let isCurrentEnvironment = environment == penInteractionEnvironment
     let position: MachinePosition? = if environment == .simulated {
       if let snapshot = simulatedLearningSnapshot {
         try? MachinePosition(x: snapshot.mpos.xMM, y: snapshot.mpos.yMM)
@@ -3982,7 +3991,11 @@ final class PlotterApplicationRuntime:
         return "Wait for the exact Boundary reset transaction to commit or abort."
       }
       if case .needsAttention(let detail) = boundary.phase {
-        return "Resolve the retained Boundary terminal truth before resetting Learning: \(detail)"
+        switch boundary.terminal?.disposition {
+        case .cancelled?, .refused?: break
+        default:
+          return "Resolve the retained Boundary terminal truth before resetting Learning: \(detail)"
+        }
       }
     }
     if let learningStickyAmbiguityReason {
@@ -4157,6 +4170,34 @@ final class PlotterApplicationRuntime:
     case saved(AcceptedLearningPathCheckpoint)
   }
 
+  /// A scoped suffix reset must not silently erase the accepted Pen's optical
+  /// evidence. Preserve its exact provenance, never replace it with a new frame.
+  private func compatibleLearningPrefixOpticalEvidence(
+    identity: LearningPathSemanticIdentity
+  ) -> (appearance: AcceptedPenCapAppearance?, reference: AcceptedLearningReferenceFrame?) {
+    guard currentAcceptedPenInteractionCheckpoint() != nil,
+      let retained = acceptedLearningPathCheckpoint,
+      retained.semanticIdentity.cameraMountRevision == identity.cameraMountRevision,
+      retained.semanticIdentity.cameraReframingRevision == identity.cameraReframingRevision,
+      retained.semanticIdentity.toolAssembly == identity.toolAssembly
+    else { return (nil, nil) }
+    let current = actionSurfacePreview.latestFrameSnapshot
+    let optical = current.flatMap { try? exactTipCalibrationFrame($0).opticalConfiguration }
+    let reference = retained.referenceFrame.flatMap { value in
+      value.opticalConfiguration.mountRevision == identity.cameraMountRevision
+        && value.opticalConfiguration.reframingRevision == identity.cameraReframingRevision
+        && (optical == nil || optical == value.opticalConfiguration) ? value : nil
+    }
+    let appearance = retained.penCapAppearance.flatMap { value in
+      guard let current else { return value }
+      return value.source == current.source
+        && value.cameraConfigurationID == current.frame.cameraConfigurationID
+        && value.width == current.frame.width && value.height == current.frame.height
+        && value.pixelFormat == current.frame.pixelFormat ? value : nil
+    }
+    return (appearance, reference)
+  }
+
   private func persistLearningPathPrefixBeforeVacate(
     _ plan: LearningVacatePlan,
     axisCalibration: ControllerAxisCalibrationProposal? = nil
@@ -4185,6 +4226,7 @@ final class PlotterApplicationRuntime:
         AxisMetricLearningTransition.replacingGeometry(in: currentLearningPathSemanticIdentity,
           with: $0.proposedMachineGeometry)
       } ?? currentLearningPathSemanticIdentity
+      let retainedOpticalEvidence = compatibleLearningPrefixOpticalEvidence(identity: identity)
       let checkpoint = try AcceptedLearningPathCheckpoint(
         semanticIdentity: identity,
         penInteraction: currentAcceptedPenInteractionCheckpoint(),
@@ -4195,7 +4237,9 @@ final class PlotterApplicationRuntime:
         tipCalibration: anchorIndex > tipIndex
           ? acceptedLearningPathCheckpoint?.tipCalibration
             ?? recoverableTipCalibrationCheckpoint : nil,
-        stageFour: nil
+        stageFour: nil,
+        penCapAppearance: retainedOpticalEvidence.appearance,
+        referenceFrame: retainedOpticalEvidence.reference
       )
       if let proposal = axisCalibration {
         guard proposal.oldMachineGeometry == machineGeometryIdentity else {
@@ -4265,6 +4309,8 @@ final class PlotterApplicationRuntime:
       when: !(currentBoundarySnapshot?.acceptedEvidence.isEmpty ?? true)
         || !acceptedBoundaryAggregates.isEmpty
         || currentBoundarySnapshot?.centerArrivalPosition != nil
+        || currentBoundarySnapshot?.projection.terminal != nil
+        || currentBoundarySnapshot?.projection.lastRefusal != nil
     )
     recordPayload(
       .humanGuidedDiscovery(.calibrateCameraAndVisibleCap),
@@ -6191,9 +6237,10 @@ final class PlotterApplicationRuntime:
             ? learningConnectionAndMotionUnavailableReason
             : discoveryStartUnavailableReason(for: .penInteraction)
         case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
-          reason = retainedPoseApplicabilityRefusal ?? boundarySnapshot?.projection.lastRefusal.map {
-            "Boundary refused: \($0.reason). Remedy: \($0.remedy)."
-          }
+          reason = PlotterBoundaryRuntime.admissionRefusal(
+            for: boundaryExternalFacts(for: penInteractionEnvironment,
+              liveSnapshot: machineSnapshot)
+          ).map { "Boundary unavailable: \($0.reason). Remedy: \($0.remedy)." }
         case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
           reason = learningExerciseMotionUnavailableReason(requiresCamera: true)
         case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
@@ -10673,10 +10720,11 @@ final class PlotterApplicationRuntime:
     case .exerciseMotion(_, _, let ownerID, _):
       await requestSingleJogCancel(for: target, intent: .operatorStop)
       await operation.owner.settle()
-      if ownerID != .humanGuidedDiscovery(.calibrateCameraAndVisibleCap) {
-        finishActiveExerciseAttempt(disposition: .cancelled)
-        restartableExerciseItemID = ownerID
+      if ownerID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap) {
+        await cameraCalibrationRuntime.cancelAttempt()
       }
+      finishActiveExerciseAttempt(disposition: .cancelled)
+      restartableExerciseItemID = ownerID
 
     case .borderValidation:
       let inkMayExist = operation.owner.drawingMayHaveInk
@@ -11830,6 +11878,7 @@ final class PlotterApplicationRuntime:
         _ = await submitBoundaryIntent(.acquire(direction: direction, mode: boundaryMode))
       }
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
+      await cameraCalibrationRuntime.prepareForNewAttempt()
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
@@ -11915,6 +11964,9 @@ final class PlotterApplicationRuntime:
       } catch {
         explorationError = "Comparison cancellation provenance could not be recorded: \(error)"
       }
+    }
+    if ownerID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap) {
+      await cameraCalibrationRuntime.cancelAttempt()
     }
     if ownerID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks) {
       await tipCalibrationRuntime.cancelAttempt()
