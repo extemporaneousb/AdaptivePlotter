@@ -24,6 +24,105 @@ browsing and whole-burst deletion within that declared bound. Earlier arrow-base
 ratings and adaptive exploration proposals are superseded by explicit deterministic
 algorithm selection.
 
+## Drawing motion: reproducible policy and continuous polylines
+
+Planning-only backlog, scoped by the operator on September 19, 2026. This is
+independently useful motion work through the existing Drawing path. It has no
+dependency on new UI, aesthetic ratings, preference learning, or an optimization
+solver. It neither selects an episode-migration package nor changes migration
+order. Implementation and attended physical evaluation remain future work.
+
+Current execution keeps the pen down within each logical polyline but waits for
+controller Idle after each serialized segment. Continuous execution should make
+upcoming connected segments available to the controller's look-ahead planner,
+allowing velocity through admissible junctions. The benefit is reduced repeated
+acceleration/deceleration and command overhead; its magnitude and effect on ink
+quality require measurement. A polyline remains segmented geometry: continuity
+does not authorize connecting separate strokes or removing detail.
+
+### 1. Reproducible motion policy in the drawing model
+
+Add an immutable, versioned motion policy through the existing `DrawingPlanner`
+and execution-plan handoff. Bind its identity to the exact intended plan and
+retain it in each run attempt. The complete provenance chain is:
+
+source → rendering settings → intended drawing → motion policy → observed result
+→ aesthetic assessment, when one exists.
+
+The policy specifies continuity and required stop boundaries, drawing/travel
+feeds, corner handling, and direction/ordering rules. The first delivery keeps
+the existing geometry, stroke order, directions, requested feeds, pen settings,
+and controller limits; it changes execution continuity. Record the applicable
+controller-limit context and execution-strategy revision rather than relying on
+later global defaults. Legacy attempts with missing policy data remain explicitly
+unknown, never retroactively labeled continuous.
+
+`PlotterModel` owns pure motion intent and cost estimation, integrated with the
+existing planner. `DrawingProgram` remains authored geometry. `RunInterpreter`
+owns execution sequencing and checkpoints; `MachineController` owns command
+encoding, transport, buffering, actuation, and controller settlement. Keep
+controller wire precision and cumulative-rounding guarantees in their existing
+serialization authority; do not duplicate that calculation in an optimizer.
+Expose/reuse the existing acceleration-aware estimate where applicable, distinguish
+isolated-move and continuous-motion assumptions, and retain separate conservative
+timeout margins. Do not require a new package or a fitted cost model.
+
+Execution optimization must preserve the selected intended drawing. An
+appearance-changing simplification, smoothing, join, omission, or retrace requires
+a new authored candidate and is outside this backlog. Future aesthetic feedback
+judges the drawing alone; time is automatically measured. No assessment UI or
+learner is required to bind and retain the motion policy.
+
+### 2. Bounded continuous execution through existing motion owners
+
+Replace the per-segment settlement loop for whole-plan drawing with bounded
+streaming within each admitted stroke. First establish the supported firmware
+command and cancellation semantics: the current path uses `$J` jog commands;
+buffered jogging and ordinary G-code streaming must not be treated as interchangeable.
+Keep transport/planner backpressure and a bounded amount of queued motion, with
+no forced stops merely because an internal refill boundary was reached. Required
+stroke-end, pen-transition, and checkpoint barriers remain explicit.
+
+Preserve stroke identity, source-to-wire segment mapping, containment, cumulative
+rounding, and exact final-position checks. Distinguish submitted, acknowledged,
+and controller-completed work: an `ok` is not motion completion, and controller
+completion is not verified ink. Report only the completed frontier supported by
+controller evidence; cancellation may leave an uncertain partial stroke. Existing
+Stop must halt further enqueueing and settle/cancel buffered work through the same
+owner before cleanup. Partial writes, rejection, disconnect, timeout, and reset
+must retain possible-ink/no-redraw truth without retrying uncertain geometry.
+
+Retain minimal attributed timing and policy provenance through existing run
+evidence/diagnostics: drawing and travel operation elapsed time, pen transitions,
+and completion/partial outcome. Include timestamp boundaries and missing-data
+qualifications. These are controller-observed operation durations, not direct
+physical-motion measurements. Use them to compare matched baseline and continuous
+execution without adding a performance panel or another recorder.
+
+### Delivery and acceptance
+
+Deliver the policy/provenance seam before or together with continuous execution;
+both belong to this bounded backlog. Keep the existing operator flow. No new UI,
+route reordering, stroke reversal, geometry optimization, feed increase, firmware
+settings change, automatic experimentation, or learning-model integration is part
+of this delivery. Broader learning can later consume the retained policy and
+outcome records without redesigning the execution owner.
+
+Software acceptance must prove preserved geometry/source mapping and policy
+round trips; bounded buffering and continued look-ahead across refills; pen and
+checkpoint barriers; truthful progress; and Stop, partial-write, rejection,
+disconnect, timeout, and reset behavior through controller-transcript tests.
+Existing single-move/manual/calibration routes must retain their contracts.
+Historical evidence decoding must remain valid. Run focused motion/planning/run
+tests and the required repository checks when implementation is authorized.
+
+Physical acceptance is separately attended and explicitly authorized: compare
+matched polylines/curves/corners under the same geometry, feeds, pen, paper, and
+controller settings, recording elapsed time and observed ink. Establish the speed
+benefit and assess tracking/line quality without treating simulation, command
+acknowledgements, or successful software tests as physical proof. No numeric
+speedup or aesthetic equivalence is claimed by this planning entry.
+
 ## Parking lot: voice input and speech output
 
 Deferred by the operator on September 12, 2026. The current Voice switch controls
