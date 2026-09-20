@@ -1380,6 +1380,37 @@ extending the admitted region. Submitted/completed progress counts are actual
 wire requests; archived intended geometry is unchanged. `PlannedDrawingObservation` operates only after
 execution and returns exact-frame observed/residual evidence or a typed
 rejection; it has no motion, resend, or promotion capability.
+`DrawingPlanner.motionRecipe(for:policy:)` produces an independent immutable
+`DrawingMotionRecipe` binding the existing exact plan revision/hash to versioned
+motion intent. `DrawingProgram` and `ExecutionPlanRevision` canonical identities
+remain unchanged. `DrawingMotionPolicyContext` captures controller readback beside
+the Runtime protocol authority; `PlotterDrawingRunRuntime` retains the recipe in
+the durable attempt and passes that same recipe to the lower request. Missing
+legacy policy stays unknown; no-recipe requests retain isolated execution.
+
+For continuous recipes, `RunInterpreter` caches the existing wire schedule and
+source ranges once per plan and delegates each admitted stroke as one
+`DrawingPolylineRequest`. `MachineController` uses the firmware-supported
+send-`$J`/wait-ACK/refill protocol, with one unacknowledged host command and finite
+firmware-planner backpressure. There is no internal refill Idle barrier. Normal
+completion fences ordinary replies through `$G` parser-state reporting before a
+fresh terminal status query. Cancellation uses the same closed Jog Cancel writer
+and a distinct `$$` configuration-response fence before terminal status, so a
+late normal parser-state response cannot satisfy cancellation settlement.
+Fatal lines anywhere in the returned status receipt prevent completion.
+Accepted work and controller-completed work have distinct frontiers; only a
+settled stroke followed by successful Pen Up advances its checkpoint. Required pen/stroke barriers remain.
+
+The existing attempt evidence retains `DrawingPlanProgressSnapshot` with immutable
+wire mappings and qualified `DrawingOperationSpan` values. Their boundaries cover
+lower-plan travel, drawing and pen operations, including protocol waits, but not
+upper baseline/post-observation or end-to-end latency. Decode/archive validation
+rejects inconsistent counts, mappings, identities and span ordering; absent legacy
+fields remain unknown. `DrawingMotionCost` owns pure isolated stop-to-stop and ideal
+junction-deviation approximations, explicitly qualifying missing limits, omitted
+firmware refinements, command/pen overhead and planner starvation. Runtime retains conservative timeout margins.
+No estimate or ACK is physical speed or ink-quality evidence.
+
 `PlotterMotionThroughput.applicationXYFeedMMPerMinute` is the single model value
 for app-generated XY travel and Pen-Down drawing and is `500`; the existing
 controller-reported applicable axis ceiling remains the lower refusal/selection

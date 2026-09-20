@@ -197,9 +197,13 @@ public actor RunInterpreter {
     let plannedSegmentCount: Int
     let wireSchedule: DrawingWireSchedule?
     let wireScheduleRefusal: DrawingPlanRefusal?
+    let wireStrokeMappings: [DrawingWireStrokeMapping]?
     var commandedStrokeCount = 0
     var controllerCompletedStrokeCount = 0
     var submittedSegmentCount = 0
+    var acknowledgedSegmentCount = 0
+    var operationSpans: [DrawingOperationSpan] = []
+    var polylineCancellationTimed = false
     var controllerCompletedSegmentCount = 0
     var completedStrokeIDs: [StrokeID] = []
     var completedCheckpointIDs: [PlanCheckpointID] = []
@@ -215,10 +219,13 @@ public actor RunInterpreter {
       do {
         let schedule = try DrawingWireSchedule(plan: request.plan)
         wireSchedule = schedule
+        wireStrokeMappings = schedule.strokes.map { DrawingWireStrokeMapping(strokeID: $0.strokeID,
+          sourceSegmentRanges: $0.segments.map(\.sourceSegmentRange)) }
         wireScheduleRefusal = nil
         plannedSegmentCount = schedule.segmentCount
       } catch {
         wireSchedule = nil
+        wireStrokeMappings = nil
         wireScheduleRefusal = error.refusal
         // A refused plan has no controller schedule. Preserve its intended
         // segment count in the zero-dispatch refusal snapshot.
@@ -241,11 +248,16 @@ public actor RunInterpreter {
         completedStrokeIDs: completedStrokeIDs,
         completedCheckpointIDs: completedCheckpointIDs,
         activeStrokeID: activeStrokeID,
-        activeSegmentIndex: activeSegmentIndex
+        activeSegmentIndex: activeSegmentIndex,
+        acknowledgedSegmentCount: request.motionRecipe?.policy.continuity == .continuousWithinStroke
+          ? acknowledgedSegmentCount : nil,
+        operationSpans: operationSpans,
+        wireStrokeMappings: wireStrokeMappings
       )
     }
   }
   private let machineController: MachineController
+  private let clock: any RuntimeClock
   private var generation: UInt64 = 0
   private var activeTransition: InterpreterTransitionToken?
   private var activeAxisCalibration: (id: UUID, task: Task<ControllerAxisCalibrationOutcome, Never>)?
@@ -263,7 +275,8 @@ public actor RunInterpreter {
   private var jogCancelRequestInFlight = false
   private var lastJogCancelOutcome: JogCancelOutcome?
 
-  public init(machineController: MachineController) {
+  public init(machineController: MachineController, clock: (any RuntimeClock)? = nil) {
+    self.clock = clock ?? machineController.clock
     self.machineController = machineController
   }
 
@@ -630,7 +643,13 @@ public actor RunInterpreter {
       return finishDrawingPlan(.refused(progress: currentDrawingPlanProgress(request),
         reason: .invalidWireGeometry(request.plan.strokes[0].logicalStrokeID)))
     }
-    var lastKnownPosition = await machineController.snapshot().position
+    let machineSnapshot = await machineController.snapshot()
+    if let recipe = request.motionRecipe,
+      recipe.policy.controllerLimits != DrawingMotionPolicyContext.controllerLimits(from: machineSnapshot.lastProbe) {
+      return finishDrawingPlan(.refused(progress: currentDrawingPlanProgress(request),
+        reason: .motionPolicyContextChanged))
+    }
+    var lastKnownPosition = machineSnapshot.position
     if activeDrawingPlan?.cancelIntent != nil {
       return await finishDrawingPlanCancellation(
         request: request,
@@ -696,7 +715,16 @@ public actor RunInterpreter {
         feedMMPerMinute: request.travelFeedMMPerMinute
       )
       if !MachineController.relativeJogRoundsToZero(travel) {
+        let started = clock.nowNanoseconds()
         let outcome = await machineController.requestRelativeJog(travel)
+        let disposition: DrawingOperationSpan.Disposition
+        switch outcome {
+        case .acceptedThenCompleted: disposition = .completed
+        case .cancelled: disposition = .cancelled
+        case .refused: disposition = .refused
+        case .ambiguous: disposition = .ambiguous
+        }
+        recordDrawingSpan(kind: .travel, started: started, disposition: disposition)
         lastMotionOutcome = outcome
         switch outcome {
         case .acceptedThenCompleted(let finalPosition):
@@ -783,6 +811,62 @@ public actor RunInterpreter {
       }
 
       let segments = wireStroke.segments
+      if request.motionRecipe?.policy.continuity == .continuousWithinStroke {
+        let drawingStarted = clock.nowNanoseconds()
+        activeDrawingPlan?.polylineCancellationTimed = false
+        let outcome = await machineController.requestDrawingPolyline(DrawingPolylineRequest(
+          segments: segments.map { DrawingStrokeRequest(delta: $0.delta,
+            feedMMPerMinute: request.drawingFeedMMPerMinute) },
+          sourceSegmentRanges: segments.map(\.sourceSegmentRange)
+        )) { update in
+          await self.recordPolylineProgress(update, segments: segments, drawingStarted: drawingStarted)
+        }
+        switch outcome {
+        case .completed(let evidence):
+          recordDrawingSpan(kind: .drawing, started: drawingStarted, disposition: .completed)
+          activeDrawingPlan?.controllerCompletedSegmentCount += segments.count
+          activeDrawingPlan?.controllerCompletedStrokeCount += 1
+          publishDrawingPlanProgress()
+          lastKnownPosition = evidence.finalPosition
+          guard MachinePositionAcceptancePolicy.accepts(evidence.finalPosition,
+            target: MachinePosition(point: stroke.path.end)) else {
+            let raised = await executePlanPen(.raise, request: request)
+            if case .ambiguous(let ambiguity) = raised {
+              return finishDrawingPlan(.ambiguous(progress: currentDrawingPlanProgress(request),
+                reason: .pen(command: .raise, reason: ambiguity)))
+            }
+            return finishDrawingPlan(.possibleInk(progress: currentDrawingPlanProgress(request),
+              reason: .controllerCompletedOutsidePlannedPoint(expected: stroke.path.end,
+                actual: evidence.finalPosition), penRaiseOutcome: raised))
+          }
+        case .cancelled(let evidence, let raised):
+          if activeDrawingPlan?.polylineCancellationTimed != true {
+            recordDrawingSpan(kind: .drawing, started: drawingStarted, disposition: .cancelled)
+          }
+          lastPenOutcome = raised
+          return await finishDrawingPlanCancellation(request: request,
+            finalPosition: evidence.finalPosition, penRaiseOutcome: raised)
+        case .refused(let refusal):
+          recordDrawingSpan(kind: .drawing, started: drawingStarted, disposition: .refused)
+          let raised = await executePlanPen(.raise, request: request)
+          if case .ambiguous(let ambiguity) = raised {
+            return finishDrawingPlan(.ambiguous(progress: currentDrawingPlanProgress(request),
+              reason: .pen(command: .raise, reason: ambiguity)))
+          }
+          if activeDrawingPlan?.cancelIntent != nil {
+            return await finishDrawingPlanCancellation(request: request,
+              finalPosition: lastKnownPosition, penRaiseOutcome: raised)
+          }
+          return finishDrawingPlan(.possibleInk(progress: currentDrawingPlanProgress(request),
+            reason: .strokeRefused(refusal), penRaiseOutcome: raised))
+        case .ambiguous(let ambiguity):
+          if activeDrawingPlan?.polylineCancellationTimed != true {
+            recordDrawingSpan(kind: .drawing, started: drawingStarted, disposition: .ambiguous)
+          }
+          return finishDrawingPlan(.ambiguous(progress: currentDrawingPlanProgress(request),
+            reason: .stroke(ambiguity)))
+        }
+      } else {
       for (strokeSegmentOrdinal, wireSegment) in segments.enumerated() {
         let segmentIndex = wireSegment.sourceSegmentRange.upperBound
         if activeDrawingPlan?.cancelIntent != nil {
@@ -809,7 +893,29 @@ public actor RunInterpreter {
           delta: wireSegment.delta,
           feedMMPerMinute: request.drawingFeedMMPerMinute
         )
+        let started = clock.nowNanoseconds()
         let outcome = await machineController.requestDrawingStroke(segment)
+        let disposition: DrawingOperationSpan.Disposition
+        switch outcome {
+        case .completed: disposition = .completed; activeDrawingPlan?.acknowledgedSegmentCount += 1
+        case .cancelled: disposition = .cancelled
+        case .refused: disposition = .refused
+        case .ambiguous: disposition = .ambiguous
+        }
+        if case .cancelled(let evidence, let raise) = outcome {
+          recordDrawingSpan(kind: .drawing, started: started,
+            ended: evidence.finalSampleNanoseconds, disposition: .cancelled)
+          let raiseDisposition: DrawingOperationSpan.Disposition
+          switch raise {
+          case .commandedAndSettled: raiseDisposition = .completed
+          case .refused: raiseDisposition = .refused
+          case .ambiguous: raiseDisposition = .ambiguous
+          }
+          recordDrawingSpan(kind: .penRaise, started: evidence.finalSampleNanoseconds,
+            disposition: raiseDisposition)
+        } else {
+          recordDrawingSpan(kind: .drawing, started: started, disposition: disposition)
+        }
         lastDrawingStrokeOutcome = outcome
         switch outcome {
         case .completed(let evidence):
@@ -886,6 +992,8 @@ public actor RunInterpreter {
             penRaiseOutcome: raise
           )
         }
+      }
+
       }
 
       let raiseOutcome = await executePlanPen(.raise, request: request)
@@ -1199,12 +1307,48 @@ public actor RunInterpreter {
     _ command: PenCommand,
     request: DrawingPlanRequest
   ) async -> PenOutcome {
+    let started = clock.nowNanoseconds()
     let outcome = await machineController.requestPenActuation(
       command,
       profile: request.penActuationProfile
     )
+    let disposition: DrawingOperationSpan.Disposition
+    switch outcome {
+    case .commandedAndSettled: disposition = .completed
+    case .refused: disposition = .refused
+    case .ambiguous: disposition = .ambiguous
+    }
+    recordDrawingSpan(kind: command == .raise ? .penRaise : .penLower,
+      started: started, disposition: disposition)
     lastPenOutcome = outcome
     return outcome
+  }
+
+  private func recordPolylineProgress(_ update: DrawingPolylineProgress,
+    segments: [DrawingWireSegment], drawingStarted: UInt64) {
+    switch update {
+    case .submitting(let index):
+      if index == 0 { activeDrawingPlan?.commandedStrokeCount += 1 }
+      activeDrawingPlan?.submittedSegmentCount += 1
+      activeDrawingPlan?.activeSegmentIndex = segments[index].sourceSegmentRange.upperBound
+    case .acknowledged:
+      activeDrawingPlan?.acknowledgedSegmentCount += 1
+    case .cancellationSettled(let ended, let disposition):
+      activeDrawingPlan?.polylineCancellationTimed = true
+      recordDrawingSpan(kind: .drawing, started: drawingStarted, ended: ended, disposition: disposition)
+    case .penCleanup(let started, let ended, let disposition):
+      recordDrawingSpan(kind: .penRaise, started: started, ended: ended, disposition: disposition)
+    }
+    publishDrawingPlanProgress()
+  }
+
+  private func recordDrawingSpan(kind: DrawingOperationSpan.Kind, started: UInt64, ended: UInt64? = nil,
+    disposition: DrawingOperationSpan.Disposition) {
+    let span = DrawingOperationSpan(kind: kind,
+      strokeID: activeDrawingPlan?.activeStrokeID, startedNanoseconds: started,
+      endedNanoseconds: max(started, ended ?? clock.nowNanoseconds()), disposition: disposition)
+    activeDrawingPlan?.operationSpans.append(span)
+    publishDrawingPlanProgress()
   }
 
   private func currentDrawingPlanProgress(

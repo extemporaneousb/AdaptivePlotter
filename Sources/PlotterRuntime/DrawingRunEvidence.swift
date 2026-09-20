@@ -666,6 +666,44 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
       Set(attempt.terminalFrames).count == attempt.terminalFrames.count else {
       throw DrawingRunEvidenceError.invalidAttemptContext
     }
+    if let progress = attempt.executionProgress {
+      guard progress.operationID.rawValue == intent.requestID,
+        progress.planRevisionID == intent.plan.revisionID,
+        progress.plannedStrokeCount == Int(executionFrontiers.plannedStrokeCount),
+        progress.plannedSegmentCount > 0, progress.submittedSegmentCount >= 0,
+        progress.submittedSegmentCount <= progress.plannedSegmentCount,
+        progress.controllerCompletedSegmentCount >= 0,
+        progress.controllerCompletedSegmentCount <= progress.submittedSegmentCount,
+        progress.commandedStrokeCount <= progress.submittedSegmentCount,
+        progress.controllerCompletedStrokeCount <= progress.controllerCompletedSegmentCount,
+        progress.completedStrokeIDs.count == progress.completedCheckpointIDs.count,
+        progress.completedStrokeIDs.count <= progress.controllerCompletedStrokeCount,
+        progress.commandedStrokeCount == Int(executionFrontiers.commandedStrokeCount),
+        progress.controllerCompletedStrokeCount == Int(executionFrontiers.controllerCompletedStrokeCount),
+        progress.completedStrokeIDs == Array(intent.plan.strokes.prefix(progress.completedStrokeIDs.count)).map(\.logicalStrokeID),
+        progress.completedCheckpointIDs == Array(intent.plan.checkpoints.prefix(progress.completedCheckpointIDs.count)).map(\.id)
+      else { throw DrawingRunEvidenceError.invalidAttemptContext }
+      try validateExecutionMapping(progress, intent: intent)
+      if let spans = progress.operationSpans {
+        let strokeIDs = Set(intent.plan.strokes.map(\.logicalStrokeID))
+        var priorEnd = intent.recordedAt.monotonicNanoseconds
+        for span in spans {
+          guard span.startedNanoseconds >= priorEnd,
+            span.endedNanoseconds >= span.startedNanoseconds,
+            span.endedNanoseconds <= recordedAt.monotonicNanoseconds,
+            span.strokeID == nil || strokeIDs.contains(span.strokeID!) else {
+            throw DrawingRunEvidenceError.invalidAttemptContext
+          }
+          priorEnd = span.endedNanoseconds
+        }
+      }
+      if let acknowledged = progress.acknowledgedSegmentCount {
+        guard acknowledged >= progress.controllerCompletedSegmentCount,
+          acknowledged <= progress.submittedSegmentCount else {
+          throw DrawingRunEvidenceError.invalidAttemptContext
+        }
+      }
+    }
     for media in attempt.baselines + attempt.terminalFrames { try media.validate() }
     if let reason = attempt.missingCoverageReason,
       reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -686,6 +724,84 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
         throw DrawingRunEvidenceError.invalidAttemptContext
       }
       for view in coverage.views { try validateMediaPair(view.frames, attempt: attempt) }
+    }
+  }
+
+  /// Only present mapping receipts are checked; legacy absence stays unknown.
+  /// Known strategies additionally pin the receipt to the serialization owner.
+  private func validateExecutionMapping(_ progress: DrawingPlanProgressSnapshot,
+    intent: DrawingRunIntent) throws {
+    let strokes = intent.plan.strokes
+    if let activeID = progress.activeStrokeID {
+      guard let index = strokes.firstIndex(where: { $0.logicalStrokeID == activeID }),
+        index == progress.completedStrokeIDs.count else {
+        throw DrawingRunEvidenceError.invalidAttemptContext
+      }
+      if let sourceIndex = progress.activeSegmentIndex {
+        guard sourceIndex >= 0, sourceIndex < strokes[index].path.points.count - 1 else {
+          throw DrawingRunEvidenceError.invalidAttemptContext
+        }
+      }
+    } else if progress.activeSegmentIndex != nil {
+      throw DrawingRunEvidenceError.invalidAttemptContext
+    }
+    guard let mappings = progress.wireStrokeMappings else { return }
+    guard mappings.map(\.strokeID) == strokes.map(\.logicalStrokeID) else {
+      throw DrawingRunEvidenceError.invalidAttemptContext
+    }
+    for (mapping, stroke) in zip(mappings, strokes) {
+      let ranges = mapping.sourceSegmentRanges
+      guard !ranges.isEmpty, ranges.first?.lowerBound == 0,
+        ranges.last?.upperBound == stroke.path.points.count - 2,
+        zip(ranges, ranges.dropFirst()).allSatisfy({ left, right in
+          left.upperBound < Int.max && right.lowerBound == left.upperBound + 1
+        }) else { throw DrawingRunEvidenceError.invalidAttemptContext }
+      if progress.activeStrokeID == mapping.strokeID, let sourceIndex = progress.activeSegmentIndex {
+        guard ranges.contains(where: { $0.upperBound == sourceIndex }) else {
+          throw DrawingRunEvidenceError.invalidAttemptContext
+        }
+      }
+    }
+    let counts = mappings.map { $0.sourceSegmentRanges.count }
+    guard counts.reduce(0, +) == progress.plannedSegmentCount else {
+      throw DrawingRunEvidenceError.invalidAttemptContext
+    }
+    let completedStrokes = progress.controllerCompletedStrokeCount
+    let completedPrefix = counts.prefix(completedStrokes).reduce(0, +)
+    guard progress.controllerCompletedSegmentCount >= completedPrefix else {
+      throw DrawingRunEvidenceError.invalidAttemptContext
+    }
+    let partialCompleted = progress.controllerCompletedSegmentCount - completedPrefix
+    if completedStrokes == counts.count {
+      guard partialCompleted == 0 else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    } else {
+      guard partialCompleted < counts[completedStrokes] else {
+        throw DrawingRunEvidenceError.invalidAttemptContext
+      }
+    }
+    let commanded = progress.commandedStrokeCount
+    if commanded == 0 {
+      guard progress.submittedSegmentCount == 0 else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    } else {
+      let submittedPrefix = counts.prefix(commanded - 1).reduce(0, +)
+      guard progress.submittedSegmentCount > submittedPrefix,
+        progress.submittedSegmentCount <= submittedPrefix + counts[commanded - 1] else {
+        throw DrawingRunEvidenceError.invalidAttemptContext
+      }
+    }
+    if let recipe = intent.context.motionRecipe {
+      let policy = recipe.policy
+      let supported = policy.continuity == .continuousWithinStroke
+        ? DrawingMotionPolicyContext.continuousStrategyRevision : DrawingMotionPolicyContext.isolatedStrategyRevision
+      if policy.executionStrategyRevision == supported {
+        if policy.continuity == .continuousWithinStroke, partialCompleted != 0 {
+          throw DrawingRunEvidenceError.invalidAttemptContext
+        }
+        let schedule = try DrawingWireSchedule(plan: intent.plan)
+        let expected = schedule.strokes.map { DrawingWireStrokeMapping(strokeID: $0.strokeID,
+          sourceSegmentRanges: $0.segments.map(\.sourceSegmentRange)) }
+        guard mappings == expected else { throw DrawingRunEvidenceError.invalidAttemptContext }
+      }
     }
   }
 

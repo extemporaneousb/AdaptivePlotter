@@ -1773,6 +1773,41 @@ enlarged for rounding. Wholly unrepresentable strokes are explicit
 preflight refusals, not silent success or pen taps. Intended plan hashes and source
 segment indices remain retained; submitted/completed counts describe actual wire
 requests. This is serialization precision, not measured physical accuracy.
+New general Drawing attempts capture a versioned `DrawingMotionRecipe` before
+durable dispatch. Its independent digest binds the exact existing plan revision
+and content hash to authored ordering/direction, required stroke/pen/checkpoint
+barriers, unchanged drawing/travel feeds and pen settings, captured controller
+limits, and execution-strategy revision. Plan and program identities remain
+unchanged. Historical attempts without a recipe remain explicitly unknown;
+no-recipe callers, including retained Learning Drawing Border trials, preserve
+isolated-segment execution. A changed captured controller-limit context refuses
+before the first lower-plan pen effect.
+
+With a continuous-within-stroke recipe, the controller sends one ordinary `$J`
+command, waits for its acceptance ACK, then refills without an intervening Idle
+drain. The host has at most one unacknowledged motion command; the firmware's
+finite planner supplies backpressure. This preserves geometry, feed, source
+mapping and stroke order while making connected segments available for look-ahead.
+Short segments or transport delays may still starve the planner; uninterrupted
+physical velocity and speed benefit require attended measurement.
+
+ACK never advances the controller-completed frontier. An ordinary-response fence
+precedes the terminal status query; the full receipt is checked for fatal lines
+before fresh Idle and final-position evidence complete a stroke. Successful Pen Up
+then permits checkpoint commit. Pen transitions and required barriers remain explicit. Stop suppresses further refill,
+sends Jog Cancel through the same serialized writer, fences remaining ordinary
+responses, and settles before pen cleanup. Partial writes, accepted-prefix
+rejection, timeout, disconnect and reset preserve uncertainty and no-replay truth.
+Best-effort cancellation after a usable-link failure does not certify settlement
+or authorize pen actuation.
+
+Retained attempt evidence includes lower-plan execution frontiers, source-to-wire
+mapping and attributed drawing, travel, Pen Up and Pen Down spans with monotonic
+boundaries and completed/refused/cancelled/ambiguous dispositions. These are
+controller-operation elapsed durations including protocol waits, not direct
+physical-motion or ink measurements. They exclude baseline/post-observation work
+and do not represent end-to-end run latency. Missing legacy timing remains absent.
+
 App-generated travel and Pen-Down drawing both request the canonical
 500 mm/min XY feed; the existing controller-reported feed ceiling remains the
 lower admission authority. Controller completion is not ink verification. After clean

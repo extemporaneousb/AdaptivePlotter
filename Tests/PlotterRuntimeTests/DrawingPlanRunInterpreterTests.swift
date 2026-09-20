@@ -881,3 +881,129 @@ private func waitForPlanWriteCount(
 ) async {
   while link.completedWriteCount < expected { await Task.yield() }
 }
+
+@Suite("Continuous plan execution and evidence")
+struct ContinuousDrawingPlanTests {
+  @Test("continuous policy preserves geometry and stroke barriers with retained mapping and timing")
+  func wholePlanContinuous() async throws {
+    let base = try drawingPlanRequest([[(0, 0), (1, 0), (1, 1)], [(2, 1), (3, 1)]])
+    let profile = base.penActuationProfile
+    var exchanges = drawingPlanProbeExchanges(position: (0, 0))
+    exchanges += penExchanges(.raise, at: (0, 0), profile: profile)
+    exchanges += penExchanges(.lower, at: (0, 0), profile: profile)
+    exchanges.append(planStatusExchange((0, 0)))
+    for (from, to) in [((0.0, 0.0), (1.0, 0.0)), ((1.0, 0.0), (1.0, 1.0))] {
+      exchanges.append(SimulatedCommandExchange(expectedWrite: MachineController.encodeDrawingStroke(
+        try strokeRequest(from: from, to: to, request: base)), reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]))
+    }
+    exchanges.append(polylineReplyFence())
+    exchanges.append(planStatusExchange((1, 1)))
+    exchanges += penExchanges(.raise, at: (1, 1), profile: profile)
+    exchanges += travelExchanges(try travelRequest(from: (1, 1), to: (2, 1), request: base), from: (1, 1), to: (2, 1))
+    exchanges += penExchanges(.lower, at: (2, 1), profile: profile)
+    exchanges.append(planStatusExchange((2, 1)))
+    exchanges.append(SimulatedCommandExchange(expectedWrite: MachineController.encodeDrawingStroke(
+      try strokeRequest(from: (2, 1), to: (3, 1), request: base)), reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]))
+    exchanges.append(polylineReplyFence())
+    exchanges.append(planStatusExchange((3, 1)))
+    exchanges += penExchanges(.raise, at: (3, 1), profile: profile)
+    let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
+    let request = try await continuousPlanRequest(base, interpreter: fixture.interpreter)
+    let planEncoder = JSONEncoder()
+    planEncoder.outputFormatting = [.sortedKeys]
+    let original = try planEncoder.encode(request.plan)
+    guard case .completed(let progress, _) = await fixture.interpreter.requestDrawingPlan(request) else {
+      Issue.record("Expected complete continuous plan"); return
+    }
+    #expect(progress.submittedSegmentCount == 3)
+    #expect(progress.acknowledgedSegmentCount == 3)
+    #expect(progress.controllerCompletedSegmentCount == 3)
+    #expect(progress.controllerCompletedStrokeCount == 2)
+    #expect(progress.wireStrokeMappings?.map(\.sourceSegmentRanges) == [[0...0, 1...1], [0...0]])
+    #expect(progress.operationSpans?.filter { $0.kind == .drawing }.count == 2)
+    #expect(progress.operationSpans?.filter { $0.kind == .travel }.count == 1)
+    #expect(progress.operationSpans?.allSatisfy { $0.endedNanoseconds >= $0.startedNanoseconds } == true)
+    #expect(try planEncoder.encode(request.plan) == original)
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+    let restored = try JSONDecoder().decode(DrawingPlanProgressSnapshot.self, from: JSONEncoder().encode(progress))
+    #expect(restored == progress)
+  }
+
+  @Test("captured controller context mismatch refuses before initial pen effect")
+  func changedContext() async throws {
+    let base = try drawingPlanRequest([[(0, 0), (1, 0), (1, 1)]])
+    let exchanges = drawingPlanProbeExchanges(position: (0, 0))
+    let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
+    let recipe = try DrawingMotionPolicyContext.makeRecipe(plan: base.plan,
+      travelFeedMMPerMinute: base.travelFeedMMPerMinute,
+      drawingFeedMMPerMinute: base.drawingFeedMMPerMinute,
+      penActuationProfile: base.penActuationProfile, probe: nil, continuity: .continuousWithinStroke)
+    let request = try DrawingPlanRequest(plan: base.plan,
+      travelFeedMMPerMinute: base.travelFeedMMPerMinute, drawingFeedMMPerMinute: base.drawingFeedMMPerMinute,
+      penActuationProfile: base.penActuationProfile, motionRecipe: recipe)
+    guard case .refused(_, .motionPolicyContextChanged) = await fixture.interpreter.requestDrawingPlan(request) else {
+      Issue.record("Expected controller context refusal"); return
+    }
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+  }
+
+  @Test("ACK alone retains zero current-stroke completion on terminal failure")
+  func acceptedPrefixIsNotCompleted() async throws {
+    let base = try drawingPlanRequest([[(0, 0), (1, 0), (1, 1)]])
+    var exchanges = drawingPlanProbeExchanges(position: (0, 0))
+    exchanges += penExchanges(.raise, at: (0, 0), profile: base.penActuationProfile)
+    exchanges += penExchanges(.lower, at: (0, 0), profile: base.penActuationProfile)
+    exchanges.append(planStatusExchange((0, 0)))
+    exchanges.append(SimulatedCommandExchange(expectedWrite: MachineController.encodeDrawingStroke(
+      try strokeRequest(from: (0, 0), to: (1, 0), request: base)), reads: [ScheduledMachineRead(outcome: .bytes(Data("ok\r\n".utf8)))]))
+    exchanges.append(SimulatedCommandExchange(expectedWrite: MachineController.encodeDrawingStroke(
+      try strokeRequest(from: (1, 0), to: (1, 1), request: base)), reads: [ScheduledMachineRead(outcome: .disconnect)]))
+    let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
+    let request = try await continuousPlanRequest(base, interpreter: fixture.interpreter)
+    guard case .ambiguous(let progress, _) = await fixture.interpreter.requestDrawingPlan(request) else {
+      Issue.record("Expected uncertain prefix"); return
+    }
+    #expect(progress.submittedSegmentCount == 2)
+    #expect(progress.acknowledgedSegmentCount == 1)
+    #expect(progress.controllerCompletedSegmentCount == 0)
+    #expect(progress.completedStrokeIDs.isEmpty)
+    #expect(progress.operationSpans?.last?.disposition == .ambiguous)
+  }
+}
+
+private func continuousPlanRequest(_ base: DrawingPlanRequest, interpreter: RunInterpreter) async throws -> DrawingPlanRequest {
+  let recipe = try DrawingMotionPolicyContext.makeRecipe(plan: base.plan,
+    travelFeedMMPerMinute: base.travelFeedMMPerMinute, drawingFeedMMPerMinute: base.drawingFeedMMPerMinute,
+    penActuationProfile: base.penActuationProfile, probe: await interpreter.snapshot().lastProbe,
+    continuity: .continuousWithinStroke)
+  return try DrawingPlanRequest(plan: base.plan, travelFeedMMPerMinute: base.travelFeedMMPerMinute,
+    drawingFeedMMPerMinute: base.drawingFeedMMPerMinute, penActuationProfile: base.penActuationProfile, motionRecipe: recipe)
+}
+
+private func polylineReplyFence() -> SimulatedCommandExchange {
+  ControllerTranscriptFixtures.exchange(.parserState, chunks: ["[GC:G0 G54 G17 G21 G90 G94 M3]\r\nok\r\n"])
+}
+
+extension ContinuousDrawingPlanTests {
+  @Test("legacy optional progress stays unknown and corrupt ACK or mapping evidence throws")
+  func progressDecoding() async throws {
+    let request = try drawingPlanRequest([[(0,0), (1,0)]])
+    let progress = DrawingPlanProgressSnapshot(operationID: request.operationID,
+      planRevisionID: request.plan.revisionID, plannedStrokeCount: 1, plannedSegmentCount: 1,
+      commandedStrokeCount: 1, controllerCompletedStrokeCount: 0, submittedSegmentCount: 1,
+      controllerCompletedSegmentCount: 0, completedStrokeIDs: [], completedCheckpointIDs: [],
+      activeStrokeID: request.plan.strokes[0].logicalStrokeID, activeSegmentIndex: 0)
+    let encoded = try JSONEncoder().encode(progress)
+    #expect(try JSONDecoder().decode(DrawingPlanProgressSnapshot.self, from: encoded).acknowledgedSegmentCount == nil)
+    var invalid = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    invalid["acknowledgedSegmentCount"] = 2
+    #expect(throws: (any Error).self) {
+      try JSONDecoder().decode(DrawingPlanProgressSnapshot.self, from: JSONSerialization.data(withJSONObject: invalid))
+    }
+    invalid["acknowledgedSegmentCount"] = 0
+    invalid["wireStrokeMappings"] = []
+    #expect(throws: (any Error).self) {
+      try JSONDecoder().decode(DrawingPlanProgressSnapshot.self, from: JSONSerialization.data(withJSONObject: invalid))
+    }
+  }
+}

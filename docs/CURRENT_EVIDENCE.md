@@ -8,6 +8,58 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing motion recipe and continuous polylines, 2026-09-20
+
+Task `task-03f601ada61e46cbb669c233688b59b9`, attempt
+`attempt-e2e4152e039d4f039ff978d725a85de2`, began from `0e5aa714` with target
+`main`. Workers own the policy/retention implementation, controller/interpreter
+implementation, and documentation/validation/delivery; the coordinator retains
+independent acceptance and landing authorization. This selects the ordinary
+Drawing motion backlog, not an episode migration or attended physical package.
+
+New general Drawing attempts retain an independent versioned recipe bound to the
+exact intended plan; existing plan/program hashes, authored geometry, stroke order,
+feed and pen settings remain unchanged. Legacy missing policy stays unknown and
+no-recipe Learning/calibration callers keep isolated execution. Controller settings
+are captured without firmware writes and checked before lower-plan effects.
+
+Continuous strokes now use one unacknowledged `$J` command with ACK-driven refill,
+finite firmware-planner backpressure, no intermediate Idle drain, and explicit
+stroke/pen/checkpoint barriers. Normal `$G` and cancellation `$$` response fences
+protect terminal status attribution. ACK is not completion. Stop, partial write,
+accepted-prefix rejection, disconnect, timeout, reset and coalesced fatal status
+retain uncertainty/no-replay truth. Transcript evidence establishes host sequencing,
+not uninterrupted physical velocity or immunity to transport starvation.
+
+The existing attempt archive retains wire-source mappings, distinct submitted,
+acknowledged and controller-completed frontiers, and attributed drawing/travel/pen
+operation spans. Timing covers only lower-plan execution, includes protocol waits,
+and excludes baseline/post-observation and total end-to-end latency. Completion and
+missing legacy evidence remain qualified; these are not direct physical-motion or
+ink measurements. Pure motion-cost estimates retain separate isolated/ideal
+continuous assumptions and conservative Runtime timeout ownership.
+
+The final strict sequential focused suite passed 212 tests in 12.571 seconds.
+Coverage includes recipe identity/round trips and legacy omission, controller-context
+changes, archive tampering, unchanged wire geometry/source ranges, required barriers,
+ACK/completion distinction, cancellation write/ACK/fence races, stale Idle, partial
+write, rejection, disconnect, timeout, reset and fatal lines coalesced with Idle.
+Earlier failed receipts remain in the preserved logs; the final run includes their
+repairs without weakened runtime/archive guards or geometry assertions.
+
+Receipts are retained under `.build/motion-03f601ad-evidence/`. Strict signed debug bundle, launcher identity/logic and negative-bundle validation
+passed using the stable local development identity. The unlaunched candidate is
+staged separately as
+`.build/StudioTestApps/AdaptivePlotter-Motion-stage-03f601ad.app`; `stage.json`
+and `build-inputs.json` retain its binary/signature and source-input identity.
+Configured documentation, strict sequential full quick-test and whitespace checks
+passed. The final landed-source identity, input-equality check and commit-qualified
+artifact path are supplied by `.build/motion-03f601ad-evidence/release.json`; the
+earlier stage receipt establishes only the tested candidate identity. No app
+launch, live-session replacement, physical controller/camera/pen/paper/ink operation,
+remote Git operation, physical speedup or ink-quality equivalence is claimed.
+Attended matched baseline/continuous comparison remains pending.
+
 ## Drawing precision, retained outcomes and inspection, 2026-09-18
 
 Task `task-87b9fefb7ac94c54a13362a568f81a7f` began from `80abee3c` with

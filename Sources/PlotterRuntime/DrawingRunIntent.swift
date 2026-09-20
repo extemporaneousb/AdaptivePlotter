@@ -83,17 +83,21 @@ public struct DrawingRunAttemptContext: Codable, Hashable, Sendable {
   public let penActuationProfile: PenActuationProfile
   public let paper: PaperRevisionContext
   public let candidate: DrawingRunCandidateReference?
+  /// Nil is a historical attempt whose execution policy was not captured.
+  public let motionRecipe: DrawingMotionRecipe?
 
   public init(program: DrawingProgram, registration: TipCameraRegistration,
     materialProfile: DrawingMaterialProfileRevision? = nil,
     materialApplicability: DrawingMaterialApplicability? = nil,
     paperStock: String? = nil, drawingFeedMMPerMinute: Double, penActuationProfile: PenActuationProfile,
-    paper: PaperRevisionContext, candidate: DrawingRunCandidateReference? = nil) throws {
+    paper: PaperRevisionContext, candidate: DrawingRunCandidateReference? = nil,
+    motionRecipe: DrawingMotionRecipe? = nil) throws {
     self.program = program; self.registration = registration
     self.materialProfile = materialProfile; self.materialApplicability = materialApplicability
     self.paperStock = paperStock
     self.drawingFeedMMPerMinute = drawingFeedMMPerMinute
     self.penActuationProfile = penActuationProfile; self.paper = paper; self.candidate = candidate
+    self.motionRecipe = motionRecipe
     try validate()
   }
 
@@ -117,6 +121,15 @@ public struct DrawingRunAttemptContext: Codable, Hashable, Sendable {
       candidate == nil || candidate?.matches(program) == true,
       materialApplicability == nil || materialProfile != nil else {
       throw DrawingRunEvidenceError.invalidAttemptContext
+    }
+    if let recipe = motionRecipe {
+      try recipe.policy.validate()
+      guard recipe.policy.drawingFeedMMPerMinute == drawingFeedMMPerMinute,
+        recipe.policy.pen.raisedSpindleValue == penActuationProfile.raisedSpindleValue,
+        recipe.policy.pen.loweredSpindleValue == penActuationProfile.loweredSpindleValue,
+        recipe.policy.pen.settleSeconds == penActuationProfile.settleSeconds else {
+        throw DrawingRunEvidenceError.invalidAttemptContext
+      }
     }
     try materialProfile?.validate()
     if let paperStock, paperStock.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -159,6 +172,12 @@ public struct DrawingRunIntent: Codable, Hashable, Sendable {
 
   func validate() throws {
     try context.validate()
+    if let recipe = context.motionRecipe {
+      try DrawingMotionPolicyContext.validate(recipe: recipe, plan: plan,
+        travelFeedMMPerMinute: recipe.policy.travelFeedMMPerMinute,
+        drawingFeedMMPerMinute: context.drawingFeedMMPerMinute,
+        penActuationProfile: context.penActuationProfile, requireSupportedStrategy: false)
+    }
     if let expected = plan.provenance.materialContextHash {
       guard let profile = context.materialProfile,
         try DrawingRunAttemptContext.materialContextHash(profile: profile,
@@ -215,10 +234,14 @@ public struct DrawingRunAttemptEvidence: Codable, Hashable, Sendable {
   public let terminalFrames: [DrawingRunMediaReference]
   public let mediaCoverage: DrawingRunMediaCoverage?
   public let missingCoverageReason: String?
+  /// Controller operation evidence, not physical-motion or ink measurements.
+  /// Nil means execution timing/frontiers were not retained for this attempt.
+  public let executionProgress: DrawingPlanProgressSnapshot?
   public init(intent: DrawingRunIntent, baselines: [DrawingRunMediaReference],
     terminalFrames: [DrawingRunMediaReference], mediaCoverage: DrawingRunMediaCoverage? = nil,
-    missingCoverageReason: String? = nil) {
+    missingCoverageReason: String? = nil, executionProgress: DrawingPlanProgressSnapshot? = nil) {
     self.intent = intent; self.baselines = baselines; self.terminalFrames = terminalFrames
     self.mediaCoverage = mediaCoverage; self.missingCoverageReason = missingCoverageReason
+    self.executionProgress = executionProgress
   }
 }

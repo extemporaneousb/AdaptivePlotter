@@ -275,13 +275,15 @@ public struct DrawingPlanRequest: Codable, Hashable, Sendable {
   public let travelFeedMMPerMinute: Double
   public let drawingFeedMMPerMinute: Double
   public let penActuationProfile: PenActuationProfile
+  public let motionRecipe: DrawingMotionRecipe?
 
   public init(
     operationID: DrawingPlanOperationID = DrawingPlanOperationID(),
     plan: ExecutionPlanRevision,
     travelFeedMMPerMinute: Double,
     drawingFeedMMPerMinute: Double,
-    penActuationProfile: PenActuationProfile
+    penActuationProfile: PenActuationProfile,
+    motionRecipe: DrawingMotionRecipe? = nil
   ) throws {
     guard travelFeedMMPerMinute.isFinite, travelFeedMMPerMinute > 0 else {
       throw DrawingPlanRequestError.invalidTravelFeed
@@ -294,6 +296,12 @@ public struct DrawingPlanRequest: Codable, Hashable, Sendable {
       penActuationProfile.settleSeconds.isFinite,
       penActuationProfile.settleSeconds >= 0
     else { throw DrawingPlanRequestError.invalidPenActuationProfile }
+    if let motionRecipe {
+      try DrawingMotionPolicyContext.validate(recipe: motionRecipe, plan: plan,
+        travelFeedMMPerMinute: travelFeedMMPerMinute, drawingFeedMMPerMinute: drawingFeedMMPerMinute,
+        penActuationProfile: penActuationProfile)
+    }
+    self.motionRecipe = motionRecipe
     self.operationID = operationID
     self.plan = plan
     self.travelFeedMMPerMinute = travelFeedMMPerMinute
@@ -303,7 +311,7 @@ public struct DrawingPlanRequest: Codable, Hashable, Sendable {
 
   private enum CodingKeys: String, CodingKey {
     case operationID, plan, travelFeedMMPerMinute, drawingFeedMMPerMinute
-    case penActuationProfile
+    case penActuationProfile, motionRecipe
   }
 
   public init(from decoder: any Decoder) throws {
@@ -316,7 +324,8 @@ public struct DrawingPlanRequest: Codable, Hashable, Sendable {
       penActuationProfile: values.decode(
         PenActuationProfile.self,
         forKey: .penActuationProfile
-      )
+      ),
+      motionRecipe: values.decodeIfPresent(DrawingMotionRecipe.self, forKey: .motionRecipe)
     )
   }
 }
@@ -341,6 +350,9 @@ public struct DrawingPlanProgressSnapshot: Codable, Hashable, Sendable {
   public let completedCheckpointIDs: [PlanCheckpointID]
   public let activeStrokeID: StrokeID?
   public let activeSegmentIndex: Int?
+  public let acknowledgedSegmentCount: Int?
+  public let operationSpans: [DrawingOperationSpan]?
+  public let wireStrokeMappings: [DrawingWireStrokeMapping]?
 
   public init(
     operationID: DrawingPlanOperationID,
@@ -354,8 +366,14 @@ public struct DrawingPlanProgressSnapshot: Codable, Hashable, Sendable {
     completedStrokeIDs: [StrokeID],
     completedCheckpointIDs: [PlanCheckpointID],
     activeStrokeID: StrokeID?,
-    activeSegmentIndex: Int?
+    activeSegmentIndex: Int?,
+    acknowledgedSegmentCount: Int? = nil,
+    operationSpans: [DrawingOperationSpan]? = nil,
+    wireStrokeMappings: [DrawingWireStrokeMapping]? = nil
   ) {
+    if let acknowledgedSegmentCount {
+      precondition(controllerCompletedSegmentCount...submittedSegmentCount ~= acknowledgedSegmentCount)
+    }
     precondition(plannedStrokeCount > 0)
     precondition(plannedSegmentCount > 0)
     precondition(0...plannedStrokeCount ~= commandedStrokeCount)
@@ -379,11 +397,97 @@ public struct DrawingPlanProgressSnapshot: Codable, Hashable, Sendable {
     self.completedCheckpointIDs = completedCheckpointIDs
     self.activeStrokeID = activeStrokeID
     self.activeSegmentIndex = activeSegmentIndex
+    self.acknowledgedSegmentCount = acknowledgedSegmentCount
+    self.operationSpans = operationSpans
+    self.wireStrokeMappings = wireStrokeMappings
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case operationID, planRevisionID, plannedStrokeCount, plannedSegmentCount, commandedStrokeCount, controllerCompletedStrokeCount, submittedSegmentCount, controllerCompletedSegmentCount, completedStrokeIDs, completedCheckpointIDs, activeStrokeID, activeSegmentIndex, acknowledgedSegmentCount, operationSpans, wireStrokeMappings
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    let operationID = try values.decode(DrawingPlanOperationID.self, forKey: .operationID)
+    let planRevisionID = try values.decode(ExecutionPlanRevisionID.self, forKey: .planRevisionID)
+    let plannedStrokeCount = try values.decode(Int.self, forKey: .plannedStrokeCount)
+    let plannedSegmentCount = try values.decode(Int.self, forKey: .plannedSegmentCount)
+    let commandedStrokeCount = try values.decode(Int.self, forKey: .commandedStrokeCount)
+    let controllerCompletedStrokeCount = try values.decode(Int.self, forKey: .controllerCompletedStrokeCount)
+    let submittedSegmentCount = try values.decode(Int.self, forKey: .submittedSegmentCount)
+    let controllerCompletedSegmentCount = try values.decode(Int.self, forKey: .controllerCompletedSegmentCount)
+    let completedStrokeIDs = try values.decode([StrokeID].self, forKey: .completedStrokeIDs)
+    let completedCheckpointIDs = try values.decode([PlanCheckpointID].self, forKey: .completedCheckpointIDs)
+    let activeStrokeID = try values.decodeIfPresent(StrokeID.self, forKey: .activeStrokeID)
+    let activeSegmentIndex = try values.decodeIfPresent(Int.self, forKey: .activeSegmentIndex)
+    let acknowledgedSegmentCount = try values.decodeIfPresent(Int.self, forKey: .acknowledgedSegmentCount)
+    let operationSpans = try values.decodeIfPresent([DrawingOperationSpan].self, forKey: .operationSpans)
+    let wireStrokeMappings = try values.decodeIfPresent([DrawingWireStrokeMapping].self, forKey: .wireStrokeMappings)
+    guard plannedStrokeCount > 0, plannedSegmentCount > 0,
+      commandedStrokeCount >= 0, commandedStrokeCount <= plannedStrokeCount,
+      controllerCompletedStrokeCount >= 0, controllerCompletedStrokeCount <= commandedStrokeCount,
+      submittedSegmentCount >= 0, submittedSegmentCount <= plannedSegmentCount,
+      controllerCompletedSegmentCount >= 0, controllerCompletedSegmentCount <= submittedSegmentCount,
+      commandedStrokeCount <= submittedSegmentCount,
+      controllerCompletedStrokeCount <= controllerCompletedSegmentCount,
+      completedStrokeIDs.count == completedCheckpointIDs.count,
+      completedStrokeIDs.count <= controllerCompletedStrokeCount,
+      activeSegmentIndex == nil || activeSegmentIndex! >= 0,
+      acknowledgedSegmentCount == nil || (acknowledgedSegmentCount! >= controllerCompletedSegmentCount
+        && acknowledgedSegmentCount! <= submittedSegmentCount) else {
+      throw DecodingError.dataCorruptedError(forKey: .submittedSegmentCount, in: values,
+        debugDescription: "invalid drawing execution frontier")
+    }
+    if let wireStrokeMappings {
+      var mappedCount = 0
+      guard wireStrokeMappings.count == plannedStrokeCount,
+        Set(wireStrokeMappings.map(\.strokeID)).count == wireStrokeMappings.count,
+        wireStrokeMappings.allSatisfy({ mapping in
+          let ranges = mapping.sourceSegmentRanges
+          guard !ranges.isEmpty, ranges.first?.lowerBound == 0,
+            ranges.allSatisfy({ $0.lowerBound >= 0 }),
+            zip(ranges, ranges.dropFirst()).allSatisfy({
+              $0.upperBound < Int.max && $1.lowerBound == $0.upperBound + 1
+            }) else { return false }
+          let (sum, overflow) = mappedCount.addingReportingOverflow(ranges.count)
+          guard !overflow else { return false }
+          mappedCount = sum
+          return true
+        }), mappedCount == plannedSegmentCount else {
+        throw DecodingError.dataCorruptedError(forKey: .wireStrokeMappings, in: values,
+          debugDescription: "invalid drawing wire source mapping")
+      }
+    }
+    self.init(
+      operationID: operationID,
+      planRevisionID: planRevisionID,
+      plannedStrokeCount: plannedStrokeCount,
+      plannedSegmentCount: plannedSegmentCount,
+      commandedStrokeCount: commandedStrokeCount,
+      controllerCompletedStrokeCount: controllerCompletedStrokeCount,
+      submittedSegmentCount: submittedSegmentCount,
+      controllerCompletedSegmentCount: controllerCompletedSegmentCount,
+      completedStrokeIDs: completedStrokeIDs,
+      completedCheckpointIDs: completedCheckpointIDs,
+      activeStrokeID: activeStrokeID,
+      activeSegmentIndex: activeSegmentIndex,
+      acknowledgedSegmentCount: acknowledgedSegmentCount,
+      operationSpans: operationSpans,
+      wireStrokeMappings: wireStrokeMappings)
   }
 
   /// Publication ordering within one lower drawing operation. These are the
   /// interpreter's existing execution/commit frontiers, not a new revision.
   public func isExecutionFrontier(atLeastAsAdvancedAs earlier: Self) -> Bool {
+    if let previous = earlier.acknowledgedSegmentCount {
+      guard let acknowledgedSegmentCount, acknowledgedSegmentCount >= previous else { return false }
+    }
+    if let previous = earlier.operationSpans {
+      guard let operationSpans, operationSpans.starts(with: previous) else { return false }
+    }
+    if let previous = earlier.wireStrokeMappings {
+      guard wireStrokeMappings == previous else { return false }
+    }
     guard operationID == earlier.operationID,
       planRevisionID == earlier.planRevisionID,
       plannedStrokeCount == earlier.plannedStrokeCount,
@@ -423,6 +527,7 @@ public enum DrawingPlanRefusal: Codable, Hashable, Sendable {
   /// Preflight refuses before any plan travel or Pen actuation.
   case unrepresentableStroke(StrokeID)
   case invalidWireGeometry(StrokeID)
+  case motionPolicyContextChanged
 }
 
 public enum DrawingPlanAmbiguity: Codable, Hashable, Sendable {

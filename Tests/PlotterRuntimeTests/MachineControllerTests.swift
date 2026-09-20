@@ -2493,3 +2493,322 @@ private final class TelemetrySecondStatusGateLink: MachineLink, @unchecked Senda
     return try await base.read(maximumBytes: maximumBytes, timeoutNanoseconds: timeoutNanoseconds)
   }
 }
+
+@Suite("Continuous drawing polyline transport")
+struct DrawingPolylineTransportTests {
+  @Test("refill follows ACK with no intermediate status or Idle and preserves exact bytes")
+  func continuousRefill() async throws {
+    let first = try stroke(dx: 1, dy: 0, feed: 60)
+    let second = try stroke(dx: 0, dy: 1, feed: 60)
+    let ready = try await readyDrawingStrokeController(request: first, motion: [
+      strokeExchange(first, ["ok\r\n"]), strokeExchange(second, ["ok\r\n"]),
+      strokeExchange(first, ["ok\r\n"]),
+      ControllerTranscriptFixtures.exchange(.parserState, chunks: ["[GC:G0 G54 G17 G21 G90 G94 M3]\r\nok\r\n"]),
+      statusExchange("<Idle|MPos:2.000,1.000,0.000>"),
+    ])
+    let progress = PolylineProgressRecorder()
+    let result = await ready.controller.requestDrawingPolyline(.init(segments: [first, second, first])) {
+      await progress.append($0)
+    }
+    guard case .completed(let evidence) = result else { Issue.record("Expected completed: \(result)"); return }
+    #expect(evidence.submittedSegmentCount == 3)
+    #expect(evidence.acknowledgedSegmentCount == 3)
+    #expect(evidence.finalPosition == (try MachinePosition(x: 2, y: 1)))
+    #expect(await progress.events == ["s0", "a0", "s1", "a1", "s2", "a2"])
+    #expect((await ready.controller.snapshot()).penState == .down)
+  }
+
+  @Test("all input validation precedes the first motion write")
+  func validateWholePolyline() async throws {
+    let first = try stroke(dx: 1, dy: 0, feed: 60)
+    let ready = try await readyDrawingStrokeController(request: first)
+    let before = ready.link.completedWriteCount
+    let zero = try stroke(dx: 0, dy: 0, feed: 60)
+    #expect(await ready.controller.requestDrawingPolyline(.init(segments: [first, zero])) == .refused(.zeroDelta))
+    #expect(ready.link.completedWriteCount == before)
+  }
+
+  @Test("ACK coalesced with reset does not certify a queued segment")
+  func resetAfterAcknowledgement() async throws {
+    let first = try stroke(dx: 1, dy: 0, feed: 60)
+    let ready = try await readyDrawingStrokeController(request: first, motion: [
+      strokeExchange(first, ["ok\r\nGrblHAL 1.1f ['$' for help]\r\n"]),
+    ])
+    guard case .ambiguous = await ready.controller.requestDrawingPolyline(.init(segments: [first, first])) else {
+      Issue.record("Coalesced reset must be ambiguous"); return
+    }
+    let count = ready.link.completedWriteCount
+    guard case .refused(.stickyAmbiguity) = await ready.controller.requestDrawingPolyline(.init(segments: [first])) else {
+      Issue.record("Uncertain ink cannot be resent"); return
+    }
+    #expect(ready.link.completedWriteCount == count)
+  }
+
+  @Test("partial later write and disconnect retain ambiguous accepted prefix without refill")
+  func partialAndDisconnect() async throws {
+    let first = try stroke(dx: 1, dy: 0, feed: 60)
+    let second = try stroke(dx: 0, dy: 1, feed: 60)
+    for error in [MachineLinkError.writeTimedOut(bytesWritten: 4,
+      totalBytes: MachineController.encodeDrawingStroke(second).count), .disconnected] {
+      var motion = [strokeExchange(first, ["ok\r\n"]),
+        SimulatedCommandExchange(expectedWrite: MachineController.encodeDrawingStroke(second),
+          reads: [], writeError: error)]
+      if case .writeTimedOut = error {
+        motion.append(SimulatedCommandExchange(expectedWrite: MachineController.encodeJogCancel, reads: []))
+      }
+      let ready = try await readyDrawingStrokeController(request: first, motion: motion)
+      let before = ready.link.completedWriteCount
+      let recorder = PolylineProgressRecorder()
+      guard case .ambiguous = await ready.controller.requestDrawingPolyline(.init(segments: [first, second, first]),
+        progress: { await recorder.append($0) }) else { Issue.record("Expected ambiguity"); return }
+      #expect(await recorder.events == ["s0", "a0", "s1"])
+      #expect(ready.link.completedWriteCount == before + 1 + motion.count)
+      #expect((await ready.controller.snapshot()).stickyAmbiguity != nil)
+    }
+  }
+
+  @Test("rejection after accepted prefix cancels, fences late replies, settles, and never retries")
+  func rejectedPrefix() async throws {
+    let first = try stroke(dx: 1, dy: 0, feed: 60)
+    let second = try stroke(dx: 0, dy: 1, feed: 60)
+    let ready = try await readyDrawingStrokeController(request: first, motion: [
+      strokeExchange(first, ["ok\r\n"]), strokeExchange(second, ["error:15\r\n"]),
+      SimulatedCommandExchange(expectedWrite: MachineController.encodeJogCancel, reads: []),
+      ControllerTranscriptFixtures.exchange(.configuration, chunks: ["ok\r\nerror:9\r\n[GC:G0 G21 G90 M3]\r\nok\r\n$110=1000\r\nok\r\n"]),
+      statusExchange("<Idle|MPos:0.400,0.000,0.000>"),
+    ] + successfulPenCommands(.raise))
+    guard case .ambiguous = await ready.controller.requestDrawingPolyline(.init(segments: [first, second, first])) else {
+      Issue.record("Rejected accepted prefix must retain uncertainty"); return
+    }
+    #expect((await ready.controller.snapshot()).stickyAmbiguity != nil)
+  }
+
+  @Test("cancel while first write owns lease suppresses ACK and prevents every refill")
+  func cancelWriteRaceWithoutAck() async throws {
+    let request = try stroke(dx: 1, dy: 0, feed: 60)
+    let fixture = try await Fixture.make()
+    let status = "<Idle|MPos:0.000,0.000,0.000>"
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 0)
+    exchanges[2] = statusExchange(status)
+    exchanges[2] = statusExchange("<Idle|MPos:0,0,0>")
+    exchanges[3] = drawingControllerConfigurationExchange()
+    exchanges.append(statusExchange(status))
+    exchanges += successfulPenCommands(.lower)
+    exchanges.append(statusExchange(status))
+    exchanges.append(strokeExchange(request, []))
+    exchanges.append(SimulatedCommandExchange(expectedWrite: MachineController.encodeJogCancel, reads: []))
+    exchanges.append(ControllerTranscriptFixtures.exchange(.configuration,
+      chunks: ["ok\r\nerror:9\r\n[GC:G0 G21 G90 M3]\r\nok\r\n$110=1000\r\nok\r\n"]))
+    exchanges.append(statusExchange("<Idle|MPos:0.400,0.000,0.000>"))
+    exchanges += successfulPenCommands(.raise)
+    let base = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
+    let gate = MachineWriteGate()
+    let link = BlockingMachineLink(base: base, blockedWrite: MachineController.encodeDrawingStroke(request), gate: gate)
+    let controller = MachineController(link: link, clock: fixture.clock,
+      queryTimeoutNanoseconds: 1_000, statusPollIntervalNanoseconds: 1)
+    _ = await controller.runPassiveProbe()
+    _ = await controller.activateMotionGuard()
+    _ = await controller.requestPenActuation(.lower, profile: .initialDefaults)
+    let operation = Task { await controller.requestDrawingPolyline(.init(segments: [request, request])) }
+    await gate.waitUntilBlockedWrite()
+    let cancel = Task { await controller.requestJogCancel() }
+    for _ in 0..<1_000 {
+      if await controller.snapshot().jogCancellationInFlight { break }
+      await Task.yield()
+    }
+    #expect(await controller.snapshot().jogCancellationInFlight)
+    await gate.release()
+    guard case .cancelled(let evidence, _) = await operation.value else { Issue.record("Expected cancellation"); return }
+    #expect(evidence.submittedSegmentCount == 1)
+    #expect(evidence.acknowledgedSegmentCount == 0)
+    #expect(await cancel.value == .completed(finalPosition: try MachinePosition(x: 0.4, y: 0)))
+    #expect(base.completedWriteCount == exchanges.count)
+  }
+}
+
+private actor PolylineProgressRecorder {
+  var events: [String] = []
+  func append(_ progress: DrawingPolylineProgress) {
+    switch progress {
+    case .submitting(let index): events.append("s\(index)")
+    case .acknowledged(let index): events.append("a\(index)")
+    case .cancellationSettled, .penCleanup: break
+    }
+  }
+}
+
+extension DrawingPolylineTransportTests {
+  @Test("ACK backpressure can exceed query timeout without an Idle refill barrier")
+  func delayedAcknowledgement() async throws {
+    let segment = try stroke(dx: 1, dy: 0, feed: 60)
+    let fixture = try await Fixture.make()
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 0)
+    exchanges[2] = statusExchange("<Idle|MPos:0,0,0>")
+    exchanges[3] = drawingControllerConfigurationExchange()
+    exchanges.append(statusExchange("<Idle|MPos:0,0,0>"))
+    exchanges += successfulPenCommands(.lower)
+    exchanges.append(statusExchange("<Idle|MPos:0,0,0>"))
+    exchanges.append(strokeExchange(segment, ["ok\r\n"]))
+    exchanges.append(strokeExchange(segment, ["ok\r\n"]))
+    exchanges.append(ControllerTranscriptFixtures.exchange(.parserState, chunks: ["[GC:G0 G21 G90 M3]\r\nok\r\n"]))
+    exchanges.append(statusExchange("<Idle|MPos:2,0,0>"))
+    let base = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
+    let link = PolylineInterceptedReadLink(base: base, trigger: MachineController.encodeDrawingStroke(segment),
+      clock: fixture.clock, gate: nil)
+    let controller = MachineController(link: link, clock: fixture.clock,
+      queryTimeoutNanoseconds: 1_000, statusPollIntervalNanoseconds: 1)
+    _ = await controller.runPassiveProbe()
+    _ = await controller.activateMotionGuard()
+    _ = await controller.requestPenActuation(.lower, profile: .initialDefaults)
+    guard case .completed = await controller.requestDrawingPolyline(.init(segments: [segment, segment])) else {
+      Issue.record("Wrapped read timeout must not end backpressured motion"); return
+    }
+    #expect(base.completedWriteCount == exchanges.count)
+  }
+
+  @Test("missing ACK, alarm and malformed final status never complete or replay")
+  func terminalFailures() async throws {
+    let segment = try stroke(dx: 0.001, dy: 0, feed: 60)
+    let fence = ControllerTranscriptFixtures.exchange(.parserState, chunks: ["[GC:G0 G21 G90 M3]\r\nok\r\n"])
+    let scripts: [[SimulatedCommandExchange]] = [
+      [strokeExchange(segment, []),
+        SimulatedCommandExchange(expectedWrite: MachineController.encodeJogCancel, reads: [])],
+      [strokeExchange(segment, ["ALARM:1\r\n"])],
+      [strokeExchange(segment, ["<Alarm|MPos:0,0,0>\r\nok\r\n"])],
+      [strokeExchange(segment, ["<Hold:0|MPos:0,0,0>\r\nok\r\n"])],
+      [strokeExchange(segment, ["<Door:0|MPos:0,0,0>\r\nok\r\n"])],
+      [strokeExchange(segment, ["ok\r\n"]), fence, statusExchange("<Idle|FS:0,0>")],
+      [strokeExchange(segment, ["ok\r\n"]), fence, statusExchange("<Alarm|MPos:0,0,0>")],
+      [strokeExchange(segment, ["ok\r\n"]), fence,
+        ControllerTranscriptFixtures.exchange(.status, chunks: ["<Idle|MPos:0.001,0,0>\r\nALARM:1\r\n"])],
+      [strokeExchange(segment, ["ok\r\n"]), fence,
+        ControllerTranscriptFixtures.exchange(.status, chunks: ["<Idle|MPos:0.001,0,0>\r\nGrblHAL 1.1f ['$' for help]\r\n"])],
+    ]
+    for script in scripts {
+      let ready = try await readyDrawingStrokeController(request: segment, motion: script)
+      let before = ready.link.completedWriteCount
+      guard case .ambiguous = await ready.controller.requestDrawingPolyline(.init(segments: [segment])) else {
+        Issue.record("Expected uncertain terminal"); return
+      }
+      #expect((await ready.controller.snapshot()).stickyAmbiguity != nil)
+      #expect(ready.link.completedWriteCount == before + 1 + script.count)
+      let count = ready.link.completedWriteCount
+      _ = await ready.controller.requestDrawingPolyline(.init(segments: [segment]))
+      #expect(ready.link.completedWriteCount == count)
+    }
+  }
+
+  @Test("stale Idle matching closed-path endpoint is drained before fresh terminal status")
+  func staleIdleOnClosedPolyline() async throws {
+    let a = try stroke(dx: 1, dy: 0, feed: 60)
+    let b = try stroke(dx: -1, dy: 0, feed: 60)
+    let ready = try await readyDrawingStrokeController(request: a, motion: [
+      strokeExchange(a, ["ok\r\n"]), strokeExchange(b, ["ok\r\n", "<Idle|MPos:0,0,0>\r\n"]),
+      ControllerTranscriptFixtures.exchange(.parserState, chunks: ["[GC:G0 G21 G90 M3]\r\nok\r\n"]),
+      statusExchange("<Jog|MPos:0.5,0,0>"), statusExchange("<Idle|MPos:0,0,0>"),
+    ])
+    guard case .completed(let evidence) = await ready.controller.requestDrawingPolyline(.init(segments: [a,b])) else {
+      Issue.record("Expected closed stroke completion"); return
+    }
+    #expect(evidence.finalPosition == (try MachinePosition(x: 0, y: 0)))
+  }
+
+  @Test("Stop during pending ACK or ordinary final fence tolerates suppressed reply", arguments: [false, true])
+  func cancelPendingReader(duringFence: Bool) async throws {
+    let segment = try stroke(dx: 1, dy: 0, feed: 60)
+    let fixture = try await Fixture.make()
+    var exchanges = ControllerTranscriptFixtures.successfulPassiveProbe(delayNanoseconds: 0)
+    exchanges[2] = statusExchange("<Idle|MPos:0,0,0>")
+    exchanges[3] = drawingControllerConfigurationExchange()
+    exchanges.append(statusExchange("<Idle|MPos:0,0,0>"))
+    exchanges += successfulPenCommands(.lower)
+    exchanges.append(statusExchange("<Idle|MPos:0,0,0>"))
+    exchanges.append(strokeExchange(segment, duringFence ? ["ok\r\n"] : []))
+    if duringFence { exchanges.append(ControllerTranscriptFixtures.exchange(.parserState, chunks: [])) }
+    exchanges.append(SimulatedCommandExchange(expectedWrite: MachineController.encodeJogCancel, reads: []))
+    let throughCancel = exchanges.count
+    exchanges.append(ControllerTranscriptFixtures.exchange(.configuration, chunks: ["error:9\r\nok\r\n[GC:G0 G21 G90 M3]\r\nok\r\n$110=1000\r\nok\r\n"]))
+    exchanges.append(statusExchange("<Idle|MPos:0.4,0,0>"))
+    exchanges += successfulPenCommands(.raise)
+    let base = SimulatedGRBLLink(exchanges: exchanges, clock: fixture.clock)
+    let gate = MachineReadGate()
+    let link = PolylineInterceptedReadLink(base: base,
+      trigger: duringFence ? PassiveQuery.parserState.wireBytes : MachineController.encodeDrawingStroke(segment),
+      clock: fixture.clock, gate: gate, armOnlyAfterJog: duringFence)
+    let controller = MachineController(link: link, clock: fixture.clock,
+      queryTimeoutNanoseconds: 1_000, statusPollIntervalNanoseconds: 1)
+    _ = await controller.runPassiveProbe()
+    _ = await controller.activateMotionGuard()
+    _ = await controller.requestPenActuation(.lower, profile: .initialDefaults)
+    let operation = Task { await controller.requestDrawingPolyline(.init(segments: [segment])) }
+    await gate.waitUntilBlockedRead()
+    let cancel = Task { await controller.requestJogCancel() }
+    await waitForWriteCount(base, atLeast: throughCancel)
+    await gate.release()
+    guard case .cancelled = await operation.value else { Issue.record("Expected cancellation of pending reader"); return }
+    #expect(await cancel.value == .completed(finalPosition: try MachinePosition(x: 0.4, y: 0)))
+    #expect(base.completedWriteCount == exchanges.count)
+  }
+}
+
+private final class PolylineInterceptedReadLink: MachineLink, @unchecked Sendable {
+  let descriptor: MachineLinkDescriptor
+  private let base: SimulatedGRBLLink
+  private let trigger: Data
+  private let clock: any RuntimeClock
+  private let gate: MachineReadGate?
+  private let lock = NSLock()
+  private var armed = false
+  private var used = false
+  private var sawJog = false
+  private let armOnlyAfterJog: Bool
+  init(base: SimulatedGRBLLink, trigger: Data, clock: any RuntimeClock, gate: MachineReadGate?, armOnlyAfterJog: Bool = false) {
+    self.base = base; self.trigger = trigger; self.clock = clock; self.gate = gate
+    self.armOnlyAfterJog = armOnlyAfterJog
+    descriptor = base.descriptor
+  }
+  func open() async throws -> MachineLinkOpenReceipt { try await base.open() }
+  func close() async throws { try await base.close() }
+  func discardPendingInput() async throws -> MachineLinkDiscardReceipt { try await base.discardPendingInput() }
+  func write(_ bytes: Data) async throws -> MachineLinkWriteReceipt {
+    let receipt = try await base.write(bytes)
+    lock.withLock {
+      if bytes.starts(with: Data("$J=".utf8)) { sawJog = true }
+      if bytes == trigger && (!armOnlyAfterJog || sawJog) && !used { armed = true }
+    }
+    return receipt
+  }
+  func read(maximumBytes: Int, timeoutNanoseconds: UInt64) async throws -> MachineLinkReadReceipt {
+    let intercept = lock.withLock { () -> Bool in
+      guard armed && !used else { return false }
+      armed = false; used = true; return true
+    }
+    if intercept {
+      if let gate { await gate.block() }
+      else { try await clock.sleep(nanoseconds: timeoutNanoseconds) }
+      throw MachineLinkError.readFailed(partialReceipts: [], maximumBytes: maximumBytes, reason: .timedOut)
+    }
+    return try await base.read(maximumBytes: maximumBytes, timeoutNanoseconds: timeoutNanoseconds)
+  }
+}
+
+
+extension DrawingPolylineTransportTests {
+  @Test("proved cancelled Idle then pen write timeout never sends a second cancel")
+  func cancelledPenWriteFailure() async throws {
+    let segment = try stroke(dx: 1, dy: 0, feed: 60)
+    let penBytes = MachineController.encodePenActuation(.raise, profile: .initialDefaults)
+    let motion = [strokeExchange(segment, ["ok\r\n"]), strokeExchange(segment, ["error:15\r\n"]),
+      SimulatedCommandExchange(expectedWrite: MachineController.encodeJogCancel, reads: []),
+      ControllerTranscriptFixtures.exchange(.configuration, chunks: ["$110=1000\r\nok\r\n"]),
+      statusExchange("<Idle|MPos:0.4,0,0>"),
+      SimulatedCommandExchange(expectedWrite: penBytes, reads: [],
+        writeError: .writeTimedOut(bytesWritten: 1, totalBytes: penBytes.count))]
+    let ready = try await readyDrawingStrokeController(request: segment, motion: motion)
+    let before = ready.link.completedWriteCount
+    guard case .ambiguous = await ready.controller.requestDrawingPolyline(.init(segments: [segment, segment])) else {
+      Issue.record("Pen failure must remain ambiguous"); return
+    }
+    #expect(ready.link.completedWriteCount == before + 1 + motion.count)
+  }
+}

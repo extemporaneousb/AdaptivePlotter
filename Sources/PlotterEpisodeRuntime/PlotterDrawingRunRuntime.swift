@@ -668,6 +668,7 @@ public actor PlotterDrawingRunRuntime {
   private func run(_ owner: ActiveRun, initialFacts: PlotterDrawingRunExternalFacts) async {
     let environment = initialFacts.environment
     let observationPlan: DrawingRunObservationPlan
+    let motionRecipe: DrawingMotionRecipe
     do {
       guard let bounds = owner.capturedEffectFacts.acceptedMovementBounds,
         let position = initialFacts.interpreter?.machine.position else {
@@ -675,13 +676,22 @@ public actor PlotterDrawingRunRuntime {
       }
       observationPlan = try DrawingRunObservationPlan(
         executionPlan: owner.plan.plan, acceptedMovementBounds: bounds, currentPosition: position)
+      guard let currentSnapshot = await interpreter.snapshot() else {
+        throw PreparationFailure.refused("Controller snapshot is unavailable before motion policy capture.")
+      }
+      let machine = currentSnapshot.machine
+      motionRecipe = try DrawingMotionPolicyContext.makeRecipe(plan: owner.plan.plan,
+        travelFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
+        drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
+        penActuationProfile: owner.capturedEffectFacts.penActuationProfile,
+        probe: machine.lastProbe, continuity: .continuousWithinStroke)
       let context = try DrawingRunAttemptContext(
         program: owner.plan.program, registration: owner.plan.registration,
         materialProfile: owner.plan.materialProfile, materialApplicability: owner.plan.materialApplicability,
         paperStock: owner.plan.paperStock,
         drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
         penActuationProfile: owner.capturedEffectFacts.penActuationProfile,
-        paper: owner.plan.paperCoverage.paper, candidate: owner.plan.candidate)
+        paper: owner.plan.paperCoverage.paper, candidate: owner.plan.candidate, motionRecipe: motionRecipe)
       let intent = try DrawingRunIntent(
         runID: owner.runID, requestID: owner.requestID, plan: owner.plan.plan,
         placementID: owner.plan.placementID, role: owner.plan.evidenceRole,
@@ -758,7 +768,7 @@ public actor PlotterDrawingRunRuntime {
         operationID: DrawingPlanOperationID(rawValue: owner.requestID), plan: owner.plan.plan,
         travelFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
         drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
-        penActuationProfile: owner.capturedEffectFacts.penActuationProfile)
+        penActuationProfile: owner.capturedEffectFacts.penActuationProfile, motionRecipe: motionRecipe)
       guard await revalidate(owner, requiringControllerReady: true) else {
         throw PreparationFailure.cancelled("Stop or stale facts before durable dispatch marker.")
       }
@@ -1715,7 +1725,8 @@ public actor PlotterDrawingRunRuntime {
         return DrawingRunAttemptEvidence(intent: intent, baselines: state.baselineMedia,
           terminalFrames: state.terminalMedia, mediaCoverage: state.mediaCoverage,
           missingCoverageReason: state.missingCoverageReason
-            ?? (state.mediaCoverage == nil ? "Matched observation coverage was not completed." : nil))
+            ?? (state.mediaCoverage == nil ? "Matched observation coverage was not completed." : nil),
+          executionProgress: progress)
       }
     )
   }

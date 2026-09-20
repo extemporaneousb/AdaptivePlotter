@@ -194,7 +194,7 @@ public actor MachineController {
   private let selectionIsExplicit: Bool
   private let ledger: RunLedger?
   private let runID: LedgerRunID?
-  private let clock: any RuntimeClock
+  nonisolated let clock: any RuntimeClock
   private let queryTimeoutNanoseconds: UInt64
   private let maximumRawReceiveBytesPerQuery: Int
   private let maximumRawReceiveChunksPerQuery: Int
@@ -1214,6 +1214,397 @@ public actor MachineController {
     )
   }
 
+  /// Streams connected wire segments with one unacknowledged command. Firmware
+  /// planner backpressure delays ACK; refill never inserts an Idle barrier.
+  public func requestDrawingPolyline(
+    _ request: DrawingPolylineRequest,
+    progress: @Sendable (DrawingPolylineProgress) async -> Void = { _ in }
+  ) async -> DrawingPolylineOutcome {
+    func fail(_ reason: MotionAmbiguity) -> DrawingPolylineOutcome {
+      setAmbiguous(reason)
+      return .ambiguous(reason)
+    }
+    guard activeOperation == nil else { return .refused(.operationInFlight) }
+    guard !request.segments.isEmpty else { return .refused(.zeroDelta) }
+    if let ranges = request.sourceSegmentRanges {
+      guard ranges.count == request.segments.count,
+        ranges.first?.lowerBound == 0,
+        ranges.allSatisfy({ $0.lowerBound >= 0 }),
+        zip(ranges, ranges.dropFirst()).allSatisfy({ $0.upperBound < Int.max && $1.lowerBound == $0.upperBound + 1 }) else {
+        return .refused(.freshStatusUnavailable("invalid polyline source mapping"))
+      }
+    }
+    var wires: [WireRelativeJog] = []
+    for segment in request.segments {
+      let result = Self.makeWireRelativeJog(RelativeJogRequest(delta: segment.delta,
+        feedMMPerMinute: segment.feedMMPerMinute))
+      guard let wire = result.wire else {
+        return .refused(Self.drawingStrokeRefusal(from: result.refusal ?? .nonFiniteDelta))
+      }
+      if let refusal = validateDrawingStrokeSessionAndRequest(wire) { return .refused(refusal) }
+      wires.append(wire)
+    }
+    activeOperation = .drawingStroke
+    defer {
+      activeJogCommandTransmitted = false
+      preTransmissionJogCancellationRequested = false
+      if jogCancellationProgress != nil {
+        completeActiveJogCancellation(.ambiguous(stickyAmbiguity
+          ?? .transport("polyline ended without cancel settlement")))
+      }
+      jogCancellationProgress = nil
+      activeOperation = nil
+      if connection == .moving || connection == .actuatingPen { connection = .connected }
+    }
+    do { _ = try await link.discardPendingInput() }
+    catch { return fail(.transport("polyline admission input: \(error)")) }
+    let admissionDeadline = addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds)
+    switch await requestMotionStatus(deadline: admissionDeadline, inspectEntireReceipt: true) {
+    case .status:
+      if let refusal = validateFreshControllerStatus() {
+        return .refused(Self.drawingStrokeRefusal(from: refusal))
+      }
+    case .ambiguous(let reason): return await abortDrawingPolyline(reason)
+    }
+    guard let startPosition = position else { return .refused(.machinePositionUnknown) }
+    let started = clock.nowNanoseconds()
+    // Sum isolated-motion upper estimates: continuous junctions cannot require
+    // more acceleration time than stopping at every vertex. Keep timeout grace
+    // separate from the pure cost estimate and include command overhead.
+    var timeout: UInt64 = completionGraceNanoseconds
+    for wire in wires {
+      timeout = addingClamped(timeout, Self.completionTimeoutNanoseconds(for: wire.request,
+        controllerMotionTiming: controllerMotionTiming, graceNanoseconds: queryTimeoutNanoseconds))
+    }
+    let deadline = addingClamped(started, timeout)
+    var submitted = 0
+    var acknowledged = 0
+    var rejectionAfterPrefix: String?
+    connection = .moving
+    for (index, wire) in wires.enumerated() {
+      // Recheck after acquiring the write lease: Stop may have taken priority
+      // while this continuation waited. Nothing may follow its cancel byte.
+      await acquireWireWrite(priority: false)
+      if preTransmissionJogCancellationRequested || jogCancellationProgress != nil {
+        releaseWireWrite()
+        break
+      }
+      submitted += 1
+      do {
+        activeJogCommandTransmitted = true
+        _ = try await link.write(wire.bytes)
+        recordRawIOBestEffort(RawMachineIO(direction: .transmit, bytes: wire.bytes, timestamp: timestamp()))
+        releaseWireWrite()
+        await progress(.submitting(index))
+      } catch let error as MachineLinkError {
+        releaseWireWrite()
+        await progress(.submitting(index))
+        let reason: MotionAmbiguity
+        switch error {
+        case .writeTimedOut(let written, let total):
+          reason = written > 0 ? .partialWrite(bytesWritten: written, totalBytes: total)
+            : .writeTimedOut(bytesWritten: written, totalBytes: total)
+        case .writeCancelled(let written, let total):
+          reason = written > 0 ? .partialWrite(bytesWritten: written, totalBytes: total)
+            : .writeCancelled(bytesWritten: written, totalBytes: total)
+        case .writeFailed(let written, let total, let failure):
+          reason = writeFailureAmbiguity(written: written, total: total, reason: failure)
+        case .disconnected, .notOpen:
+          invalidateConnectionKnowledge(); reason = .disconnected
+        default: reason = .transport(String(describing: error))
+        }
+        return await abortDrawingPolyline(reason)
+      } catch {
+        releaseWireWrite()
+        await progress(.submitting(index))
+        return fail(.transport(String(describing: error)))
+      }
+      switch await awaitPolylineAcknowledgement(deadline: deadline) {
+      case .accepted:
+        acknowledged += 1
+        await progress(.acknowledged(index))
+      case .cancelled: break
+      case .rejected(let reason):
+        if acknowledged == 0 && jogCancellationProgress == nil {
+          connection = .connected
+          return .refused(.controllerRejected(reason))
+        }
+        rejectionAfterPrefix = reason
+        if jogCancellationProgress == nil {
+          // The original reader remains here; do not await the public cancel
+          // API whose continuation this same reader must eventually settle.
+          jogCancellationProgress = .transmitting
+          await acquireWireWrite(priority: true)
+          do {
+            _ = try await link.write(Self.encodeJogCancel)
+            recordRawIOBestEffort(RawMachineIO(direction: .transmit,
+              bytes: Self.encodeJogCancel, timestamp: timestamp()))
+            jogCancellationProgress = .transmitted
+            lastJogCancelOutcome = .transmitted
+            releaseWireWrite()
+            resolveCancelWriteWaiters()
+          } catch {
+            releaseWireWrite()
+            resolveCancelWriteWaiters()
+            return fail(.transport("polyline rejection cancel: \(error)"))
+          }
+        }
+      case .ambiguous(let reason): return await abortDrawingPolyline(reason)
+      }
+      if jogCancellationProgress != nil || rejectionAfterPrefix != nil { break }
+    }
+    if submitted == 0 { return .refused(.operationInFlight) }
+    // Fence responses queued before the final ACK, including stale Idle samples
+    // on a closed path whose initial and final coordinates happen to match.
+    if jogCancellationProgress == nil {
+      if let reason = await synchronizePolylineReplies(deadline: deadline, interruptOnCancel: true) { return await abortDrawingPolyline(reason) }
+    }
+    var cancellationSynchronized = false
+    while clock.nowNanoseconds() < deadline {
+      if jogCancellationProgress == .transmitting { await waitForCancelWriteResolution() }
+      if let stickyAmbiguity { return .ambiguous(stickyAmbiguity) }
+      if jogCancellationProgress == .transmitted && !cancellationSynchronized {
+        // A read-only configuration response fences ordinary replies from the aborted
+        // jog. Realtime status alone can overtake the pending ordinary ACK.
+        if let reason = await synchronizePolylineReplies(deadline: deadline) { return await abortDrawingPolyline(reason) }
+        cancellationSynchronized = true
+      }
+      let queriedAfterCancel = cancellationSynchronized
+      switch await requestMotionStatus(deadline: deadline, inspectEntireReceipt: true) {
+      case .status(let report):
+        // Stop could arrive while this query was in flight. Discard that sample
+        // and issue a new query only after its write and reply fence complete.
+        if jogCancellationProgress != nil && !queriedAfterCancel { continue }
+        switch report.controllerState {
+        case .idle:
+          guard let finalPosition = report.machinePosition else {
+            return fail(.malformedReply("Idle status omitted a valid MPos"))
+          }
+          activeJogCommandTransmitted = false
+          let evidence = DrawingPolylineEvidence(request: request,
+            submittedSegmentCount: submitted, acknowledgedSegmentCount: acknowledged,
+            startPosition: startPosition, startSampleNanoseconds: started,
+            finalPosition: finalPosition, finalSampleNanoseconds: clock.nowNanoseconds())
+          connection = .connected
+          if cancellationSynchronized {
+            await progress(.cancellationSettled(evidence.finalSampleNanoseconds,
+              rejectionAfterPrefix == nil ? .cancelled : .ambiguous))
+            let penStarted = clock.nowNanoseconds()
+            let raised = await transmitPenActuation(.raise)
+            let disposition: DrawingOperationSpan.Disposition
+            switch raised {
+            case .commandedAndSettled: disposition = .completed
+            case .refused: disposition = .refused
+            case .ambiguous: disposition = .ambiguous
+            }
+            await progress(.penCleanup(started: penStarted, ended: clock.nowNanoseconds(), disposition: disposition))
+            if case .ambiguous(let reason) = raised { return await abortDrawingPolyline(reason) }
+            completeActiveJogCancellation(.completed(finalPosition: finalPosition))
+            if let rejectionAfterPrefix {
+              return fail(.transport("controller rejected queued polyline after accepted prefix: \(rejectionAfterPrefix)"))
+            }
+            return .cancelled(evidence: evidence, penRaiseOutcome: raised)
+          }
+          guard acknowledged == wires.count else { return await abortDrawingPolyline(.acceptanceTimedOut) }
+          return .completed(evidence: evidence)
+        case .run, .jog:
+          do { try await sleepBeforeNextPoll(deadline: deadline) }
+          catch { return await abortDrawingPolyline(.completionTimedOut(deadlineNanoseconds: deadline)) }
+        case .alarm: return fail(.controllerAlarm(report.state))
+        case .hold: return fail(.controllerHold)
+        default: return fail(.unexpectedControllerState(report.controllerState))
+        }
+      case .ambiguous(let reason): return await abortDrawingPolyline(reason)
+      }
+    }
+    return await abortDrawingPolyline(.completionTimedOut(deadlineNanoseconds: deadline))
+  }
+
+  /// Uncertain ink cannot be retried. On a usable link stop queued work before
+  /// releasing ownership, but do not infer settlement or attempt Pen Up here.
+  private func abortDrawingPolyline(_ reason: MotionAmbiguity) async -> DrawingPolylineOutcome {
+    let shouldCancel: Bool
+    switch reason {
+    case .acceptanceTimedOut, .completionTimedOut, .partialWrite, .writeTimedOut, .writeCancelled:
+      shouldCancel = true
+    default: shouldCancel = false
+    }
+    if jogCancellationProgress == .transmitting {
+      await waitForCancelWriteResolution()
+    } else if shouldCancel && activeJogCommandTransmitted && connection != .disconnected
+      && jogCancellationProgress == nil {
+      jogCancellationProgress = .transmitting
+      await acquireWireWrite(priority: true)
+      do {
+        _ = try await link.write(Self.encodeJogCancel)
+        recordRawIOBestEffort(RawMachineIO(direction: .transmit,
+          bytes: Self.encodeJogCancel, timestamp: timestamp()))
+        jogCancellationProgress = .transmitted
+        lastJogCancelOutcome = .transmitted
+      } catch {
+        // Preserve the original motion ambiguity. The cancel itself has no
+        // settlement proof and must not produce a second successful outcome.
+      }
+      releaseWireWrite()
+      resolveCancelWriteWaiters()
+    }
+    setAmbiguous(reason)
+    return .ambiguous(reason)
+  }
+
+  private enum PolylineAcknowledgement {
+    case accepted, cancelled, rejected(String), ambiguous(MotionAmbiguity)
+  }
+
+  private func awaitPolylineAcknowledgement(deadline: UInt64) async -> PolylineAcknowledgement {
+    var parser = GRBLParser()
+    var count = 0
+    var chunks = 0
+    func consume(_ receipts: [MachineLinkReadReceipt]) -> PolylineAcknowledgement? {
+      var terminal: PolylineAcknowledgement?
+      for receipt in receipts {
+        count += receipt.bytes.count
+        chunks += 1
+        guard count <= maximumRawReceiveBytesPerQuery, chunks <= maximumRawReceiveChunksPerQuery else {
+          return .ambiguous(.malformedReply("polyline acknowledgement exceeded response bounds"))
+        }
+        let at = RuntimeTimestamp(monotonicNanoseconds: receipt.receivedAtMonotonicNanoseconds)
+        recordRawIOBestEffort(RawMachineIO(direction: .receive, bytes: receipt.bytes, timestamp: at))
+        for line in parser.consume(receipt.bytes) {
+          switch line.kind {
+          case .acknowledgement: if terminal == nil { terminal = .accepted }
+          case .error(let code): terminal = .rejected("error:\(code)")
+          case .status(let report):
+            apply(report, receivedAt: at)
+            switch report.controllerState {
+            case .idle, .run, .jog: break
+            case .alarm: return .ambiguous(.controllerAlarm(report.state))
+            case .hold: return .ambiguous(.controllerHold)
+            default: return .ambiguous(.unexpectedControllerState(report.controllerState))
+            }
+          case .alarm:
+            applyAlarm(line.text)
+            return .ambiguous(.controllerAlarm(line.text))
+          case .greeting: applyControllerReset(); return .ambiguous(.malformedReply("controller reset during polyline"))
+          case .unknown: return .ambiguous(.malformedReply(line.text))
+          default: continue
+          }
+        }
+      }
+      return terminal
+    }
+    while clock.nowNanoseconds() < deadline {
+      if jogCancellationProgress != nil { return .cancelled }
+      let now = clock.nowNanoseconds()
+      guard now < deadline else { break }
+      do {
+        let receipt = try await link.read(maximumBytes: 4096,
+          timeoutNanoseconds: min(50_000_000, deadline - now))
+        if let terminal = consume([receipt]) { return terminal }
+      } catch let error as MachineLinkError {
+        switch error {
+        case .timedOut: continue
+        case .readFailed(let partial, _, let reason):
+          let terminal = consume(partial)
+          switch reason {
+          case .timedOut:
+            if let terminal { return terminal }
+            continue
+          case .disconnected:
+            invalidateConnectionKnowledge()
+            return .ambiguous(.disconnected)
+          default: return .ambiguous(.transport(String(describing: error)))
+          }
+        case .disconnected: invalidateConnectionKnowledge(); return .ambiguous(.disconnected)
+        default: return .ambiguous(.transport(String(describing: error)))
+        }
+      } catch { return .ambiguous(.transport(String(describing: error))) }
+    }
+    return .ambiguous(.acceptanceTimedOut)
+  }
+
+  private func synchronizePolylineReplies(deadline: UInt64, interruptOnCancel: Bool = false) async -> MotionAmbiguity? {
+    await acquireWireWrite(priority: false)
+    if interruptOnCancel && jogCancellationProgress != nil {
+      releaseWireWrite()
+      return nil
+    }
+    // Cancellation uses a distinct report marker, so an outstanding normal
+    // GC response cannot satisfy its configuration fence or contaminate the
+    // pen ACK. $$ is read-only and allowed in Jog by Grbl and grblHAL; $I is not.
+    let query: PassiveQuery = interruptOnCancel ? .parserState : .configuration
+    do {
+      _ = try await link.write(query.wireBytes)
+      recordRawIOBestEffort(RawMachineIO(direction: .transmit,
+        bytes: query.wireBytes, timestamp: timestamp()))
+      releaseWireWrite()
+    } catch {
+      releaseWireWrite()
+      return .transport("polyline reply fence write: \(error)")
+    }
+    var parser = GRBLParser()
+    var sawParserReport = false
+    var receivedBytes = 0
+    let fenceDeadline = min(deadline, addingClamped(clock.nowNanoseconds(), queryTimeoutNanoseconds))
+    func consume(_ receipts: [MachineLinkReadReceipt]) -> (Bool, MotionAmbiguity?) {
+      var fenced = false
+      for receipt in receipts {
+        receivedBytes += receipt.bytes.count
+        guard receivedBytes <= maximumRawReceiveBytesPerQuery else {
+          return (false, .malformedReply("polyline reply fence exceeded response bounds"))
+        }
+        recordRawIOBestEffort(RawMachineIO(direction: .receive, bytes: receipt.bytes,
+          timestamp: RuntimeTimestamp(monotonicNanoseconds: receipt.receivedAtMonotonicNanoseconds)))
+        for line in parser.consume(receipt.bytes) {
+          switch line.kind {
+          case .bracketReport(let name, _):
+            if interruptOnCancel && name == "GC" { sawParserReport = true }
+          case .configuration:
+            if !interruptOnCancel { sawParserReport = true }
+          case .acknowledgement: if sawParserReport { fenced = true }
+          case .error: if sawParserReport { return (false, .malformedReply("polyline reply fence rejected")) }
+          case .status(let report):
+            switch report.controllerState {
+            case .idle, .run, .jog: break
+            case .alarm: return (false, .controllerAlarm(report.state))
+            case .hold: return (false, .controllerHold)
+            default: return (false, .unexpectedControllerState(report.controllerState))
+            }
+          case .alarm: return (false, .controllerAlarm(line.text))
+          case .greeting: applyControllerReset(); return (false, .malformedReply("controller reset during reply fence"))
+          case .unknown: return (false, .malformedReply(line.text))
+          default: continue
+          }
+        }
+      }
+      return (fenced, nil)
+    }
+    while clock.nowNanoseconds() < fenceDeadline {
+      if interruptOnCancel && jogCancellationProgress != nil { return nil }
+      let now = clock.nowNanoseconds()
+      guard now < fenceDeadline else { break }
+      do {
+        let receipt = try await link.read(maximumBytes: 4096,
+          timeoutNanoseconds: min(50_000_000, fenceDeadline - now))
+        let (fenced, reason) = consume([receipt])
+        if let reason { return reason }
+        if fenced { return nil }
+      } catch let error as MachineLinkError {
+        if interruptOnCancel && jogCancellationProgress != nil { return nil }
+        switch error {
+        case .timedOut: continue
+        case .readFailed(let receipts, _, .timedOut):
+          let (fenced, reason) = consume(receipts)
+          if let reason { return reason }
+          if fenced { return nil }
+        default: return .transport("polyline reply fence: \(error)")
+        }
+      } catch { return .transport("polyline reply fence: \(error)") }
+    }
+    if interruptOnCancel && jogCancellationProgress != nil { return nil }
+    return .acceptanceTimedOut
+  }
+
   /// Reconciles commanded pen knowledge with newly accepted settings without
   /// sending controller traffic. Up/Down under a different profile is unknown
   /// until an explicit pen operation establishes the current settings.
@@ -1464,38 +1855,13 @@ public actor MachineController {
     wire: WireRelativeJog,
     controllerMotionTiming: ControllerMotionTiming?
   ) -> Double {
-    let distance = wire.delta.magnitude
-    guard let timing = controllerMotionTiming else {
-      return distance / wire.feedMMPerMinute * 60
-    }
-    let xComponent = abs(wire.delta.dx) / distance
-    let yComponent = abs(wire.delta.dy) / distance
-    var pathFeedLimits: [Double] = []
-    var pathAccelerationLimits: [Double] = []
-    if xComponent > 0 {
-      pathFeedLimits.append(timing.maximumXFeedMMPerMinute / xComponent)
-      pathAccelerationLimits.append(timing.xAccelerationMMPerSecondSquared / xComponent)
-    }
-    if yComponent > 0 {
-      pathFeedLimits.append(timing.maximumYFeedMMPerMinute / yComponent)
-      pathAccelerationLimits.append(timing.yAccelerationMMPerSecondSquared / yComponent)
-    }
-    guard let controllerFeedLimit = pathFeedLimits.min(),
-      let pathAcceleration = pathAccelerationLimits.min(),
-      controllerFeedLimit.isFinite, controllerFeedLimit > 0,
-      pathAcceleration.isFinite, pathAcceleration > 0
-    else {
-      return distance / wire.feedMMPerMinute * 60
-    }
-    let pathVelocity = min(wire.feedMMPerMinute, controllerFeedLimit) / 60
-    let accelerationAndDecelerationDistance = pathVelocity * pathVelocity / pathAcceleration
-    if distance >= accelerationAndDecelerationDistance {
-      let accelerationSeconds = pathVelocity / pathAcceleration
-      let cruiseSeconds =
-        (distance - accelerationAndDecelerationDistance) / pathVelocity
-      return 2 * accelerationSeconds + cruiseSeconds
-    }
-    return 2 * sqrt(distance / pathAcceleration)
+    let limits = try! DrawingControllerMotionLimits(
+      maximumXFeedMMPerMinute: controllerMotionTiming?.maximumXFeedMMPerMinute,
+      maximumYFeedMMPerMinute: controllerMotionTiming?.maximumYFeedMMPerMinute,
+      xAccelerationMMPerSecondSquared: controllerMotionTiming?.xAccelerationMMPerSecondSquared,
+      yAccelerationMMPerSecondSquared: controllerMotionTiming?.yAccelerationMMPerSecondSquared)
+    return DrawingMotionCost.isolatedMoveSeconds(dx: wire.delta.dx, dy: wire.delta.dy,
+      feedMMPerMinute: wire.feedMMPerMinute, limits: limits)
   }
 
   /// A requested move may be omitted only when both axes round to zero in the
@@ -1941,7 +2307,7 @@ public actor MachineController {
     case ambiguous(MotionAmbiguity)
   }
 
-  private func requestMotionStatus(deadline: UInt64) async -> MotionStatusResult {
+  private func requestMotionStatus(deadline: UInt64, inspectEntireReceipt: Bool = false) async -> MotionStatusResult {
     let query = PassiveQuery.status.wireBytes
     do {
       try await serializedWrite(query)
@@ -1988,6 +2354,7 @@ public actor MachineController {
         recordRawIOBestEffort(
           RawMachineIO(direction: .receive, bytes: data, timestamp: receivedAt)
         )
+        var receivedReport: ControllerStatusReport?
         for line in parser.consume(data) {
           switch line.kind {
           case .status(let report):
@@ -1995,7 +2362,14 @@ public actor MachineController {
               return .ambiguous(.malformedReply(line.text))
             }
             apply(report, receivedAt: receivedAt)
-            return .status(report)
+            if !inspectEntireReceipt { return .status(report) }
+            switch report.controllerState {
+            case .idle, .run, .jog: break
+            case .alarm: return .ambiguous(.controllerAlarm(report.state))
+            case .hold: return .ambiguous(.controllerHold)
+            default: return .ambiguous(.unexpectedControllerState(report.controllerState))
+            }
+            receivedReport = report
           case .alarm:
             applyAlarm(line.text)
             return .ambiguous(.controllerAlarm(line.text))
@@ -2012,6 +2386,7 @@ public actor MachineController {
             continue
           }
         }
+        if let receivedReport { return .status(receivedReport) }
       }
       return .ambiguous(.completionTimedOut(deadlineNanoseconds: deadline))
     } catch let error as MachineLinkError {
