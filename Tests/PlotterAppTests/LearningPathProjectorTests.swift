@@ -12,6 +12,20 @@ import Testing
 struct PlotterLearningPresentationCompilerTests {
   private let normalizer = PlotterLearningDetailedPresentationNormalizer()
 
+  @Test("completed selected tip calibration keeps Redo when saved-position recovery is available")
+  func completedTipRedoIsNotMaskedByPositionRecovery() throws {
+    let owner = "1.4-tip"
+    let facts = PlotterUILearningActionabilityFacts(
+      learning: .init(isEnabled: true, activeOwnerID: nil, orderedMilestones: []),
+      selectedOwnerID: owner,
+      items: [.init(ownerID: owner, kind: .sparseTipCalibration, stageID: "discovery",
+        isStage: false, isExercise: true, isComplete: true, isRepeatable: false)],
+      sparseSavedCheckpointMatchesPaper: true)
+    let projection = PlotterUILearningActionabilityCompiler().compile(facts)
+    let strip = try #require(projection.strips.first { $0.ownerID == owner })
+    #expect(strip.actions.map(\.action) == [.redoThisStep])
+  }
+
   @Test("camera failure and retry progress are visible in the Learning instructions")
   func cameraFailureIsVisible() {
     let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)

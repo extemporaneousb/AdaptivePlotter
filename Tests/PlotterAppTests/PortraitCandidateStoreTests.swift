@@ -7,6 +7,35 @@ import Testing
 @Suite("Qualified portrait candidate persistence")
 @MainActor
 struct PortraitCandidateStoreTests {
+  @Test("reviewer startup loads all imaginations through the shared owner without mounting Studio")
+  func directReviewerAndConcurrentStudioLoad() async throws {
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let writer = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let candidates = try (1...16).map { try portraitPersistenceCandidate(seed: UInt64($0)) }
+    for candidate in candidates {
+      #expect(writer.retain(candidate: candidate, reason: .physicalAttempt(attemptID: UUID())) == nil)
+    }
+    await writer.awaitPersistence()
+    let indexURL = directory.appendingPathComponent("index-v1.json")
+    let before = try Data(contentsOf: indexURL)
+    let studio = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
+    #expect(studio.sketches.persistenceState == .loading)
+    // Both UI entry points call this existing owner; concurrent open/load must
+    // join its drain, retain every entry, and never rewrite archive identities.
+    async let reviewerLoad: Void = studio.loadArchive()
+    async let studioLoad: Void = studio.loadArchive()
+    _ = await (reviewerLoad, studioLoad)
+    #expect(studio.sketches.persistenceState == .saved)
+    #expect(studio.sketches.sketches.count == 16)
+    #expect(Set(studio.sketches.sketches.map(\.id)) == Set(candidates.map(\.id)))
+    #expect(try PortraitCandidateCoding.encoder().encode(studio.sketches.archive.entries)
+      == PortraitCandidateCoding.encoder().encode(writer.archive.entries))
+    #expect(try Data(contentsOf: indexURL) == before)
+    #expect(studio.completedCandidate == nil)
+    #expect(studio.recentPhotos.isEmpty)
+  }
+
   @Test("restart restores owned exact source/raster, program, labels and all qualifying reasons")
   func restartAndTriggers() async throws {
     let directory = temporaryDirectory()

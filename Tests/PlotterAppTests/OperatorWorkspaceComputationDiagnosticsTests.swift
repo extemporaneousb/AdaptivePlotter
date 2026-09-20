@@ -603,7 +603,16 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     // immutable post-transition Learning projection after owner settlement.
     #expect(diagnostics.learningProjectionBuildCount == 2)
     #expect(diagnostics.semanticPresentationRevision - semanticRevisionBefore < 64)
-    #expect(workspace.blacklistedToolContactLocations.isEmpty)
+    let expectedMarkedLocations = Set(plan.marks.map { mark in
+      BlacklistedToolContactLocation(
+        calibrationPosition: mark.position,
+        machinePosition: mark.machinePosition,
+        markRadiusMM: SparseTipCircularMarkPlan.radiusMM,
+        paperInstance: workspace.currentPaperRevisionContext.instance
+      )
+    })
+    #expect(expectedMarkedLocations.count == 4)
+    #expect(workspace.blacklistedToolContactLocations == expectedMarkedLocations)
     #expect(workspace.contextualStopPresentation == nil)
     #expect(workspace.machineSnapshot?.currentOperation == .idle)
     #expect(workspace.machineSnapshot?.machine.controllerState == .idle)
@@ -644,7 +653,7 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     )
     #expect(await machine.requestedDrawingStrokes.count == strokesAfterBatch.count)
     #expect(await machine.passiveProbeCallCount == probesAfterBatch)
-    #expect(workspace.blacklistedToolContactLocations.isEmpty)
+    #expect(workspace.blacklistedToolContactLocations == expectedMarkedLocations)
     await workspace.shutdown()
   }
 

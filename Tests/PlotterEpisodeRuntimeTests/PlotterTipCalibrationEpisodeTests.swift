@@ -136,7 +136,7 @@ struct PlotterTipCalibrationEpisodeTests {
     #expect(await port.calls.map(callKind) == [.mark, .replace, .replace])
   }
 
-  @Test("stop closes admission and ignores a late cancelled effect")
+  @Test("stop closes admission until settlement, ignores a late effect, then permits explicit recovery")
   func stopClosesAdmissionBeforeCancellation() async throws {
     let expected = try makeExpectedSelection()
     let port = TipPortFixture(
@@ -166,8 +166,152 @@ struct PlotterTipCalibrationEpisodeTests {
     #expect(await active.value == .cancelled)
 
     let snapshot = await runtime.snapshot()
-    #expect(snapshot.admissionClosed)
-    #expect(snapshot.phase == .marking(snapshot.terminalHistory[0].operationID!))
+    #expect(!snapshot.admissionClosed)
+    #expect(snapshot.phase == .idle)
+    #expect(snapshot.expectedSelection == nil)
+    #expect(await port.calls.count == 1)
+  }
+
+  @Test("cancel after a completed batch discards stale clicks and requires explicit retry")
+  func cancelCompletedBatchBeforeRetry() async throws {
+    let expected = try makeExpectedSelection()
+    let completed: PlotterTipCalibrationEffectResult = .completed(.markBatch(.init(
+      expectedSelection: expected, controllerEvidenceIDs: ["retained-motion"], captureEvidenceIDs: [])))
+    let port = TipPortFixture(responses: [completed, completed])
+    let runtime = await PlotterTipCalibrationRuntime(effectPort: port)
+    #expect(await runtime.submit(.beginFourMarkBatch) == .completed)
+    await runtime.cancelAttempt()
+    let cancelled = await runtime.snapshot()
+    #expect(cancelled.expectedSelection == nil)
+    #expect(cancelled.completedSelection == nil)
+    #expect(cancelled.retainedDomainEvidence == nil)
+    #expect(cancelled.terminalHistory.count == 1)
+    #expect(await port.calls.count == 1)
+    #expect(await runtime.submit(.consumeCompletedPointSelection(try completedBatch(from: expected))).isRefused)
+    await runtime.prepareForNewAttempt()
+    #expect(await runtime.submit(.beginFourMarkBatch) == .completed)
+    #expect(await port.calls.count == 2)
+  }
+
+  @Test("dependency invalidation during a batch suppresses late selection and respects terminal shutdown", arguments: [false, true])
+  func activeDependencyInvalidationSuppressesLateEffects(shutdown: Bool) async throws {
+    let expected = try makeExpectedSelection()
+    let port = TipPortFixture(responses: [.completed(.markBatch(.init(
+      expectedSelection: expected, controllerEvidenceIDs: [], captureEvidenceIDs: [])))],
+      suspendsFirstRequest: true)
+    let runtime = await PlotterTipCalibrationRuntime(effectPort: port)
+    let active = Task { await runtime.submit(.beginFourMarkBatch) }
+    await port.waitForCallCount(1)
+    await runtime.resetForPaper(PaperInstanceRevision())
+    #expect((await runtime.snapshot()).admissionClosed)
+    #expect((await runtime.snapshot()).activeOperationID != nil)
+    let terminal = Task { if shutdown { await runtime.shutdown() } }
+    await port.releaseSuspendedRequest()
+    await terminal.value
+    #expect(await active.value == .cancelled)
+    let settled = await runtime.snapshot()
+    #expect(settled.activeOperationID == nil)
+    #expect(settled.expectedSelection == nil)
+    #expect(settled.acceptedRegistration == nil)
+    #expect(settled.phase == .idle)
+    #expect(settled.admissionClosed == shutdown)
+  }
+
+  @Test("overlapping cancellation and paper reset keep admission closed until every canceller settles")
+  func overlappingCancellationKeepsAdmissionClosed() async throws {
+    let expected = try makeExpectedSelection()
+    let port = TipPortFixture(responses: [.completed(.markBatch(.init(
+      expectedSelection: expected, controllerEvidenceIDs: [], captureEvidenceIDs: [])))],
+      suspendsFirstRequest: true)
+    let runtime = await PlotterTipCalibrationRuntime(effectPort: port)
+    let active = Task { await runtime.submit(.beginFourMarkBatch) }
+    await port.waitForCallCount(1)
+    let probe = CancellationEntryProbe()
+    let first = Task { @MainActor in
+      probe.count += 1
+      await runtime.cancelAttempt()
+      let closed = runtime.snapshot().admissionClosed
+      if closed { #expect(await runtime.submit(.beginFourMarkBatch) == .cancelled) }
+      return closed
+    }
+    let second = Task { @MainActor in
+      probe.count += 1
+      await runtime.prepareForNewAttempt()
+      let closed = runtime.snapshot().admissionClosed
+      if closed { #expect(await runtime.submit(.beginFourMarkBatch) == .cancelled) }
+      return closed
+    }
+    while await probe.count < 2 { await Task.yield() }
+    // Both owner methods increment their settlement depth before suspending.
+    await runtime.resetForPaper(PaperInstanceRevision())
+    await port.releaseSuspendedRequest()
+    let closedOnReturn = [await first.value, await second.value]
+    #expect(closedOnReturn.filter { $0 }.count == 1)
+    #expect(await active.value == .cancelled)
+    #expect((await runtime.snapshot()).expectedSelection == nil)
+    #expect(!(await runtime.snapshot()).admissionClosed)
+    #expect(await port.calls.count == 1)
+  }
+
+  @Test("shutdown remains terminal through cancellation, retry preparation, reset, and paper replacement")
+  func shutdownCannotBeReopened() async throws {
+    let port = TipPortFixture(responses: [])
+    let runtime = await PlotterTipCalibrationRuntime(effectPort: port)
+    await runtime.shutdown()
+    await runtime.stop()
+    await runtime.cancelAttempt()
+    await runtime.prepareForNewAttempt()
+    await runtime.clearPaperTransients(PaperInstanceRevision())
+    await runtime.resetForPaper(PaperInstanceRevision())
+    #expect((await runtime.snapshot()).admissionClosed)
+    #expect(await runtime.submit(.beginFourMarkBatch) == .cancelled)
+    #expect(await port.calls.isEmpty)
+  }
+
+  @Test("same-sheet cancellation and reset retain possible ink; a new sheet permits explicit retry")
+  func recoveryRetainsPossibleInkUntilPaperReplacement() async throws {
+    let paper = PaperInstanceRevision()
+    let location = BlacklistedToolContactLocation(
+      calibrationPosition: .negativeX,
+      machinePosition: try MachinePosition(x: 12, y: 34),
+      markRadiusMM: 1.5, paperInstance: paper)
+    let port = TipPortFixture(responses: [.failed("No marks requested")])
+    let runtime = await PlotterTipCalibrationRuntime(effectPort: port)
+    await runtime.replaceBlacklistedLocations([location])
+    await runtime.cancelAttempt()
+    await runtime.resetForPaper(paper)
+    await runtime.prepareForNewAttempt()
+    #expect((await runtime.snapshot()).blacklistedLocations == [location])
+    #expect(await runtime.submit(.beginFourMarkBatch).isRefused)
+    #expect(await port.calls.isEmpty)
+    await runtime.clearPaperTransients(PaperInstanceRevision())
+    #expect((await runtime.snapshot()).blacklistedLocations.isEmpty)
+    #expect(await port.calls.isEmpty)
+    await runtime.prepareForNewAttempt()
+    #expect(await runtime.submit(.beginFourMarkBatch) == .failed("No marks requested"))
+  }
+
+  @Test("Stop retains late possible-ink evidence without accepting authority or replaying motion")
+  func stopRetainsLatePossibleInk() async throws {
+    let location = BlacklistedToolContactLocation(calibrationPosition: .negativeX,
+      machinePosition: try MachinePosition(x: 12, y: 34), markRadiusMM: 2,
+      paperInstance: PaperInstanceRevision())
+    let port = TipPortFixture(responses: [.completed(.possibleInk(.init(
+      location: location, reason: "Contact may have occurred", persistenceEvidenceID: "late-ink")))],
+      suspendsFirstRequest: true)
+    let runtime = await PlotterTipCalibrationRuntime(effectPort: port)
+    let active = Task { await runtime.submit(.beginFourMarkBatch) }
+    await port.waitForCallCount(1)
+    let stopping = Task { await runtime.stop() }
+    while !(await runtime.snapshot()).admissionClosed { await Task.yield() }
+    await port.releaseSuspendedRequest()
+    await stopping.value
+    #expect(await active.value == .cancelled)
+    #expect((await runtime.snapshot()).blacklistedLocations == [location])
+    #expect((await runtime.snapshot()).expectedSelection == nil)
+    #expect((await runtime.snapshot()).acceptedRegistration == nil)
+    await runtime.prepareForNewAttempt()
+    #expect(await runtime.submit(.beginFourMarkBatch).isRefused)
     #expect(await port.calls.count == 1)
   }
 
@@ -337,4 +481,9 @@ private func completedBatch(
       try Point2(x: 20, y: 20), try Point2(x: 10, y: 20),
     ]
   )
+}
+
+@MainActor
+private final class CancellationEntryProbe {
+  var count = 0
 }

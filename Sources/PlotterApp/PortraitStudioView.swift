@@ -92,8 +92,8 @@ struct PortraitStudioView: View {
       }
       if case .failed(let reason) = model.sketches.persistenceState {
         HStack {
-          Text("Drawing save failed").font(.caption).foregroundStyle(.orange)
-          StudioHelpButton("Drawing save failed", text: reason)
+          Text("Imagination save failed").font(.caption).foregroundStyle(.orange)
+          StudioHelpButton("Imagination save failed", text: reason)
           Button("Retry Save") { model.sketches.retryPersistence() }
             .accessibilityIdentifier("portrait.retryArchiveSave")
           Spacer()
@@ -158,7 +158,7 @@ struct PortraitStudioView: View {
         .accessibilityLabel("Camera settings")
         .help("Camera settings")
         .popover(isPresented: $cameraSettings, arrowEdge: .bottom) { cameraSettingsPanel }
-      StudioHelpButton("Portrait Studio", text: "Capture Burst starts the selected camera and takes several frames. Turn slowly for different angles. The display becomes white during capture. Import adds an existing photo. Frame and burst deletion remove recent photos; saved drawings keep their own source copy. Save Drawing keeps this exact result in Drawing Reviewer while you continue editing. Send to Drawing also saves the result and opens Drawing with it placed on the plotter video. Sending does not move the plotter; the Draw control in Drawing starts execution.")
+      StudioHelpButton("Portrait Studio", text: "Capture Burst starts the selected camera and takes several frames. Turn slowly for different angles. The display becomes white during capture. Import adds an existing photo. Frame and burst deletion remove recent photos; saved imaginations keep their own source copy. Save Imagination keeps this exact result in Drawing Reviewer while you continue editing. Send to Drawing also saves the result and opens Drawing with it placed on the plotter video. Sending does not move the plotter; the Draw control in Drawing starts execution.")
       if model.isCapturing {
         ProgressView(value: model.captureProgress).frame(width: 60)
           .accessibilityLabel("Portrait capture progress")
@@ -204,8 +204,8 @@ struct PortraitStudioView: View {
       .disabled(candidate == nil || model.isProcessing || model.isCapturing || isStartingCapture || isSubmitting)
       .accessibilityIdentifier("portrait.showOnPlotter")
       Divider().frame(height: 20)
-      Button("Save Drawing") {
-        submissionErrorTitle = "Drawing save failed"
+      Button("Save Imagination") {
+        submissionErrorTitle = "Imagination save failed"
         submissionError = model.keepSelection()
       }
         .disabled(candidate == nil || model.isProcessing || model.isCapturing || isStartingCapture)

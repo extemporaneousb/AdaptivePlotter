@@ -27,6 +27,24 @@ Buttons show press, pending, and result feedback. Stop uses its own symbol and
 styling; ordinary choices do not encode Yes/No as green/red. Servo dragging
 commits once on release, with Confirm visibly unavailable during settlement.
 
+The Learning menu exposes **Reset Selected Step…** for accepted or transient state
+in the selected suffix, including a completed unaccepted four-circle batch awaiting
+clicks. Its confirmation names calibration marks and preserves same-sheet possible-
+ink exclusions and physical history. Selected-exercise controls remain visible;
+another active owner retains its Stop. Saved-position revalidation cannot mask
+completed-step Redo.
+
+For unusable four-circle marks, Cancel settles the owner and clears pending
+selection/proposal state; Restart/Redo explicitly prepare a new attempt. Neither
+replays marks. Completed or possibly contacted locations stay excluded on the same
+sheet. Record a new sheet on the same contact plane, inspect the persistent planned
+frame/circles, accept placement and explicitly start another admissible attempt.
+Before accepted tip registration the button is **Accept Sheet Placement**, with
+unknown tip-offset/extrapolation qualification; after calibration it is **Sheet
+Covers Target**. Both refuse stale displayed context. Placement acceptance is
+separate from tip acceptance and calibrated drawing readiness. Shutdown remains
+terminal after every cancellation, reset and paper transition.
+
 ```mermaid
 flowchart TD
   subgraph workbench["External workbench prerequisites — not Learning Path steps"]
@@ -137,8 +155,8 @@ flowchart TD
     s3 -->|Undo Last Click| s2partial
     s3 -->|Clear Clicks on This Frame| s2
     s3 -->|Cancel Attempt| scancel
-    scancel -->|Restart Attempt| s0
-    spaper -->|Record Paper Replacement| s0
+    scancel -->|Restart Attempt — prepare only; same-sheet exclusions remain| s0
+    spaper -->|New Sheet — Same Contact Plane; inspect and accept placement| s0
     sdone -->|Redo This Step — replace accepted result| s0
   end
 

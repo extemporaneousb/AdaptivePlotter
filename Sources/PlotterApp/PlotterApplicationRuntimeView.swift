@@ -297,14 +297,15 @@ struct PlotterApplicationRuntimeView: View {
       if showsExplanation && !application.paperCoverageIsCurrent {
         StudioHelpButton("Paper coverage", text: ui.workbenchCapability.paper.detail)
       }
+      Text(application.sheetAcceptanceDetail).font(.caption).foregroundStyle(.secondary)
       HStack {
-        OperatorRequestButton(title: application.paperCoverageIsCurrent ? "Sheet Confirmed" : "Sheet Covers Target",
+        OperatorRequestButton(title: application.sheetAcceptanceTitle,
           request: ui.semantic.request(for: PlotterAppUIActionID.drawingDraft(.assertPaperCoverage)),
-          unavailableReason: ui.paperManagementUnavailableReason, sink: application,
+          unavailableReason: application.paperAcceptanceUnavailableReason, sink: application,
           showsUnavailableReason: false)
           .accessibilityIdentifier("drawing.confirmSheet")
-          .help("Confirm that this sheet covers the outlined Drawing Boundary.")
-        if let reason = ui.paperManagementUnavailableReason {
+          .help(application.sheetAcceptanceDetail)
+        if let reason = application.paperAcceptanceUnavailableReason {
           StudioHelpButton("Paper coverage unavailable", text: reason)
         }
         Menu("Paper") {

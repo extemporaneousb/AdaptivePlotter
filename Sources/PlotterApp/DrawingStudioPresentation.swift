@@ -415,9 +415,9 @@ struct DrawingStudioView<BeforeRun: View>: View {
 
   private var retrospectiveLearning: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Learn from Drawings").font(.headline)
+      Text("Learn from Drawing results").font(.headline)
       if presentation.residualRecords.isEmpty {
-        Text("Completed drawings will appear here for residual analysis.")
+        Text("Drawing results will appear here for residual analysis.")
           .font(.caption).foregroundStyle(.secondary)
       }
       ForEach(presentation.residualRecords, id: \.recordID) { record in

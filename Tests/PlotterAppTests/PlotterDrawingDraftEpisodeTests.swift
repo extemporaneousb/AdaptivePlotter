@@ -1681,3 +1681,66 @@ extension PlotterDrawingDraftEpisodeTests {
     await model.shutdown()
   }
 }
+
+extension PlotterDrawingDraftEpisodeTests {
+  @Test("pre-tip sheet placement is exact-context assertion, never calibrated paper coverage")
+  func qualifiedSheetPlacement() async throws {
+    let f = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let guide = PlotterDrawingDraftPlacementGuide(opticalConfiguration: f.opticalConfiguration,
+      machineCameraRevision: f.registration.machineCameraRegistrationRevisionID,
+      region: f.drawableRegion, geometry: [.point(try Point2(x: 10, y: 10))])
+    func facts(paper: PaperRevisionContext? = nil, guide: PlotterDrawingDraftPlacementGuide? = guide,
+      frame: DisplayedFrame? = f.frame, optical: CameraOpticalConfigurationIdentity? = f.opticalConfiguration,
+      tool: ToolAssemblyRevision? = nil, busy: Bool = false, terminal: Bool = false) -> PlotterDrawingDraftExternalFacts {
+      PlotterDrawingDraftExternalFacts(environment: .simulated, interactiveLearningIsComplete: false,
+        displayedFrame: frame, opticalConfiguration: optical, registration: nil, drawableRegion: nil,
+        toolAssemblyRevision: tool ?? f.registration.applicability.toolAssembly, paper: paper ?? f.paper,
+        runInProgress: busy, terminalRequiresNewPlan: terminal, placementGuide: guide)
+    }
+    let current = facts()
+    #expect(current.paperAcceptanceUnavailableReason == nil)
+    let before = await runtime.synchronize(current)
+    let accepted = try applied(await runtime.submit(.init(projection: before.projection,
+      intent: .assertPaperCoverage), facts: current))
+    #expect(accepted.sheetPlacementIsCurrent)
+    #expect(accepted.sheetPlacementAssertion?.frame == current.revisions.displayedFrame)
+    #expect(accepted.sheetPlacementAssertion?.guide == guide)
+    #expect(!accepted.paperCoverageIsCurrent)
+    #expect(accepted.paperCoverageObservation == nil)
+    #expect(accepted.plan == nil)
+    let replacement = PaperRevisionContext(instance: PaperInstanceRevision(), contactPlane: f.paper.contactPlane)
+    #expect(!(await runtime.synchronize(facts(paper: replacement))).sheetPlacementIsCurrent)
+    #expect(!(await runtime.synchronize(facts(tool: ToolAssemblyRevision()))).sheetPlacementIsCurrent)
+    #expect(!(await runtime.synchronize(facts(guide: nil))).sheetPlacementIsCurrent)
+    #expect(!(await runtime.synchronize(facts(optical: nil))).sheetPlacementIsCurrent)
+    let changedMap = PlotterDrawingDraftPlacementGuide(opticalConfiguration: f.opticalConfiguration,
+      machineCameraRevision: LearningArtifactRevisionID(), region: f.drawableRegion, geometry: guide.geometry)
+    #expect(!(await runtime.synchronize(facts(guide: changedMap))).sheetPlacementIsCurrent)
+    let stale = await runtime.submit(.init(projection: accepted.projection,
+      intent: .assertPaperCoverage), facts: facts(paper: replacement))
+    #expect(try refusal(stale).reason == .staleProjection)
+    for unavailable in [facts(frame: nil), facts(guide: nil), facts(optical: nil), facts(busy: true), facts(terminal: true)] {
+      #expect(unavailable.paperAcceptanceUnavailableReason != nil)
+      let snapshot = await runtime.synchronize(unavailable)
+      let result = await runtime.submit(.init(projection: snapshot.projection,
+        intent: .assertPaperCoverage), facts: unavailable)
+      #expect(try refusal(result).remedy == unavailable.paperAcceptanceUnavailableReason)
+    }
+  }
+
+  @Test("calibrated sheet acceptance refuses optical and plane mismatches without weakening registration")
+  func paperAcceptanceContextMismatch() async throws {
+    let f = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    let mismatchedPlane = PaperRevisionContext(instance: f.paper.instance, contactPlane: PaperContactPlaneRevision())
+    let facts = f.facts(paper: mismatchedPlane)
+    #expect(facts.paperAcceptanceUnavailableReason != nil)
+    let snapshot = await runtime.synchronize(facts)
+    let result = await runtime.submit(.init(projection: snapshot.projection,
+      intent: .assertPaperCoverage), facts: facts)
+    #expect(try refusal(result).remedy == facts.paperAcceptanceUnavailableReason)
+    #expect(result.snapshot.paperCoverageObservation == nil)
+    #expect(!result.snapshot.sheetPlacementIsCurrent)
+  }
+}

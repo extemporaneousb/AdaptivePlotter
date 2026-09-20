@@ -290,11 +290,26 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
       workspace.tipCameraRegistration,
       "accepted registration missing: \(workspace.explorationError ?? "no error")"
     )
+    let replacementRuntime = PlotterTipCalibrationRuntime(effectPort: FailedReplacementTipPort())
+    replacementRuntime.restoreAcceptedRegistration(accepted)
+    await replacementRuntime.prepareForNewAttempt()
+    #expect(replacementRuntime.acceptedRegistration == accepted)
+    #expect(await replacementRuntime.submit(.beginFourMarkBatch) == .failed("Replacement unavailable"))
+    #expect(replacementRuntime.phase == .accepted)
+    #expect(replacementRuntime.acceptedRegistration == accepted)
+    await replacementRuntime.cancelAttempt()
+    replacementRuntime.clearPaperTransients(PaperInstanceRevision())
+    #expect(replacementRuntime.acceptedRegistration == accepted)
+    #expect(replacementRuntime.phase == .accepted)
     #expect(accepted.modelForm == .directAffine)
     #expect(accepted.applicabilityRectangle == batch.applicabilityRectangle)
     #expect(accepted.modelSelectionEvidence.observationIDs.count == 4)
     #expect(workspace.proposedTipCameraRegistration == nil)
     #expect(workspace.tipCalibrationRuntime.phase == .accepted)
+    let acceptedGuideFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    let calibratedGuides = workspace.sparseTipGuideOverlays(on: acceptedGuideFrame)
+    #expect(calibratedGuides.count == 10)
+    #expect(calibratedGuides.allSatisfy { $0.provenance.algorithmRevision == "planned-four-circle-compatible-tip-projection-v1" })
     let regionOverlay = try #require(
       workspace.testActionSurfacePresentation.overlays.first {
         $0.provenance.kind == .drawingBorder
@@ -330,6 +345,75 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
     #expect(checkpointBox.operationCounts.loads == 1)
     #expect(checkpointBox.operationCounts.saves == 0)
     #expect(checkpointBox.operationCounts.clears == 0)
+  }
+
+  @Test("unaccepted circle recovery preserves upstream Learning and excludes same-sheet replay", arguments: [false, true])
+  func recoverUnacceptedCircles(scopedReset: Bool) async throws {
+    let harness = makeCausalSimulatorAppFixture()
+    let workspace = harness.workspace
+    try await completeSimulatedPenInteractionPrerequisite(workspace)
+    try await installAcceptedBoundaryTestProjection(
+      runtime: harness.boundaryRuntime, workspace: workspace, environment: .simulated)
+    let camera = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    await workspace.performTestExerciseAction(.cameraCalibration(.buildFivePositionProposal), for: camera)
+    await workspace.performTestExerciseAction(.cameraCalibration(.acceptProposal), for: camera)
+    let tip = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+    let upstream = workspace.learningArtifactGraph.revisions.filter { $0.state == .current }
+    let registration = try #require(workspace.machineCameraRegistration)
+    let boundary = workspace.testAcceptedBoundaryAggregates
+    await workspace.performTestExerciseAction(.tipCalibration(.beginFourMarkBatch), for: tip)
+    #expect(workspace.tipCalibrationRuntime.expectedSelection != nil)
+    #expect((await harness.simulator.snapshot()).persistentInkSegmentCount == 64)
+    let guideFrame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    let plannedGuides = workspace.sparseTipGuideOverlays(on: guideFrame)
+    try #require(plannedGuides.count == 10)
+    #expect(plannedGuides.allSatisfy { $0.provenance.source == .planned })
+    #expect(workspace.sparseTipGuideDetail(on: guideFrame)?.contains("unknown tip offset") == true)
+    let batch = try #require(workspace.currentSparseTipBatchPlan)
+    for (index, mark) in batch.marks.enumerated() {
+      guard case .polyline(let circle) = plannedGuides[3 + index * 2].geometry else {
+        Issue.record("Expected a planned circle polyline"); return
+      }
+      #expect(circle.points == (try mark.circle.pathPositions.map { try registration.fit.cameraPoint(from: $0.point) }))
+    }
+    let plan = try #require(workspace.learningVacatePlan(from: tip))
+    #expect(plan.physicalInkMayRemain)
+    if scopedReset {
+      #expect(await workspace.performLearningVacate(plan))
+    } else {
+      await workspace.performTestExerciseAction(.cancel, for: tip)
+    }
+    #expect(workspace.tipCalibrationRuntime.expectedSelection == nil)
+    #expect(workspace.tipCalibrationRuntime.acceptedRegistration == nil)
+    #expect(workspace.machineCameraRegistration == registration)
+    #expect(workspace.testAcceptedBoundaryAggregates == boundary)
+    for revision in upstream {
+      #expect(workspace.learningArtifactGraph.revisions.contains { $0.id == revision.id && $0.state == .current })
+    }
+    #expect(workspace.tipCalibrationRuntime.blacklistedLocations.count == 4)
+    let beforeRetry = await harness.simulator.snapshot()
+    let samePaperRequest = workspace.testPlotterUIProjection(
+      selectedItemID: tip, includesLearningPath: true).semantic.request(
+        for: learningActionID(.tipCalibration(.beginFourMarkBatch), owner: tip))
+    #expect(samePaperRequest == nil)
+    let rejectedRetry = await workspace.tipCalibrationRuntime.submit(.beginFourMarkBatch)
+    if case .refused = rejectedRetry {} else { Issue.record("Same-sheet calibration retry must refuse.") }
+    let refusedRetry = await harness.simulator.snapshot()
+    #expect(refusedRetry.persistentInkSegmentCount == 64)
+    #expect(refusedRetry.mpos == beforeRetry.mpos)
+    await workspace.recordNewPaperSheetOnCurrentPlane()
+    #expect(workspace.machineCameraRegistration == registration)
+    #expect(workspace.testAcceptedBoundaryAggregates == boundary)
+    #expect(workspace.tipCalibrationRuntime.blacklistedLocations.isEmpty)
+    #expect(workspace.tipCalibrationRuntime.expectedSelection == nil)
+    #expect(workspace.sparseTipGuideOverlays(on: guideFrame).map(\.geometry) == plannedGuides.map(\.geometry))
+    let freshPaper = await harness.simulator.snapshot()
+    #expect(freshPaper.persistentInkSegmentCount == 0)
+    #expect(freshPaper.mpos == beforeRetry.mpos)
+    await workspace.performTestExerciseAction(.tipCalibration(.beginFourMarkBatch), for: tip)
+    #expect(workspace.tipCalibrationRuntime.expectedSelection != nil)
+    #expect((await harness.simulator.snapshot()).persistentInkSegmentCount == 64)
+    await workspace.shutdown()
   }
 
   @Test("five-cap acceptance advances directly to sparse marks")
@@ -802,5 +886,11 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
         if case .comparison = $0.kind { return true }
         return false
       })
+  }
+}
+
+private actor FailedReplacementTipPort: PlotterTipCalibrationEffectPort {
+  func execute(_ request: PlotterTipCalibrationEffectRequest) async -> PlotterTipCalibrationEffectResult {
+    .failed("Replacement unavailable")
   }
 }

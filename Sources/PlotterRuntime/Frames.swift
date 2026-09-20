@@ -373,6 +373,7 @@ public enum CameraPixelGeometry: Codable, Hashable, Sendable {
 /// value instead of matching ad-hoc strings produced by individual algorithms.
 public enum CameraOverlayKind: String, Codable, CaseIterable, Hashable, Sendable {
   case intendedPath
+  case calibrationGuide
   case observedInk
   case residual
   case acceptedBoundary

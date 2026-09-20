@@ -1612,8 +1612,8 @@ There are no Random, More Like This, history navigation, Big Head, preference-ra
 or named-training controls in ordinary Studio. Historical candidate formats and
 required source, raster, label and checkpoint interpretation remain compatible.
 Existing fitted checkpoints are not loaded or consulted by normal Studio generation.
-Save Drawing retains the exact candidate without switching the editor into another
-selection mode. Browsing saved drawings belongs to Drawing Reviewer and does not
+Save Imagination retains the exact candidate without switching the editor into another
+selection mode. Browsing Imaginations belongs to Drawing Reviewer and does not
 change the Studio edit. Source photos and vectors shown together come from the same
 candidate, including retained candidates.
 
@@ -1637,7 +1637,7 @@ renderer is no longer a production UI path. **Send to Drawing** explicitly insta
 a selected immutable program through the existing draft intent sink and initially
 fits it. Re-showing the same admitted program preserves its current placement.
 A successful handoff saves the exact candidate and reveals shared Drawing controls;
-**Save Drawing** is optional library storage, not a prerequisite. The workflow is
+**Save Imagination** is optional library storage, not a prerequisite. The workflow is
 Studio → Send to Drawing → placement/material/paper setup → Draw. Sending invokes
 no motion. Later Studio edits do not mutate the placed program until another
 explicit handoff. The existing Drawing panel keeps the exact admitted plan visible above its
@@ -1645,8 +1645,23 @@ scrolling controls in its region frame, including rotation, clipping and optiona
 or terminal is retained it uses that sealed run plan; it never substitutes a later
 Studio candidate. Without an admitted plan, an authored preview is labeled reference.
 
-Drawing Reviewer lists saved candidates and all ordinary/portrait run results from
-the existing evidence archive. It provides Fit/100% images, Close, explicit program
+Drawing Reviewer lists every valid saved digital candidate as **Imaginations** and
+ordinary/portrait physical executions as **Drawing results**. Opening the reviewer
+loads the existing shared saved-library owner even if Portrait Studio has never
+mounted. Loading and persistence failures are visible and retryable; concurrent
+Studio/reviewer loads join the same owner. There is no gallery retention limit.
+**Delete Imagination** changes library retention, not physical execution history.
+Identifiers, hashes, recipes, programs, assets and execution links keep their
+existing persisted formats.
+
+Historical Drawing results prefer their retained execution-plan geometry, including
+placement, clipping and optional border. If only the source program remains, it is
+explicitly a source reference; absent geometry is explained. Retained paths do not
+prove observed ink or controller completion. Historical records without photograph
+references say so; missing stage photographs and unreadable retained photographs
+have distinct explanations. No substitute photograph or current plan is invented.
+
+The reviewer uses the existing evidence archive. It provides Fit/100% images, Close, explicit program
 handoff and deletion without ratings. Delete Result stores a durable tombstone in
 that archive, removes the result from review and future residual fitting, and
 rejects normal image/rating access to it. Required immutable execution provenance,
@@ -1839,6 +1854,30 @@ is a typed schema only until all declared coverage, untouched holdout,
 candidate-versus-prior, and shape-holdout requirements have attributable
 evidence.
 
+The four-circle placement guides project the canonical `SparseTipBatchMarkPlan`:
+Boundary envelope, inset frame, four centers and all four circle paths. They are
+planned geometry with a separate calibration-guide semantic identity and visual
+grammar, separate from artwork intended paths, measured ink and exact-frame
+selections. Hide Drawing hides artwork only; compatible calibration guides remain.
+A guide never supplies an ordinary border/artwork preview or changes the exact
+frame of its prediction. Compatible
+tip registration is used when available; projection outside the circle centers
+remains labeled extrapolation. Before tip acceptance, the machine-camera
+cap map is explicitly approximate: unknown tip offset and extrapolation remain
+visible qualifications. Same-plane paper replacement and ordinary navigation retain
+compatible guides; machine geometry/coordinates, tool/contact profile, plane and
+optical dependencies still apply.
+
+Before accepted tip calibration, **Accept Sheet Placement** records a separate
+session-local operator assertion against that displayed guide. It binds the current
+sheet/contact plane, tool, exact displayed frame, optical context, camera-map
+revision and projected region/geometry. It never supplies accepted tip calibration,
+calibrated paper coverage, drawing readiness or replay permission. With compatible
+tip registration, **Sheet Covers Target** keeps the calibrated coverage contract.
+Button availability and refusal explanations reflect current admission; stale
+context is refused. New-sheet recording clears previous-sheet assertions and
+coverage while retaining compatible calibration.
+
 ## Attempts, dependencies, reset, and simulation
 
 Every repeatable exercise has an immutable attempt identity, typed disposition,
@@ -1870,6 +1909,21 @@ Settling camera calibration for reset cancels only its current operation and
 keeps runtime admission reusable; only application shutdown closes camera-
 calibration admission permanently. A reset must therefore never leave a green
 camera action whose runtime can only return cancellation.
+The Learning menu exposes **Reset Selected Step…** whenever the selected suffix
+contains accepted or transient state, including an unaccepted completed circle
+batch awaiting clicks. Its disclosure includes calibration marks. Controls belong
+to the selected exercise; a distinct active owner's Stop remains visible. Saved
+position revalidation does not hide a completed exercise's Redo.
+
+For four-circle tip-calibration recovery, Cancel and Stop settle the existing owner
+and clear transient selection and proposal state. Restart/Redo prepare a new
+attempt explicitly; none starts marks automatically. A failed replacement retains the prior accepted calibration where
+the replacement contract applies. Scoped reset deliberately invalidates only its
+selected suffix. Completed and possibly contacted circle locations remain excluded
+on the same sheet after cancellation/reset. New-sheet recording clears current-sheet
+restrictions without erasing earlier execution history. Reusable cancellation and
+paper recovery never reopen terminal shutdown admission.
+
 The reset does not admit new motion, change the pen merely to reset state, erase
 physical ink, disconnect the controller, revoke Motion authorization, or change
 the selected camera. LIVE and SIMULATED authority reset independently.

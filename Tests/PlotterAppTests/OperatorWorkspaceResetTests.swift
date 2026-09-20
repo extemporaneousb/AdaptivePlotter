@@ -759,7 +759,9 @@ extension PlotterApplicationRuntimeTests {
     let plan = try #require(workspace.learningVacatePlan(from: anchor))
     #expect(plan.source == .simulated)
     #expect(!plan.removesDurableCheckpoint)
-    #expect(!plan.physicalInkMayRemain)
+    // The accepted tip calibration drew four circles on this sheet.
+    #expect(plan.physicalInkMayRemain)
+    #expect((await harness.simulator.snapshot()).persistentInkSegmentCount == 64)
     #expect(plan.title == "Reset From This Step")
     let didVacate = await workspace.performLearningVacate(plan)
     #expect(didVacate)

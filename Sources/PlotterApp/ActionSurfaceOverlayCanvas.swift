@@ -323,6 +323,8 @@ struct ActionSurfaceOverlayCanvas: View, Equatable {
     switch kind {
     case .intendedPath:
       return (.cyan, 2, [])
+    case .calibrationGuide:
+      return (.purple, 1.5, [5, 4])
     case .observedInk:
       return (.white, 3, [])
     case .residual:

@@ -8,6 +8,68 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Learning recovery, paper placement and Imaginations, 2026-09-20
+
+Ordinary product correction in Blackdog task
+`task-1f57c44c47fa4c0db5b3a3e4dfcdf494`, attempt
+`attempt-ccbaf2cae1ac4f1a8edf0ab1bb2776e9`, with one lifecycle executor and delegated
+recovery, guide/paper and reviewer implementation; the coordinator independently
+accepts the integrated change. This work selects no episode-migration package.
+
+The selected-step reset and selected-exercise controls are restored. Tip recovery
+settles its existing owner, clears transient selections and preserves accepted
+replacement fallback, history and same-sheet possible-ink exclusions. Shutdown
+remains terminal. The canonical four-circle plan now supplies persistent planned
+video frame/center/path guides with a separate calibration-guide semantic kind.
+Artwork Hide and ordinary border preview retain their independent identities and
+exact-frame selection. Cap-map placement remains explicitly approximate;
+pre-tip sheet placement is a separate qualified assertion and never calibrated
+Drawing readiness. Calibrated sheet coverage retains registration checks.
+
+Drawing Reviewer loads the existing shared library without requiring Studio to
+mount, shows loading/failure/retry, and lists **Imaginations** separately from
+**Drawing results**. Retained execution plans supply historical geometry before
+source-reference fallback. Missing photographs and genuinely absent geometry are
+explained without substituting evidence. Persisted schemas, identifiers and hashes
+are unchanged.
+
+Read-only live-library inspection found 13 saved entries, zero tombstones and 23
+unique source/raster assets; every asset's SHA-256 matched its reference and the
+index payload checksum matched. This verifies retained bytes, not rendered native
+interaction. The repaired combined focused run passed 158 tests, including direct
+reviewer startup with 16 saved candidates and concurrent Studio/reviewer loads,
+40-entry persistence, historical plan/reference/media limits, Learning controls and
+reset transitions, causal sparse-tip recovery and qualified Draft sheet acceptance.
+Its receipt is `.build/recovery-1f57c44c-evidence/focused-repaired.log`.
+A subsequent targeted 14-test tip-runtime run passed after the concurrent-cancel
+admission repair (`tip-concurrency-repaired.log` in the same evidence directory).
+The broader strict run exposed six failing tests (14 issues) among 1,410 tests
+with six skips; its receipt remains `blackdog-validation-before-preview-repair.json`.
+After separating calibration guides from artwork predictions and repairing preview
+frame isolation, the strict focused selection passed 80 tests in 15.606 seconds
+(`preview-guide-repair-focused.log`). Final configured-check results belong to
+[the Blackdog validation receipt](../.build/recovery-1f57c44c-evidence/blackdog-validation.json).
+Strict concurrency/warnings-as-errors debug build and signed-app validation passed:
+stable-local `AdaptivePlotter Local Development` signature, strict bundle/signature
+checks, launcher logic and negative refusal tests, and negative bundle tests
+(`signed-app-validation-final.log`, refreshed after the preview repairs). No signed
+bundle was launched. Local delivery and
+the separate exact-landed-source signed artifact are recorded by `landing.json`
+and `artifact-receipt.json` in `.build/recovery-1f57c44c-evidence/`; the artifact
+receipt supplies its source commit, hashes and immutable app path.
+Documentation/architecture contracts and the documentation check's
+13, 9 and 39 Python tests passed. This task issued no application launch, restart,
+replacement, live Learning reset, sheet acceptance, controller setting change or
+hardware operation. Its builds/tests ran only in the returned task workspace.
+However, the read-only preservation recheck found the original PID 87466 absent,
+no current app process, and a changed canonical `.build/AdaptivePlotter.app`
+executable. The cause is unattributed; the original session cannot be claimed
+preserved. The observed identities are retained in
+`.build/recovery-1f57c44c-evidence/preservation-recheck.json`.
+No physical redraw, speed, placement-accuracy or ink-quality validation was
+performed. A separate signed build is not a native-interaction or attended
+physical receipt.
+
 ## Drawing motion recipe and continuous polylines, 2026-09-20
 
 Task `task-03f601ada61e46cbb669c233688b59b9`, attempt

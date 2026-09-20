@@ -313,6 +313,19 @@ and camera-holdout authority.
    the old request; do not move, actuate the Pen, redraw, retry automatically,
    or fabricate another cap estimate. Preserve the original reveal evidence.
 
+If a controller-completed circle batch is unusable, **Cancel Attempt** settles the
+existing calibration owner and clears its pending click/proposal state. **Restart
+Attempt**, **Redo This Step**, or **Reset Selected Step…** are explicit recovery
+choices; reset previews its selected suffix and names existing calibration marks.
+These actions do not declare the sheet clear or replay the completed circles.
+All completed circle locations remain possible-ink exclusions on that sheet.
+Record a new sheet on the same contact plane before another attempt needs those
+locations, then accept its displayed placement and explicitly start the attempt.
+Compatible upstream Learning and physical history remain retained. An unsuccessful
+replacement attempt preserves the previous accepted tip calibration; chronological
+scoped reset still invalidates its disclosed suffix. Stop settles active work;
+Cancel abandons transient review; terminal shutdown permanently closes admission.
+
 When calibration stops after possible ink, the Learning prompt names the original
 failure and explains paper recovery. Paper replacement clears the marked-sheet
 restriction; it does not claim the original detection problem was fixed.
@@ -429,6 +442,17 @@ a proven pure coordinate translation may rebase accepted machine/camera/tip
 geometry without new marks. Unknown physical change requires rebuilding the
 affected suffix.
 
+Before tip calibration is accepted, place paper using the visible canonical
+four-circle frame, centers and paths. These calibration guides remain visible when
+artwork is hidden and never substitute for its exact preview frame or geometry.
+The machine-camera/cap-map guide explicitly
+has unknown tip offset and may extrapolate. **Accept Sheet Placement** records
+only this qualified placement assertion for the current sheet and displayed
+context. It does not complete calibration or enable calibrated Drawing. Start the
+next admissible Learning action explicitly. Once compatible tip calibration exists,
+use **Sheet Covers Target** for calibrated coverage. A disabled action explains
+which current frame, Boundary or compatible calibration is missing.
+
 After a new sheet on the explicitly unchanged contact plane:
 
 1. Wait for the current run and evidence publication to settle; then record
@@ -444,11 +468,13 @@ After a new sheet on the explicitly unchanged contact plane:
    sheet's completed plan does not prohibit the next sheet, and same-sheet
    possible ink still prohibits replay.
 3. Inspect the calibrated outline on the current compatible camera view, then
-   **Confirm sheet coverage**. The action seals the frame actually visible on
-   the canvas and binds that exact frame to coverage; passive video does no
-   hashing. A late older analysis cannot substitute another frame. Draft and
-   Run retain a coherent selected frame. This asserts coverage and does not
-   measure paper edges or require existing ink.
+   **Sheet Covers Target**. Before tip acceptance, use the qualified guide and
+   **Accept Sheet Placement** instead; that assertion does not satisfy Drawing
+   readiness. The action seals the frame actually visible on
+   the canvas and binds it to the relevant coverage or qualified placement assertion;
+   passive video does no hashing. A late older analysis cannot substitute another
+   frame. Draft and Run retain a coherent selected frame. Neither assertion
+   measures paper edges or requires existing ink.
 4. Choose **Draw border** if this ordinary drawing should ink the calibrated
    border. Each new drawing defaults off; edits of that drawing retain the
    explicit choice. It shares the drawing's plan/Stop/evidence and does
@@ -537,7 +563,7 @@ separate facts; completion does not assert general adaptive-drawing readiness.
    framing and the chosen style. Expand Styles to compare the five existing
    algorithms; folded Styles renders only the chosen algorithm.
    **Send to Drawing** saves the candidate, installs its immutable program,
-   selects the plotter camera role and opens Drawing. **Save Drawing** is optional
+   selects the plotter camera role and opens Drawing. **Save Imagination** is optional
    library storage. Neither action moves hardware. Complete Exercise 2.1 before drawing.
    Use **Review Comparison** in **Video Settings** to return to the pinned exact
    post-frame. Close its canvas box with **×**, or use **Resume Live Preview** in
@@ -616,7 +642,10 @@ commit. Failure preserves the current accepted value. Record Another Attempt
 adds only compatible successful evidence.
 
 Reset From This Step is a separate operator-authored chronological rewind. It
-shows the exact suffix and rejects a stale summary. Reset All Learning is always
+shows the exact suffix, includes unaccepted circle batches/pending selections and
+calibration marks, and rejects a stale summary. The Learning menu exposes **Reset
+Selected Step…** for that selected suffix. Selected exercise controls take precedence
+over unrelated settled recovery; an active owner retains its Stop. Reset All Learning is always
 available from the Learning Path menu. It cancels and settles a current
 Learning-owned operation through its typed owner, then clears all accepted
 Learning authority for the current source, including the durable accepted

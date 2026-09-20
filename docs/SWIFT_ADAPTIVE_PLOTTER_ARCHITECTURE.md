@@ -2269,7 +2269,7 @@ not loaded by the normal `loadArchive` path.
 
 `PortraitStudioView` fills the editing workspace instead of a scrolling control
 column. Its fixed toolbar owns capture/import/settings, frame navigation, explicit
-handoff, Save Drawing and reviewer presentation. Photo and drawing use the same
+handoff, Save Imagination and reviewer presentation. Photo and drawing use the same
 candidate source. Framing/style parameters remain visible; algorithm tiles render
 only when their existing section is expanded.
 `StudioHelpButton` exposes explanatory text in accessible question-mark popovers.
@@ -2277,6 +2277,18 @@ Pen & material presents applicable width provenance; measuring and adapting it
 remain separate explicit actions. `WorkbenchLayoutState` stores Studio presentation
 separately from its dock slots, migrating old saved portrait slots without replacing
 another control panel. Closing Studio restores the existing workbench docks.
+
+The workspace caches the canonical `SparseTipBatchMarkPlan` for execution and
+planned video guides. `CameraOverlayKind.calibrationGuide` distinguishes those
+planned overlays from artwork `intendedPath`, with its own planned style/grammar.
+Preview selection and exact-frame prediction remain isolated from calibration
+guides; hiding artwork cannot erase the guide layer. The Draft owner retains
+`PlotterDrawingDraftSheetPlacementAssertion` separately from calibrated
+`PaperCoverageObservation`: the former is session-local, qualified cap-map placement
+before tip acceptance and does not contribute to drawing readiness. Paper, plane,
+tool, optics, map revision and guide geometry determine applicability; submission
+still binds the exact displayed frame. Same-plane replacement clears sheet
+assertions while preserving compatible geometry.
 
 The shared Drawing panel uses `DrawingStudioView` for the same canonical Draft/Run
 requests regardless of drawing producer. Its plan preview selects the sealed
@@ -2291,6 +2303,15 @@ Delete Result operation writes `deletedReviewRecordIDs` into schema-4
 subsequent Draft residual analysis, while raw `records`, attempts and media retain
 execution and possible-ink truth. App archive installation preserves known deletion
 tombstones against delayed loads and does not restore/reset runtime during deletion.
+
+`DrawingReviewerView.task` calls the same `PortraitStudioModel.loadArchive` as
+Studio. `PortraitSketchCollection` serializes both calls and persistence through
+its existing worker; the reviewer exposes loading/failure/retry and lists all
+valid entries. `DrawingReviewGeometry` only projects retained evidence: exact
+record execution plan first, explicit source-program reference second, unavailable
+reason otherwise. `PortraitPlanePreview.planned` renders retained machine paths
+without current Draft or calibration. Missing photographs never become geometry
+or substitute media.
 
 `PortraitSketchCollection` remains the qualified candidate archive owner. Save and
 projection retain source bytes, exact raster, recipe, immutable program and provenance

@@ -19,6 +19,9 @@ enum ActionSurfaceScalePolicy: String, Sendable {
 @Observable
 final class ActionSurfacePreviewModel {
   private(set) var displayedFrame: DisplayedFrame?
+  /// Semantic admission inspects identity without subscribing the control root
+  /// to every preview publication. The video leaf observes displayedFrame.
+  @ObservationIgnored private(set) var latestFrameSnapshot: DisplayedFrame?
   private(set) var publicationCount: UInt64 = 0
   private(set) var presentationRevision: UInt64 = 0
   @ObservationIgnored private(set) var overlayCanvasDrawCount = 0
@@ -48,6 +51,7 @@ final class ActionSurfacePreviewModel {
     {
       return false
     }
+    latestFrameSnapshot = frame
     displayedFrame = frame
     if frame != nil { publicationCount &+= 1 }
     return true

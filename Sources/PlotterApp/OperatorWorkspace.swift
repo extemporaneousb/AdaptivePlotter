@@ -1270,9 +1270,19 @@ final class PlotterApplicationRuntime:
   }
 
   private func publishActionSurfacePreview(_ frame: DisplayedFrame?) {
+    let previous = actionSurfacePreview.latestFrameSnapshot
     guard actionSurfacePreview.publish(frame) else { return }
     currentVideoPreviewProjection = nil
     currentVideoPreviewBindingSemanticRevision = nil
+    // Availability and optical/capture context affect admission. New pixels in
+    // the same context belong only to the video leaf, never the semantic root.
+    if (previous == nil) != (frame == nil) || previous?.source != frame?.source
+      || previous?.frame.cameraConfigurationID != frame?.frame.cameraConfigurationID
+      || previous?.frame.width != frame?.frame.width
+      || previous?.frame.height != frame?.frame.height
+      || previous?.frame.pixelFormat != frame?.frame.pixelFormat {
+      markSemanticPresentationChanged()
+    }
   }
 
   private func cameraSnapshotChangesLearningPresentation(
@@ -1346,6 +1356,24 @@ final class PlotterApplicationRuntime:
   }
   private var pendingToolContactClickFrame: ExactTipCalibrationFrame?
   private var pendingToolContactEvidence: [PendingToolContactEvidence] = []
+  @ObservationIgnored private var sparseTipBatchPlanCache:
+    (boundary: [BoundaryDirection: BoundarySideAggregate], plan: SparseTipBatchMarkPlan)?
+
+  /// Both execution and video consume this exact canonical batch value. Sheet
+  /// identity and navigation do not alter geometry; Boundary changes do.
+  var currentSparseTipBatchPlan: SparseTipBatchMarkPlan? {
+    guard acceptedBoundaryAggregates.values.allSatisfy({
+      $0.coordinateRevision == explorationCoordinateRevision
+    }) else { return nil }
+    if let cached = sparseTipBatchPlanCache, cached.boundary == acceptedBoundaryAggregates {
+      return cached.plan
+    }
+    guard let plan = try? SparseTipBatchMarkPlan(acceptedBoundaryAggregates: acceptedBoundaryAggregates)
+    else { return nil }
+    sparseTipBatchPlanCache = (acceptedBoundaryAggregates, plan)
+    return plan
+  }
+
   var pointSelectionRequest: PlotterPointSelectionRequest? {
     guard pointSelectionEpisodeProjection.exactPointSelection.phase == .collecting else {
       return nil
@@ -2317,14 +2345,8 @@ final class PlotterApplicationRuntime:
     try? await simulatedLearningRuntime.previewSceneFrame().get().displayedFrame
   }
 
-  var actionSurfacePresentation: ActionSurfacePresentation {
-    let revision = actionSurfacePresentationRevision
-    if let cached = actionSurfacePresentationCache, cached.revision == revision {
-      computationDiagnostics.actionSurfaceCacheHitCount += 1
-      return cached.presentation
-    }
-    computationDiagnostics.actionSurfaceBuildCount += 1
-    let retainedFrame =
+  private var retainedActionSurfaceFrame: DisplayedFrame? {
+    return
       frozenPointSelectionFrame
       ?? (borderValidationSnapshot.comparisonReviewIsPinned
         ? borderValidationSnapshot.postFrame
@@ -2334,6 +2356,16 @@ final class PlotterApplicationRuntime:
         if case .pinned = run.review { return run.postFrame }
         return nil
       }())
+  }
+
+  var actionSurfacePresentation: ActionSurfacePresentation {
+    let revision = actionSurfacePresentationRevision
+    if let cached = actionSurfacePresentationCache, cached.revision == revision {
+      computationDiagnostics.actionSurfaceCacheHitCount += 1
+      return cached.presentation
+    }
+    computationDiagnostics.actionSurfaceBuildCount += 1
+    let retainedFrame = retainedActionSurfaceFrame
     let surfaceFrame = retainedFrame ?? displayedFrame
     let overlayComposition = OverlayPresentationComposer.compose(
       preference: overlayPreferenceState,
@@ -2606,7 +2638,8 @@ final class PlotterApplicationRuntime:
         return true
       }(),
       drawingBorderBounds: currentDrawingBorderBounds,
-      materialContextHash: currentDrawingMaterialContextHash
+      materialContextHash: currentDrawingMaterialContextHash,
+      placementGuide: displayedFrame.flatMap { sparseTipPlacementGuide(on: $0) }
     )
   }
 
@@ -2711,7 +2744,9 @@ final class PlotterApplicationRuntime:
       )
       : .setupRequired(
         reason:
-          "Place the current sheet over the outlined Drawing Boundary and assert that it covers the outline."
+          drawingDraftSnapshot.sheetPlacementIsCurrent
+            ? "Sheet placement accepted against the approximate cap map. Pen-tip calibration and calibrated sheet coverage are still required for Drawing."
+            : "Place the current sheet over the outlined Drawing Boundary and assert that it covers the outline."
       )
     return WorkbenchCapabilityPresentation(learning: learning, paper: paper)
   }
@@ -3156,6 +3191,107 @@ final class PlotterApplicationRuntime:
     return registration.applicabilityRectangle
   }
 
+  private func opticalIdentity(for frame: DisplayedFrame) -> CameraOpticalConfigurationIdentity? {
+    try? CameraOpticalConfigurationIdentity(source: frame.source,
+      sensorFormat: "runtime-\(frame.frame.pixelFormat.rawValue)",
+      width: frame.frame.width, height: frame.frame.height, pixelFormat: frame.frame.pixelFormat,
+      orientation: .up, mirrored: false, digitalZoomFactor: 1,
+      lensIdentity: "runtime-unreported-lens", focusConfiguration: "runtime-unreported-focus",
+      mountRevision: cameraMountRevision, reframingRevision: cameraReframingRevision)
+  }
+
+  func sparseTipGuideOverlays(on frame: DisplayedFrame) -> [CameraOverlayMeasurement] {
+    guard let plan = currentSparseTipBatchPlan, let optical = opticalIdentity(for: frame),
+      let machineMap = machineCameraRegistration, machineMap.opticalConfiguration == optical,
+      machineMap.machineGeometry == machineGeometryIdentity,
+      machineMap.coordinateRevision == explorationCoordinateRevision,
+      learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil else { return [] }
+    let tip = tipCameraRegistration.flatMap { registration in
+      registration.applicability.opticalConfiguration == optical
+        && registration.applicability.machineGeometry == machineGeometryIdentity
+        && registration.applicability.machineCoordinateFrame.rawValue == explorationCoordinateRevision
+        && registration.applicability.penContactProfile == penContactProfileRevision
+        && registration.machineCameraRegistrationRevisionID == learningArtifactGraph.currentRevision(for: .machineCameraRegistration)?.id
+        && registration.applicability.toolAssembly == toolAssemblyRevision
+        && registration.applicability.paperContactPlane == currentPaperRevisionContext.contactPlane
+        ? registration : nil
+    }
+    func project(_ point: Point2<MachineSpace>) throws -> Point2<CameraPixelSpace> {
+      if let tip { return try tip.diagnosticProjection(at: point).cameraPoint }
+      return try machineMap.fit.cameraPoint(from: point)
+    }
+    do {
+      let border = try DrawingBorderPlan(bounds: plan.applicabilityRectangle)
+      let boundary = try DrawingBorderPlan(bounds: plan.boundaryEnvelope)
+      var geometry: [CameraPixelGeometry] = [
+        .polyline(try Polyline(points: boundary.pathPositions.map { try project($0.point) })),
+        .polyline(try Polyline(points: border.pathPositions.map { try project($0.point) }))]
+      for mark in plan.marks {
+        geometry.append(.point(try project(mark.machinePosition.point)))
+        geometry.append(.polyline(try Polyline(points: mark.circle.pathPositions.map { try project($0.point) })))
+      }
+      return geometry.map { geometry in
+        CameraOverlayMeasurement(frameID: frame.frame.id,
+          cameraConfigurationID: frame.frame.cameraConfigurationID, geometry: geometry,
+          provenance: CameraMeasurementProvenance(kind: .calibrationGuide, source: .planned,
+            algorithmRevision: tip == nil
+              ? "planned-four-circle-cap-map-unknown-tip-offset-extrapolation-v1"
+              : "planned-four-circle-compatible-tip-projection-v1"))
+      }
+    } catch { return [] }
+  }
+
+  private func sparseTipPlacementGuide(on frame: DisplayedFrame) -> PlotterDrawingDraftPlacementGuide? {
+    guard tipCameraRegistration == nil,
+      let map = machineCameraRegistration,
+      let revision = learningArtifactGraph.currentRevision(for: .machineCameraRegistration)?.id,
+      let plan = currentSparseTipBatchPlan,
+      let region = try? DrawableMachineRegion(bounds: plan.boundaryEnvelope) else { return nil }
+    let overlays = sparseTipGuideOverlays(on: frame)
+    guard !overlays.isEmpty else { return nil }
+    return PlotterDrawingDraftPlacementGuide(opticalConfiguration: map.opticalConfiguration,
+      machineCameraRevision: revision, region: region, geometry: overlays.map(\.geometry))
+  }
+
+  private var displayedSheetAcceptanceFrame: DisplayedFrame? {
+    guard workbenchCameraRole == .plotter, !cameraRoleIsTransitioning else { return nil }
+    if let retained = retainedActionSurfaceFrame { return retained }
+    guard cameraIsLive || frameMode == .simulated else { return nil }
+    return actionSurfacePreview.latestFrameSnapshot
+  }
+
+  func sparseTipGuideDetail(on frame: DisplayedFrame) -> String? {
+    let guides = sparseTipGuideOverlays(on: frame)
+    guard let first = guides.first else { return nil }
+    return first.provenance.algorithmRevision.contains("unknown-tip-offset")
+      ? "Planned frame and circles · approximate cap map · unknown tip offset; extrapolation possible"
+      : "Planned frame and circles · calibrated tip projection; Boundary outside the circle centers is extrapolated"
+  }
+
+  var paperAcceptanceUnavailableReason: String? {
+    if let reason = paperReplacementInProgressReason { return reason }
+    if tipCalibrationRuntime.activeOperationID != nil {
+      return "Wait for position verification or pen-tip calibration to finish, or use Stop before accepting this sheet."
+    }
+    let frame = displayedSheetAcceptanceFrame
+    return PlotterDrawingDraftExternalFacts.paperAcceptanceUnavailableReason(
+      frame: frame, opticalConfiguration: frame.flatMap { opticalIdentity(for: $0) },
+      registration: tipCameraRegistration, drawableRegion: currentDrawableMachineRegion,
+      placementGuide: frame.flatMap { sparseTipPlacementGuide(on: $0) },
+      paper: currentPaperRevisionContext, toolAssemblyRevision: toolAssemblyRevision,
+      runInProgress: drawingRunIsActive, terminalRequiresNewPlan: drawingRunRequiresNewPlan)
+  }
+
+  var sheetAcceptanceTitle: String {
+    if tipCameraRegistration != nil { return paperCoverageIsCurrent ? "Sheet Confirmed" : "Sheet Covers Target" }
+    return drawingDraftSnapshot.sheetPlacementIsCurrent ? "Sheet Placement Accepted" : "Accept Sheet Placement"
+  }
+
+  var sheetAcceptanceDetail: String {
+    tipCameraRegistration == nil ? PlotterDrawingDraftPlacementGuide.qualification
+      : "Confirm that this current sheet covers the outlined Drawing Boundary. This is an operator assertion, not measured paper edges or permission to replay marks."
+  }
+
   private func learnedDrawingOverlays(
     on displayedFrame: DisplayedFrame
   ) -> [CameraOverlayMeasurement] {
@@ -3183,7 +3319,8 @@ final class PlotterApplicationRuntime:
     } else {
       context = nil
     }
-    guard let context else { return [] }
+    let plannedGuides = sparseTipGuideOverlays(on: displayedFrame)
+    guard let context else { return plannedGuides }
     let registration = context.registration
     guard
       displayedFrame.source == registration.applicability.opticalConfiguration.source,
@@ -3191,7 +3328,7 @@ final class PlotterApplicationRuntime:
       displayedFrame.frame.height == registration.applicability.opticalConfiguration.height,
       displayedFrame.frame.pixelFormat
         == registration.applicability.opticalConfiguration.pixelFormat
-    else { return [] }
+    else { return plannedGuides }
 
     let boundary: AxisAlignedBounds<MachineSpace>? =
       if context.acceptedBoundaryAggregates.values.allSatisfy({
@@ -3204,8 +3341,8 @@ final class PlotterApplicationRuntime:
     guard let bounds = try? drawingBorderBounds(
       for: registration,
       acceptedBoundary: boundary
-    ) else { return [] }
-    var overlays: [CameraOverlayMeasurement] = []
+    ) else { return plannedGuides }
+    var overlays: [CameraOverlayMeasurement] = plannedGuides
     if let boundary,
       let boundaryOutline = try? closedMachineRectanglePositions(bounds: boundary),
       let projectedBoundary = try? Polyline<CameraPixelSpace>(
@@ -3925,6 +4062,7 @@ final class PlotterApplicationRuntime:
     } else if let operation = retainedStopRegistration {
       await cancelAndSettleStoppableOperation(operation, intent: .cancelAttempt)
     }
+    await tipCalibrationRuntime.cancelAttempt()
     let boundarySettled = await cancelAndSettleBoundaryForReset()
     _ = await learningTask?.task.value
     if activeLearningActionTask?.transitionID == learningTask?.transitionID {
@@ -4137,6 +4275,10 @@ final class PlotterApplicationRuntime:
       when: tipCameraRegistration != nil || proposedTipCameraRegistration != nil
         || recoverableTipCalibrationCheckpoint != nil
         || !tipCalibrationRuntime.acceptedObservations.isEmpty
+        || tipCalibrationRuntime.expectedSelection != nil
+        || tipCalibrationRuntime.completedSelection != nil
+        || !pendingToolContactEvidence.isEmpty
+        || !blacklistedToolContactLocations.isEmpty
     )
     recordPayload(
       .borderValidation(.chooseDrawingBorderPlan),
@@ -4163,6 +4305,9 @@ final class PlotterApplicationRuntime:
     let physicalInkMayRemain =
       (borderValidationSnapshot.drawingOutcome?.progress.commandedStrokeCount ?? 0) > 0
       || borderValidationSnapshot.inkObservation != nil
+      || !pendingToolContactEvidence.isEmpty
+      || !blacklistedToolContactLocations.isEmpty
+      || !tipCalibrationRuntime.acceptedObservations.isEmpty
 
     func makePlan(
       scope: LearningVacateScope,
@@ -4852,7 +4997,7 @@ final class PlotterApplicationRuntime:
         id: PlotterAppUIActionID.drawingDraft(paperIntent),
         title: "Assert sheet covers outline",
         intent: .drawingDraft(paperIntent),
-        unavailableReason: paperManagementUnavailableReason,
+        unavailableReason: paperAcceptanceUnavailableReason,
         owner: "PlotterDrawingDraftRuntime"
       ))
       let allowedScale = drawing.canvas.placement.allowedScale
@@ -5434,7 +5579,7 @@ final class PlotterApplicationRuntime:
         // operator assertion to the exact frame available at the click, then
         // retain Draft's full-reference admission through the submission.
         let referenceAtClick = drawingDraftSnapshot.projection
-        guard let visibleFrame = actionSurfacePreview.displayedFrame else {
+        guard let visibleFrame = displayedSheetAcceptanceFrame else {
           return plotterUIRefusal(request, reason: .retainedOwnerRefused,
             currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
             remedy: "Show the current Plotter Video frame before confirming sheet coverage.")
@@ -6245,6 +6390,9 @@ final class PlotterApplicationRuntime:
       case .acceptProposal: .acceptProposal
       case .rejectProposal: .rejectProposal
       case .retryCommit: .retryCommit
+      }
+      if case .beginFourMarkBatch = intent {
+        await tipCalibrationRuntime.prepareForNewAttempt()
       }
       let outcome: PlotterTipCalibrationSubmissionOutcome
       if case .revalidateCheckpoint = intent {
@@ -7614,9 +7762,9 @@ final class PlotterApplicationRuntime:
     var activeLocation: BlacklistedToolContactLocation?
     do {
       try requireSparseTipBatchContinuation()
-      let batchPlan = try SparseTipBatchMarkPlan(
-        acceptedBoundaryAggregates: acceptedBoundaryAggregates
-      )
+      guard let batchPlan = currentSparseTipBatchPlan else {
+        throw CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope
+      }
       batchTelemetryTotalCircleCount = batchPlan.marks.count
       let physicalLocations = batchPlan.marks.map { mark in
         BlacklistedToolContactLocation(
@@ -7904,6 +8052,10 @@ final class PlotterApplicationRuntime:
         presentationTransformRevision: staged.request.presentationTransformRevision
       )
       installPointSelectionProjection(staged.projection)
+      // Controller-completed marks may have left ink even when the operator
+      // cannot use their image. Preserve those exclusions before any selection
+      // or attempt cancellation can discard transient evidence.
+      blacklistedToolContactLocations.formUnion(completedLocations)
       pendingToolContactEvidence = pendingEvidence
       pendingToolContactClickFrame = exactRevealFrame
       frozenPointSelectionFrame = revealCapture.displayedFrame
@@ -10842,6 +10994,7 @@ final class PlotterApplicationRuntime:
         await segment.owner.settle()
       }
       await operation.owner.settle()
+      await tipCalibrationRuntime.cancelAttempt()
       return
     }
     await requestSingleJogCancel(for: operation.target, intent: intent)
@@ -11762,6 +11915,9 @@ final class PlotterApplicationRuntime:
       } catch {
         explorationError = "Comparison cancellation provenance could not be recorded: \(error)"
       }
+    }
+    if ownerID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks) {
+      await tipCalibrationRuntime.cancelAttempt()
     }
     finishActiveExerciseAttempt(disposition: .cancelled)
     restartableExerciseItemID = ownerID
@@ -13959,6 +14115,7 @@ extension PlotterApplicationRuntime {
         case .none, .persisted:
           break
         }
+        await tipCalibrationRuntime.cancelAttempt()
         return .completed(.paperReplacementSettled(plan))
 
       case .applyInMemoryPaperReplacement(_, let plan):
@@ -14027,6 +14184,7 @@ extension PlotterApplicationRuntime {
           tipCalibrationRuntime.clearPaperTransients(currentPaperRevisionContext.instance)
         }
         proposedTipCameraRegistration = nil
+        restartableExerciseItemID = nil
         frozenPointSelectionFrame = nil
         pendingToolContactEvidence = []
         pendingToolContactClickFrame = nil

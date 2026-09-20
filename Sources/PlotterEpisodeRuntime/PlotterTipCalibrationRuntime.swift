@@ -222,6 +222,8 @@ public final class PlotterTipCalibrationRuntime {
   private let effectPort: any PlotterTipCalibrationEffectPort
   private var admissionClosed = false
   private var shutdownRequested = false
+  private var cancellationDepth = 0
+  private var pendingPaperTransientReset: PaperInstanceRevision?
   private var activeTask: Task<PlotterTipCalibrationEffectResult, Never>?
   private var operationSettlementWaiters: [CheckedContinuation<Void, Never>] = []
   private var terminalHistory: [PlotterTipCalibrationTerminalRecord] = []
@@ -288,10 +290,14 @@ public final class PlotterTipCalibrationRuntime {
   /// Clear only work tied to a replaced sheet. Accepted calibration is a
   /// contact-plane dependency and survives this transition.
   public func clearPaperTransients(_ paperInstance: PaperInstanceRevision) {
-    activeTask?.cancel()
-    activeTask = nil
-    activeOperationID = nil
-    activeIntent = nil
+    // Synchronous dependency invalidation must suppress late effects while
+    // retaining the exact owner identity until its task has actually settled.
+    if activeOperationID != nil {
+      pendingPaperTransientReset = paperInstance
+      admissionClosed = true
+      activeTask?.cancel()
+      return
+    }
     expectedSelection = nil
     completedSelection = nil
     retainedDomainEvidence = nil
@@ -341,6 +347,11 @@ public final class PlotterTipCalibrationRuntime {
 
     guard activeOperationID == operationID, activeIntent == intent, !admissionClosed else {
       if admissionClosed, activeOperationID == operationID, activeIntent == intent {
+        // Cancellation rejects new calibration authority, but cannot erase a
+        // lower owner's report that physical ink may already exist.
+        if case .completed(.possibleInk(let possibleInk)) = result {
+          blacklistedLocations.insert(possibleInk.location)
+        }
         record(operationID: operationID, intent: intent, outcome: .cancelled)
       }
       return .cancelled
@@ -350,13 +361,48 @@ public final class PlotterTipCalibrationRuntime {
     return outcome
   }
 
-  /// Close admission before cancelling and joining the exact active task.
-  public func stop() async {
-    let stoppedPositionRecovery = activeIntent == .revalidateCheckpoint
+  /// Settle an abandoned attempt without invalidating accepted calibration or
+  /// declaring existing marks absent. This never submits another marking effect.
+  public func cancelAttempt() async {
+    await settleAttempt(preparingNewAttempt: false)
+  }
+
+  /// Explicit operator-started replacement/retry preparation. Retain accepted
+  /// calibration until replacement acceptance, and retain same-sheet exclusions.
+  public func prepareForNewAttempt() async {
+    await settleAttempt(preparingNewAttempt: true)
+  }
+
+  private func settleAttempt(preparingNewAttempt: Bool) async {
+    cancellationDepth += 1
+    defer {
+      cancellationDepth -= 1
+      if cancellationDepth == 0, !shutdownRequested { admissionClosed = false }
+    }
     await closeAdmission()
-    // A cancelled read-only check leaves the accepted checkpoint available for
-    // an explicit retry after the exact capture task has settled.
-    if stoppedPositionRecovery, !shutdownRequested { admissionClosed = false }
+    expectedSelection = nil
+    completedSelection = nil
+    retainedDomainEvidence = nil
+    restoreSettledPhase()
+    if preparingNewAttempt, !shutdownRequested, blacklistedLocations.isEmpty {
+      phase = .idle
+    }
+  }
+
+  /// Stop is reusable after the exact effect settles; shutdown is terminal.
+  public func stop() async {
+    await cancelAttempt()
+  }
+
+  private func restoreSettledPhase() {
+    if let location = blacklistedLocations.first {
+      phase = .possibleInkBlacklisted(
+        location,
+        "Possible ink already excludes this exact machine position on the current paper."
+      )
+    } else {
+      phase = acceptedRegistration == nil ? .idle : .accepted
+    }
   }
   public func shutdown() async {
     shutdownRequested = true
@@ -505,7 +551,7 @@ public final class PlotterTipCalibrationRuntime {
 
   private func stablePhase(after intent: PlotterTipCalibrationIntent) -> PlotterTipCalibrationPhase {
     switch intent {
-    case .beginFourMarkBatch: .idle
+    case .beginFourMarkBatch: acceptedRegistration == nil ? .idle : .accepted
     case .captureNewClickFrame:
       expectedSelection.map { .awaitingCompletedPointSelection($0) } ?? .idle
     case .consumeCompletedPointSelection: expectedSelection.map { .awaitingCompletedPointSelection($0) } ?? .idle
@@ -563,6 +609,11 @@ public final class PlotterTipCalibrationRuntime {
     activeTask = nil
     activeOperationID = nil
     activeIntent = nil
+    if let paperInstance = pendingPaperTransientReset {
+      pendingPaperTransientReset = nil
+      clearPaperTransients(paperInstance)
+      if cancellationDepth == 0, !shutdownRequested { admissionClosed = false }
+    }
     let waiters = operationSettlementWaiters
     operationSettlementWaiters.removeAll(keepingCapacity: false)
     for waiter in waiters { waiter.resume() }

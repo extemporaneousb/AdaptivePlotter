@@ -39,8 +39,8 @@ struct LearningPathView: View {
   @ViewBuilder private func learningContent(_ projection: LearningPathProjection) -> some View {
     let selectedPresentation = projection.selectedAction
     let pinnedActionStrip =
-      projection.currentActionStrip
-      ?? selectedPresentation.actionStrip
+      selectedPresentation.actionStrip
+      ?? projection.currentActionStrip
 
     VStack(alignment: .leading, spacing: 0) {
       HStack {
@@ -57,6 +57,11 @@ struct LearningPathView: View {
         .pickerStyle(.menu)
         .accessibilityIdentifier("learning.exercisePicker")
         Menu {
+          Button("Reset Selected Step…", role: .destructive) {
+            pendingResetPlan = projection.resetSurface.selectedPlan
+          }
+          .disabled(projection.resetSurface.selectedPlan == nil
+            || projection.resetSurface.unavailableReason != nil)
           Button("Reset All Learning…", role: .destructive) {
             pendingResetPlan = projection.menu.resetAllPlan
           }
@@ -79,6 +84,17 @@ struct LearningPathView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 0) {
           selectedDetail(selectedPresentation).padding(16)
+          if let current = projection.currentActionStrip,
+            current.mustRemainVisible,
+            current.ownerID != pinnedActionStrip?.ownerID
+          {
+            ExerciseActionStripView(
+              presentation: current,
+              plotterUIProjection: plotterUIProjection,
+              plotterUIIntentSink: plotterUIIntentSink
+            )
+            .accessibilityIdentifier("learning.activeExerciseActions")
+          }
           if let strip = pinnedActionStrip {
             ExerciseActionStripView(
               presentation: strip,
@@ -176,7 +192,7 @@ private struct LearningResetSheet: View {
       }
       if plan.physicalInkMayRemain {
         Label(
-          "Marks already on the paper will remain. Choose a clean area or replace the paper before drawing there again.",
+          "Calibration circles and other marks already on the paper will remain. Choose a clean area or replace the paper before drawing there again.",
           systemImage: "exclamationmark.triangle.fill"
         )
         .font(.caption.weight(.semibold))

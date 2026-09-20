@@ -37,7 +37,7 @@ struct DrawingReviewerView: View {
     VStack(spacing: 12) {
       HStack {
         Text("Drawing Reviewer").font(.title2)
-        StudioHelpButton("Drawing Reviewer", text: "Saved drawings and physical results share this reviewer. Viewing an item does not replace the current Studio edit or change the plotter. Fit shows the whole image; 100% shows each original image pixel. Send to Drawing keeps the exact selected result and opens Drawing with it placed on the plotter video. Adjust placement there. Sending does not move the plotter; Draw starts execution.")
+        StudioHelpButton("Drawing Reviewer", text: "Imaginations and Drawing results share this reviewer. Viewing an item does not replace the current Studio edit or change the plotter. Fit shows the whole image; 100% shows each original image pixel. Send to Drawing keeps the exact selected result and opens Drawing with it placed on the plotter video. Adjust placement there. Sending does not move the plotter; Draw starts execution.")
         Spacer()
         Picker("Image size", selection: $originalPixels) {
           Text("Fit").tag(false)
@@ -49,7 +49,7 @@ struct DrawingReviewerView: View {
       HSplitView {
         List(selection: $selection) {
           if !results.isEmpty {
-            Section("Results") {
+            Section("Drawing results") {
               ForEach(results, id: \.recordID) { result in
                 HStack {
                   Image(systemName: "photo")
@@ -65,7 +65,7 @@ struct DrawingReviewerView: View {
             }
           }
           if !drawings.isEmpty {
-            Section("Saved drawings") {
+            Section("Imaginations") {
               ForEach(drawings) { drawing in
                 HStack {
                   PortraitPlaneProgramPreview(preview: referencePreview(drawing.program))
@@ -89,12 +89,16 @@ struct DrawingReviewerView: View {
                 DrawingReviewSource(candidate: candidate, originalPixels: originalPixels)
                   .id(candidate.sourceSHA256)
               }
-              reviewPanel("Drawing") {
+              reviewPanel("Imagination") {
                 PortraitPlaneProgramPreview(preview: referencePreview(candidate.program))
               }
             }
           } else {
-            ContentUnavailableView("No saved drawings or results", systemImage: "rectangle.stack")
+            if application.portraitStudio.sketches.persistenceState == .loading {
+              ProgressView("Loading Imaginations…")
+            } else {
+              ContentUnavailableView("No Imaginations or Drawing results", systemImage: "rectangle.stack")
+            }
           }
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
       }
@@ -105,10 +109,10 @@ struct DrawingReviewerView: View {
           StudioHelpButton("Delete Result", text: "Removes this result from the reviewer and future drawing assessment. Execution provenance, possible-ink and no-redraw facts, and original media shared with calibration or material measurements remain retained. Deletion does not declare the paper clear or permit the drawing to run again.")
         } else if let candidate {
           Menu("Delete", systemImage: "trash") {
-            Button("Delete Drawing", role: .destructive) { deleteDrawing(candidate) }
-            Button("Delete Source and Its Drawings", role: .destructive) { deleteSource(candidate) }
+            Button("Delete Imagination", role: .destructive) { deleteDrawing(candidate) }
+            Button("Delete Source and Its Imaginations", role: .destructive) { deleteSource(candidate) }
           }.fixedSize().disabled(busy).accessibilityIdentifier("drawing.reviewer.deleteSaved")
-          StudioHelpButton("Delete Saved Drawing", text: "Delete Drawing removes this saved drawing and its ratings. Delete Source and Its Drawings removes all saved drawings from this source photo. Unreferenced portrait image assets are deleted. Physical execution results and the current working Studio edit are separate.")
+          StudioHelpButton("Delete Imagination", text: "Delete Imagination removes this saved imagination and its ratings. Delete Source and Its Imaginations removes all saved imaginations from this source photo. Unreferenced portrait image assets are deleted. Drawing results and the current working Studio edit are separate.")
         }
         if let candidate, let showOnPlotter {
           Button("Send to Drawing", systemImage: "video") {
@@ -123,13 +127,23 @@ struct DrawingReviewerView: View {
         Spacer()
         if busy { ProgressView().controlSize(.small) }
         if let failure { Text(failure).font(.caption).foregroundStyle(.red).lineLimit(2) }
-        if case .failed = application.portraitStudio.sketches.persistenceState {
-          Text("Drawing save failed").font(.caption).foregroundStyle(.red)
-          Button("Retry Save") { application.portraitStudio.sketches.retryPersistence() }
+        switch application.portraitStudio.sketches.persistenceState {
+        case .loading:
+          ProgressView("Loading Imaginations…").controlSize(.small)
+        case .failed(let reason):
+          Text("Imaginations library: \(reason)").font(.caption).foregroundStyle(.red).lineLimit(3)
+          Button("Retry Library") { application.portraitStudio.sketches.retryPersistence() }
+        case .pending:
+          Text("Saving Imaginations…").font(.caption).foregroundStyle(.secondary)
+        case .saved: EmptyView()
         }
       }
     }
     .padding(18).frame(minWidth: 940, minHeight: 660)
+    .task {
+      await application.portraitStudio.loadArchive()
+      reconcileSelection()
+    }
     .onAppear { reconcileSelection() }
     .onChange(of: selections) { reconcileSelection() }
     .accessibilityIdentifier("drawing.reviewer")
@@ -190,6 +204,10 @@ private struct DrawingReviewResult: View {
       ?? record.attemptEvidence?.intent.context.program
   }
 
+  private var geometry: DrawingReviewGeometry? {
+    DrawingReviewGeometry.resolve(plan: record.plan.executionPlan, sourceProgram: program)
+  }
+
   var body: some View {
     VStack(spacing: 12) {
       HStack {
@@ -199,7 +217,7 @@ private struct DrawingReviewResult: View {
             ?? "Coverage is retained per pixel. Raw images do not prove unseen regions are clear."))
         Spacer()
       }
-      if let program {
+      if let geometry {
         HStack(spacing: 12) {
           if let candidate {
             reviewPanel("Source") {
@@ -207,21 +225,27 @@ private struct DrawingReviewResult: View {
                 .id(candidate.sourceSHA256)
             }
           }
-          reviewPanel("Drawing") {
-            PortraitPlaneProgramPreview(preview: referencePreview(program))
+          reviewPanel(geometry.title) {
+            VStack(spacing: 4) {
+              PortraitPlaneProgramPreview(preview: geometry.preview)
+              Text(geometry.explanation).font(.caption).foregroundStyle(.secondary)
+            }
           }
         }.frame(maxHeight: 210)
+      } else {
+        Text(DrawingReviewGeometry.unavailableExplanation)
+          .font(.caption).foregroundStyle(.secondary)
       }
       HStack(spacing: 12) {
         reviewPanel("Baseline") {
           if images.indices.contains(baselineIndex), baselineIndex < baselineCount {
             DrawingReviewImage(image: images[baselineIndex], originalPixels: originalPixels)
-          } else { imageUnavailable }
+          } else { imageUnavailable(referenceCount: record.attemptEvidence?.baselines.count) }
         }
         reviewPanel("Result") {
           if resultCount > resultIndex, images.indices.contains(baselineCount + resultIndex) {
             DrawingReviewImage(image: images[baselineCount + resultIndex], originalPixels: originalPixels)
-          } else { imageUnavailable }
+          } else { imageUnavailable(referenceCount: record.attemptEvidence?.terminalFrames.count) }
         }
       }
       if baselineCount > 1 || resultCount > 1 {
@@ -257,10 +281,14 @@ private struct DrawingReviewResult: View {
     }
   }
 
-  private var imageUnavailable: some View {
+  private func imageUnavailable(referenceCount: Int?) -> some View {
     Group {
       if loading { ProgressView() }
-      else { ContentUnavailableView("No image", systemImage: "photo") }
+      else {
+        ContentUnavailableView("Photograph unavailable", systemImage: "photo",
+          description: Text(DrawingReviewGeometry.photographExplanation(
+            referenceCount: referenceCount, failed: failure != nil)))
+      }
     }.frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }
@@ -328,7 +356,7 @@ private func reviewPanel<Content: View>(_ title: String,
 
 private func physicalExecutionLabel(_ disposition: DrawingRunExecutionDisposition) -> String {
   switch disposition {
-  case .completed: "Completed"
+  case .completed: "Controller completed"
   case .refused: "Refused"
   case .cancelled: "Stopped"
   case .ambiguous: "Uncertain"

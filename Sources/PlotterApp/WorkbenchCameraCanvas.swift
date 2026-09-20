@@ -47,6 +47,13 @@ struct WorkbenchCameraCanvas: View {
           PreviewingActionSurface(application: application, preview: application.actionSurfacePreview,
             viewport: $viewport, plotterUIProjection: semantic, plotterUIIntentSink: application,
             pendingDrawingPlacement: $pendingDrawingPlacement, pendingPointSelection: $pendingPointSelection)
+            .overlay(alignment: .topLeading) {
+              if let displayed, let detail = application.sparseTipGuideDetail(on: displayed) {
+                Text(detail).font(.caption).foregroundStyle(.white)
+                  .padding(6).background(.black.opacity(0.75)).padding(8)
+                  .accessibilityIdentifier("workbench.calibrationGuideQualification")
+              }
+            }
         case .portraitVideo:
           PortraitCameraPreview(model: portrait.preview, zoom: viewport.zoom)
         case .portraitPhoto:

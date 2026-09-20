@@ -48,6 +48,9 @@ struct WorkbenchCameraLifecycleTests {
       await probe.emit(.plotter, timestamp: portraitTime - 1, sessionIndex: 0)
       await probe.emit(.portrait, timestamp: portraitTime)
       try await awaitCameraPublication { portrait.preview.frame?.frame.captureNanoseconds == portraitTime }
+      #expect(app.paperAcceptanceUnavailableReason != nil)
+      #expect(app.testPlotterUIProjection().semantic.request(
+        for: PlotterAppUIActionID.drawingDraft(.assertPaperCoverage)) == nil)
       #expect(app.actionSurfacePreview.displayedFrame == nil)
       #expect(app.displayedFrame == nil)
       #expect(await live.snapshot().state == .stopped)

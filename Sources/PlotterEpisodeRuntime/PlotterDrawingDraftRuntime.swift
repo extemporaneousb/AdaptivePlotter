@@ -31,8 +31,43 @@ public actor PlotterDrawingDraftTransientPaperPersistence:
   }
 }
 
+/// Session-local placement context before pen-tip registration. This is a planned
+/// cap-map projection, never paper coverage or accepted calibration evidence.
+public struct PlotterDrawingDraftPlacementGuide: Hashable, Sendable {
+  public let opticalConfiguration: CameraOpticalConfigurationIdentity
+  public let machineCameraRevision: LearningArtifactRevisionID
+  public let region: DrawableMachineRegion
+  public let geometry: [CameraPixelGeometry]
+
+  public init(opticalConfiguration: CameraOpticalConfigurationIdentity,
+    machineCameraRevision: LearningArtifactRevisionID, region: DrawableMachineRegion,
+    geometry: [CameraPixelGeometry]) {
+    self.opticalConfiguration = opticalConfiguration
+    self.machineCameraRevision = machineCameraRevision
+    self.region = region
+    self.geometry = geometry
+  }
+
+  public static let qualification = "Approximate cap-map placement: pen-tip offset is unknown and projection may extrapolate beyond camera calibration. This does not accept tip calibration or enable calibrated drawing."
+}
+
+public struct PlotterDrawingDraftSheetPlacementAssertion: Hashable, Sendable {
+  public let paper: PaperRevisionContext
+  public let toolAssemblyRevision: ToolAssemblyRevision
+  public let frame: PlotterExactFrameReference
+  public let guide: PlotterDrawingDraftPlacementGuide
+
+  public func isCurrent(in facts: PlotterDrawingDraftExternalFactRevisions) -> Bool {
+    paper == facts.paper && toolAssemblyRevision == facts.toolAssemblyRevision
+      && guide == facts.placementGuide && guide.opticalConfiguration == facts.opticalConfiguration
+      && frame.source == facts.displayedFrame?.source
+      && frame.cameraConfigurationID == facts.displayedFrame?.cameraConfigurationID
+  }
+}
+
 public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
   public let environment: PlotterEnvironment
+  public let placementGuide: PlotterDrawingDraftPlacementGuide?
   public let interactiveLearningIsComplete: Bool
   public let registrationRevisionID: LearningArtifactRevisionID?
   public let opticalConfiguration: CameraOpticalConfigurationIdentity?
@@ -66,7 +101,7 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
       paper: paper, displayedFrame: frame, runInProgress: runInProgress,
       terminalRequiresNewPlan: terminalRequiresNewPlan, coverageRecordIDs: coverageRecordIDs,
       drawingArchiveIsAvailable: drawingArchiveIsAvailable, drawingBorderBounds: drawingBorderBounds,
-      materialContextHash: materialContextHash)
+      materialContextHash: materialContextHash, placementGuide: placementGuide)
   }
 
   public init(
@@ -83,9 +118,11 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
     coverageRecordIDs: [DrawingEvidenceRecordID] = [],
     drawingArchiveIsAvailable: Bool = true,
     drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil,
-    materialContextHash: PlotterModel.Digest? = nil
+    materialContextHash: PlotterModel.Digest? = nil,
+    placementGuide: PlotterDrawingDraftPlacementGuide? = nil
   ) {
     self.environment = environment
+    self.placementGuide = placementGuide
     self.interactiveLearningIsComplete = interactiveLearningIsComplete
     self.registrationRevisionID = registrationRevisionID
     self.opticalConfiguration = opticalConfiguration
@@ -123,7 +160,8 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
     coverageRecords: [DrawingRunEvidenceRecord] = [],
     drawingArchiveIsAvailable: Bool = true,
     drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil,
-    materialContextHash: PlotterModel.Digest? = nil
+    materialContextHash: PlotterModel.Digest? = nil,
+    placementGuide: PlotterDrawingDraftPlacementGuide? = nil
   ) {
     let exactFrameReference = displayedFrame?.plotterExactFrameReferenceIfMaterialized
     self.displayedFrame = exactFrameReference == nil ? nil : displayedFrame
@@ -143,8 +181,49 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
       coverageRecordIDs: coverageRecords.map(\.recordID),
       drawingArchiveIsAvailable: drawingArchiveIsAvailable,
       drawingBorderBounds: drawingBorderBounds,
-      materialContextHash: materialContextHash
+      materialContextHash: materialContextHash, placementGuide: placementGuide
     )
+  }
+}
+
+extension PlotterDrawingDraftExternalFacts {
+  public var paperAcceptanceUnavailableReason: String? {
+    Self.paperAcceptanceUnavailableReason(frame: displayedFrame,
+      opticalConfiguration: revisions.opticalConfiguration, registration: registration,
+      drawableRegion: revisions.drawableRegion, placementGuide: revisions.placementGuide,
+      paper: revisions.paper, toolAssemblyRevision: revisions.toolAssemblyRevision,
+      runInProgress: revisions.runInProgress, terminalRequiresNewPlan: revisions.terminalRequiresNewPlan)
+  }
+
+  /// Admission can inspect preview identity without hashing pixels. Submission
+  /// additionally requires the materialized exact frame in ExternalFacts.
+  public static func paperAcceptanceUnavailableReason(frame: DisplayedFrame?,
+    opticalConfiguration: CameraOpticalConfigurationIdentity?, registration: TipCameraRegistration?,
+    drawableRegion: DrawableMachineRegion?, placementGuide: PlotterDrawingDraftPlacementGuide?,
+    paper: PaperRevisionContext, toolAssemblyRevision: ToolAssemblyRevision,
+    runInProgress: Bool, terminalRequiresNewPlan: Bool = false) -> String? {
+    guard !runInProgress else { return "Wait for the current drawing run and evidence capture to settle." }
+    guard !terminalRequiresNewPlan else { return "Use Prepare Next Drawing to clear the retained terminal before editing a new plan." }
+    guard let frame else { return "Show the current Plotter Video frame before accepting this sheet." }
+    guard let optical = opticalConfiguration, optical.source == frame.source,
+      optical.width == frame.frame.width, optical.height == frame.frame.height,
+      optical.pixelFormat == frame.frame.pixelFormat else {
+      return "Show the compatible calibration camera before accepting sheet coverage."
+    }
+    if let registration {
+      guard optical == registration.applicability.opticalConfiguration,
+        toolAssemblyRevision == registration.applicability.toolAssembly,
+        paper.contactPlane == registration.applicability.paperContactPlane else {
+        return "Show the compatible calibration camera, tool and contact plane before accepting sheet coverage."
+      }
+      guard drawableRegion != nil else { return "Restore the accepted Drawing Boundary before accepting sheet coverage." }
+    } else {
+      guard let guide = placementGuide, !guide.geometry.isEmpty,
+        guide.opticalConfiguration == optical else {
+        return "Display the current Boundary and compatible camera calibration guide before accepting sheet placement."
+      }
+    }
+    return nil
   }
 }
 
@@ -265,6 +344,8 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
   public let artworkPlan: ExecutionPlanRevision?
   public let planningRefusal: PlotterDrawingDraftRefusal?
   public let preview: PlotterDrawingDraftPreview?
+  public let sheetPlacementAssertion: PlotterDrawingDraftSheetPlacementAssertion?
+  public var sheetPlacementIsCurrent: Bool { sheetPlacementAssertion?.isCurrent(in: projection.externalFacts) == true }
   public let paperCoverageObservation: PaperCoverageObservation?
   public let paperCoverageIsCurrent: Bool
   public let paperCoverageDisplay: PlotterDrawingDraftPaperCoverageDisplay?
@@ -314,6 +395,7 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
       artworkPlan: nil,
       planningRefusal: nil,
       preview: nil,
+      sheetPlacementAssertion: nil,
       paperCoverageObservation: nil,
       paperCoverageIsCurrent: false,
       paperCoverageDisplay: nil,
@@ -569,6 +651,7 @@ public actor PlotterDrawingDraftRuntime {
     var artworkExecutionPlanHash: PlotterModel.Digest?
     var planningRefusal: PlotterDrawingDraftRefusal?
     var preview: PlotterDrawingDraftPreview?
+    var sheetPlacementAssertion: PlotterDrawingDraftSheetPlacementAssertion?
     var paperCoverageObservation: PaperCoverageObservation?
     var lastSubmissionRefusal: PlotterDrawingDraftRefusal?
     var coverageExperiment: DrawingCoverageExperiment?
@@ -965,6 +1048,17 @@ public actor PlotterDrawingDraftRuntime {
       state.drawBorder = false
       state.placementID = UUID()
     case .assertPaperCoverage:
+      if let reason = facts.paperAcceptanceUnavailableReason {
+        return refuse(submission, state: &state, facts: facts, owner: Authority.paper,
+          reason: .registrationUnavailable, remedy: reason)
+      }
+      if facts.registration == nil, let frame = facts.revisions.displayedFrame,
+        let guide = facts.revisions.placementGuide {
+        state.sheetPlacementAssertion = PlotterDrawingDraftSheetPlacementAssertion(
+          paper: facts.revisions.paper, toolAssemblyRevision: facts.revisions.toolAssemblyRevision,
+          frame: frame, guide: guide)
+        break
+      }
       guard let frame = facts.displayedFrame,
         let registration = facts.registration,
         let bounds = facts.revisions.drawableRegion?.effectiveBounds
@@ -1047,6 +1141,7 @@ public actor PlotterDrawingDraftRuntime {
     do {
       if environment == .live { try await paperPersistence.clear() }
       state.paperCoverageObservation = nil
+      state.sheetPlacementAssertion = nil
       state.revision = PlotterDrawingDraftRevision(rawValue: state.revision.rawValue &+ 1)
       state.lastSubmissionRefusal = nil
       states[environment] = state
@@ -1417,6 +1512,7 @@ public actor PlotterDrawingDraftRuntime {
       },
       planningRefusal: state.planningRefusal,
       preview: state.preview,
+      sheetPlacementAssertion: state.sheetPlacementAssertion,
       paperCoverageObservation: state.paperCoverageObservation,
       paperCoverageIsCurrent: coverageIsCurrent,
       paperCoverageDisplay: coverageDisplay,

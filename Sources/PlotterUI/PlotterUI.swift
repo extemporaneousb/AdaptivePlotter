@@ -1040,7 +1040,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
           ? "Retry Drawing Border Validation" : "Restart Attempt"
       )])
     }
-    if item.kind == .sparseTipCalibration, facts.sparseSavedCheckpointMatchesPaper {
+    if item.kind == .sparseTipCalibration, !item.isComplete, facts.sparseSavedCheckpointMatchesPaper {
       return strip(item.ownerID, [.init(
         itemID: item.ownerID,
         action: .tipCalibration(.revalidateCheckpoint),

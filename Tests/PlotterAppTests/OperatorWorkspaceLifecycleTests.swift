@@ -129,6 +129,13 @@ struct PlotterApplicationRuntimeLifecycleTests {
         $0.provenance.kind == .intendedPath && $0.provenance.source == .planned
       })
     let displayedFrame = try #require(surface.displayedFrame)
+    let calibrationGuides = surface.overlays.filter { $0.provenance.kind == .calibrationGuide }
+    #expect(calibrationGuides.count == 10)
+    #expect(calibrationGuides.allSatisfy { $0.provenance.source == .planned })
+    #expect(calibrationGuides.allSatisfy { $0.frameID == displayedFrame.frame.id
+      && $0.cameraConfigurationID == displayedFrame.frame.cameraConfigurationID })
+    // The ordinary border remains an independently identified exact prediction;
+    // calibration frame/circle guides cannot become its preview fallback.
     let drawingBorderPath = try #require(
       workspace.borderValidationSnapshot.drawingBorderPlan?.strokes.first?.path
     )
