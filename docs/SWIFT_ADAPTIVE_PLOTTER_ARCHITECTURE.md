@@ -2317,6 +2317,22 @@ installs a completion photograph before optional matched-pose observation travel
 unbound photo references assert no controller pose or ink result. Their optional
 `completionCaptureAfterNanoseconds` distinguishes fresh completion photos from
 available frames that may predate completion, and legacy absence stays unknown.
+`DrawingPlanCheckpointObserver` carries a read-only callback along the existing
+machine/session port. `RunInterpreter` retains its sole plan operation through the
+callback after settled Pen Up, rejects competing motion, and checks Stop before
+the next stroke. The Run owner chooses up to three quarter-stroke checkpoints,
+acquires fresh pixels, and saves `DrawingRunProgressFrame` media/frontier pairs
+through the same evidence store. This introduces no intermediate photo motion.
+`DrawingRunAttemptState.progressFrames` retains each successful save before a
+terminal record exists; `DrawingRunAttemptEvidence.progressFrames` seals the same
+sequence. Legacy absence decodes to an empty sequence. Archive validation checks
+plan/request identity, committed stroke/checkpoint prefix, pose, stream, freshness,
+chronology, and the three-frame bound; original bytes are verified on reopen.
+The existing four-panel reviewer selects progress or terminal frames by labeled
+stage; unfinished attempts with saved stages remain browseable after restart.
+No stage photo is promoted into matched-pose coverage, a Vision result, or an
+accepted Learning model.
+
 Existing media
 publication recovery retains the same original bytes. Draft paper applicability
 uses preview source/configuration plus optical metadata without requiring a

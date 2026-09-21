@@ -10,11 +10,11 @@ struct DrawingReviewGeometry {
 
   static let unavailableExplanation = "Geometry unavailable: this historical result retains neither an execution plan nor its source program."
 
-  static func resolve(plan: ExecutionPlanRevision?, sourceProgram: DrawingProgram?) -> Self? {
+  static func resolve(plan: ExecutionPlanRevision?, sourceProgram: DrawingProgram?, completedStrokeCount: Int? = nil) -> Self? {
     if let plan {
-      return Self(title: "Retained execution plan",
+      return Self(title: completedStrokeCount == nil ? "Retained execution plan" : "Planned through this stage",
         explanation: "Planned paths and placement retained with this result; not evidence of observed ink.",
-        preview: .planned(plan))
+        preview: .planned(plan, completedStrokeCount: completedStrokeCount))
     }
     guard let sourceProgram else { return nil }
     return Self(title: "Source reference",
@@ -37,6 +37,21 @@ struct DrawingReviewGeometry {
 enum DrawingReviewPhotographs {
   static func preferredResultIndex(_ frames: [DrawingRunMediaReference]) -> Int {
     frames.indices.max { frames[$0].frame.captureNanoseconds < frames[$1].frame.captureNanoseconds } ?? 0
+  }
+
+  static func stageLabels(_ attempt: DrawingRunAttemptEvidence) -> [String] {
+    let progress = attempt.progressFrames.map {
+      "\($0.progress.completedStrokeIDs.count)/\($0.progress.plannedStrokeCount) strokes"
+    }
+    let results = attempt.terminalFrames.enumerated().map { index, frame in
+      frame.completionCaptureAfterNanoseconds != nil ? "Completed drawing" :
+        (frame.captureAfterNanoseconds != nil ? "Result view \(index + 1)" : "Available frame")
+    }
+    return progress + results
+  }
+
+  static func preferredStageIndex(_ attempt: DrawingRunAttemptEvidence) -> Int {
+    preferredResultIndex(attempt.progressFrames.map(\.media) + attempt.terminalFrames)
   }
 
   static func hasResultPhoto(_ record: DrawingRunEvidenceRecord) -> Bool {

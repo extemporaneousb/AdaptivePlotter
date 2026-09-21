@@ -19,7 +19,7 @@ protocol PlotterMachineSession: Actor {
   func deactivateMotionGuard() async
   func beginRelativeJog(_ request: RelativeJogRequest) async -> RelativeJogAdmission
   func beginDrawingStroke(_ request: DrawingStrokeRequest) async -> DrawingStrokeAdmission
-  func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission
+  func beginDrawingPlan(_ request: DrawingPlanRequest, checkpointObserver: (any DrawingPlanCheckpointObserver)?) async -> DrawingPlanAdmission
   func reconcilePenActuationProfile(_ profile: PenActuationProfile) async -> Bool
   func beginPenActuation(
     _ command: PenCommand,
@@ -71,8 +71,8 @@ struct PlotterApplicationRuntimeDrawingRunInterpreterPort: PlotterDrawingRunInte
     }
   }
 
-  func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission {
-    await session.beginDrawingPlan(request)
+  func beginDrawingPlan(_ request: DrawingPlanRequest, checkpointObserver: (any DrawingPlanCheckpointObserver)?) async -> DrawingPlanAdmission {
+    await session.beginDrawingPlan(request, checkpointObserver: checkpointObserver)
   }
 
   func requestStop(_ intent: JogCancelIntent) async -> JogCancelOutcome {
@@ -305,7 +305,7 @@ actor PersistentMachineSession: PlotterMachineSession {
     return await interpreter.beginDrawingStroke(request)
   }
 
-  func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission {
+  func beginDrawingPlan(_ request: DrawingPlanRequest, checkpointObserver: (any DrawingPlanCheckpointObserver)?) async -> DrawingPlanAdmission {
     guard let interpreter else {
       let progress = DrawingPlanProgressSnapshot(
         operationID: request.operationID,
@@ -325,7 +325,7 @@ actor PersistentMachineSession: PlotterMachineSession {
       )
       return .rejected(.refused(progress: progress, reason: .notConnected))
     }
-    return await interpreter.beginDrawingPlan(request)
+    return await interpreter.beginDrawingPlan(request, checkpointObserver: checkpointObserver)
   }
 
   func beginBoundaryMotion(

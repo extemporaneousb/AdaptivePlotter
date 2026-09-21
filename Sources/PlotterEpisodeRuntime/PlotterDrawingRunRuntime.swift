@@ -108,7 +108,7 @@ public protocol PlotterDrawingRunInterpreterPort: Sendable {
   func snapshot() async -> RunInterpreterSnapshot?
   func normalizePenUp(profile: PenActuationProfile) async -> PenOutcome
   func travelToObservationPosition(_ request: RelativeJogRequest) async -> MotionOutcome
-  func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission
+  func beginDrawingPlan(_ request: DrawingPlanRequest, checkpointObserver: (any DrawingPlanCheckpointObserver)?) async -> DrawingPlanAdmission
   func requestStop(_ intent: JogCancelIntent) async -> JogCancelOutcome
 }
 
@@ -129,6 +129,7 @@ public protocol PlotterDrawingRunEvidencePort: Sendable {
   func stageIntent(_ intent: DrawingRunIntent) async throws -> DrawingRunEvidenceArchive
   func installMedia(frame: StampedFrame, source: FrameSourceIdentity) async throws -> DrawingRunMediaReference
   func stageBaseline(runID: RunID, media: DrawingRunMediaReference) async throws -> DrawingRunEvidenceArchive
+  func stageProgressFrame(runID: RunID, frame: DrawingRunProgressFrame) async throws -> DrawingRunEvidenceArchive
   func markInkDispatchPossible(runID: RunID) async throws -> DrawingRunEvidenceArchive
   func append(_ record: DrawingRunEvidenceRecord) async throws
     -> DrawingRunEvidenceArchive
@@ -324,6 +325,7 @@ public actor PlotterDrawingRunRuntime {
     var stagedIntent: DrawingRunIntent?
     var baselineMedia: [DrawingRunMediaReference] = []
     var terminalMedia: [DrawingRunMediaReference] = []
+    var progressFrames: [DrawingRunProgressFrame] = []
     // Available originals remain owned until their exact immutable terminal is
     // durable. Failed media installation uses the existing publication retry.
     var terminalMediaBytes: [DrawingRunMediaReference: DisplayedFrame] = [:]
@@ -635,6 +637,7 @@ public actor PlotterDrawingRunRuntime {
     state.stagedIntent = nil
     state.baselineMedia = []
     state.terminalMedia = []
+    state.progressFrames = []
     state.terminalMediaBytes = [:]
     state.mediaCoverage = nil
     state.missingCoverageReason = nil
@@ -788,7 +791,8 @@ public actor PlotterDrawingRunRuntime {
     }
 
     setPhase(.executingPlan, owner: owner, environment: environment)
-    let admission = await interpreter.beginDrawingPlan(request)
+    let admission = await interpreter.beginDrawingPlan(request,
+      checkpointObserver: ProgressObserver(runtime: self, owner: owner))
     let outcome: DrawingPlanOutcome
     let frontier: DrawingRunRequestFrontier
     switch admission {
@@ -825,6 +829,7 @@ public actor PlotterDrawingRunRuntime {
     // Save the finished drawing at its current position before any optional
     // reveal travel. A photo is useful even if matched-pose analysis is refused.
     // This read-only camera effect never relaxes the motion revalidation below.
+    newestCapture = max(newestCapture, states[environment]?.progressFrames.last?.media.frame.captureNanoseconds ?? 0)
     await captureCompletionPhoto(owner, newerThan: newestCapture)
     if let post = states[environment]?.postFrame {
       newestCapture = max(newestCapture, post.frame.captureNanoseconds)
@@ -897,11 +902,15 @@ public actor PlotterDrawingRunRuntime {
       update(owner, environment: environment) {
         $0.mediaCoverage = coverage
         if coverage.uncoveredMask.contains(true) {
-          $0.missingCoverageReason = "Exact armature/occlusion visibility is unavailable; uncovered pixels remain unknown."
+          let detail = "Exact armature/occlusion visibility is unavailable; uncovered pixels remain unknown."
+          $0.missingCoverageReason = $0.missingCoverageReason.map { $0 + " " + detail } ?? detail
         }
       }
     } catch {
-      update(owner, environment: environment) { $0.missingCoverageReason = "Coverage comparison unavailable: \(error)" }
+      update(owner, environment: environment) {
+        let detail = "Coverage comparison unavailable: \(error)"
+        $0.missingCoverageReason = $0.missingCoverageReason.map { $0 + " " + detail } ?? detail
+      }
     }
     let (observation, disposition) = await observePrimaryView(owner,
       baseline: baseline.drawingRunDisplayedFrame, post: post.drawingRunDisplayedFrame,
@@ -1207,7 +1216,7 @@ public actor PlotterDrawingRunRuntime {
       // Raw bytes remain owned by this run even while active == nil during
       // publication recovery. Installation has no capture or motion authority.
       let retainedBytes = states[.live]?.terminalMediaBytes ?? [:]
-      for reference in attempt.terminalFrames {
+      for reference in attempt.progressFrames.map(\.media) + attempt.terminalFrames {
         if let frame = retainedBytes[reference] {
           _ = try await evidence.installMedia(frame: frame.frame, source: frame.source)
         }
@@ -1215,6 +1224,9 @@ public actor PlotterDrawingRunRuntime {
       _ = try await evidence.stageIntent(attempt.intent)
       for baseline in attempt.baselines {
         _ = try await evidence.stageBaseline(runID: record.runID, media: baseline)
+      }
+      for frame in attempt.progressFrames {
+        _ = try await evidence.stageProgressFrame(runID: record.runID, frame: frame)
       }
     }
     return try await evidence.append(record)
@@ -1685,6 +1697,58 @@ public actor PlotterDrawingRunRuntime {
     return requiringControllerReady ? Self.controllerReadinessDetail(actualInterpreter, requiresPenUp: true) : nil
   }
 
+  private struct ProgressObserver: DrawingPlanCheckpointObserver {
+    weak var runtime: PlotterDrawingRunRuntime?
+    let owner: ActiveRun
+    func reachedCheckpoint(_ progress: DrawingPlanProgressSnapshot, position: MachinePosition) async {
+      await runtime?.captureProgressPhoto(owner, progress: progress, position: position)
+    }
+  }
+
+  private func captureProgressPhoto(_ owner: ActiveRun,
+    progress: DrawingPlanProgressSnapshot, position: MachinePosition) async {
+    let count = progress.completedStrokeIDs.count
+    guard DrawingRunProgressFrame.checkpointCounts(plannedStrokeCount: owner.plan.plan.strokes.count).contains(count),
+      !admissionClosed, isCurrent(owner, environment: .live),
+      !cancellationWasRequested(owner, environment: .live),
+      states[.live]?.progressFrames.contains(where: { $0.progress.completedStrokeIDs.count == count }) != true,
+      let intent = states[.live]?.stagedIntent else { return }
+    let baselines = states[.live]?.baselineMedia ?? []
+    let previous = states[.live]?.progressFrames ?? []
+    let boundary = max(clock.nowNanoseconds(), previous.last?.media.frame.captureNanoseconds
+      ?? baselines.map { $0.frame.captureNanoseconds }.max() ?? 0)
+    // Phase remains executingPlan: Stop must reach the interpreter while its
+    // one plan operation waits at this pen-up checkpoint.
+    do {
+      let captured = try await camera.captureFrame(newerThan: boundary)
+      guard isCurrent(owner, environment: .live) else { return }
+      let sealed = await Self.sealPhoto(captured)
+      guard isCurrent(owner, environment: .live) else { return }
+      let media = DrawingRunMediaReference(frame: sealed.frame, source: sealed.source,
+        controllerPosition: position, captureAfterNanoseconds: boundary)
+      let frame = DrawingRunProgressFrame(media: media, progress: progress)
+      try DrawingRunProgressFrame.validate(previous + [frame], intent: intent, baselines: baselines)
+      update(owner, environment: .live) {
+        $0.progress = progress
+        $0.progressFrames.append(frame)
+        $0.terminalMediaBytes[media] = sealed
+      }
+      // Persist references immediately, not just at terminal append. If an
+      // earlier save failed, preserve ordering by retrying its exact bytes first.
+      for retained in states[.live]?.progressFrames ?? [] {
+        if let bytes = states[.live]?.terminalMediaBytes[retained.media] {
+          _ = try await evidence.installMedia(frame: bytes.frame, source: bytes.source)
+        }
+        _ = try await evidence.stageProgressFrame(runID: owner.runID, frame: retained)
+      }
+    } catch {
+      update(owner, environment: .live) {
+        let detail = "Progress photo after \(count) strokes: \(error)"
+        $0.missingCoverageReason = $0.missingCoverageReason.map { $0 + " " + detail } ?? detail
+      }
+    }
+  }
+
   private func captureCompletionPhoto(_ owner: ActiveRun, newerThan newestCapture: UInt64) async {
     guard !admissionClosed, isCurrent(owner, environment: .live),
       !cancellationWasRequested(owner, environment: .live) else { return }
@@ -1709,7 +1773,10 @@ public actor PlotterDrawingRunRuntime {
       }
       _ = try await evidence.installMedia(frame: sealed.frame, source: sealed.source)
     } catch {
-      update(owner, environment: .live) { $0.missingCoverageReason = "Completion photo: \(error)" }
+      update(owner, environment: .live) {
+        let detail = "Completion photo: \(error)"
+        $0.missingCoverageReason = $0.missingCoverageReason.map { $0 + " " + detail } ?? detail
+      }
     }
   }
 
@@ -1791,7 +1858,7 @@ public actor PlotterDrawingRunRuntime {
           terminalFrames: state.terminalMedia, mediaCoverage: state.mediaCoverage,
           missingCoverageReason: state.missingCoverageReason
             ?? (state.mediaCoverage == nil ? "Matched observation coverage was not completed." : nil),
-          executionProgress: progress)
+          executionProgress: progress, progressFrames: state.progressFrames)
       }
     )
   }

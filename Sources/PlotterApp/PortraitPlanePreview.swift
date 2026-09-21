@@ -69,13 +69,13 @@ struct PortraitPlanePreview {
 
   /// A sealed execution plan is sufficient to draw its exact machine paths.
   /// No current authoring program or second planning pass participates.
-  static func planned(_ plan: ExecutionPlanRevision) -> Self {
+  static func planned(_ plan: ExecutionPlanRevision, completedStrokeCount: Int? = nil) -> Self {
     let evidence = try? PortraitDisplayEvidence(mode: .planned,
       programContentHash: plan.sourceProgramContentHash.description,
       region: plan.drawableRegion, placement: plan.placement,
       planContentHash: plan.contentHash.description, widthSource: .nominalProgram)
     return Self(program: nil, region: plan.drawableRegion, evidence: evidence,
-      plannedStrokes: plan.strokes, inkWidthMM: plan.strokes.first?.style.nominalLineWidth ?? 0.4,
+      plannedStrokes: completedStrokeCount.map { Array(plan.strokes.prefix(max(0, $0))) } ?? plan.strokes, inkWidthMM: plan.strokes.first?.style.nominalLineWidth ?? 0.4,
       inkWidthIsMeasured: false, materialProfile: nil, materialRevision: nil,
       statusText: "Exact planned drawing · physical dimensions unverified",
       materialUnavailableReason: nil, savedPresentation: nil)

@@ -440,6 +440,8 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
   private var drawingOutcomeOverride: DrawingPlanOutcome?
   private var heldTravel: (ordinal: Int, gate: DrawingRunHoldGate)?
   private var travelCount = 0
+  private var emitProgressCheckpoints = false
+  func enableProgressCheckpoints() { emitProgressCheckpoints = true }
   private(set) var planRequests: [DrawingPlanRequest] = []
   private(set) var stopIntents: [JogCancelIntent] = []
 
@@ -502,7 +504,7 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
     return .acceptedThenCompleted(finalPosition: final)
   }
 
-  func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission {
+  func beginDrawingPlan(_ request: DrawingPlanRequest, checkpointObserver: (any DrawingPlanCheckpointObserver)?) async -> DrawingPlanAdmission {
     planRequests.append(request)
     await events.append("execute")
     if outcomeKind == .refused, planGate == nil {
@@ -515,6 +517,19 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
       planRevisionID: request.plan.revisionID,
       task: Task {
         let kind = await gate?.wait(request) ?? fallback
+        if self.emitProgressCheckpoints, let checkpointObserver {
+          for count in 1..<request.plan.strokes.count {
+            let progress = drawingRunCheckpointProgress(request, completed: count)
+            let position = MachinePosition(point: request.plan.strokes[count - 1].path.end)
+            self.setPosition(position)
+            self.drawingProgress = progress
+            await checkpointObserver.reachedCheckpoint(progress, position: position)
+            if !self.stopIntents.isEmpty {
+              return .cancelled(progress: progress, intent: .operatorStop, jogCancelOutcome: .transmitted,
+                finalPosition: position, penRaiseOutcome: .commandedAndSettled(command: .raise, commandedState: .up))
+            }
+          }
+        }
         let result = self.drawingOutcomeOverride ?? drawingRunOutcome(kind, request: request)
         if case .completed(_, let position) = result { self.setPosition(position) }
         return result
@@ -649,6 +664,18 @@ actor DrawingRunEvidenceProbe: PlotterDrawingRunEvidencePort {
     try await store.readMedia(reference)
   }
 
+  func removeMediaForCorruptionTest(_ reference: DrawingRunMediaReference) throws {
+    let url = store.fileURL.deletingLastPathComponent()
+      .appendingPathComponent(store.fileURL.lastPathComponent + ".media")
+      .appendingPathComponent(reference.frame.frameSHA256 + ".pixels")
+    try FileManager.default.removeItem(at: url)
+  }
+
+  func reopenedArchive() async -> DrawingRunEvidenceArchive? {
+    guard case .loaded(let value) = await DrawingRunEvidenceStore(fileURL: store.fileURL).load() else { return nil }
+    return value
+  }
+
   func stageBaseline(runID: RunID, media: DrawingRunMediaReference) async throws -> DrawingRunEvidenceArchive {
     if !archive.attempts.contains(where: { $0.intent.runID == runID && $0.baselines.contains(media) }) {
       await events.append("stage-baseline")
@@ -657,6 +684,12 @@ actor DrawingRunEvidenceProbe: PlotterDrawingRunEvidencePort {
       stageBaselineFailuresRemaining -= 1; throw DrawingRunEvidenceProbeError.stageFailed
     }
     archive = try await store.stageBaseline(runID: runID, media: media)
+    return archive
+  }
+
+  func stageProgressFrame(runID: RunID, frame: DrawingRunProgressFrame) async throws -> DrawingRunEvidenceArchive {
+    archive = try await store.stageProgressFrame(runID: runID, frame: frame)
+    await events.append("stage-progress")
     return archive
   }
 
@@ -825,4 +858,16 @@ func drawingRunOutcome(
       penRaiseOutcome: .commandedAndSettled(command: .raise, commandedState: .up)
     )
   }
+}
+
+func drawingRunCheckpointProgress(_ request: DrawingPlanRequest, completed count: Int) -> DrawingPlanProgressSnapshot {
+  let schedule = try! DrawingWireSchedule(plan: request.plan)
+  let segments = schedule.strokes.prefix(count).reduce(0) { $0 + $1.segments.count }
+  return DrawingPlanProgressSnapshot(operationID: request.operationID, planRevisionID: request.plan.revisionID,
+    plannedStrokeCount: request.plan.strokes.count, plannedSegmentCount: schedule.segmentCount,
+    commandedStrokeCount: count, controllerCompletedStrokeCount: count,
+    submittedSegmentCount: segments, controllerCompletedSegmentCount: segments,
+    completedStrokeIDs: request.plan.strokes.prefix(count).map(\.logicalStrokeID),
+    completedCheckpointIDs: request.plan.strokes.prefix(count).map(\.endingCheckpointID),
+    activeStrokeID: nil, activeSegmentIndex: nil)
 }

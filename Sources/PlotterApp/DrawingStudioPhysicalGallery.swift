@@ -16,8 +16,9 @@ struct DrawingReviewerView: View {
 
   private var drawings: [PortraitSavedSketch] { Array(application.portraitStudio.sketches.sketches.reversed()) }
   private var results: [DrawingRunEvidenceRecord] { Array(application.drawingReviewRecords.reversed()) }
+  private var interrupted: [DrawingRunAttemptState] { Array(application.drawingReviewIncompleteAttempts.reversed()) }
   private var selections: [DrawingReviewSelection] {
-    results.map { .result($0.recordID) } + drawings.map { .drawing($0.id) }
+    interrupted.map { .attempt($0.intent.runID) } + results.map { .result($0.recordID) } + drawings.map { .drawing($0.id) }
   }
   private var candidate: PortraitCandidate? {
     switch selection {
@@ -25,12 +26,17 @@ struct DrawingReviewerView: View {
     case .result:
       guard let id = record?.attemptEvidence?.intent.context.candidate?.candidateID else { return nil }
       return drawings.first { $0.id == id }?.candidate
-    case nil: return nil
+    case .attempt, nil: return nil
     }
   }
   private var record: DrawingRunEvidenceRecord? {
     guard case .result(let id) = selection else { return nil }
     return results.first { $0.recordID == id }
+  }
+
+  private var interruptedAttempt: DrawingRunAttemptState? {
+    guard case .attempt(let id) = selection else { return nil }
+    return interrupted.first { $0.intent.runID == id }
   }
 
   var body: some View {
@@ -48,6 +54,14 @@ struct DrawingReviewerView: View {
       }
       HSplitView {
         List(selection: $selection) {
+          if !interrupted.isEmpty {
+            Section("Unfinished runs") {
+              ForEach(interrupted, id: \.intent.runID) { attempt in
+                Label("\(attempt.progressFrames.count) saved drawing stages", systemImage: "photo.stack")
+                  .tag(DrawingReviewSelection.attempt(attempt.intent.runID))
+              }
+            }
+          }
           if !results.isEmpty {
             Section("Drawing results") {
               ForEach(results, id: \.recordID) { result in
@@ -79,7 +93,10 @@ struct DrawingReviewerView: View {
         }.frame(minWidth: 190, idealWidth: 220, maxWidth: 280)
           .accessibilityIdentifier("drawing.reviewer.items")
         Group {
-          if let record {
+          if let interruptedAttempt {
+            DrawingReviewInterruptedAttempt(application: application, attempt: interruptedAttempt,
+              originalPixels: originalPixels).id(interruptedAttempt.intent.runID)
+          } else if let record {
             DrawingReviewResult(application: application, record: record, candidate: candidate,
               originalPixels: originalPixels)
               .id(record.recordID)
@@ -183,6 +200,7 @@ struct DrawingReviewerView: View {
 }
 
 private enum DrawingReviewSelection: Hashable {
+  case attempt(RunID)
   case drawing(String)
   case result(DrawingEvidenceRecordID)
 }
@@ -199,13 +217,17 @@ private struct DrawingReviewResult: View {
   @State private var resultIndex = 0
   private var baselineCount: Int { record.attemptEvidence?.baselines.count ?? 0 }
   private var resultCount: Int { max(0, images.count - baselineCount) }
+  private var stageLabels: [String] { record.attemptEvidence.map(DrawingReviewPhotographs.stageLabels) ?? [] }
   private var program: DrawingProgram? {
     candidate?.program ?? record.attemptEvidence?.intent.context.candidate?.sourceProgram
       ?? record.attemptEvidence?.intent.context.program
   }
 
   private var geometry: DrawingReviewGeometry? {
-    DrawingReviewGeometry.resolve(plan: record.plan.executionPlan, sourceProgram: program)
+    let stages = record.attemptEvidence?.progressFrames ?? []
+    let completed = stages.indices.contains(resultIndex) ? stages[resultIndex].progress.completedStrokeIDs.count : nil
+    return DrawingReviewGeometry.resolve(plan: record.plan.executionPlan, sourceProgram: program,
+      completedStrokeCount: completed)
   }
 
   var body: some View {
@@ -242,7 +264,7 @@ private struct DrawingReviewResult: View {
             DrawingReviewImage(image: images[baselineIndex], originalPixels: originalPixels)
           } else { imageUnavailable(referenceCount: record.attemptEvidence?.baselines.count) }
         }
-        reviewPanel("Result") {
+        reviewPanel(stageLabels.indices.contains(resultIndex) ? stageLabels[resultIndex] : "Result") {
           if resultCount > resultIndex, images.indices.contains(baselineCount + resultIndex) {
             DrawingReviewImage(image: images[baselineCount + resultIndex], originalPixels: originalPixels)
           } else { imageUnavailable(referenceCount: record.attemptEvidence?.terminalFrames.count) }
@@ -256,8 +278,10 @@ private struct DrawingReviewResult: View {
             }
           }
           if resultCount > 1 {
-            Picker("Result", selection: $resultIndex) {
-              ForEach(0..<resultCount, id: \.self) { Text("\($0 + 1)").tag($0) }
+            Picker("Drawing stage", selection: $resultIndex) {
+              ForEach(0..<resultCount, id: \.self) { index in
+                Text(stageLabels.indices.contains(index) ? stageLabels[index] : "Frame \(index + 1)").tag(index)
+              }
             }
           }
         }
@@ -271,7 +295,7 @@ private struct DrawingReviewResult: View {
     }
     .task(id: record.recordID) {
       loading = true; images = []; failure = nil; baselineIndex = 0
-      resultIndex = DrawingReviewPhotographs.preferredResultIndex(record.attemptEvidence?.terminalFrames ?? [])
+      resultIndex = record.attemptEvidence.map(DrawingReviewPhotographs.preferredStageIndex) ?? 0
       defer { loading = false }
       guard record.attemptEvidence != nil else { return }
       do {
@@ -296,6 +320,59 @@ private struct DrawingReviewResult: View {
             referenceCount: referenceCount, failed: failure != nil)))
       }
     }.frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+/// An interrupted attempt remains evidence, never a fabricated terminal result.
+private struct DrawingReviewInterruptedAttempt: View {
+  let application: PlotterApplicationRuntime
+  let attempt: DrawingRunAttemptState
+  let originalPixels: Bool
+  @State private var images: [CGImage] = []
+  @State private var selectedStage = 0
+  @State private var failure: String?
+
+  var body: some View {
+    VStack(spacing: 12) {
+      Text("Run did not publish a final result").font(.headline)
+      Text("Saved stages remain available. Drawing completion is unknown.")
+        .font(.caption).foregroundStyle(.secondary)
+      if let geometry = DrawingReviewGeometry.resolve(plan: attempt.intent.plan,
+        sourceProgram: attempt.intent.context.program,
+        completedStrokeCount: attempt.progressFrames.indices.contains(selectedStage)
+          ? attempt.progressFrames[selectedStage].progress.completedStrokeIDs.count : nil) {
+        PortraitPlaneProgramPreview(preview: geometry.preview).frame(maxHeight: 210)
+      }
+      HStack(spacing: 12) {
+        reviewPanel("Baseline") {
+          if let image = images.first { DrawingReviewImage(image: image, originalPixels: originalPixels) }
+        }
+        reviewPanel("Drawing stage") {
+          let index = attempt.baselines.count + selectedStage
+          if images.indices.contains(index) {
+            DrawingReviewImage(image: images[index], originalPixels: originalPixels)
+          }
+        }
+      }
+      Picker("Drawing stage", selection: $selectedStage) {
+        ForEach(attempt.progressFrames.indices, id: \.self) { index in
+          let progress = attempt.progressFrames[index].progress
+          Text("\(progress.completedStrokeIDs.count)/\(progress.plannedStrokeCount) strokes").tag(index)
+        }
+      }
+      if let failure { Text(failure).foregroundStyle(.red) }
+    }.task(id: attempt.intent.runID) {
+      selectedStage = max(0, attempt.progressFrames.count - 1)
+      do {
+        let originals = try await application.physicalAttemptImages(attempt)
+        images = try originals.map {
+          guard let image = FrameImageFactory.image(from: $0.frame) else {
+            throw DrawingRunEvidenceError.invalidMediaReference
+          }
+          return image
+        }
+      } catch { failure = "Images unavailable: \(error.localizedDescription)" }
+    }
   }
 }
 

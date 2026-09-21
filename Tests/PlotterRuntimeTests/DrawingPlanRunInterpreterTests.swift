@@ -6,6 +6,38 @@ import Testing
 
 @Suite("Owner-bound drawing plan runner")
 struct DrawingPlanRunInterpreterTests {
+  @Test("checkpoint observation retains plan ownership and Stop prevents the next stroke")
+  func stopDuringCheckpointObservation() async throws {
+    let request = try drawingPlanRequest([[(0, 0), (1, 0)], [(1, 0), (2, 0)]])
+    var exchanges = drawingPlanProbeExchanges(position: (0, 0))
+    exchanges += penExchanges(.raise, at: (0, 0), profile: request.penActuationProfile)
+    exchanges += penExchanges(.lower, at: (0, 0), profile: request.penActuationProfile)
+    exchanges += strokeExchanges(try strokeRequest(from: (0, 0), to: (1, 0), request: request), from: (0, 0), to: (1, 0))
+    exchanges += penExchanges(.raise, at: (1, 0), profile: request.penActuationProfile)
+    let fixture = try await DrawingPlanInterpreterFixture.make(exchanges: exchanges)
+    let gate = DrawingPlanReadGate()
+    let observer = DrawingCheckpointTestObserver(gate: gate)
+    guard case .admitted(let operation) = await fixture.interpreter.beginDrawingPlan(request, checkpointObserver: observer) else {
+      Issue.record("Expected plan admission"); return
+    }
+    await gate.waitUntilBlockedRead()
+    let snapshot = await fixture.interpreter.snapshot()
+    #expect(snapshot.currentOperation == .drawingPlan(request.operationID))
+    #expect(snapshot.machine.penState == .up)
+    #expect(snapshot.drawingPlanProgress?.completedStrokeIDs == [request.plan.strokes[0].logicalStrokeID])
+    #expect(await observer.position == (try MachinePosition(x: 1, y: 0)))
+    #expect(await fixture.interpreter.requestRelativeJog(try travelRequest(from: (1, 0), to: (2, 0), request: request))
+      == .refused(.operationInFlight))
+    _ = await fixture.interpreter.requestJogCancel(.operatorStop)
+    await gate.release()
+    guard case .cancelled(let progress, _, _, _, _) = await operation.outcome() else {
+      Issue.record("Expected cancellation after observation"); return
+    }
+    #expect(progress.commandedStrokeCount == 1)
+    #expect(progress.completedCheckpointIDs == [request.plan.checkpoints[0].id])
+    #expect(fixture.link.completedWriteCount == exchanges.count)
+  }
+
   @Test("sub-wire start residue does not issue a zero-delta jog or reject settled drawing")
   func subWireStartResidue() async throws {
     let request = try drawingPlanRequest([[(0.0004, 0), (1.0004, 0)]])
@@ -1005,5 +1037,15 @@ extension ContinuousDrawingPlanTests {
     #expect(throws: (any Error).self) {
       try JSONDecoder().decode(DrawingPlanProgressSnapshot.self, from: JSONSerialization.data(withJSONObject: invalid))
     }
+  }
+}
+
+private actor DrawingCheckpointTestObserver: DrawingPlanCheckpointObserver {
+  let gate: DrawingPlanReadGate
+  private(set) var position: MachinePosition?
+  init(gate: DrawingPlanReadGate) { self.gate = gate }
+  func reachedCheckpoint(_ progress: DrawingPlanProgressSnapshot, position: MachinePosition) async {
+    self.position = position
+    await gate.block()
   }
 }

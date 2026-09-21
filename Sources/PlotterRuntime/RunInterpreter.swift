@@ -599,7 +599,8 @@ public actor RunInterpreter {
   /// Registers one owner for travel, pen actuation, every drawing segment, and
   /// every checkpoint before publishing the operation handle.
   public func beginDrawingPlan(
-    _ request: DrawingPlanRequest
+    _ request: DrawingPlanRequest,
+    checkpointObserver: (any DrawingPlanCheckpointObserver)? = nil
   ) -> DrawingPlanAdmission {
     guard currentOperation == .idle else {
       let progress = ActiveDrawingPlan(request: request).snapshot
@@ -614,7 +615,7 @@ public actor RunInterpreter {
     currentOperation = .drawingPlan(request.operationID)
     activeDrawingPlan = ActiveDrawingPlan(request: request)
     drawingPlanProgress = activeDrawingPlan?.snapshot
-    let task = Task { await self.runAdmittedDrawingPlan(request) }
+    let task = Task { await self.runAdmittedDrawingPlan(request, checkpointObserver: checkpointObserver) }
     return .admitted(DrawingPlanOperation(
       id: request.operationID,
       planRevisionID: request.plan.revisionID,
@@ -623,7 +624,8 @@ public actor RunInterpreter {
   }
 
   private func runAdmittedDrawingPlan(
-    _ request: DrawingPlanRequest
+    _ request: DrawingPlanRequest,
+    checkpointObserver: (any DrawingPlanCheckpointObserver)?
   ) async -> DrawingPlanOutcome {
     defer {
       if currentOperation == .drawingPlan(request.operationID) {
@@ -1024,6 +1026,13 @@ public actor RunInterpreter {
       activeDrawingPlan?.activeStrokeID = nil
       activeDrawingPlan?.activeSegmentIndex = nil
       publishDrawingPlanProgress()
+      if let checkpointObserver, let position = lastKnownPosition {
+        await checkpointObserver.reachedCheckpoint(currentDrawingPlanProgress(request), position: position)
+        if activeDrawingPlan?.cancelIntent != nil {
+          return await finishDrawingPlanCancellation(request: request,
+            finalPosition: lastKnownPosition, penRaiseOutcome: raiseOutcome)
+        }
+      }
     }
 
     var sampledFinalPosition = lastKnownPosition

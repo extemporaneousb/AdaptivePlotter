@@ -78,6 +78,10 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
         !attempt.inkDispatchPossible || !attempt.baselines.isEmpty else {
         throw DrawingRunEvidenceArchiveError.invalidAttempt(runID)
       }
+      guard attempt.progressFrames.isEmpty || attempt.inkDispatchPossible else {
+        throw DrawingRunEvidenceArchiveError.invalidAttempt(runID)
+      }
+      try DrawingRunProgressFrame.validate(attempt.progressFrames, intent: attempt.intent, baselines: attempt.baselines)
       let optical = attempt.intent.context.registration.applicability.opticalConfiguration
       for (index, media) in attempt.baselines.enumerated() {
         try media.validate()
@@ -99,6 +103,7 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
       if let evidence = record.attemptEvidence {
         guard let state = attempts.first(where: { $0.intent.runID == record.runID }),
           state.intent == evidence.intent, state.baselines == evidence.baselines,
+          state.progressFrames == evidence.progressFrames,
           record.executionFrontiers.commandedStrokeCount == 0 || state.inkDispatchPossible else {
           throw DrawingRunEvidenceArchiveError.invalidAttempt(record.runID)
         }
@@ -325,6 +330,24 @@ public actor DrawingRunEvidenceStore {
   }
 
   @discardableResult
+  public func stageProgressFrame(runID: RunID, frame: DrawingRunProgressFrame) throws -> DrawingRunEvidenceArchive {
+    _ = try readMedia(frame.media)
+    let current = try currentArchive()
+    guard let index = current.attempts.firstIndex(where: { $0.intent.runID == runID }) else {
+      throw DrawingRunEvidenceStoreError.missingAttempt(runID)
+    }
+    let state = current.attempts[index]
+    if state.progressFrames.contains(frame) { return current }
+    guard state.inkDispatchPossible, !current.records.contains(where: { $0.runID == runID }) else {
+      throw DrawingRunEvidenceStoreError.immutableAttempt(runID)
+    }
+    var attempts = current.attempts
+    attempts[index] = DrawingRunAttemptState(intent: state.intent, baselines: state.baselines,
+      inkDispatchPossible: true, progressFrames: state.progressFrames + [frame])
+    return try saving(current, attempts: attempts)
+  }
+
+  @discardableResult
   public func markInkDispatchPossible(runID: RunID) throws -> DrawingRunEvidenceArchive {
     let current = try currentArchive()
     guard let index = current.attempts.firstIndex(where: { $0.intent.runID == runID }) else {
@@ -509,8 +532,17 @@ public actor DrawingRunEvidenceStore {
 
   private nonisolated static func verifyMedia(in archive: DrawingRunEvidenceArchive,
     archiveURL: URL) throws {
-    let references = archive.attempts.flatMap(\.baselines)
-      + archive.records.flatMap { ($0.attemptEvidence?.baselines ?? []) + ($0.attemptEvidence?.terminalFrames ?? []) }
+    var references: [DrawingRunMediaReference] = []
+    for attempt in archive.attempts {
+      references += attempt.baselines
+      references += attempt.progressFrames.map(\.media)
+    }
+    for record in archive.records {
+      guard let attempt = record.attemptEvidence else { continue }
+      references += attempt.baselines
+      references += attempt.terminalFrames
+      references += attempt.progressFrames.map(\.media)
+    }
     for reference in Set(references) { _ = try readMedia(reference, archiveURL: archiveURL) }
     for record in archive.records {
       guard let attempt = record.attemptEvidence, let coverage = attempt.mediaCoverage else { continue }

@@ -2204,7 +2204,7 @@ actor ClosurePlotterMachineSession: PlotterMachineSession {
   func beginDrawingStroke(_ request: DrawingStrokeRequest) async -> DrawingStrokeAdmission {
     await strokeAction(request)
   }
-  func beginDrawingPlan(_ request: DrawingPlanRequest) async -> DrawingPlanAdmission {
+  func beginDrawingPlan(_ request: DrawingPlanRequest, checkpointObserver: (any DrawingPlanCheckpointObserver)?) async -> DrawingPlanAdmission {
     guard let planAction else {
       let progress = DrawingPlanProgressSnapshot(
         operationID: request.operationID,

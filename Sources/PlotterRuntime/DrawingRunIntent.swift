@@ -218,13 +218,23 @@ public enum DrawingRunInterruptionClassification: String, Codable, Hashable, Sen
 public struct DrawingRunAttemptState: Codable, Hashable, Sendable {
   public let intent: DrawingRunIntent
   public let baselines: [DrawingRunMediaReference]
+  public let progressFrames: [DrawingRunProgressFrame]
   public let inkDispatchPossible: Bool
   public var interruptionClassification: DrawingRunInterruptionClassification {
     inkDispatchPossible ? .possibleInk : .preparedWithoutInkDispatch
   }
   public init(intent: DrawingRunIntent, baselines: [DrawingRunMediaReference] = [],
-    inkDispatchPossible: Bool = false) {
+    inkDispatchPossible: Bool = false, progressFrames: [DrawingRunProgressFrame] = []) {
     self.intent = intent; self.baselines = baselines; self.inkDispatchPossible = inkDispatchPossible
+    self.progressFrames = progressFrames
+  }
+  private enum CodingKeys: String, CodingKey { case intent, baselines, inkDispatchPossible, progressFrames }
+  public init(from decoder: any Decoder) throws {
+    let v = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(intent: try v.decode(DrawingRunIntent.self, forKey: .intent),
+      baselines: try v.decode([DrawingRunMediaReference].self, forKey: .baselines),
+      inkDispatchPossible: try v.decode(Bool.self, forKey: .inkDispatchPossible),
+      progressFrames: try v.decodeIfPresent([DrawingRunProgressFrame].self, forKey: .progressFrames) ?? [])
   }
 }
 
@@ -232,6 +242,7 @@ public struct DrawingRunAttemptEvidence: Codable, Hashable, Sendable {
   public let intent: DrawingRunIntent
   public let baselines: [DrawingRunMediaReference]
   public let terminalFrames: [DrawingRunMediaReference]
+  public let progressFrames: [DrawingRunProgressFrame]
   public let mediaCoverage: DrawingRunMediaCoverage?
   public let missingCoverageReason: String?
   /// Controller operation evidence, not physical-motion or ink measurements.
@@ -239,9 +250,24 @@ public struct DrawingRunAttemptEvidence: Codable, Hashable, Sendable {
   public let executionProgress: DrawingPlanProgressSnapshot?
   public init(intent: DrawingRunIntent, baselines: [DrawingRunMediaReference],
     terminalFrames: [DrawingRunMediaReference], mediaCoverage: DrawingRunMediaCoverage? = nil,
-    missingCoverageReason: String? = nil, executionProgress: DrawingPlanProgressSnapshot? = nil) {
+    missingCoverageReason: String? = nil, executionProgress: DrawingPlanProgressSnapshot? = nil,
+    progressFrames: [DrawingRunProgressFrame] = []) {
     self.intent = intent; self.baselines = baselines; self.terminalFrames = terminalFrames
+    self.progressFrames = progressFrames
     self.mediaCoverage = mediaCoverage; self.missingCoverageReason = missingCoverageReason
     self.executionProgress = executionProgress
+  }
+  private enum CodingKeys: String, CodingKey {
+    case intent, baselines, terminalFrames, mediaCoverage, missingCoverageReason, executionProgress, progressFrames
+  }
+  public init(from decoder: any Decoder) throws {
+    let v = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(intent: try v.decode(DrawingRunIntent.self, forKey: .intent),
+      baselines: try v.decode([DrawingRunMediaReference].self, forKey: .baselines),
+      terminalFrames: try v.decode([DrawingRunMediaReference].self, forKey: .terminalFrames),
+      mediaCoverage: try v.decodeIfPresent(DrawingRunMediaCoverage.self, forKey: .mediaCoverage),
+      missingCoverageReason: try v.decodeIfPresent(String.self, forKey: .missingCoverageReason),
+      executionProgress: try v.decodeIfPresent(DrawingPlanProgressSnapshot.self, forKey: .executionProgress),
+      progressFrames: try v.decodeIfPresent([DrawingRunProgressFrame].self, forKey: .progressFrames) ?? [])
   }
 }

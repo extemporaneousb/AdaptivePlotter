@@ -1836,6 +1836,23 @@ Existing sheet/camera applicability depends on stream and optical identity, not
 whether a current preview has already computed its evidence hash. Exact-frame
 assertions and measurements still require sealed pixels.
 
+For plans of at least four strokes, the same interpreter pauses at up to three
+existing settled Pen-Up checkpoints near 25%, 50%, and 75% of the stroke count.
+It acquires a strictly newer same-camera/configuration progress photograph, seals
+the original pixels, and persists the exact completed-stroke/checkpoint frontier
+before continuing. These captures introduce no intermediate reveal travel and
+never split a stroke. Short plans retain baseline and final photos. A single long
+stroke has no intermediate settled checkpoint. Capture/save failures remain
+explicit; retained exact bytes can be retried without recapture or motion.
+
+Progress photos survive interruption through the staged attempt archive. The
+reviewer exposes them even when an interrupted run has no terminal record, with
+completion unknown and possible-ink/no-redraw facts preserved. Stage photos carry
+controller pose and capture freshness, not unobstructed-visibility or measured-ink
+claims. They support later stage-aware inspection/learning; capturing them does
+not fit or accept a model automatically. Stop while acquisition is in flight may
+retain that returned frame, but prevents subsequent strokes and captures.
+
 The Drawing Reviewer defaults to the newest retained result photograph and
 shows a capture/coverage failure reason directly. A completed run with no retained
 result photo says so in the active status. Completion-photo acquisition is part

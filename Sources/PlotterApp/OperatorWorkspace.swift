@@ -13679,7 +13679,7 @@ final class PlotterApplicationRuntime:
     }
     _ = await performSpeechEffect("Drawing the four-edge Drawing Border.")
     let operation: DrawingPlanOperation
-    switch await machineSession.beginDrawingPlan(request) {
+    switch await machineSession.beginDrawingPlan(request, checkpointObserver: nil) {
     case .admitted(let admitted):
       operation = admitted
     case .rejected(let outcome):

@@ -74,6 +74,24 @@ extension PlotterApplicationRuntime {
     drawingEvidenceArchive.reviewRecords.filter { $0.role == .ordinaryDrawing }
   }
 
+  var drawingReviewIncompleteAttempts: [DrawingRunAttemptState] {
+    drawingEvidenceArchive.incompleteAttempts.filter {
+      $0.intent.role == .ordinaryDrawing && !$0.progressFrames.isEmpty
+    }
+  }
+
+  func physicalAttemptImages(_ attempt: DrawingRunAttemptState) async throws -> [DisplayedFrame] {
+    guard drawingReviewIncompleteAttempts.contains(attempt) else {
+      throw DrawingRunEvidenceError.invalidAttemptContext
+    }
+    var images: [DisplayedFrame] = []
+    for reference in attempt.baselines + attempt.progressFrames.map(\.media) {
+      let frame = try await drawingEvidencePort.readMedia(reference)
+      images.append(DisplayedFrame(source: reference.source, frame: frame))
+    }
+    return images
+  }
+
   func physicalAttempts(candidateID: String) -> [DrawingRunEvidenceRecord] {
     drawingEvidenceArchive.reviewRecords.filter { $0.attemptEvidence?.intent.context.candidate?.candidateID == candidateID }
   }
@@ -83,7 +101,7 @@ extension PlotterApplicationRuntime {
       throw DrawingRunEvidenceError.invalidAttemptContext
     }
     var images: [DisplayedFrame] = []
-    for reference in attempt.baselines + attempt.terminalFrames {
+    for reference in attempt.baselines + attempt.progressFrames.map(\.media) + attempt.terminalFrames {
       let frame = try await drawingEvidencePort.readMedia(reference)
       images.append(DisplayedFrame(source: reference.source, frame: frame))
     }

@@ -704,6 +704,12 @@ public struct DrawingRunEvidenceRecord: Codable, Hashable, Sendable {
         }
       }
     }
+    try DrawingRunProgressFrame.validate(attempt.progressFrames, intent: intent, baselines: attempt.baselines)
+    if let last = attempt.progressFrames.last {
+      guard last.progress.controllerCompletedStrokeCount <= Int(executionFrontiers.controllerCompletedStrokeCount) else {
+        throw DrawingRunEvidenceError.invalidAttemptContext
+      }
+    }
     for media in attempt.baselines + attempt.terminalFrames { try media.validate() }
     if let reason = attempt.missingCoverageReason,
       reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

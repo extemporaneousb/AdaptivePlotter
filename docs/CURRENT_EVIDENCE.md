@@ -8,6 +8,49 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Sparse retained Drawing progress photos, 2026-09-20
+
+Ordinary product extension in task `task-d062bc481d7342ae92298d652d6f4b21`,
+attempt `attempt-e41814fa75464c9f99056cb122c8fde2`, based on `096cd9c`.
+Read-only archive inspection confirmed earlier ordinary runs retained
+baseline/result pairs but no intermediate-stage sequence. The latest interrupted
+observation still has only its baseline; no missing photo was reconstructed.
+
+The existing Run owner now requests at most three fresh progress photos near
+quarter-completion of the stroke count, for plans of at least four strokes.
+`RunInterpreter` awaits the read-only observer only at an already settled Pen-Up
+checkpoint, retaining its one plan owner and checking Stop before another stroke.
+There is no intermediate reveal movement. The existing completion photo and
+bounded final observation poses remain. Short/single-stroke plans retain baseline
+and final photos rather than inventing an intermediate settled checkpoint.
+
+Every retained stage binds original pixels, source/configuration, fresh capture
+boundary, controller pose, plan/request identity, and committed stroke/checkpoint
+frontier. The evidence store persists each stage with its staged attempt before
+continuation, so reopening does not require a terminal record. Failures remain
+visible, prior stages survive, and exact byte/reference publication retries
+neither recapture nor dispatch motion. Legacy archives decode with no fabricated
+stages; malformed chronology/frontiers and missing original bytes are rejected.
+
+The four-panel reviewer offers labeled stage selection, defaults to the newest
+retained frame, and shows the selected stage's planned stroke prefix. Unfinished
+attempts with saved stages remain browseable after restart, without manufacturing
+completion or changing no-redraw authority. Raw photos are available for later
+stage-aware inspection and learning; no automatic fitting/model acceptance,
+matched-pose analysis, unobstructed arm visibility, or ink success is inferred.
+
+The final focused selection passed 100 tests in 18.059 seconds, including actual
+interpreter ownership/Stop while the observer is held, per-stage acquisition,
+stale/wrong-camera rejection, before-terminal persistence/reopen, original-media
+corruption, old-schema decode, exact-media recovery, stage preview selection,
+and existing Drawing/result-photo/archive tests. The first pass caught a final
+visibility message overwriting an earlier stage-capture failure; the retained
+reason now includes both. Configured repository validation is recorded in the
+Blackdog receipts. Signed build and logs are staged separately under
+`.build/ProgressCaptureApps` and `.build/drawing-progress-d062bc48-evidence` in
+the primary checkout. The running app and hardware were not operated or replaced;
+post-change native interaction and attended camera-to-ink validation remain open.
+
 ## Automatic Drawing result photographs, 2026-09-20
 
 Ordinary product repair in task `task-d3075a47953b44d9b803c4cdce69feb3`,
