@@ -8,6 +8,62 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Automatic Drawing result photographs, 2026-09-20
+
+Ordinary product repair in task `task-d3075a47953b44d9b803c4cdce69feb3`,
+attempt `attempt-2629a20fd24248a6a288cc0a7837aaf4`, based on `5c586ef0dfaf`.
+
+Read-only incident inspection found run `D61DB42E-8DD3-49B9-924D-5503146E7ADC`
+completed 122/122 strokes at 17:07:55 PDT with no terminal frames. The archive
+reported `Controller or run facts changed before observation travel.` Only its
+15:55 baseline pixels were retained. Controller history ended with settled Pen Up;
+there was no later reveal travel. Native inspection of PID 38196 showed
+`Drawing finished`, without a missing-photo indication. Diagnostic export was
+unavailable because no enabled export button was present; no export was fabricated.
+The old diagnostic did not identify the individual rejected fact. Code and
+regression evidence reproduce the failure through unsealed preview frames:
+Draft discarded their stream identity, optical metadata depended on an evidence
+hash, and paper applicability/Run plan disappeared before result positioning.
+
+Optical metadata and accepted paper applicability now survive an unsealed
+preview without manufacturing exact-frame evidence. After clean completion, the
+existing Run owner captures and installs a fresh same-source/configuration photo
+before optional reveal travel. Its independent completion acquisition boundary
+retains freshness without a controller-pose or ink claim. Matched observation
+keeps its existing movement/admission checks. Stop/failure/ambiguity may seal
+already available pixels but initiate neither capture nor photo travel. Missing
+capture and changed-fact reasons remain explicit. Media failure retains original
+bytes for publication-only retry.
+
+The four-panel reviewer defaults to the newest retained image, exposes capture
+and coverage reasons, and distinguishes a fresh result from an available image
+that may predate completion. The active terminal status flags a missing result
+photo. Existing archives decode without inventing completion freshness.
+
+The final focused SwiftPM selection passed 106 tests in 23.776 seconds, including
+unsealed preview applicability, unavailable-context completion capture, stale and
+wrong-camera rejection, Stop during acquisition, durable reload, exact media-save
+recovery, reviewer selection/status, and the existing Drawing suites. A pre-existing
+camera-calibration test compile error required `await` when constructing its
+MainActor probe; its cancellation regression passed. Older capture fixtures,
+including the raster-observation integration, were updated for the extra retained
+completion photograph without changing their Vision/residual assertions. The
+Boundary recovery test now awaits the settled refusal before preserving its exact
+historical identity; the previous wait could capture a provisional projection.
+The affected Boundary/raster recheck passed all 4 tests in 133.195 seconds,
+including every full-resolution raster workload and its unchanged measurement
+assertions. The signed debug bundle
+passed local bundle validation with the stable development identity. Configured
+repository validation is recorded in this task's Blackdog receipts.
+
+Evidence and the separately staged app are retained under
+`.build/drawing-result-d3075a47-evidence` and
+`.build/ResultCaptureApps/AdaptivePlotter-ResultCapture-d3075a47.app` in the main
+checkout. The user-owned running app was preserved. No live drawing, camera
+reconfiguration, hardware motion, post-change native interaction, or physical
+camera-to-ink validation was performed. The missing historical result cannot be
+reconstructed from its retained baseline or planned paths.
+
 ## Partial Guided Learning recovery, 2026-09-20
 
 Ordinary product correction in task `task-1931347a34e9462c9550b5e98d92e216`,

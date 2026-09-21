@@ -13,6 +13,7 @@ struct DrawingRunEpisodeFixture: Sendable {
   let paper: PaperRevisionContext
   let previewFrame: DisplayedFrame
   let baselineFrame: DisplayedFrame
+  let completionFrame: DisplayedFrame
   let postFrame: DisplayedFrame
   let plan: PlotterDrawingRunPlan
 
@@ -153,6 +154,9 @@ enum DrawingRunEpisodeFixtureCache {
       configuration: configuration,
       width: optical.width, height: optical.height, pixelFormat: optical.pixelFormat
     )
+    let completion = try drawingRunFrame(id: "drawing-run-completion", sequence: 25,
+      source: source, configuration: configuration, width: optical.width, height: optical.height,
+      pixelFormat: optical.pixelFormat)
     let post = try drawingRunFrame(
       id: "drawing-run-post",
       sequence: 30,
@@ -200,6 +204,7 @@ enum DrawingRunEpisodeFixtureCache {
       paper: paper,
       previewFrame: preview,
       baselineFrame: baseline,
+      completionFrame: completion,
       postFrame: post,
       plan: plan
     )
@@ -530,6 +535,7 @@ actor DrawingRunCameraProbe: PlotterDrawingRunCameraPort {
   private let frames: [DisplayedFrame]
   private let events: DrawingRunEventProbe
   private var index = 0
+  private var heldCapture: (ordinal: Int, gate: DrawingRunHoldGate)?
   private(set) var requests: [UInt64] = []
 
   init(frames: [DisplayedFrame], events: DrawingRunEventProbe) {
@@ -537,11 +543,15 @@ actor DrawingRunCameraProbe: PlotterDrawingRunCameraPort {
     self.events = events
   }
 
+  func holdCapture(ordinal: Int, at gate: DrawingRunHoldGate) { heldCapture = (ordinal, gate) }
+
   func captureFrame(newerThan captureNanoseconds: UInt64) async throws -> DisplayedFrame {
     requests.append(captureNanoseconds)
+    if let hold = heldCapture, hold.ordinal == requests.count { await hold.gate.hold() }
+    guard frames.indices.contains(index) else { throw LearningPathOperationError.freshFrameUnavailable }
     let frame = frames[index]
     index += 1
-    await events.append(index == 1 ? "capture-baseline" : "capture-post")
+    await events.append(index == 1 ? "capture-baseline" : (index == 2 ? "capture-completion" : "capture-post"))
     return frame
   }
 }
@@ -701,6 +711,7 @@ func drawingRunHarness(
   stageBaselineFailures: Int = 0,
   failDispatchAcknowledgement: Bool = false,
   archiveLoadResult: DrawingRunEvidenceStoreLoadResult = .absent,
+  cameraFrames: [DisplayedFrame]? = nil,
   clock: any RuntimeClock = DrawingRunEpisodeClock()
 ) async -> DrawingRunRuntimeHarness {
   let events = DrawingRunEventProbe()
@@ -715,7 +726,7 @@ func drawingRunHarness(
     releasePlanOnStop: releasePlanOnStop
   )
   let camera = DrawingRunCameraProbe(
-    frames: [fixture.baselineFrame, fixture.postFrame],
+    frames: cameraFrames ?? [fixture.baselineFrame, fixture.completionFrame, fixture.postFrame],
     events: events
   )
   let vision = DrawingRunVisionProbe(events: events)

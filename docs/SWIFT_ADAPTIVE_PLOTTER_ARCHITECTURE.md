@@ -2311,7 +2311,16 @@ valid entries. `DrawingReviewGeometry` only projects retained evidence: exact
 record execution plan first, explicit source-program reference second, unavailable
 reason otherwise. `PortraitPlanePreview.planned` renders retained machine paths
 without current Draft or calibration. Missing photographs never become geometry
-or substitute media.
+or substitute media. Result selection uses the newest retained capture, and missing
+photo/coverage reasons are visible beside the images. The run owner captures and
+installs a completion photograph before optional matched-pose observation travel;
+unbound photo references assert no controller pose or ink result. Their optional
+`completionCaptureAfterNanoseconds` distinguishes fresh completion photos from
+available frames that may predate completion, and legacy absence stays unknown.
+Existing media
+publication recovery retains the same original bytes. Draft paper applicability
+uses preview source/configuration plus optical metadata without requiring a
+materialized content hash; exact evidence requests still require sealed pixels.
 
 `PortraitSketchCollection` remains the qualified candidate archive owner. Save and
 projection retain source bytes, exact raster, recipe, immutable program and provenance

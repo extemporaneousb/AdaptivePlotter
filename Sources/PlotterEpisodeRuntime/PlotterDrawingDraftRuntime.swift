@@ -142,6 +142,10 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
 public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
   public let revisions: PlotterDrawingDraftExternalFactRevisions
   public let displayedFrame: DisplayedFrame?
+  // Stream identity remains available when preview pixels have not been hashed.
+  // It can validate existing paper context, never create exact-frame evidence.
+  public let cameraSource: FrameSourceIdentity?
+  public let cameraConfigurationID: CameraConfigurationID?
   public let registration: TipCameraRegistration?
   /// Existing archive records, including ordinary drawings that may occupy a sheet.
   public let coverageRecords: [DrawingRunEvidenceRecord]
@@ -165,6 +169,8 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
   ) {
     let exactFrameReference = displayedFrame?.plotterExactFrameReferenceIfMaterialized
     self.displayedFrame = exactFrameReference == nil ? nil : displayedFrame
+    cameraSource = displayedFrame?.source
+    cameraConfigurationID = displayedFrame?.frame.cameraConfigurationID
     self.registration = registration
     self.coverageRecords = coverageRecords
     revisions = PlotterDrawingDraftExternalFactRevisions(
@@ -1448,16 +1454,16 @@ public actor PlotterDrawingDraftRuntime {
   ) -> PlotterDrawingDraftSnapshot {
     let coverageIsCurrent: Bool
     if let coverage = state.paperCoverageObservation,
-      let frame = facts.displayedFrame
+      let source = facts.cameraSource, let configurationID = facts.cameraConfigurationID
     {
       // Freshness belongs to the paper/source/config/contact-plane context,
       // not to whichever newer exact frame currently carries that context.
       coverageIsCurrent = coverage.validation(
         against: PaperCoverageValidationContext(
           paper: facts.revisions.paper,
-          source: frame.source,
+          source: source,
           frameID: coverage.frame.frameID,
-          cameraConfigurationID: frame.frame.cameraConfigurationID,
+          cameraConfigurationID: configurationID,
           opticalConfiguration: facts.revisions.opticalConfiguration,
           drawableRegion: facts.revisions.drawableRegion
         )

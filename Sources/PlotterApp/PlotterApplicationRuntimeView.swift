@@ -58,7 +58,10 @@ struct PlotterApplicationRuntimeView: View {
         }.padding(.horizontal, 10).padding(.vertical, 4)
       }
       DrawingStudioActiveRunStatus(runState: ui.drawingStudio.runState,
-        terminalDisposition: application.drawingRunSnapshot?.terminal?.disposition).equatable()
+        terminalDisposition: application.drawingRunSnapshot?.terminal?.disposition,
+        resultPhotoMissing: application.drawingRunSnapshot?.terminal.map {
+          !DrawingReviewPhotographs.hasResultPhoto($0.record)
+        } ?? false).equatable()
       if layout.wrappedValue.isPresented(.portraitStudio) {
         VStack(spacing: 0) {
           HStack {

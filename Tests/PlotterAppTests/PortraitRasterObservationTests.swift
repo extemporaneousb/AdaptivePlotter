@@ -140,6 +140,10 @@ struct PortraitRasterObservationTests {
         captureNanoseconds: 20, cameraConfigurationID: configuration)
     let baselineDisplayed = DisplayedFrame(source: optical.source, frame: baseline)
     let postDisplayed = DisplayedFrame(source: optical.source, frame: post)
+    let completionDisplayed = try DisplayedFrame(source: optical.source,
+      frame: StampedFrame(sequence: 15, captureNanoseconds: 15,
+        cameraConfigurationID: configuration, width: post.width, height: post.height,
+        rowBytes: post.rowBytes, pixelFormat: post.pixelFormat, bytes: post.bytes))
     let paper = fixture.borderRecord.paper
     let paperCoverage = try PaperCoverageObservation(paper: paper,
       source: optical.source, frame: ExactFrameProvenance(frame: preview),
@@ -160,7 +164,7 @@ struct PortraitRasterObservationTests {
       interactiveLearningIsComplete: true, plan: plan, paperCoverageIsCurrent: true,
       displayedFrame: DisplayedFrame(source: optical.source, frame: preview), interpreter: ready,
       penActuationProfile: .initialDefaults, acceptedMovementBounds: fixture.drawableRegion.bounds))
-    let camera = DrawingRunCameraProbe(frames: [baselineDisplayed, postDisplayed], events: events)
+    let camera = DrawingRunCameraProbe(frames: [baselineDisplayed, completionDisplayed, postDisplayed], events: events)
     let vision = PortraitRasterVisionPort()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

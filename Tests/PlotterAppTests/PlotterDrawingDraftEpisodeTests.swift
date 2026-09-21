@@ -12,6 +12,39 @@ import Testing
 @Suite("Drawing Studio draft episode", .serialized)
 @MainActor
 struct PlotterDrawingDraftEpisodeTests {
+  @Test("unsealed preview preserves accepted paper context without manufacturing exact evidence")
+  func unsealedPreviewPreservesPaperContext() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime(clock: DraftRuntimeClock(now: fixture.frame.frame.captureNanoseconds + 100))
+    let opened = try await open(runtime, facts: fixture.facts())
+    let asserted = try applied(await runtime.submit(.init(projection: opened.projection,
+      intent: .assertPaperCoverage), facts: fixture.facts()))
+    let original = fixture.frame.frame
+    let unsealed = try DisplayedFrame(source: fixture.frame.source,
+      frame: StampedFrame(sequence: original.sequence + 1, captureNanoseconds: original.captureNanoseconds + 1,
+        cameraConfigurationID: original.cameraConfigurationID, width: original.width, height: original.height,
+        rowBytes: original.rowBytes, pixelFormat: original.pixelFormat, bytes: original.bytes,
+        eagerlyMaterializeContentHash: false))
+    let facts = fixture.facts(displayedFrame: unsealed)
+    #expect(facts.displayedFrame == nil)
+    let next = await runtime.synchronize(facts)
+    #expect(next.paperCoverageIsCurrent)
+    #expect(next.plan == asserted.plan)
+    #expect(next.paperCoverageObservation == asserted.paperCoverageObservation)
+    #expect(next.paperCoverageDisplay == nil)
+    #expect(!unsealed.frame.contentHashIsMaterialized)
+    let app = makeCausalSimulatorAppFixture()
+    #expect(try app.workspace.cameraOpticalConfiguration(for: unsealed)
+      == app.workspace.cameraOpticalConfiguration(for: fixture.frame))
+    #expect(!unsealed.frame.contentHashIsMaterialized)
+    await app.workspace.shutdown()
+    let changedSource = DisplayedFrame(source: .live(CameraDeviceID(rawValue: "other")), frame: unsealed.frame)
+    #expect(!(await runtime.synchronize(fixture.facts(displayedFrame: changedSource))).paperCoverageIsCurrent)
+    let changedPaper = await runtime.synchronize(fixture.facts(paper: .init(
+      instance: PaperInstanceRevision(), contactPlane: fixture.paper.contactPlane)))
+    #expect(!changedPaper.paperCoverageIsCurrent)
+  }
+
   @Test("clipped bordered portraits preserve candidate source identity")
   func clippedBorderRetainsOriginalArtwork() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()

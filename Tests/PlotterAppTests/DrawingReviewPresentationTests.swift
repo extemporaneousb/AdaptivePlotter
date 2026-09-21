@@ -5,6 +5,14 @@ import Testing
 
 @Suite("Drawing Reviewer historical evidence")
 struct DrawingReviewPresentationTests {
+  @Test("completed run status makes a missing result photo explicit")
+  @MainActor
+  func missingPhotoStatus() {
+    let status = DrawingStudioActiveRunStatus(runState: .terminal(runID: RunID(), detail: "Camera unavailable"),
+      terminalDisposition: .visionRejected, resultPhotoMissing: true)
+    #expect(status.statusTitle == "Drawing finished · result photo unavailable")
+  }
+
   @Test("retained plan wins over source and remains renderable without program or photographs")
   func retainedPlan() throws {
     let program = try DrawingProgramCatalog.program(for: .rectangle,

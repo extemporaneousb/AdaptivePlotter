@@ -1827,7 +1827,20 @@ App-generated travel and Pen-Down drawing both request the canonical
 500 mm/min XY feed; the existing controller-reported feed ceiling remains the
 lower admission authority. Controller completion is not ink verification. After clean
 completion, the runtime requires exact final MPos and a strictly newer
-same-source post frame before applicability-aware observation.
+same-source post frame before applicability-aware observation. The runtime also
+automatically retains a strictly newer photograph from the run's camera/configuration
+before optional Pen-Up reveal travel. Retaining this photograph does not require matched-pose
+coverage or Vision success and does not claim unobstructed visibility or verified
+ink. Matched observation still requires its own settled pose and fresh frame.
+Existing sheet/camera applicability depends on stream and optical identity, not
+whether a current preview has already computed its evidence hash. Exact-frame
+assertions and measurements still require sealed pixels.
+
+The Drawing Reviewer defaults to the newest retained result photograph and
+shows a capture/coverage failure reason directly. A completed run with no retained
+result photo says so in the active status. Completion-photo acquisition is part
+of the run, without a later operator action. Stop, failure and ambiguity retain
+only an already available frame and never initiate capture or reveal travel.
 
 Geometry outside tip applicability remains executable but is explicitly
 non-attributable and invokes no Vision ink measurement. An immutable evidence

@@ -2627,7 +2627,7 @@ final class PlotterApplicationRuntime:
 
   var drawingDraftExternalFacts: PlotterDrawingDraftExternalFacts {
     let opticalConfiguration = displayedFrame.flatMap {
-      try? exactTipCalibrationFrame($0).opticalConfiguration
+      try? cameraOpticalConfiguration(for: $0)
     }
     return PlotterDrawingDraftExternalFacts(
       environment: manualMotionEnvironment,
@@ -3052,7 +3052,7 @@ final class PlotterApplicationRuntime:
       interactiveLearningIsComplete: interactiveLearningIsComplete,
       plan: runPlan,
       paperCoverageIsCurrent: draft.paperCoverageIsCurrent,
-      displayedFrame: capturedFacts.displayedFrame,
+      displayedFrame: displayedFrame,
       interpreter: interpreter,
       penActuationProfile: currentPenActuationProfile,
       physicalPositionUnavailableReason: retainedPoseApplicabilityRefusal,
@@ -9173,16 +9173,11 @@ final class PlotterApplicationRuntime:
     }
   }
 
-  private func exactTipCalibrationFrame(_ displayed: DisplayedFrame) throws
-    -> ExactTipCalibrationFrame
+  /// Optical metadata does not require hashing preview pixels.
+  func cameraOpticalConfiguration(for displayed: DisplayedFrame) throws
+    -> CameraOpticalConfigurationIdentity
   {
-    guard let contentSHA256 = displayed.frame.materializedContentSHA256 else {
-      throw LearningPathOperationError.requiredState(
-        "The current camera frame is preview-only. Wait for automatic analysis or capture an exact frame before using exact-frame Learning evidence."
-      )
-    }
-    let configurationRevision = displayed.frame.cameraConfigurationID.rawValue
-    let optical = try CameraOpticalConfigurationIdentity(
+    try CameraOpticalConfigurationIdentity(
       source: displayed.source,
       sensorFormat: "runtime-\(displayed.frame.pixelFormat.rawValue)",
       width: displayed.frame.width,
@@ -9196,6 +9191,18 @@ final class PlotterApplicationRuntime:
       mountRevision: cameraMountRevision,
       reframingRevision: cameraReframingRevision
     )
+  }
+
+  private func exactTipCalibrationFrame(_ displayed: DisplayedFrame) throws
+    -> ExactTipCalibrationFrame
+  {
+    guard let contentSHA256 = displayed.frame.materializedContentSHA256 else {
+      throw LearningPathOperationError.requiredState(
+        "The current camera frame is preview-only. Wait for automatic analysis or capture an exact frame before using exact-frame Learning evidence."
+      )
+    }
+    let configurationRevision = displayed.frame.cameraConfigurationID.rawValue
+    let optical = try cameraOpticalConfiguration(for: displayed)
     return try ExactTipCalibrationFrame(
       frameID: displayed.frame.id,
       frameSHA256: contentSHA256,

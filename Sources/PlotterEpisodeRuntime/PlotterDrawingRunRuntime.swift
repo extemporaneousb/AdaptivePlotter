@@ -822,6 +822,13 @@ public actor PlotterDrawingRunRuntime {
         evidenceDisposition: .possibleInk, observation: .notAttempted(.executionFailedBeforeObservation))
       return
     }
+    // Save the finished drawing at its current position before any optional
+    // reveal travel. A photo is useful even if matched-pose analysis is refused.
+    // This read-only camera effect never relaxes the motion revalidation below.
+    await captureCompletionPhoto(owner, newerThan: newestCapture)
+    if let post = states[environment]?.postFrame {
+      newestCapture = max(newestCapture, post.frame.captureNanoseconds)
+    }
     var results: [SamePoseFrameSample] = []
     do {
       for (index, pose) in observationPlan.poses.enumerated() {
@@ -836,9 +843,11 @@ public actor PlotterDrawingRunRuntime {
         setPhase(.capturingPostFrame, owner: owner, environment: environment)
         let post = try await camera.captureFrame(newerThan: captureAfter)
         guard isCurrent(owner, environment: environment) else { return }
-        update(owner, environment: environment) { $0.postFrame = post }
         guard post.source == baselines[index].drawingRunDisplayedFrame.source,
-          post.frame.captureNanoseconds > captureAfter else {
+          post.frame.cameraConfigurationID == baselines[index].drawingRunDisplayedFrame.frame.cameraConfigurationID
+        else { throw DrawingRunEvidenceError.invalidFramePair }
+        update(owner, environment: environment) { $0.postFrame = post }
+        guard post.frame.captureNanoseconds > captureAfter else {
           // Keep stale available bytes, but never bind them to the settled pose.
           throw DrawingRunEvidenceError.invalidFramePair
         }
@@ -858,7 +867,10 @@ public actor PlotterDrawingRunRuntime {
       }
     } catch {
       await preserveAvailableTerminalFrame(owner)
-      update(owner, environment: environment) { $0.missingCoverageReason = String(describing: error) }
+      update(owner, environment: environment) {
+        let detail = String(describing: error)
+        $0.missingCoverageReason = $0.missingCoverageReason.map { $0 + " " + detail } ?? detail
+      }
       await finish(owner, frontier: frontier, progress: outcome.progress,
         execution: .completed, evidenceDisposition: .visionUnclear,
         observation: .notAttempted(.frameEvidenceUnavailable))
@@ -900,9 +912,11 @@ public actor PlotterDrawingRunRuntime {
 
   private func reachObservationPose(_ target: MachinePosition, owner: ActiveRun,
     phase: PlotterDrawingRunPhase) async throws -> MachinePosition {
-    guard await revalidate(owner, requiringControllerReady: true),
-      let current = await interpreter.snapshot()?.machine.position else {
-      throw PreparationFailure.cancelled("Controller or run facts changed before observation travel.")
+    if let reason = await revalidationFailure(owner, requiringControllerReady: true) {
+      throw PreparationFailure.cancelled("Result positioning unavailable: \(reason)")
+    }
+    guard let current = await interpreter.snapshot()?.machine.position else {
+      throw PreparationFailure.cancelled("Controller position unavailable before observation travel.")
     }
     guard !admissionClosed, !cancellationWasRequested(owner, environment: .live) else {
       throw PreparationFailure.cancelled("Stop before observation travel.")
@@ -1643,23 +1657,66 @@ public actor PlotterDrawingRunRuntime {
     )
   }
 
-  private func revalidate(
-    _ owner: ActiveRun,
-    requiringControllerReady: Bool
-  ) async -> Bool {
+  private func revalidate(_ owner: ActiveRun, requiringControllerReady: Bool) async -> Bool {
+    await revalidationFailure(owner, requiringControllerReady: requiringControllerReady) == nil
+  }
+
+  private func revalidationFailure(_ owner: ActiveRun, requiringControllerReady: Bool) async -> String? {
     let current = await facts.drawingRunFacts(for: .live)
     guard !admissionClosed, isCurrent(owner, environment: .live),
-      !cancellationWasRequested(owner, environment: .live) else { return false }
+      !cancellationWasRequested(owner, environment: .live) else { return "Run stopped or superseded." }
     let actualInterpreter = await interpreter.snapshot()
     let settledFacts = await facts.drawingRunFacts(for: .live)
-    guard !admissionClosed,
-      CapturedEffectFacts(current) == owner.capturedEffectFacts,
-      CapturedEffectFacts(settledFacts) == owner.capturedEffectFacts,
-      settledFacts.physicalPositionUnavailableReason == nil,
-      (!requiringControllerReady || Self.controllerIsReady(actualInterpreter))
-    else { return false }
-    return isCurrent(owner, environment: .live)
-      && !cancellationWasRequested(owner, environment: .live)
+    guard !admissionClosed, isCurrent(owner, environment: .live),
+      !cancellationWasRequested(owner, environment: .live) else { return "Run stopped or superseded." }
+    for value in [current, settledFacts] {
+      if let reason = value.physicalPositionUnavailableReason { return reason }
+      if let change = effectFactRefusal(owner: owner, current: value) {
+        switch change.reason {
+        case .effectEnvironmentChanged: return "The active camera/controller environment changed."
+        case .learningIncomplete: return "Accepted Learning changed during the drawing."
+        case .exactPlanChanged: return "The drawing plan or accepted movement bounds changed."
+        case .paperCoverageNotCurrent: return "The current sheet no longer has matching paper coverage."
+        case .penActuationProfileChanged: return "The Pen Up/Down profile changed during the drawing."
+        default: return "The run's required context is no longer current."
+        }
+      }
+    }
+    return requiringControllerReady ? Self.controllerReadinessDetail(actualInterpreter, requiresPenUp: true) : nil
+  }
+
+  private func captureCompletionPhoto(_ owner: ActiveRun, newerThan newestCapture: UInt64) async {
+    guard !admissionClosed, isCurrent(owner, environment: .live),
+      !cancellationWasRequested(owner, environment: .live) else { return }
+    let boundary = max(clock.nowNanoseconds(), newestCapture)
+    setPhase(.capturingPostFrame, owner: owner, environment: .live)
+    do {
+      let frame = try await camera.captureFrame(newerThan: boundary)
+      guard isCurrent(owner, environment: .live) else { return }
+      guard frame.source == owner.plan.paperCoverage.source,
+        frame.frame.cameraConfigurationID == (states[.live]?.baselineFrame?.frame.cameraConfigurationID
+          ?? owner.plan.paperCoverage.frame.cameraConfigurationID),
+        frame.frame.captureNanoseconds > boundary else { throw DrawingRunEvidenceError.invalidFramePair }
+      let sealed = await Self.sealPhoto(frame)
+      guard isCurrent(owner, environment: .live) else { return }
+      // No pose or matched visibility is asserted by this completion photograph.
+      let media = DrawingRunMediaReference(frame: sealed.frame, source: sealed.source,
+        completionCaptureAfterNanoseconds: boundary)
+      update(owner, environment: .live) {
+        $0.postFrame = sealed
+        $0.terminalMedia.append(media)
+        $0.terminalMediaBytes[media] = sealed
+      }
+      _ = try await evidence.installMedia(frame: sealed.frame, source: sealed.source)
+    } catch {
+      update(owner, environment: .live) { $0.missingCoverageReason = "Completion photo: \(error)" }
+    }
+  }
+
+  private static func sealPhoto(_ frame: DisplayedFrame) async -> DisplayedFrame {
+    await Task.detached(priority: .utility) {
+      DisplayedFrame(source: frame.source, frame: frame.frame.materializingEvidenceContentHash())
+    }.value
   }
 
   /// Read-only retention of the available terminal view. Failure and Stop must
@@ -1667,11 +1724,19 @@ public actor PlotterDrawingRunRuntime {
   private func preserveAvailableTerminalFrame(_ owner: ActiveRun) async {
     let current = await facts.drawingRunFacts(for: .live)
     guard isCurrent(owner, environment: .live) else { return }
+    let available: DisplayedFrame?
+    if let frame = current.displayedFrame,
+      frame.source == owner.plan.paperCoverage.source,
+      frame.frame.cameraConfigurationID == (states[.live]?.baselineFrame?.frame.cameraConfigurationID
+          ?? owner.plan.paperCoverage.frame.cameraConfigurationID) {
+      available = await Self.sealPhoto(frame)
+    } else { available = nil }
+    guard isCurrent(owner, environment: .live) else { return }
     update(owner, environment: .live) { state in
       if state.missingCoverageReason == nil {
         state.missingCoverageReason = "Matched result observation did not complete. No automatic photo repositioning was authorized; available images may predate completion and visibility remains unknown."
       }
-      if let frame = current.displayedFrame,
+      if let frame = available,
         frame.frame.captureNanoseconds > (state.postFrame?.frame.captureNanoseconds ?? 0) {
         state.postFrame = frame
       }

@@ -13,15 +13,25 @@ public struct DrawingRunMediaReference: Codable, Hashable, Sendable {
   /// Monotonic acquisition boundary captured after controller settlement. Nil
   /// preserves legacy or available-frame evidence without a freshness claim.
   public let captureAfterNanoseconds: UInt64?
+  /// A separate completion boundary for a fresh photograph without a pose claim.
+  /// Nil on historical/available frames; never inferred from record save time.
+  public let completionCaptureAfterNanoseconds: UInt64?
   public init(frame: StampedFrame, source: FrameSourceIdentity,
-    controllerPosition: MachinePosition? = nil, captureAfterNanoseconds: UInt64? = nil) {
+    controllerPosition: MachinePosition? = nil, captureAfterNanoseconds: UInt64? = nil,
+    completionCaptureAfterNanoseconds: UInt64? = nil) {
     self.source = source; self.frame = ExactFrameProvenance(frame: frame)
     sequence = frame.sequence; byteCount = frame.bytes.count
     self.controllerPosition = controllerPosition
     self.captureAfterNanoseconds = captureAfterNanoseconds
+    self.completionCaptureAfterNanoseconds = completionCaptureAfterNanoseconds
   }
 
   func validate() throws {
+    if let completionCaptureAfterNanoseconds {
+      guard frame.captureNanoseconds > completionCaptureAfterNanoseconds else {
+        throw DrawingRunEvidenceError.invalidMediaReference
+      }
+    }
     if let captureAfterNanoseconds {
       guard controllerPosition != nil, frame.captureNanoseconds > captureAfterNanoseconds else {
         throw DrawingRunEvidenceError.invalidMediaReference

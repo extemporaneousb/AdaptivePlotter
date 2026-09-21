@@ -18,6 +18,8 @@ struct DrawingStudioActiveRunStatus: View, Equatable {
   let runState: DrawingStudioRunState
   var terminalDisposition: PlotterDrawingRunTerminalDisposition? = nil
 
+  var resultPhotoMissing = false
+
   var statusTitle: String {
     guard let terminalDisposition else { return runState.title }
     switch terminalDisposition {
@@ -25,7 +27,8 @@ struct DrawingStudioActiveRunStatus: View, Equatable {
     case .cancelled: return "Drawing stopped"
     case .ambiguous, .possibleInk: return "Drawing interrupted"
     case .publicationIncomplete: return "Drawing evidence not saved"
-    case .nonAttributable, .visionRejected, .succeeded: return "Drawing finished"
+    case .nonAttributable, .visionRejected, .succeeded:
+      return resultPhotoMissing ? "Drawing finished · result photo unavailable" : "Drawing finished"
     }
   }
 

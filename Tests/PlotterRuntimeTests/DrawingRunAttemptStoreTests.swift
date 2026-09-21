@@ -5,6 +5,21 @@ import Testing
 
 @Suite("Durable drawing attempt and original media ownership")
 struct DrawingRunAttemptStoreTests {
+  @Test("completion freshness round-trips independently of controller pose and rejects stale pixels")
+  func completionCaptureBoundary() throws {
+    let input = try fixture()
+    let reference = DrawingRunMediaReference(frame: input.baseline, source: input.source,
+      completionCaptureAfterNanoseconds: input.baseline.captureNanoseconds - 1)
+    let restored = try JSONDecoder().decode(DrawingRunMediaReference.self,
+      from: JSONEncoder().encode(reference))
+    try restored.validate()
+    #expect(restored == reference)
+    #expect(restored.controllerPosition == nil && restored.captureAfterNanoseconds == nil)
+    let stale = DrawingRunMediaReference(frame: input.baseline, source: input.source,
+      completionCaptureAfterNanoseconds: input.baseline.captureNanoseconds)
+    #expect(throws: DrawingRunEvidenceError.invalidMediaReference) { try stale.validate() }
+  }
+
   @Test("Intent and raw baseline survive interruption before and after dispatch marker")
   func interruptionFrontiers() async throws {
     let fixture = try fixture()

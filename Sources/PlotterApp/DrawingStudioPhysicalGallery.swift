@@ -262,10 +262,16 @@ private struct DrawingReviewResult: View {
           }
         }
       }
+      if let status = DrawingReviewPhotographs.status(record) {
+        Text(status).font(.caption).foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .accessibilityIdentifier("drawing.reviewer.photoStatus")
+      }
       if let failure { Text(failure).font(.caption).foregroundStyle(.red) }
     }
     .task(id: record.recordID) {
-      loading = true; images = []; failure = nil; baselineIndex = 0; resultIndex = 0
+      loading = true; images = []; failure = nil; baselineIndex = 0
+      resultIndex = DrawingReviewPhotographs.preferredResultIndex(record.attemptEvidence?.terminalFrames ?? [])
       defer { loading = false }
       guard record.attemptEvidence != nil else { return }
       do {

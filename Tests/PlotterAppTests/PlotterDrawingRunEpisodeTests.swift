@@ -289,7 +289,7 @@ struct PlotterDrawingRunEpisodeTests {
     let recordedEvents = await harness.events.values
     #expect(recordedEvents == [
       "stage-intent", "normalize", "travel", "capture-baseline", "stage-baseline", "dispatch-marker",
-      "execute", "travel", "capture-post", "observe", "append",
+      "execute", "capture-completion", "travel", "capture-post", "observe", "append",
     ])
     #expect(try #require(await harness.interpreter.planRequests.first).plan == plan.plan)
     let terminal = try #require(result.snapshot.terminal)
@@ -446,12 +446,12 @@ struct PlotterDrawingRunEpisodeTests {
     arguments: [false, true])
   func bufferedFrameBeforeObservationSettlementIsRejected(_ staleResult: Bool) async throws {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
-    let timing = DrawingRunSequenceClock(staleResult ? [10, 15, 35, 40] : [10, 25, 40])
+    let timing = DrawingRunSequenceClock(staleResult ? [10, 15, 35, 40, 45] : [10, 25, 40])
     let harness = await drawingRunHarness(fixture: fixture, clock: timing)
     let ready = await harness.runtime.synchronize(environment: .live)
     let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
     let attempt = try #require(result.snapshot.terminal?.record.attemptEvidence)
-    #expect(await harness.camera.requests == (staleResult ? [15, 35] : [25]))
+    #expect(await harness.camera.requests == (staleResult ? [15, 35, 40] : [25]))
     #expect(await harness.vision.requests.isEmpty)
     #expect(!result.snapshot.physicalEvidenceClaimed)
     if staleResult {
@@ -503,7 +503,7 @@ struct PlotterDrawingRunEpisodeTests {
     }
     #expect(savedID == recordID)
     #expect(recovered.snapshot.terminal?.record == terminal.record)
-    let media = try #require(terminal.record.attemptEvidence?.terminalFrames.first)
+    let media = try #require(terminal.record.attemptEvidence?.terminalFrames.last)
     #expect(try await harness.evidence.readMedia(media) == originalFrame.frame)
     #expect(await harness.camera.requests == cameraBefore)
     #expect(await harness.interpreter.planRequests == plansBefore)
@@ -550,7 +550,7 @@ struct PlotterDrawingRunEpisodeTests {
     _ = await harness.runtime.submit(.init(projection: active.projection, intent: .stop(stop)))
     let result = await run.value
     #expect(await harness.interpreter.stopIntents == [.operatorStop])
-    #expect(await harness.camera.requests.count == 1)
+    #expect(await harness.camera.requests.count == 2)
     #expect(result.snapshot.terminal?.disposition == .cancelled)
     let attempt = try #require(result.snapshot.terminal?.record.attemptEvidence)
     #expect(try #require(attempt.missingCoverageReason).isEmpty == false)
@@ -799,7 +799,7 @@ struct PlotterDrawingRunEpisodeTests {
 
     #expect(await harness.events.values == [
       "stage-intent", "normalize", "travel", "capture-baseline", "stage-baseline", "dispatch-marker",
-      "execute", "travel", "capture-post", "observe", "append",
+      "execute", "capture-completion", "travel", "capture-post", "observe", "append",
     ])
     let request = try #require(await harness.interpreter.planRequests.first)
     let terminal = try #require(result.snapshot.terminal)
@@ -820,11 +820,15 @@ struct PlotterDrawingRunEpisodeTests {
     let observationPlan = try #require(attempt.intent.observationPlan)
     let pose = try #require(observationPlan.poses.first)
     let baselineMedia = try #require(attempt.baselines.first)
-    let postMedia = try #require(attempt.terminalFrames.first)
+    let postMedia = try #require(attempt.terminalFrames.last)
+    #expect(attempt.terminalFrames.count == 2)
+    #expect(attempt.terminalFrames.first?.frame == ExactFrameProvenance(frame: fixture.completionFrame.frame))
+    #expect(attempt.terminalFrames.first?.controllerPosition == nil)
+    #expect(DrawingReviewPhotographs.preferredResultIndex(attempt.terminalFrames) == 1)
     #expect(observationPlan.poses.count == 1)
     #expect(baselineMedia.frame == ExactFrameProvenance(frame: fixture.baselineFrame.frame))
     #expect(baselineMedia.captureAfterNanoseconds == 10)
-    #expect(postMedia.captureAfterNanoseconds == fixture.baselineFrame.frame.captureNanoseconds)
+    #expect(postMedia.captureAfterNanoseconds == fixture.completionFrame.frame.captureNanoseconds)
     #expect(baselineMedia.frame.captureNanoseconds > (baselineMedia.captureAfterNanoseconds ?? .max))
     #expect(postMedia.frame.captureNanoseconds > (postMedia.captureAfterNanoseconds ?? .max))
     #expect(postMedia.frame == ExactFrameProvenance(frame: fixture.postFrame.frame))
@@ -1189,6 +1193,7 @@ struct PlotterDrawingRunEpisodeTests {
     _ = try await store.installMedia(frame: fixture.baselineFrame.frame, source: fixture.baselineFrame.source)
     for baseline in owned.baselines { try await store.stageBaseline(runID: record.runID, media: baseline) }
     try await store.markInkDispatchPossible(runID: record.runID)
+    _ = try await store.installMedia(frame: fixture.completionFrame.frame, source: fixture.completionFrame.source)
     _ = try await store.installMedia(frame: fixture.postFrame.frame, source: fixture.postFrame.source)
     let archive = try await store.append(record)
     guard case .loaded(let loaded) = await store.load() else {

@@ -42,6 +42,9 @@ extension PlotterApplicationRuntimeTests {
     try await waitUntil {
       app.currentBoundarySnapshot?.projection.lastRefusal != nil
         && app.currentBoundarySnapshot?.projection.reference.operationID == nil
+        // Terminal publication precedes the settled refusal publication.
+        // Preserve the latter, not the provisional refusal's active projection.
+        && app.currentBoundarySnapshot?.projection.lastRefusal?.currentProjection.operationID == nil
     }
     let historical = try #require(app.currentBoundarySnapshot?.projection.lastRefusal)
     await submitControllerSession(app, .toggleMotionAuthorization)
