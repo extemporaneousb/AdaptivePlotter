@@ -21,8 +21,27 @@ attended plotter geometry and ink quality. Software and hosted UI checks cannot
 close those physical claims. Capture-series persistence and raising the current
 24-photo / 32 MiB session limit remain deferred; the active correction adds grouped
 browsing and whole-burst deletion within that declared bound. Earlier arrow-based
-ratings and adaptive exploration proposals are superseded by explicit deterministic
-algorithm selection.
+ratings and adaptive exploration proposals remain superseded. The September 20
+manual-Variation 3×3 imagination grid is a separately authorized bounded selection
+interface, not revival of training or adaptive optimization.
+
+## Portrait imagination grid: operator aesthetic evaluation
+
+The bounded 3×3 exploration interface retains exact current-center promotion and
+Back snapshots, with manual Variation and existing detailed controls. Its current
+contract and ownership belong to Product Contract and Architecture; measured render
+work and software/layout evidence belong to Current Evidence.
+
+Operator acceptance remains open: use a representative portrait with Tonal contours,
+compare default, low and high Variation, select several useful neighbors, resample
+from center, use Back, adjust a detailed parameter, save the chosen imagination and
+send it explicitly to Drawing. Assess whether eight alternatives expose useful
+interacting changes and reach a desirable drawing faster than manual sliders. Unit
+tests and synthetic fixtures do not establish perceptual usefulness or human
+convergence. Proposal-distribution refinement and tonal/smoothing/simplification
+algorithm improvements require observed results from that evaluation; they are not
+part of this first delivery. Continuous pads, PCA, fitting, automatic cooling,
+training and semantic Big Head remain outside the accepted scope.
 
 ## Drawing motion: attended continuous-polyline comparison
 

@@ -8,8 +8,9 @@ import Testing
 @Suite("Portrait Studio bounded workspace", .serialized)
 @MainActor
 struct PortraitStudioWorkspaceLayoutTests {
-  @Test("all algorithm controls fit with Styles folded or expanded", arguments: [false, true])
-  func controlsFit(expanded: Bool) async throws {
+  @Test("grid and selected drawing fit with Styles and Adjustments folded or expanded",
+    arguments: [false, true], [false, true])
+  func controlsFit(expanded: Bool, detailsExpanded: Bool) async throws {
     _ = NSApplication.shared
     let model = PortraitStudioModel(renderer: WorkspaceLayoutRenderer())
     let stroke = try portraitTestStyle()
@@ -24,7 +25,7 @@ struct PortraitStudioWorkspaceLayoutTests {
         model.renderIfNeeded(strokeStyle: stroke)
         await model.awaitRendering()
         let host = NSHostingController(rootView: PortraitStudioView(model: model,
-          strokeStyle: stroke, showOnPlotter: { _ in nil })
+          strokeStyle: stroke, showOnPlotter: { _ in nil }, showsAdjustments: detailsExpanded)
           .padding(12)
           .frame(width: size.width, height: size.height)
           .background(Color(nsColor: .windowBackgroundColor))
@@ -43,19 +44,27 @@ struct PortraitStudioWorkspaceLayoutTests {
         // one; its delayed onDisappear otherwise legitimately folds the model.
         model.setStyleComparisonExpanded(expanded, strokeStyle: stroke)
         await model.awaitRendering()
+        await model.awaitExploration()
         try await settle(host.view)
         defer { window.close() }
         #expect(!window.isKeyWindow)
         #expect(model.isStyleComparisonExpanded == expanded)
         #expect(model.selectedCandidate?.recipe.style == style)
+        let round = try #require(model.explorationRound)
+        #expect(round.slots.count == 9)
+        #expect(round.slots[4].candidate?.id == model.selectedCandidate?.id)
         #expect(abs(host.view.bounds.width - size.width) < 1)
         #expect(abs(host.view.bounds.height - size.height) < 1)
         let views = descendants(host.view)
         let scrolls = views.compactMap { $0 as? NSScrollView }
+        let inspectorScrolls = scrolls.filter {
+          $0.convert($0.bounds, to: host.view).minX >= host.view.bounds.maxX - 310
+        }
         for scroll in scrolls {
           let document = try #require(scroll.documentView)
-          #expect(document.bounds.height <= scroll.contentView.bounds.height + 2,
-            "Vertical scrolling in \(style.rawValue) at \(size): \(document.bounds) / \(scroll.contentView.bounds).")
+          let isInspector = detailsExpanded && inspectorScrolls.contains(scroll)
+          #expect(isInspector || document.bounds.height <= scroll.contentView.bounds.height + 2,
+            "Only detailed adjustments may scroll vertically in \(style.rawValue) at \(size): \(document.bounds) / \(scroll.contentView.bounds).")
         }
         let controls = views.compactMap { $0 as? NSControl }.filter {
           !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
@@ -63,7 +72,9 @@ struct PortraitStudioWorkspaceLayoutTests {
         try #require(!controls.isEmpty)
         for control in controls {
           let rect = control.convert(control.bounds, to: host.view)
-          #expect(host.view.bounds.insetBy(dx: -2, dy: -2).contains(rect),
+          let isInspector = detailsExpanded && inspectorScrolls.contains { control.isDescendant(of: $0) }
+          #expect(rect.minX >= -2 && rect.maxX <= host.view.bounds.maxX + 2)
+          #expect(isInspector || host.view.bounds.insetBy(dx: -2, dy: -2).contains(rect),
             "\(style.rawValue) control exceeds \(size): \(String(reflecting: type(of: control))) \(rect).")
         }
         if let directory = ProcessInfo.processInfo.environment["PORTRAIT_WORKSPACE_SNAPSHOT_DIR"] {
@@ -73,7 +84,7 @@ struct PortraitStudioWorkspaceLayoutTests {
           let image = try #require(bitmap.cgImage)
           let index = try #require(PortraitStyle.allCases.firstIndex(of: style))
           try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: directory)
-            .appendingPathComponent("studio-\(Int(size.width))-style-\(index)-\(expanded ? "expanded" : "folded").png"))
+            .appendingPathComponent("studio-\(Int(size.width))-style-\(index)-\(expanded ? "expanded" : "folded")-details-\(detailsExpanded ? "open" : "closed").png"))
         }
       }
     }

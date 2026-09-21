@@ -4,6 +4,7 @@ import PlotterModel
 struct PortraitRetainedCandidate: Identifiable, Codable, Sendable {
   var candidate: PortraitCandidate
   var reasons: [PortraitRetentionEvent]
+  var exploration: [PortraitExplorationRecord]? = nil
   var id: String { candidate.id }
 }
 
@@ -152,7 +153,8 @@ actor PortraitCandidateStore {
           let candidate = try entry.candidate.materialize(
             source: readAsset(entry.candidate.sourceSHA256),
             raster: readAsset(entry.candidate.rasterSHA256))
-          entries.append(.init(candidate: candidate, reasons: entry.reasons))
+          try PortraitExplorationRecord.validate(entry.exploration, for: candidate)
+          entries.append(.init(candidate: candidate, reasons: entry.reasons, exploration: entry.exploration))
         } catch {
           // Preserve the damaged index and all healthy candidates. A partial
           // recovery is visible and cannot overwrite the missing record.
@@ -193,6 +195,7 @@ actor PortraitCandidateStore {
     let encoder = PortraitCandidateCoding.encoder()
     for entry in snapshot.entries {
       try entry.candidate.validateIntegrity()
+      try PortraitExplorationRecord.validate(entry.exploration, for: entry.candidate)
       try install(entry.candidate.sourceData, hash: entry.candidate.sourceSHA256)
       try install(try encoder.encode(entry.candidate.raster), hash: entry.candidate.rasterSHA256)
     }
@@ -318,7 +321,7 @@ private struct StoredArchive: Codable {
   let tombstones: [PortraitArchiveTombstone]
   init(_ archive: PortraitCandidateArchive) {
     schemaVersion = 1
-    entries = archive.entries.map { StoredEntry(candidate: StoredCandidate($0.candidate), reasons: $0.reasons) }
+    entries = archive.entries.map { StoredEntry(candidate: StoredCandidate($0.candidate), reasons: $0.reasons, exploration: $0.exploration) }
     labels = archive.labels
     tombstones = archive.tombstones
   }
@@ -327,6 +330,7 @@ private struct StoredArchive: Codable {
 private struct StoredEntry: Codable {
   let candidate: StoredCandidate
   let reasons: [PortraitRetentionEvent]
+  let exploration: [PortraitExplorationRecord]?
 }
 
 /// Payload metadata only; source bytes and exact analyzed raster each have one

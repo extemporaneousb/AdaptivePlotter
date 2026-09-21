@@ -14,6 +14,8 @@ struct PortraitStudioView: View {
 
   @State private var importing = false
   @State private var cameraSettings = false
+  @State private var showsSource = false
+  @State var showsAdjustments = false
   @State private var submissionError: String?
   @State private var submissionErrorTitle = "Studio action failed"
   @State private var isSubmitting = false
@@ -42,7 +44,8 @@ struct PortraitStudioView: View {
       HStack(alignment: .top, spacing: 16) {
         VStack(spacing: 8) {
           HStack(spacing: 12) {
-            previewFrame("Photo") { sourcePreview }
+            PortraitExplorationGridView(model: model, strokeStyle: strokeStyle,
+              material: previewSource.material, showsSource: $showsSource) { sourcePreview }
             previewFrame("Drawing") {
               PortraitPlaneProgramPreview(preview: planePreview)
                 .overlay(alignment: .topTrailing) {
@@ -71,15 +74,21 @@ struct PortraitStudioView: View {
           }
           .accessibilityIdentifier("portrait.stylesDisclosure")
         }
-        VStack(alignment: .leading, spacing: 12) {
-          PortraitRenderControls(model: model)
-            .disabled(model.selectedPhoto == nil || model.isCapturing)
-          Spacer(minLength: 0)
-          Divider()
-          penAndMaterial
+        if showsAdjustments {
+          VStack(alignment: .leading, spacing: 12) {
+            ScrollView {
+              PortraitRenderControls(model: model)
+                .disabled(model.selectedPhoto == nil || model.isCapturing)
+                .padding(.trailing, 4)
+            }
+            .accessibilityIdentifier("portrait.adjustmentScroll")
+            Divider()
+            penAndMaterial
+          }
+          .frame(width: 284)
+          .frame(maxHeight: .infinity, alignment: .top)
+          .accessibilityIdentifier("portrait.adjustmentInspector")
         }
-        .frame(width: 284)
-        .frame(maxHeight: .infinity, alignment: .top)
       }
       if let error = displayedError {
         HStack {
@@ -105,8 +114,12 @@ struct PortraitStudioView: View {
     .accessibilityIdentifier("portrait.workspace")
     .onAppear {
       model.renderIfNeeded(strokeStyle: strokeStyle)
+      model.setExplorationEnabled(true, strokeStyle: strokeStyle)
     }
-    .onDisappear { model.setStyleComparisonExpanded(false, strokeStyle: strokeStyle) }
+    .onDisappear {
+      model.setStyleComparisonExpanded(false, strokeStyle: strokeStyle)
+      model.setExplorationEnabled(false, strokeStyle: strokeStyle)
+    }
     .task { await model.loadArchive() }
     .onChange(of: model.renderConfiguration) { _, _ in
       model.renderIfConfigurationChanged(strokeStyle: strokeStyle)
@@ -158,7 +171,7 @@ struct PortraitStudioView: View {
         .accessibilityLabel("Camera settings")
         .help("Camera settings")
         .popover(isPresented: $cameraSettings, arrowEdge: .bottom) { cameraSettingsPanel }
-      StudioHelpButton("Portrait Studio", text: "Capture Burst starts the selected camera and takes several frames. Turn slowly for different angles. The display becomes white during capture. Import adds an existing photo. Frame and burst deletion remove recent photos; saved imaginations keep their own source copy. Save Imagination keeps this exact result in Drawing Reviewer while you continue editing. Send to Drawing also saves the result and opens Drawing with it placed on the plotter video. Sending does not move the plotter; the Draw control in Drawing starts execution.")
+      StudioHelpButton("Portrait Studio", text: "Capture Burst starts the selected camera and takes several frames. Turn slowly for different angles. The display becomes white during capture. Import adds an existing photo. Frame and burst deletion remove recent photos; saved imaginations keep their own source copy. The center imagination is the current drawing. Choose an alternative to continue from that exact result, or choose the center for a new set. Variation changes the proposal spread without changing the current drawing. Back restores the previous grid and its variation. Adjustments opens the detailed controls. Save Imagination keeps this exact result in Drawing Reviewer while you continue editing. Send to Drawing also saves the result and opens Drawing with it placed on the plotter video. Sending does not move the plotter; the Draw control in Drawing starts execution.")
       if model.isCapturing {
         ProgressView(value: model.captureProgress).frame(width: 60)
           .accessibilityLabel("Portrait capture progress")
@@ -254,6 +267,13 @@ struct PortraitStudioView: View {
         Text(title).font(.headline)
         Spacer()
         if title == "Drawing" {
+          Toggle(isOn: $showsAdjustments) {
+            Label("Adjustments", systemImage: "slider.horizontal.3")
+          }
+          .toggleStyle(.button)
+          .controlSize(.small)
+          .accessibilityIdentifier("portrait.adjustmentsDisclosure")
+          .help(showsAdjustments ? "Hide framing and algorithm adjustments" : "Show framing and algorithm adjustments")
           Text(model.isProcessing ? "Updating" : planePreview.evidence?.mode == .planned ? "Placed" : "Reference")
             .font(.caption).foregroundStyle(.secondary)
           StudioHelpButton("Drawing preview", text: planePreview.statusText + "\n\n" + planePreview.dimensionsText)

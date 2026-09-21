@@ -78,17 +78,19 @@ struct PortraitAdjustmentSlider: View {
   let step: Double
   let unit: String
   var precision = 2
+  var identifier: String?
   @State private var draft: Double?
   @State private var isEditing = false
 
   init(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double,
-       unit: String, precision: Int = 2) {
+       unit: String, precision: Int = 2, identifier: String? = nil) {
     self.title = title
     _value = value
     self.range = range
     self.step = step
     self.unit = unit
     self.precision = precision
+    self.identifier = identifier
   }
 
   var body: some View {
@@ -103,6 +105,7 @@ struct PortraitAdjustmentSlider: View {
         if !editing, let draft { value = draft; self.draft = nil }
       })
       .accessibilityLabel(title)
+      .accessibilityIdentifier(identifier ?? "portrait.adjustment.\(title)")
       Text(String(format: "%.*f%@", precision, draft ?? value, unit)).monospacedDigit()
         .foregroundStyle(.secondary)
         .frame(width: 46, alignment: .trailing)

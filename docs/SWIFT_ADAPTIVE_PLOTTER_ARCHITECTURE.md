@@ -2254,29 +2254,42 @@ readiness, or new persistence authority. Automatic batch execution and corrected
 physical holdout evaluation remain unfinished product work.
 
 `PortraitStudioModel` owns optional portrait capture, UUID-selected recent photos,
-source/configuration-keyed render caches and immutable authored candidates. Its
-existing serial acquisition/render drain also renders the five deterministic
-algorithm comparisons; there is no second renderer task owner. A comparison binds
-source, analysis/vector configuration and pen identity. The selected algorithm is
-the only render demand while the Styles disclosure is closed. When opened,
-missing sibling algorithms reuse analysis and exact caches. Closing drops queued
-siblings and cancels only an active alternative; supersession cancels/joins workers
-before stale output can publish. Selecting a tile installs its exact
-candidate. Framing and tuning regenerate comparisons through that same drain.
-Ordinary Studio has no random, local-exploration, semantic-head or checkpoint-driven
-generation entrypoint. Historical formats remain readable; fitted checkpoints are
-not loaded by the normal `loadArchive` path.
+source/configuration-keyed render caches, immutable authored candidates and bounded
+3×3 exploration state. `PortraitExplorationRound` holds the exact center and nine
+stable row-major slots, seed, Variation and round identity. The center occupies slot
+4. Promotion installs the offered candidate directly, and Back restores retained
+round values instead of rebuilding candidates. Source, framing and explicit tuning
+changes reset the exploration branch. Stale round IDs cannot select current slots.
+
+The seedable proposal generator varies only applicable current renderer parameters,
+retains source/crop/style/material ownership, and scales a fixed mixture of nearby,
+coupled and wider changes using an explicit manual Variation value. Bounded retries
+reject empty/failed or repeated geometry and publish unavailable slots honestly.
+It has no fitted checkpoint, learning, cooling, clock-dependent sampling or persistent
+axis semantics. Normal `loadArchive` does not load fitted checkpoints.
+
+The existing serial acquisition/render drain owns every center, exploration and
+algorithm-comparison render. Exploration is enabled by the visible grid; selected
+center candidates remain available while replacement alternatives are pending.
+A round allows three attempts per each of eight neighbors and at most 200,000
+retained geometry points. Exact Back retains at most 12 previous rounds, pruning
+to a 400,000-point current-plus-history budget; the current center is preserved.
+At most 64 offered-set/action receipts accompany an explicitly saved candidate.
+Revision/source/round checks prevent late work from publishing, and supersession
+cancels then joins the active worker before starting its successor. Raster and exact
+render caches remain bounded. Algorithm comparisons render only on disclosure.
 
 `PortraitStudioView` fills the editing workspace instead of a scrolling control
 column. Its fixed toolbar owns capture/import/settings, frame navigation, explicit
-handoff, Save Imagination and reviewer presentation. Photo and drawing use the same
-candidate source. Framing/style parameters remain visible; algorithm tiles render
-only when their existing section is expanded.
-`StudioHelpButton` exposes explanatory text in accessible question-mark popovers.
-Pen & material presents applicable width provenance; measuring and adapting it
-remain separate explicit actions. `WorkbenchLayoutState` stores Studio presentation
-separately from its dock slots, migrating old saved portrait slots without replacing
-another control panel. Closing Studio restores the existing workbench docks.
+handoff, Save Imagination and reviewer presentation. A 3×3 imagination grid replaces
+the large source pane; compact Source access and a large selected-drawing preview
+remain. Variation and Back are direct controls; detailed framing/style parameters
+are collapsed by default. `StudioHelpButton` exposes explanatory text in accessible
+question-mark popovers. Pen & material presents applicable width provenance;
+measuring and adapting it remain separate explicit actions. `WorkbenchLayoutState`
+stores Studio presentation separately from its dock slots, migrating old saved
+portrait slots without replacing another control panel. Closing Studio restores
+the existing workbench docks.
 
 The workspace caches the canonical `SparseTipBatchMarkPlan` for execution and
 planned video guides. `CameraOverlayKind.calibrationGuide` distinguishes those
@@ -2340,10 +2353,13 @@ materialized content hash; exact evidence requests still require sealed pixels.
 
 `PortraitSketchCollection` remains the qualified candidate archive owner. Save and
 projection retain source bytes, exact raster, recipe, immutable program and provenance
-without switching editor modes. Archive candidate/source tombstones and immutable
+without switching editor modes. Explicit save/handoff also carries a bounded optional
+exploration trace on the retained entry through the same checksummed archive owner;
+legacy entries without it remain readable. Offered recipes/identities, seed, variation
+and choices are provenance only, with no learned-model authority. Archive candidate/source tombstones and immutable
 historical labels remain intact. Historical training contracts and decoding are
-separate from the current authoring UI; obsolete rating/training/exploration views
-have been deleted. `PortraitPlaneProgramPreview` is the single production vector
+separate from the current authoring UI; obsolete rating/training views remain deleted; the current bounded grid has no
+dependency on their historical exploration/training owners. `PortraitPlaneProgramPreview` is the single production vector
 preview renderer; the former thumbnail renderer exists only as a historical test
 fixture.
 
@@ -2401,7 +2417,8 @@ decoded older rasters keep their original encoded version; absent optional seman
 recipe/candidate fields preserve DS-02/DS-03 archive hashes. Candidate integrity checks
 bind recipe, raster, recomputed manifest and program provenance. Historical semantic
 contracts retain exact analysis and head parameters for archive verification;
-ordinary Studio algorithms do not expose semantic generation or local proposals. Legacy rasters without
+ordinary Studio does not expose semantic generation; its bounded local proposals
+preserve the selected nonsemantic renderer. Legacy rasters without
 a source metric retain explicitly identified sample-lattice interpretation.
 `PortraitProgramPreview` is retained only in historical test fixtures; production previews use `PortraitPlaneProgramPreview`.
 The main `PortraitPlanePreview` consumes a passive projection of the existing

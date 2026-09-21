@@ -8,6 +8,109 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Manual-Variation imagination grid, 2026-09-20–21
+
+Ordinary product extension in task `task-c409393921a74a8ea3b75c67fa503868`,
+attempt `attempt-2286c457d3a74a9b851ea8f06ef189f9`. This explicitly reauthorizes a
+bounded 3×3 selection interface after the September 18 Studio simplification;
+it does not restore semantic Big Head, training, automatic cooling or fitting.
+
+The center is the exact completed candidate. Eight alternatives preserve source,
+crop, style and material context while a deterministic seeded fixed-mixture policy
+varies applicable renderer parameters. Manual Variation scales that spread and
+persists through choices. Neighbor selection installs the offered candidate;
+center selection resamples. Exact Back snapshots retain prior offers and Variation,
+independent of render-cache eviction. Source/framing/manual edits reset the branch.
+The large source pane is replaced by the grid, compact Source access remains,
+and the selected drawing stays large. Detailed adjustments are collapsed by default.
+
+The existing serial render drain owns all work. Round IDs, source/configuration
+identity and cancellation settlement reject stale results. A pending neighborhood
+retains the usable selected drawing. Each neighbor has at most three attempts;
+a round has a 200,000-point geometry budget. Session Back retains at most 12
+previous rounds within a 400,000-point current/history budget. Empty, duplicate
+or failed proposals produce explicit unavailable slots after bounded work, including
+zero Variation without fabricating alternatives. The current candidate survives
+those failures.
+
+Explicit Save Imagination or successful Send to Drawing retains the exact source,
+raster, recipe/version/program and up to 64 offered-set/action receipts through
+`PortraitSketchCollection` and the existing checksummed archive. Receipts contain
+offered recipes/identities, seed, Variation and choices; they are provenance, not
+labels or a trained model. Session identity and monotonic sequence preserve newer
+saved receipts when an earlier asynchronous handoff completes after trace trimming.
+Candidate/source deletion removes its trace with the same archive entry. Legacy
+entries without the optional trace remain readable. Back is session-local and
+bounded, not a restart-persistent or unlimited undo stack.
+
+The reproducible performance fixture is a synthetic 480×640 analytic portrait-like
+grayscale image (`analytic-portrait-480x640-v1`, SHA-256
+`92bd74a28263a071fb48b32a8339999927830886243715246d90247708b55390`). Real image analysis
+produces a 120×160 raster. Measurements separate empty model-cache analysis plus
+center rendering from cached-raster rounds; process and Vision framework warmup
+are not controlled. The balanced preset workload covers Variation 0.35, 0.08,
+0.9 and three neighbor selections holding 0.9. A separate current default-vector
+probe covers 0.08, 0.35 and 0.9. Parameter-distance measurements are normalized
+Euclidean distances across applicable contour controls, not perceptual scores.
+
+Final optimized evidence on macOS 15.7.9 / Swift 6.1.2 / x86_64:
+`swift test -c release --no-parallel --filter PortraitExplorationPerformanceTests`
+passed both tests in 2.163 seconds after the first optimized build (778.64 seconds).
+The balanced fixture supplied eight distinct neighbors in all six rounds, with
+8–9 renderer calls per round and exactly one cold source analysis. Source analysis
+plus center took 102.35 ms; cached rounds had a 200.85 ms median and
+149.73–225.54 ms range. Back took 0.57 ms with zero renderer calls. The largest
+sampled main-actor heartbeat gap was 10.21 ms. This measures model generation,
+not end-to-end live SwiftUI presentation latency.
+
+The current default-vector low/default/high probe also supplied eight distinct
+neighbors each. Mean normalized recipe distances for the balanced workload were
+0.152 / 0.032 / 0.335 at Variation 0.35 / 0.08 / 0.9, then
+0.384 / 0.376 / 0.351 across three selections while Variation remained 0.9.
+Realized distance varies with the seed and reflected parameter bounds; the policy
+has no click-count or elapsed-time input and does not change the manual value.
+Distinct geometry is not proof that every alternative is aesthetically useful.
+An earlier debug run before the final slot permutation had a 3653.1 ms median;
+it is diagnostic evidence, not a paired speedup benchmark.
+
+Final policy/model/native verification after seeded slot shuffling succeeded in a
+27-test run (50.102 seconds); two opt-in AX cases were skipped in that default run.
+The tests cover exact promotion/resampling/Back, fixed Variation, stale tile/source
+publication, bounded retries/history, source replacement/deletion, manual edits,
+expanded algorithm comparisons, hiding/reopening, saving during pending work,
+archive compatibility/deletion and both delayed-handoff provenance orders.
+The preceding 26-test integrated run also covered all 40 combinations of two
+workspace sizes, five styles and folded/expanded Styles and Adjustments. Final
+production-route native snapshots were regenerated after the slot shuffle;
+coordinator and UI worker independently inspected folded/expanded evidence.
+
+The separate opt-in exploration AX probe failed its host prerequisite: a known
+standalone SwiftUI control was absent before and after `finishLaunching`, and the
+host exposed only AXWindow/AXGroup without the grid slot. No assertion was weakened.
+Native pointer/keyboard/slider input is therefore unverified; offscreen hosted
+geometry and model actions are separate passing evidence. Source popover activation
+and signed-app launch were not exercised.
+
+A first cold compilation was invalidated by a concurrent final source edit and
+was rerun from a frozen tree; that invalidated compile is not a product-test failure.
+The existing user app/session and hardware remain outside this task's validation.
+The release executable produced by the passing optimized test build was packaged
+with `sh Scripts/build_local_app.sh release` and independently checked with
+`sh Scripts/validate_local_app_bundle.sh .build/AdaptivePlotter.app`; both passed.
+The bundle uses the stable local `AdaptivePlotter Local Development` signing
+identity. A redundant `make app` compile was cancelled before relinking; the
+existing optimized executable's SHA-256 and modification time were unchanged.
+No completed `make app` invocation is claimed. The signed bundle is staged
+separately and remains unlaunched; source-input hashes support comparison with
+the landed commit. The configured Blackdog validation receipt records the
+repository's three commands (`make docs-check`, `make quick-test`,
+`git diff --check`), with `SWIFT_FLAGS=--no-parallel` preserving the complete
+quick-test selection under serialized scheduling.
+
+Operator aesthetic convergence, actual Source popover/camera capture interaction,
+and attended pen/paper/ink quality require separate evidence. The operator evaluation
+path is recorded in Roadmap.
+
 ## Sparse retained Drawing progress photos, 2026-09-20
 
 Ordinary product extension in task `task-d062bc481d7342ae92298d652d6f4b21`,

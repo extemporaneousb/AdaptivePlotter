@@ -1583,20 +1583,33 @@ Opening and closing it preserves those dock placements. The shared Drawing panel
 owns placement, pen/material setup, paper coverage, Draw, Stop and result review.
 Studio authoring remains available with an imported photo while disconnected.
 
-Portrait Studio presents one source photo beside its drawing. Its existing Styles
-section is collapsed by default and names the chosen algorithm; opening it shows
-five selectable rendered algorithm tiles: Tonal contours, Hatch, Crosshatch, Sketch, and Sketch +
-hatch. Each tile uses the same identified source and framing. Selecting it installs
-that exact completed candidate; it does not roll another variation or invoke a
-trained model. The existing renderer and one cancel-and-join work drain own every
-render, including algorithm comparisons. Changed source, framing, pen or tuning
-invalidates stale tiles and results. Only the selected algorithm renders while Styles is collapsed. Opening Styles
-requests missing alternatives through that same drain and reuses analyzed rasters
-and exact cached candidates. Closing it drops queued alternatives and cancels an
-in-flight alternative without cancelling the chosen render. Framing and current algorithm
-parameters remain beside the visible drawing without vertical scrolling at the
-supported desktop workspace sizes. Crop to face, head margin and background removal
-belong to Framing; line/tone controls and detail presets belong to Style.
+Portrait Studio presents a 3×3 imagination grid beside a large selected-drawing
+preview. The center is the exact current candidate. Eight surrounding proposals
+retain that source, crop and algorithm while varying applicable renderer parameters.
+Selecting a neighbor promotes its exact recipe and immutable program; selecting the
+center requests a new neighborhood. Grid positions do not imply stable parameter
+axes. Back restores the prior settled grid and its Variation value exactly, without
+rerendering an approximation. Explicit framing or parameter edits establish a new
+center and invalidate exploration history.
+
+One visible manual Variation slider sets proposal spread. Its committed value
+persists across selections and resampling; it never changes the center or cools
+automatically. Dragging commits at release, and pending requests coalesce. The
+seedable bounded proposal policy mixes nearby, coupled and broader parameter
+changes within the chosen renderer's bounds. It rejects repeated geometry and
+reports unavailable slots when bounded attempts produce no distinct valid result.
+Stored choices are investigation evidence, not a trained aesthetic model.
+
+The compact Source control keeps the original photo accessible. Detailed Framing
+and Style controls are collapsed by default. Styles still offers five rendered
+algorithms: Tonal contours, Hatch, Crosshatch, Sketch, and Sketch + hatch. Selecting
+an algorithm installs its exact completed candidate. The existing renderer and one
+cancel-and-join work drain own center, exploration and algorithm-comparison work.
+Selected candidates remain usable while a new neighborhood is pending; stale source,
+configuration, round or tile identities cannot replace a later choice. Algorithm
+comparisons remain lazy, and proposals reuse analyzed rasters and bounded caches.
+Crop to face, head margin and background removal belong to Framing; line/tone
+controls and detail presets belong to Style.
 
 The capture icon stays in the toolbar. With a configured device, one click asks
 the existing observation owner to activate that portrait camera, awaits readiness,
@@ -1608,12 +1621,14 @@ session and support individual or whole-burst deletion. They remain session memo
 bounded to 24 photos / 32 MiB; saved candidates own independent source bytes.
 Deleting recent photos cannot revive them through late render results.
 
-There are no Random, More Like This, history navigation, Big Head, preference-rating
-or named-training controls in ordinary Studio. Historical candidate formats and
+Ordinary Studio has no continuous parameter pad, Big Head, preference-rating,
+automatic cooling, adaptive proposal fitting or named-training controls. Historical candidate formats and
 required source, raster, label and checkpoint interpretation remain compatible.
 Existing fitted checkpoints are not loaded or consulted by normal Studio generation.
-Save Imagination retains the exact candidate without switching the editor into another
-selection mode. Browsing Imaginations belongs to Drawing Reviewer and does not
+Save Imagination retains the exact candidate and bounded offered-set/choice trace
+through the existing candidate archive without switching the editor into another
+selection mode. Session Back retains exact candidates; its history is bounded and
+does not promise an unlimited or restart-persistent undo stack. Browsing Imaginations belongs to Drawing Reviewer and does not
 change the Studio edit. Source photos and vectors shown together come from the same
 candidate, including retained candidates.
 

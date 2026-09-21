@@ -30,7 +30,7 @@ struct PortraitStudioNativeLayoutTests {
     try await runPanelChecks(requiresAX: true)
   }
 
-  @Test("production Portrait routing hosts all drawing adjustments without vertical scrolling")
+  @Test("production Portrait routing hosts exploration with detailed adjustments collapsed")
   func productionPortraitWorkspace() async throws {
     _ = NSApplication.shared
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
@@ -67,7 +67,10 @@ struct PortraitStudioNativeLayoutTests {
         // window's onDisappear has finished removing its comparison demand.
         model.setStyleComparisonExpanded(expanded, strokeStyle: pen)
         await model.awaitRendering()
+        await model.awaitExploration()
         await settle(host.view)
+        #expect(model.explorationRound?.slots.count == 9)
+        #expect(model.explorationRound?.center.id == model.selectedCandidate?.id)
         #expect(abs(host.view.bounds.width - size.width) < 2)
         #expect(abs(host.view.bounds.height - size.height) < 2)
         #expect(!window.isKeyWindow)
@@ -89,6 +92,97 @@ struct PortraitStudioNativeLayoutTests {
         try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: "workspace-\(expanded ? "expanded" : "folded")")
         window.close()
       }
+      await application.shutdown()
+    } catch {
+      await application.shutdown()
+      throw error
+    }
+  }
+
+  @Test("native exploration controls promote, resample and restore exact grids",
+    .enabled(if: ProcessInfo.processInfo.environment["PORTRAIT_NATIVE_AX_CHECK"] == "1"))
+  func explorationAXInteraction() async throws {
+    await diagnoseKnownSwiftUIControl()
+    let fixture = try await DrawingWorkbenchApplicationFixture.make()
+    defer { fixture.stores.remove() }
+    let application = fixture.application
+    let model = application.portraitStudio
+    let stroke = application.drawingStrokeStyle
+    model.options = .init(cropToFace: false, removeBackground: false)
+    model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: stroke)
+    await model.awaitRendering()
+    let size = NSSize(width: 1000, height: 550)
+    let host = NSHostingController(rootView:
+      PlotterApplicationRuntimeView(application: application).panelContent(.portraitStudio)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .environment(\.colorScheme, .light))
+    host.sizingOptions = []
+    let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
+      styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentViewController = host
+    window.setContentSize(size)
+    window.orderFront(nil)
+    defer { window.close() }
+    do {
+      await settle(host.view)
+      await model.awaitExploration()
+      await settle(host.view)
+      let original = try #require(model.explorationRound)
+      #expect(!window.isKeyWindow)
+      #expect(!descendants(window).contains { $0.accessibilityIdentifier() == "portrait.adjustmentInspector" })
+      var frames: [CGRect] = []
+      for index in 0..<9 {
+        let tile = try requiredElement("portrait.exploration.slot.\(index)", in: window)
+        let frame = tile.accessibilityFrame()
+        #expect(frame.width >= 80 && frame.height >= 60)
+        #expect(window.frame.insetBy(dx: -2, dy: -2).contains(frame))
+        frames.append(frame)
+      }
+      for row in 0..<3 {
+        #expect(frames[row * 3].maxX < frames[row * 3 + 1].minX)
+        #expect(frames[row * 3 + 1].maxX < frames[row * 3 + 2].minX)
+        #expect(abs(frames[row * 3].minY - frames[row * 3 + 2].minY) < 2)
+      }
+      #expect(frames[0].minY > frames[3].maxY && frames[3].minY > frames[6].maxY)
+      let neighbor = try #require(original.slots.first { $0.index != 4 && $0.candidate != nil })
+      let choice = try #require(neighbor.candidate)
+      #expect(try requiredElement("portrait.exploration.slot.\(neighbor.index)", in: window)
+        .accessibilityPerformPress())
+      await model.awaitExploration()
+      await settle(host.view)
+      #expect(model.selectedCandidate?.id == choice.id)
+      let promoted = try #require(model.explorationRound)
+      #expect(promoted.center.id == choice.id)
+      #expect(try requiredElement("portrait.exploration.slot.4", in: window).accessibilityPerformPress())
+      await model.awaitExploration()
+      await settle(host.view)
+      #expect(model.selectedCandidate?.id == choice.id)
+      #expect(model.explorationRound?.id != promoted.id)
+      #expect(try requiredElement("portrait.exploration.back", in: window).accessibilityPerformPress())
+      await settle(host.view)
+      #expect(model.explorationRound?.id == promoted.id)
+      #expect(try requiredElement("portrait.exploration.back", in: window).accessibilityPerformPress())
+      await settle(host.view)
+      #expect(model.explorationRound?.id == original.id)
+      #expect(model.selectedCandidate?.id == original.center.id)
+      let variation = try requiredElement("portrait.exploration.variation", in: window)
+      #expect(variation.accessibilityPerformIncrement())
+      await model.awaitExploration()
+      await settle(host.view)
+      #expect(model.explorationVariation > original.variation)
+      #expect(model.selectedCandidate?.id == original.center.id)
+      #expect(try requiredElement("portrait.exploration.back", in: window).accessibilityPerformPress())
+      await settle(host.view)
+      #expect(model.explorationRound?.id == original.id)
+      #expect(model.explorationVariation == original.variation)
+      #expect(try requiredElement("portrait.adjustmentsDisclosure", in: window).accessibilityPerformPress())
+      await settle(host.view)
+      _ = try requiredElement("portrait.adjustmentInspector", in: window)
+      _ = try requiredElement("portrait.sourceToggle", in: window)
+      _ = try requiredElement("portrait.showOnPlotter", in: window)
+      #expect(!window.isKeyWindow)
+      try captureOptionalSnapshots(host: host.view, width: 1000, stage: "exploration-interaction")
       await application.shutdown()
     } catch {
       await application.shutdown()
