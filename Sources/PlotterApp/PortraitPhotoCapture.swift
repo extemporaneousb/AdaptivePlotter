@@ -13,6 +13,7 @@ struct PortraitPhoto: Identifiable, Sendable {
   let pose: PortraitPose
   var sourcePixelExtent: PortraitSourceCropExtent? = nil
   var captureSessionID: UUID = UUID()
+  var selectionProvenance: PortraitCaptureSelectionProvenance? = nil
 }
 
 struct PortraitPhotoRetention: Sendable {
@@ -57,10 +58,11 @@ struct PortraitBurstSample: Sendable {
   let captureNanoseconds: UInt64?
   let label: String
   var sourcePixelExtent: PortraitSourceCropExtent? = nil
+  var selectionProvenance: PortraitCaptureSelectionProvenance? = nil
 }
 
-/// Keeps the first sample and the newest samples when count/byte pressure
-/// requires eviction, preserving a choice from the start and end of a turn.
+/// Bounds the temporary capture inputs until one source is selected. These
+/// samples are never fused or exposed as separate gallery entries.
 struct PortraitBurstBuffer: Sendable {
   let retention: PortraitPhotoRetention
   private(set) var samples: [PortraitBurstSample] = []

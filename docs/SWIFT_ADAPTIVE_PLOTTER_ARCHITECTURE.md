@@ -2260,43 +2260,39 @@ and comparison results. These values have no model-application, controller,
 readiness, or new persistence authority. Automatic batch execution and corrected
 physical holdout evaluation remain unfinished product work.
 
-`PortraitStudioModel` owns optional portrait capture, UUID-selected recent photos,
+`PortraitStudioModel` owns optional portrait capture, UUID-selected recent sources,
 source/configuration-keyed render caches, immutable authored candidates and bounded
-3×3 exploration state. `PortraitExplorationRound` holds the exact center and nine
-stable row-major slots, seed, Variation and round identity. The center occupies slot
-4. Promotion installs the offered candidate directly, and Back restores retained
-round values instead of rebuilding candidates. Source, framing and explicit tuning
-changes reset the exploration branch. Stale round IDs cannot select current slots.
+three-choice exploration. `PortraitExplorationRound` holds the exact current
+candidate, two alternatives, seed, internal step and round identity. Promotion
+installs the offered candidate directly; Back restores retained candidates and
+search state. Source, framing and explicit tuning changes reset the branch.
+Stale round IDs cannot select current slots.
 
-The seedable proposal generator varies only applicable current renderer parameters,
-retains source/crop/style/material ownership, and scales a fixed mixture of nearby,
-coupled and wider changes using an explicit manual Variation value. Bounded retries
-reject empty/failed or repeated geometry and publish unavailable slots honestly.
-It has no fitted checkpoint, learning, cooling, clock-dependent sampling or persistent
-axis semantics. Normal `loadArchive` does not load fitted checkpoints.
+The seeded proposal generator varies only applicable current renderer parameters.
+Internal step adaptation follows accepted normalized parameter displacements;
+one proposal follows a promising direction and another explores a complementary
+change. Bounded retries and display-scale geometry checks reject negligible or
+invalid alternatives. No fitted checkpoint is loaded. Versioned choice receipts
+retain legacy nine-slot/manual-Variation interpretation independently of new
+three-slot records.
 
-The existing serial acquisition/render drain owns every center, exploration and
-algorithm-comparison render. Exploration is enabled by the visible grid; selected
-center candidates remain available while replacement alternatives are pending.
-A round allows three attempts per each of eight neighbors and at most 200,000
-retained geometry points. Exact Back retains at most 12 previous rounds, pruning
-to a 400,000-point current-plus-history budget; the current center is preserved.
-At most 64 offered-set/action receipts accompany an explicitly saved candidate.
-Revision/source/round checks prevent late work from publishing, and supersession
-cancels then joins the active worker before starting its successor. Raster and exact
-render caches remain bounded. Algorithm comparisons render only on disclosure.
+The existing serial acquisition/render drain owns center, exploration and lazy
+algorithm-comparison work. The selected drawing and Back remain available while
+new alternatives are pending. Exact history and geometry budgets remain bounded.
+Revision/source/round checks prevent late publication; supersession cancels then
+joins the active worker. Raster cache identity includes sampling resolution so
+Flow Edge's higher resolution cannot silently borrow legacy analysis.
 
-`PortraitStudioView` fills the editing workspace instead of a scrolling control
-column. Its fixed toolbar owns capture/import/settings, frame navigation, explicit
-handoff, Save Imagination and reviewer presentation. A 3×3 imagination grid replaces
-the large source pane; compact Source access and a large selected-drawing preview
-remain. Variation and Back are direct controls; detailed framing/style parameters
-are collapsed by default. `StudioHelpButton` exposes explanatory text in accessible
-question-mark popovers. Pen & material presents applicable width provenance;
-measuring and adapting it remain separate explicit actions. `WorkbenchLayoutState`
-stores Studio presentation separately from its dock slots, migrating old saved
-portrait slots without replacing another control panel. Closing Studio restores
-the existing workbench docks.
+`PortraitStudioView` fills the editing workspace. Its fixed toolbar owns capture,
+import, source access, explicit Drawing handoff, Save Imagination and reviewer
+presentation. Three imagination choices and a large selected-drawing preview
+form the primary interaction. Detailed framing/style parameters remain collapsed
+by default. `PortraitStyle.authoringCases` offers Flow Edge, Tonal contours and
+Sketch; historical hatch families remain in decoding and legacy renderer tests,
+not active style generation. Flow Edge uses separate density, coherence, spacing
+and edge-response controls. Pen & material preserves applicable width provenance
+and explicit material adaptation through ordinary Drawing. Studio presentation
+remains separate from dock placement in `WorkbenchLayoutState`.
 
 The workspace caches the canonical `SparseTipBatchMarkPlan` for execution and
 planned video guides. `CameraOverlayKind.calibrationGuide` distinguishes those
@@ -2379,8 +2375,10 @@ The existing observation runtime exclusively selects plotter or face capture.
 The studio's own `CameraCapture` requests a 33,333,333 ns preview interval; shared
 plotter acquisition policy is unchanged. One acquisition worker illuminates the
 host display through `PortraitScreenIllumination`, waits for exposure settling, then samples strictly advancing exact
-frames at up to 8 Hz for the selected 3–5 second interval. Count/byte bounded burst
-storage preserves individual poses without unregistered averaging. Camera-role
+frames during a 0.8-second still-subject burst, including 0.25 seconds of settling.
+Bounded image-quality selection retains
+one source using sharpness and exposure evidence. The temporary samples do not
+become a pose gallery and are never averaged without registration. Camera-role
 changes and cancellation settle acquisition and clear illumination. The narrow AppKit
 light bridge owns one borderless white window over the host screen, restores key-window
 focus, dismisses on deactivation/host loss, and suppresses reopening until the model
@@ -2401,9 +2399,17 @@ settlement, and validates render revision plus selected photo identity before pu
 Deleting a source cannot revive it through a late result. Decoding/vectorization
 cooperatively checks cancellation.
 
-`PortraitVectorizer` generates joined tonal contours, continuous hatch/crosshatch
-polylines, or difference-of-Gaussians ink responses thinned into connected centerlines,
-optionally combined with hatch. Angled hatch clips scan lines to the raster. Big-head
+`PortraitVectorizer` generates Flow Edge paths, joined tonal contours, or
+difference-of-Gaussians centerlines for active authoring. Flow Edge uses 320-pixel
+analysis; legacy algorithms retain 160-pixel analysis. Structural edge evidence
+and tonal density are separate. A fixed subpixel noise filter and constrained
+curve fairing preserve measured edge detail; smoothing acts on the structure-tensor
+orientation field. Tone changes local streamline spacing without changing those
+structural curves. Evidence-ranked parallel suppression and spatial occupancy
+reserve separation; real structural crossings and junctions remain permitted.
+Flow Edge does not yet use facial landmarks as semantic importance weights or
+infer depth. Historical hatch/crosshatch and combined algorithms remain available
+only for compatibility. Angled legacy hatch clips scan lines to the raster. Big-head
 geometry uses retained revision-3/76-point Vision landmarks and a source-metric
 orthonormal eye/nose basis. `PortraitHeadTransform` composes compact C2 vector-field
 steps with an analytic derivative norm bound of 0.2 per step; supports remain inside

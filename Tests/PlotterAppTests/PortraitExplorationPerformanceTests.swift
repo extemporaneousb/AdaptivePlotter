@@ -8,52 +8,32 @@ import Testing
 @Suite("Portrait exploration workload", .serialized)
 @MainActor
 struct PortraitExplorationPerformanceTests {
-  @Test("ordinary default tonal options fill low default and high variation neighborhoods")
-  func defaultTonalCoverage() async throws {
-    let model = PortraitStudioModel(explorationSeed: 0x50302026)
-    let pen = try portraitTestStyle()
-    model.options.cropToFace = false
-    model.options.removeBackground = false
-    model.setPhoto(try explorationPerformanceImage(), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    for variation in [0.08, 0.35, 0.9] {
-      model.setExplorationVariation(variation, strokeStyle: pen)
-      model.setExplorationEnabled(true, strokeStyle: pen)
-      await model.awaitRendering()
-      let round = try #require(model.explorationRound)
-      let neighbors = round.slots.filter { $0.index != 4 }.compactMap(\.candidate)
-      #expect(neighbors.count == 8)
-      let signatures = neighbors.map { PortraitExplorationPolicy.geometryIdentity($0.program) }
-      #expect(Set(signatures).count == 8)
-      print("PORTRAIT_DEFAULT_TONAL_COVERAGE variation=\(variation) distinct=\(neighbors.count) distances=\(neighbors.map { tonalRecipeDistance(round.center.recipe.vectorOptions, $0.recipe.vectorOptions) })")
-    }
-    await model.shutdown()
-  }
-
-  @Test("fixed tonal portrait fixture separates cold analysis from cached exploration")
-  func cachedRoundWorkload() async throws {
-    let image = try explorationPerformanceImage()
+  @Test("three-option exploration reuses analysis and bounds vector work", arguments: PortraitStyle.authoringCases)
+  func cachedRoundWorkload(style: PortraitStyle) async throws {
+    let referencePath = ProcessInfo.processInfo.environment["PORTRAIT_EXPLORATION_REFERENCE_PHOTO"]
+    let image = try referencePath.map { try Data(contentsOf: URL(fileURLWithPath: $0)) }
+      ?? explorationPerformanceImage()
+    let fixtureLabel = referencePath == nil ? "analytic-portrait-480x640-v1" : "local-photo"
     let renderer = ExplorationMeasuredRenderer()
     let model = PortraitStudioModel(renderer: renderer, explorationSeed: 0x50302026)
     let pen = try portraitTestStyle()
-    model.options.cropToFace = false
-    model.options.removeBackground = false
-    model.vectorOptions = PortraitVectorPreset.balanced.options
+    model.style = style
+    if referencePath == nil {
+      model.options.cropToFace = false
+      model.options.removeBackground = false
+    }
+    model.vectorOptions = style == .flowEdges ? .flowDefaults : PortraitVectorPreset.balanced.options
     let clock = ContinuousClock()
     let coldStart = clock.now
     model.setPhoto(image, for: .front, strokeStyle: pen)
     await model.awaitRendering()
     let coldMS = elapsedMS(coldStart.duration(to: clock.now))
     let center = try #require(model.selectedCandidate)
-    #expect(center.raster.width == 120)
-    #expect(center.raster.height == 160)
+    #expect(max(center.raster.width, center.raster.height) == PortraitImageAnalyzer.analysisMaximumDimension(for: style))
     #expect(await renderer.coldCalls == 1)
     var roundMS: [Double] = []
     var roundCalls: [Int] = []
     var availableNeighbors: [Int] = []
-    var variations: [Double] = []
-    var distances: [[Double]] = []
-    var actions: [String] = []
     var maximumMainActorGapMS = 0.0
     let heartbeat = Task { @MainActor in
       var previous = clock.now
@@ -64,35 +44,31 @@ struct PortraitExplorationPerformanceTests {
         previous = now
       }
     }
-    for (roundIndex, variation) in [0.35, 0.08, 0.9, 0.9, 0.9, 0.9].enumerated() {
+    for index in 0..<4 {
       let beforeCalls = await renderer.calls
       let start = clock.now
       if let previous = model.explorationRound {
-        if roundIndex >= 3, let slot = previous.slots.first(where: { $0.index != 4 && $0.candidate != nil }) {
+        if index % 2 == 1,
+          let slot = previous.slots.first(where: { $0.index != 1 && $0.candidate != nil }) {
           model.chooseExplorationSlot(slot.index, roundID: previous.id, strokeStyle: pen)
-          actions.append("choose-\(slot.index)")
-        } else if model.explorationVariation != variation {
-          model.setExplorationVariation(variation, strokeStyle: pen)
-          actions.append("variation")
         } else {
           model.resampleExploration(roundID: previous.id, strokeStyle: pen)
-          actions.append("resample")
         }
-      } else {
-        model.setExplorationEnabled(true, strokeStyle: pen)
-        actions.append("initial")
-      }
+      } else { model.setExplorationEnabled(true, strokeStyle: pen) }
       await model.awaitRendering()
       roundMS.append(elapsedMS(start.duration(to: clock.now)))
       roundCalls.append(await renderer.calls - beforeCalls)
       let round = try #require(model.explorationRound)
-      variations.append(round.variation)
-      availableNeighbors.append(round.slots.filter { $0.index != 4 && $0.candidate != nil }.count)
-      if roundIndex < 3 { #expect(round.center.id == center.id) }
-      #expect(round.variation == variation)
-      distances.append(round.slots.filter { $0.index != 4 }.compactMap(\.candidate).map {
-        tonalRecipeDistance(round.center.recipe.vectorOptions, $0.recipe.vectorOptions)
-      })
+      #expect(round.slots.count == 3)
+      let alternatives = round.slots.filter { $0.index != 1 }.compactMap(\.candidate)
+      availableNeighbors.append(alternatives.count)
+      let geometries = [round.center] + alternatives
+      for left in geometries.indices {
+        for right in geometries.indices where right > left {
+          #expect(PortraitExplorationPolicy.VisibleGeometry(geometries[left].program)
+            .isMeaningfullyDifferent(from: .init(geometries[right].program)))
+        }
+      }
       #expect(round.slots.compactMap(\.candidate).allSatisfy {
         $0.rasterSHA256 == center.rasterSHA256 && $0.recipe.analysisOptions == center.recipe.analysisOptions
       })
@@ -100,8 +76,8 @@ struct PortraitExplorationPerformanceTests {
     heartbeat.cancel()
     await heartbeat.value
     #expect(await renderer.coldCalls == 1)
-    #expect(roundCalls.allSatisfy { (1...24).contains($0) })
-    #expect(availableNeighbors.allSatisfy { $0 == 8 })
+    #expect(roundCalls.allSatisfy { (0...4).contains($0) })
+    #expect(availableNeighbors.contains { $0 > 0 })
     #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
     let backCalls = await renderer.calls
     let backStart = clock.now
@@ -109,13 +85,11 @@ struct PortraitExplorationPerformanceTests {
     let backMS = elapsedMS(backStart.duration(to: clock.now))
     #expect(await renderer.calls == backCalls)
     let stats: [String: Any] = [
-      "fixture": "analytic-portrait-480x640-v1", "encodedSHA256": PortraitCandidateCoding.digest(image),
-      "style": "tonal-contours", "seed": "0x50302026", "variation": model.explorationVariation,
+      "fixture": fixtureLabel, "encodedSHA256": PortraitCandidateCoding.digest(image),
+      "style": style.rawValue, "policy": PortraitExplorationPolicy.revision,
       "analyzedWidth": center.raster.width, "analyzedHeight": center.raster.height,
       "coldAnalysisAndCenterMS": coldMS, "cachedRoundMS": roundMS,
-      "coldMeaning": "empty model raster and render caches; process and Vision may be warm",
       "cachedRoundRenderCalls": roundCalls, "availableNeighborCounts": availableNeighbors,
-      "roundVariations": variations, "roundActions": actions, "normalizedRecipeDistances": distances,
       "coldAnalysisCalls": await renderer.coldCalls, "backMS": backMS,
       "maximumMainActorHeartbeatGapMS": maximumMainActorGapMS,
       "maximumConcurrentWorkers": model.workDiagnostics.maximumConcurrentWorkerCount,
@@ -124,7 +98,8 @@ struct PortraitExplorationPerformanceTests {
     let bytes = try JSONSerialization.data(withJSONObject: stats, options: [.prettyPrinted, .sortedKeys])
     print("PORTRAIT_EXPLORATION_WORKLOAD " + String(decoding: bytes, as: UTF8.self))
     if let path = ProcessInfo.processInfo.environment["PORTRAIT_EXPLORATION_PERFORMANCE_OUTPUT"] {
-      try bytes.write(to: URL(fileURLWithPath: path), options: .atomic)
+      let suffix = style.rawValue.lowercased().replacingOccurrences(of: " ", with: "-")
+      try bytes.write(to: URL(fileURLWithPath: path + "." + suffix + ".json"), options: .atomic)
     }
     await model.shutdown()
   }
@@ -179,17 +154,6 @@ private func explorationPerformanceImage() throws -> Data {
     bitmapInfo: CGBitmapInfo(rawValue: 0), provider: provider, decode: nil,
     shouldInterpolate: false, intent: .defaultIntent))
   return try PortraitImageAnalyzer.encodedImage(image)
-}
-
-/// Euclidean distance over the five applicable contour controls normalized by
-/// each documented bounded range. This measures parameter spread, not aesthetics.
-private func tonalRecipeDistance(_ lhs: PortraitVectorOptions, _ rhs: PortraitVectorOptions) -> Double {
-  let differences = [Double(lhs.contourLevels - rhs.contourLevels) / 11,
-    (lhs.minimumContourLength - rhs.minimumContourLength) / 40,
-    (lhs.simplificationTolerance - rhs.simplificationTolerance) / 3,
-    (lhs.tonalStrength - rhs.tonalStrength) / 1.6,
-    (lhs.smoothing - rhs.smoothing) / 4]
-  return sqrt(differences.reduce(0) { $0 + $1 * $1 })
 }
 
 private var explorationBuildConfiguration: String {

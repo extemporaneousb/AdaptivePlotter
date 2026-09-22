@@ -17,9 +17,9 @@ struct PortraitStudioWorkspaceLayoutTests {
     model.setStyleComparisonExpanded(expanded, strokeStyle: stroke)
     model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: stroke)
     await model.awaitRendering()
-    try #require(model.algorithmCandidates.count == (expanded ? 5 : 1))
+    try #require(model.algorithmCandidates.count == (expanded ? PortraitStyle.authoringCases.count : 1))
     for size in [CGSize(width: 1000, height: 550), CGSize(width: 1280, height: 650)] {
-      for style in PortraitStyle.allCases {
+      for style in PortraitStyle.authoringCases {
         model.setStyleComparisonExpanded(false, strokeStyle: stroke)
         model.style = style
         model.renderIfNeeded(strokeStyle: stroke)
@@ -51,8 +51,8 @@ struct PortraitStudioWorkspaceLayoutTests {
         #expect(model.isStyleComparisonExpanded == expanded)
         #expect(model.selectedCandidate?.recipe.style == style)
         let round = try #require(model.explorationRound)
-        #expect(round.slots.count == 9)
-        #expect(round.slots[4].candidate?.id == model.selectedCandidate?.id)
+        #expect(round.slots.count == 3)
+        #expect(round.slots[1].candidate?.id == model.selectedCandidate?.id)
         #expect(abs(host.view.bounds.width - size.width) < 1)
         #expect(abs(host.view.bounds.height - size.height) < 1)
         let views = descendants(host.view)
@@ -82,7 +82,7 @@ struct PortraitStudioWorkspaceLayoutTests {
           let bitmap = try #require(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
           host.view.cacheDisplay(in: host.view.bounds, to: bitmap)
           let image = try #require(bitmap.cgImage)
-          let index = try #require(PortraitStyle.allCases.firstIndex(of: style))
+          let index = try #require(PortraitStyle.authoringCases.firstIndex(of: style))
           try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: directory)
             .appendingPathComponent("studio-\(Int(size.width))-style-\(index)-\(expanded ? "expanded" : "folded")-details-\(detailsExpanded ? "open" : "closed").png"))
         }

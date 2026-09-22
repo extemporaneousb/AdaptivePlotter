@@ -177,7 +177,7 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
   static let requiredPortraitControls = ["workbench.camera.portrait", "workbench.camera.plotter",
     "portrait.stylesDisclosure", "portrait.showOnPlotter", "drawing.scale", "drawing.rotation", "drawing.fit",
     "workbench.toggle.motion", "workbench.scroll", "workbench.resize", "learning.analyzeDrawings"]
-      + PortraitStyle.allCases.map { "portrait.algorithm.\($0.id)" }
+      + PortraitStyle.authoringCases.map { "portrait.algorithm.\($0.id)" }
 }
 
 struct PlotterAnalysisPerformanceWindow: Codable, Equatable, Sendable {
@@ -585,8 +585,8 @@ enum RunningAppPreviewPerformanceGate {
         })
       }
       await model.awaitRendering()
-      let index = ((PortraitStyle.allCases.firstIndex(of: model.style) ?? 0) + 1) % PortraitStyle.allCases.count
-      let nextStyle = PortraitStyle.allCases[index]
+      let index = ((PortraitStyle.authoringCases.firstIndex(of: model.style) ?? 0) + 1) % PortraitStyle.authoringCases.count
+      let nextStyle = PortraitStyle.authoringCases[index]
       let identifier = "portrait.algorithm.\(nextStyle.id)"
       guard let tile = model.algorithmCandidates.first(where: { $0.recipe.style == nextStyle }) else {
         throw WorkbenchNativeInputError.unavailable("The requested algorithm tile has not rendered.")

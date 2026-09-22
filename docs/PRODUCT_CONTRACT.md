@@ -1602,26 +1602,27 @@ Opening and closing it preserves those dock placements. The shared Drawing panel
 owns placement, pen/material setup, paper coverage, Draw, Stop and result review.
 Studio authoring remains available with an imported photo while disconnected.
 
-Portrait Studio presents a 3×3 imagination grid beside a large selected-drawing
-preview. The center is the exact current candidate. Eight surrounding proposals
-retain that source, crop and algorithm while varying applicable renderer parameters.
-Selecting a neighbor promotes its exact recipe and immutable program; selecting the
-center requests a new neighborhood. Grid positions do not imply stable parameter
-axes. Back restores the prior settled grid and its Variation value exactly, without
-rerendering an approximation. Explicit framing or parameter edits establish a new
-center and invalidate exploration history.
+Portrait Studio presents the current imagination and two alternatives beside a
+large selected-drawing preview. Each alternative retains the source, framing,
+algorithm and material context. Selection installs its exact recipe and immutable
+program. Back restores the previous offered candidates and internal exploration
+state without rerendering. Explicit framing or parameter edits establish a new
+starting point and invalidate exploration history.
 
-One visible manual Variation slider sets proposal spread. Its committed value
-persists across selections and resampling; it never changes the center or cools
-automatically. Dragging commits at release, and pending requests coalesce. The
-seedable bounded proposal policy mixes nearby, coupled and broader parameter
-changes within the chosen renderer's bounds. It rejects repeated geometry and
-reports unavailable slots when bounded attempts produce no distinct valid result.
-Stored choices are investigation evidence, not a trained aesthetic model.
+Variation is internal. Accepted parameter directions guide a bounded continuation
+proposal and a complementary proposal; repeated aligned choices can increase the
+step and reversals can decrease it. Screen positions are not parameter axes.
+Bounded retries reject empty, failed, duplicate and visually negligible results;
+unavailable alternatives remain explicit. The current drawing and Back remain
+usable while alternatives are pending. Stored choices are provenance and session
+search state, not a trained aesthetic or likeness model. Legacy nine-slot traces
+remain readable under their original policy revision.
 
 The compact Source control keeps the original photo accessible. Detailed Framing
-and Style controls are collapsed by default. Styles still offers five rendered
-algorithms: Tonal contours, Hatch, Crosshatch, Sketch, and Sketch + hatch. Selecting
+and Style controls are collapsed by default. Styles offers three rendered
+algorithms: Flow Edge (the default), Tonal contours and Sketch. Hatch, Crosshatch
+and Sketch + hatch remain decodable for historical candidates but are not
+generated as authoring alternatives. Selecting
 an algorithm installs its exact completed candidate. The existing renderer and one
 cancel-and-join work drain own center, exploration and algorithm-comparison work.
 Selected candidates remain usable while a new neighborhood is pending; stale source,
@@ -1630,18 +1631,20 @@ comparisons remain lazy, and proposals reuse analyzed rasters and bounded caches
 Crop to face, head margin and background removal belong to Framing; line/tone
 controls and detail presets belong to Style.
 
-The capture icon stays in the toolbar. With a configured device, one click asks
+Capture Photo stays in the toolbar. With a configured device, one click asks
 the existing observation owner to activate that portrait camera, awaits readiness,
-and captures a 3–5 second burst (four seconds by default). Camera and duration
-settings live in a popover. Cancel/Escape and acquisition settlement dismiss the
-white screen illumination; no display brightness setting changes. Capture samples
-distinct advancing frames at up to 8 Hz. Recent frames are grouped by capture
-session and support individual or whole-burst deletion. They remain session memory
-bounded to 24 photos / 32 MiB; saved candidates own independent source bytes.
-Deleting recent photos cannot revive them through late render results.
+and takes a 0.8-second still-subject burst including exposure settling. One quality-selected
+frame becomes the new source photo; the burst does not create a pose gallery.
+Selection uses image sharpness and exposure evidence. It does not fuse unregistered
+frames, reconstruct depth or establish improved optical focus. Camera selection
+lives in the capture popover; pose and capture-duration controls are absent.
+Cancel/Escape and acquisition settlement dismiss the white screen illumination;
+no display brightness setting changes. Recent sources remain individually
+selectable and deletable, bounded to 24 photos / 32 MiB; saved candidates own
+independent source bytes. Deleting sources cannot revive them through late work.
 
 Ordinary Studio has no continuous parameter pad, Big Head, preference-rating,
-automatic cooling, adaptive proposal fitting or named-training controls. Historical candidate formats and
+manual Variation or named-training controls. Historical candidate formats and
 required source, raster, label and checkpoint interpretation remain compatible.
 Existing fitted checkpoints are not loaded or consulted by normal Studio generation.
 Save Imagination retains the exact candidate and bounded offered-set/choice trace
@@ -1650,6 +1653,14 @@ selection mode. Session Back retains exact candidates; its history is bounded an
 does not promise an unlimited or restart-persistent undo stack. Browsing Imaginations belongs to Drawing Reviewer and does not
 change the Studio edit. Source photos and vectors shown together come from the same
 candidate, including retained candidates.
+
+Flow Edge separates structural evidence from tonal stroke density. Its higher
+resolution analysis supports detailed curves; coherence guides smooth line flow
+without applying the legacy global tonal blur to structural detection. Tonal
+streamlines use local density, separation and structural barriers. Material
+adaptation sets spacing at the explicitly selected drawing height; a digital
+preview or nominal spacing is not proof of separated deposited ink. Flow Edge
+still produces the same immutable `DrawingProgram` consumed by ordinary Drawing.
 
 Pen & material displays the current applicable marker width and whether its origin
 is estimated or independently measured. It is an input to drawing appearance, not

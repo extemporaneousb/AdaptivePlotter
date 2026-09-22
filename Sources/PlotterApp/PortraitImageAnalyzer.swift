@@ -59,6 +59,17 @@ protocol PortraitPhotoAcquiring: Sendable {
 }
 
 struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
+  static func analysisMaximumDimension(for style: PortraitStyle) -> Int {
+    style == .flowEdges ? 320 : 160
+  }
+
+  static func cachedRasterIsCompatible(_ raster: PortraitRaster, with style: PortraitStyle) -> Bool {
+    // Unknown legacy/synthetic geometry may intentionally use another lattice.
+    // A Flow edit must still acquire its higher-resolution image evidence.
+    if style != .flowEdges { return raster.analysisGeometry == nil || max(raster.width, raster.height) <= 160 }
+    return max(raster.width, raster.height) == analysisMaximumDimension(for: style)
+  }
+
   func acquire(_ input: PortraitPhotoInput) async throws -> PortraitAcquiredPhoto {
     try Task.checkCancellation()
     let image: CGImage
@@ -88,8 +99,12 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
 
   func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
     try Task.checkCancellation()
-    let raster = try request.cachedRaster ?? Self.analyze(
-      data: request.data, options: request.options, sourcePixelExtent: request.sourcePixelExtent)
+    let cached = request.cachedRaster.flatMap {
+      Self.cachedRasterIsCompatible($0, with: request.style) ? $0 : nil
+    }
+    let raster = try cached ?? Self.analyze(data: request.data, options: request.options,
+      sourcePixelExtent: request.sourcePixelExtent,
+      maximumDimension: Self.analysisMaximumDimension(for: request.style))
     try Task.checkCancellation()
     let program = try PortraitVectorizer.program(
       from: raster, pose: request.pose, style: request.style, strokeStyle: request.strokeStyle,
@@ -178,7 +193,8 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
   }
 
   static func analyze(data: Data, options: PortraitAnalysisOptions,
-    sourcePixelExtent: PortraitSourceCropExtent? = nil) throws -> PortraitRaster {
+    sourcePixelExtent: PortraitSourceCropExtent? = nil,
+    maximumDimension: Int = 160) throws -> PortraitRaster {
     try Task.checkCancellation()
     let decoded = try decodedImage(from: data)
     let image = decoded.image
@@ -213,8 +229,9 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       decodedWidth: image.width, decodedHeight: image.height,
       cropWidth: cropped.width, cropHeight: cropped.height)
     let ratio = sourceCropExtent.aspectRatio
-    let width = Int(min(160, max(8, 160 * ratio)))
-    let height = Int(min(160, max(8, 160 / ratio)))
+    let dimension = Double(min(512, max(8, maximumDimension)))
+    let width = Int(min(dimension, max(8, dimension * ratio)))
+    let height = Int(min(dimension, max(8, dimension / ratio)))
     var luminance = try grayscale(cropped, width: width, height: height)
     // Normalize illumination before whitening the background; the matte must
     // not bias the contrast percentiles toward white.

@@ -29,7 +29,7 @@ struct PortraitStyleScope: Identifiable, Codable, Hashable, Sendable {
 
   static let screenSketch = Self(
     id: UUID(uuidString: "BC4D5C09-434A-4092-8762-C4DB391D463F")!, name: "My drawing style", revision: 1,
-    objective: .screenAesthetic, allowedFamilies: PortraitStyle.allCases,
+    objective: .screenAesthetic, allowedFamilies: PortraitStyle.legacyCases,
     activeParameters: [.contourLevels, .minimumContourLength, .simplificationTolerance,
       .hatchSpacing, .tonalStrength, .smoothing, .sketchThreshold, .hatchAngleDegrees],
     frozenParameters: [.init(parameter: .headScale, value: 1)])

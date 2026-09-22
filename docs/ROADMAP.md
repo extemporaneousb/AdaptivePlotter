@@ -19,29 +19,33 @@ retired authoring controls are not future implementation obligations.
 Remaining product evidence includes actual camera/phone capture interaction,
 attended plotter geometry and ink quality. Software and hosted UI checks cannot
 close those physical claims. Capture-series persistence and raising the current
-24-photo / 32 MiB session limit remain deferred; the active correction adds grouped
-browsing and whole-burst deletion within that declared bound. Earlier arrow-based
-ratings and adaptive exploration proposals remain superseded. The September 20
-manual-Variation 3×3 imagination grid is a separately authorized bounded selection
-interface, not revival of training or adaptive optimization.
+24-photo / 32 MiB session limit remain deferred. New short captures produce one
+selected source, so multi-pose burst browsing is no longer a product objective.
 
-## Portrait imagination grid: operator aesthetic evaluation
+## Flow Edge: portrait likeness and physical acceptance
 
-The bounded 3×3 exploration interface retains exact current-center promotion and
-Back snapshots, with manual Variation and existing detailed controls. Its current
-contract and ownership belong to Product Contract and Architecture; measured render
-work and software/layout evidence belong to Current Evidence.
+The September 21 request supersedes manual Variation and the nine-image grid with
+current plus two alternatives and internal adaptive step size. Flow Edge targets
+smooth long lines with structural evidence independent from tone density. Current
+contract and ownership belong to Product Contract and Architecture; implementation
+and measured software evidence belong to Current Evidence.
 
-Operator acceptance remains open: use a representative portrait with Tonal contours,
-compare default, low and high Variation, select several useful neighbors, resample
-from center, use Back, adjust a detailed parameter, save the chosen imagination and
-send it explicitly to Drawing. Assess whether eight alternatives expose useful
-interacting changes and reach a desirable drawing faster than manual sliders. Unit
-tests and synthetic fixtures do not establish perceptual usefulness or human
-convergence. Proposal-distribution refinement and tonal/smoothing/simplification
-algorithm improvements require observed results from that evaluation; they are not
-part of this first delivery. Continuous pads, PCA, fitting, automatic cooling,
-training and semantic Big Head remain outside the accepted scope.
+Operator acceptance remains open: compare Flow Edge, Tonal contours and Sketch on
+representative portraits at matched drawing sizes and useful ink/path budgets.
+Assess likeness, retained eyelids/lips/nose boundaries, smoothness, regional tone,
+and visual interest independently. Test whether two alternatives offer meaningful
+choices without slowing selection, and whether a short still-subject capture
+selects a useful exposure and sharp image. Software frame-quality scores do not
+prove improved optical focus or successful real-camera exposure settling.
+
+Attended drawing must establish actual line separation and quality with the chosen
+pen, paper and size. Preserve the existing Drawing admission and observation flow.
+No nominal spacing, curve metric, synthetic fixture, or screenshot proves ink
+separation or aesthetic success. Registration/fusion, super-resolution, 3D capture,
+learned portrait abstraction, and reaction-diffusion remain later comparisons,
+justified only if the current structure/flow representation demonstrably limits
+likeness or style. Pointillism and active hatch/crosshatch generation are outside
+the selected direction.
 
 ## Drawing motion: attended continuous-polyline comparison
 

@@ -37,7 +37,7 @@ struct PortraitAlgorithmComparisonTests {
     await model.shutdown()
   }
 
-  @Test("opening renders four missing alternatives and reopening preserves cached candidate identities")
+  @Test("opening renders two missing alternatives and reopening preserves cached candidate identities")
   func demandAndCacheReuse() async throws {
     let renderer = ComparisonRenderer()
     let model = PortraitStudioModel(renderer: renderer)
@@ -50,23 +50,24 @@ struct PortraitAlgorithmComparisonTests {
     #expect(!model.isProcessing)
     await model.awaitRendering()
     let identities = model.algorithmCandidates.map(\.id)
-    #expect(identities.count == 5)
+    #expect(identities.count == 3)
     let requests = await renderer.requests
-    #expect(requests.count == 5)
-    #expect(requests.dropFirst().allSatisfy { $0.cachedRaster != nil })
+    #expect(requests.count == 3)
+    #expect(requests[1].cachedRaster == nil)
+    #expect(requests[2].cachedRaster != nil)
     model.selectAlgorithm(.sketch, strokeStyle: pen)
     let chosen = try #require(model.selectedCandidate)
     model.setStyleComparisonExpanded(false, strokeStyle: pen)
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
     await model.awaitRendering()
-    #expect(await renderer.requests.count == 5)
+    #expect(await renderer.requests.count == 3)
     #expect(model.algorithmCandidates.map(\.id) == identities)
     #expect(model.selectedCandidate?.id == chosen.id)
     model.setStyleComparisonExpanded(false, strokeStyle: pen)
     model.vectorOptions.sketchThreshold += 0.002
     model.renderIfConfigurationChanged(strokeStyle: pen)
     await model.awaitRendering()
-    #expect(await renderer.requests.count == 6)
+    #expect(await renderer.requests.count == 4)
     #expect(model.algorithmCandidates.map(\.recipe.style) == [.sketch])
     #expect(model.selectedCandidate?.recipe.style == .sketch)
     await model.shutdown()
@@ -96,16 +97,16 @@ struct PortraitAlgorithmComparisonTests {
     }
     await renderer.release()
     await model.awaitRendering()
-    #expect(await renderer.cancelledStyles == [.hatch])
+    #expect(await renderer.cancelledStyles == [.contours])
     #expect(model.selectedCandidate?.id == selected.id)
     if !reopenBeforeSettlement {
       #expect(await renderer.requests.count == 2)
-      #expect(model.algorithmCandidates.map(\.recipe.style) == [.contours])
+      #expect(model.algorithmCandidates.map(\.recipe.style) == [.flowEdges])
       model.setStyleComparisonExpanded(true, strokeStyle: pen)
       await model.awaitRendering()
     }
-    #expect(await renderer.requests.count == 6)
-    #expect(model.algorithmCandidates.map(\.recipe.style) == PortraitStyle.allCases)
+    #expect(await renderer.requests.count == 4)
+    #expect(model.algorithmCandidates.map(\.recipe.style) == PortraitStyle.authoringCases)
     #expect(model.selectedCandidate?.id == selected.id)
     #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
     #expect(model.workDiagnostics.startedWorkerCount == model.workDiagnostics.settledWorkerCount)
@@ -126,13 +127,13 @@ struct PortraitAlgorithmComparisonTests {
     await model.awaitRendering()
     #expect(await renderer.requests.count == 1)
     #expect(await renderer.cancelledStyles.isEmpty)
-    #expect(model.selectedCandidate?.recipe.style == .contours)
+    #expect(model.selectedCandidate?.recipe.style == .flowEdges)
     #expect(!model.isProcessing)
     #expect(!model.isComparingAlgorithms)
     await model.shutdown()
   }
 
-  @Test("five deterministic algorithms share one source analysis and selecting installs the exact tile")
+  @Test("active algorithms share compatible analysis and selecting installs the exact tile")
   func exactSelectionAndSharedAnalysis() async throws {
     let renderer = ComparisonRenderer()
     let model = PortraitStudioModel(renderer: renderer)
@@ -142,7 +143,7 @@ struct PortraitAlgorithmComparisonTests {
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
-    #expect(model.algorithmCandidates.map(\.recipe.style) == PortraitStyle.allCases)
+    #expect(model.algorithmCandidates.map(\.recipe.style) == PortraitStyle.authoringCases)
     #expect(model.algorithmCandidates.allSatisfy { $0.sourceData == Data([1]) })
     #expect(Set(model.algorithmCandidates.map(\.rasterSHA256)).count == 1)
     #expect(model.algorithmCandidates.allSatisfy {
@@ -150,9 +151,9 @@ struct PortraitAlgorithmComparisonTests {
         && $0.recipe.vectorOptions.headScale == 1 && $0.recipe.vectorOptions.semanticHead == nil
     })
     let requests = await renderer.requests
-    #expect(requests.count == PortraitStyle.allCases.count)
-    #expect(requests.filter { $0.cachedRaster == nil }.count == 1)
-    #expect(model.selectedAlgorithm == .contours)
+    #expect(requests.count == PortraitStyle.authoringCases.count)
+    #expect(requests.filter { $0.cachedRaster == nil }.count == 2)
+    #expect(model.selectedAlgorithm == .flowEdges)
     for tile in model.algorithmCandidates {
       model.selectAlgorithm(tile.recipe.style, strokeStyle: pen)
       model.renderIfConfigurationChanged(strokeStyle: pen)
@@ -166,7 +167,7 @@ struct PortraitAlgorithmComparisonTests {
     // Returning to the Studio does not reset selection or enqueue more work.
     model.renderIfNeeded(strokeStyle: pen)
     #expect(await renderer.requests.count == requests.count)
-    #expect(model.selectedAlgorithm == .sketchHatch)
+    #expect(model.selectedAlgorithm == .sketch)
     #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
     #expect(!model.isComparingAlgorithms)
     await model.shutdown()
@@ -188,14 +189,14 @@ struct PortraitAlgorithmComparisonTests {
     #expect(model.currentProgram == nil)
     await renderer.release()
     await model.awaitRendering()
-    #expect(model.algorithmCandidates.count == PortraitStyle.allCases.count)
+    #expect(model.algorithmCandidates.count == PortraitStyle.authoringCases.count)
     #expect(model.algorithmCandidates.allSatisfy {
       $0.sourceData == Data([2]) && !$0.recipe.analysisOptions.cropToFace
         && $0.recipe.vectorOptions.hatchSpacing == 7
         && $0.photoID == model.selectedPhotoID
     })
     let requests = await renderer.requests
-    #expect(requests.count == PortraitStyle.allCases.count + 1)
+    #expect(requests.count == PortraitStyle.authoringCases.count + 1)
     #expect(requests.dropFirst().allSatisfy { $0.data == Data([2]) })
     #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
     #expect(model.workDiagnostics.startedWorkerCount == model.workDiagnostics.settledWorkerCount)
@@ -210,16 +211,16 @@ struct PortraitAlgorithmComparisonTests {
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     try await renderer.waitUntilHeld()
-    let tile = try #require(model.algorithmCandidates.first { $0.recipe.style == .hatch })
-    model.selectAlgorithm(.hatch, strokeStyle: pen)
+    let tile = try #require(model.algorithmCandidates.first { $0.recipe.style == .contours })
+    model.selectAlgorithm(.contours, strokeStyle: pen)
     model.renderIfConfigurationChanged(strokeStyle: pen)
     await renderer.release()
     await model.awaitRendering()
     #expect(model.selectedCandidate?.id == tile.id)
     #expect(model.selectedCandidate?.createdAt == tile.createdAt)
     #expect(model.currentProgram == tile.program)
-    #expect(model.algorithmCandidates.count == 5)
-    #expect(await renderer.requests.count == 5)
+    #expect(model.algorithmCandidates.count == 3)
+    #expect(await renderer.requests.count == 3)
     await model.shutdown()
   }
 
@@ -236,16 +237,16 @@ struct PortraitAlgorithmComparisonTests {
     model.renderIfNeeded(strokeStyle: wider)
     #expect(model.algorithmCandidates.isEmpty)
     await model.awaitRendering()
-    #expect(model.algorithmCandidates.count == 5)
+    #expect(model.algorithmCandidates.count == 3)
     #expect(model.algorithmCandidates.map(\.id) != oldIDs)
     #expect(model.algorithmCandidates.allSatisfy {
       $0.program.strokes.allSatisfy { $0.style == wider }
     })
     let requests = await renderer.requests
-    #expect(requests.count == 10)
-    #expect(requests.dropFirst(5).allSatisfy { $0.cachedRaster != nil })
+    #expect(requests.count == 6)
+    #expect(requests.dropFirst(3).allSatisfy { $0.cachedRaster != nil })
     let selected = model.selectedCandidate?.id
-    model.selectAlgorithm(.hatch, strokeStyle: pen)
+    model.selectAlgorithm(.contours, strokeStyle: pen)
     #expect(model.selectedCandidate?.id == selected)
     await model.shutdown()
   }

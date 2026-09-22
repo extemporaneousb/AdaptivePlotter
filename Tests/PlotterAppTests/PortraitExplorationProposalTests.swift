@@ -10,7 +10,7 @@ struct PortraitExplorationProposalTests {
   func deterministic(style: PortraitStyle) throws {
     let center = try fixture(style: style)
     let proposals = PortraitExplorationPolicy.recipes(around: center, variation: 0.35, seed: 51)
-    #expect(proposals.count == 8)
+    #expect(proposals.count == 2)
     #expect(proposals.allSatisfy { $0.count == PortraitExplorationPolicy.maximumAttemptsPerSlot })
     #expect(proposals == PortraitExplorationPolicy.recipes(around: center, variation: 0.35, seed: 51))
     #expect(proposals != PortraitExplorationPolicy.recipes(around: center, variation: 0.35, seed: 52))
@@ -18,6 +18,7 @@ struct PortraitExplorationProposalTests {
       #expect(recipe.style == center.recipe.style)
       #expect(recipe.analysisOptions == center.recipe.analysisOptions)
       #expect(recipe.vectorOptions == recipe.vectorOptions.bounded)
+      if style == .flowEdges { #expect(recipe.vectorOptions.hatchSpacing >= 3) }
       #expect(recipe.vectorOptions.materialContext == center.recipe.vectorOptions.materialContext)
       #expect(recipe.vectorOptions.headScale == 1)
       #expect(recipe.vectorOptions.semanticHead == nil)
@@ -30,23 +31,30 @@ struct PortraitExplorationProposalTests {
         #expect(recipe.vectorOptions.minimumContourLength == center.recipe.vectorOptions.minimumContourLength)
         #expect(recipe.vectorOptions.simplificationTolerance == center.recipe.vectorOptions.simplificationTolerance)
       }
-      if style != .sketch && style != .sketchHatch {
+      if style != .sketch && style != .sketchHatch && style != .flowEdges {
         #expect(recipe.vectorOptions.sketchThreshold == center.recipe.vectorOptions.sketchThreshold)
       }
     }
   }
 
-  @Test("the fixed nearby coupled broader mix changes grid positions across seeds")
-  func shuffledPositions() throws {
-    let center = try fixture()
-    let positions = (1...8).map { seed in
-      PortraitExplorationPolicy.recipes(around: center, variation: 0.35, seed: UInt64(seed)).map {
-        // Recipe provenance identifies its generated move before grid placement.
-        String($0[0].id.split(separator: "-")[2])
-      }
-    }
-    #expect(Set(positions).count > 1)
-    #expect(positions.allSatisfy { Set($0) == Set((0..<8).map(String.init)) })
+  @Test("consistent accepted direction increases the internal step and rejection shrinks it")
+  func adaptiveStep() {
+    var search = PortraitExplorationSearchState()
+    var first = PortraitVectorOptions()
+    first.tonalStrength = 0.8
+    var second = first; second.tonalStrength = 1
+    var third = second; third.tonalStrength = 1.2
+    search.prefer(second, over: first)
+    let afterFirst = search.step
+    search.prefer(third, over: second)
+    #expect(search.step > afterFirst)
+    let afterContinuation = search.step
+    search.prefer(second, over: third)
+    #expect(search.step < afterContinuation)
+    search.prefer(second, over: second)
+    #expect(search.direction == nil)
+    for _ in 0..<50 { search.prefer(second, over: second) }
+    #expect(search.step >= 0.12)
   }
 
   @Test("material snapshots and effective floors survive proposals without sampling hidden axes")
@@ -69,7 +77,7 @@ struct PortraitExplorationProposalTests {
       #expect(rendered.minimumContourLength == effective.minimumContourLength)
       #expect(rendered.hatchSpacing == effective.hatchSpacing)
     }
-    #expect(Set(recipes.map(\.vectorOptions)).count > 8)
+    #expect(Set(recipes.map(\.vectorOptions)).count >= 2)
   }
 
   @Test("manual spread scales the same seeded continuous moves and zero does not alter controls")
@@ -101,7 +109,7 @@ struct PortraitExplorationProposalTests {
       let center = try fixture(vectors: options)
       let recipes = PortraitExplorationPolicy.recipes(around: center, variation: 1, seed: 99).flatMap { $0 }
       #expect(recipes.allSatisfy { $0.vectorOptions == $0.vectorOptions.bounded })
-      #expect(Set(recipes.map(\.vectorOptions)).count > 8)
+      #expect(Set(recipes.map(\.vectorOptions)).count >= 2)
     }
   }
 
@@ -118,17 +126,79 @@ struct PortraitExplorationProposalTests {
     #expect(PortraitExplorationPolicy.geometryIdentity(original) == PortraitExplorationPolicy.geometryIdentity(reversed))
   }
 
+  @Test("subpixel path changes fail the visual floor while displaced structure passes")
+  func visibleDifference() throws {
+    let center = try fixture()
+    func shifted(_ fraction: Double) throws -> DrawingProgram {
+      let program = center.program
+      return try DrawingProgram(id: ProgramID(UUID()), fieldExtent: program.fieldExtent,
+        strokes: program.strokes.enumerated().map { index, stroke in
+          LogicalStroke(id: StrokeID(UUID()), path: try Polyline(points: stroke.path.points.map {
+            try .init(x: $0.x * 0.8 + program.fieldExtent.width * fraction, y: $0.y * 0.8)
+          }), style: stroke.style, ordering: UInt32(index))
+        }, source: .init(kind: "fixture", sourceIdentifier: "visual-\(fraction)"))
+    }
+    let original = PortraitExplorationPolicy.VisibleGeometry(try shifted(0))
+    let negligible = PortraitExplorationPolicy.VisibleGeometry(try shifted(0.00001))
+    let visible = PortraitExplorationPolicy.VisibleGeometry(try shifted(0.08))
+    #expect(!original.isMeaningfullyDifferent(from: negligible))
+    #expect(original.isMeaningfullyDifferent(from: visible))
+  }
+
+  @Test("v1 nine-slot receipts still decode while unknown layouts and revisions fail")
+  func legacyReceiptCompatibility() throws {
+    let center = try fixture()
+    let round = PortraitExplorationRound(id: UUID(), seed: 7, variation: 0.35,
+      center: center, slots: (0..<3).map { index in
+        .init(index: index, candidate: index == 1 ? center : nil,
+          unavailableReason: index == 1 ? nil : "No option")
+      })
+    let record = PortraitExplorationRecord(round: round, action: .selected(index: 1),
+      traceSessionID: UUID(), sequence: 0)
+    var object = try #require(JSONSerialization.jsonObject(with: PortraitCandidateCoding.encoder().encode(record)) as? [String: Any])
+    let offers = try #require(object["offers"] as? [[String: Any]])
+    object["policyRevision"] = "portrait-neighborhood-v1"
+    object["offers"] = (0..<9).map { index -> [String: Any] in
+      var offer = offers[index == 4 ? 1 : 0]
+      offer["index"] = index
+      return offer
+    }
+    object["action"] = ["selected": ["index": 4]]
+    let legacy = try JSONDecoder().decode(PortraitExplorationRecord.self,
+      from: JSONSerialization.data(withJSONObject: object))
+    try PortraitExplorationRecord.validate([legacy], for: center)
+    object["policyRevision"] = "unknown-future-policy"
+    let unknown = try JSONDecoder().decode(PortraitExplorationRecord.self,
+      from: JSONSerialization.data(withJSONObject: object))
+    #expect(throws: (any Error).self) { try PortraitExplorationRecord.validate([unknown], for: center) }
+  }
+
+  @Test("raster caches separate flow sampling from the historical analysis resolution")
+  func rasterResolutionCache() throws {
+    let candidate = try fixture()
+    let pen = try portraitTestStyle()
+    var cache = PortraitRenderCache()
+    let result = PortraitRenderResult(raster: candidate.raster, program: candidate.program)
+    cache.insert(result, for: .init(photoID: candidate.photoID,
+      configuration: .init(style: .flowEdges, vectors: candidate.recipe.vectorOptions,
+        analysis: candidate.recipe.analysisOptions), strokeStyle: pen))
+    #expect(cache.raster(for: .init(photoID: candidate.photoID,
+      analysis: candidate.recipe.analysisOptions, maximumDimension: 160)) == nil)
+    #expect(cache.raster(for: .init(photoID: candidate.photoID,
+      analysis: candidate.recipe.analysisOptions, maximumDimension: 320)) != nil)
+  }
+
   @Test("bounded receipt merge cannot replace newer saved choices with an older handoff snapshot")
   func receiptOrder() throws {
     let center = try fixture()
     let round = PortraitExplorationRound(id: UUID(), seed: 7, variation: 0,
-      center: center, slots: (0..<9).map { index in
-        .init(index: index, candidate: index == 4 ? center : nil,
-          unavailableReason: index == 4 ? nil : "Zero variation")
+      center: center, slots: (0..<3).map { index in
+        .init(index: index, candidate: index == 1 ? center : nil,
+          unavailableReason: index == 1 ? nil : "Zero variation")
       })
     let session = UUID()
     let records = (0..<66).map { sequence in
-      PortraitExplorationRecord(round: round, action: .selected(index: 4),
+      PortraitExplorationRecord(round: round, action: .selected(index: 1),
         traceSessionID: session, sequence: UInt64(sequence))
     }
     let current = Array(records.suffix(PortraitExplorationPolicy.maximumRecords))

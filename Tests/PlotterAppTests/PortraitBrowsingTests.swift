@@ -15,7 +15,7 @@ struct PortraitBrowsingTests {
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
     let firstID = try #require(model.selectedPhotoID)
-    model.selectAlgorithm(.hatch, strokeStyle: pen)
+    model.selectAlgorithm(.contours, strokeStyle: pen)
     let firstProgram = try #require(model.currentProgram)
     model.setPhoto(Data([2]), for: .left, strokeStyle: pen)
     model.selectPhoto(try #require(model.recentPhotos.last?.id), strokeStyle: pen)
@@ -28,7 +28,7 @@ struct PortraitBrowsingTests {
     #expect(model.currentProgram == firstProgram)
     #expect(!model.isProcessing)
     #expect(await renderer.calls == calls)
-    #expect(model.algorithmCandidates.map(\.recipe.style) == PortraitStyle.allCases)
+    #expect(model.algorithmCandidates.map(\.recipe.style) == PortraitStyle.authoringCases)
     await model.shutdown()
   }
 

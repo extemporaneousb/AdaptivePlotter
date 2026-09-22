@@ -1,7 +1,7 @@
 import PlotterModel
 import SwiftUI
 
-/// The five algorithm tiles display the exact candidates selected by a click.
+/// Authoring tiles display the exact candidates selected by a click.
 struct PortraitStyleBrowser: View {
   let model: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
@@ -9,7 +9,7 @@ struct PortraitStyleBrowser: View {
 
   var body: some View {
     HStack(spacing: 8) {
-      ForEach(PortraitStyle.allCases) { style in
+      ForEach(PortraitStyle.authoringCases) { style in
         let candidate = model.algorithmCandidates.first { $0.recipe.style == style }
         Button {
           WorkbenchRequestTelemetry.nativeActionHandled("portrait.algorithm.\(style.id)")

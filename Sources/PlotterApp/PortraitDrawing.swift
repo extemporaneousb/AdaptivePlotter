@@ -8,6 +8,7 @@ enum PortraitPose: String, CaseIterable, Identifiable, Codable, Sendable {
 }
 
 enum PortraitStyle: String, CaseIterable, Identifiable, Codable, Sendable {
+  case flowEdges = "Flow Edge"
   case contours = "Contour", hatch = "Hatch", crosshatch = "Crosshatch"
   case sketch = "Sketch", sketchHatch = "Sketch + hatch"
   var id: Self { self }
@@ -237,9 +238,12 @@ enum PortraitVectorizer {
     if let levels { configuration.contourLevels = levels }
     var options = configuration.bounded
     if let material = options.materialContext { options = try material.adapting(options, raster: raster) }
-    let prepared = try preparedRaster(raster, options: options)
+    // Flow keeps structural evidence independent of its tone/coherence controls.
+    // Legacy styles retain their exact preprocessing and archived identities.
+    let prepared = style == .flowEdges ? raster : try preparedRaster(raster, options: options)
     let authoredPaths: [[CGPoint]]
     switch style {
+    case .flowEdges: authoredPaths = try PortraitFlowRenderer.paths(from: raster, options: options)
     case .contours: authoredPaths = try contours(prepared, options: options)
     case .hatch: authoredPaths = try hatching(prepared, crosshatch: false, options: options)
     case .crosshatch: authoredPaths = try hatching(prepared, crosshatch: true, options: options)
@@ -252,6 +256,7 @@ enum PortraitVectorizer {
     guard !paths.isEmpty else { throw PortraitDrawingError.noLines }
     let producer = options.semanticHead == nil ? "portrait-v3" : "portrait-v4"
     var provenance = "\(producer)|metric=\(raster.metricProvenance)|\(raster.provenance)|pose=\(pose.rawValue)|style=\(style.rawValue)|\(options.provenance)"
+    if style == .flowEdges { provenance += "|flow=\(PortraitFlowRenderer.revision)" }
     if let parameters = options.semanticHead {
       let manifest = PortraitHeadTransform(raster: raster, parameters: parameters).manifest
       provenance += "|headWarp=" + PortraitCandidateCoding.digest(try PortraitCandidateCoding.encoder().encode(manifest))

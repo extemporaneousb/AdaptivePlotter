@@ -57,12 +57,18 @@ struct PortraitExplorationRecord: Codable, Hashable, Sendable {
         throw PortraitCandidateError.integrityMismatch
       }
       lastSequence[record.traceSessionID] = record.sequence
-      guard record.policyRevision == PortraitExplorationPolicy.revision,
+      let legacy = record.policyRevision == "portrait-neighborhood-v1"
+      let slotCount = legacy ? 9 : PortraitExplorationPolicy.slotCount
+      let centerIndex = legacy ? 4 : PortraitExplorationPolicy.centerIndex
+      guard legacy || record.policyRevision == PortraitExplorationPolicy.revision else {
+        throw PortraitCandidateError.integrityMismatch
+      }
+      guard
         record.sourceSHA256 == candidate.sourceSHA256,
         record.variation.isFinite, (0...1).contains(record.variation),
-        record.offers.map(\.index) == Array(0..<9),
-        record.offers[4].candidateID == record.centerID,
-        let centerRecipe = record.offers[4].recipe else { throw PortraitCandidateError.integrityMismatch }
+        record.offers.map(\.index) == Array(0..<slotCount),
+        record.offers[centerIndex].candidateID == record.centerID,
+        let centerRecipe = record.offers[centerIndex].recipe else { throw PortraitCandidateError.integrityMismatch }
       for offer in record.offers {
         if offer.candidateID != nil {
           guard let recipe = offer.recipe, offer.programContentHash != nil,
@@ -76,7 +82,7 @@ struct PortraitExplorationRecord: Codable, Hashable, Sendable {
       }
       switch record.action {
       case .selected(let index):
-        guard (0..<9).contains(index), record.offers[index].candidateID != nil else {
+        guard (0..<slotCount).contains(index), record.offers[index].candidateID != nil else {
           throw PortraitCandidateError.integrityMismatch
         }
       case .variation(let value):
@@ -118,10 +124,37 @@ struct PortraitExplorationRecord: Codable, Hashable, Sendable {
   }
 }
 
+/// Session-local ordinal preference search. The step is internal; a choice is
+/// directional evidence, not a measured utility gradient or a trained model.
+struct PortraitExplorationSearchState: Equatable, Sendable {
+  var step = 0.35
+  var direction: [Double]?
+
+  mutating func prefer(_ selected: PortraitVectorOptions, over current: PortraitVectorOptions) {
+    let delta = zip(PortraitExplorationPolicy.coordinates(selected),
+      PortraitExplorationPolicy.coordinates(current)).map { $0.0 - $0.1 }
+    let length = sqrt(delta.reduce(0) { $0 + $1 * $1 })
+    guard length > 1e-8 else {
+      step = max(0.12, step * 0.7)
+      direction = nil
+      return
+    }
+    let next = delta.map { $0 / length }
+    if let direction {
+      let alignment = zip(direction, next).reduce(0) { $0 + $1.0 * $1.1 }
+      if alignment > 0.65 { step = min(0.75, step * 1.3) }
+      else if alignment < 0 { step = max(0.12, step * 0.7) }
+    }
+    direction = next
+  }
+}
+
 enum PortraitExplorationPolicy {
-  static let revision = "portrait-neighborhood-v1"
-  static let neighborIndices = [0, 1, 2, 3, 5, 6, 7, 8]
-  static let maximumAttemptsPerSlot = 3
+  static let revision = "portrait-preference-v2"
+  static let slotCount = 3
+  static let centerIndex = 1
+  static let neighborIndices = [0, 2]
+  static let maximumAttemptsPerSlot = 2
   static let maximumHistoryRounds = 12
   static let maximumHistoryPoints = 400_000
   static let maximumRoundPoints = 200_000
@@ -131,58 +164,126 @@ enum PortraitExplorationPolicy {
     value.isFinite ? min(1, max(0, value)) : 0.35
   }
 
-  /// Three fixed attempt recipes for each of eight slots. Nearby single-axis,
-  /// coupled and broader moves all scale with the manual spread. Reflection
-  /// keeps moves useful at bounds instead of piling them up on a clamp.
+  static func canonicalOptions(_ options: PortraitVectorOptions, style: PortraitStyle) -> PortraitVectorOptions {
+    var result = options.bounded
+    if style == .flowEdges { result.hatchSpacing = max(3, result.hatchSpacing) }
+    return result
+  }
+
+  static func coordinates(_ options: PortraitVectorOptions) -> [Double] {
+    let value = options.bounded
+    return [(value.tonalStrength - 0.4) / 1.6, value.smoothing / 4,
+      value.minimumContourLength / 40, value.simplificationTolerance / 3,
+      Double(value.contourLevels - 1) / 11, Double(value.hatchSpacing - 1) / 15,
+      (value.hatchAngleDegrees + 90) / 180, (value.sketchThreshold - 0.002) / 0.078]
+  }
+
+  /// Two purposeful directions, each with one bounded retry. A successful
+  /// direction continues; the other probes a complementary axis. No hidden pool.
   static func recipes(around center: PortraitCandidate, variation: Double,
-    seed: UInt64) -> [[PortraitStyleRecipe]] {
-    let base = center.recipe.vectorOptions.bounded
+    seed: UInt64, direction: [Double]? = nil) -> [[PortraitStyleRecipe]] {
+    let base = canonicalOptions(center.recipe.vectorOptions, style: center.recipe.style)
     var random = Generator(state: seed)
     let amount = boundedVariation(variation)
     var dimensions: [Dimension] = [.tone, .smoothing]
     if center.recipe.style != .hatch && center.recipe.style != .crosshatch {
-      dimensions += [.minimumLength, .simplification]
+      dimensions += [.minimumLength]
+      if center.recipe.style != .flowEdges { dimensions += [.simplification] }
     }
     if center.recipe.style == .contours { dimensions += [.levels] }
-    if [.hatch, .crosshatch, .sketchHatch].contains(center.recipe.style) {
-      dimensions += [.spacing, .angle]
+    if [.hatch, .crosshatch, .sketchHatch, .flowEdges].contains(center.recipe.style) {
+      dimensions += [.spacing]
+      if center.recipe.style != .flowEdges { dimensions += [.angle] }
     }
-    if [.sketch, .sketchHatch].contains(center.recipe.style) { dimensions += [.threshold] }
-    // Preserve the material snapshot and exclude axes completely hidden by its
-    // floor. Other floor collisions are caught by effective geometry comparison.
+    if [.sketch, .sketchHatch, .flowEdges].contains(center.recipe.style) { dimensions += [.threshold] }
     let effective = (try? base.materialContext?.adapting(base, raster: center.raster)) ?? base
     if effective.minimumContourLength >= 40 { dimensions.removeAll { $0 == .minimumLength } }
     if effective.hatchSpacing >= 16 { dimensions.removeAll { $0 == .spacing } }
     let phase = Int(random.next() % UInt64(dimensions.count))
-    var recipes = (0..<8).map { slot in
+    let primary = dimensions[phase]
+    let complementary: Dimension
+    if let direction, direction.count == Dimension.allCases.count {
+      let rotated = (0..<dimensions.count).map { dimensions[(phase + $0) % dimensions.count] }
+      complementary = rotated.min { abs(direction[$0.rawValue]) < abs(direction[$1.rawValue]) }!
+    } else { complementary = dimensions[(phase + 1) % dimensions.count] }
+    let sign = random.next() & 1 == 0 ? -1.0 : 1.0
+    return (0..<2).map { neighbor in
       (0..<maximumAttemptsPerSlot).map { attempt in
         var vectors = base
-        let radius = slot < 3 ? 0.35 : slot < 6 ? 0.65 : 1.0
-        let axes = slot < 3 && attempt == 0
-          ? [dimensions[(phase + slot) % dimensions.count]] : dimensions
-        for axis in axes {
-          let delta = (random.unit() * 0.65 + 0.35) * (random.next() & 1 == 0 ? -1 : 1)
-          axis.move(&vectors, delta: delta * amount * radius)
+        let radius = amount * (attempt == 0 ? 1 : 1.65)
+        if neighbor == 0, let direction, direction.count == Dimension.allCases.count {
+          for axis in dimensions { axis.move(&vectors, delta: direction[axis.rawValue] * radius) }
+        } else {
+          let axis = neighbor == 0 ? primary : complementary
+          axis.move(&vectors, delta: sign * (neighbor == 0 ? 1 : -1) * radius)
         }
-        return PortraitStyleRecipe(id: "exploration-\(seed)-\(slot)-\(attempt)",
+        // If a single axis is visually inert, the retry changes an additional
+        // image-relevant control without multiplying the number of evaluations.
+        if attempt > 0 {
+          let axis = dimensions[(phase + neighbor + 2) % dimensions.count]
+          axis.move(&vectors, delta: -sign * radius * 0.6)
+        }
+        return PortraitStyleRecipe(id: "preference-\(seed)-\(neighbor)-\(attempt)",
           title: center.recipe.title, seed: seed, style: center.recipe.style,
-          vectorOptions: vectors.bounded, analysisOptions: center.recipe.analysisOptions)
+          vectorOptions: canonicalOptions(vectors, style: center.recipe.style), analysisOptions: center.recipe.analysisOptions)
       }
     }
-    // The mix is stable, but its positions carry no persistent direction or
-    // spread meaning. Shuffle whole retry lists with the same seeded generator.
-    for index in stride(from: recipes.count - 1, through: 1, by: -1) {
-      recipes.swapAt(index, Int(random.next() % UInt64(index + 1)))
-    }
-    return recipes
   }
 
   static func pointCount(_ candidate: PortraitCandidate) -> Int {
     candidate.program.strokes.reduce(0) { $0 + $1.path.points.count }
   }
 
-  /// Compare visible paths, not producer IDs or parameter provenance. Quantize
-  /// at 1/10000 of the drawing height; reverse/order-only changes are identical.
+  /// A bounded preview occupancy map makes subpixel path perturbations inert.
+  /// Samples are capped per segment and pen width is represented at preview scale.
+  struct VisibleGeometry: Sendable {
+    let ink: Set<Int>
+    let nearbyInk: Set<Int>
+    static let side = 128
+
+    init(_ program: DrawingProgram) {
+      let scale = Double(Self.side - 1) / max(program.fieldExtent.width, program.fieldExtent.height)
+      var ink = Set<Int>()
+      for stroke in program.strokes {
+        let radius = min(3, max(0, Int((stroke.style.nominalLineWidth * scale / 2).rounded())))
+        for (a, b) in zip(stroke.path.points, stroke.path.points.dropFirst()) {
+          let ax = a.x * scale, ay = a.y * scale, bx = b.x * scale, by = b.y * scale
+          let count = min(256, max(1, Int(ceil(max(abs(bx - ax), abs(by - ay))))))
+          for step in 0...count {
+            let t = Double(step) / Double(count)
+            let x = Int((ax + (bx - ax) * t).rounded()), y = Int((ay + (by - ay) * t).rounded())
+            for dy in -radius...radius { for dx in -radius...radius {
+              let px = x + dx, py = y + dy
+              if (0..<Self.side).contains(px), (0..<Self.side).contains(py) {
+                ink.insert(py * Self.side + px)
+              }
+            } }
+          }
+        }
+      }
+      self.ink = ink
+      var nearby = ink
+      for cell in ink {
+        let x = cell % Self.side, y = cell / Self.side
+        for dy in -1...1 { for dx in -1...1 {
+          let px = x + dx, py = y + dy
+          if (0..<Self.side).contains(px), (0..<Self.side).contains(py) {
+            nearby.insert(py * Self.side + px)
+          }
+        } }
+      }
+      nearbyInk = nearby
+    }
+
+    func isMeaningfullyDifferent(from other: Self) -> Bool {
+      let changed = ink.subtracting(other.nearbyInk).count + other.ink.subtracting(nearbyInk).count
+      // Require at least six independently visible samples and three percent of
+      // the total ink support. This is a visual-distance floor, not a quality score.
+      return changed >= max(6, Int(ceil(Double(ink.count + other.ink.count) * 0.03)))
+    }
+  }
+
+  /// Exact path identity remains useful for archive/tests, independent of IDs.
   static func geometryIdentity(_ program: DrawingProgram) -> String {
     let scale = 10_000 / program.fieldExtent.height
     let paths = program.strokes.map { stroke -> String in
@@ -202,21 +303,20 @@ enum PortraitExplorationPolicy {
       z = (z ^ (z >> 27)) &* 0x94d049bb133111eb
       return z ^ (z >> 31)
     }
-    mutating func unit() -> Double { Double(next() >> 11) / 9_007_199_254_740_992 }
   }
 
-  private enum Dimension {
+  private enum Dimension: Int, CaseIterable {
     case tone, smoothing, minimumLength, simplification, levels, spacing, angle, threshold
     func move(_ value: inout PortraitVectorOptions, delta: Double) {
       switch self {
       case .tone: value.tonalStrength = reflect(value.tonalStrength + delta * 0.8, 0.4...2)
       case .smoothing: value.smoothing = reflect(value.smoothing + delta * 2, 0...4)
-      case .minimumLength: value.minimumContourLength = reflect(value.minimumContourLength + delta * 20, 0...40)
+      case .minimumLength: value.minimumContourLength = reflect(value.minimumContourLength + delta * 8, 0...40)
       case .simplification: value.simplificationTolerance = reflect(value.simplificationTolerance + delta * 1.5, 0...3)
       case .levels: value.contourLevels = Int(reflect(Double(value.contourLevels) + delta * 6, 1...12).rounded())
       case .spacing: value.hatchSpacing = Int(reflect(Double(value.hatchSpacing) + delta * 8, 1...16).rounded())
       case .angle: value.hatchAngleDegrees = reflect(value.hatchAngleDegrees + delta * 90, -90...90)
-      case .threshold: value.sketchThreshold = reflect(value.sketchThreshold + delta * 0.039, 0.002...0.08)
+      case .threshold: value.sketchThreshold = reflect(value.sketchThreshold + delta * 0.01, 0.002...0.08)
       }
     }
     private func reflect(_ value: Double, _ range: ClosedRange<Double>) -> Double {

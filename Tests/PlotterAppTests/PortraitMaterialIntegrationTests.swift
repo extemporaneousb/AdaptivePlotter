@@ -11,10 +11,14 @@ struct PortraitMaterialIntegrationTests {
     let renderer = MaterialRoutingRenderer()
     let model = PortraitStudioModel(renderer: renderer)
     let pen = try portraitTestStyle()
-    model.style = .hatch
     model.setPhoto(Data([11]), for: .front, strokeStyle: pen)
+    // Reproduce the historical renderer before retaining its candidate. New
+    // capture/import intentionally defaults retired styles back to Flow Edge.
+    model.style = .hatch
+    model.render(strokeStyle: pen)
     await model.awaitRendering()
     let parent = try #require(model.selectedCandidate)
+    #expect(parent.recipe.style == .hatch)
     #expect(model.keepSelection() == nil)
     let priorArchive = try PortraitCandidateCoding.encoder().encode(model.sketches.entries)
     let profile = try DrawingMaterialProfileRevision(name: "Nominal test marker", nominalWidthMM: 1.2)

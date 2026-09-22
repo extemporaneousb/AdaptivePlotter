@@ -6,58 +6,35 @@ struct PortraitPhotoStrip: View {
   let model: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
 
-  private var bursts: [CaptureGroup] {
-    var seen: Set<UUID> = []
-    return model.recentPhotos.compactMap { photo in
-      guard seen.insert(photo.captureSessionID).inserted else { return nil }
-      return CaptureGroup(id: photo.captureSessionID,
-        photos: model.recentPhotos.filter { $0.captureSessionID == photo.captureSessionID })
-    }
-  }
-
   var body: some View {
     ScrollView(.horizontal) {
       HStack(spacing: 8) {
-        ForEach(bursts) { burst in
-          HStack(spacing: 4) {
-            ForEach(burst.photos) { photo in
-              Button { model.selectPhoto(photo.id, strokeStyle: strokeStyle) } label: {
-                PortraitPhotoThumbnail(data: photo.data, id: photo.id)
-                  .frame(width: 40, height: 40)
-                  .background(.black.opacity(0.05))
-                  .overlay {
-                    RoundedRectangle(cornerRadius: 3)
-                      .stroke(model.selectedPhotoID == photo.id ? Color.accentColor : .clear, lineWidth: 2)
-                  }
-                  .contentShape(Rectangle())
+        Text("Recent photos").font(.caption).foregroundStyle(.secondary)
+        ForEach(model.recentPhotos) { photo in
+          Button { model.selectPhoto(photo.id, strokeStyle: strokeStyle) } label: {
+            PortraitPhotoThumbnail(data: photo.data, id: photo.id)
+              .frame(width: 40, height: 40)
+              .background(.black.opacity(0.05))
+              .overlay {
+                RoundedRectangle(cornerRadius: 3)
+                  .stroke(model.selectedPhotoID == photo.id ? Color.accentColor : .clear, lineWidth: 2)
               }
-              .buttonStyle(.plain)
-              .accessibilityLabel("Select \(photo.label)")
-              .contextMenu {
-                Button("Delete Frame", role: .destructive) {
-                  model.removePhoto(photo.id, strokeStyle: strokeStyle)
-                }
-                Button("Delete Burst", role: .destructive) {
-                  model.removeCaptureSession(photo.captureSessionID, strokeStyle: strokeStyle)
-                }
-              }
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Select \(photo.label)")
+          .help(photo.label)
+          .contextMenu {
+            Button("Delete Photo", role: .destructive) {
+              model.removePhoto(photo.id, strokeStyle: strokeStyle)
             }
           }
-          .padding(3)
-          .overlay { RoundedRectangle(cornerRadius: 5).stroke(.quaternary) }
-          .accessibilityElement(children: .contain)
-          .accessibilityLabel("Capture burst, \(burst.photos.count) frames")
         }
       }.padding(.horizontal, 1)
     }
     .scrollIndicators(.hidden)
     .frame(height: 48)
-    .accessibilityIdentifier("portrait.frames")
-  }
-
-  private struct CaptureGroup: Identifiable {
-    let id: UUID
-    let photos: [PortraitPhoto]
+    .accessibilityIdentifier("portrait.recentPhotos")
   }
 }
 

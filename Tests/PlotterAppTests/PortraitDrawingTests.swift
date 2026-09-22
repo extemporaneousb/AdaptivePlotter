@@ -191,11 +191,11 @@ struct PortraitDrawingTests {
     model.setPhoto(Data([1]), for: .front, strokeStyle: style)
     try await renderer.waitUntilEntered()
     for index in 0..<20 {
-      model.style = PortraitStyle.allCases[index % PortraitStyle.allCases.count]
+      model.style = PortraitStyle.authoringCases[index % PortraitStyle.authoringCases.count]
       model.render(strokeStyle: style)
     }
     model.pose = .left
-    model.style = .crosshatch
+    model.style = .contours
     model.setPhoto(Data([2]), for: .left, strokeStyle: style)
     #expect(model.renderDiagnostics.activeWorkerCount == 1)
     #expect(model.renderDiagnostics.startedWorkerCount == 1)
@@ -205,7 +205,7 @@ struct PortraitDrawingTests {
     #expect(model.renderDiagnostics.startedWorkerCount == 2)
     #expect(model.renderDiagnostics.settledWorkerCount == 2)
     #expect(await renderer.maximumConcurrentCount == 1)
-    #expect(model.program?.source.sourceIdentifier.contains("pose=Left|style=Crosshatch") == true)
+    #expect(model.program?.source.sourceIdentifier.contains("pose=Left|style=Contour") == true)
     #expect(!model.isProcessing)
   }
 
@@ -226,10 +226,10 @@ struct PortraitDrawingTests {
     #expect(model.program == nil)
     #expect(model.photos.count == 1)
     #expect(model.renderDiagnostics.activeWorkerCount == 0)
-    model.style = .hatch
+    model.style = .contours
     model.render(strokeStyle: style)
     await model.awaitRendering()
-    #expect(model.program?.source.sourceIdentifier.contains("style=Hatch") == true)
+    #expect(model.program?.source.sourceIdentifier.contains("style=Contour") == true)
     let program = model.program
     await model.shutdown()
     model.style = .crosshatch

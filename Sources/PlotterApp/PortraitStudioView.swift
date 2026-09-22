@@ -54,7 +54,7 @@ struct PortraitStudioView: View {
             }
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
-          if !model.recentPhotos.isEmpty {
+          if model.recentPhotos.count > 1 {
             PortraitPhotoStrip(model: model, strokeStyle: strokeStyle)
           }
           DisclosureGroup(isExpanded: Binding(
@@ -154,15 +154,15 @@ struct PortraitStudioView: View {
           }
         }
       } label: {
-        Image(systemName: model.isCapturing ? "stop.fill" : "camera.fill")
-          .frame(width: 26, height: 22)
+        Label(model.isCapturing ? "Cancel Capture" : "Capture Photo",
+          systemImage: model.isCapturing ? "stop.fill" : "camera.fill")
       }
       .buttonStyle(.borderedProminent)
       .disabled(!model.isCapturing && (isStartingCapture || model.cameraIsStarting || model.selectedDeviceID == nil))
       .keyboardShortcut(model.isCapturing ? .escape : KeyEquivalent("k"), modifiers: model.isCapturing ? [] : [.command, .shift])
-      .accessibilityLabel(model.isCapturing ? "Cancel Capture" : "Capture Burst")
+      .accessibilityLabel(model.isCapturing ? "Cancel Capture" : "Capture Photo")
       .accessibilityIdentifier(model.isCapturing ? "portrait.cancelCapture" : "portrait.capture")
-      .help(model.isCapturing ? "Cancel Capture" : "Capture Burst")
+      .help(model.isCapturing ? "Cancel Capture" : "Keep still while a photo is selected from a short capture")
       Button { importing = true } label: { Image(systemName: "photo.badge.plus") }
         .accessibilityLabel("Choose Photo")
         .accessibilityIdentifier("portrait.choosePhoto")
@@ -171,38 +171,22 @@ struct PortraitStudioView: View {
         .accessibilityLabel("Camera settings")
         .help("Camera settings")
         .popover(isPresented: $cameraSettings, arrowEdge: .bottom) { cameraSettingsPanel }
-      StudioHelpButton("Portrait Studio", text: "Capture Burst starts the selected camera and takes several frames. Turn slowly for different angles. The display becomes white during capture. Import adds an existing photo. Frame and burst deletion remove recent photos; saved imaginations keep their own source copy. The center imagination is the current drawing. Choose an alternative to continue from that exact result, or choose the center for a new set. Variation changes the proposal spread without changing the current drawing. Back restores the previous grid and its variation. Adjustments opens the detailed controls. Save Imagination keeps this exact result in Drawing Reviewer while you continue editing. Send to Drawing also saves the result and opens Drawing with it placed on the plotter video. Sending does not move the plotter; the Draw control in Drawing starts execution.")
+      StudioHelpButton("Portrait Studio", text: "Capture Photo briefly lights the display and selects one original frame for sharpness and exposure. Keep still during capture. Choose Photo imports an existing image. Recent photos remain below the drawings; Delete Photo removes the selected source while saved imaginations keep their own copy. Choose an alternative imagination to continue from that result. Back restores the previous choices. Adjustments opens the detailed controls. Save Imagination keeps this result in Drawing Reviewer. Send to Drawing also saves it and opens Drawing with it placed on the plotter video. Sending does not move the plotter; Draw in Drawing starts execution.")
       if model.isCapturing {
+        Text("Keep still").font(.caption).foregroundStyle(.secondary)
         ProgressView(value: model.captureProgress).frame(width: 60)
           .accessibilityLabel("Portrait capture progress")
       } else if isStartingCapture || model.cameraIsStarting {
         ProgressView().controlSize(.small)
       }
       Spacer(minLength: 8)
-      Button { model.movePhoto(by: -1, strokeStyle: strokeStyle) } label: {
-        Image(systemName: "chevron.left")
-      }
-      .disabled(model.recentPhotos.count < 2)
-      .keyboardShortcut(.leftArrow, modifiers: [.option])
-      .accessibilityLabel("Previous frame")
-      .accessibilityIdentifier("portrait.previousFrame")
-      Text(model.framePosition).font(.caption).monospacedDigit().lineLimit(1)
-      Button { model.movePhoto(by: 1, strokeStyle: strokeStyle) } label: {
-        Image(systemName: "chevron.right")
-      }
-      .disabled(model.recentPhotos.count < 2)
-      .keyboardShortcut(.rightArrow, modifiers: [.option])
-      .accessibilityLabel("Next frame")
-      .accessibilityIdentifier("portrait.nextFrame")
-      Menu {
-        Button("Delete Frame", role: .destructive) {
-          if let id = model.selectedPhotoID { model.removePhoto(id, strokeStyle: strokeStyle) }
-        }
-        Button("Delete Burst", role: .destructive) { model.removeSelectedBurst(strokeStyle: strokeStyle) }
+      Button(role: .destructive) {
+        if let id = model.selectedPhotoID { model.removePhoto(id, strokeStyle: strokeStyle) }
       } label: { Image(systemName: "trash") }
-      .menuStyle(.borderlessButton).fixedSize()
       .disabled(model.selectedPhotoID == nil)
-      .accessibilityLabel("Delete captured photos")
+      .accessibilityLabel("Delete Photo")
+      .accessibilityIdentifier("portrait.deletePhoto")
+      .help("Delete Photo")
       Button("Send to Drawing") {
         guard let candidate else { return }
         WorkbenchRequestTelemetry.nativeActionHandled("portrait.showOnPlotter")
@@ -241,9 +225,6 @@ struct PortraitStudioView: View {
         Text("Choose camera").tag(Optional<CameraDeviceID>.none)
         ForEach(model.devices) { Text($0.name).tag(Optional($0.id)) }
       }.labelsHidden().disabled(model.cameraIsStarting || model.isCapturing)
-      Picker("Burst duration", selection: $model.captureDuration) {
-        ForEach([3.0, 4.0, 5.0], id: \.self) { Text("\(Int($0)) seconds").tag($0) }
-      }
     }.padding(16).frame(width: 300)
   }
 

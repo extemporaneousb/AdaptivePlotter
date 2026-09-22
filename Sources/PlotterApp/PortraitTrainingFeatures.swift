@@ -73,7 +73,7 @@ enum PortraitTrainingFeatures {
       features.append(.init(name: "parameter." + parameter.rawValue, transform: "center-scale-v1", offset: midpoint, scale: scale))
       features.append(.init(name: "quadratic." + parameter.rawValue, transform: "center-scale-square-v1", offset: midpoint, scale: scale))
     }
-    for family in PortraitStyle.allCases { features.append(.init(name: "family." + family.rawValue, transform: "indicator-v1", offset: 0, scale: 1)) }
+    for family in PortraitStyle.legacyCases { features.append(.init(name: "family." + family.rawValue, transform: "indicator-v1", offset: 0, scale: 1)) }
     for (name, scale) in [("source.aspect", 4.0), ("source.meanLuminance", 1), ("source.faceKnown", 1),
       ("render.strokeCount", 1000), ("render.pointCount", 20000), ("render.pathLengthPerHeight", 1000),
       ("presentation.height", 500), ("presentation.inkWidth", 5), ("presentation.measured", 1)] {
@@ -128,7 +128,7 @@ enum PortraitTrainingFeatures {
       let x = (value(parameter, in: candidate.recipe.vectorOptions) - (range.lowerBound + range.upperBound) / 2) / ((range.upperBound - range.lowerBound) / 2)
       values += [x, x*x]
     }
-    values += PortraitStyle.allCases.map { $0 == candidate.recipe.style ? 1 : 0 }
+    values += PortraitStyle.legacyCases.map { $0 == candidate.recipe.style ? 1 : 0 }
     let program = candidate.program
     var length = 0.0, pointCount = 0
     for stroke in program.strokes {

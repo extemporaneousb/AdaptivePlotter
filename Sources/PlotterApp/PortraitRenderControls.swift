@@ -23,14 +23,16 @@ struct PortraitRenderControls: View {
       HStack {
         Text(model.style.rawValue).font(.headline)
         Spacer()
-        StudioHelpButton("Style adjustments", text: "These parameters change the selected rendering algorithm. Pixels refer to the analyzed image. Longer minimum contours, larger hatch spacing and fewer tonal levels reduce detail and ink density. Detail presets set these parameters together; they do not change the calibrated pen width.")
+        StudioHelpButton("Style adjustments", text: model.style == .flowEdges
+          ? "Flow Edge keeps structural lines separate from tone. Coherence smooths the flow; tone density adds shading lines without changing structural evidence. Spacing reserves room between lines. Presets do not change the pen width."
+          : "These parameters change the selected rendering algorithm. Pixels refer to the analyzed image. Longer minimum contours and fewer tonal levels reduce detail and ink density. Presets do not change the pen width.")
       }
       HStack(spacing: 5) {
         Text("Detail").font(.caption).foregroundStyle(.secondary)
         Spacer(minLength: 0)
         ForEach(PortraitVectorPreset.allCases, id: \.self) { preset in
           Button(preset == .broadMarker ? "Coarse" : preset.rawValue) {
-            var options = preset.options
+            var options = preset.options(for: model.style)
             options.materialContext = model.vectorOptions.materialContext
             model.vectorOptions = options
           }
@@ -38,28 +40,28 @@ struct PortraitRenderControls: View {
         }
       }.controlSize(.small)
       if model.style != .hatch && model.style != .crosshatch {
-        PortraitAdjustmentSlider("Min. contour", value: $model.vectorOptions.minimumContourLength,
+        PortraitAdjustmentSlider(model.style == .flowEdges ? "Min. line" : "Min. contour", value: $model.vectorOptions.minimumContourLength,
           range: 0...40, step: 0.5, unit: "px", precision: 1)
-        PortraitAdjustmentSlider("Simplification", value: $model.vectorOptions.simplificationTolerance,
-          range: 0...3, step: 0.05, unit: "px")
+        if model.style != .flowEdges {
+          PortraitAdjustmentSlider("Simplification", value: $model.vectorOptions.simplificationTolerance,
+            range: 0...3, step: 0.05, unit: "px")
+        }
       }
-      PortraitAdjustmentSlider("Smoothing", value: $model.vectorOptions.smoothing,
-        range: 0...4, step: 0.1, unit: "px", precision: 1)
+      PortraitAdjustmentSlider(model.style == .flowEdges ? "Coherence" : "Smoothing", value: $model.vectorOptions.smoothing,
+        range: 0...4, step: 0.1, unit: model.style == .flowEdges ? "" : "px", precision: 1)
       if model.style == .contours {
         Stepper("Tonal levels: \(model.vectorOptions.contourLevels)",
           value: $model.vectorOptions.contourLevels, in: 1...12)
           .font(.caption)
       }
-      if model.style == .hatch || model.style == .crosshatch || model.style == .sketchHatch {
-        Stepper("Hatch spacing: \(model.vectorOptions.hatchSpacing) px",
-          value: $model.vectorOptions.hatchSpacing, in: 1...16)
+      if model.style == .flowEdges {
+        Stepper("Flow spacing: \(model.vectorOptions.hatchSpacing) px",
+          value: $model.vectorOptions.hatchSpacing, in: 3...16)
           .font(.caption)
-        PortraitAdjustmentSlider("Hatch angle", value: $model.vectorOptions.hatchAngleDegrees,
-          range: -90...90, step: 5, unit: "°", precision: 0)
       }
-      PortraitAdjustmentSlider("Tonal strength", value: $model.vectorOptions.tonalStrength,
+      PortraitAdjustmentSlider(model.style == .flowEdges ? "Tone density" : "Tonal strength", value: $model.vectorOptions.tonalStrength,
         range: 0.4...2, step: 0.05, unit: "×")
-      if model.style == .sketch || model.style == .sketchHatch {
+      if model.style == .flowEdges || model.style == .sketch || model.style == .sketchHatch {
         PortraitAdjustmentSlider("Edge threshold", value: $model.vectorOptions.sketchThreshold,
           range: 0.002...0.08, step: 0.002, unit: "", precision: 3)
       }

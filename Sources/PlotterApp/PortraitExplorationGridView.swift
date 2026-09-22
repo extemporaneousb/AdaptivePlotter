@@ -12,6 +12,7 @@ struct PortraitExplorationGridView<SourcePreview: View>: View {
 
   var body: some View {
     let round = model.explorationRound
+    let displayID = model.explorationDisplayID
     VStack(spacing: 6) {
       HStack(spacing: 8) {
         Text("Imaginations").font(.headline)
@@ -24,7 +25,17 @@ struct PortraitExplorationGridView<SourcePreview: View>: View {
         }
         .disabled(!model.canGoBackExploration || model.isCapturing)
         .accessibilityIdentifier("portrait.exploration.back")
-        .help("Restore the previous grid and its variation")
+        .help("Restore the previous options and drawing")
+        Button {
+          guard let round else { return }
+          model.resampleExploration(roundID: round.id, strokeStyle: strokeStyle)
+        } label: {
+          Label("New options", systemImage: "arrow.clockwise")
+        }
+        .disabled(round == nil || model.isExploring || model.isCapturing || model.isProcessing)
+        .accessibilityIdentifier("portrait.exploration.resample")
+        .labelStyle(.iconOnly)
+        .help("Generate two new options")
         Button { showsSource.toggle() } label: {
           Label("Source", systemImage: "photo")
         }
@@ -42,42 +53,29 @@ struct PortraitExplorationGridView<SourcePreview: View>: View {
         }
       }
       .controlSize(.small)
-      PortraitAdjustmentSlider("Variation", value: Binding(
-        get: { model.explorationVariation * 100 },
-        set: { model.setExplorationVariation($0 / 100, strokeStyle: strokeStyle) }),
-        range: 0...100, step: 1, unit: "%", precision: 0,
-        identifier: "portrait.exploration.variation")
-        .disabled(model.selectedCandidate == nil || model.isCapturing || model.isProcessing)
-        .help("Spread of the eight alternatives. Changes on release and leaves the current drawing unchanged.")
       GeometryReader { geometry in
-        let tileWidth = max(0, (geometry.size.width - 12) / 3)
-        let tileHeight = max(0, (geometry.size.height - 12) / 3)
-        VStack(spacing: 6) {
-          ForEach(0..<3, id: \.self) { row in
-            HStack(spacing: 6) {
-              ForEach(0..<3, id: \.self) { column in
-                let index = row * 3 + column
-                let slot = round?.slots.first { $0.index == index }
-                let candidate = index == 4 ? (round?.center ?? model.selectedCandidate) : slot?.candidate
-                PortraitExplorationTileView(candidate: candidate,
-                  previewSource: PortraitPlanePreviewSource(material: material),
-                  nominalWidth: strokeStyle.nominalLineWidth,
-                  index: index, isLoading: model.isExploring || model.isProcessing,
-                  unavailableReason: slot?.unavailableReason,
-                  canSelect: round != nil && candidate != nil && !model.isExploring
-                    && !model.isProcessing && !model.isCapturing) {
-                    guard let round else { return }
-                    WorkbenchRequestTelemetry.nativeActionHandled("portrait.exploration.slot.\(index)")
-                    model.chooseExplorationSlot(index, roundID: round.id, strokeStyle: strokeStyle)
-                  }
-                  .frame(width: tileWidth, height: tileHeight)
+        HStack(spacing: 8) {
+          ForEach(0..<PortraitExplorationPolicy.slotCount, id: \.self) { index in
+            let slot = round?.slots.first { $0.index == index }
+            let isCurrent = index == PortraitExplorationPolicy.centerIndex
+            let candidate = isCurrent ? (round?.center ?? model.selectedCandidate) : slot?.candidate
+            PortraitExplorationTileView(candidate: candidate,
+              previewSource: PortraitPlanePreviewSource(material: material),
+              nominalWidth: strokeStyle.nominalLineWidth,
+              index: index, isLoading: model.isExploring || model.isProcessing,
+              unavailableReason: slot?.unavailableReason,
+              canSelect: displayID != nil && candidate != nil && (isCurrent || !model.isExploring)
+                && !model.isProcessing && !model.isCapturing) {
+                guard let displayID else { return }
+                WorkbenchRequestTelemetry.nativeActionHandled("portrait.exploration.slot.\(index)")
+                model.chooseExplorationSlot(index, roundID: displayID, strokeStyle: strokeStyle)
               }
-            }
+              .frame(width: max(0, (geometry.size.width - 16) / 3), height: geometry.size.height)
           }
         }
-        // A new offer replaces the button identities as a unit. A press begun
-        // on a discarded offer cannot finish on a new candidate in that slot.
-        .id(round?.id)
+        // One identity covers the pending and settled offer. Previously enabled
+        // buttons can never resolve to a candidate from a different offer.
+        .id(displayID)
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -96,11 +94,11 @@ private struct PortraitExplorationTileView: View {
   let canSelect: Bool
   let select: () -> Void
 
-  private var title: String { index == 4 ? "Current" : "Option \(index < 4 ? index + 1 : index)" }
+  private var title: String { index == PortraitExplorationPolicy.centerIndex ? "Current" : "Option \(index == 0 ? 1 : 2)" }
   private var detail: String {
     if let unavailableReason { return unavailableReason }
     if candidate != nil {
-      return index == 4 ? "Keep this drawing and show new alternatives" : "Use this exact drawing and show new alternatives"
+      return index == PortraitExplorationPolicy.centerIndex ? (isLoading ? "Keep this drawing and stop generating options" : "Prefer this drawing and refine the options") : "Use this exact drawing and show new alternatives"
     }
     return isLoading ? "Generating alternatives" : "Choose or capture a photo to explore drawings"
   }
@@ -124,7 +122,7 @@ private struct PortraitExplorationTileView: View {
         .accessibilityHidden(true)
         Text(unavailableReason == nil ? title : "Unavailable")
           .font(.caption2)
-          .foregroundStyle(index == 4 ? Color.primary : .secondary)
+          .foregroundStyle(index == PortraitExplorationPolicy.centerIndex ? Color.primary : .secondary)
           .lineLimit(1)
       }
       .padding(4)
@@ -132,13 +130,13 @@ private struct PortraitExplorationTileView: View {
       .background(.background, in: RoundedRectangle(cornerRadius: 6))
       .overlay {
         RoundedRectangle(cornerRadius: 6)
-          .stroke(index == 4 ? Color.accentColor : .secondary.opacity(0.25), lineWidth: index == 4 ? 2 : 1)
+          .stroke(index == PortraitExplorationPolicy.centerIndex ? Color.accentColor : .secondary.opacity(0.25), lineWidth: index == PortraitExplorationPolicy.centerIndex ? 2 : 1)
       }
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .disabled(!canSelect)
-    .accessibilityLabel(index == 4 ? "Current drawing; show new alternatives" : "Select \(title.lowercased())")
+    .accessibilityLabel(index == PortraitExplorationPolicy.centerIndex ? "Keep current drawing" : "Select \(title.lowercased())")
     .accessibilityValue(unavailableReason ?? (candidate == nil ? (isLoading ? "Generating" : "No drawing") : title))
     .accessibilityIdentifier("portrait.exploration.slot.\(index)")
     .help(detail)

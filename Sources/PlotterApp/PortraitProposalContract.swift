@@ -18,7 +18,7 @@ enum PortraitExplorationFamily: String, Codable, CaseIterable, Hashable, Sendabl
   static func infer(from recipe: PortraitStyleRecipe) -> Self {
     switch recipe.style {
     case .contours: recipe.vectorOptions.contourLevels <= 3 ? .contour : .tonalContour
-    case .sketch: .cleanLine
+    case .sketch, .flowEdges: .cleanLine
     case .hatch: .hatch
     case .crosshatch: .crosshatch
     case .sketchHatch: .sketchHatch

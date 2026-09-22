@@ -8,6 +8,76 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Flow Edge, short capture and three choices, 2026-09-21–22
+
+Ordinary product extension in task `task-d28e7ad4af6345129394abcc61fb2b91`.
+The September 21 request supersedes the manual-Variation nine-image interface.
+New authoring defaults to Flow Edge, with current plus two preference alternatives
+and an internal bounded step. Hatch variants remain available only to reproduce
+historical work, including explicit material adaptation; new source acquisition
+returns a retired style to Flow Edge while retaining its material context.
+
+Flow Edge uses 320-pixel maximum-dimension analysis, independent structural edge
+evidence, constrained subpixel curve fairing, and a smoothed structure-tensor line
+field for tonal streamlines. Tone changes local spacing instead of applying a
+global gamma transform to the structural image. Nearby parallel structural paths
+are suppressed in evidence order; tonal paths reserve structural and nonlocal
+self-clearance. Structural junctions/crossings are deliberately allowed. The
+renderer revision is `flow-edge-v1`; old renderer and candidate identities retain
+their original interpretation.
+
+Capture now lasts 0.8 seconds including 0.25 seconds of exposure settling. At most
+eight bounded thumbnails are scored for sharpness, exposure and clipping; one
+original sample is retained with selection provenance. The process does not fuse
+frames, reconstruct depth, change camera focus, or prove exposure has settled on
+an actual device. Pose, duration and burst-frame navigation are absent from Studio.
+
+The strict-concurrency debug portrait/integration run passed 195 tests in 252.814
+seconds. Coverage includes exact structural survival across tone/coherence,
+detailed smooth boundary retention, broad-material parallel suppression, tonal
+self-clearance, quality selection and cancellation, one-result burst ownership,
+legacy nine-slot receipts, old candidate/checkpoint compatibility, exact Back and
+handoff, stale-source cancellation, and bounded visibly distinct alternatives.
+The initial warnings-as-errors test build was blocked by an existing redundant
+`await` in `PlotterTipCalibrationEpisodeTests.swift:229`; the passing run retained
+strict concurrency without promoting that unrelated warning to an error.
+
+Two local retained sources were rendered through the production analysis/vector
+path for contact sheets with a fixed display stroke width: the measured facial
+structure remains identical across density and coherence variants; some fine skin
+texture remains visually busy. This is
+digital review evidence, not operator aesthetic acceptance. Source bytes stayed
+local and archive files were not modified. Evidence artifacts are retained under
+`.build/FlowEdgeEvidence/task-d28e7ad4/` in the primary checkout.
+
+The final optimized Flow/layout/workload selection passed 14 tests in 40.653
+seconds; the second-photo workload/reference run passed both tests in 4.197 seconds.
+The hosted workspace was inspected at 1000×550 and 1280×650 with Styles and
+Adjustments folded/expanded. All three choices now occupy one horizontal row;
+AX actions cover promotion, Current and exact Back. Pointer/keyboard operation in
+the staged app was not exercised.
+
+On those two real photos, eight optimized Flow preference rounds took
+132.77–281.00 ms (median 174.61 ms), including candidate preparation and distinctness
+checks. Each reused the analyzed raster and executed one to four renderer calls.
+Five rounds provided two visibly distinct alternatives; three provided one after
+bounded attempts. First analysis plus center preparation took 0.92–1.08 seconds.
+Back took 0.18–0.27 ms without rendering. Maximum sampled MainActor scheduling
+gaps during rounds were 7.98 and 10.42 ms. These are local model/worker timings,
+not live-camera or end-to-end native interaction measurements, and are not a
+like-for-like speedup claim against the old renderer. Required repository checks
+and landing receipts are recorded by the associated Blackdog task.
+
+The optimized executable was packaged with the stable local development identity.
+Launcher logic, launcher validation, bundle validation and negative bundle checks
+passed without launching the app. The full configured suite uses the completed
+optimized test bundle with `--no-parallel -c release --skip-build`; production and
+test sources are unchanged from the successful optimized build.
+
+No running app was replaced or launched, and no live camera, controller motion,
+pen contact or observed ink was exercised. Real capture settling, likeness,
+plot duration and deposited-ink separation remain attended acceptance work.
+
 ## Cap-only reidentification retains mechanical Learning, 2026-09-21
 
 Ordinary recovery fix in task `task-707f71f49c3d40f9a7d184b248d3c94f`.

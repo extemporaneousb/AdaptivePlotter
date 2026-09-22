@@ -7,10 +7,28 @@ import Testing
 @Suite("Portrait exploration ownership")
 @MainActor
 struct PortraitExplorationTests {
+  @Test("a new source leaves retired archive styles and preserves the material snapshot")
+  func newSourceUsesActiveStyle() async throws {
+    let model = PortraitStudioModel(renderer: ExplorationTestRenderer())
+    let material = try PortraitMaterialContext(
+      profile: .init(name: "Retained material", nominalWidthMM: 0.4), drawingHeightMM: 100)
+    model.style = .hatch
+    model.vectorOptions.materialContext = material
+    model.setPhoto(Data([1]), for: .front, strokeStyle: try portraitTestStyle())
+    #expect(model.style == .flowEdges)
+    #expect(model.vectorOptions.materialContext == material)
+    #expect(model.vectorOptions.hatchSpacing == PortraitVectorOptions.flowDefaults.hatchSpacing)
+    await model.awaitRendering()
+    #expect(model.selectedCandidate?.recipe.style == .flowEdges)
+    await model.shutdown()
+  }
+
   @Test("neighbor promotion and center resampling preserve exact candidates and Back grids")
   func exactTransitions() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -18,11 +36,11 @@ struct PortraitExplorationTests {
     model.setExplorationEnabled(true, strokeStyle: pen)
     await model.awaitRendering()
     let first = try #require(model.explorationRound)
-    #expect(first.slots.count == 9)
-    #expect(first.slots.map(\.index) == Array(0..<9))
+    #expect(first.slots.count == 3)
+    #expect(first.slots.map(\.index) == Array(0..<3))
     #expect(try candidateBytes(first.center) == candidateBytes(original))
-    #expect(try candidateBytes(#require(first.slots[4].candidate)) == candidateBytes(original))
-    let neighbor = try #require(first.slots.first { $0.index != 4 && $0.candidate != nil })
+    #expect(try candidateBytes(#require(first.slots[1].candidate)) == candidateBytes(original))
+    let neighbor = try #require(first.slots.first { $0.index != 1 && $0.candidate != nil })
     let chosen = try #require(neighbor.candidate)
     model.chooseExplorationSlot(neighbor.index, roundID: first.id, strokeStyle: pen)
     #expect(try candidateBytes(#require(model.selectedCandidate)) == candidateBytes(chosen))
@@ -34,7 +52,7 @@ struct PortraitExplorationTests {
     let restored = try #require(model.explorationRound)
     #expect(try roundBytes(restored) == roundBytes(first))
     #expect(await renderer.requests.count == calls)
-    model.chooseExplorationSlot(4, roundID: restored.id, strokeStyle: pen)
+    model.chooseExplorationSlot(1, roundID: restored.id, strokeStyle: pen)
     await model.awaitRendering()
     let resampled = try #require(model.explorationRound)
     #expect(resampled.id != first.id)
@@ -45,39 +63,34 @@ struct PortraitExplorationTests {
     await model.shutdown()
   }
 
-  @Test("variation is explicit, persistent, restores with Back, and never changes center")
-  func manualVariation() async throws {
+  @Test("preferring Current shrinks the internal step and Back restores the exact search state")
+  func adaptivePreferenceAndBack() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer, explorationSeed: 7)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
     model.setExplorationEnabled(true, strokeStyle: pen)
     await model.awaitRendering()
     let first = try #require(model.explorationRound)
-    model.setExplorationVariation(0.9, strokeStyle: pen)
+    let originalSearch = model.explorationSearch
+    model.chooseExplorationSlot(1, roundID: first.id, strokeStyle: pen)
+    #expect(model.explorationSearch.step < originalSearch.step)
     #expect(try candidateBytes(#require(model.selectedCandidate)) == candidateBytes(first.center))
     await model.awaitRendering()
-    let broad = try #require(model.explorationRound)
-    #expect(broad.variation == 0.9)
-    #expect(model.explorationVariation == 0.9)
-    #expect(try candidateBytes(broad.center) == candidateBytes(first.center))
-    let slot = try #require(broad.slots.first { $0.index != 4 && $0.candidate != nil })
-    model.chooseExplorationSlot(slot.index, roundID: broad.id, strokeStyle: pen)
-    await model.awaitRendering()
-    #expect(model.explorationVariation == 0.9)
-    #expect(model.explorationRound?.variation == 0.9)
-    model.goBackExploration()
-    #expect(try roundBytes(#require(model.explorationRound)) == roundBytes(broad))
     model.goBackExploration()
     #expect(try roundBytes(#require(model.explorationRound)) == roundBytes(first))
-    #expect(model.explorationVariation == first.variation)
+    #expect(model.explorationSearch == originalSearch)
     await model.shutdown()
   }
 
   @Test("stale tile identities cannot select a different round and manual edits reset history")
   func staleChoiceAndManualEdit() async throws {
     let model = PortraitStudioModel(renderer: ExplorationTestRenderer(), explorationSeed: 13)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -107,6 +120,8 @@ struct PortraitExplorationTests {
   func removedSourceRejectsLateResult() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -129,6 +144,8 @@ struct PortraitExplorationTests {
   func sourceReplacementRejectsLateResult() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -146,10 +163,12 @@ struct PortraitExplorationTests {
     await model.shutdown()
   }
 
-  @Test("rapid committed variation requests coalesce and Back cancels a pending round")
-  func coalescedVariationAndPendingBack() async throws {
+  @Test("Current and Back immediately cancel pending alternatives and reject their late result")
+  func pendingCurrentAndBack() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -158,15 +177,19 @@ struct PortraitExplorationTests {
     let first = try #require(model.explorationRound)
     let calls = await renderer.requests.count
     await renderer.holdNext()
-    model.setExplorationVariation(0.8, strokeStyle: pen)
+    model.resampleExploration(roundID: first.id, strokeStyle: pen)
     try await renderer.waitUntilHeld()
-    for value in stride(from: 0.81, through: 0.99, by: 0.01) {
-      model.setExplorationVariation(value, strokeStyle: pen)
-    }
+    let pendingID = try #require(model.explorationDisplayID)
+    #expect(model.isExploring)
+    model.chooseExplorationSlot(1, roundID: pendingID, strokeStyle: pen)
+    #expect(!model.isExploring)
+    #expect(model.explorationRound?.id == pendingID)
+    #expect(model.selectedCandidate?.id == first.center.id)
     #expect(await renderer.requests.count == calls + 1)
-    #expect(model.canGoBackExploration)
     model.goBackExploration()
     #expect(try roundBytes(#require(model.explorationRound)) == roundBytes(first))
+    model.chooseExplorationSlot(1, roundID: pendingID, strokeStyle: pen)
+    #expect(model.explorationRound?.id == first.id)
     await renderer.release()
     await model.awaitRendering()
     #expect(try roundBytes(#require(model.explorationRound)) == roundBytes(first))
@@ -179,6 +202,8 @@ struct PortraitExplorationTests {
   func invalidProposals() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -187,12 +212,12 @@ struct PortraitExplorationTests {
     model.setExplorationEnabled(true, strokeStyle: pen)
     await model.awaitRendering()
     let round = try #require(model.explorationRound)
-    #expect(round.slots.count == 9)
-    #expect(round.slots.filter { $0.index != 4 }.allSatisfy {
+    #expect(round.slots.count == 3)
+    #expect(round.slots.filter { $0.index != 1 }.allSatisfy {
       $0.candidate == nil && !($0.unavailableReason ?? "").isEmpty
     })
     #expect(try candidateBytes(#require(model.selectedCandidate)) == candidateBytes(center))
-    #expect(await renderer.requests.count <= 1 + 8 * 3)
+    #expect(await renderer.requests.count <= 1 + 2 * 2)
     #expect(!model.isExploring)
     #expect(model.keepSelection() == nil)
     await model.shutdown()
@@ -201,6 +226,8 @@ struct PortraitExplorationTests {
   @Test("explicit handoff freezes the chosen program while exploration continues")
   func handoffIsolation() async throws {
     let model = PortraitStudioModel(renderer: ExplorationTestRenderer())
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -209,7 +236,7 @@ struct PortraitExplorationTests {
     let first = try #require(model.explorationRound)
     let accepted = try #require(model.selectedCandidate)
     #expect(await model.acceptProjection(accepted, perform: { nil }) == nil)
-    let slot = try #require(first.slots.first { $0.index != 4 && $0.candidate != nil })
+    let slot = try #require(first.slots.first { $0.index != 1 && $0.candidate != nil })
     model.chooseExplorationSlot(slot.index, roundID: first.id, strokeStyle: pen)
     await model.awaitRendering()
     #expect(model.selectedCandidate?.id != accepted.id)
@@ -222,6 +249,8 @@ struct PortraitExplorationTests {
   @Test("expanded algorithm comparisons follow promoted and restored center recipes")
   func expandedStylesRemainCoherent() async throws {
     let model = PortraitStudioModel(renderer: ExplorationTestRenderer())
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -229,19 +258,19 @@ struct PortraitExplorationTests {
     model.setExplorationEnabled(true, strokeStyle: pen)
     await model.awaitRendering()
     let first = try #require(model.explorationRound)
-    let slot = try #require(first.slots.first { $0.index != 4 && $0.candidate != nil })
+    let slot = try #require(first.slots.first { $0.index != 1 && $0.candidate != nil })
     let selected = try #require(slot.candidate)
     model.chooseExplorationSlot(slot.index, roundID: first.id, strokeStyle: pen)
     await model.awaitRendering()
     #expect(model.selectedCandidate?.id == selected.id)
-    #expect(model.algorithmCandidates.count == PortraitStyle.allCases.count)
+    #expect(model.algorithmCandidates.count == PortraitStyle.authoringCases.count)
     #expect(model.algorithmCandidates.allSatisfy {
       $0.recipe.vectorOptions == selected.recipe.vectorOptions
     })
     model.goBackExploration()
     await model.awaitRendering()
     #expect(try roundBytes(#require(model.explorationRound)) == roundBytes(first))
-    #expect(model.algorithmCandidates.count == PortraitStyle.allCases.count)
+    #expect(model.algorithmCandidates.count == PortraitStyle.authoringCases.count)
     #expect(model.algorithmCandidates.allSatisfy {
       $0.recipe.vectorOptions == first.center.recipe.vectorOptions
     })
@@ -255,10 +284,12 @@ struct PortraitExplorationTests {
     let store = PortraitCandidateStore(directoryURL: directory)
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer, candidateStore: store)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
-    model.setExplorationVariation(0, strokeStyle: pen)
+    await renderer.rejectFutureRequests()
     model.setExplorationEnabled(true, strokeStyle: pen)
     await model.awaitRendering()
     let calls = await renderer.requests.count
@@ -266,17 +297,17 @@ struct PortraitExplorationTests {
     for _ in 0..<(PortraitExplorationPolicy.maximumRecords + 3) {
       let round = try #require(model.explorationRound)
       retainedRounds.append(round)
-      model.resampleExploration(roundID: round.id, strokeStyle: pen)
+      model.chooseExplorationSlot(1, roundID: round.id, strokeStyle: pen)
       await model.awaitRendering()
     }
-    #expect(await renderer.requests.count == calls)
+    #expect(await renderer.requests.count <= calls + (PortraitExplorationPolicy.maximumRecords + 3) * 4)
     #expect(model.keepSelection() == nil)
     await model.sketches.awaitPersistence()
     let expected = try #require(model.sketches.entries.first)
     let trace = try #require(expected.exploration)
     #expect(trace.count == PortraitExplorationPolicy.maximumRecords)
-    #expect(trace.allSatisfy { $0.offers.count == 9 && $0.sourceSHA256 == expected.candidate.sourceSHA256 })
-    #expect(trace.contains { $0.action == .selected(index: 4) })
+    #expect(trace.allSatisfy { $0.offers.count == 3 && $0.sourceSHA256 == expected.candidate.sourceSHA256 })
+    #expect(trace.contains { $0.action == .selected(index: 1) })
     let reloaded = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(reloaded.canWrite)
     #expect(reloaded.archive.entries.first?.exploration == trace)
@@ -302,6 +333,8 @@ struct PortraitExplorationTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-legacy-grid-\(UUID())")
     defer { try? FileManager.default.removeItem(at: directory) }
     let model = PortraitStudioModel(renderer: ExplorationTestRenderer())
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     model.setPhoto(Data([1]), for: .front, strokeStyle: try portraitTestStyle())
     await model.awaitRendering()
     let candidate = try #require(model.selectedCandidate)
@@ -317,6 +350,8 @@ struct PortraitExplorationTests {
   @Test("delayed handoff retains only the choices present when acceptance began")
   func delayedHandoffFreezesTrace() async throws {
     let model = PortraitStudioModel(renderer: ExplorationTestRenderer())
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -343,6 +378,8 @@ struct PortraitExplorationTests {
   func hiddenGridRetainsOffers() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -363,6 +400,8 @@ struct PortraitExplorationTests {
   func keepWhileNeighborsPending() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -381,7 +420,10 @@ struct PortraitExplorationTests {
 
   @Test("an old delayed handoff cannot overwrite a newer saved trace after bounded trimming")
   func delayedHandoffPreservesNewerSavedTrace() async throws {
-    let model = PortraitStudioModel(renderer: ExplorationTestRenderer())
+    let renderer = ExplorationTestRenderer()
+    let model = PortraitStudioModel(renderer: renderer)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -391,7 +433,7 @@ struct PortraitExplorationTests {
     let gate = ExplorationAcceptanceGate()
     let handoff = Task { await model.acceptProjection(first.center, perform: { await gate.hold(); return nil }) }
     try await gate.waitUntilHeld()
-    model.setExplorationVariation(0, strokeStyle: pen)
+    await renderer.rejectFutureRequests()
     await model.awaitRendering()
     for _ in 0..<PortraitExplorationPolicy.maximumRecords {
       model.resampleExploration(roundID: try #require(model.explorationRound).id, strokeStyle: pen)
@@ -413,6 +455,8 @@ struct PortraitExplorationTests {
   func hiddenPendingGridReopensSerially() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -429,7 +473,7 @@ struct PortraitExplorationTests {
     let round = try #require(model.explorationRound)
     #expect(round.center.id == center.id)
     #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
-    #expect(await renderer.requests.count <= 2 + 8 * PortraitExplorationPolicy.maximumAttemptsPerSlot)
+    #expect(await renderer.requests.count <= 2 + 2 * PortraitExplorationPolicy.maximumAttemptsPerSlot)
     await model.shutdown()
   }
 

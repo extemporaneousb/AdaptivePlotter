@@ -16,6 +16,7 @@ struct PortraitRenderCacheKey: Hashable {
 struct PortraitRasterCacheKey: Hashable {
   let photoID: UUID
   let analysis: PortraitAnalysisOptions
+  var maximumDimension: Int = 160
 }
 
 /// Studio-local LRU caches. Bounds apply to vectors and analysis independently;
@@ -42,7 +43,8 @@ struct PortraitRenderCache {
   }
 
   mutating func insert(_ result: PortraitRenderResult, for key: PortraitRenderCacheKey) {
-    let rasterKey = PortraitRasterCacheKey(photoID: key.photoID, analysis: key.configuration.analysis)
+    let rasterKey = PortraitRasterCacheKey(photoID: key.photoID, analysis: key.configuration.analysis,
+      maximumDimension: PortraitImageAnalyzer.analysisMaximumDimension(for: key.configuration.style))
     rasters.removeAll { $0.0 == rasterKey }
     rasters.append((rasterKey, result.raster))
     if rasters.count > Self.maximumRasters { rasters.removeFirst() }

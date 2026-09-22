@@ -5,9 +5,9 @@ import Testing
 @testable import PlotterApp
 @testable import PlotterRuntime
 
-@Suite("Portrait burst capture and recent frames")
+@Suite("Portrait photo capture and recent sources")
 struct PortraitCaptureTests {
-  @Test("burst samples unique post-settling frames and preserves early and late choices within memory bounds")
+  @Test("short still capture samples unique post-settling frames and retains one original source")
   @MainActor
   func burstRetention() async throws {
     let clock = AdvancingPortraitClock()
@@ -18,18 +18,19 @@ struct PortraitCaptureTests {
       frameSource: source, captureClock: clock,
       photoRetention: .init(maximumCount: 5, maximumBytes: 10))
     await model.capture(strokeStyle: try portraitTestStyle())
-    #expect(await clock.now() == 4)
-    #expect(await clock.sleeps.first == 0.5)
+    #expect(abs(await clock.now() - 0.8) < 0.000_001)
+    #expect(await clock.sleeps.first == 0.25)
     let metric = try PortraitSourceCropExtent(widthPixels: 901, heightPixels: 1600)
     #expect(model.recentPhotos.allSatisfy { $0.sourcePixelExtent == metric })
     #expect(await renderer.sourcePixelExtents.last == metric)
-    #expect(model.recentPhotos.count == 5)
-    #expect(model.retainedPhotoBytes == 10)
+    #expect(model.recentPhotos.count == 1)
+    #expect(model.retainedPhotoBytes == 2)
     let stamps = model.recentPhotos.compactMap(\.captureNanoseconds)
-    #expect(stamps.first == 2)
-    #expect(stamps.last == 15)
-    #expect(Set(stamps).count == stamps.count)
-    #expect(await acquirer.capturedTimestamps == Array(2...15).map(UInt64.init))
+    #expect(stamps == [4])
+    #expect(await acquirer.capturedTimestamps == [2, 3, 4])
+    // The mock returns opaque bytes, so capture must disclose fallback selection.
+    #expect(model.recentPhotos.first?.selectionProvenance?.method == .latestAvailable)
+    #expect(model.recentPhotos.first?.selectionProvenance?.capturedFrameCount == 3)
     #expect(model.selectedPhotoID == model.recentPhotos.last?.id)
     #expect(!model.isCapturing)
     #expect(!model.screenIlluminationActive)
@@ -39,7 +40,7 @@ struct PortraitCaptureTests {
     #expect(model.program != nil)
   }
 
-  @Test("burst deletion removes its entire capture session while retaining a separate import and saved drawing")
+  @Test("photo deletion retains a separate import and the saved drawing's source")
   @MainActor
   func groupedBurstDeletion() async throws {
     let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: BurstPhotoAcquirer(),
@@ -50,10 +51,10 @@ struct PortraitCaptureTests {
     let imported = try #require(model.recentPhotos.first)
     await model.capture(strokeStyle: pen)
     let burst = try #require(model.recentPhotos.last?.captureSessionID)
-    #expect(model.recentPhotos.filter { $0.captureSessionID == burst }.count > 1)
+    #expect(model.recentPhotos.filter { $0.captureSessionID == burst }.count == 1)
     let retained = try #require(model.selectedCandidate)
     #expect(model.keepSelection() == nil)
-    model.removeSelectedBurst(strokeStyle: pen)
+    model.removePhoto(try #require(model.selectedPhotoID), strokeStyle: pen)
     await model.awaitRendering()
     #expect(model.recentPhotos.map(\.id) == [imported.id])
     #expect(model.selectedPhotoID == imported.id)
@@ -141,7 +142,6 @@ struct PortraitCaptureTests {
     let acquirer = PausedBurstAcquirer()
     let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: acquirer,
       frameSource: try RepeatingPortraitFrames(), captureClock: AdvancingPortraitClock())
-    model.captureDuration = 3
     let style = try portraitTestStyle()
     let capture = Task { await model.capture(strokeStyle: style) }
     try await acquirer.waitUntilEntered()
@@ -166,16 +166,15 @@ struct PortraitCaptureTests {
     #expect(!model.screenIlluminationActive)
   }
 
-  @Test("capture duration is bounded while oversized photos cannot evict retained sources")
+  @Test("capture remains short while oversized photos cannot evict retained sources")
   @MainActor
   func captureAndMemoryBounds() async throws {
     let clock = AdvancingPortraitClock()
     let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: BurstPhotoAcquirer(),
       frameSource: try RepeatingPortraitFrames(), captureClock: clock,
       photoRetention: .init(maximumCount: 3, maximumBytes: 4))
-    model.captureDuration = 500
     await model.capture(strokeStyle: try portraitTestStyle())
-    #expect(await clock.now() == 5)
+    #expect(abs(await clock.now() - 0.8) < 0.000_001)
     let selected = model.selectedPhotoID
     model.setPhoto(Data(repeating: 0, count: 100), for: .front, strokeStyle: try portraitTestStyle())
     #expect(model.selectedPhotoID == selected)
