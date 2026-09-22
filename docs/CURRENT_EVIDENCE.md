@@ -8,6 +8,51 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Pen-cap visual reference and independent anchor, 2026-09-21
+
+Ordinary product extension in task `task-7ff2d1a6fc0e48d6af1cca20c8a5dd5e`.
+Exercise 1.1 now stages a rectangle around the cap/co-moving holder and submits
+it with a separate cap point on the same frozen exact frame. All colors,
+including black and gray, remain in a bounded RGB reference. Source-pixel
+geometry is independent of UI zoom. A cap point near a rectangle edge remains
+that point through tracking and all three LIVE calibration/revalidation paths;
+the rectangle center and bottom edge no longer replace it.
+
+The detector globally proposes candidates, refines translation and bounded
+affine deformation using bilinear image sampling, and rejects weak, competing,
+clipped, incompatible or discontinuous matches. It never updates the reference
+from a detection. Overlay status labels the matched reference and cap anchor
+rather than reporting the template's sample count as segmented cap area.
+The accepted Learning package retains the reference and exact provenance;
+old color-only records stay readable and require reidentification for LIVE
+tracking. Existing reset/cancellation and source separation remain the owners.
+
+Focused software validation: `swift test --skip-build --no-parallel --filter
+'PenCapVisualReferenceTests|PenCapAppearanceSelectionTests|PlotterPointSelectionEpisodeTests|PenCapReferenceSelectionTests'`
+passed 37 tests in 7.291 seconds after the updated debug build. Cases cover
+rectangle mapping under zoom/reverse dragging, exact-frame rejection and
+continuation cancellation, reference transport/persistence, the independent
+calibration anchor, dark multicolor and achromatic structure, translation/scale,
+missing/duplicate/oversized patterns, incompatible configuration and jump recovery.
+The synthetic 1920×1080 full-frame search with an 84×72 reference measured
+2.609 seconds in that debug run; this is diagnostic software timing, not native
+preview responsiveness or an optimized-performance claim. Repository-wide
+validation and artifact receipts belong to the associated Blackdog task.
+The full parallel diagnostic run encountered existing recording/paper-load timing
+limits under contention and was stopped after becoming idle. The production Pen
+Interaction test ingress was updated to submit the rectangle as well as the cap
+point and fail immediately on a setup refusal. Its suite plus the recording-store
+timeout regression passed 20/20 serially in 1.599 seconds. Required validation is
+run with `SWIFT_FLAGS=--no-parallel`; this is serialized software evidence.
+The first full serial run exposed aggregate-checkpoint reconstruction omitting
+its reference and the complete-Learning fixture expecting the obsolete color
+identity. Both were corrected. The sampling regression now saves and reloads
+the complete Learning package, not just the appearance value.
+
+No running app was replaced or restarted during development. Native operator
+drag/click interaction, real-camera tracking, controller motion, pen contact
+and observed ink were not exercised; synthetic matches do not establish those.
+
 ## Manual-Variation imagination grid, 2026-09-20–21
 
 Ordinary product extension in task `task-c409393921a74a8ea3b75c67fa503868`,

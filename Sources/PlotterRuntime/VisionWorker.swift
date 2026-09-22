@@ -103,6 +103,7 @@ public struct PenCapColor: Codable, Hashable, Sendable {
 public struct PlotterSceneVisionPriors: Hashable, Sendable {
   public let capSearchRegion: PixelRect
   public let penCapColor: PenCapColor
+  public let penCapReference: PenCapVisualReference?
   public let searchCenter: Point2<CameraPixelSpace>?
   public let armatureHalfWidthFraction: Double
   public let armatureTopMarginFraction: Double
@@ -112,6 +113,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
   public init(
     capSearchRegion: PixelRect,
     penCapColor: PenCapColor = .green,
+    penCapReference: PenCapVisualReference? = nil,
     searchCenter: Point2<CameraPixelSpace>? = nil,
     armatureHalfWidthFraction: Double = 0.055,
     armatureTopMarginFraction: Double = 0.025,
@@ -129,6 +131,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     else { throw FrameError.invalidVisionPolicy }
     self.capSearchRegion = capSearchRegion
     self.penCapColor = penCapColor
+    self.penCapReference = penCapReference
     self.searchCenter = searchCenter
     self.armatureHalfWidthFraction = armatureHalfWidthFraction
     self.armatureTopMarginFraction = armatureTopMarginFraction
@@ -141,6 +144,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     frameHeight: Int,
     analysisRegion: PixelRect? = nil,
     penCapColor: PenCapColor = .green,
+    penCapReference: PenCapVisualReference? = nil,
     searchCenter: Point2<CameraPixelSpace>? = nil
   ) throws -> Self {
     guard frameWidth > 0, frameHeight > 0 else { throw FrameError.invalidDimensions }
@@ -158,13 +162,16 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     return try Self(
       capSearchRegion: region,
       penCapColor: penCapColor,
+      penCapReference: penCapReference,
       searchCenter: searchCenter,
-      algorithmRevision: algorithmRevision
+      algorithmRevision: penCapReference.map { "\(PenCapVisualReference.revision):\($0.identity)" } ?? algorithmRevision
     )
   }
 }
 
 public struct PenCapMeasurement: Hashable, Sendable {
+  public var referenceAnchor: Point2<CameraPixelSpace>? = nil
+  public var trackingPoint: Point2<CameraPixelSpace> { referenceAnchor ?? centroid }
   public let pixelCount: Int
   public let boundingBox: PixelRect
   public let centroid: Point2<CameraPixelSpace>
@@ -310,6 +317,8 @@ extension MeasurementRequest {
 }
 
 public actor VisionWorker {
+  private var lastReferenceMatch: (identity: String, time: UInt64, point: Point2<CameraPixelSpace>)?
+
   private struct PixelComponent {
     let pixelCount: Int
     let minX: Int
@@ -333,6 +342,7 @@ public actor VisionWorker {
     priors suppliedPriors: PlotterSceneVisionPriors? = nil,
     analysisRegion: PixelRect? = nil,
     penCapColor: PenCapColor = .green,
+    penCapReference: PenCapVisualReference? = nil,
     searchCenter: Point2<CameraPixelSpace>? = nil
   ) throws -> PlotterSceneMeasurement {
     let frame = frame.materializingContentHash(for: .analysis)
@@ -345,6 +355,7 @@ public actor VisionWorker {
         frameHeight: frame.height,
         analysisRegion: analysisRegion,
         penCapColor: penCapColor,
+        penCapReference: penCapReference,
         searchCenter: searchCenter
       )
     try validate(priors.capSearchRegion, in: frame)
@@ -404,7 +415,7 @@ public actor VisionWorker {
         CameraOverlayMeasurement(
           frameID: frame.id,
           cameraConfigurationID: frame.cameraConfigurationID,
-          geometry: .point(cap.centroid),
+          geometry: .point(cap.trackingPoint),
           provenance: capProvenance
         ))
     }
@@ -541,6 +552,28 @@ public actor VisionWorker {
     frame: StampedFrame,
     priors: PlotterSceneVisionPriors
   ) throws -> PenCapDetectionResult {
+    if let reference = priors.penCapReference {
+      let result = try PenCapTemplateMatcher.detect(frame: frame, reference: reference, region: priors.capSearchRegion)
+      if let cap = result.measurement {
+        let identity = reference.identity
+        if let previous = lastReferenceMatch, previous.identity == identity,
+          frame.captureNanoseconds > previous.time {
+          let seconds = Double(frame.captureNanoseconds - previous.time) / 1_000_000_000
+          // Short-interval continuity is deliberately generous; a long capture
+          // gap requires global reacquisition with the same uniqueness checks.
+          let travel = Double(max(reference.region.width, reference.region.height)) * 2
+            + Double(max(frame.width, frame.height)) * 0.5 * seconds
+          if seconds <= 2, previous.point.distance(to: cap.trackingPoint) > travel {
+            return .failed("Cap tracking lost: the matching region jumped too far between frames.")
+          }
+        }
+        if lastReferenceMatch?.identity != identity
+          || frame.captureNanoseconds >= (lastReferenceMatch?.time ?? 0) {
+          lastReferenceMatch = (identity, frame.captureNanoseconds, cap.trackingPoint)
+        }
+      }
+      return result
+    }
     let components = try capColorComponents(
       frame: frame,
       region: priors.capSearchRegion,
@@ -626,9 +659,10 @@ public actor VisionWorker {
     let halfWidth = Double(frame.width) * priors.armatureHalfWidthFraction
     let topMargin = Double(frame.height) * priors.armatureTopMarginFraction
     let height = Double(frame.height) * priors.armatureHeightFraction
-    let minX = max(0, cap.centroid.x - halfWidth)
-    let maxX = min(Double(frame.width - 1), cap.centroid.x + halfWidth)
-    let minY = max(0, Double(cap.boundingBox.y) - topMargin)
+    let minX = max(0, cap.trackingPoint.x - halfWidth)
+    let maxX = min(Double(frame.width - 1), cap.trackingPoint.x + halfWidth)
+    let capTop = priors.penCapReference == nil ? Double(cap.boundingBox.y) : cap.trackingPoint.y
+    let minY = max(0, capTop - topMargin)
     let maxY = min(Double(frame.height - 1), minY + height)
     return ArmatureEstimate(
       bounds: try AxisAlignedBounds(

@@ -61,7 +61,7 @@ flowchart TD
 
   subgraph pen["1.1 Identify and Calibrate the Pen"]
     p0["Ready<br/>Identify Pen Cap"]
-    p1["Frozen frame awaiting cap-body click<br/>Cancel Attempt"]
+    p1["Frozen frame: draw reference rectangle, then click cap<br/>Cancel Attempt"]
     p2["Set and verify Up<br/>Pen Up slider · Confirm Pen Up · Cancel Attempt"]
     p3["Set and verify Down<br/>Pen Down slider · Confirm Pen Down · Cancel Attempt"]
     p4["Verify return to Up<br/>Pen Up slider · Confirm Pen Up · Cancel Attempt"]
@@ -71,7 +71,7 @@ flowchart TD
     pdone["1.1 complete<br/>Redo This Step · Record Another Attempt"]
     pcancel["Attempt settled without acceptance<br/>Restart Attempt"]
     p0 -->|Identify Pen Cap| p1
-    p1 -->|valid cap-body point selection — not a button| p2
+    p1 -->|valid reference rectangle and cap anchor — not a button| p2
     p2 -->|Confirm Pen Up — publishes busy revision before waiting| p2a
     p2a -->|settled Up; advisory Down cue admitted without playback wait| p3
     p3 -->|Confirm Pen Down — publishes busy revision before waiting| p3a
@@ -284,7 +284,7 @@ four-click pen-tip calibration. Exercises 1.3 and 1.4 begin directly with their
 physical actions.
 
 Camera-calibration failure detail is rendered in the selected exercise, including
-**No pen cap detected** when no pixels match the selected color. The existing
+**Cap tracking lost** when the selected visual reference cannot be matched. The existing
 retry action captures a fresh reference frame and pose. **Reset All Learning**
 clears the current source's cap appearance as well as accepted Learning, returns
 to **Identify Pen Cap**, and preserves controller, camera selection, and Motion

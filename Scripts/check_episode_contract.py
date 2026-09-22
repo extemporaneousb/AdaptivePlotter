@@ -806,7 +806,7 @@ def validate_architecture(text: str) -> None:
         "Submission refuses stale identity, source, camera configuration, frame hash/layout, presentation revision/bounds, or capacity",
         "An accepted selection becomes publicly visible only after the select event, point observation, and accepted operator-assertion evidence have all committed",
         "the FIFO projection boundary exposes no partial accepted state",
-        "Runtime `PlotterPenCapPointSampler` owns exact-frame color sampling",
+        "Runtime `PlotterPenCapPointSampler` owns exact-frame visual-reference sampling",
         "an accepted pen-cap result carries that exact `DisplayedFrame` to the app adapter",
         "Learning Off is one typed accepted intent only when the active work is the EA-04-owned exact selection/pen-cap continuation",
         "Unrelated calibration, exploration, motion, or exercise-attempt work receives the typed refusal from `PlotterLearningIntentRules.modeAvailability`",

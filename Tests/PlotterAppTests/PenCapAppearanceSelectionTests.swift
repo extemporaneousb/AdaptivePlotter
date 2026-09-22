@@ -11,49 +11,48 @@ import Testing
 @Suite("Identify Pen Cap", .serialized)
 @MainActor
 struct PenCapAppearanceSelectionTests {
-  @Test("bounded sampler learns a blue cap and persists exact-frame provenance")
-  func blueCapSamplingAndPersistence() throws {
-    let displayed = try colorFrame(red: 20, green: 80, blue: 220)
-    let selection = try pointSelection(frame: displayed, x: 4, y: 4)
-
+  @Test("reference sampling preserves dark pixels, independent anchor and exact provenance")
+  func visualSamplingAndPersistence() throws {
+    let displayed = try DisplayedFrame(source: .live(CameraDeviceID(rawValue: "cap-reference-fixture")),
+      frame: colorFrame(red: 190, green: 25, blue: 20).frame)
+    let selection = try pointSelection(frame: displayed, x: 3, y: 8)
     let sample = try PlotterPenCapPointSampler.sample(frame: displayed, submission: selection)
     let learned = PenCapAppearanceSelection(sample: sample, frame: displayed)
-
-    #expect(learned.color == PenCapColor(red: 20, green: 80, blue: 220))
+    let reference = try #require(learned.visualReference)
+    #expect(reference.rgb.contains(12))
+    #expect(reference.anchor == selection.point)
+    #expect(reference.region == PixelRect(x: 0, y: 0, width: 12, height: 12))
     #expect(learned.matches(displayed))
-    #expect(learned.clickPoint == selection.point)
-    #expect(learned.usableSampleCount == 81)
-    #expect(learned.totalSampleCount == 81)
-    #expect(learned.algorithmRevision == "pen-cap-click-9x9-median-v1")
-
-    let data = try JSONEncoder().encode(learned)
-    #expect(try JSONDecoder().decode(PenCapAppearanceSelection.self, from: data) == learned)
-  }
-
-  @Test("white gray and dark patches are rejected with concrete sample counts")
-  func achromaticAndDarkRejection() throws {
-    for channels: (UInt8, UInt8, UInt8) in [(255, 255, 255), (128, 128, 128), (8, 4, 2)] {
-      let displayed = try colorFrame(red: channels.0, green: channels.1, blue: channels.2)
-      let selection = try pointSelection(frame: displayed, x: 4, y: 4)
-      do {
-        _ = try PlotterPenCapPointSampler.sample(frame: displayed, submission: selection)
-        Issue.record("Expected an achromatic or dark patch to be rejected")
-      } catch let error as PlotterPointSelectionSamplingError {
-        #expect(error == .insufficientChromaticPixels(usable: 0, required: 9, total: 81))
-        #expect(error.localizedDescription.contains("usable chromatic pixels"))
-      }
+    #expect(learned.algorithmRevision == PenCapVisualReference.revision)
+    #expect(try JSONDecoder().decode(PenCapAppearanceSelection.self,
+      from: JSONEncoder().encode(learned)) == learned)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = AcceptedLearningPathCheckpointStore(fileURL: directory.appendingPathComponent("accepted.json"))
+    let package = try AcceptedLearningPathCheckpoint(
+      semanticIdentity: TipCalibrationSemanticIdentityState.ephemeral().learningPathIdentity,
+      penCapAppearance: learned.acceptedCheckpoint())
+    try store.save(package)
+    guard case .loaded(let loaded) = store.load() else {
+      Issue.record("The complete saved Learning package must retain the visual reference.")
+      return
     }
+    #expect(loaded.penCapAppearance?.visualReference == reference)
   }
 
-  @Test("9 by 9 sampling clips safely at a frame edge")
-  func edgeClipping() throws {
-    let displayed = try colorFrame(red: 40, green: 90, blue: 210, width: 9, height: 9)
-    let selection = try pointSelection(frame: displayed, x: 0, y: 0)
-
-    let sample = try PlotterPenCapPointSampler.sample(frame: displayed, submission: selection)
-
-    #expect(sample.usableSampleCount == 25)
-    #expect(sample.totalSampleCount == 25)
+  @Test("missing rectangle and cap anchor outside the rectangle are refused")
+  func invalidReferenceSelection() throws {
+    let displayed = try colorFrame(red: 180, green: 25, blue: 20)
+    let outside = try pointSelection(frame: displayed, x: 15, y: 8)
+    #expect(throws: PenCapReferenceError.self) {
+      try PlotterPenCapPointSampler.sample(frame: displayed, submission: outside)
+    }
+    let missing = PlotterPointSelectionSubmission(selectionID: outside.selectionID,
+      frame: outside.frame, point: try Point2(x: 4, y: 4),
+      presentationTransformRevision: outside.presentationTransformRevision)
+    #expect(throws: PenCapReferenceError.self) {
+      try PlotterPenCapPointSampler.sample(frame: displayed, submission: missing)
+    }
   }
 
   @Test("unsupported gray bytes and stale exact-frame clicks are refused")
@@ -105,7 +104,7 @@ struct PenCapAppearanceSelectionTests {
     let request = try #require(presentation.pointSelectionRequest)
     let frozenFrame = try #require(presentation.displayedFrame)
     #expect(request.purpose == .penCapAppearance)
-    #expect(request.prompt == "Click the pen cap body—not the tip—on the current camera frame.")
+    #expect(request.prompt == "Draw a rectangle around the cap and moving holder, then click the cap inside it. Include edges; leave out stationary rails and paper.")
     #expect(request.frame.frameID == frozenFrame.frame.id.rawValue)
     #expect(request.frame.frameSHA256 == frozenFrame.frame.contentSHA256)
     #expect(workspace.discoveryTransactions[.penInteraction] == nil)
@@ -123,7 +122,7 @@ struct PenCapAppearanceSelectionTests {
     }
     try requireStep(workspace, "answer-initially-up")
     try await waitForExecutorTurns {
-      camera.recordedPenCapColorRequests.last != nil
+      camera.recordedPenCapColorRequests.last != nil && !camera.recordedPenCapReferenceRequests.isEmpty
     }
 
     let learned = try #require(workspace.penCapAppearanceSelection)
@@ -131,6 +130,7 @@ struct PenCapAppearanceSelectionTests {
     #expect(workspace.penCapAppearanceSelection == learned)
     #expect(persisted.value == nil)
     #expect(camera.recordedPenCapColorRequests.last == learned.color)
+    #expect(camera.recordedPenCapReferenceRequests.last == learned.visualReference)
     #expect(await machine.requestedPenCommands.isEmpty)
     #expect(await log.values.isEmpty)
     await workspace.shutdown()
@@ -488,7 +488,11 @@ struct PenCapAppearanceSelectionTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let invalid = testPenCapAppearanceSelection(color: PenCapColor(red: 4, green: 4, blue: 4))
+    let invalid: PenCapAppearanceSelection = {
+      var selection = testPenCapAppearanceSelection()
+      selection.visualReference = nil
+      return selection
+    }()
     let workspace = plotterApplicationRuntime(
       machine: machine,
       camera: camera,
@@ -504,7 +508,7 @@ struct PenCapAppearanceSelectionTests {
       await workspace.shutdown()
       return
     }
-    #expect(reason.contains("sample provenance is invalid"))
+    #expect(reason.contains("needs a visual reference"))
     #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
     #expect(workspace.overlayStatus(for: .penCap).message == reason)
     #expect(camera.recordedPenCapColorRequests.isEmpty)
@@ -694,8 +698,8 @@ private func colorFrame(
   red: UInt8,
   green: UInt8,
   blue: UInt8,
-  width: Int = 9,
-  height: Int = 9,
+  width: Int = 24,
+  height: Int = 24,
   pixelFormat: FramePixelFormat = .rgba8,
   configurationID: CameraConfigurationID = CameraConfigurationID(),
   frameID: String = "pen-cap-color"
@@ -720,7 +724,9 @@ private func colorFrame(
       height: height,
       rowBytes: width * pixelFormat.bytesPerPixel,
       pixelFormat: pixelFormat,
-      bytes: OwnedFrameBytes(Array(repeating: pixel, count: width * height).flatMap { $0 })
+      bytes: OwnedFrameBytes((0..<(width * height)).flatMap { i in
+        i % width < 6 ? Array(repeating: UInt8(12), count: pixel.count) : pixel
+      })
     )
   )
 }
@@ -734,6 +740,7 @@ private func pointSelection(
     selectionID: PlotterPointSelectionID(),
     frame: exactPointSelectionFrame(frame),
     point: try Point2(x: x, y: y),
-    presentationTransformRevision: PlotterPresentationTransformRevision()
+    presentationTransformRevision: PlotterPresentationTransformRevision(),
+    referenceRegion: try AxisAlignedBounds(minX: 0, minY: 0, maxX: 12, maxY: 12)
   )
 }

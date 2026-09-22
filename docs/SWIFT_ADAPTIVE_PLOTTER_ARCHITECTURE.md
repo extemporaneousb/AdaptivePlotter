@@ -353,7 +353,7 @@ frame hash/layout, presentation revision/bounds, or capacity before committing
 anything. An accepted selection becomes publicly visible only after the select
 event, point observation, and accepted operator-assertion evidence have all
 committed; the FIFO projection boundary exposes no partial accepted state.
-Runtime `PlotterPenCapPointSampler` owns exact-frame color sampling, and an
+Runtime `PlotterPenCapPointSampler` owns exact-frame visual-reference sampling, and an
 accepted pen-cap result carries that exact `DisplayedFrame` to the app adapter.
 
 The runtime registers the accepted pen-cap continuation in the registry's
@@ -901,8 +901,8 @@ current zoomed/panned camera-pixel rectangle as the generic scene-analysis
 region. `CameraSourceSession` passes that region into
 `PlotterSceneAnalysisPipeline`; `VisionWorker` scans only requested pen-cap
 pixels and derives the armature envelope from an accepted cap. Full-frame lock
-is canonicalized to default analysis, and cap component size is evaluated against
-whole-frame policy. Specialized calibration and observed-trial exact-frame
+is canonicalized to default analysis, and reference scale is evaluated in source
+camera pixels independently of viewport zoom. Specialized calibration and observed-trial exact-frame
 measurements retain independent typed regions.
 
 `ActionSurfaceViewportState` owns the current exact presentation pixel
@@ -913,17 +913,25 @@ retains the effective rectangle even when Exercise 1.3 replaces the fitted targe
 `PlotterApplicationRuntime`; Exercise 1.3 does not rewrite it. Source or camera-
 configuration incompatibility remains the viewport reset seam.
 
-`PenCapAppearanceSelection` is the only persisted LIVE recognition input. The
-first Exercise 1.1 action freezes an exact frame and issues a
-`penCapAppearance` point-selection request. Runtime
-`PlotterPenCapPointSampler` maps the
-operator's cap-body click to a clipped 9 x 9 RGBA/BGRA neighborhood, filters out
-gray, white, dark, and otherwise insufficiently chromatic pixels, then records
-the channel-wise median RGB color. The stored selection binds that color to the
-click point, frame ID and hash, source, camera configuration, dimensions, pixel
-format, sample counts, and sampler revision. `CameraSourceSession` applies the
-accepted color to both newest-only scene analysis and exclusive Exercise 1.3
-inspection. There is no `ColorPicker` owner or mutable color preference seam.
+`PenCapAppearanceSelection` transports the accepted Learning package's LIVE
+visual reference. Exercise 1.1 freezes an exact frame; Action Surface stages a
+camera-coordinate rectangle and submits it with an independent cap anchor through
+`PlotterPointSelectionSubmission`. `PlotterPenCapPointSampler` validates both and
+captures `PenCapVisualReference`, a maximum 32×32 RGB patch retaining all colors.
+The immutable patch identity includes region, anchor and camera geometry. The
+checkpoint adds this optional reference without making old color-only data unreadable;
+legacy appearance is explicitly unavailable for LIVE tracking until reidentified.
+
+`CameraSourceSession` configures both the newest-only pipeline and exclusive
+workflow Vision with the reference. `PenCapTemplateMatcher` performs global coarse
+correlation and bounded affine refinement, rejects weak or competing matches and
+maps the independent anchor. `VisionWorker` enforces short-interval continuity;
+older exact-frame inspections cannot replace newer continuity state. Loss publishes
+no cap geometry and never mutates the template. `PenCapMeasurement.referenceAnchor`
+is separate from the reference center, and `ToolCapAnchorEstimate` carries it into
+calibration with reference-specific estimator provenance. Simulator/legacy component
+measurements retain their existing bottom-center semantics. No trained model or
+hardware-specific template is required.
 
 `ExactWorkflowVisionOwner` is the typed app-level identity for the one active
 exact inspection: pen-cap appearance, camera calibration, sparse-tip
@@ -1702,10 +1710,9 @@ acquires exactly three strictly newer exact `inspectWorkflowScene` results after
 a preliminary frame boundary. `FixedCameraOpticalSettlingPolicy` requires one
 source/configuration, exact measurement/frame identity, an accepted unambiguous
 cap in every frame. Maximum pairwise component-centroid spread is retained as a
-diagnostic, without a rejection threshold. Whole-frame component scanning starts
-near the optional prediction, but neither prediction error nor fixed size/shape
-thresholds can discard an observed component. Connected components are ranked by squared observed color similarity times square-root
-pixel support; equal leading support remains ambiguous.
+diagnostic. LIVE reference matching independently requires appearance quality,
+uniqueness, bounded deformation and temporal continuity. The operator-selected
+anchor is transformed separately from the matched rectangle center.
 It returns the newest third inspection unchanged; no centroid, bounds, or
 confidence is averaged. The preliminary frame is freshness control, not accepted
 cap evidence. All three strictly newer samples are materialized `.returnOnly`

@@ -89,6 +89,7 @@ public struct AcceptedStageFourCheckpoint: Codable, Hashable, Sendable {
 /// retained with the learned color so a restart cannot silently promote an
 /// unproven color preference into Learning authority.
 public struct AcceptedPenCapAppearance: Codable, Hashable, Sendable {
+  public let visualReference: PenCapVisualReference?
   public static let algorithmRevision = "pen-cap-click-9x9-median-v1"
   public static let minimumUsableSampleCount = 9
 
@@ -117,8 +118,10 @@ public struct AcceptedPenCapAppearance: Codable, Hashable, Sendable {
     clickPoint: Point2<CameraPixelSpace>,
     usableSampleCount: Int,
     totalSampleCount: Int,
-    algorithmRevision: String
+    algorithmRevision: String,
+    visualReference: PenCapVisualReference? = nil
   ) throws {
+    self.visualReference = visualReference
     guard case .live = source,
       !frameID.rawValue.isEmpty,
       Self.isSHA256(frameSHA256),
@@ -131,8 +134,12 @@ public struct AcceptedPenCapAppearance: Codable, Hashable, Sendable {
       clickPoint.y < Double(height),
       usableSampleCount >= Self.minimumUsableSampleCount,
       totalSampleCount >= usableSampleCount,
-      algorithmRevision == Self.algorithmRevision,
-      Self.isUsable(color)
+      (visualReference == nil
+        ? algorithmRevision == Self.algorithmRevision && Self.isUsable(color)
+        : algorithmRevision == PenCapVisualReference.revision && visualReference?.isValid == true
+          && visualReference?.cameraConfigurationID == cameraConfigurationID
+          && visualReference?.frameWidth == width && visualReference?.frameHeight == height
+          && visualReference?.anchor == clickPoint)
     else { throw AcceptedLearningPathCheckpointError.invalidPenCapAppearance }
     self.color = color
     self.frameID = frameID
@@ -365,7 +372,8 @@ public struct AcceptedLearningPathCheckpoint: Codable, Hashable, Sendable {
         clickPoint: penCapAppearance.clickPoint,
         usableSampleCount: penCapAppearance.usableSampleCount,
         totalSampleCount: penCapAppearance.totalSampleCount,
-        algorithmRevision: penCapAppearance.algorithmRevision
+        algorithmRevision: penCapAppearance.algorithmRevision,
+        visualReference: penCapAppearance.visualReference
       )
       if let machineCamera {
         guard penCapAppearance.source == machineCamera.registration.source,

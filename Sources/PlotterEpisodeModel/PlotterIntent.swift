@@ -127,6 +127,7 @@ public struct PlotterPointSelectionRequest: Codable, Hashable, Sendable {
 }
 
 public struct PlotterPointSelectionSubmission: Codable, Hashable, Sendable {
+  public let referenceRegion: AxisAlignedBounds<CameraPixelSpace>?
   public let selectionID: PlotterPointSelectionID
   public let frame: PlotterExactFrameReference
   public let point: Point2<CameraPixelSpace>
@@ -136,8 +137,10 @@ public struct PlotterPointSelectionSubmission: Codable, Hashable, Sendable {
     selectionID: PlotterPointSelectionID,
     frame: PlotterExactFrameReference,
     point: Point2<CameraPixelSpace>,
-    presentationTransformRevision: PlotterPresentationTransformRevision
+    presentationTransformRevision: PlotterPresentationTransformRevision,
+    referenceRegion: AxisAlignedBounds<CameraPixelSpace>? = nil
   ) {
+    self.referenceRegion = referenceRegion
     self.selectionID = selectionID
     self.frame = frame
     self.point = point

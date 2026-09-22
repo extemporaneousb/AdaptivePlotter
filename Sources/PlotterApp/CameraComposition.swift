@@ -42,6 +42,7 @@ protocol PlotterObservationCameraSessionPort: Sendable {
     _ request: StableWorkflowCapCaptureRequest
   ) async throws -> StableWorkflowCapInspection
   func setSceneAnalysisRegion(_ region: PixelRect?) async
+  func setPenCapReference(_ reference: PenCapVisualReference?) async
   func setPenCapColor(_ color: PenCapColor) async
   func setAutomaticInspection(
     _ cadence: VisionAnalysisCadence?,
@@ -373,6 +374,7 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
   private var activeVisionComputationLeaseIDs: Set<UUID> = []
   private var sceneAnalysisRegion: PixelRect?
   private var penCapColor: PenCapColor = .green
+  private var penCapReference: PenCapVisualReference?
   private var automaticInspectionConfigurationRevision: UInt64 = 0
   private var automaticPipelineStartCallCount: UInt64 = 0
   private var automaticFrameSubscriptionStartCount: UInt64 = 0
@@ -558,6 +560,7 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
       requestedFeatures: requestedFeatures,
       analysisRegion: analysisRegion,
       penCapColor: penCapColor,
+      penCapReference: penCapReference,
       searchCenter: searchCenter
     )
     return LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
@@ -590,6 +593,11 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     guard sceneAnalysisRegion != region else { return }
     sceneAnalysisRegion = region
     await analysisPipeline.setAnalysisRegion(region)
+  }
+
+  func setPenCapReference(_ reference: PenCapVisualReference?) async {
+    penCapReference = reference
+    await analysisPipeline.setPenCapReference(reference)
   }
 
   func setPenCapColor(_ color: PenCapColor) async {

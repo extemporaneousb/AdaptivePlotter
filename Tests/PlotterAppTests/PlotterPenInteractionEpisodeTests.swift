@@ -894,7 +894,8 @@ private func preparePenQuestion(
     selectionID: request.id,
     frame: request.frame,
     point: point,
-    presentationTransformRevision: request.presentationTransformRevision
+    presentationTransformRevision: request.presentationTransformRevision,
+    referenceRegion: testCapSelectionRegion(point: point, width: request.frame.width, height: request.frame.height)
   )
   let pointProjection = workspace.plotterUIProjection(
     selectedItemID: owner,
@@ -910,8 +911,8 @@ private func preparePenQuestion(
     workspace.currentExerciseActionStripPresentation?.penSetpointAdjustment != nil
       || workspace.discoveryError != nil
   }
-  #expect(workspace.discoveryError == nil)
-  #expect(workspace.currentExerciseActionStripPresentation?.penSetpointAdjustment != nil)
+  try #require(workspace.discoveryError == nil)
+  try #require(workspace.currentExerciseActionStripPresentation?.penSetpointAdjustment != nil)
 }
 
 @MainActor

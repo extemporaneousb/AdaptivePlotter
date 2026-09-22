@@ -113,8 +113,8 @@ public enum ToolCapAnchorEstimateError: Error, Equatable, Sendable {
   case emptyEstimatorRevision
 }
 
-/// Stable visible landmark at the bottom-centre of the detected pen-cap
-/// component. This is not the hidden paper-contact point. Machine-camera
+/// Selected cap anchor transformed with its visual reference. Legacy/simulator
+/// components use their bottom-center. This is not the hidden paper-contact point. Machine-camera
 /// registration follows this cap anchor; a separately accepted direct
 /// machine-to-contact registration is required before projecting intended ink
 /// geometry.
@@ -131,6 +131,7 @@ public struct ToolCapAnchorEstimate: Codable, Hashable, Sendable {
   public init(
     componentCentroid: Point2<CameraPixelSpace>,
     componentBounds: AxisAlignedBounds<CameraPixelSpace>,
+    selectedAnchor: Point2<CameraPixelSpace>? = nil,
     confidence: Double,
     estimatorRevision: String,
     source: FrameSourceIdentity,
@@ -143,7 +144,7 @@ public struct ToolCapAnchorEstimate: Codable, Hashable, Sendable {
     guard !estimatorRevision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw ToolCapAnchorEstimateError.emptyEstimatorRevision
     }
-    point = try Point2(
+    point = try selectedAnchor ?? Point2(
       x: (componentBounds.minX + componentBounds.maxX) / 2,
       y: componentBounds.maxY
     )

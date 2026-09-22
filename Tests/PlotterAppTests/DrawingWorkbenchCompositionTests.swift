@@ -497,6 +497,8 @@ actor AcceptedDrawingCameraSession: PlotterObservationCameraSessionPort {
     poseCaptureGate = gate
   }
   func setSceneAnalysisRegion(_: PixelRect?) {}
+  func setPenCapReference(_ reference: PenCapVisualReference?) {}
+
   func setPenCapColor(_: PenCapColor) {}
   func setAutomaticInspection(_ cadence: VisionAnalysisCadence?, requestedFeatures: SceneFeatureSet) async -> PlotterSceneAnalysisSnapshot {
     await fallback.setAutomaticInspection(cadence, requestedFeatures: requestedFeatures)

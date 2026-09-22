@@ -1217,6 +1217,15 @@ func completeSimulatedTipCalibration(
   await workspace.performTestExerciseAction(.tipCalibration(.acceptProposal), for: tipOwner)
 }
 
+func testCapSelectionRegion(point: Point2<CameraPixelSpace>, width: Int, height: Int)
+  -> AxisAlignedBounds<CameraPixelSpace> {
+  let w = min(64, width / 2), h = min(64, height / 2)
+  let x = min(width - w, max(0, Int(point.x) - w / 2))
+  let y = min(height - h, max(0, Int(point.y) - h / 2))
+  return try! AxisAlignedBounds(minX: Double(x), minY: Double(y),
+    maxX: Double(x + w), maxY: Double(y + h))
+}
+
 @MainActor
 func submitPointSelection(
   _ workspace: PlotterApplicationRuntime,
@@ -1228,7 +1237,9 @@ func submitPointSelection(
       selectionID: request.id,
       frame: request.frame,
       point: point,
-      presentationTransformRevision: request.presentationTransformRevision
+      presentationTransformRevision: request.presentationTransformRevision,
+      referenceRegion: request.purpose == .penCapAppearance
+        ? testCapSelectionRegion(point: point, width: request.frame.width, height: request.frame.height) : nil
     )
   )
 }
@@ -1623,19 +1634,23 @@ func testPenCapAppearanceSelection(
   source: FrameSourceIdentity = .live(CameraDeviceID(rawValue: "test-camera")),
   cameraConfigurationID: CameraConfigurationID = CameraConfigurationID()
 ) -> PenCapAppearanceSelection {
-  PenCapAppearanceSelection(
+  let referenceFrame = try! frame(id: "test-pen-cap-selection", sequence: 1, capture: 1, configurationID: cameraConfigurationID)
+  let reference = try! PenCapVisualReference.capture(frame: referenceFrame,
+    region: PixelRect(x: 0, y: 0, width: 12, height: 12), anchor: Point2(x: 0, y: 0))
+  return PenCapAppearanceSelection(
+    visualReference: reference,
     color: color,
     frameID: FrameID(rawValue: "test-pen-cap-selection"),
     frameSHA256: String(repeating: "0", count: 64),
     source: source,
     cameraConfigurationID: cameraConfigurationID,
-    width: 1,
-    height: 1,
+    width: 24,
+    height: 24,
     pixelFormat: .bgra8,
     clickPoint: try! Point2(x: 0, y: 0),
-    usableSampleCount: 9,
-    totalSampleCount: 9,
-    algorithmRevision: PlotterPenCapPointSampler.algorithmRevision
+    usableSampleCount: 144,
+    totalSampleCount: 144,
+    algorithmRevision: PenCapVisualReference.revision
   )
 }
 
@@ -1767,6 +1782,8 @@ private final class TestObservationCameraSessionPort:
   func setSceneAnalysisRegion(_ region: PixelRect?) async {
     fixture.setSceneAnalysisRegion(region)
   }
+  func setPenCapReference(_ reference: PenCapVisualReference?) { fixture.setPenCapReference(reference) }
+
   func setPenCapColor(_ color: PenCapColor) async {
     await configurationSuspension?.waitIfArmed()
     fixture.setPenCapColor(color)
@@ -2826,6 +2843,7 @@ final class TestObservationCameraSession: @unchecked Sendable {
   private var workflowAnalysisRegionRequests: [PixelRect?] = []
   private var sceneAnalysisRegionRequests: [PixelRect?] = []
   private var penCapColorRequests: [PenCapColor] = []
+  private var penCapReferenceRequests: [PenCapVisualReference?] = []
   private var discoverCalls = 0
   private var selectCalls = 0
   private var startCalls = 0
@@ -3077,6 +3095,16 @@ final class TestObservationCameraSession: @unchecked Sendable {
     lock.unlock()
   }
 
+  var recordedPenCapReferenceRequests: [PenCapVisualReference?] {
+    lock.lock(); defer { lock.unlock() }
+    return penCapReferenceRequests
+  }
+
+  func setPenCapReference(_ reference: PenCapVisualReference?) {
+    lock.lock(); defer { lock.unlock() }
+    penCapReferenceRequests.append(reference)
+  }
+
   func setPenCapColor(_ color: PenCapColor) {
     lock.lock()
     penCapColorRequests.append(color)
@@ -3224,8 +3252,8 @@ func frame(
   capture: UInt64,
   configurationID: CameraConfigurationID
 ) throws -> StampedFrame {
-  let width = 9
-  let height = 9
+  let width = 24
+  let height = 24
   let pixel = [UInt8(105), 185, 45, 255]
   return try StampedFrame(
     id: FrameID(rawValue: id),
@@ -3236,7 +3264,9 @@ func frame(
     height: height,
     rowBytes: width * 4,
     pixelFormat: .bgra8,
-    bytes: OwnedFrameBytes(Array(repeating: pixel, count: width * height).flatMap { $0 })
+    bytes: OwnedFrameBytes((0..<(width * height)).flatMap { i in
+      i % width < 6 ? [UInt8(12), 12, 12, 255] : pixel
+    })
   )
 }
 

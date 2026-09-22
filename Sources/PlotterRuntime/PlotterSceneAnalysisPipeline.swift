@@ -40,17 +40,20 @@ public struct PlotterSceneAnalysisPhase: Codable, Hashable, Sendable {
   public let requestedFeatures: SceneFeatureSet
   public let analysisRegion: PixelRect?
   public let penCapColor: PenCapColor
+  public let penCapReference: PenCapVisualReference?
 
   public init(
     state: PlotterSceneAnalysisState,
     requestedFeatures: SceneFeatureSet,
     analysisRegion: PixelRect?,
-    penCapColor: PenCapColor
+    penCapColor: PenCapColor,
+    penCapReference: PenCapVisualReference? = nil
   ) {
     self.state = state
     self.requestedFeatures = requestedFeatures
     self.analysisRegion = analysisRegion
     self.penCapColor = penCapColor
+    self.penCapReference = penCapReference
   }
 
   public static let stopped = PlotterSceneAnalysisPhase(
@@ -186,7 +189,7 @@ public struct PlotterSceneAnalysisDiagnostics: Codable, Hashable, Sendable {
 public actor PlotterSceneAnalysisPipeline {
   typealias Analyzer = @Sendable (StampedFrame) async throws -> PlotterSceneMeasurement
   typealias RegionAnalyzer =
-    @Sendable (StampedFrame, SceneFeatureSet, PixelRect?, PenCapColor) async throws
+    @Sendable (StampedFrame, SceneFeatureSet, PixelRect?, PenCapColor, PenCapVisualReference?) async throws
     -> PlotterSceneMeasurement
 
   private let clock: any RuntimeClock
@@ -196,6 +199,7 @@ public actor PlotterSceneAnalysisPipeline {
   private var requestedFeatures: SceneFeatureSet = []
   private var analysisRegion: PixelRect?
   private var penCapColor: PenCapColor = .green
+  private var penCapReference: PenCapVisualReference?
   private var pendingFrame: DisplayedFrame?
   private var activeFrameSequence: UInt64?
   private var submittedFrameCount: UInt64 = 0
@@ -219,12 +223,13 @@ public actor PlotterSceneAnalysisPipeline {
   ) {
     self.clock = clock
     self.activityHandler = activityHandler
-    analyzer = { frame, features, region, penCapColor in
+    analyzer = { frame, features, region, penCapColor, penCapReference in
       try await worker.inspectPlotterScene(
         in: frame,
         requestedFeatures: features,
         analysisRegion: region,
-        penCapColor: penCapColor
+        penCapColor: penCapColor,
+        penCapReference: penCapReference
       )
     }
   }
@@ -236,7 +241,7 @@ public actor PlotterSceneAnalysisPipeline {
   ) {
     self.clock = clock
     self.activityHandler = activityHandler
-    self.analyzer = { frame, _, _, _ in try await analyzer(frame) }
+    self.analyzer = { frame, _, _, _, _ in try await analyzer(frame) }
   }
 
   public func setAnalysisRegion(_ region: PixelRect?) async {
@@ -245,6 +250,15 @@ public actor PlotterSceneAnalysisPipeline {
     analysisRegion = region
     configurationRevision &+= 1
     if analysisWasActive { await activityHandler(false) }
+    publishSemanticSnapshot()
+  }
+
+  public func setPenCapReference(_ reference: PenCapVisualReference?) async {
+    guard penCapReference != reference else { return }
+    let active = cancelCurrentAnalysis()
+    penCapReference = reference
+    configurationRevision &+= 1
+    if active { await activityHandler(false) }
     publishSemanticSnapshot()
   }
 
@@ -395,7 +409,8 @@ public actor PlotterSceneAnalysisPipeline {
             analysisFrame.frame,
             requestedFeatures,
             analysisRegion,
-            penCapColor
+            penCapColor,
+            penCapReference
           )
         )
       } catch {
@@ -439,7 +454,8 @@ public actor PlotterSceneAnalysisPipeline {
       state: state,
       requestedFeatures: requestedFeatures,
       analysisRegion: analysisRegion,
-      penCapColor: penCapColor
+      penCapColor: penCapColor,
+      penCapReference: penCapReference
     )
   }
 

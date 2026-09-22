@@ -133,8 +133,8 @@ declared CPU ceilings.
 Camera diagnostic counters alone do not invalidate the workbench. An overlay-
 only change refreshes the video presentation while retaining current semantic
 control requests; changed point-selection admission still recompiles controls.
-Pen-cap recognition computes the selected color's HSV representation once per
-scan, with the same per-pixel matching thresholds.
+LIVE pen-cap recognition matches the operator-selected visual reference off the
+main actor, with a bounded sample grid and cooperative cancellation.
 
 Analysis results and pull-only Vision diagnostics use the existing
 `ActionSurfacePreviewModel` to invalidate video-local consumers. The root must
@@ -184,15 +184,17 @@ analysis may scan; an armature-envelope request expands its declared dependency
 to pen-cap analysis. Full-frame lock is canonicalized to unlocked/default
 analysis. The region does not crop or mutate the stamped frame, change exact-
 frame identity or constrain specialized workflow measurements. Unlocked analysis
-and exact workflow cap acquisition scan the entire frame. A camera-map prediction
-only centers scan order; every pixel remains searchable and measured geometry
-always wins. Cap area, aspect, fill, confidence, and inter-frame centroid spread
-are diagnostics, not rejection gates. Components are ranked by squared mean
-similarity to the identified cap color times the square root of their pixel count. This balances chromatic agreement
-and support without letting a large pale reflection win on raw area alone.
-Equal leading support remains explicitly ambiguous. There is no minimum/maximum
-component area, near-equality ratio, or distance-from-prediction veto. Changing camera
-source or configuration clears the lock.
+and exact workflow cap acquisition search the entire frame for the selected visual
+reference. Normalized per-channel correlation uses pattern structure, including
+black and colored surfaces. A coarse search and bounded affine refinement permit
+0.8–1.25 axis scale, up to 10 degrees rotation and 0.12 shear. A match requires
+score at least 0.82 and a 0.06 lead over a spatially separate competitor. Short
+capture intervals also reject implausible anchor jumps; gaps over two seconds
+use global reacquisition. Weak, ambiguous, clipped or incompatible observations
+report tracking lost and publish no cap geometry. The reference never updates
+itself from a match. These are software policy bounds, not physical accuracy
+claims. Changing camera source or configuration clears the analysis lock.
+
 
 Exactly two persistent global scene-overlay choices exist: **Pen cap** and
 **Armature envelope**. The envelope is derived from the cap and must be labeled
@@ -600,24 +602,31 @@ through the existing `PlotterUIIntentSink`. There is no **Apply Learning Point**
 button or second user confirmation. A stale or refused click remains governed
 by the existing point-selection owner and never becomes an automatic retry.
 
-Pen-cap appearance is learned only through the first **Identify Pen Cap** action
-of Exercise 1.1; there is no editable color picker or parallel color-setting
-surface. Before any pen-position question or pen request, the operator clicks
-the visibly colored cap body, not the tip, on one frozen exact frame. The app
-maps the click to exact camera pixels and takes a clipped 9 x 9 neighborhood.
-It rejects stale provenance, unsupported pixel format, insufficient chromatic
-pixels, and a gray, white, or dark representative color with a concrete reason.
+Pen-cap appearance is learned through **Identify Pen Cap** in Exercise 1.1.
+On one frozen exact frame, the operator drags a rectangle around the cap and
+holder structure that moves with it, then clicks the cap inside the rectangle.
+Dragging again redraws the rectangle. The rectangle is staged presentation state;
+the anchor click submits both rectangle and point through the existing exact-frame
+selection authority. Frame/request changes clear the staged rectangle. Viewport
+zoom does not change the selected camera-pixel geometry. Include visible edges,
+not stationary rails, independently moving gantry structure or surrounding paper.
 
-An accepted selection persists median RGB color together with the click point,
-frame ID and content hash, source, camera configuration, dimensions, pixel
-format, usable and total sample counts, and algorithm revision. It therefore
-supports arbitrary visibly colored caps, including blue, rather than assuming
-green. The learned color feeds both feature-selective generic scene analysis
-and every Exercise 1.3 exact-frame inspection. One five-sample proposal accepts
-only cap-anchor evidence carrying the same appearance-specific estimator
-revision. The click is an operator assertion and recognition input; it does not
-by itself prove cap segmentation, calibration accuracy, physical pen state, or
-ink.
+The rectangle must be at least 12 source pixels per side and at most half each
+frame dimension. A bounded RGB reference (maximum 32 by 32 samples) retains dark
+and chromatic pixels; insufficient spatial detail is refused. The independent
+anchor can be anywhere inside it. Tracking transforms that point, never substitutes
+the rectangle center or bottom edge, and leaves cap-to-tip calibration separate.
+The overlay distinguishes the matched reference rectangle from the cap anchor.
+
+The accepted Learning checkpoint persists the reference and anchor, exact frame
+hash/identity, source, camera configuration, dimensions, format, counts and revision.
+The complete reference identity feeds generic analysis and every exact calibration
+inspection and prevents mixing different anchors within a calibration proposal.
+Old color-only checkpoints remain readable; their appearance cannot authorize LIVE
+tracking and explicitly requires reidentification through Redo of Exercise 1.1.
+Saved physical results are not erased by loading an old appearance. SIMULATED
+geometry remains source-separated. A reference selection is recognition input,
+not proof of physical pen state, calibration accuracy or ink.
 
 Video Settings offers exactly `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5`
 frames per second for generic automatic scene analysis. The selected cadence

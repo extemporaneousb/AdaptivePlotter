@@ -692,7 +692,8 @@ enum ExactFramePointSubmissionBuilder {
     presentation: ActionSurfacePresentation,
     viewport: ActionSurfaceViewportState,
     at location: CGPoint,
-    viewSize: CGSize
+    viewSize: CGSize,
+    referenceRegion: AxisAlignedBounds<CameraPixelSpace>? = nil
   ) -> PlotterPointSelectionSubmission? {
     guard let displayedFrame = presentation.displayedFrame,
       let request = presentation.pointSelectionRequest,
@@ -715,7 +716,8 @@ enum ExactFramePointSubmissionBuilder {
       selectionID: request.id,
       frame: exactFrame,
       point: point,
-      presentationTransformRevision: request.presentationTransformRevision
+      presentationTransformRevision: request.presentationTransformRevision,
+      referenceRegion: referenceRegion
     )
   }
 }
@@ -728,6 +730,7 @@ struct ActionSurface: View {
   @Binding private var pendingPointSelection: PlotterPointSelectionSubmission?
   @StateObject private var imageCache = FramePresentationImageCache()
   @StateObject private var overlayCache = ActionSurfaceOverlayContentCache()
+  @State private var capReferenceRegion: AxisAlignedBounds<CameraPixelSpace>?
   @State private var priorDragTranslation: CGSize = .zero
   @State private var drawingPlacementRefusal: String?
   private let plotterUIProjection: PlotterUIProjection
@@ -792,6 +795,12 @@ struct ActionSurface: View {
           .allowsHitTesting(false)
       }
       .clipped()
+      .overlay {
+        if presentation.pointSelectionRequest?.purpose == .penCapAppearance {
+          PenCapReferenceSelectionOverlay(region: capReferenceRegion, transform: transform)
+            .allowsHitTesting(false)
+        }
+      }
       .overlay(alignment: .topLeading) {
         VStack(alignment: .leading, spacing: 6) {
           if let sourceBadgeLabel = presentation.sourceBadgeLabel {
@@ -807,7 +816,9 @@ struct ActionSurface: View {
       }
       .overlay(alignment: .bottomLeading) {
         if let prompt = presentation.tipPresentation.interactionPrompt {
-        Text(prompt)
+        Text(presentation.pointSelectionRequest?.purpose == .penCapAppearance
+          && capReferenceRegion != nil
+          ? "Click the cap inside the rectangle. Drag again to redraw the reference." : prompt)
           .font(.caption.monospaced().bold())
           .foregroundStyle(.white)
           .padding(7)
@@ -884,6 +895,12 @@ struct ActionSurface: View {
       .simultaneousGesture(
         DragGesture(minimumDistance: 3, coordinateSpace: .local)
           .onChanged { value in
+            if presentation.pointSelectionRequest?.purpose == .penCapAppearance {
+              capReferenceRegion = PenCapReferenceSelectionGeometry.region(
+                from: value.startLocation, to: value.location, transform: transform)
+              pendingPointSelection = nil
+              return
+            }
             if presentation.drawingStudioCanvas?.placement.placementIsEnabled == true {
               priorDragTranslation = .zero
               stageDrawingPlacement(at: value.location, viewSize: proxy.size)
@@ -916,6 +933,7 @@ struct ActionSurface: View {
         }
       }
       .onChange(of: pointSelectionPendingIdentity, initial: true) { prior, current in
+        if prior.request != current.request { capReferenceRegion = nil }
         guard let pendingPointSelection else { return }
         if prior.viewportRevision != current.viewportRevision
           || !presentation.acceptsPendingPointSelection(pendingPointSelection)
@@ -941,12 +959,15 @@ struct ActionSurface: View {
   }
 
   private func stagePointSelection(at location: CGPoint, viewSize: CGSize) {
+    if presentation.pointSelectionRequest?.purpose == .penCapAppearance,
+      capReferenceRegion == nil { return }
     guard presentation.drawingStudioCanvas?.placement.placementIsEnabled != true,
       let submission = ExactFramePointSubmissionBuilder.submission(
         presentation: presentation,
         viewport: viewport,
         at: location,
-        viewSize: viewSize
+        viewSize: viewSize,
+        referenceRegion: presentation.pointSelectionRequest?.purpose == .penCapAppearance ? capReferenceRegion : nil
       )
     else { return }
     pendingPointSelection = submission

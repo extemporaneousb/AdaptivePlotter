@@ -7,6 +7,7 @@ import PlotterRuntime
 import os
 
 public struct PlotterAcceptedPenCapSample: Codable, Hashable, Sendable {
+  public let visualReference: PenCapVisualReference?
   public let red: UInt8
   public let green: UInt8
   public let blue: UInt8
@@ -22,8 +23,10 @@ public struct PlotterAcceptedPenCapSample: Codable, Hashable, Sendable {
     clickPoint: Point2<CameraPixelSpace>,
     usableSampleCount: Int,
     totalSampleCount: Int,
-    algorithmRevision: String
+    algorithmRevision: String,
+    visualReference: PenCapVisualReference? = nil
   ) {
+    self.visualReference = visualReference
     self.red = red
     self.green = green
     self.blue = blue
@@ -37,31 +40,18 @@ public struct PlotterAcceptedPenCapSample: Codable, Hashable, Sendable {
 public enum PlotterPointSelectionSamplingError: LocalizedError, Equatable, Sendable {
   case staleExactFrame
   case unsupportedPixelFormat(FramePixelFormat)
-  case insufficientChromaticPixels(usable: Int, required: Int, total: Int)
-  case representativeColorRejected(hexRGB: String)
 
   public var errorDescription: String? {
     switch self {
     case .staleExactFrame:
       "The point did not belong to the frozen exact frame. Start the selection again."
     case .unsupportedPixelFormat(let format):
-      "Pen-cap color sampling requires an exact RGBA or BGRA frame; \(format.rawValue) is unsupported."
-    case .insufficientChromaticPixels(let usable, let required, let total):
-      "Pen-cap color sampling found \(usable) usable chromatic pixels out of \(total); at least \(required) are required. Click the colored cap body, not the tip or background."
-    case .representativeColorRejected(let hexRGB):
-      "The median sampled color #\(hexRGB) is gray, white, or dark. Click a visibly colored area of the pen-cap body."
+      "Pen-cap reference sampling requires an exact RGBA or BGRA frame; \(format.rawValue) is unsupported."
     }
   }
 }
 
 public enum PlotterPenCapPointSampler {
-  public static let patchRadius = 4
-  public static let minimumUsablePixels = 9
-  public static let minimumSaturation = 0.20
-  public static let minimumValue = 0.10
-  public static let maximumValue = 0.98
-  public static let algorithmRevision = "pen-cap-click-9x9-median-v1"
-
   public static func sample(
     frame: DisplayedFrame,
     submission: PlotterPointSelectionSubmission
@@ -74,64 +64,26 @@ public enum PlotterPenCapPointSampler {
       throw PlotterPointSelectionSamplingError.unsupportedPixelFormat(frame.frame.pixelFormat)
     }
 
-    let centerX = Int(submission.point.x.rounded())
-    let centerY = Int(submission.point.y.rounded())
-    let minimumX = max(0, centerX - patchRadius)
-    let maximumX = min(frame.frame.width - 1, centerX + patchRadius)
-    let minimumY = max(0, centerY - patchRadius)
-    let maximumY = min(frame.frame.height - 1, centerY + patchRadius)
-    let total = (maximumX - minimumX + 1) * (maximumY - minimumY + 1)
-    var usable: [(red: UInt8, green: UInt8, blue: UInt8)] = []
-    usable.reserveCapacity(total)
-    for y in minimumY...maximumY {
-      for x in minimumX...maximumX {
-        let offset = y * frame.frame.rowBytes + x * 4
-        let first = frame.frame.bytes[offset]
-        let green = frame.frame.bytes[offset + 1]
-        let third = frame.frame.bytes[offset + 2]
-        let pixel = frame.frame.pixelFormat == .rgba8
-          ? (red: first, green: green, blue: third)
-          : (red: third, green: green, blue: first)
-        let hsv = saturationAndValue(red: pixel.red, green: pixel.green, blue: pixel.blue)
-        if hsv.saturation >= minimumSaturation,
-          hsv.value >= minimumValue,
-          hsv.value <= maximumValue
-        {
-          usable.append(pixel)
-        }
-      }
+    guard let bounds = submission.referenceRegion,
+      bounds.minX >= 0, bounds.minY >= 0,
+      submission.point.x >= bounds.minX, submission.point.x < bounds.maxX,
+      submission.point.y >= bounds.minY, submission.point.y < bounds.maxY,
+      bounds.maxX <= Double(frame.frame.width), bounds.maxY <= Double(frame.frame.height)
+    else { throw PenCapReferenceError.invalidRegion }
+    let region = PixelRect(x: Int(floor(bounds.minX)), y: Int(floor(bounds.minY)),
+      width: Int(ceil(bounds.maxX)) - Int(floor(bounds.minX)),
+      height: Int(ceil(bounds.maxY)) - Int(floor(bounds.minY)))
+    let reference = try PenCapVisualReference.capture(frame: frame.frame,
+      region: region, anchor: submission.point)
+    // RGB is legacy display metadata only. Recognition uses the complete patch.
+    let count = reference.rgb.count / 3
+    let means = (0..<3).map { channel in
+      UInt8(stride(from: channel, to: reference.rgb.count, by: 3)
+        .reduce(0) { $0 + Int(reference.rgb[$1]) } / count)
     }
-    guard usable.count >= minimumUsablePixels else {
-      throw PlotterPointSelectionSamplingError.insufficientChromaticPixels(
-        usable: usable.count,
-        required: minimumUsablePixels,
-        total: total
-      )
-    }
-    let red = median(usable.map(\.red))
-    let green = median(usable.map(\.green))
-    let blue = median(usable.map(\.blue))
-    guard isUsable(red: red, green: green, blue: blue) else {
-      throw PlotterPointSelectionSamplingError.representativeColorRejected(
-        hexRGB: String(format: "%02X%02X%02X", red, green, blue)
-      )
-    }
-    return PlotterAcceptedPenCapSample(
-      red: red,
-      green: green,
-      blue: blue,
-      clickPoint: submission.point,
-      usableSampleCount: usable.count,
-      totalSampleCount: total,
-      algorithmRevision: algorithmRevision
-    )
-  }
-
-  public static func isUsable(red: UInt8, green: UInt8, blue: UInt8) -> Bool {
-    let sample = saturationAndValue(red: red, green: green, blue: blue)
-    return sample.saturation >= minimumSaturation
-      && sample.value >= minimumValue
-      && sample.value <= maximumValue
+    return PlotterAcceptedPenCapSample(red: means[0], green: means[1], blue: means[2],
+      clickPoint: submission.point, usableSampleCount: count, totalSampleCount: count,
+      algorithmRevision: PenCapVisualReference.revision, visualReference: reference)
   }
 
   private static func exactFrame(
@@ -147,26 +99,6 @@ public enum PlotterPenCapPointSampler {
       && expected.rowBytes == frame.frame.rowBytes
       && expected.pixelFormat.rawValue == frame.frame.pixelFormat.rawValue
       && expected.source == frame.source.pointSelectionSource
-  }
-
-  private static func median(_ values: [UInt8]) -> UInt8 {
-    let sorted = values.sorted()
-    let middle = sorted.count / 2
-    if sorted.count.isMultiple(of: 2) {
-      return UInt8((UInt16(sorted[middle - 1]) + UInt16(sorted[middle])) / 2)
-    }
-    return sorted[middle]
-  }
-
-  private static func saturationAndValue(
-    red: UInt8,
-    green: UInt8,
-    blue: UInt8
-  ) -> (saturation: Double, value: Double) {
-    let channels = [Double(red), Double(green), Double(blue)].map { $0 / 255 }
-    let maximum = channels.max() ?? 0
-    let minimum = channels.min() ?? 0
-    return (maximum == 0 ? 0 : (maximum - minimum) / maximum, maximum)
   }
 }
 

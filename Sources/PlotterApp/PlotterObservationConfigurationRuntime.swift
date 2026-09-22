@@ -54,7 +54,8 @@ enum PlotterObservationConfigurationIntent: Hashable, Sendable {
     cadence: VisionAnalysisCadence?,
     features: SceneFeatureSet,
     region: PixelRect?,
-    penCapColor: PenCapColor?
+    penCapColor: PenCapColor?,
+    penCapReference: PenCapVisualReference? = nil
   )
   case requestDiagnostics
 }
@@ -255,7 +256,7 @@ actor PlotterObservationConfigurationRuntime {
         try requireOpenEffectBoundary()
         publish(.camera(lifecycle.snapshot))
         startFrameSubscriptionIfNeeded()
-      case .configureAutomaticAnalysis(let cadence, let features, let region, let color):
+      case .configureAutomaticAnalysis(let cadence, let features, let region, let color, let reference):
         try requireOpenEffectBoundary()
         await lower.setSceneAnalysisRegion(region)
         try requireOpenEffectBoundary()
@@ -263,6 +264,8 @@ actor PlotterObservationConfigurationRuntime {
           await lower.setPenCapColor(color)
           try requireOpenEffectBoundary()
         }
+        await lower.setPenCapReference(reference)
+        try requireOpenEffectBoundary()
         let effectiveCadence = cameraRole.role == .plotter ? cadence : nil
         let snapshot = await lower.setAutomaticInspection(effectiveCadence, requestedFeatures: features)
         try requireOpenEffectBoundary()

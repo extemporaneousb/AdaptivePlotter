@@ -85,23 +85,20 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
 
 ## 1.1 Identify and Calibrate the Pen
 
-1. Start Exercise 1.1. Before any pen-position
-   question or pen request, **Identify Pen Cap** freezes the current exact frame
-   and asks the operator to click the colored cap body, not the tip.
-   When a valid LIVE cap appearance already exists, the frozen frame receives
-   its own exact requested scene-overlay analysis; geometry from an earlier
-   frame is never carried onto it. A first, unlearned appearance still requires
-   the click before LIVE overlay recognition can run.
-2. Map the presentation click back to the frozen camera frame, submit it through
-   the existing projection-bound UI request without another button, and inspect the
-   clipped 9 x 9 neighborhood. Reject a stale frame, unsupported pixel format,
-   too few chromatic pixels, or a gray, white, or dark median with a concrete
-   reason. An accepted sample persists its median RGB color, click point, exact
-   frame hash and identity, source, camera configuration, dimensions, pixel
-   format, usable/total sample counts, and algorithm revision. There is no
-   editable color picker. The learned appearance feeds generic scene analysis
-   and every Exercise 1.3 exact-frame inspection, so arbitrary visibly colored caps
-   such as blue are supported.
+1. Start Exercise 1.1. **Identify Pen Cap** freezes the current exact frame.
+   Drag a rectangle around the cap and nearby holder that moves with it. Include
+   edges and exclude stationary rails, independently moving structure and paper.
+   Drag again to redraw; then click the cap inside the rectangle. The cap does
+   not need to be centered. Existing geometry from another frame is never reused.
+2. The anchor click submits both rectangle and point with exact-frame provenance.
+   A small bounded RGB image reference retains black and colored details. A region
+   smaller than 12 camera pixels per side, larger than half the frame per side,
+   without enough visual detail, or with its anchor outside is refused explicitly.
+   The accepted Learning package persists the reference, anchor and exact frame
+   provenance. Generic and calibration analysis use the same reference identity.
+   Weak/competing matches, excessive deformation, clipping and abrupt position
+   jumps report tracking lost. Replaced pens and incompatible camera configurations
+   require a new reference. Old color-only selections require Redo of Exercise 1.1.
 3. Cap identification requires only the current exact frame. The accepted click
    immediately opens the first Up question even when the controller is not yet
    connected or Motion is not enabled. In that blocked state the Up slider and
@@ -244,7 +241,7 @@ The ordered positions and roles are:
    supported leading components, and acquisition failures remain explicit.
    Component size/shape and maximum pairwise centroid spread are diagnostics,
    without numerical rejection thresholds. Retain only the newest third frame and its measured
-   centroid, bounds, confidence, bottom-center anchor, and estimator provenance
+   centroid, reference bounds, confidence, selected cap anchor, and estimator provenance
    as authoritative evidence. Do not average geometry across the three frames.
 4. Use a consistent final approach. Travel between already selected positions
    may be diagonal, but only the listed positions are model samples.

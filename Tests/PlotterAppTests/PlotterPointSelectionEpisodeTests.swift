@@ -265,7 +265,8 @@ struct PlotterPointSelectionEpisodeTests {
       Issue.record("Expected the chromatic Pen-cap point to be sampled")
       return
     }
-    #expect((sample.red, sample.green, sample.blue) == (20, 80, 220))
+    #expect(sample.visualReference?.isValid == true)
+    #expect(sample.visualReference?.anchor == (try Point2(x: 4, y: 4)))
     #expect(acceptedFrame.frame.id == frame.frame.id)
     #expect(projection.exactPointSelection.phase == .accepted)
 
@@ -821,8 +822,8 @@ private func pointSelectionFrame(
   green: UInt8 = 80,
   blue: UInt8 = 220
 ) throws -> DisplayedFrame {
-  let width = 9
-  let height = 9
+  let width = 24
+  let height = 24
   let pixel = [red, green, blue, UInt8(255)]
   return DisplayedFrame(
     source: source,
@@ -835,7 +836,9 @@ private func pointSelectionFrame(
       height: height,
       rowBytes: width * pixel.count,
       pixelFormat: .rgba8,
-      bytes: OwnedFrameBytes(Array(repeating: pixel, count: width * height).flatMap { $0 })
+      bytes: OwnedFrameBytes((0..<(width * height)).flatMap { i in
+        i % width < 6 ? [UInt8(12), 12, 12, 255] : pixel
+      })
     )
   )
 }
@@ -857,7 +860,9 @@ private func submission(
     selectionID: request.id,
     frame: frame ?? request.frame,
     point: selectedPoint,
-    presentationTransformRevision: request.presentationTransformRevision
+    presentationTransformRevision: request.presentationTransformRevision,
+    referenceRegion: request.purpose == .penCapAppearance
+      ? try AxisAlignedBounds(minX: 0, minY: 0, maxX: 12, maxY: 12) : nil
   )
 }
 

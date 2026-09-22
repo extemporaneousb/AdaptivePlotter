@@ -363,6 +363,8 @@ private struct ObservationLifecycleProbePort: PlotterObservationCameraSessionPor
     await base.setSceneAnalysisRegion(region)
   }
 
+  func setPenCapReference(_ reference: PenCapVisualReference?) {}
+
   func setPenCapColor(_ color: PenCapColor) async {
     await base.setPenCapColor(color)
   }

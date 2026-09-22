@@ -65,7 +65,7 @@ enum FixedCameraOpticalSettlingPolicy {
     let maximumSpread =
       samples.enumerated().flatMap { leftIndex, left in
         samples.dropFirst(leftIndex + 1).map {
-          left.cap.centroid.distance(to: $0.cap.centroid)
+          left.cap.trackingPoint.distance(to: $0.cap.trackingPoint)
         }
       }.max() ?? 0
     let newest = samples[samples.index(before: samples.endIndex)]
@@ -6645,8 +6645,8 @@ final class PlotterApplicationRuntime:
       machineCameraRegistration = checkpoint.machineCamera?.registration
       if let appearance = checkpoint.penCapAppearance {
         let selection = PenCapAppearanceSelection(checkpoint: appearance)
-        livePenCapAppearanceSelection = selection
-        persistedPenCapAppearanceLoadState = .accepted
+        livePenCapAppearanceSelection = selection.persistedLiveRejectionReason == nil ? selection : nil
+        persistedPenCapAppearanceLoadState = selection.persistedLiveRejectionReason.map { .refused($0) } ?? .accepted
         await reconcileAutomaticVisionAnalysis()
       }
       restoreInteractiveLearningCompletionFromEvidence()
@@ -6720,7 +6720,7 @@ final class PlotterApplicationRuntime:
       let staged = try await pointSelectionRuntime.stage(
         frame: frame,
         presentationTransformRevision: PlotterPresentationTransformRevision(),
-        prompt: "Click the pen cap body—not the tip—on the current camera frame.",
+        prompt: "Draw a rectangle around the cap and moving holder, then click the cap inside it. Include edges; leave out stationary rails and paper.",
         purpose: .penCapAppearance,
         requiredPointCount: 1
       )
@@ -7005,6 +7005,7 @@ final class PlotterApplicationRuntime:
       newerThan: cameraCalibrationAnchorFrame?.frame.captureNanoseconds ?? 0
     )
     let centroid: Point2<CameraPixelSpace>
+    var selectedCapAnchor: Point2<CameraPixelSpace>?
     let bounds: AxisAlignedBounds<CameraPixelSpace>
     let confidence: Double
     var registrationFrame = frame
@@ -7049,6 +7050,7 @@ final class PlotterApplicationRuntime:
       let inspection = stable.inspection
       let cap = stable.cap
       centroid = cap.centroid
+      selectedCapAnchor = cap.referenceAnchor
       bounds = try AxisAlignedBounds(
         minX: Double(cap.boundingBox.x),
         minY: Double(cap.boundingBox.y),
@@ -7063,6 +7065,7 @@ final class PlotterApplicationRuntime:
     let capAnchor = try ToolCapAnchorEstimate(
       componentCentroid: centroid,
       componentBounds: bounds,
+      selectedAnchor: selectedCapAnchor,
       confidence: confidence,
       estimatorRevision: penCapAnchorEstimatorRevision,
       source: registrationFrame.source,
@@ -7073,7 +7076,10 @@ final class PlotterApplicationRuntime:
   }
 
   private var penCapAnchorEstimatorRevision: String {
-    "selected-cap-\(penCapAppearanceSelection?.color.hexRGB ?? "UNLEARNED")-bottom-center-anchor-v3"
+    if let reference = penCapAppearanceSelection?.visualReference {
+      return "selected-cap-anchor-v4:\(reference.identity)"
+    }
+    return "selected-cap-\(penCapAppearanceSelection?.color.hexRGB ?? "UNLEARNED")-bottom-center-anchor-v3"
   }
 
   /// Makes the reviewed five-sample cap-map proposal authoritative atomically.
@@ -7172,6 +7178,7 @@ final class PlotterApplicationRuntime:
     let frame = try await captureProtocolFrame(newerThan: boundary)
     try requireCalibrationContinuation()
     let centroid: Point2<CameraPixelSpace>
+    var selectedCapAnchor: Point2<CameraPixelSpace>?
     let bounds: AxisAlignedBounds<CameraPixelSpace>
     let confidence: Double
     var evidenceFrame = frame
@@ -7227,6 +7234,7 @@ final class PlotterApplicationRuntime:
       let cap = stable.cap
       try requireCalibrationContinuation()
       centroid = cap.centroid
+      selectedCapAnchor = cap.referenceAnchor
       bounds = try AxisAlignedBounds(
         minX: Double(cap.boundingBox.x),
         minY: Double(cap.boundingBox.y),
@@ -7241,6 +7249,7 @@ final class PlotterApplicationRuntime:
     let capAnchor = try ToolCapAnchorEstimate(
       componentCentroid: centroid,
       componentBounds: bounds,
+      selectedAnchor: selectedCapAnchor,
       confidence: confidence,
       estimatorRevision: penCapAnchorEstimatorRevision,
       source: evidenceFrame.source,
@@ -7274,7 +7283,7 @@ final class PlotterApplicationRuntime:
         attemptID: attemptID,
         capAnchorEstimatorRevision: capAnchor.estimatorRevision,
         algorithmRevision:
-          "automatic-current-camera-cap-anchor-v4:cap-\(penCapAppearanceSelection?.color.hexRGB ?? "UNLEARNED")",
+          "automatic-current-camera-cap-anchor-v4:cap-\(penCapAnchorEstimatorRevision)",
         capAnchorConfidence: capAnchor.confidence,
         artifactRevisionID: centerArrivalRevisionID
       ),
@@ -7322,6 +7331,7 @@ final class PlotterApplicationRuntime:
     }
 
     let centroid: Point2<CameraPixelSpace>
+    var selectedCapAnchor: Point2<CameraPixelSpace>?
     let bounds: AxisAlignedBounds<CameraPixelSpace>
     let confidence: Double
     var evidenceFrame = frame
@@ -7375,6 +7385,7 @@ final class PlotterApplicationRuntime:
         )
       }
       centroid = cap.centroid
+      selectedCapAnchor = cap.referenceAnchor
       bounds = try AxisAlignedBounds(
         minX: Double(cap.boundingBox.x),
         minY: Double(cap.boundingBox.y),
@@ -7389,6 +7400,7 @@ final class PlotterApplicationRuntime:
     let capAnchor = try ToolCapAnchorEstimate(
       componentCentroid: centroid,
       componentBounds: bounds,
+      selectedAnchor: selectedCapAnchor,
       confidence: confidence,
       estimatorRevision: penCapAnchorEstimatorRevision,
       source: evidenceFrame.source,
@@ -7464,7 +7476,7 @@ final class PlotterApplicationRuntime:
         attemptID: attemptID,
         capAnchorEstimatorRevision: capAnchor.estimatorRevision,
         algorithmRevision:
-          "sparse-tip-post-capture-probe-v1:cap-\(penCapAppearanceSelection?.color.hexRGB ?? "UNLEARNED")",
+          "sparse-tip-post-capture-probe-v1:cap-\(penCapAnchorEstimatorRevision)",
         capAnchorConfidence: capAnchor.confidence,
         artifactRevisionID: centerArrivalRevisionID
       ),
@@ -7703,7 +7715,8 @@ final class PlotterApplicationRuntime:
       let selection = penCapAppearanceSelection,
       selection.color.red == sample.red,
       selection.color.green == sample.green,
-      selection.color.blue == sample.blue
+      selection.color.blue == sample.blue,
+      selection.visualReference == sample.visualReference
     else { throw CancellationError() }
     guard frameMode == .live else { return }
     await reconcileAutomaticVisionAnalysis()
@@ -10125,7 +10138,8 @@ final class PlotterApplicationRuntime:
         cadence: visionAnalysisCadence,
         features: requestedSceneFeatures,
         region: videoAnalysisRegionLock?.region,
-        penCapColor: livePenCapColor
+        penCapColor: livePenCapColor,
+        penCapReference: livePenCapAppearanceSelection?.visualReference
       ))
       let snapshot = await observationRuntime.snapshot()
       guard applicationAdmissionIsOpen, frameMode == .live else { return }
@@ -10137,7 +10151,8 @@ final class PlotterApplicationRuntime:
       cadence: nil,
       features: [],
       region: nil,
-      penCapColor: livePenCapColor
+      penCapColor: livePenCapColor,
+      penCapReference: livePenCapAppearanceSelection?.visualReference
     ))
     let cameraSnapshot = await observationRuntime.snapshot()
     self.cameraSnapshot = cameraSnapshot
@@ -12428,7 +12443,10 @@ final class PlotterApplicationRuntime:
       case .found(let cap, _):
         (
           .available,
-          OverlayStatusGrammar.found(
+          cap.referenceAnchor != nil
+            ? String(format: "Tracking cap anchor — reference %d × %d px, match %.2f, frame %llu.",
+              cap.boundingBox.width, cap.boundingBox.height, cap.confidence, displayedFrame.frame.sequence)
+            : OverlayStatusGrammar.found(
             pixelCount: cap.pixelCount,
             confidence: cap.confidence,
             frame: displayedFrame.frame.sequence

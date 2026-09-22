@@ -81,12 +81,11 @@ struct CompleteAcceptedLearningFixture: Sendable {
       learnedLocalCoordinateFrame: originalMachine.learnedLocalCoordinateFrame,
       centerArrivalPosition: originalMachine.centerArrivalPosition,
       acceptedRevisions: originalMachine.acceptedRevisions)
-    // The learned-color identity is part of the accepted cap map. Preserve the
-    // actual sampled appearance instead of inventing a generic green value.
+    // Preserve the sampled reference identity in the accepted cap map.
     let appearance = try replacingFixtureSources(#require(source.penCapAppearanceSelection),
       with: syntheticSource)
     #expect(machineCamera.capAnchorEstimatorRevision
-      == "selected-cap-\(appearance.color.hexRGB)-bottom-center-anchor-v3")
+      == "selected-cap-anchor-v4:\(try #require(appearance.visualReference).identity)")
     let checkpoint = try AcceptedLearningPathCheckpoint(semanticIdentity: identities.learningPathIdentity,
       penInteraction: AcceptedPenInteractionCheckpoint(
         revision: #require(source.learningArtifactGraph.currentRevision(for: .penInteraction)),
