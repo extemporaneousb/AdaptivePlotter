@@ -98,7 +98,8 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
    provenance. Generic and calibration analysis use the same reference identity.
    Weak/competing matches, excessive deformation, clipping and abrupt position
    jumps report tracking lost. Replaced pens and incompatible camera configurations
-   require a new reference. Old color-only selections require Redo of Exercise 1.1.
+   require a new reference. Old color-only selections require **Reidentify Pen Cap**
+   from **Learning Path Actions** when accepted Pen Learning is already present.
 3. Cap identification requires only the current exact frame. The accepted click
    immediately opens the first Up question even when the controller is not yet
    connected or Motion is not enabled. In that blocked state the Up slider and
@@ -259,8 +260,12 @@ The ordered positions and roles are:
    analysis region.
 
 Camera-calibration failures remain visible in the Learning instructions with
-the detector's concrete reason. After changing a cap, use **Reset All Learning**
-and identify the replacement cap. Each operator-started calibration retry
+the detector's concrete reason. After changing a cap, use **Learning Path Actions →
+Reidentify Pen Cap** and select the replacement reference and anchor. This preserves
+accepted pen-up/down actuation, X/Y boundaries, estimated center and center arrival.
+It issues no machine command. Only a successfully saved reference invalidates the
+camera/cap map and downstream tip/drawing calibration. Cancellation, stale selection
+and save failure retain the prior Learning package. Each operator-started calibration retry
 captures a new reference frame and current machine pose; it does not reuse the
 reference from a failed attempt that may have stopped at another position.
 

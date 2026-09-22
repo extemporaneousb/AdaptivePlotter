@@ -518,6 +518,7 @@ private extension PlotterLearningAction {
     case .restart: "Restart Attempt"
     case .redoThisStep: "Redo This Step"
     case .recordAnotherAttempt: "Record Another Attempt"
+    case .reidentifyPenCap: "Reidentify Pen Cap"
     case .cameraCalibration(.buildFivePositionProposal):
       "Run Five-Position Camera Calibration"
     case .cameraCalibration(.acceptProposal): "Accept Camera Calibration"
@@ -550,7 +551,7 @@ private extension PlotterLearningAction {
       .destructive
     case .choice(.yes): .positive
     case .startNewLearning, .choice(.no), .setPenSetpoint, .boundary,
-      .redoThisStep, .recordAnotherAttempt,
+      .redoThisStep, .recordAnotherAttempt, .reidentifyPenCap,
       .pointSelectionCorrection:
       .standard
     }

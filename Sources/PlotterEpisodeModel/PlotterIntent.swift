@@ -393,7 +393,7 @@ public enum PlotterLearningBorderValidationAction: Codable, Hashable, Sendable {
 /// Model-owned meaning carried unchanged from actionability to the feature owner.
 public enum PlotterLearningAction: Codable, Hashable, Sendable {
   case applySavedLearning, startNewLearning, start, cancel, restart, redoThisStep
-  case recordAnotherAttempt, paperReplaced
+  case recordAnotherAttempt, paperReplaced, reidentifyPenCap
   case choice(PlotterLearningChoice)
   case setPenSetpoint(PlotterLearningPenCommand, Int)
   case stopPenInteraction(PlotterPenInteractionCancellationCapabilityID)

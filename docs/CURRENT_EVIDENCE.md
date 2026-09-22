@@ -8,6 +8,37 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Cap-only reidentification retains mechanical Learning, 2026-09-21
+
+Ordinary recovery fix in task `task-707f71f49c3d40f9a7d184b248d3c94f`.
+**Learning Path Actions → Reidentify Pen Cap** stages a new exact-frame reference
+without restarting the Pen Interaction motion sequence or replacing its accepted
+actuation revision. Successful persistence retains the exact mechanical prefix
+(pen actuation, X/Y sides, center and arrival) and replaces only optical authority:
+the old camera/cap map and downstream tip/drawing calibration are invalidated.
+Motion authorization is not required for this capture-only action. Full step redo
+and explicit reset retain their existing semantics.
+
+`swift test --jobs 4 --no-parallel --filter
+'SavedLearningPenUpTests/(reidentifyCap|unsuccessfulCap)'` passed both tests in
+6.162 seconds, including all four unsuccessful-operation variants. The production
+UI request path retained exact mechanical revisions and controller pose facts,
+issued no pen or travel commands, and saved/reloaded the new reference without
+restoring obsolete camera/tip descendants. Cancellation, stale input, capture
+failure and injected save failure retained the original cap, calibration, graph
+and durable package. The first run exposed fixture-input mistakes (blank-paper
+selection and comparison against pre-revalidation evidence); corrected tests use
+the generated armature and the active accepted evidence.
+The first full diagnostic run found an obsolete assertion for the removed
+Reset All recovery text and later stalled with an idle test-process main loop;
+that test process was stopped after a stack sample. The assertion now requires
+cap-only recovery and boundary retention. Required validation is rerun with
+unbuffered output; the interrupted run is not passing evidence.
+
+Required full-suite and landing receipts belong to this Blackdog task. Native
+menu/rectangle interaction, real-camera tracking and attended hardware behavior
+remain unverified. The existing app session is preserved.
+
 ## Pen-cap visual reference and independent anchor, 2026-09-21
 
 Ordinary product extension in task `task-7ff2d1a6fc0e48d6af1cca20c8a5dd5e`.

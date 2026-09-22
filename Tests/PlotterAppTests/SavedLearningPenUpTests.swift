@@ -11,6 +11,112 @@ import Testing
 @MainActor
 @Suite("Saved Learning calibration Pen Up", .serialized)
 struct SavedLearningPenUpTests {
+  @Test("cap-only replacement retains mechanical authority and durably removes only the optical suffix")
+  func reidentifyCapPreservesBoundariesThroughReload() async throws {
+    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: true)
+    defer { fixture.stores.remove() }
+    let app = fixture.app
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let mechanicalKinds = [LearningArtifactKind.penInteraction, .estimatedMachineCenter, .centerArrival]
+      + BoundaryDirection.allCases.map { .boundarySideAggregate($0) }
+    let revisions = mechanicalKinds.map { app.learningArtifactGraph.currentRevision(for: $0) }
+    let pose = app.controllerPoseApplicability
+    let position = app.machineSnapshot?.machine.position
+    let tipBefore = app.tipCameraRegistration
+    // Image capture does not need motion authorization and must not actuate.
+    await submitControllerSession(app, .toggleMotionAuthorization)
+    let commandsBefore = await fixture.machine.requestedPenCommands
+    let feedsBefore = await fixture.machine.requestedFeeds
+    await app.performTestExerciseAction(.reidentifyPenCap, for: owner)
+    let selection = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+    #expect(app.machineCameraRegistration == fixture.checkpoint.machineCamera?.registration)
+    #expect(app.tipCameraRegistration == tipBefore)
+    submitPointSelection(app, request: selection, point: try syntheticCapPoint(app))
+    try await waitUntil { app.activeExerciseAttemptID == nil || app.discoveryError != nil }
+    try #require(app.activeExerciseAttemptID == nil, "\(app.discoveryError ?? "Cap selection did not settle")")
+    #expect(app.discoveryError == nil)
+    #expect(mechanicalKinds.map { app.learningArtifactGraph.currentRevision(for: $0) } == revisions)
+    #expect(app.controllerPoseApplicability == pose)
+    #expect(app.machineSnapshot?.machine.position == position)
+    #expect(app.machineCameraRegistration == nil)
+    #expect(app.tipCameraRegistration == nil)
+    #expect(app.penInteractionCompleted)
+    #expect(app.relevantBoundaryObservationCount == 4)
+    #expect(app.testCurrentLearningPathItemID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap))
+    #expect(await fixture.machine.requestedPenCommands == commandsBefore)
+    #expect(await fixture.machine.requestedFeeds == feedsBefore)
+    #expect(app.restartableExerciseItemID == nil)
+    guard case .loaded(let saved) = fixture.stores.checkpointStore.load() else {
+      Issue.record("Expected durable cap replacement"); await app.shutdown(); return
+    }
+    #expect(saved.penInteraction == fixture.checkpoint.penInteraction)
+    #expect(saved.machineArtifacts == fixture.checkpoint.machineArtifacts)
+    #expect(saved.penCapAppearance != fixture.checkpoint.penCapAppearance)
+    #expect(saved.referenceFrame?.frame.id.rawValue == selection.frame.frameID)
+    #expect(saved.machineCamera == nil && saved.tipCalibration == nil && saved.stageFour == nil)
+    await app.shutdown()
+    let reloaded = plotterApplicationRuntime(machine: fixture.machine,
+      statePersistencePort: fixture.stores.persistence,
+      tipCalibrationSemanticIdentities: fixture.identities,
+      loadPenCapAppearanceSelection: { nil }, log: fixture.log)
+    await reloaded.performTestExerciseAction(.applySavedLearning, for: reloaded.testCurrentLearningPathItemID)
+    #expect(reloaded.penInteractionCompleted)
+    #expect(reloaded.relevantBoundaryObservationCount == 4)
+    #expect(try reloaded.penCapAppearanceSelection?.acceptedCheckpoint() == saved.penCapAppearance)
+    #expect(reloaded.machineCameraRegistration == nil && reloaded.tipCameraRegistration == nil)
+    await reloaded.shutdown()
+  }
+
+  @Test("cancel, stale click, capture failure, and failed cap save retain previous Learning",
+    arguments: ["cancel", "stale", "capture-failure", "save-failure"])
+  func unsuccessfulCapReplacementRetainsLearning(outcome: String) async throws {
+    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: true,
+      rejectCapReplacementSave: outcome == "save-failure")
+    defer { fixture.stores.remove() }
+    let app = fixture.app
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let revisions = app.learningArtifactGraph.revisions
+    let cap = app.penCapAppearanceSelection
+    guard case .loaded(let original) = fixture.stores.checkpointStore.load() else {
+      Issue.record("Expected saved calibration"); await app.shutdown(); return
+    }
+    if outcome == "capture-failure" { await fixture.camera.injectFrameCaptureFailure() }
+    await app.performTestExerciseAction(.reidentifyPenCap, for: owner)
+    if outcome == "capture-failure" {
+      #expect(app.activeExerciseAttemptID == nil)
+      #expect(app.pointSelectionEpisodeProjection.exactPointSelection.request == nil)
+      #expect(app.discoveryError?.contains("could not freeze") == true)
+    } else if outcome == "save-failure" {
+      let selection = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+      submitPointSelection(app, request: selection, point: try syntheticCapPoint(app))
+      try await waitUntil { app.activeExerciseAttemptID == nil || app.discoveryError != nil }
+      try #require(app.activeExerciseAttemptID == nil, "\(app.discoveryError ?? "Cap selection did not settle")")
+      #expect(app.discoveryError?.contains("Previous Learning is retained") == true)
+    } else {
+      let selection = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+      await app.performTestExerciseAction(.cancel, for: owner)
+      if outcome == "stale" {
+        await app.performTestExerciseAction(.reidentifyPenCap, for: owner)
+        submitPointSelection(app, request: selection, point: try Point2(x: 40, y: 40))
+        try await waitUntil { app.discoveryError?.contains("rejected") == true }
+        #expect(app.activeExerciseAttemptID != nil)
+        await app.performTestExerciseAction(.cancel, for: owner)
+      }
+    }
+    #expect(app.learningArtifactGraph.revisions == revisions)
+    #expect(app.penCapAppearanceSelection == cap)
+    #expect(app.machineCameraRegistration == original.machineCamera?.registration)
+    #expect(app.tipCameraRegistration == original.tipCalibration?.registration)
+    #expect(app.restartableExerciseItemID == nil)
+    #expect(await fixture.machine.requestedPenCommands.isEmpty)
+    #expect(await fixture.machine.requestedFeeds.isEmpty)
+    guard case .loaded(let saved) = fixture.stores.checkpointStore.load() else {
+      Issue.record("Expected unchanged package"); await app.shutdown(); return
+    }
+    #expect(saved == original)
+    await app.shutdown()
+  }
+
   @Test("scoped reset preserves compatible Pen optical evidence through disk reload without legacy fallback", arguments: [false, true])
   func scopedCameraResetRetainsOpticalPrefix(resetTip: Bool) async throws {
     let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: resetTip)
@@ -223,7 +329,8 @@ private struct SavedCameraCalibrationFixture {
   let camera: AcceptedDrawingCameraSession
 
   static func make(penState: PenState, includeCamera: Bool = true,
-    verifyPhysicalPose: Bool = true, includeTip: Bool = false) async throws -> Self {
+    verifyPhysicalPose: Bool = true, includeTip: Bool = false,
+    rejectCapReplacementSave: Bool = false) async throws -> Self {
     // Use synthetic accepted artifacts through the production persistence and
     // Apply Saved Learning path, retaining only the prefix before tip marking.
     let accepted = try await CompleteAcceptedLearningFixture.make()
@@ -247,10 +354,22 @@ private struct SavedCameraCalibrationFixture {
     let capAnchor = try #require(checkpoint.machineCamera).registration.fit.cameraPoint(
       from: (await machine.snapshot()).machine.position!.point)
     let camera = try AcceptedDrawingCameraSession(frame: accepted.frame, clock: clock, poseCapAnchor: capAnchor)
+    let basePersistence = stores.persistence
+    let persistence: any PlotterApplicationStatePersistencePort = rejectCapReplacementSave
+      ? TestApplicationStatePersistencePort(
+        loadCheckpoint: { basePersistence.loadAcceptedLearningPathCheckpoint() },
+        saveCheckpoint: { candidate in
+          if candidate.penCapAppearance != checkpoint.penCapAppearance {
+            throw LearningPathOperationError.requiredState("Injected cap save failure")
+          }
+          try basePersistence.saveAcceptedLearningPathCheckpoint(candidate)
+        },
+        clearCheckpoint: { try basePersistence.clearAcceptedLearningPathCheckpoint() }
+      ) : basePersistence
     let app = plotterApplicationRuntime(
       machine: machine,
       observationSessionOverride: includeCamera ? camera : nil,
-      statePersistencePort: stores.persistence,
+      statePersistencePort: persistence,
       tipCalibrationSemanticIdentities: accepted.identities,
       residualEffectPort: TestApplicationResidualEffectPort(
         discoverDevices: { [machine.descriptor] }, readNanoseconds: { clock.read() }),
@@ -273,6 +392,27 @@ private struct SavedCameraCalibrationFixture {
     return Self(app: app, machine: machine, penGate: penGate, stores: stores,
       checkpoint: checkpoint, log: log, identities: accepted.identities, camera: camera)
   }
+}
+
+/// Locate this fixture's generated green armature, whose bottom is its cap
+/// anchor. This is test-input construction, not the production reference matcher.
+@MainActor
+private func syntheticCapPoint(_ app: PlotterApplicationRuntime) throws -> Point2<CameraPixelSpace> {
+  let frame = try #require(app.testActionSurfacePresentation.displayedFrame).frame
+  var capPixels: [(Int, Int)] = []
+  frame.bytes.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+    for y in 0..<frame.height {
+      for x in 0..<frame.width {
+        let i = y * frame.rowBytes + x * 4
+        if bytes[i] == 0, bytes[i + 1] == 150, bytes[i + 2] == 0 {
+          capPixels.append((x, y))
+        }
+      }
+    }
+  }
+  let bottom = try #require(capPixels.map { $0.1 }.max())
+  let xs = capPixels.filter { $0.1 == bottom }.map { Double($0.0) }
+  return try Point2(x: (try #require(xs.min()) + #require(xs.max())) / 2, y: Double(bottom))
 }
 
 @MainActor

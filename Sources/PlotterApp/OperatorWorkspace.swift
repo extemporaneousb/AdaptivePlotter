@@ -1502,6 +1502,7 @@ final class PlotterApplicationRuntime:
   ) -> String {
     "Pen Interaction refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
   }
+  private var capReidentificationAttemptID: ExerciseAttemptID?
   var activeExerciseAttemptID: ExerciseAttemptID? {
     currentEnvironmentState.exerciseAttempt.id
   }
@@ -4956,6 +4957,13 @@ final class PlotterApplicationRuntime:
     candidates.append(contentsOf: manualUIActions(draft: manualDraft, presentation: manual).map {
       uiCandidate(action: $0, owner: "PlotterManualMotionRuntime")
     })
+    candidates.append(uiCandidate(
+      id: PlotterAppUIActionID.reidentifyPenCap,
+      title: "Reidentify Pen Cap",
+      intent: .learningAction(PlotterAppUIActionID.reidentifyPenCapRequest),
+      unavailableReason: capReidentificationUnavailableReason,
+      owner: "PlotterPointSelectionRuntime"
+    ))
     if let pendingPointSelection = currentPendingPointSelection {
       candidates.append(uiCandidate(
         id: PlotterAppUIActionID.pointSelection(pendingPointSelection),
@@ -5907,7 +5915,7 @@ final class PlotterApplicationRuntime:
     case .cameraCalibration: "PlotterCameraCalibrationRuntime"
     case .tipCalibration: "PlotterTipCalibrationRuntime"
     case .borderValidation: "PlotterBorderValidationRuntime"
-    case .pointSelectionCorrection: "PlotterPointSelectionRuntime"
+    case .pointSelectionCorrection, .reidentifyPenCap: "PlotterPointSelectionRuntime"
     case .applySavedLearning, .startNewLearning, .redoThisStep, .recordAnotherAttempt:
       "PlotterArtifactResetRuntime"
     case .start, .choice, .cancel, .stop, .restart, .paperReplaced:
@@ -6511,6 +6519,8 @@ final class PlotterApplicationRuntime:
       return "The Learning action was cancelled before its owner settled."
     }
     switch kind {
+    case .reidentifyPenCap:
+      return await startCapReidentification()
     case .boundary:
       return "Refresh the exact Boundary request before retrying."
     case .applySavedLearning:
@@ -6738,6 +6748,131 @@ final class PlotterApplicationRuntime:
       finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
       restartableExerciseItemID = .humanGuidedDiscovery(.penInteraction)
     }
+  }
+
+  /// Changing the optical anchor does not replace the Pen Interaction revision:
+  /// its accepted actuation profile is the mechanical Boundary dependency.
+  private var capReidentificationUnavailableReason: String? {
+    guard applicationAdmissionIsOpen, learningIsEnabled else { return "Turn Learning on first." }
+    guard penInteractionCompleted else { return "Complete Identify and Calibrate the Pen first." }
+    if frameModeSwitchInProgress || learningResetInProgress {
+      return "Wait for the current Learning source change or reset."
+    }
+    if activeExerciseAttemptID != nil || activeDiscoverySequenceID != nil
+      || pointSelectionEpisodeProjection.exactPointSelection.request != nil {
+      return "Finish or cancel the current Learning attempt first."
+    }
+    if let reason = paperReplacementInProgressReason ?? currentCameraCalibrationBusyReason
+      ?? artifactResetLowerOwnerBlocker { return reason }
+    if positionRebasePublicationIsPending || drawingRunIsActive
+      || activeStopTarget != nil || retainedStopRegistration?.possibleInkLocation != nil
+      || borderValidationSnapshot.activeOperationID != nil
+      || borderValidationSnapshot.executionState == .possibleInk
+      || axisCalibrationInProgress || passiveProbeInProgress || jogRequestInProgress
+      || retainedPenRequestInProgress || jogCancelRequestInProgress
+      || machineSnapshot?.machine.operationInFlight == true {
+      return "Finish or resolve the current machine operation first."
+    }
+    switch tipCalibrationRuntime.phase {
+    case .idle, .accepted, .rejected: break
+    default: return "Finish or resolve the current pen-tip calibration attempt first."
+    }
+    if case .retainedForLater = savedLearningState {
+      return "Apply the retained Saved Learning package before replacing its cap reference."
+    }
+    if frameMode == .live {
+      guard cameraIsLive else { return "Show the current Plotter Video camera first." }
+      guard activeStatePersistencePort != nil else { return "Learning persistence is unavailable." }
+    }
+    return nil
+  }
+
+  private func startCapReidentification() async -> String? {
+    if let reason = capReidentificationUnavailableReason { return reason }
+    beginExerciseAttempt(ownerID: .humanGuidedDiscovery(.penInteraction), mode: .normal)
+    guard let attemptID = activeExerciseAttemptID else { return "Cap selection could not start." }
+    capReidentificationAttemptID = attemptID
+    restartableExerciseItemID = nil
+    markSemanticPresentationChanged()
+    do {
+      let frame = try await captureProtocolFrame(
+        newerThan: displayedFrame?.frame.captureNanoseconds ?? 0)
+      guard ownsCapReidentification(attemptID) else { return "Cap selection was cancelled." }
+      let staged = try await pointSelectionRuntime.stage(
+        frame: frame,
+        presentationTransformRevision: PlotterPresentationTransformRevision(),
+        prompt: "Draw a rectangle around the cap and moving holder, then click the cap inside it. X/Y boundaries and pen-up/down calibration will be retained.",
+        purpose: .penCapAppearance,
+        requiredPointCount: 1
+      )
+      guard ownsCapReidentification(attemptID) else {
+        if let id = staged.projection.exactPointSelection.request?.id {
+          _ = await pointSelectionRuntime.cancel(selectionID: id)
+        }
+        return "Cap selection was cancelled."
+      }
+      installPointSelectionProjection(staged.projection)
+      frozenPointSelectionFrame = frame
+      pointSelectionRecordingDiagnostic = staged.recordingDiagnostic ?? pointSelectionRecordingDiagnostic
+      discoveryError = nil
+      return nil
+    } catch {
+      guard capReidentificationAttemptID == attemptID,
+        activeExerciseAttemptID == attemptID else { return "Cap selection was cancelled." }
+      let detail = "Reidentify Pen Cap could not freeze an exact frame: \(actionableDescription(error))"
+      discoveryError = detail
+      finishActiveExerciseAttempt(disposition: .failed(detail))
+      markSemanticPresentationChanged()
+      return detail
+    }
+  }
+
+  private func ownsCapReidentification(_ attemptID: ExerciseAttemptID) -> Bool {
+    applicationAdmissionIsOpen && !Task.isCancelled
+      && capReidentificationAttemptID == attemptID && activeExerciseAttemptID == attemptID
+  }
+
+  private func acceptReidentifiedPenCap(
+    _ learned: PenCapAppearanceSelection, frame: DisplayedFrame, attemptID: ExerciseAttemptID
+  ) async {
+    guard ownsCapReidentification(attemptID) else { return }
+    do {
+      // Durability precedes publication. Never inherit the previous package's
+      // camera/tip suffix or manufacture a new mechanical Pen revision.
+      if frameMode == .live {
+        guard let actions = activeStatePersistencePort else {
+          throw LearningPathOperationError.requiredState("Learning persistence is unavailable.")
+        }
+        let checkpoint = try AcceptedLearningPathCheckpoint(
+          semanticIdentity: currentLearningPathSemanticIdentity,
+          penInteraction: currentAcceptedPenInteractionCheckpoint(),
+          machineArtifacts: activeMachineArtifactCheckpoint,
+          penCapAppearance: learned.acceptedCheckpoint(),
+          referenceFrame: AcceptedLearningReferenceFrame(
+            opticalConfiguration: exactTipCalibrationFrame(frame).opticalConfiguration,
+            frame: frame.frame)
+        )
+        try actions.saveAcceptedLearningPathCheckpoint(checkpoint)
+        artifactResetRuntime.installSavedLearningFact(.applied(
+          checkpoint, opticalComparison: "Cap reference replaced; mechanical Learning retained."))
+        livePenCapAppearanceSelection = learned
+        persistedPenCapAppearanceLoadState = .accepted
+      } else {
+        simulatedPenCapAppearanceSelection = learned
+      }
+      invalidateCameraDependentLearningAuthority(persistCheckpoint: false)
+      overlayResultChannels.clearScene()
+      discoveryError = nil
+      learningAuthorityError = nil
+      finishActiveExerciseAttempt(disposition: .succeeded)
+      await cancelPointSelectionRequest()
+      await reconcileAutomaticVisionAnalysis()
+    } catch {
+      discoveryError = "Cap reference was not replaced: \(actionableDescription(error)). Previous Learning is retained."
+      finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
+      await cancelPointSelectionRequest()
+    }
+    markSemanticPresentationChanged()
   }
 
   private func penInteractionAttemptMode(
@@ -7612,6 +7747,7 @@ final class PlotterApplicationRuntime:
   ) async {
     let submittedRequest = pointSelectionEpisodeProjection.exactPointSelection.request
     let submittedPurpose = submittedRequest?.purpose
+    let submittedAttemptID = activeExerciseAttemptID
     do {
       let result = try await pointSelectionRuntime.submit(submission)
       switch result {
@@ -7628,6 +7764,7 @@ final class PlotterApplicationRuntime:
       case let .acceptedPenCap(sample, acceptedFrame, projection):
         guard activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction),
           activeExerciseAttemptID != nil,
+          activeExerciseAttemptID == submittedAttemptID,
           activeExerciseAttemptMode != nil
         else {
           _ = await pointSelectionRuntime.cancel(selectionID: submission.selectionID)
@@ -7638,6 +7775,11 @@ final class PlotterApplicationRuntime:
           sample: sample,
           frame: acceptedFrame
         )
+        if let attemptID = capReidentificationAttemptID,
+          attemptID == activeExerciseAttemptID {
+          await acceptReidentifiedPenCap(learned, frame: acceptedFrame, attemptID: attemptID)
+          return
+        }
         switch learned.source {
         case .live:
           livePenCapAppearanceSelection = learned
@@ -11921,6 +12063,8 @@ final class PlotterApplicationRuntime:
     guard activeExerciseAttemptOwnerID == ownerID,
       expectedAttemptID.map({ activeExerciseAttemptID == $0 }) ?? true
     else { return }
+    let isCapReidentification = capReidentificationAttemptID != nil
+      && capReidentificationAttemptID == activeExerciseAttemptID
     let isPreSequencePenInteraction =
       ownerID == .humanGuidedDiscovery(.penInteraction)
       && activeDiscoverySequenceID == nil
@@ -11994,7 +12138,7 @@ final class PlotterApplicationRuntime:
       await tipCalibrationRuntime.cancelAttempt()
     }
     finishActiveExerciseAttempt(disposition: .cancelled)
-    restartableExerciseItemID = ownerID
+    restartableExerciseItemID = isCapReidentification ? nil : ownerID
     await cancelPointSelectionRequest()
   }
 
@@ -12006,11 +12150,19 @@ final class PlotterApplicationRuntime:
   }
 
   private func finishActiveExerciseAttempt(disposition: ExerciseAttemptDisposition) {
+    let isCapReidentification = capReidentificationAttemptID != nil
+      && capReidentificationAttemptID == activeExerciseAttemptID
+    if capReidentificationAttemptID == activeExerciseAttemptID {
+      capReidentificationAttemptID = nil
+    }
     if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction) {
       frozenPointSelectionFrame = nil
       pendingToolContactEvidence = []
       pendingToolContactClickFrame = nil
-      Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
+      // Cap-only completion/cancellation awaits its exact selection cleanup.
+      if !isCapReidentification {
+        Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
+      }
     }
     if activeExerciseAttemptOwnerID
       == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
@@ -12794,7 +12946,7 @@ final class PlotterApplicationRuntime:
     }
   }
 
-  private func invalidateCameraDependentLearningAuthority() {
+  private func invalidateCameraDependentLearningAuthority(persistCheckpoint: Bool = true) {
     var graph = learningArtifactGraph
     let invalidation = graph.invalidateForCameraChange(
       rootKinds: [.machineCameraRegistration, .tipCameraRegistration]
@@ -12803,15 +12955,25 @@ final class PlotterApplicationRuntime:
     applyArtifactInvalidations(invalidation.allInvalidatedRevisionIDs)
     cameraCalibrationRuntime.clearForReset()
     activeMachineCameraCheckpoint = nil
+    activeStageFourCheckpoint = nil
     tipCameraRegistration = nil
     proposedTipCameraRegistration = nil
     resetTipCalibrationRuntimeForCurrentPaper()
     frozenPointSelectionFrame = nil
     pendingToolContactEvidence = []
     pendingToolContactClickFrame = nil
-    Task { @MainActor [weak self] in await self?.cancelPointSelectionRequest() }
+    if let selectionID = pointSelectionEpisodeProjection.exactPointSelection.request?.id {
+      Task { @MainActor [weak self] in
+        guard let self,
+          self.pointSelectionEpisodeProjection.exactPointSelection.request?.id == selectionID
+        else { return }
+        await self.cancelPointSelectionRequest()
+      }
+    }
     recoverableTipCalibrationCheckpoint = nil
-    persistAcceptedLearningPathCheckpoint(clearTip: true, clearStageFour: true)
+    if persistCheckpoint {
+      persistAcceptedLearningPathCheckpoint(clearTip: true, clearStageFour: true)
+    }
     clearDrawingLearningForRewind(from: .chooseDrawingBorderPlan)
     explorationError = nil
     overlayResultChannels.clearWorkflow(source: frameMode)

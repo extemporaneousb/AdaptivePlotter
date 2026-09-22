@@ -623,10 +623,20 @@ hash/identity, source, camera configuration, dimensions, format, counts and revi
 The complete reference identity feeds generic analysis and every exact calibration
 inspection and prevents mixing different anchors within a calibration proposal.
 Old color-only checkpoints remain readable; their appearance cannot authorize LIVE
-tracking and explicitly requires reidentification through Redo of Exercise 1.1.
+tracking and explicitly requires **Learning Path Actions → Reidentify Pen Cap**
+when accepted Pen Learning is present.
 Saved physical results are not erased by loading an old appearance. SIMULATED
 geometry remains source-separated. A reference selection is recognition input,
 not proof of physical pen state, calibration accuracy or ink.
+
+**Reidentify Pen Cap** captures a new exact-frame reference without repeating pen
+actuation or replacing the accepted Pen Interaction revision. Accepted X/Y boundary,
+center and center-arrival evidence and controller pose applicability are retained.
+Success persists the new reference with that mechanical prefix, then invalidates the
+camera/cap registration and downstream tip/drawing calibration. It emits no machine
+commands and does not require Motion authorization. Cancellation, stale clicks,
+capture failure and persistence failure retain the previous accepted authority.
+Full **Redo This Step** and explicit resets keep their existing dependency semantics.
 
 Video Settings offers exactly `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5`
 frames per second for generic automatic scene analysis. The selected cadence

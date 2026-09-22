@@ -55,7 +55,7 @@ struct PenCapAppearanceSelection: Codable, Hashable, Sendable {
       visualReference?.anchor == clickPoint
     else {
       return
-        "This saved cap needs a visual reference. Redo Identify and Calibrate the Pen, draw a rectangle around the cap and moving holder, then click the cap."
+        "This saved cap needs a visual reference. Use Learning Path Actions → Reidentify Pen Cap, draw a rectangle around the cap and moving holder, then click the cap."
     }
     return nil
   }

@@ -431,6 +431,9 @@ actor AcceptedDrawingCameraSession: PlotterObservationCameraSessionPort {
   private var poseCaptureMode: PhysicalPoseCaptureMode = .valid
   private var poseCaptureGate: TestInspectionSuspension?
   private(set) var poseCaptureCount = 0
+  private var failNextFrameCapture = false
+
+  func injectFrameCaptureFailure() { failNextFrameCapture = true }
 
   init(frame: DisplayedFrame, clock: ComputationTestClock,
     poseCapAnchor: Point2<CameraPixelSpace>? = nil) throws {
@@ -458,6 +461,10 @@ actor AcceptedDrawingCameraSession: PlotterObservationCameraSessionPort {
     return frame
   }
   func captureFrame(newerThanNanoseconds boundary: UInt64) throws -> DisplayedFrame? {
+    if failNextFrameCapture {
+      failNextFrameCapture = false
+      throw LearningPathOperationError.freshFrameUnavailable
+    }
     let previous = frame.frame
     // Capture advances the fixture's one monotonic timeline. Application/UI
     // reads observe this same instant and never advance time themselves.

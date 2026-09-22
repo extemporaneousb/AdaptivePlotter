@@ -754,7 +754,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
         let detail: String? = if let phase = camera.phase {
           phase.description
         } else if let failure = camera.failure {
-          "Camera calibration stopped: \(failure.detail) If the cap color changed, use Learning Path Actions → Reset All Learning, then Identify Pen Cap with a clearly visible colored cap."
+          "Camera calibration stopped: \(failure.detail) To replace the cap reference, use Learning Path Actions → Reidentify Pen Cap. X/Y boundaries and pen-up/down calibration are retained."
         } else if case .refused(let reason) = camera.lastOutcome {
           "Camera calibration refused: \(reason)"
         } else { nil }

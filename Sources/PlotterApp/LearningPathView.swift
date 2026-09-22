@@ -55,6 +55,13 @@ struct LearningPathView: View {
         .pickerStyle(.menu)
         .accessibilityIdentifier("learning.exercisePicker")
         Menu {
+          OperatorRequestButton(title: "Reidentify Pen Cap",
+            request: plotterUIProjection.request(for: PlotterAppUIActionID.reidentifyPenCap),
+            unavailableReason: plotterUIProjection.action(id: PlotterAppUIActionID.reidentifyPenCap)?.unavailableReason,
+            sink: plotterUIIntentSink,
+            nativeActionIdentifier: "learning.reidentifyPenCap",
+            showsUnavailableReason: false)
+          Divider()
           Button("Reset Selected Step…", role: .destructive) {
             pendingResetPlan = projection.resetSurface.selectedPlan
           }

@@ -50,6 +50,11 @@ struct PlotterAppUIProjection: Sendable {
 }
 
 enum PlotterAppUIActionID {
+  static let reidentifyPenCapRequest = PlotterLearningActionRequest(
+    item: .init(rawValue: "\(LearningPathItemID.humanGuidedDiscovery(.penInteraction).number)-\(LearningPathItemID.humanGuidedDiscovery(.penInteraction).title)"),
+    action: .reidentifyPenCap
+  )
+  static let reidentifyPenCap = PlotterUIActionID(learningRequest: reidentifyPenCapRequest)
   static let learningMode = PlotterUIActionID(rawValue: "learning.mode")
   static let manualXNegative = PlotterUIActionID(rawValue: "manual.jog.x-negative")
   static let manualXPositive = PlotterUIActionID(rawValue: "manual.jog.x-positive")

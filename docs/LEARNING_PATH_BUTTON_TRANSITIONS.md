@@ -285,7 +285,12 @@ physical actions.
 
 Camera-calibration failure detail is rendered in the selected exercise, including
 **Cap tracking lost** when the selected visual reference cannot be matched. The existing
-retry action captures a fresh reference frame and pose. **Reset All Learning**
+retry action captures a fresh reference frame and pose. **Learning Path Actions →
+Reidentify Pen Cap** freezes a fresh frame for a reference rectangle and anchor.
+It retains pen actuation, X/Y boundaries and center evidence without machine commands.
+Accepting the reference saves that mechanical prefix and invalidates only camera/cap
+and downstream tip/drawing calibration; cancellation or failure preserves prior authority.
+**Reset All Learning**
 clears the current source's cap appearance as well as accepted Learning, returns
 to **Identify Pen Cap**, and preserves controller, camera selection, and Motion
 authorization. Enabled Video overlays expose their analysis status.
