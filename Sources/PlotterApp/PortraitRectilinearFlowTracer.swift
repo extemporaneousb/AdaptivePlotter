@@ -13,12 +13,16 @@ enum PortraitRectilinearFlowTracer {
 
   static func trace(seed: CGPoint, tangent: CGPoint, width: Int, height: Int,
     minimumLength: Double, spacing: (CGPoint) -> Double,
-    luminance: (CGPoint) -> Double, intersects: (CGPoint, Double) -> Bool
+    luminance: (CGPoint) -> Double, intersects: (CGPoint, Double) -> Bool,
+    support: ((CGPoint) -> Double)? = nil, minimumSupport: Double = 0,
+    maximumUnsupportedLength: Double = 0
   ) throws -> Result? {
     try Task.checkCancellation()
     guard width >= 4, height >= 4, width <= 512, height <= 512,
       seed.x.isFinite, seed.y.isFinite, tangent.x.isFinite, tangent.y.isFinite,
-      minimumLength.isFinite, minimumLength >= 0 else { return nil }
+      minimumLength.isFinite, minimumLength >= 0,
+      minimumSupport.isFinite, minimumSupport >= 0,
+      maximumUnsupportedLength.isFinite, maximumUnsupportedLength >= 0 else { return nil }
     // A line field has no sign. Opposite tangents produce identical geometry;
     // the exact diagonal tie uses the horizontal axis deterministically.
     let horizontal = abs(tangent.x) >= abs(tangent.y)
@@ -33,15 +37,29 @@ enum PortraitRectilinearFlowTracer {
       return radius
     }
     guard let seedRadius = acceptedRadius(at: seed) else { return nil }
+    if let support, support(seed) < minimumSupport { return nil }
     func extend(sign: Double) throws -> (points: [CGPoint], radii: [Double]) {
       var points: [CGPoint] = [], radii: [Double] = []
+      var unsupportedLength = 0.0, supportedCount = 0
       for index in 1...maximumSteps {
         if index.isMultiple(of: 32) { try Task.checkCancellation() }
         let offset = sign * Double(index) * step
         let point = CGPoint(x: seed.x + (horizontal ? offset : 0),
           y: seed.y + (horizontal ? 0 : offset))
         guard let radius = acceptedRadius(at: point) else { break }
+        if let support {
+          let confidence = support(point)
+          guard confidence.isFinite else { break }
+          if confidence >= minimumSupport { unsupportedLength = 0; supportedCount = points.count + 1 }
+          else { unsupportedLength += step }
+          if unsupportedLength > maximumUnsupportedLength { break }
+        }
         points.append(point); radii.append(radius)
+      }
+      // Brief weak gaps may bridge supported portions. A weak tail cannot
+      // become an extrapolated line into empty space.
+      if support != nil, supportedCount < points.count {
+        points.removeSubrange(supportedCount...); radii.removeSubrange(supportedCount...)
       }
       return (points, radii)
     }

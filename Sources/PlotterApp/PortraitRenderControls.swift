@@ -24,7 +24,7 @@ struct PortraitRenderControls: View {
         Text(model.style.rawValue).font(.headline)
         Spacer()
         StudioHelpButton("Style adjustments", text: model.style == .flowEdges
-          ? "Flow Edge preserves feature curves while shading with organic curves, straight horizontal or vertical lines, or a mixture. Mixed lines share one spacing budget. Coherence guides direction; tone density adds shading without changing structural evidence. Presets do not change pen width or line form."
+          ? "Flow Edge combines feature curves with organic or rectilinear shading. Tone support varies how much image evidence shading needs. Contour persistence varies which feature curves survive across scales. Evidence scale shifts that support from fine to broad features. Seed irregularity varies regular placement. Zero keeps the original behavior. Detail presets retain these choices and pen width."
           : "These parameters change the selected rendering algorithm. Pixels refer to the analyzed image. Longer minimum contours and fewer tonal levels reduce detail and ink density. Presets do not change the pen width.")
       }
       HStack(spacing: 5) {
@@ -35,6 +35,10 @@ struct PortraitRenderControls: View {
             var options = preset.options(for: model.style)
             options.materialContext = model.vectorOptions.materialContext
             options.flowRectilinearity = model.vectorOptions.flowRectilinearity
+            options.flowSupport = model.vectorOptions.flowSupport
+            options.flowStructureSupport = model.vectorOptions.flowStructureSupport
+            options.flowSupportScale = model.vectorOptions.flowSupportScale
+            options.flowSeedIrregularity = model.vectorOptions.flowSeedIrregularity
             model.vectorOptions = options
           }
           .accessibilityIdentifier("portrait.preset.\(preset.rawValue)")
@@ -79,10 +83,27 @@ struct PortraitRenderControls: View {
         PortraitAdjustmentSlider("Edge threshold", value: $model.vectorOptions.sketchThreshold,
           range: 0.002...0.08, step: 0.002, unit: "", precision: 3)
       }
+      if model.style == .flowEdges {
+        Divider().padding(.vertical, 2)
+        PortraitAdjustmentSlider("Tone support", value: flowBinding(\.flowSupport),
+          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSupport")
+        PortraitAdjustmentSlider("Contour persistence", value: flowBinding(\.flowStructureSupport),
+          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowStructureSupport")
+        PortraitAdjustmentSlider("Evidence scale", value: flowBinding(\.flowSupportScale),
+          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSupportScale")
+          .disabled((model.vectorOptions.flowSupport ?? 0) == 0 && (model.vectorOptions.flowStructureSupport ?? 0) == 0)
+        PortraitAdjustmentSlider("Seed irregularity", value: flowBinding(\.flowSeedIrregularity),
+          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSeedIrregularity")
+      }
     }
     .controlSize(.small)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("portrait.adjustments")
+  }
+
+  private func flowBinding(_ keyPath: WritableKeyPath<PortraitVectorOptions, Double?>) -> Binding<Double> {
+    Binding(get: { model.vectorOptions[keyPath: keyPath] ?? 0 },
+      set: { model.vectorOptions[keyPath: keyPath] = PortraitVectorOptions.flowAmount($0) })
   }
 }
 

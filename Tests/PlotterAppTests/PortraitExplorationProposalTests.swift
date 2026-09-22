@@ -100,7 +100,7 @@ struct PortraitExplorationProposalTests {
     var vectors = PortraitVectorOptions.flowDefaults
     vectors.hatchSpacing = 3
     let center = try fixture(style: .flowEdges, vectors: vectors)
-    var direction = [Double](repeating: 0, count: 9)
+    var direction = [Double](repeating: 0, count: PortraitExplorationPolicy.coordinates(vectors).count)
     direction[5] = -1
     for seed in UInt64(0)..<32 {
       let recipe = PortraitExplorationPolicy.recipes(around: center, variation: 0.12,
@@ -124,7 +124,7 @@ struct PortraitExplorationProposalTests {
     #expect(spacingMove.vectorOptions.materialContext == material)
   }
 
-  @Test("Flow line-form proposals use visible picker modes and recovery changes an ineffective axis")
+  @Test("Flow line-form proposals use visible picker modes and recovery changes effective geometry controls")
   func lineFormModes() throws {
     for mode in [0.0, 0.5, 1.0] {
       var vectors = PortraitVectorOptions.flowDefaults
@@ -135,8 +135,145 @@ struct PortraitExplorationProposalTests {
         #expect(recipes.flatMap { $0 }.allSatisfy { [0.0, 0.5, 1.0].contains($0.vectorOptions.flowRectilinearity ?? 0) })
         let recovery = PortraitExplorationPolicy.recoveryRecipe(around: center, failed: center.recipe,
           rejection: .similarGeometry, neighbor: 0, seed: seed, variation: 0.12)
-        #expect(recovery.vectorOptions.flowRectilinearity != vectors.flowRectilinearity)
+        #expect(PortraitExplorationPolicy.effectiveOptions(recovery.vectorOptions, center: center)
+          != PortraitExplorationPolicy.effectiveOptions(vectors, center: center))
       }
+    }
+  }
+
+  @Test("Flow support controls are bounded, deterministic and all reachable without changing legacy styles")
+  func flowSupportDimensions() throws {
+    let fields: [WritableKeyPath<PortraitVectorOptions, Double?>] = [
+      \.flowSupport, \.flowStructureSupport, \.flowSupportScale, \.flowSeedIrregularity,
+    ]
+    var vectors = PortraitVectorOptions.flowDefaults
+    vectors.flowSupport = 0.4
+    vectors.flowStructureSupport = 0.3
+    vectors.flowSupportScale = 0.5
+    vectors.flowSeedIrregularity = 0.4
+    let center = try fixture(style: .flowEdges, vectors: vectors)
+    var reached = Set<Int>()
+    for seed in UInt64(0)..<64 {
+      let recipes = PortraitExplorationPolicy.recipes(around: center, variation: 0.35, seed: seed)
+      #expect(recipes == PortraitExplorationPolicy.recipes(around: center, variation: 0.35, seed: seed))
+      #expect(recipes.count == 2)
+      #expect(recipes.allSatisfy { $0.count == 2 })
+      for recipe in recipes.flatMap({ $0 }) {
+        #expect(recipe.style == center.recipe.style)
+        #expect(recipe.analysisOptions == center.recipe.analysisOptions)
+        #expect(recipe.vectorOptions == recipe.vectorOptions.bounded)
+        for (index, field) in fields.enumerated() {
+          if let value = recipe.vectorOptions[keyPath: field] { #expect(value.isFinite && (0...1).contains(value)) }
+          if recipe.vectorOptions[keyPath: field] != vectors[keyPath: field] { reached.insert(index) }
+        }
+      }
+    }
+    #expect(reached == Set(0..<4))
+    for style in PortraitStyle.legacyCases {
+      let legacy = try fixture(style: style, vectors: vectors)
+      for recipe in PortraitExplorationPolicy.recipes(around: legacy, variation: 0.75, seed: 51).flatMap({ $0 }) {
+        for field in fields { #expect(recipe.vectorOptions[keyPath: field] == vectors[keyPath: field]) }
+      }
+    }
+  }
+
+  @Test("Disabled support scale is remembered in recipes but ignored by effective deduplication and preference direction")
+  func disabledSupportScale() throws {
+    var low = PortraitVectorOptions.flowDefaults; low.flowSupportScale = 0.2
+    var high = low; high.flowSupportScale = 0.9
+    let center = try fixture(style: .flowEdges, vectors: low)
+    #expect(PortraitExplorationPolicy.canonicalOptions(high, style: .flowEdges).flowSupportScale == 0.9)
+    #expect(PortraitExplorationPolicy.effectiveOptions(low, center: center)
+      == PortraitExplorationPolicy.effectiveOptions(high, center: center))
+    #expect(PortraitExplorationPolicy.coordinates(low) == PortraitExplorationPolicy.coordinates(high))
+    var search = PortraitExplorationSearchState()
+    search.prefer(high, over: low)
+    #expect(search.direction == nil)
+    for seed in UInt64(0)..<32 {
+      for recipe in PortraitExplorationPolicy.recipes(around: center, variation: 0.35, seed: seed).flatMap({ $0 }) {
+        #expect(recipe.vectorOptions.flowSupportScale == 0.2)
+      }
+    }
+    let supports: [WritableKeyPath<PortraitVectorOptions, Double?>] = [\.flowSupport, \.flowStructureSupport]
+    for field in supports {
+      var enabledLow = low, enabledHigh = high
+      enabledLow[keyPath: field] = 0.5; enabledHigh[keyPath: field] = 0.5
+      #expect(PortraitExplorationPolicy.effectiveOptions(enabledLow, center: center)
+        != PortraitExplorationPolicy.effectiveOptions(enabledHigh, center: center))
+      #expect(PortraitExplorationPolicy.coordinates(enabledLow) != PortraitExplorationPolicy.coordinates(enabledHigh))
+    }
+  }
+
+  @Test("Bounded Flow proposals are disjoint from the center and each other even at material and parameter boundaries")
+  func disjointFlowProposals() throws {
+    let material = try PortraitMaterialContext(
+      profile: .init(name: "Clamped proposal material", nominalWidthMM: 5), drawingHeightMM: 2)
+    for upper in [false, true] {
+      var vectors = PortraitVectorOptions.flowDefaults
+      vectors.materialContext = material
+      vectors.tonalStrength = upper ? 2 : 0.4
+      vectors.smoothing = upper ? 4 : 0
+      vectors.flowRectilinearity = upper ? 1 : nil
+      vectors.flowSupport = upper ? 1 : nil
+      vectors.flowStructureSupport = upper ? 1 : nil
+      vectors.flowSupportScale = upper ? 1 : nil
+      vectors.flowSeedIrregularity = upper ? 1 : nil
+      let center = try fixture(style: .flowEdges, vectors: vectors)
+      for seed in UInt64(0)..<32 {
+        let recipes = PortraitExplorationPolicy.recipes(around: center, variation: 0.12, seed: seed).flatMap { $0 }
+        let effective = recipes.map { PortraitExplorationPolicy.effectiveOptions($0.vectorOptions, center: center) }
+        #expect(Set(effective).count == 4)
+        #expect(!effective.contains(PortraitExplorationPolicy.effectiveOptions(vectors, center: center)))
+        #expect(recipes.allSatisfy { $0.vectorOptions.materialContext == material })
+      }
+    }
+  }
+
+  @Test("Recovery varies with seed and trust step and excludes failed, queued and sibling configurations")
+  func diverseRecovery() throws {
+    let center = try fixture(style: .flowEdges, vectors: .flowDefaults)
+    let initial = PortraitExplorationPolicy.recipes(around: center, variation: 0.35, seed: 91).flatMap { $0 }
+    let failed = initial[0]
+    var narrow = Set<PortraitVectorOptions>(), broad = Set<PortraitVectorOptions>()
+    for seed in UInt64(0)..<32 {
+      var excluded = Set(initial.map { PortraitExplorationPolicy.effectiveOptions($0.vectorOptions, center: center) })
+      excluded.insert(PortraitExplorationPolicy.effectiveOptions(center.recipe.vectorOptions, center: center))
+      for neighbor in 0..<2 {
+        let recipe = PortraitExplorationPolicy.recoveryRecipe(around: center, failed: failed,
+          rejection: .similarGeometry, neighbor: neighbor, seed: seed, variation: 0.12, excluding: excluded)
+        #expect(recipe == PortraitExplorationPolicy.recoveryRecipe(around: center, failed: failed,
+          rejection: .similarGeometry, neighbor: neighbor, seed: seed, variation: 0.12, excluding: excluded))
+        let effective = PortraitExplorationPolicy.effectiveOptions(recipe.vectorOptions, center: center)
+        #expect(!excluded.contains(effective))
+        excluded.insert(effective); narrow.insert(effective)
+        let larger = PortraitExplorationPolicy.recoveryRecipe(around: center, failed: failed,
+          rejection: .similarGeometry, neighbor: neighbor, seed: seed, variation: 0.75)
+        broad.insert(PortraitExplorationPolicy.effectiveOptions(larger.vectorOptions, center: center))
+      }
+    }
+    #expect(narrow.count >= 12)
+    #expect(broad.count >= 12)
+    #expect(narrow != broad)
+    #expect(PortraitExplorationPolicy.maximumAttemptsPerSlot * PortraitExplorationPolicy.neighborIndices.count == 4)
+  }
+
+  @Test("Recovery first leaves the failed axis and no-lines recovery does not discard additional edge evidence")
+  func recoveryDirection() throws {
+    let center = try fixture(style: .flowEdges, vectors: .flowDefaults)
+    var failedOptions = center.recipe.vectorOptions
+    failedOptions.tonalStrength = 1.3
+    let failed = PortraitStyleRecipe(id: "failed-tone", title: "Failed tone", seed: 1, style: .flowEdges,
+      vectorOptions: failedOptions, analysisOptions: center.recipe.analysisOptions)
+    for seed in UInt64(0)..<32 {
+      let recovery = PortraitExplorationPolicy.recoveryRecipe(around: center, failed: failed,
+        rejection: .similarGeometry, neighbor: 0, seed: seed, variation: 0.35)
+      #expect(recovery.vectorOptions.tonalStrength == center.recipe.vectorOptions.tonalStrength)
+      #expect(PortraitExplorationPolicy.effectiveOptions(recovery.vectorOptions, center: center)
+        != PortraitExplorationPolicy.effectiveOptions(center.recipe.vectorOptions, center: center))
+      let moreEvidence = PortraitExplorationPolicy.recoveryRecipe(around: center, failed: failed,
+        rejection: .noLines, neighbor: 0, seed: seed, variation: 0.35)
+      #expect(moreEvidence.vectorOptions.sketchThreshold <= center.recipe.vectorOptions.sketchThreshold)
+      #expect(moreEvidence.vectorOptions.minimumContourLength <= center.recipe.vectorOptions.minimumContourLength)
     }
   }
 
@@ -188,7 +325,7 @@ struct PortraitExplorationProposalTests {
     #expect(original.isMeaningfullyDifferent(from: visible))
   }
 
-  @Test("v1 nine-slot and v2 three-slot receipts decode while unknown revisions fail")
+  @Test("v1 nine-slot and v2/v3 three-slot receipts decode while unknown revisions fail")
   func legacyReceiptCompatibility() throws {
     let center = try fixture()
     let round = PortraitExplorationRound(id: UUID(), seed: 7, variation: 0.35,
@@ -199,10 +336,12 @@ struct PortraitExplorationProposalTests {
     let record = PortraitExplorationRecord(round: round, action: .selected(index: 1),
       traceSessionID: UUID(), sequence: 0)
     var object = try #require(JSONSerialization.jsonObject(with: PortraitCandidateCoding.encoder().encode(record)) as? [String: Any])
-    object["policyRevision"] = "portrait-preference-v2"
-    let v2 = try JSONDecoder().decode(PortraitExplorationRecord.self,
-      from: JSONSerialization.data(withJSONObject: object))
-    try PortraitExplorationRecord.validate([v2], for: center)
+    for revision in ["portrait-preference-v2", "portrait-preference-v3", PortraitExplorationPolicy.revision] {
+      object["policyRevision"] = revision
+      let retained = try JSONDecoder().decode(PortraitExplorationRecord.self,
+        from: JSONSerialization.data(withJSONObject: object))
+      try PortraitExplorationRecord.validate([retained], for: center)
+    }
     let offers = try #require(object["offers"] as? [[String: Any]])
     object["policyRevision"] = "portrait-neighborhood-v1"
     object["offers"] = (0..<9).map { index -> [String: Any] in

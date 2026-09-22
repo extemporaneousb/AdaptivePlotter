@@ -85,6 +85,21 @@ struct PortraitStudioWorkspaceLayoutTests {
           let index = try #require(PortraitStyle.authoringCases.firstIndex(of: style))
           try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: directory)
             .appendingPathComponent("studio-\(Int(size.width))-style-\(index)-\(expanded ? "expanded" : "folded")-details-\(detailsExpanded ? "open" : "closed").png"))
+          if detailsExpanded, style == .flowEdges {
+            for scroll in inspectorScrolls {
+              guard let document = scroll.documentView else { continue }
+              let y = document.isFlipped
+                ? max(0, document.bounds.height - scroll.contentView.bounds.height) : 0
+              scroll.contentView.scroll(to: CGPoint(x: 0, y: y))
+              scroll.reflectScrolledClipView(scroll.contentView)
+            }
+            try await settle(host.view)
+            let lowerBitmap = try #require(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
+            host.view.cacheDisplay(in: host.view.bounds, to: lowerBitmap)
+            let lowerImage = try #require(lowerBitmap.cgImage)
+            try PortraitImageAnalyzer.encodedImage(lowerImage).write(to: URL(fileURLWithPath: directory)
+              .appendingPathComponent("studio-\(Int(size.width))-flow-support-\(expanded ? "expanded" : "folded").png"))
+          }
         }
       }
     }

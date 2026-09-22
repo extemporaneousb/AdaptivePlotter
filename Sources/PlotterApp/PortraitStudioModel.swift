@@ -32,12 +32,12 @@ final class PortraitStudioModel {
   var vectorOptions = PortraitVectorOptions.flowDefaults
   let sketches: PortraitSketchCollection
   private(set) var completedCandidate: PortraitCandidate?
-  /// One immutable result per built-in renderer for the same photo and controls.
+  /// Stable style references belong to the source context, independently of the
+  /// currently authored drawing and its preference trajectory.
   private var algorithmResults: [PortraitCandidate] = []
   var algorithmCandidates: [PortraitCandidate] {
-    algorithmResults.filter { $0.photoID == selectedPhotoID
-      && $0.recipe.analysisOptions == options
-      && $0.recipe.vectorOptions.bounded == vectorOptions.bounded }
+    guard let context = comparisonContext, comparisonContextIsCurrent(context) else { return [] }
+    return algorithmResults
   }
   var selectedAlgorithm: PortraitStyle { style }
   private(set) var isStyleComparisonExpanded = false
@@ -45,7 +45,20 @@ final class PortraitStudioModel {
   @ObservationIgnored private var pendingAlgorithms: [PendingRender] = []
   @ObservationIgnored private var activeAlgorithm: PendingRender?
   @ObservationIgnored private var activeAlgorithmWasCancelled = false
-  @ObservationIgnored private var comparisonLineage: PortraitCandidateLineage?
+  private struct ComparisonContextKey: Equatable, Sendable {
+    let photoID: UUID
+    let pose: PortraitPose
+    let analysis: PortraitAnalysisOptions
+    let material: PortraitMaterialContext?
+    let pen: StrokeStyle
+  }
+  private struct ComparisonContext: Sendable {
+    let id: UUID
+    let key: ComparisonContextKey
+    let vectors: PortraitVectorOptions
+    let lineage: PortraitCandidateLineage?
+  }
+  @ObservationIgnored private var comparisonContext: ComparisonContext?
   /// Exact last successful projection; gallery browsing cannot replace this association.
   private(set) var projectedCandidate: PortraitCandidate?
   var selectedCandidate: PortraitCandidate? {
@@ -121,6 +134,7 @@ final class PortraitStudioModel {
     let lineage: PortraitCandidateLineage?
     let ownsSource: Bool
     var exploration: ExplorationJob? = nil
+    var comparisonID: UUID? = nil
   }
   private struct PreparedRender: Sendable {
     let result: PortraitRenderResult
@@ -253,6 +267,7 @@ final class PortraitStudioModel {
     renderWorker?.cancel()
     pendingAlgorithms = []
     algorithmResults = []
+    comparisonContext = nil
     isComparingAlgorithms = false
     requestedKey = nil
     isProcessing = false
@@ -473,6 +488,7 @@ final class PortraitStudioModel {
       $0.recipe.style == algorithm
     }), let key = algorithmKey(for: candidate), key.strokeStyle == strokeStyle else { return }
     invalidateExploration()
+    cancelAuthoringWork()
     installRecipe(candidate.recipe)
     requestedKey = key
     completedKey = key
@@ -502,14 +518,12 @@ final class PortraitStudioModel {
 
   private func algorithmKey(for candidate: PortraitCandidate) -> PortraitRenderCacheKey? {
     // Empty renderings still carry their requested pen in the comparison key.
-    guard let pen = comparisonPen else { return nil }
+    guard let pen = comparisonContext?.key.pen else { return nil }
     return .init(photoID: candidate.photoID,
       configuration: .init(style: candidate.recipe.style,
         vectors: candidate.recipe.vectorOptions.bounded, analysis: candidate.recipe.analysisOptions),
       strokeStyle: pen)
   }
-
-  @ObservationIgnored private var comparisonPen: StrokeStyle?
 
   private(set) var explorationRound: PortraitExplorationRound?
   private(set) var explorationSearch = PortraitExplorationSearchState()
@@ -635,22 +649,17 @@ final class PortraitStudioModel {
       configuration: renderConfiguration, strokeStyle: pen)
     requestedKey = key; completedKey = key; completedCandidate = candidate
     program = candidate.program; isProcessing = false; authoringError = nil
-    comparisonPen = pen
-    algorithmResults.removeAll { $0.recipe.vectorOptions.bounded != vectorOptions.bounded
-      || $0.recipe.analysisOptions != options || $0.recipe.style == candidate.recipe.style }
-    algorithmResults.append(candidate)
-    pendingAlgorithms.removeAll { $0.exploration == nil
-      && ($0.key.configuration.vectors != vectorOptions.bounded || $0.key.configuration.analysis != options) }
-    if let activeAlgorithm, activeAlgorithm.exploration == nil,
-      activeAlgorithm.key.configuration.vectors != vectorOptions.bounded
-        || activeAlgorithm.key.configuration.analysis != options {
+    cancelAuthoringWork()
+    summary = "\(candidate.program.strokes.count) strokes"
+  }
+
+  /// A trajectory change owns only the authored drawing. Style reference jobs
+  /// retain their independent context and their place in the same serial drain.
+  private func cancelAuthoringWork() {
+    pendingAlgorithms.removeAll { $0.exploration == nil && $0.comparisonID == nil }
+    if let activeAlgorithm, activeAlgorithm.exploration == nil, activeAlgorithm.comparisonID == nil {
       activeAlgorithmWasCancelled = true
       renderWorker?.cancel()
-    }
-    summary = "\(candidate.program.strokes.count) strokes"
-    if isStyleComparisonExpanded, let photo = selectedSource {
-      queueAlgorithmComparison(photo: photo, strokeStyle: pen, exactRaster: candidate.raster,
-        lineage: candidate.lineage)
     }
   }
 
@@ -730,7 +739,8 @@ final class PortraitStudioModel {
     guard builder.configurations.insert(effective).inserted else {
       rejected(.duplicateConfiguration)
       let recovery = PortraitExplorationPolicy.recoveryRecipe(around: builder.center, failed: recipe,
-        rejection: .duplicateConfiguration, neighbor: neighbor, seed: builder.seed, variation: builder.variation)
+        rejection: .duplicateConfiguration, neighbor: neighbor, seed: builder.seed, variation: builder.variation,
+        excluding: builder.configurations)
       queueExplorationJob(roundID: roundID, neighbor: neighbor, attempt: attempt + 1, recipeOverride: recovery,
         failureReason: failureReason, failureKind: failureKind)
       return
@@ -797,7 +807,8 @@ final class PortraitStudioModel {
         failureKind: rejection == .renderFailure ? .generationFailed : .searchExhausted)
     } else {
       let recipe = PortraitExplorationPolicy.recoveryRecipe(around: builder.center, failed: pending.recipe,
-        rejection: rejection, neighbor: job.neighbor, seed: builder.seed, variation: builder.variation)
+        rejection: rejection, neighbor: job.neighbor, seed: builder.seed, variation: builder.variation,
+        excluding: builder.configurations)
       queueExplorationJob(roundID: job.roundID, neighbor: job.neighbor, attempt: job.attempt + 1, recipeOverride: recipe,
         failureReason: failure, failureKind: rejection == .renderFailure ? .generationFailed : .searchExhausted)
     }
@@ -878,20 +889,49 @@ final class PortraitStudioModel {
   }
 
 
-  /// The Styles disclosure owns demand for alternatives. Folding it never
-  /// interrupts the selected drawing, even when that drawing is still rendering.
+  private func comparisonContextIsCurrent(_ context: ComparisonContext) -> Bool {
+    context.key.photoID == selectedPhotoID && context.key.pose == selectedSource?.pose
+      && context.key.analysis == options && context.key.material == vectorOptions.materialContext
+  }
+
+  private func establishComparisonContext(photo: PortraitPhoto, pen: StrokeStyle,
+    lineage: PortraitCandidateLineage?) {
+    let key = ComparisonContextKey(photoID: photo.id, pose: photo.pose, analysis: options,
+      material: vectorOptions.materialContext, pen: pen)
+    guard comparisonContext?.key != key else { return }
+    comparisonContext = .init(id: UUID(), key: key, vectors: vectorOptions.bounded, lineage: lineage)
+    algorithmResults = []
+    pendingAlgorithms.removeAll { $0.comparisonID != nil }
+    if activeAlgorithm?.comparisonID != nil {
+      activeAlgorithmWasCancelled = true
+      renderWorker?.cancel()
+    }
+  }
+
+  private func workIsApplicable(_ pending: PendingRender) -> Bool {
+    guard !isShutdown, pending.key.photoID == selectedPhotoID,
+      pending.ownsSource || recentPhotos.contains(where: { $0.id == pending.key.photoID }) else { return false }
+    if let id = pending.comparisonID {
+      guard let context = comparisonContext, id == context.id,
+        comparisonContextIsCurrent(context) else { return false }
+      return isStyleComparisonExpanded
+    }
+    return pending.revision == renderRevision
+  }
+
+  /// Folding cancels only unfinished style-reference demand. The selected drawing
+  /// and completed reference objects retain their own identities.
   func setStyleComparisonExpanded(_ expanded: Bool, strokeStyle: StrokeStyle) {
     guard !isShutdown, expanded != isStyleComparisonExpanded else { return }
     isStyleComparisonExpanded = expanded
     if expanded {
       renderIfNeeded(strokeStyle: strokeStyle)
       if let photo = selectedSource, requestedKey != nil {
-        queueAlgorithmComparison(photo: photo, strokeStyle: strokeStyle,
-          exactRaster: nil, lineage: comparisonLineage)
+        queueAlgorithmComparison(photo: photo, strokeStyle: strokeStyle, exactRaster: nil, lineage: nil)
       }
     } else {
-      pendingAlgorithms.removeAll { $0.exploration == nil && $0.key != requestedKey }
-      if let activeAlgorithm, activeAlgorithm.exploration == nil, activeAlgorithm.key != requestedKey {
+      pendingAlgorithms.removeAll { $0.comparisonID != nil }
+      if let activeAlgorithm, activeAlgorithm.comparisonID != nil {
         activeAlgorithmWasCancelled = true
         renderWorker?.cancel()
       }
@@ -900,75 +940,75 @@ final class PortraitStudioModel {
   }
 
   private func updateComparisonProgress() {
+    guard let context = comparisonContext else { isComparingAlgorithms = false; return }
     isComparingAlgorithms = isStyleComparisonExpanded && (
-      pendingAlgorithms.contains { $0.exploration == nil && $0.revision == renderRevision }
-        || (activeAlgorithm?.exploration == nil && activeAlgorithm?.revision == renderRevision && !activeAlgorithmWasCancelled))
+      pendingAlgorithms.contains { $0.comparisonID == context.id && workIsApplicable($0) }
+        || (activeAlgorithm.map { $0.comparisonID == context.id && workIsApplicable($0) } == true
+          && !activeAlgorithmWasCancelled))
   }
 
   private func queueAlgorithmComparison(photo: PortraitPhoto, strokeStyle: StrokeStyle,
-    exactRaster: PortraitRaster?, lineage: PortraitCandidateLineage?) {
-    comparisonPen = strokeStyle
-    // Render the current selection first; present the completed tiles in the
-    // stable enum order only while the operator requests alternatives.
-    // Explicit material adaptation can still reproduce a retained legacy style.
-    // Automatically offered alternatives use only current authoring algorithms.
-    let order = [style] + (isStyleComparisonExpanded ? PortraitStyle.authoringCases.filter { $0 != style } : [])
-    for algorithm in order {
+    exactRaster: PortraitRaster?, lineage: PortraitCandidateLineage?, includeSelected: Bool = false) {
+    guard let context = comparisonContext, comparisonContextIsCurrent(context),
+      context.key.pen == strokeStyle else { return }
+    func enqueue(_ algorithm: PortraitStyle, vectors: PortraitVectorOptions,
+      lineage: PortraitCandidateLineage?, comparisonID: UUID?) {
       let recipe = PortraitStyleRecipe(id: "algorithm-\(algorithm.rawValue)",
         title: algorithm.rawValue, seed: 0, style: algorithm,
-        vectorOptions: vectorOptions.bounded, analysisOptions: options)
+        vectorOptions: vectors, analysisOptions: context.key.analysis)
       let key = PortraitRenderCacheKey(photoID: photo.id,
-        configuration: .init(style: algorithm, vectors: recipe.vectorOptions,
-          analysis: recipe.analysisOptions), strokeStyle: strokeStyle)
-      // Opening the disclosure preserves exact completed candidates and any
-      // selected work already in flight. A cancelled worker is never reused.
-      if algorithmResults.contains(where: { algorithmKey(for: $0) == key })
-        || pendingAlgorithms.contains(where: { $0.revision == renderRevision && $0.key == key })
-        || (activeAlgorithm?.revision == renderRevision && activeAlgorithm?.key == key
-          && !activeAlgorithmWasCancelled) { continue }
-      // Cached geometry still needs source hashing and preview preparation.
-      // Keep that work inside the same cancellable, serial worker as rendering.
-      pendingAlgorithms.append(PendingRender(revision: renderRevision, key: key,
+        configuration: .init(style: algorithm, vectors: vectors, analysis: recipe.analysisOptions),
+        strokeStyle: strokeStyle)
+      if comparisonID != nil, algorithmResults.contains(where: { algorithmKey(for: $0) == key }) { return }
+      func satisfiesRequest(_ pending: PendingRender) -> Bool {
+        pending.key == key && workIsApplicable(pending) && pending.lineage == lineage
+          && (comparisonID != nil || pending.comparisonID == nil)
+      }
+      if pendingAlgorithms.contains(where: satisfiesRequest)
+        || (activeAlgorithm.map(satisfiesRequest) == true
+          && !activeAlgorithmWasCancelled) { return }
+      let pending = PendingRender(revision: renderRevision, key: key,
         request: .init(data: photo.data, pose: photo.pose, style: algorithm,
-          options: options, cachedRaster: exactRaster.flatMap { raster in
-            PortraitImageAnalyzer.analysisMaximumDimension(for: algorithm)
-              == PortraitImageAnalyzer.analysisMaximumDimension(for: style) ? raster : nil
-          }, strokeStyle: strokeStyle,
-          vectorOptions: recipe.vectorOptions, sourcePixelExtent: photo.sourcePixelExtent),
+          options: recipe.analysisOptions, cachedRaster: exactRaster.flatMap { raster in
+            PortraitImageAnalyzer.cachedRasterIsCompatible(raster, with: algorithm) ? raster : nil
+          }, strokeStyle: strokeStyle, vectorOptions: vectors, sourcePixelExtent: photo.sourcePixelExtent),
         photo: photo, recipe: recipe, lineage: lineage,
-        ownsSource: retainedEditSource?.id == photo.id))
+        ownsSource: retainedEditSource?.id == photo.id, comparisonID: comparisonID)
+      if comparisonID == nil { pendingAlgorithms.insert(pending, at: 0) }
+      else { pendingAlgorithms.append(pending) }
+    }
+    // Selected authoring can reproduce a retained legacy style. Automatically
+    // offered reference tiles are limited to current authoring algorithms.
+    if includeSelected { enqueue(style, vectors: vectorOptions.bounded, lineage: lineage, comparisonID: nil) }
+    if isStyleComparisonExpanded {
+      for algorithm in PortraitStyle.authoringCases {
+        enqueue(algorithm, vectors: context.vectors, lineage: context.lineage, comparisonID: context.id)
+      }
     }
     updateComparisonProgress()
     if !pendingAlgorithms.isEmpty { startWorkIfNeeded() }
   }
 
-  private func publishAlgorithm(_ result: PortraitRenderResult, key: PortraitRenderCacheKey,
-    photo: PortraitPhoto, recipe: PortraitStyleRecipe, lineage: PortraitCandidateLineage?,
-    prepared: PreparedRender? = nil) {
-    do {
-      let candidate = try prepared?.candidate ?? PortraitCandidate(sourceData: photo.data,
-        sourcePixelExtent: photo.sourcePixelExtent, raster: result.raster, recipe: recipe,
-        program: result.program, photoID: photo.id, captureSessionID: photo.captureSessionID,
-        lineage: lineage, pose: photo.pose, warpManifest: result.warpManifest)
-      if let prepared { rememberGeometry(prepared.geometry, program: candidate.program) }
-      algorithmResults.removeAll { $0.recipe.style == recipe.style }
+  private func publishAlgorithm(_ prepared: PreparedRender, pending: PendingRender) {
+    let candidate = prepared.candidate
+    rememberGeometry(prepared.geometry, program: candidate.program)
+    if let context = comparisonContext, comparisonContextIsCurrent(context),
+      pending.key.strokeStyle == context.key.pen,
+      candidate.recipe.vectorOptions.bounded == context.vectors, pending.lineage == context.lineage,
+      !algorithmResults.contains(where: { $0.recipe.style == candidate.recipe.style }) {
       algorithmResults.append(candidate)
       algorithmResults.sort {
         PortraitStyle.allCases.firstIndex(of: $0.recipe.style)!
           < PortraitStyle.allCases.firstIndex(of: $1.recipe.style)!
       }
-      if key == requestedKey {
-        completedCandidate = candidate
-        completedKey = key
-        program = result.program
-        summary = "\(result.program.strokes.count) strokes"
-        isProcessing = false
-        beginExplorationIfNeeded()
-      }
-    } catch {
-      summary = error.localizedDescription
-      authoringError = error.localizedDescription
-      if key == requestedKey { isProcessing = false }
+    }
+    if pending.comparisonID == nil, pending.revision == renderRevision, pending.key == requestedKey {
+      completedCandidate = candidate
+      completedKey = pending.key
+      program = prepared.result.program
+      summary = "\(candidate.program.strokes.count) strokes"
+      isProcessing = false
+      beginExplorationIfNeeded()
     }
   }
 
@@ -981,15 +1021,18 @@ final class PortraitStudioModel {
     vectorOptions.semanticHead = nil
     sketches.selectedID = nil
     renderRevision &+= 1
-    renderWorker?.cancel()
-    pendingAlgorithms = []
-    algorithmResults = []
-    isComparingAlgorithms = false
+    cancelAuthoringWork()
     program = nil
     completedKey = nil
     requestedKey = nil
     guard let photo = selectedSource else {
+      comparisonContext = nil
+      algorithmResults = []
+      pendingAlgorithms = []
+      activeAlgorithmWasCancelled = true
+      renderWorker?.cancel()
       completedCandidate = nil
+      isComparingAlgorithms = false
       isProcessing = false
       summary = "Capture a portrait or choose a photo."
       return
@@ -999,15 +1042,16 @@ final class PortraitStudioModel {
     let lineage = parent.map { PortraitCandidateLineage(parentID: $0.id,
       parentProgramHash: $0.program.contentHash.description, parentRecipe: $0.recipe,
       ancestryGroupID: $0.lineage.ancestryGroupID) }
-    comparisonLineage = lineage
+    establishComparisonContext(photo: photo, pen: strokeStyle, lineage: lineage)
     queueAlgorithmComparison(photo: photo, strokeStyle: strokeStyle,
-      exactRaster: exactRaster, lineage: lineage)
+      exactRaster: exactRaster, lineage: lineage, includeSelected: true)
   }
 
   private func drainRenders() async {
     while pendingAcquisition == nil, !isShutdown {
       guard !pendingAlgorithms.isEmpty else { break }
       let pending = pendingAlgorithms.removeFirst()
+      guard workIsApplicable(pending) else { continue }
       let cachedResult = cache.result(for: pending.key)
       if cachedResult != nil { renderCacheHits += 1 }
       // Render the selected algorithm first and reuse its exact analysis.
@@ -1055,28 +1099,24 @@ final class PortraitStudioModel {
       do {
         let prepared = try await worker.value
         let result = prepared.result
-        guard !activeAlgorithmWasCancelled,
-          pending.exploration != nil || isStyleComparisonExpanded || pending.key == requestedKey,
-          pending.revision == renderRevision, selectedPhotoID == pending.key.photoID,
-          (pending.ownsSource || recentPhotos.contains(where: { $0.id == pending.key.photoID })), !isShutdown else { continue }
+        guard !activeAlgorithmWasCancelled, workIsApplicable(pending) else { continue }
         cache.insert(result, for: pending.key)
         if let job = pending.exploration {
           await finishExplorationJob(job, pending: pending, result: result, error: nil, preparedResult: prepared)
         } else {
-          publishAlgorithm(result, key: pending.key, photo: pending.photo,
-            recipe: pending.recipe, lineage: pending.lineage, prepared: prepared)
+          publishAlgorithm(prepared, pending: pending)
         }
       } catch {
-        guard !activeAlgorithmWasCancelled, pending.revision == renderRevision, !isShutdown else { continue }
+        guard !activeAlgorithmWasCancelled, workIsApplicable(pending) else { continue }
         if let job = pending.exploration {
           await finishExplorationJob(job, pending: pending, result: nil, error: error)
           continue
         }
-        if !(error is CancellationError) {
-          summary = error.localizedDescription
-          authoringError = error.localizedDescription
-        }
-        if pending.key == requestedKey {
+        if pending.comparisonID == nil, pending.revision == renderRevision, pending.key == requestedKey {
+          if !(error is CancellationError) {
+            summary = error.localizedDescription
+            authoringError = error.localizedDescription
+          }
           isProcessing = false
           requestedKey = nil
         }
@@ -1188,6 +1228,9 @@ final class PortraitStudioModel {
     isComparingAlgorithms = false
     requestedKey = currentProgram == nil ? nil : completedKey
     isProcessing = false
+    // Reference work deliberately outlives authoring revisions. A global stop
+    // must invalidate its publication and reuse ownership explicitly as well.
+    activeAlgorithmWasCancelled = true
     renderWorker?.cancel()
     await workTask?.value
   }

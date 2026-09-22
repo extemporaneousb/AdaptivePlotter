@@ -29,6 +29,11 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
   var semanticHead: PortraitSemanticHeadParameters? = nil
   var materialContext: PortraitMaterialContext? = nil
   var flowRectilinearity: Double? = nil
+  /// Additive Flow controls. Absence/zero retains the original drawing behavior.
+  var flowSupport: Double? = nil
+  var flowStructureSupport: Double? = nil
+  var flowSupportScale: Double? = nil
+  var flowSeedIrregularity: Double? = nil
 
   var bounded: Self {
     var result = self
@@ -43,6 +48,10 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
     result.headScale = Self.clamp(headScale, to: 1...1.6, fallback: 1)
     result.semanticHead = semanticHead?.bounded
     result.flowRectilinearity = flowRectilinearity.flatMap { $0.isFinite && $0 > 0 ? min(1, $0) : nil }
+    result.flowSupport = Self.flowAmount(flowSupport)
+    result.flowStructureSupport = Self.flowAmount(flowStructureSupport)
+    result.flowSupportScale = Self.flowAmount(flowSupportScale)
+    result.flowSeedIrregularity = Self.flowAmount(flowSeedIrregularity)
     return result
   }
 
@@ -53,8 +62,17 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
     let legacy = hatchAngleDegrees == 0 && headScale == 1 ? original
       : original + "|hatchAngle=\(hatchAngleDegrees)|headScale=\(headScale)"
     let head = semanticHead.map { "|semanticHead=\($0.revision),\($0.foreheadWidth),\($0.foreheadHeight),\($0.eyeScale),\($0.lateralScale)" } ?? ""
-    let flow = bounded.flowRectilinearity.map { "|flowRectilinearity=\($0)" } ?? ""
-    return legacy + head + (materialContext.map { "|" + $0.provenance } ?? "") + flow
+    let value = bounded
+    let flow = value.flowRectilinearity.map { "|flowRectilinearity=\($0)" } ?? ""
+    let support = value.flowSupport.map { "|flowSupport=\($0)" } ?? ""
+    let structure = value.flowStructureSupport.map { "|flowStructureSupport=\($0)" } ?? ""
+    let scale = value.flowSupportScale.map { "|flowSupportScale=\($0)" } ?? ""
+    let seeds = value.flowSeedIrregularity.map { "|flowSeedIrregularity=\($0)" } ?? ""
+    return legacy + head + (materialContext.map { "|" + $0.provenance } ?? "") + flow + support + structure + scale + seeds
+  }
+
+  static func flowAmount(_ value: Double?) -> Double? {
+    value.flatMap { $0.isFinite && $0 > 0 ? min(1, $0) : nil }
   }
 
   private static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {

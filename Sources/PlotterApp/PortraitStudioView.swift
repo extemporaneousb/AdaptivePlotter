@@ -69,7 +69,7 @@ struct PortraitStudioView: View {
             HStack {
               Text("Styles · \(model.selectedAlgorithm.rawValue)").font(.headline)
               Spacer()
-              StudioHelpButton("Style algorithms", text: "The selected algorithm renders as you adjust the drawing. Open Styles to render the other algorithms with this photo and its current framing and tuning. Select a portrait to use that exact result. Closing Styles stops unfinished alternatives and keeps the selected drawing.")
+              StudioHelpButton("Style algorithms", text: "These starting drawings stay fixed while you explore or adjust the selected drawing. A different photo, framing, pen or material refreshes them. Select a style to use its exact displayed drawing. Closing Styles stops unfinished alternatives and retains completed previews.")
             }
           }
           .accessibilityIdentifier("portrait.stylesDisclosure")

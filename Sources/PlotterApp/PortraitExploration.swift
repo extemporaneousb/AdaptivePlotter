@@ -64,6 +64,7 @@ struct PortraitExplorationRecord: Codable, Hashable, Sendable {
       let slotCount = legacy ? 9 : PortraitExplorationPolicy.slotCount
       let centerIndex = legacy ? 4 : PortraitExplorationPolicy.centerIndex
       guard legacy || record.policyRevision == "portrait-preference-v2"
+        || record.policyRevision == "portrait-preference-v3"
         || record.policyRevision == PortraitExplorationPolicy.revision else {
         throw PortraitCandidateError.integrityMismatch
       }
@@ -154,7 +155,7 @@ struct PortraitExplorationSearchState: Equatable, Sendable {
 }
 
 enum PortraitExplorationPolicy {
-  static let revision = "portrait-preference-v3"
+  static let revision = "portrait-preference-v4"
   static let slotCount = 3
   static let centerIndex = 1
   static let neighborIndices = [0, 2]
@@ -179,7 +180,11 @@ enum PortraitExplorationPolicy {
 
   static func effectiveOptions(_ options: PortraitVectorOptions, center: PortraitCandidate) -> PortraitVectorOptions {
     let canonical = canonicalOptions(options, style: center.recipe.style)
-    return (try? canonical.materialContext?.adapting(canonical, raster: center.raster)) ?? canonical
+    var effective = (try? canonical.materialContext?.adapting(canonical, raster: center.raster)) ?? canonical
+    // Remember a disabled scale in the authored recipe, but do not spend render
+    // attempts on it until either support layer can make it visible.
+    if center.recipe.style == .flowEdges, !hasFlowSupport(effective) { effective.flowSupportScale = nil }
+    return effective
   }
 
   enum Rejection: String, Sendable { case duplicateConfiguration, similarGeometry, noLines, detailBudget, renderFailure }
@@ -190,7 +195,35 @@ enum PortraitExplorationPolicy {
       value.minimumContourLength / 40, value.simplificationTolerance / 3,
       Double(value.contourLevels - 1) / 11, Double(value.hatchSpacing - 1) / 15,
       (value.hatchAngleDegrees + 90) / 180, (value.sketchThreshold - 0.002) / 0.078,
-      value.flowRectilinearity ?? 0]
+      value.flowRectilinearity ?? 0, value.flowSupport ?? 0,
+      value.flowStructureSupport ?? 0, hasFlowSupport(value) ? value.flowSupportScale ?? 0 : 0,
+      value.flowSeedIrregularity ?? 0]
+  }
+
+  private static func hasFlowSupport(_ options: PortraitVectorOptions) -> Bool {
+    (options.flowSupport ?? 0) > 0 || (options.flowStructureSupport ?? 0) > 0
+  }
+
+  private static func dimensions(for center: PortraitCandidate) -> [Dimension] {
+    var dimensions: [Dimension] = [.tone, .smoothing]
+    if center.recipe.style != .hatch && center.recipe.style != .crosshatch {
+      dimensions += [.minimumLength]
+      if center.recipe.style != .flowEdges { dimensions += [.simplification] }
+    }
+    if center.recipe.style == .contours { dimensions += [.levels] }
+    if center.recipe.style == .flowEdges {
+      dimensions += [.rectilinearity, .support, .structureSupport, .seedIrregularity]
+      if hasFlowSupport(center.recipe.vectorOptions.bounded) { dimensions += [.supportScale] }
+    }
+    if [.hatch, .crosshatch, .sketchHatch, .flowEdges].contains(center.recipe.style) {
+      dimensions += [.spacing]
+      if center.recipe.style != .flowEdges { dimensions += [.angle] }
+    }
+    if [.sketch, .sketchHatch, .flowEdges].contains(center.recipe.style) { dimensions += [.threshold] }
+    let effective = effectiveOptions(center.recipe.vectorOptions, center: center)
+    if effective.minimumContourLength >= 40 { dimensions.removeAll { $0 == .minimumLength } }
+    if effective.hatchSpacing >= 16 { dimensions.removeAll { $0 == .spacing } }
+    return dimensions
   }
 
   /// Two purposeful directions, each with one bounded retry. A successful
@@ -200,29 +233,18 @@ enum PortraitExplorationPolicy {
     let base = canonicalOptions(center.recipe.vectorOptions, style: center.recipe.style)
     var random = Generator(state: seed)
     let amount = boundedVariation(variation)
-    var dimensions: [Dimension] = [.tone, .smoothing]
-    if center.recipe.style != .hatch && center.recipe.style != .crosshatch {
-      dimensions += [.minimumLength]
-      if center.recipe.style != .flowEdges { dimensions += [.simplification] }
-    }
-    if center.recipe.style == .contours { dimensions += [.levels] }
-    if center.recipe.style == .flowEdges { dimensions += [.rectilinearity] }
-    if [.hatch, .crosshatch, .sketchHatch, .flowEdges].contains(center.recipe.style) {
-      dimensions += [.spacing]
-      if center.recipe.style != .flowEdges { dimensions += [.angle] }
-    }
-    if [.sketch, .sketchHatch, .flowEdges].contains(center.recipe.style) { dimensions += [.threshold] }
-    let effective = effectiveOptions(base, center: center)
-    if effective.minimumContourLength >= 40 { dimensions.removeAll { $0 == .minimumLength } }
-    if effective.hatchSpacing >= 16 { dimensions.removeAll { $0 == .spacing } }
+    let dimensions = Self.dimensions(for: center)
     let phase = Int(random.next() % UInt64(dimensions.count))
-    let primary = center.recipe.style == .flowEdges && seed.isMultiple(of: 3) ? Dimension.rectilinearity : dimensions[phase]
+    let forms: [Dimension] = [.rectilinearity, .support, .structureSupport, .seedIrregularity]
+    let primary = center.recipe.style == .flowEdges && seed.isMultiple(of: 3)
+      ? forms[Int((seed / 3) % UInt64(forms.count))] : dimensions[phase]
     let complementary: Dimension
+    let remaining = (0..<dimensions.count).map { dimensions[(phase + $0) % dimensions.count] }.filter { $0 != primary }
     if let direction, direction.count == Dimension.allCases.count {
-      let rotated = (0..<dimensions.count).map { dimensions[(phase + $0) % dimensions.count] }
-      complementary = rotated.min { abs(direction[$0.rawValue]) < abs(direction[$1.rawValue]) }!
-    } else { complementary = dimensions[(phase + 1) % dimensions.count] }
+      complementary = remaining.min { abs(direction[$0.rawValue]) < abs(direction[$1.rawValue]) }!
+    } else { complementary = remaining[0] }
     let sign = random.next() & 1 == 0 ? -1.0 : 1.0
+    var proposed: Set<PortraitVectorOptions> = [effectiveOptions(base, center: center)]
     return (0..<2).map { neighbor in
       (0..<maximumAttemptsPerSlot).map { attempt in
         var vectors = base
@@ -240,6 +262,11 @@ enum PortraitExplorationPolicy {
         if attempt > 0 {
           let axis = dimensions[(phase + neighbor + 2) % dimensions.count]
           move(axis, vectors: &vectors, delta: -sign * radius * 0.6, center: center)
+        }
+        if amount > 0 {
+          vectors = distinctOptions(preferred: vectors, base: base, center: center,
+            axes: dimensions, radius: radius, random: &random, excluding: proposed)
+          proposed.insert(effectiveOptions(vectors, center: center))
         }
         return PortraitStyleRecipe(id: "preference-\(seed)-\(neighbor)-\(attempt)",
           title: center.recipe.title, seed: seed, style: center.recipe.style,
@@ -276,6 +303,10 @@ enum PortraitExplorationPolicy {
       let choices = sign > 0 ? [0.5, 1.0, 0.0] : [0.0, 0.5, 1.0]
       let next = choices.first { abs($0 - current) >= 0.4 } ?? 0
       vectors.flowRectilinearity = next == 0 ? nil : next
+    } else if [.support, .structureSupport, .supportScale, .seedIrregularity].contains(axis) {
+      if axis == .supportScale, !hasFlowSupport(vectors) { return }
+      let floor = axis == .seedIrregularity ? 0.4 : axis == .structureSupport ? 0.3 : 0.35
+      axis.move(&vectors, delta: sign * max(abs(delta), floor))
     } else {
       // Minimum perceptible probes remain independent of the hidden trust step.
       let floor = axis == .smoothing ? 0.34 : axis == .tone ? 0.25 : 0.12
@@ -284,34 +315,70 @@ enum PortraitExplorationPolicy {
   }
 
   static func recoveryRecipe(around center: PortraitCandidate, failed: PortraitStyleRecipe,
-    rejection: Rejection, neighbor: Int, seed: UInt64, variation: Double) -> PortraitStyleRecipe {
-    var vectors = canonicalOptions(center.recipe.vectorOptions, style: center.recipe.style)
+    rejection: Rejection, neighbor: Int, seed: UInt64, variation: Double,
+    excluding: Set<PortraitVectorOptions> = []) -> PortraitStyleRecipe {
+    let base = canonicalOptions(center.recipe.vectorOptions, style: center.recipe.style)
+    let current = coordinates(base), failedCoordinates = coordinates(failed.vectorOptions)
+    var state = seed ^ (UInt64(max(0, neighbor)) &* 0x9e3779b97f4a7c15)
+    for coordinate in failedCoordinates { state = (state ^ coordinate.bitPattern) &* 1_099_511_628_211 }
+    for byte in rejection.rawValue.utf8 { state = (state ^ UInt64(byte)) &* 1_099_511_628_211 }
+    var random = Generator(state: state)
+    let shuffled = Self.shuffled(dimensions(for: center), random: &random)
+    // A failed axis gets lower priority than a different source of geometry.
+    let unchanged = shuffled.filter { abs(current[$0.rawValue] - failedCoordinates[$0.rawValue]) < 1e-8 }
+    let changed = shuffled.filter { abs(current[$0.rawValue] - failedCoordinates[$0.rawValue]) >= 1e-8 }
+    let axes = (unchanged + changed).filter {
+      rejection != .noLines || ($0 != .minimumLength && $0 != .threshold)
+    }
+    let amount = boundedVariation(variation)
+    let radius = (0.35 + amount * 0.65) * (0.85 + Double(random.next() % 301) / 1000)
+    let sign = random.next() & 1 == 0 ? -1.0 : 1.0
+    var vectors = base
     if rejection == .noLines {
       // Recover toward more source evidence, never weaken the material floor.
-      vectors.minimumContourLength *= 0.65
-      vectors.sketchThreshold = max(0.002, vectors.sketchThreshold * 0.65)
-      if center.recipe.style == .contours {
-        move(.levels, vectors: &vectors, delta: neighbor == 0 ? 0.4 : -0.4, center: center)
-        move(.tone, vectors: &vectors, delta: neighbor == 0 ? -0.35 : 0.35, center: center)
-      }
-    } else if center.recipe.style == .flowEdges {
-      let unchangedShape = (failed.vectorOptions.flowRectilinearity ?? 0) == (vectors.flowRectilinearity ?? 0)
-      if unchangedShape {
-        move(.rectilinearity, vectors: &vectors, delta: neighbor == 0 ? 1 : -1, center: center)
-      } else {
-        move(.spacing, vectors: &vectors, delta: neighbor == 0 ? 0.5 : -0.5, center: center)
-        move(.tone, vectors: &vectors, delta: neighbor == 0 ? -0.35 : 0.35, center: center)
-      }
-    } else if center.recipe.style == .contours {
-      move(.levels, vectors: &vectors, delta: neighbor == 0 ? 0.4 : -0.4, center: center)
-      move(.tone, vectors: &vectors, delta: neighbor == 0 ? -0.4 : 0.4, center: center)
-    } else {
-      move(.threshold, vectors: &vectors, delta: neighbor == 0 ? -0.65 : 0.65, center: center)
-      move(.minimumLength, vectors: &vectors, delta: -0.4, center: center)
+      let reduction = 0.82 - amount * 0.3
+      vectors.minimumContourLength *= reduction
+      vectors.sketchThreshold = max(0.002, vectors.sketchThreshold * reduction)
+      if center.recipe.style == .contours { move(.levels, vectors: &vectors, delta: sign * radius, center: center) }
     }
+    if let axis = axes.first { move(axis, vectors: &vectors, delta: sign * radius, center: center) }
+    var blocked = excluding
+    blocked.insert(effectiveOptions(base, center: center))
+    blocked.insert(effectiveOptions(failed.vectorOptions, center: center))
+    vectors = distinctOptions(preferred: vectors, base: base, center: center,
+      axes: axes, radius: radius, random: &random, excluding: blocked, preserveAxisOrder: true)
     return PortraitStyleRecipe(id: "recovery-\(seed)-\(neighbor)", title: center.recipe.title,
       seed: seed, style: center.recipe.style,
       vectorOptions: canonicalOptions(vectors, style: center.recipe.style), analysisOptions: center.recipe.analysisOptions)
+  }
+
+  /// Probe only parameter values, never a hidden image pool. The work is at most
+  /// twice the active-axis count; the caller still permits two renders per slot.
+  private static func distinctOptions(preferred: PortraitVectorOptions, base: PortraitVectorOptions,
+    center: PortraitCandidate, axes: [Dimension], radius: Double, random: inout Generator,
+    excluding: Set<PortraitVectorOptions>, preserveAxisOrder: Bool = false) -> PortraitVectorOptions {
+    let canonical = canonicalOptions(preferred, style: center.recipe.style)
+    if !excluding.contains(effectiveOptions(canonical, center: center)) { return canonical }
+    let order = preserveAxisOrder ? axes : shuffled(axes, random: &random)
+    for axis in order {
+      let sign = random.next() & 1 == 0 ? -1.0 : 1.0
+      let distance = radius * (0.85 + Double(random.next() % 301) / 1000)
+      for direction in [sign, -sign] {
+        var candidate = base
+        move(axis, vectors: &candidate, delta: direction * distance, center: center)
+        candidate = canonicalOptions(candidate, style: center.recipe.style)
+        if !excluding.contains(effectiveOptions(candidate, center: center)) { return candidate }
+      }
+    }
+    return canonical
+  }
+
+  private static func shuffled(_ axes: [Dimension], random: inout Generator) -> [Dimension] {
+    var result = axes
+    for index in stride(from: result.count - 1, through: 1, by: -1) {
+      result.swapAt(index, Int(random.next() % UInt64(index + 1)))
+    }
+    return result
   }
 
   static func pointCount(_ candidate: PortraitCandidate) -> Int {
@@ -399,6 +466,7 @@ enum PortraitExplorationPolicy {
 
   private enum Dimension: Int, CaseIterable {
     case tone, smoothing, minimumLength, simplification, levels, spacing, angle, threshold, rectilinearity
+    case support, structureSupport, supportScale, seedIrregularity
     func move(_ value: inout PortraitVectorOptions, delta: Double) {
       switch self {
       case .tone: value.tonalStrength = reflect(value.tonalStrength + delta * 0.8, 0.4...2)
@@ -410,6 +478,10 @@ enum PortraitExplorationPolicy {
       case .angle: value.hatchAngleDegrees = reflect(value.hatchAngleDegrees + delta * 90, -90...90)
       case .threshold: value.sketchThreshold = reflect(value.sketchThreshold + delta * 0.01, 0.002...0.08)
       case .rectilinearity: value.flowRectilinearity = reflect((value.flowRectilinearity ?? 0) + delta, 0...1)
+      case .support: value.flowSupport = reflect((value.flowSupport ?? 0) + delta, 0...1)
+      case .structureSupport: value.flowStructureSupport = reflect((value.flowStructureSupport ?? 0) + delta, 0...1)
+      case .supportScale: value.flowSupportScale = reflect((value.flowSupportScale ?? 0) + delta, 0...1)
+      case .seedIrregularity: value.flowSeedIrregularity = reflect((value.flowSeedIrregularity ?? 0) + delta, 0...1)
       }
     }
     private func reflect(_ value: Double, _ range: ClosedRange<Double>) -> Double {

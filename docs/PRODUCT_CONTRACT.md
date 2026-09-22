@@ -1614,7 +1614,11 @@ proposal and a complementary proposal; repeated aligned choices can increase the
 step and reversals can decrease it. Screen positions are not parameter axes.
 Bounded retries reject empty, failed, duplicate and visually negligible results.
 Proposals account for material-imposed spacing and minimum-length floors before
-spending render work, and retries change the parameter direction. Exhausted
+spending render work, and retries change the parameter direction. The additive
+Flow support and placement controls participate in the same preference space;
+an evidence-scale change is inactive while both support amounts are zero.
+Parameter-only probes avoid already attempted effective settings, and recovery
+varies with the round seed and failed settings within the render-work bound. Exhausted
 similar options are distinct from rendering failures. A compatible, visibly distinct
 candidate from recent history may remain available as a labeled Previous option
 when the bounded search finds no useful new candidate. Keeping Current while
@@ -1633,7 +1637,15 @@ an algorithm installs its exact completed candidate. The existing renderer and o
 cancel-and-join work drain own center, exploration and algorithm-comparison work.
 Selected candidates remain usable while a new neighborhood is pending; stale source,
 configuration, round or tile identities cannot replace a later choice. Algorithm
-comparisons remain lazy, and proposals reuse analyzed rasters and bounded caches.
+comparisons remain lazy. The three style tiles are fixed starting drawings for
+the current photo, framing, pen and material. Their baseline tuning and lineage
+are frozen when that context is established; trajectory selection, Current, Back
+and ordinary vector adjustments do not regenerate or replace them. Selecting a
+tile installs that exact displayed candidate. A source, framing, pen or material
+change establishes a new baseline. Folding Styles stops unfinished reference work
+while retaining completed tiles. Reference-job identity is independent of the
+selected-drawing revision, and stale reference work cannot select a newer drawing.
+Proposals reuse analyzed rasters and bounded caches.
 Flow preparation reuses source evidence, structural curves and orientation fields
 in source-specific bounded workspaces. The render worker also constructs the
 candidate and preview footprint off the main actor; promoted candidates reuse
@@ -1677,6 +1689,20 @@ runs as endpoint pairs. Mixed shading distributes seeds between the two generato
 and reserves them through the same structural and tonal spacing constraints;
 it does not independently overlay two complete drawings. Feature curves remain
 image-derived and do not claim a semantic face prior or reconstructed depth.
+
+Four additive Flow parameters retain the existing drawing at zero: Tone support
+varies the image evidence required for shading; Contour persistence varies
+structural support across scales without replacing retained curves with blurred
+geometry; Evidence scale shifts support between finer and broader neighborhoods;
+Seed irregularity varies regular placement using deterministic within-cell offsets.
+Tone and structural support are independent controls; changing structural barriers
+can also change where tonal paths fit. Evidence scale is retained in the recipe
+but is inactive when both support amounts are zero. Support preparation is lazy
+and bounded per source, and all line forms retain shared material clearance.
+Detail presets preserve these controls. They extend the common recipe; the three
+algorithms still have different rendering semantics. This is not a unified learned
+style model or temporal-motion synthesis. Current short capture retains one
+selected source frame, not registered inter-frame motion evidence.
 
 Pen & material displays the current applicable marker width and whether its origin
 is estimated or independently measured. It is an input to drawing appearance, not

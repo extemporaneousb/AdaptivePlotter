@@ -48,6 +48,7 @@ extension PortraitVectorOptions {
     case contourLevels, minimumContourLength, simplificationTolerance, hatchSpacing
     case tonalStrength, smoothing, sketchThreshold, hatchAngleDegrees, headScale, semanticHead, materialContext
     case flowRectilinearity
+    case flowSupport, flowStructureSupport, flowSupportScale, flowSeedIrregularity
   }
   init(from decoder: Decoder) throws {
     self.init()
@@ -64,6 +65,30 @@ extension PortraitVectorOptions {
     semanticHead = try values.decodeIfPresent(PortraitSemanticHeadParameters.self, forKey: .semanticHead)
     materialContext = try values.decodeIfPresent(PortraitMaterialContext.self, forKey: .materialContext)
     flowRectilinearity = try values.decodeIfPresent(Double.self, forKey: .flowRectilinearity)
+    flowSupport = Self.flowAmount(try values.decodeIfPresent(Double.self, forKey: .flowSupport))
+    flowStructureSupport = Self.flowAmount(try values.decodeIfPresent(Double.self, forKey: .flowStructureSupport))
+    flowSupportScale = Self.flowAmount(try values.decodeIfPresent(Double.self, forKey: .flowSupportScale))
+    flowSeedIrregularity = Self.flowAmount(try values.decodeIfPresent(Double.self, forKey: .flowSeedIrregularity))
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var values = encoder.container(keyedBy: CodingKeys.self)
+    try values.encode(contourLevels, forKey: .contourLevels)
+    try values.encode(minimumContourLength, forKey: .minimumContourLength)
+    try values.encode(simplificationTolerance, forKey: .simplificationTolerance)
+    try values.encode(hatchSpacing, forKey: .hatchSpacing)
+    try values.encode(tonalStrength, forKey: .tonalStrength)
+    try values.encode(smoothing, forKey: .smoothing)
+    try values.encode(sketchThreshold, forKey: .sketchThreshold)
+    try values.encode(hatchAngleDegrees, forKey: .hatchAngleDegrees)
+    try values.encode(headScale, forKey: .headScale)
+    try values.encodeIfPresent(semanticHead, forKey: .semanticHead)
+    try values.encodeIfPresent(materialContext, forKey: .materialContext)
+    try values.encodeIfPresent(flowRectilinearity, forKey: .flowRectilinearity)
+    try values.encodeIfPresent(Self.flowAmount(flowSupport), forKey: .flowSupport)
+    try values.encodeIfPresent(Self.flowAmount(flowStructureSupport), forKey: .flowStructureSupport)
+    try values.encodeIfPresent(Self.flowAmount(flowSupportScale), forKey: .flowSupportScale)
+    try values.encodeIfPresent(Self.flowAmount(flowSeedIrregularity), forKey: .flowSeedIrregularity)
   }
 }
 

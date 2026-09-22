@@ -336,9 +336,10 @@ struct PortraitExplorationTests {
     await model.shutdown()
   }
 
-  @Test("expanded algorithm comparisons follow promoted and restored center recipes")
+  @Test("expanded style references remain exact while promoted and restored center recipes change")
   func expandedStylesRemainCoherent() async throws {
-    let model = PortraitStudioModel(renderer: ExplorationTestRenderer())
+    let renderer = ExplorationTestRenderer()
+    let model = PortraitStudioModel(renderer: renderer)
     model.style = .contours
     model.vectorOptions = PortraitVectorOptions()
     let pen = try portraitTestStyle()
@@ -348,22 +349,20 @@ struct PortraitExplorationTests {
     model.setExplorationEnabled(true, strokeStyle: pen)
     await model.awaitRendering()
     let first = try #require(model.explorationRound)
+    let references = try PortraitCandidateCoding.encoder().encode(model.algorithmCandidates)
+    let otherStyleCalls = await renderer.requests.filter { $0.style != .contours }.count
     let slot = try #require(first.slots.first { $0.index != 1 && $0.candidate != nil })
     let selected = try #require(slot.candidate)
     model.chooseExplorationSlot(slot.index, roundID: first.id, strokeStyle: pen)
     await model.awaitRendering()
     #expect(model.selectedCandidate?.id == selected.id)
     #expect(model.algorithmCandidates.count == PortraitStyle.authoringCases.count)
-    #expect(model.algorithmCandidates.allSatisfy {
-      $0.recipe.vectorOptions == selected.recipe.vectorOptions
-    })
+    #expect(try PortraitCandidateCoding.encoder().encode(model.algorithmCandidates) == references)
     model.goBackExploration()
     await model.awaitRendering()
     #expect(try roundBytes(#require(model.explorationRound)) == roundBytes(first))
-    #expect(model.algorithmCandidates.count == PortraitStyle.authoringCases.count)
-    #expect(model.algorithmCandidates.allSatisfy {
-      $0.recipe.vectorOptions == first.center.recipe.vectorOptions
-    })
+    #expect(try PortraitCandidateCoding.encoder().encode(model.algorithmCandidates) == references)
+    #expect(await renderer.requests.filter { $0.style != .contours }.count == otherStyleCalls)
     await model.shutdown()
   }
 

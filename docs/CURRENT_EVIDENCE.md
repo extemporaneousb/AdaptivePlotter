@@ -8,6 +8,79 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Stable style references and additive Flow support, 2026-09-22
+
+Ordinary maintenance and style-space extension in
+`task-05f881eb38504b0288017ad24706c867`; all measurements use unoptimized DEBUG.
+
+The Styles panel now freezes its three exact candidates for a source context
+(photo, pose, framing/background analysis, material and pen), independently of
+trajectory selections and vector edits. The context exists before the disclosure
+first opens. Completed tiles and in-flight reference work survive neighbor,
+Current, Back and manual tuning; source-context changes invalidate them. Selecting
+a tile installs its displayed candidate. Reference completion cannot replace
+newer authoring intent with the same render key but different lineage. Global
+Cancel explicitly revokes publication/reuse while the single worker settles.
+
+Four optional normalized Flow parameters extend the common recipe: tonal evidence
+support, structural persistence, evidence scale and deterministic seed irregularity.
+Absent/zero values preserve prior recipe bytes, provenance and geometry. Scale
+remains saved while inactive. Structural persistence filters original detailed
+curves using broad support with a strong fine-feature exception; tone support
+separately gates shading and trims unsupported tails. Neither infers facial anatomy.
+Spacing constraints remain shared by organic, mixed and rectilinear strokes.
+
+Evidence uses three fixed spatial scales, individually prepared only when needed.
+Exact-scale requests build one level; intermediate scales use two; at most three
+levels remain per source. Raw structural curves have a separate two-entry cache,
+so support and scale changes can reuse extraction. Kernel border indices and
+bilinear coordinates are reused without changing arithmetic order. Both real-photo
+six-variant comparisons retain exact program hashes and all three reference-sheet
+PNG byte sequences before/after these optimizations. The front legacy five-recipe
+sheet also exactly matches the preceding task's retained PNG.
+
+On the front/profile photos, first support activation fell from 1434/1756 ms to
+559/777 ms. Its evidence preparation fell from 1270/1496 ms to 399/497 ms. A
+structural-support edit fell from 404/543 ms to 236/377 ms. Warm combined support
+was 165/270 ms. A previously unused scale still incurs preparation once (the
+scale-1 edits measured 634/856 ms); this is deferred work, not zero-cost scaling.
+No release compilation or optimization flags were used.
+
+Policy v4 adds the new active dimensions, excludes dormant scale from effective
+comparisons, and probes distinct parameter configurations before rendering. It
+retains two attempts per alternative, at most four actual renders per round;
+there is no elapsed-time cutoff. Versions v1–v3 remain readable. Different
+parameters can still produce similar geometry and fall back to labeled history.
+Both 48-operation real-photo walks retained two usable alternatives, one cold
+analysis and one worker. Excluding five Back actions, front/profile generation
+medians were 1072/1113 ms; 19/43 and 2/43 rounds offered no fresh proposal.
+These traces do not demonstrate improved fresh-option yield or end-to-end speed
+relative to v3. Program-hash novelty includes parameter provenance and is not
+perceptual novelty. Avoided style-panel renders are verified independently by
+stable-tile identity and renderer-call tests.
+
+Visual review shows reduced weak hair/clothing texture at stronger structural
+support, with prominent facial edges retained. The structural layer still
+dominates these photos; sparse controlled variations are not evidence that
+likeness or aesthetic exploration is solved. Temporal motion remains unimplemented:
+the short burst retains one selected image, not registered multiple frames.
+
+The initial 120-test focused run passed, followed by 17 ownership/hosted-layout
+tests, 54 renderer/ownership/Drawing checks and 34 final lazy-renderer checks.
+Both final local-photo workloads passed. Coverage includes old recipe-byte
+compatibility, exact candidate round trips, independent support layers, bounded
+lazy caches, material spacing, tiny images, cancellation/restart, stale-context
+rejection and same-key lineage ownership. Hosted layouts and scrolled support
+controls were inspected at 1000×550 and 1280×650. Configured repository results
+are recorded in this task's machine validation receipts using the same DEBUG
+build with `--no-parallel --skip-build`.
+
+The signed DEBUG app is staged without launching it; bundle and launcher
+validation receipts are retained with the evidence. No source archive, running
+app, camera, plotter or physical ink was changed/exercised. Artifacts are retained
+in the primary checkout under `.build/PortraitParameterEvidence/task-05f881eb/`.
+Native pointer/keyboard interaction and physical acceptance remain untested.
+
 ## Debug Flow performance, resilient preferences and line forms, 2026-09-22
 
 Ordinary maintenance and bounded style extension in task
