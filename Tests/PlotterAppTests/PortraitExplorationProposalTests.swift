@@ -80,21 +80,64 @@ struct PortraitExplorationProposalTests {
     #expect(Set(recipes.map(\.vectorOptions)).count >= 2)
   }
 
-  @Test("manual spread scales the same seeded continuous moves and zero does not alter controls")
+  @Test("internal small steps keep productive minimum probes while zero remains unchanged")
   func spread() throws {
     let center = try fixture()
     let zero = PortraitExplorationPolicy.recipes(around: center, variation: 0, seed: 1)
     #expect(zero.flatMap { $0 }.allSatisfy { $0.vectorOptions == center.recipe.vectorOptions })
     let narrow = PortraitExplorationPolicy.recipes(around: center, variation: 0.1, seed: 1).flatMap { $0 }
     let broad = PortraitExplorationPolicy.recipes(around: center, variation: 0.5, seed: 1).flatMap { $0 }
-    // Smoothing begins at zero and reflection has no upper-bound collision at
-    // these scales, so the exact continuous displacement is five times larger.
-    for (a, b) in zip(narrow, broad) {
-      #expect(abs(b.vectorOptions.smoothing - a.vectorOptions.smoothing * 5) < 1e-12)
-    }
+    #expect(narrow.allSatisfy { $0.vectorOptions != center.recipe.vectorOptions })
+    #expect(broad.allSatisfy { $0.vectorOptions != center.recipe.vectorOptions })
+    #expect(narrow != broad)
     #expect(PortraitExplorationPolicy.boundedVariation(.nan) == 0.35)
     #expect(PortraitExplorationPolicy.boundedVariation(-2) == 0)
     #expect(PortraitExplorationPolicy.boundedVariation(2) == 1)
+  }
+
+  @Test("Flow minimum spacing and coarse material floors still admit effective moves at minimum trust step")
+  func flowEffectiveMoves() throws {
+    var vectors = PortraitVectorOptions.flowDefaults
+    vectors.hatchSpacing = 3
+    let center = try fixture(style: .flowEdges, vectors: vectors)
+    var direction = [Double](repeating: 0, count: 9)
+    direction[5] = -1
+    for seed in UInt64(0)..<32 {
+      let recipe = PortraitExplorationPolicy.recipes(around: center, variation: 0.12,
+        seed: seed, direction: direction)[0][0]
+      #expect(recipe.vectorOptions.hatchSpacing >= 5)
+      #expect(PortraitExplorationPolicy.effectiveOptions(recipe.vectorOptions, center: center)
+        != PortraitExplorationPolicy.effectiveOptions(vectors, center: center))
+    }
+    let material = try PortraitMaterialContext(
+      profile: .init(name: "Floor fixture", nominalWidthMM: 1), drawingHeightMM: 8)
+    vectors.materialContext = material
+    let adaptedCenter = try fixture(style: .flowEdges, vectors: vectors)
+    var subfloor = vectors; subfloor.minimumContourLength = 1; subfloor.hatchSpacing = 4
+    var otherSubfloor = subfloor; otherSubfloor.minimumContourLength = 2; otherSubfloor.hatchSpacing = 5
+    #expect(PortraitExplorationPolicy.effectiveOptions(subfloor, center: adaptedCenter)
+      == PortraitExplorationPolicy.effectiveOptions(otherSubfloor, center: adaptedCenter))
+    let spacingMove = PortraitExplorationPolicy.recipes(around: adaptedCenter, variation: 0.12,
+      seed: 1, direction: direction)[0][0]
+    #expect(PortraitExplorationPolicy.effectiveOptions(spacingMove.vectorOptions, center: adaptedCenter)
+      != PortraitExplorationPolicy.effectiveOptions(vectors, center: adaptedCenter))
+    #expect(spacingMove.vectorOptions.materialContext == material)
+  }
+
+  @Test("Flow line-form proposals use visible picker modes and recovery changes an ineffective axis")
+  func lineFormModes() throws {
+    for mode in [0.0, 0.5, 1.0] {
+      var vectors = PortraitVectorOptions.flowDefaults
+      vectors.flowRectilinearity = mode == 0 ? nil : mode
+      let center = try fixture(style: .flowEdges, vectors: vectors)
+      for seed in UInt64(0)..<32 {
+        let recipes = PortraitExplorationPolicy.recipes(around: center, variation: 0.12, seed: seed)
+        #expect(recipes.flatMap { $0 }.allSatisfy { [0.0, 0.5, 1.0].contains($0.vectorOptions.flowRectilinearity ?? 0) })
+        let recovery = PortraitExplorationPolicy.recoveryRecipe(around: center, failed: center.recipe,
+          rejection: .similarGeometry, neighbor: 0, seed: seed, variation: 0.12)
+        #expect(recovery.vectorOptions.flowRectilinearity != vectors.flowRectilinearity)
+      }
+    }
   }
 
   @Test("reflection leaves legal nontrivial moves at extreme controls")
@@ -145,7 +188,7 @@ struct PortraitExplorationProposalTests {
     #expect(original.isMeaningfullyDifferent(from: visible))
   }
 
-  @Test("v1 nine-slot receipts still decode while unknown layouts and revisions fail")
+  @Test("v1 nine-slot and v2 three-slot receipts decode while unknown revisions fail")
   func legacyReceiptCompatibility() throws {
     let center = try fixture()
     let round = PortraitExplorationRound(id: UUID(), seed: 7, variation: 0.35,
@@ -156,6 +199,10 @@ struct PortraitExplorationProposalTests {
     let record = PortraitExplorationRecord(round: round, action: .selected(index: 1),
       traceSessionID: UUID(), sequence: 0)
     var object = try #require(JSONSerialization.jsonObject(with: PortraitCandidateCoding.encoder().encode(record)) as? [String: Any])
+    object["policyRevision"] = "portrait-preference-v2"
+    let v2 = try JSONDecoder().decode(PortraitExplorationRecord.self,
+      from: JSONSerialization.data(withJSONObject: object))
+    try PortraitExplorationRecord.validate([v2], for: center)
     let offers = try #require(object["offers"] as? [[String: Any]])
     object["policyRevision"] = "portrait-neighborhood-v1"
     object["offers"] = (0..<9).map { index -> [String: Any] in

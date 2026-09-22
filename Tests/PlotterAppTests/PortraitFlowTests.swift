@@ -154,6 +154,11 @@ struct PortraitFlowTests {
     let baseline = try await analyzer.render(.init(data: data, pose: .front, style: .flowEdges,
       options: .init(), cachedRaster: nil, strokeStyle: portraitTestStyle(), vectorOptions: .flowDefaults))
     let cold = started.duration(to: clock.now)
+    let coldWorkspaceStarted = clock.now
+    let coldWorkspace = try await analyzer.render(.init(data: data, pose: .front, style: .flowEdges,
+      options: .init(), cachedRaster: baseline.raster, strokeStyle: portraitTestStyle(), vectorOptions: .flowDefaults))
+    let coldWorkspaceMS = flowMilliseconds(coldWorkspaceStarted.duration(to: clock.now))
+    #expect(coldWorkspace.program == baseline.program)
     var variants: [(String, PortraitVectorOptions)] = [("Flow baseline", .flowDefaults)]
     var light = PortraitVectorOptions.flowDefaults; light.tonalStrength = 0.5
     var dense = PortraitVectorOptions.flowDefaults; dense.tonalStrength = 2
@@ -162,21 +167,43 @@ struct PortraitFlowTests {
     variants += [("Density 0.5", light), ("Density 2.0", dense), ("Coherence 0", loose), ("Coherence 4", coherent)]
     var programs: [(String, DrawingProgram)] = []
     var timings: [Double] = []
+    var workspace = baseline.flowWorkspace
+    var stageReports: [[String: Any]] = []
     for (label, options) in variants {
       let begin = clock.now
       let rendered = try await analyzer.render(.init(data: data, pose: .front, style: .flowEdges,
-        options: .init(), cachedRaster: baseline.raster, strokeStyle: portraitTestStyle(), vectorOptions: options))
+        options: .init(), cachedRaster: baseline.raster, strokeStyle: portraitTestStyle(), vectorOptions: options,
+        flowWorkspace: workspace))
       timings.append(flowMilliseconds(begin.duration(to: clock.now)))
       programs.append((label, rendered.program))
+      workspace = rendered.flowWorkspace
+      if let diagnostics = workspace?.diagnostics {
+        stageReports.append(["label": label, "sourceMS": diagnostics.sourceMS,
+          "structureMS": diagnostics.structureMS, "orientationMS": diagnostics.orientationMS,
+          "tracingMS": diagnostics.tracingMS, "sourceCacheHit": diagnostics.sourceCacheHit,
+          "structureCacheHit": diagnostics.structureCacheHit, "orientationCacheHit": diagnostics.orientationCacheHit,
+          "sourceBuilds": diagnostics.sourceBuilds, "structureBuilds": diagnostics.structureBuilds,
+          "orientationBuilds": diagnostics.orientationBuilds])
+      }
     }
     let destination = URL(fileURLWithPath: output, isDirectory: true)
     try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
     try flowReferenceSheet(photo: PortraitImageAnalyzer.image(from: data), programs: programs)
       .write(to: destination.appendingPathComponent("flow-reference.png"))
+    #if DEBUG
+    let configuration = "debug"
+    #else
+    let configuration = "release"
+    #endif
     let report: [String: Any] = ["revision": PortraitFlowRenderer.revision,
+      "buildConfiguration": configuration,
+      "encodedSHA256": PortraitCandidateCoding.digest(data),
       "rasterWidth": baseline.raster.width, "rasterHeight": baseline.raster.height,
       "coldAnalysisAndRenderMS": flowMilliseconds(cold), "cachedRenderMS": timings,
+      "coldWorkspaceRenderMS": coldWorkspaceMS,
+      "workspaceStages": stageReports,
       "labels": programs.map(\.0), "strokeCounts": programs.map { $0.1.strokes.count },
+      "programHashes": programs.map { $0.1.contentHash.description },
       "pointCounts": programs.map { $0.1.strokes.reduce(0) { $0 + $1.path.points.count } },
       "scope": "Local digital reference only; no physical likeness or ink validation"]
     let reportData = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])

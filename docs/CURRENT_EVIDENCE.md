@@ -8,6 +8,86 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Debug Flow performance, resilient preferences and line forms, 2026-09-22
+
+Ordinary maintenance and bounded style extension in task
+`task-b279ed48af90465b94f7e6b81a4c91f9`. All production and test measurements in
+this entry use the default debug configuration, without optimization flags.
+
+Clicking Current during pending exploration previously canceled generation and
+turned unfinished slots into Unavailable. That action now preserves the pending
+work. Proposals account for material floors and quantized parameter effects before
+rendering; bounded recovery changes direction and responds to empty geometry.
+Similarity exhaustion and renderer failure have separate labels. Compatible,
+visibly distinct history candidates can fill exhausted slots as Previous option;
+they are never represented as newly generated alternatives. Back, source changes
+and cancellation retain exact candidate ownership. Policy revision v3 still reads
+v1/v2 records.
+
+Flow caches bounded source evidence, structural paths and orientation fields.
+Fixed kernels preserve arithmetic order while reducing allocation/index overhead;
+structural graph links use fixed bitmasks. Preview comparisons use bounded bitsets
+with tests against the old Set semantics. Candidate construction, hashing and
+preview preparation now run on the tracked worker, including cached restoration.
+There is still at most one render worker. No speculative precomputation was added.
+
+On the same retained front portrait, the original four-round interaction workload
+fell from 3180–6376 ms (median 3341 ms) to 698–984 ms (median 912 ms). Search
+proposals differ under v3, so this measures the same interaction sequence rather
+than identical candidate recipes. A controlled renderer comparison used the exact
+original five recipes: density edits fell from about 1500 ms to 180–201 ms, and
+coherence edits to 533–552 ms. The five-panel comparison PNG has exactly the same
+SHA-256 before/after, as do its stroke/point counts. Cold analysis plus the initial
+candidate fell from 3019 ms to 2226 ms; initial Vision analysis remains substantial.
+Contour and Sketch did not show comparable round-speed improvements.
+
+The 48-step front-photo walk retained Current and at least one alternative on
+every step, with one cold analysis and at most three renderer calls per step.
+Its median was 519 ms, maximum 1508 ms, including exact Back/cache actions; the
+worker-path heartbeat maximum was 13.3 ms. Of 94 offered alternatives, 58 were
+labeled history fallbacks and 36 were proposals. Fifteen alternative program hashes
+were first seen in this walk; hash novelty is not perceptual or aesthetic novelty.
+The four-round harness also performs expensive comparison assertions on MainActor,
+so its heartbeat gaps are not clean live-application responsiveness evidence.
+The second retained photo completed another 48-step walk with Current and at
+least one alternative on every step: 387 ms median, 1611 ms maximum, nine history
+fallbacks among 95 offered alternatives, and a 15.5 ms worker-path heartbeat
+maximum. Its four-round Flow median was 738 ms. Both photo workload suites passed;
+there is no second-photo before/after speedup claim.
+
+Flow Line form now offers Organic, Mixed and Rectilinear. Mixed deterministically
+assigns seeds to organic or axis-aligned generators within one shared structural
+and tonal occupancy budget. Straight runs emit two endpoints while reserving their
+entire interior clearance. Existing organic geometry and default recipe encoding
+retain their prior interpretation. Visual review of retained-photo contact sheets
+shows that dense structural texture still dominates facial features: line-form
+differences are stronger in open tonal regions. This is a limited new rendering
+mode, not evidence that aesthetic variety, semantic face priors or likeness are
+solved.
+
+The first targeted debug run passed 59 tests. A broader 220-test portrait/Drawing
+integration run found only three old cache tests (seven assertions) assuming
+synchronous restoration; after adapting them to the asynchronous contract, all
+13 cache/browsing/capture tests passed. Coverage includes pending Current, stale
+cached preparation, material floors, bounded retries, exact history restoration,
+archive compatibility, line-interior barriers, tiny raster kernel bounds and
+bitset decision parity. Hosted workspace snapshots were inspected at 1000×550 and
+1280×650 with the Line form control visible. These are hosted software checks,
+not pointer/keyboard interaction in the staged application.
+
+The debug executable was packaged with the stable local development signing
+identity. Launcher logic, launcher validation, strict bundle validation and
+negative bundle checks passed without launching the application. The configured
+repository suite uses this source-matched debug test build with
+`SWIFT_FLAGS='--no-parallel --skip-build'`; machine receipts record its result.
+
+Source photos stayed local and their archive files were not modified. No running
+app was replaced or restarted, and no camera, controller motion, pen contact or
+observed ink was exercised. Physical separation and plot duration remain attended
+acceptance work. Required validation and landing receipts belong to this task;
+retained artifacts live under `.build/PortraitFollowupEvidence/task-b279ed48/`
+in the primary checkout.
+
 ## Flow Edge, short capture and three choices, 2026-09-21–22
 
 Ordinary product extension in task `task-d28e7ad4af6345129394abcc61fb2b91`.

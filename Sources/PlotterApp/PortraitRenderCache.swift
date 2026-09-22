@@ -25,8 +25,18 @@ struct PortraitRenderCache {
   static let maximumRenders = 24
   static let maximumPoints = 200_000
   static let maximumRasters = 32
+  static let maximumFlowWorkspaces = 2
   private(set) var renders: [(PortraitRenderCacheKey, PortraitRenderResult)] = []
   private var rasters: [(PortraitRasterCacheKey, PortraitRaster)] = []
+  private var flowWorkspaces: [(PortraitRasterCacheKey, PortraitFlowRenderer.Workspace)] = []
+  var flowWorkspaceCount: Int { flowWorkspaces.count }
+
+  mutating func flowWorkspace(for key: PortraitRasterCacheKey) -> PortraitFlowRenderer.Workspace? {
+    guard let index = flowWorkspaces.firstIndex(where: { $0.0 == key }) else { return nil }
+    let entry = flowWorkspaces.remove(at: index)
+    flowWorkspaces.append(entry)
+    return entry.1
+  }
 
   mutating func result(for key: PortraitRenderCacheKey) -> PortraitRenderResult? {
     guard let index = renders.firstIndex(where: { $0.0 == key }) else { return nil }
@@ -48,9 +58,18 @@ struct PortraitRenderCache {
     rasters.removeAll { $0.0 == rasterKey }
     rasters.append((rasterKey, result.raster))
     if rasters.count > Self.maximumRasters { rasters.removeFirst() }
+    if let workspace = result.flowWorkspace {
+      flowWorkspaces.removeAll { $0.0 == rasterKey }
+      flowWorkspaces.append((rasterKey, workspace))
+      if flowWorkspaces.count > Self.maximumFlowWorkspaces { flowWorkspaces.removeFirst() }
+    }
     renders.removeAll { $0.0 == key }
     guard pointCount(result) <= Self.maximumPoints else { return }
-    renders.append((key, result))
+    // Heavy preparation has its own two-source LRU, independently of the 24
+    // final drawing variants. A render hit must not prolong an evicted source.
+    var retained = result
+    retained.flowWorkspace = nil
+    renders.append((key, retained))
     while renders.count > Self.maximumRenders || renders.reduce(0, { $0 + pointCount($1.1) }) > Self.maximumPoints {
       renders.removeFirst()
     }
@@ -59,6 +78,7 @@ struct PortraitRenderCache {
   mutating func remove(photoID: UUID) {
     renders.removeAll { $0.0.photoID == photoID }
     rasters.removeAll { $0.0.photoID == photoID }
+    flowWorkspaces.removeAll { $0.0.photoID == photoID }
   }
 
   private func pointCount(_ result: PortraitRenderResult) -> Int {

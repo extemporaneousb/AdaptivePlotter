@@ -47,6 +47,7 @@ extension PortraitVectorOptions {
   enum CodingKeys: String, CodingKey {
     case contourLevels, minimumContourLength, simplificationTolerance, hatchSpacing
     case tonalStrength, smoothing, sketchThreshold, hatchAngleDegrees, headScale, semanticHead, materialContext
+    case flowRectilinearity
   }
   init(from decoder: Decoder) throws {
     self.init()
@@ -62,6 +63,7 @@ extension PortraitVectorOptions {
     headScale = try values.decodeIfPresent(Double.self, forKey: .headScale) ?? headScale
     semanticHead = try values.decodeIfPresent(PortraitSemanticHeadParameters.self, forKey: .semanticHead)
     materialContext = try values.decodeIfPresent(PortraitMaterialContext.self, forKey: .materialContext)
+    flowRectilinearity = try values.decodeIfPresent(Double.self, forKey: .flowRectilinearity)
   }
 }
 

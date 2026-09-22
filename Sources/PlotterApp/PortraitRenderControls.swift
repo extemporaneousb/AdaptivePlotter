@@ -24,7 +24,7 @@ struct PortraitRenderControls: View {
         Text(model.style.rawValue).font(.headline)
         Spacer()
         StudioHelpButton("Style adjustments", text: model.style == .flowEdges
-          ? "Flow Edge keeps structural lines separate from tone. Coherence smooths the flow; tone density adds shading lines without changing structural evidence. Spacing reserves room between lines. Presets do not change the pen width."
+          ? "Flow Edge preserves feature curves while shading with organic curves, straight horizontal or vertical lines, or a mixture. Mixed lines share one spacing budget. Coherence guides direction; tone density adds shading without changing structural evidence. Presets do not change pen width or line form."
           : "These parameters change the selected rendering algorithm. Pixels refer to the analyzed image. Longer minimum contours and fewer tonal levels reduce detail and ink density. Presets do not change the pen width.")
       }
       HStack(spacing: 5) {
@@ -34,11 +34,25 @@ struct PortraitRenderControls: View {
           Button(preset == .broadMarker ? "Coarse" : preset.rawValue) {
             var options = preset.options(for: model.style)
             options.materialContext = model.vectorOptions.materialContext
+            options.flowRectilinearity = model.vectorOptions.flowRectilinearity
             model.vectorOptions = options
           }
           .accessibilityIdentifier("portrait.preset.\(preset.rawValue)")
         }
       }.controlSize(.small)
+      if model.style == .flowEdges {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Line form").font(.caption).foregroundStyle(.secondary)
+          Picker("Line form", selection: Binding(
+            get: { FlowLineForm(value: model.vectorOptions.flowRectilinearity ?? 0) },
+            set: { model.vectorOptions.flowRectilinearity = $0.value })) {
+            ForEach(FlowLineForm.allCases, id: \.self) { form in Text(form.rawValue).tag(form) }
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          .accessibilityIdentifier("portrait.flowLineForm")
+        }
+      }
       if model.style != .hatch && model.style != .crosshatch {
         PortraitAdjustmentSlider(model.style == .flowEdges ? "Min. line" : "Min. contour", value: $model.vectorOptions.minimumContourLength,
           range: 0...40, step: 0.5, unit: "px", precision: 1)
@@ -69,6 +83,15 @@ struct PortraitRenderControls: View {
     .controlSize(.small)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("portrait.adjustments")
+  }
+}
+
+private enum FlowLineForm: String, CaseIterable {
+  case organic = "Organic", mixed = "Mixed", rectilinear = "Rectilinear"
+
+  init(value: Double) { self = value < 0.25 ? .organic : value < 0.75 ? .mixed : .rectilinear }
+  var value: Double? {
+    switch self { case .organic: nil; case .mixed: 0.5; case .rectilinear: 1 }
   }
 }
 

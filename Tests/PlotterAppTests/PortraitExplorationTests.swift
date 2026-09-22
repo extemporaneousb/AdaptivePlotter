@@ -163,7 +163,7 @@ struct PortraitExplorationTests {
     await model.shutdown()
   }
 
-  @Test("Current and Back immediately cancel pending alternatives and reject their late result")
+  @Test("pending Current preserves useful work while Back cancels and rejects its late result")
   func pendingCurrentAndBack() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer)
@@ -181,9 +181,11 @@ struct PortraitExplorationTests {
     try await renderer.waitUntilHeld()
     let pendingID = try #require(model.explorationDisplayID)
     #expect(model.isExploring)
-    model.chooseExplorationSlot(1, roundID: pendingID, strokeStyle: pen)
-    #expect(!model.isExploring)
-    #expect(model.explorationRound?.id == pendingID)
+    let searchBefore = model.explorationSearch
+    for _ in 0..<10 { model.chooseExplorationSlot(1, roundID: pendingID, strokeStyle: pen) }
+    #expect(model.isExploring)
+    #expect(model.explorationRound == nil)
+    #expect(model.explorationSearch == searchBefore)
     #expect(model.selectedCandidate?.id == first.center.id)
     #expect(await renderer.requests.count == calls + 1)
     model.goBackExploration()
@@ -194,6 +196,94 @@ struct PortraitExplorationTests {
     await model.awaitRendering()
     #expect(try roundBytes(#require(model.explorationRound)) == roundBytes(first))
     #expect(await renderer.requests.count == calls + 1)
+    #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
+    await model.shutdown()
+  }
+
+  @Test("repeated pending Current clicks settle the original offer without fabricated failures or preferences")
+  func pendingCurrentCompletes() async throws {
+    let renderer = ExplorationTestRenderer()
+    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    let center = try #require(model.selectedCandidate)
+    await renderer.holdNext()
+    model.setExplorationEnabled(true, strokeStyle: pen)
+    try await renderer.waitUntilHeld()
+    let pendingID = try #require(model.explorationDisplayID)
+    let search = model.explorationSearch
+    for _ in 0..<20 { model.chooseExplorationSlot(1, roundID: pendingID, strokeStyle: pen) }
+    #expect(model.isExploring)
+    #expect(model.explorationSearch == search)
+    #expect(await renderer.requests.count == 2)
+    await renderer.release()
+    await model.awaitRendering()
+    let round = try #require(model.explorationRound)
+    #expect(round.id == pendingID)
+    #expect(round.center.id == center.id)
+    #expect(round.slots.filter { $0.index != 1 }.contains { $0.candidate != nil })
+    #expect(await renderer.requests.count <= 5)
+    #expect(model.keepSelection() == nil)
+    let trace = try #require(model.sketches.entries.first?.exploration)
+    #expect(trace.map(\.action) == [.offered])
+    await model.shutdown()
+  }
+
+  @Test("failed new renders can offer exact previous drawings without counting them as new")
+  func exactPreviousFallback() async throws {
+    let renderer = ExplorationTestRenderer()
+    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    model.setExplorationEnabled(true, strokeStyle: pen)
+    await model.awaitRendering()
+    let first = try #require(model.explorationRound)
+    #expect(first.slots.filter { $0.index != 1 }.contains { $0.candidate != nil })
+    await renderer.rejectFutureRequests()
+    let calls = await renderer.requests.count
+    model.chooseExplorationSlot(1, roundID: first.id, strokeStyle: pen)
+    await model.awaitRendering()
+    let next = try #require(model.explorationRound)
+    let previous = next.slots.filter(\.isPrevious)
+    #expect(!previous.isEmpty)
+    for slot in previous {
+      let candidate = try #require(slot.candidate)
+      let original = try #require(first.slots.compactMap(\.candidate).first { $0.id == candidate.id })
+      #expect(try candidateBytes(candidate) == candidateBytes(original))
+      #expect(slot.unavailableReason == nil)
+    }
+    #expect(next.center.id == first.center.id)
+    #expect(model.explorationPreviousOptionCount == previous.count)
+    #expect(await renderer.requests.count <= calls + 4)
+    model.goBackExploration()
+    #expect(try roundBytes(#require(model.explorationRound)) == roundBytes(first))
+    await model.shutdown()
+  }
+
+  @Test("no-lines failures use bounded evidence-preserving retries and retain the valid center")
+  func noLinesRecovery() async throws {
+    let renderer = ExplorationTestRenderer()
+    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
+    model.style = .contours
+    model.vectorOptions = PortraitVectorOptions()
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    let center = try #require(model.selectedCandidate)
+    await renderer.rejectNextAsNoLines(2)
+    model.setExplorationEnabled(true, strokeStyle: pen)
+    await model.awaitRendering()
+    let round = try #require(model.explorationRound)
+    #expect(round.center.id == center.id)
+    #expect(model.explorationRejections["noLines"] == 2)
+    #expect(await renderer.requests.count <= 5)
+    #expect(round.slots.filter { $0.index != 1 }.contains { $0.candidate != nil })
     #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
     await model.shutdown()
   }
@@ -214,7 +304,7 @@ struct PortraitExplorationTests {
     let round = try #require(model.explorationRound)
     #expect(round.slots.count == 3)
     #expect(round.slots.filter { $0.index != 1 }.allSatisfy {
-      $0.candidate == nil && !($0.unavailableReason ?? "").isEmpty
+      $0.candidate == nil && $0.failureKind == .generationFailed && !($0.unavailableReason ?? "").isEmpty
     })
     #expect(try candidateBytes(#require(model.selectedCandidate)) == candidateBytes(center))
     #expect(await renderer.requests.count <= 1 + 2 * 2)
@@ -496,10 +586,12 @@ private actor ExplorationTestRenderer: PortraitRendering {
   private(set) var requests: [PortraitRenderRequest] = []
   private var holdsNext = false
   private var rejectsFuture = false
+  private var noLinesRemaining = 0
   private var releaseWaiter: CheckedContinuation<Void, Never>?
 
   func holdNext() { holdsNext = true }
   func rejectFutureRequests() { rejectsFuture = true }
+  func rejectNextAsNoLines(_ count: Int) { noLinesRemaining = count }
   func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
     requests.append(request)
     if holdsNext {
@@ -507,6 +599,7 @@ private actor ExplorationTestRenderer: PortraitRendering {
       await withCheckedContinuation { releaseWaiter = $0 }
     }
     if rejectsFuture { throw PortraitDrawingError.unreadableImage }
+    if noLinesRemaining > 0 { noLinesRemaining -= 1; throw PortraitDrawingError.noLines }
     let raster = request.cachedRaster ?? portraitTestRaster()
     // Deliberately ignore cancellation to test publication ownership.
     let program = try await Task.detached {

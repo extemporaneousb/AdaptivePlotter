@@ -31,6 +31,8 @@ struct PortraitRenderRequest: Sendable {
   let strokeStyle: PlotterModel.StrokeStyle
   var vectorOptions = PortraitVectorOptions()
   var sourcePixelExtent: PortraitSourceCropExtent? = nil
+  /// Ephemeral worker preparation; never part of a saved photo or candidate.
+  var flowWorkspace: PortraitFlowRenderer.Workspace? = nil
 }
 
 struct PortraitRenderResult: Sendable {
@@ -38,6 +40,7 @@ struct PortraitRenderResult: Sendable {
   let program: PlotterModel.DrawingProgram
   var transformationSummary: String? = nil
   var warpManifest: PortraitHeadWarpManifest? = nil
+  var flowWorkspace: PortraitFlowRenderer.Workspace? = nil
 }
 
 protocol PortraitRendering: Sendable {
@@ -106,9 +109,18 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       sourcePixelExtent: request.sourcePixelExtent,
       maximumDimension: Self.analysisMaximumDimension(for: request.style))
     try Task.checkCancellation()
+    var workspace: PortraitFlowRenderer.Workspace?
+    var flowLayers: PortraitFlowRenderer.Layers?
+    if request.style == .flowEdges {
+      var prepared = request.flowWorkspace ?? .init()
+      var effective = request.vectorOptions.bounded
+      if let material = effective.materialContext { effective = try material.adapting(effective, raster: raster) }
+      flowLayers = try PortraitFlowRenderer.layers(from: raster, options: effective, workspace: &prepared)
+      workspace = prepared
+    }
     let program = try PortraitVectorizer.program(
       from: raster, pose: request.pose, style: request.style, strokeStyle: request.strokeStyle,
-      vectorOptions: request.vectorOptions)
+      vectorOptions: request.vectorOptions, flowLayers: flowLayers)
     try Task.checkCancellation()
     let transformSummary: String?
     let warpManifest = request.vectorOptions.bounded.semanticHead.map {
@@ -122,7 +134,7 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
         : String(format: "Head emphasis %.2f×", request.vectorOptions.bounded.headScale)
     } else { transformSummary = nil }
     return PortraitRenderResult(raster: raster, program: program, transformationSummary: transformSummary,
-      warpManifest: warpManifest)
+      warpManifest: warpManifest, flowWorkspace: workspace)
   }
 
   static func image(from data: Data) throws -> CGImage {

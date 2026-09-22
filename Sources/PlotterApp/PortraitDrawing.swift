@@ -28,6 +28,7 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
   var headScale = 1.0
   var semanticHead: PortraitSemanticHeadParameters? = nil
   var materialContext: PortraitMaterialContext? = nil
+  var flowRectilinearity: Double? = nil
 
   var bounded: Self {
     var result = self
@@ -41,6 +42,7 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
     result.hatchAngleDegrees = Self.clamp(hatchAngleDegrees, to: -90...90, fallback: 0)
     result.headScale = Self.clamp(headScale, to: 1...1.6, fallback: 1)
     result.semanticHead = semanticHead?.bounded
+    result.flowRectilinearity = flowRectilinearity.flatMap { $0.isFinite && $0 > 0 ? min(1, $0) : nil }
     return result
   }
 
@@ -51,7 +53,8 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
     let legacy = hatchAngleDegrees == 0 && headScale == 1 ? original
       : original + "|hatchAngle=\(hatchAngleDegrees)|headScale=\(headScale)"
     let head = semanticHead.map { "|semanticHead=\($0.revision),\($0.foreheadWidth),\($0.foreheadHeight),\($0.eyeScale),\($0.lateralScale)" } ?? ""
-    return legacy + head + (materialContext.map { "|" + $0.provenance } ?? "")
+    let flow = bounded.flowRectilinearity.map { "|flowRectilinearity=\($0)" } ?? ""
+    return legacy + head + (materialContext.map { "|" + $0.provenance } ?? "") + flow
   }
 
   private static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
@@ -227,7 +230,8 @@ enum PortraitVectorizer {
   static func program(
     from raster: PortraitRaster, pose: PortraitPose, style: PortraitStyle,
     levels: Int? = nil, strokeStyle: StrokeStyle,
-    vectorOptions: PortraitVectorOptions = PortraitVectorOptions()
+    vectorOptions: PortraitVectorOptions = PortraitVectorOptions(),
+    flowLayers: PortraitFlowRenderer.Layers? = nil
   ) throws -> DrawingProgram {
     try Task.checkCancellation()
     guard raster.width >= 2, raster.height >= 2, raster.width <= 512, raster.height <= 512,
@@ -243,7 +247,9 @@ enum PortraitVectorizer {
     let prepared = style == .flowEdges ? raster : try preparedRaster(raster, options: options)
     let authoredPaths: [[CGPoint]]
     switch style {
-    case .flowEdges: authoredPaths = try PortraitFlowRenderer.paths(from: raster, options: options)
+    case .flowEdges:
+      if let flowLayers { authoredPaths = flowLayers.structure + flowLayers.tone }
+      else { authoredPaths = try PortraitFlowRenderer.paths(from: raster, options: options) }
     case .contours: authoredPaths = try contours(prepared, options: options)
     case .hatch: authoredPaths = try hatching(prepared, crosshatch: false, options: options)
     case .crosshatch: authoredPaths = try hatching(prepared, crosshatch: true, options: options)

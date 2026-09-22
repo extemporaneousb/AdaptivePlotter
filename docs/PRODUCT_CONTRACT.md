@@ -1612,9 +1612,15 @@ starting point and invalidate exploration history.
 Variation is internal. Accepted parameter directions guide a bounded continuation
 proposal and a complementary proposal; repeated aligned choices can increase the
 step and reversals can decrease it. Screen positions are not parameter axes.
-Bounded retries reject empty, failed, duplicate and visually negligible results;
-unavailable alternatives remain explicit. The current drawing and Back remain
-usable while alternatives are pending. Stored choices are provenance and session
+Bounded retries reject empty, failed, duplicate and visually negligible results.
+Proposals account for material-imposed spacing and minimum-length floors before
+spending render work, and retries change the parameter direction. Exhausted
+similar options are distinct from rendering failures. A compatible, visibly distinct
+candidate from recent history may remain available as a labeled Previous option
+when the bounded search finds no useful new candidate. Keeping Current while
+alternatives are pending leaves their generation running; it cannot turn unfinished
+work into failed choices. The current drawing and Back remain usable while
+alternatives are pending. Stored choices are provenance and session
 search state, not a trained aesthetic or likeness model. Legacy nine-slot traces
 remain readable under their original policy revision.
 
@@ -1628,6 +1634,10 @@ cancel-and-join work drain own center, exploration and algorithm-comparison work
 Selected candidates remain usable while a new neighborhood is pending; stale source,
 configuration, round or tile identities cannot replace a later choice. Algorithm
 comparisons remain lazy, and proposals reuse analyzed rasters and bounded caches.
+Flow preparation reuses source evidence, structural curves and orientation fields
+in source-specific bounded workspaces. The render worker also constructs the
+candidate and preview footprint off the main actor; promoted candidates reuse
+their footprint.
 Crop to face, head margin and background removal belong to Framing; line/tone
 controls and detail presets belong to Style.
 
@@ -1661,6 +1671,12 @@ streamlines use local density, separation and structural barriers. Material
 adaptation sets spacing at the explicitly selected drawing height; a digital
 preview or nominal spacing is not proof of separated deposited ink. Flow Edge
 still produces the same immutable `DrawingProgram` consumed by ordinary Drawing.
+Its Line form control offers Organic, Mixed and Rectilinear shading. Rectilinear
+strokes choose a horizontal or vertical direction once and retain long straight
+runs as endpoint pairs. Mixed shading distributes seeds between the two generators
+and reserves them through the same structural and tonal spacing constraints;
+it does not independently overlay two complete drawings. Feature curves remain
+image-derived and do not claim a semantic face prior or reconstructed depth.
 
 Pen & material displays the current applicable marker width and whether its origin
 is estimated or independently measured. It is an input to drawing appearance, not

@@ -7,10 +7,58 @@ import Foundation
 enum PortraitFlowRenderer {
   static let revision = "flow-edge-v1"
 
-  struct Layers {
+  struct Layers: Sendable {
     let structure: [[CGPoint]]
     let tone: [[CGPoint]]
     let minimumSpacing: Double
+  }
+
+  struct Diagnostics: Sendable {
+    var sourceBuilds = 0
+    var structureBuilds = 0
+    var orientationBuilds = 0
+    var sourceMS = 0.0
+    var structureMS = 0.0
+    var orientationMS = 0.0
+    var tracingMS = 0.0
+    var sourceCacheHit = false
+    var structureCacheHit = false
+    var orientationCacheHit = false
+  }
+
+  /// Value-owned, source-specific preparation. The Studio owns at most two
+  /// workspaces. Each retains at most two structural and orientation variants;
+  /// neither an analyzer instance nor a process-global cache owns this memory.
+  struct Workspace: Sendable {
+    fileprivate var source: Source?
+    fileprivate var structures: [(StructureKey, [[CGPoint]])] = []
+    fileprivate var orientations: [(Int, Orientation)] = []
+    fileprivate(set) var diagnostics = Diagnostics()
+    init() {}
+    var structureVariantCount: Int { structures.count }
+    var orientationVariantCount: Int { orientations.count }
+  }
+
+  fileprivate struct Source: Sendable {
+    let luminance: [Double]
+    let provenance: String
+    let field: Evidence
+    func matches(_ raster: PortraitRaster) -> Bool {
+      field.width == raster.width && field.height == raster.height
+        && provenance == raster.provenance && luminance == raster.luminance
+    }
+  }
+
+  fileprivate struct StructureKey: Equatable, Sendable {
+    let threshold: Double
+    let minimumLength: Double
+    let simplification: Double
+    let spacing: Double
+  }
+
+  fileprivate struct Orientation: Sendable {
+    let cos2: [Double]
+    let sin2: [Double]
   }
 
   static func paths(from raster: PortraitRaster, options: PortraitVectorOptions) throws -> [[CGPoint]] {
@@ -19,23 +67,75 @@ enum PortraitFlowRenderer {
   }
 
   static func layers(from raster: PortraitRaster, options: PortraitVectorOptions) throws -> Layers {
+    var workspace = Workspace()
+    return try layers(from: raster, options: options, workspace: &workspace)
+  }
+
+  static func layers(from raster: PortraitRaster, options: PortraitVectorOptions,
+    workspace: inout Workspace) throws -> Layers {
     try Task.checkCancellation()
+    let clock = ContinuousClock()
+    var started = clock.now
     let width = raster.width, height = raster.height
     guard width >= 3, height >= 3, width <= 512, height <= 512,
       raster.luminance.count == width * height,
       raster.luminance.allSatisfy(\.isFinite) else { throw PortraitDrawingError.unreadableImage }
-    let source = raster.luminance.map { min(1, max(0, $0)) }
-    // Fixed subpixel noise suppression. Unlike the old smoothing control this
-    // bandwidth cannot grow until an eye or mouth disappears.
-    let image = try blur(source, width: width, height: height, sigma: 0.65)
-    let field = try Evidence(image: image, width: width, height: height)
+    var diagnostics = workspace.diagnostics
+    diagnostics.sourceCacheHit = workspace.source?.matches(raster) == true
+    if !diagnostics.sourceCacheHit {
+      // Fixed noise bandwidth; tone/coherence cannot blur away a facial mark.
+      let values = raster.luminance.map { min(1, max(0, $0)) }
+      let image = try blur(values, width: width, height: height, sigma: 0.65)
+      let field = try Evidence(image: image, width: width, height: height)
+      workspace.source = Source(luminance: raster.luminance, provenance: raster.provenance, field: field)
+      workspace.structures = []; workspace.orientations = []
+      diagnostics.sourceBuilds += 1
+    }
+    let field = workspace.source!.field
+    diagnostics.sourceMS = milliseconds(started.duration(to: clock.now))
     let materialSpacing = try minimumSpacing(raster: raster, options: options)
-    let extracted = try structuralCurves(field: field, options: options)
-    let structure = try separatedStructure(extracted, field: field,
-      minimumLength: options.minimumContourLength, minimumSpacing: materialSpacing)
-    let tone = try tonalCurves(field: field, structure: structure,
+    let key = StructureKey(threshold: max(0.001, options.sketchThreshold),
+      minimumLength: options.minimumContourLength,
+      simplification: min(0.3, max(0, options.simplificationTolerance)), spacing: materialSpacing)
+    started = clock.now
+    let structure: [[CGPoint]]
+    if let index = workspace.structures.firstIndex(where: { $0.0 == key }) {
+      let entry = workspace.structures.remove(at: index)
+      workspace.structures.append(entry); structure = entry.1
+      diagnostics.structureCacheHit = true
+    } else {
+      let extracted = try structuralCurves(field: field, options: options)
+      structure = try separatedStructure(extracted, field: field,
+        minimumLength: options.minimumContourLength, minimumSpacing: materialSpacing)
+      workspace.structures.append((key, structure))
+      if workspace.structures.count > 2 { workspace.structures.removeFirst() }
+      diagnostics.structureCacheHit = false; diagnostics.structureBuilds += 1
+    }
+    diagnostics.structureMS = milliseconds(started.duration(to: clock.now))
+    started = clock.now
+    let radius = Int(ceil(1.5 + max(0, options.smoothing) * 1.5))
+    let orientation: Orientation
+    if let index = workspace.orientations.firstIndex(where: { $0.0 == radius }) {
+      let entry = workspace.orientations.remove(at: index)
+      workspace.orientations.append(entry); orientation = entry.1
+      diagnostics.orientationCacheHit = true
+    } else {
+      orientation = try orientationField(field, radius: radius)
+      workspace.orientations.append((radius, orientation))
+      if workspace.orientations.count > 2 { workspace.orientations.removeFirst() }
+      diagnostics.orientationCacheHit = false; diagnostics.orientationBuilds += 1
+    }
+    diagnostics.orientationMS = milliseconds(started.duration(to: clock.now))
+    started = clock.now
+    let tone = try tonalCurves(field: field, orientation: orientation, structure: structure,
       options: options, minimumSpacing: materialSpacing)
+    diagnostics.tracingMS = milliseconds(started.duration(to: clock.now))
+    workspace.diagnostics = diagnostics
     return Layers(structure: structure, tone: tone, minimumSpacing: materialSpacing)
+  }
+
+  private static func milliseconds(_ duration: Duration) -> Double {
+    Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
   }
 
   /// Suppress nearby parallel copies and texture in evidence-priority order.
@@ -96,7 +196,7 @@ enum PortraitFlowRenderer {
     return max(1.75, result)
   }
 
-  private struct Evidence {
+  fileprivate struct Evidence: Sendable {
     let width: Int
     let height: Int
     let image: [Double]
@@ -167,44 +267,59 @@ enum PortraitFlowRenderer {
         }
       }
     }
-    var links = [[Int]](repeating: [], count: count)
+    // Eight neighbor/visited bits replace one small heap array per image pixel
+    // and a hashed edge set. The bit order is the old y/x neighbor order, keeping
+    // traversal, junction tie-breaking and generated geometry deterministic.
+    let dxs = [-1, 0, 1, -1, 1, -1, 0, 1]
+    let dys = [-1, -1, -1, 0, 0, 1, 1, 1]
+    let offsets = [-width - 1, -width, -width + 1, -1, 1, width - 1, width, width + 1]
+    var links = [UInt8](repeating: 0, count: count)
+    var starts: [Int] = [], remaining: [Int] = []
     for i in 0..<count where retained[i] {
       if i.isMultiple(of: 256) { try Task.checkCancellation() }
       let x = i % width, y = i / width
-      for dy in -1...1 {
-        for dx in -1...1 where dx != 0 || dy != 0 {
-          let nx = x + dx, ny = y + dy
-          guard nx >= 0, ny >= 0, nx < width, ny < height, retained[ny * width + nx] else { continue }
-          if dx != 0, dy != 0, retained[y * width + nx] || retained[ny * width + x] { continue }
-          links[i].append(ny * width + nx)
-        }
+      var mask: UInt8 = 0
+      for bit in 0..<8 {
+        let dx = dxs[bit], dy = dys[bit], nx = x + dx, ny = y + dy
+        guard nx >= 0, ny >= 0, nx < width, ny < height, retained[ny * width + nx] else { continue }
+        if dx != 0, dy != 0, retained[y * width + nx] || retained[ny * width + x] { continue }
+        mask |= UInt8(1 << bit)
       }
+      links[i] = mask
+      if mask.nonzeroBitCount == 1 { starts.append(i) }
+      else if mask != 0 { remaining.append(i) }
     }
-    let starts = (0..<count).filter { !links[$0].isEmpty }.sorted {
-      let lhs = links[$0].count == 1, rhs = links[$1].count == 1
-      return lhs == rhs ? $0 < $1 : lhs
-    }
-    func edge(_ a: Int, _ b: Int) -> UInt64 {
-      UInt64(min(a, b)) << 32 | UInt64(max(a, b))
-    }
-    var visited = Set<UInt64>(), curves: [[CGPoint]] = []
+    starts.append(contentsOf: remaining)
+    var visited = [UInt8](repeating: 0, count: count)
+    var localGeneration = [UInt32](repeating: 0, count: count), generation: UInt32 = 0
+    var curves: [[CGPoint]] = []
     for start in starts {
       try Task.checkCancellation()
-      for first in links[start] where !visited.contains(edge(start, first)) {
-        var previous = start, current = first, indices = [start], local = Set([start])
-        visited.insert(edge(start, first))
+      for firstBit in 0..<8 where links[start] & UInt8(1 << firstBit) != 0
+        && visited[start] & UInt8(1 << firstBit) == 0 {
+        let first = start + offsets[firstBit]
+        var previous = start, current = first, indices = [start]
+        generation += 1; localGeneration[start] = generation
+        visited[start] |= UInt8(1 << firstBit)
+        visited[first] |= UInt8(1 << (7 - firstBit))
         while true {
           if indices.count.isMultiple(of: 128) { try Task.checkCancellation() }
           indices.append(current)
-          guard local.insert(current).inserted else { break }
+          guard localGeneration[current] != generation else { break }
+          localGeneration[current] = generation
           let direction = unit(locations[current] - locations[previous])
-          let next = links[current].filter { !visited.contains(edge(current, $0)) }.max { a, b in
-            let da = dot(direction, unit(locations[a] - locations[current]))
-            let db = dot(direction, unit(locations[b] - locations[current]))
-            return da == db ? a > b : da < db
+          let available = links[current] & ~visited[current]
+          var nextBit: Int?, best = -Double.infinity
+          for bit in 0..<8 where available & UInt8(1 << bit) != 0 {
+            let candidate = current + offsets[bit]
+            let score = dot(direction, unit(locations[candidate] - locations[current]))
+            if score > best { best = score; nextBit = bit }
           }
-          guard let next else { break }
-          visited.insert(edge(current, next)); previous = current; current = next
+          guard let nextBit else { break }
+          let next = current + offsets[nextBit]
+          visited[current] |= UInt8(1 << nextBit)
+          visited[next] |= UInt8(1 << (7 - nextBit))
+          previous = current; current = next
         }
         let raw = indices.map { locations[$0] }
         guard length(raw) >= options.minimumContourLength else { continue }
@@ -217,17 +332,20 @@ enum PortraitFlowRenderer {
     return curves
   }
 
-  private static func tonalCurves(field: Evidence, structure: [[CGPoint]],
-    options: PortraitVectorOptions, minimumSpacing: Double) throws -> [[CGPoint]] {
+  private static func orientationField(_ field: Evidence, radius: Int) throws -> Orientation {
     let width = field.width, height = field.height
     // Structure tensors represent an unoriented line field without +/- vector
     // cancellation. Smoothing this field alters flow coherence, not edge evidence.
-    let sigma = 1.5 + max(0, options.smoothing) * 1.5
-    let radius = Int(ceil(sigma))
     let xx = try coherentField(field.gx.map { $0 * $0 }, width: width, height: height, radius: radius)
     let yy = try coherentField(field.gy.map { $0 * $0 }, width: width, height: height, radius: radius)
     let xy = try coherentField(zip(field.gx, field.gy).map { $0.0 * $0.1 }, width: width, height: height, radius: radius)
-    let cos2 = zip(xx, yy).map { $0 - $1 }, sin2 = xy.map { 2 * $0 }
+    return Orientation(cos2: zip(xx, yy).map { $0 - $1 }, sin2: xy.map { 2 * $0 })
+  }
+
+  private static func tonalCurves(field: Evidence, orientation: Orientation, structure: [[CGPoint]],
+    options: PortraitVectorOptions, minimumSpacing: Double) throws -> [[CGPoint]] {
+    let width = field.width, height = field.height
+    let cos2 = orientation.cos2, sin2 = orientation.sin2
     func direction(_ point: CGPoint, following previous: CGPoint?) -> CGPoint {
       let a = field.sample(cos2, point), b = field.sample(sin2, point)
       // Quiet regions have no measured orientation. The deterministic diagonal
@@ -239,9 +357,13 @@ enum PortraitFlowRenderer {
     }
     let nominal = max(3, Double(options.hatchSpacing))
     let strength = min(2, max(0.4, options.tonalStrength))
+    let strengthScale = sqrt(strength)
+    let headingBlend = 0.35 + min(4, max(0, options.smoothing)) * 0.1
+    let minimumLength = max(12, options.minimumContourLength * 2)
+    let rectilinearity = options.bounded.flowRectilinearity ?? 0
     func spacing(_ point: CGPoint) -> Double {
       let darkness = max(0, 1 - field.sample(field.image, point))
-      return max(minimumSpacing, nominal / ((0.25 + 0.75 * sqrt(darkness)) * sqrt(strength)))
+      return max(minimumSpacing, nominal / ((0.25 + 0.75 * sqrt(darkness)) * strengthScale))
     }
     var occupied = Occupancy(width: width, height: height)
     for curve in structure {
@@ -259,16 +381,33 @@ enum PortraitFlowRenderer {
       field.image[$0] == field.image[$1] ? $0 < $1 : field.image[$0] < field.image[$1]
     }
     var curves: [[CGPoint]] = []
+    // Reuse only cells touched by the previous candidate. Allocating an entire
+    // image-sized grid for every failed short trace made DEBUG work quadratic
+    // in image area and candidate count despite the bounded path integration.
+    var localOccupancy = Occupancy(width: width, height: height)
     let maximumSteps = 4 * (width + height), stepSize = 0.9
     for seed in seeds {
       try Task.checkCancellation()
       let start = CGPoint(x: seed % width, y: seed / width)
       guard !occupied.intersects(start, radius: spacing(start)) else { continue }
+      let seedMix = UInt64(seed) &* 2_654_435_761
+      let chooseRectilinear = Double(seedMix & 0xffff) / 65_536 < rectilinearity
+      if chooseRectilinear {
+        if let straight = try PortraitRectilinearFlowTracer.trace(seed: start,
+          tangent: direction(start, following: nil), width: width, height: height,
+          minimumLength: minimumLength, spacing: spacing,
+          luminance: { field.sample(field.image, $0) },
+          intersects: { occupied.intersects($0, radius: $1) }) {
+          occupied.insert(straight.sampledPath, radii: straight.radii)
+          curves.append(straight.endpoints)
+        }
+        continue
+      }
       // Half-pixel visitation catches returning/crossing streamlines while
       // permitting adjacent integration samples. This is per candidate, bounded
       // by maximumSteps, and cannot grow with the number of previous candidates.
       var seen: [Int: Int] = [:]
-      var localOccupancy = Occupancy(width: width, height: height)
+      localOccupancy.reset()
       func key(_ point: CGPoint) -> Int { Int((point.y * 2).rounded()) * width * 2 + Int((point.x * 2).rounded()) }
       func trace(sign: Double) throws -> [CGPoint] {
         var result: [CGPoint] = [], point = start, heading = direction(start, following: nil) * sign
@@ -280,19 +419,19 @@ enum PortraitFlowRenderer {
           // A tensor singularity must not create a sudden hairpin. Integrating
           // a bounded turn gives smooth plotter motion; stop at an opposing flow.
           guard dot(proposed, heading) > 0.35 else { break }
-          let blend = 0.35 + min(4, max(0, options.smoothing)) * 0.1
-          let tangent = unit(proposed * (1 - blend) + heading * blend)
+          let tangent = unit(proposed * (1 - headingBlend) + heading * headingBlend)
           let next = point + tangent * stepSize
+          let nextSpacing = spacing(next)
           guard next.x >= 1, next.y >= 1, next.x < Double(width - 2), next.y < Double(height - 2),
             field.sample(field.image, next) < 0.95,
-            !occupied.intersects(next, radius: spacing(next)) else { break }
+            !occupied.intersects(next, radius: nextSpacing) else { break }
           let progress = sign * Double(index + 1) * stepSize
-          guard !localOccupancy.intersects(next, radius: spacing(next),
+          guard !localOccupancy.intersects(next, radius: nextSpacing,
             excludingAdjacentProgress: progress) else { break }
           let cell = key(next)
           if let earlier = seen[cell], index > 3 || earlier < 0 { break }
           seen[cell] = sign > 0 ? index : -index - 1
-          localOccupancy.insert(next, radius: spacing(next), tangent: tangent, progress: progress)
+          localOccupancy.insert(next, radius: nextSpacing, tangent: tangent, progress: progress)
           result.append(next); point = next; heading = tangent
         }
         return result
@@ -300,7 +439,7 @@ enum PortraitFlowRenderer {
       let backward = try trace(sign: -1)
       let forward = try trace(sign: 1)
       let curve = Array(backward.reversed()) + [start] + forward
-      guard length(curve) >= max(12, options.minimumContourLength * 2) else { continue }
+      guard length(curve) >= minimumLength else { continue }
       // Retain integration samples. Chord simplification could cut across a
       // reserved feature curve or through the material clearance tube.
       occupied.insert(curve, radii: curve.map(spacing))
@@ -316,6 +455,7 @@ enum PortraitFlowRenderer {
     let columns: Int
     let rows: Int
     var cells: [[Entry]]
+    var touchedCells: [Int] = []
     var maximumRadius = 0.0
     private let cellSize = 4.0
 
@@ -323,6 +463,12 @@ enum PortraitFlowRenderer {
       self.width = width; self.height = height
       columns = (width + 3) / 4; rows = (height + 3) / 4
       cells = .init(repeating: [], count: columns * rows)
+    }
+
+    mutating func reset() {
+      for index in touchedCells { cells[index].removeAll(keepingCapacity: true) }
+      touchedCells.removeAll(keepingCapacity: true)
+      maximumRadius = 0
     }
 
     func intersects(_ point: CGPoint, radius: Double, parallelTo direction: CGPoint? = nil,
@@ -368,7 +514,9 @@ enum PortraitFlowRenderer {
     mutating func insert(_ point: CGPoint, radius: Double, tangent: CGPoint, progress: Double? = nil) {
       let x = min(columns - 1, max(0, Int(point.x / cellSize)))
       let y = min(rows - 1, max(0, Int(point.y / cellSize)))
-      cells[y * columns + x].append(.init(point: point, radius: radius, tangent: tangent, progress: progress))
+      let index = y * columns + x
+      if cells[index].isEmpty { touchedCells.append(index) }
+      cells[index].append(.init(point: point, radius: radius, tangent: tangent, progress: progress))
       maximumRadius = max(maximumRadius, radius)
     }
   }
@@ -381,25 +529,37 @@ enum PortraitFlowRenderer {
     var current = values
     let divisor = Double(2 * radius + 1)
     for _ in 0..<2 {
-      var horizontal = current, output = current
-      for y in 0..<height {
-        try Task.checkCancellation()
-        var total = 0.0
-        for offset in -radius...radius { total += current[y * width + min(width - 1, max(0, offset))] }
-        for x in 0..<width {
-          horizontal[y * width + x] = total / divisor
-          total -= current[y * width + max(0, x - radius)]
-          total += current[y * width + min(width - 1, x + radius + 1)]
+      var horizontal = [Double](repeating: 0, count: values.count)
+      var output = horizontal
+      try current.withUnsafeBufferPointer { source in
+        try horizontal.withUnsafeMutableBufferPointer { target in
+          let input = source.baseAddress!, result = target.baseAddress!
+          for y in 0..<height {
+            try Task.checkCancellation()
+            let row = y * width
+            var total = 0.0
+            for offset in -radius...radius { total += input[row + min(width - 1, max(0, offset))] }
+            for x in 0..<width {
+              result[row + x] = total / divisor
+              total -= input[row + max(0, x - radius)]
+              total += input[row + min(width - 1, x + radius + 1)]
+            }
+          }
         }
       }
-      for x in 0..<width {
-        try Task.checkCancellation()
-        var total = 0.0
-        for offset in -radius...radius { total += horizontal[min(height - 1, max(0, offset)) * width + x] }
-        for y in 0..<height {
-          output[y * width + x] = total / divisor
-          total -= horizontal[max(0, y - radius) * width + x]
-          total += horizontal[min(height - 1, y + radius + 1) * width + x]
+      try horizontal.withUnsafeBufferPointer { source in
+        try output.withUnsafeMutableBufferPointer { target in
+          let input = source.baseAddress!, result = target.baseAddress!
+          for x in 0..<width {
+            try Task.checkCancellation()
+            var total = 0.0
+            for offset in -radius...radius { total += input[min(height - 1, max(0, offset)) * width + x] }
+            for y in 0..<height {
+              result[y * width + x] = total / divisor
+              total -= input[max(0, y - radius) * width + x]
+              total += input[min(height - 1, y + radius + 1) * width + x]
+            }
+          }
         }
       }
       current = output
@@ -463,25 +623,59 @@ enum PortraitFlowRenderer {
     let radius = Int(ceil(3 * sigma))
     let raw = (-radius...radius).map { exp(-Double($0 * $0) / (2 * sigma * sigma)) }
     let sum = raw.reduce(0, +), kernel = raw.map { $0 / sum }
-    var horizontal = values, result = values
-    for y in 0..<height {
-      try Task.checkCancellation()
-      for x in 0..<width {
-        var value = 0.0
-        for offset in -radius...radius {
-          value += values[y * width + min(width - 1, max(0, x + offset))] * kernel[offset + radius]
+    var horizontal = [Double](repeating: 0, count: values.count), result = horizontal
+    // Validated dimensions and border clamping make these pointer scopes fully
+    // bounded. Avoid per-tap Array ownership/access overhead in normal DEBUG
+    // builds; arithmetic order and edge-clamping are unchanged.
+    try values.withUnsafeBufferPointer { source in
+      try horizontal.withUnsafeMutableBufferPointer { target in
+        let input = source.baseAddress!, output = target.baseAddress!
+        for y in 0..<height {
+          try Task.checkCancellation()
+          let row = y * width
+          for x in 0..<width {
+            let i = row + x
+            if radius == 2, x >= 2, x < width - 2 {
+              var value = input[i - 2] * kernel[0]
+              value += input[i - 1] * kernel[1]
+              value += input[i] * kernel[2]
+              value += input[i + 1] * kernel[3]
+              value += input[i + 2] * kernel[4]
+              output[i] = value
+            } else {
+              var value = 0.0
+              for offset in -radius...radius {
+                value += input[row + min(width - 1, max(0, x + offset))] * kernel[offset + radius]
+              }
+              output[i] = value
+            }
+          }
         }
-        horizontal[y * width + x] = value
       }
     }
-    for y in 0..<height {
-      try Task.checkCancellation()
-      for x in 0..<width {
-        var value = 0.0
-        for offset in -radius...radius {
-          value += horizontal[min(height - 1, max(0, y + offset)) * width + x] * kernel[offset + radius]
+    try horizontal.withUnsafeBufferPointer { source in
+      try result.withUnsafeMutableBufferPointer { target in
+        let input = source.baseAddress!, output = target.baseAddress!
+        for y in 0..<height {
+          try Task.checkCancellation()
+          for x in 0..<width {
+            let i = y * width + x
+            if radius == 2, y >= 2, y < height - 2 {
+              var value = input[i - 2 * width] * kernel[0]
+              value += input[i - width] * kernel[1]
+              value += input[i] * kernel[2]
+              value += input[i + width] * kernel[3]
+              value += input[i + 2 * width] * kernel[4]
+              output[i] = value
+            } else {
+              var value = 0.0
+              for offset in -radius...radius {
+                value += input[min(height - 1, max(0, y + offset)) * width + x] * kernel[offset + radius]
+              }
+              output[i] = value
+            }
+          }
         }
-        result[y * width + x] = value
       }
     }
     return result

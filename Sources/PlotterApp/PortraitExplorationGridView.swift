@@ -63,7 +63,7 @@ struct PortraitExplorationGridView<SourcePreview: View>: View {
               previewSource: PortraitPlanePreviewSource(material: material),
               nominalWidth: strokeStyle.nominalLineWidth,
               index: index, isLoading: model.isExploring || model.isProcessing,
-              unavailableReason: slot?.unavailableReason,
+              unavailableReason: slot?.unavailableReason, failureKind: slot?.failureKind, isPrevious: slot?.isPrevious ?? false,
               canSelect: displayID != nil && candidate != nil && (isCurrent || !model.isExploring)
                 && !model.isProcessing && !model.isCapturing) {
                 guard let displayID else { return }
@@ -91,6 +91,8 @@ private struct PortraitExplorationTileView: View {
   let index: Int
   let isLoading: Bool
   let unavailableReason: String?
+  let failureKind: PortraitExplorationSlot.FailureKind?
+  let isPrevious: Bool
   let canSelect: Bool
   let select: () -> Void
 
@@ -98,7 +100,7 @@ private struct PortraitExplorationTileView: View {
   private var detail: String {
     if let unavailableReason { return unavailableReason }
     if candidate != nil {
-      return index == PortraitExplorationPolicy.centerIndex ? (isLoading ? "Keep this drawing and stop generating options" : "Prefer this drawing and refine the options") : "Use this exact drawing and show new alternatives"
+      return index == PortraitExplorationPolicy.centerIndex ? (isLoading ? "Keep this drawing while the options finish" : "Prefer this drawing and refine the options") : (isPrevious ? "Use this exact previously offered drawing" : "Use this exact drawing and show new alternatives")
     }
     return isLoading ? "Generating alternatives" : "Choose or capture a photo to explore drawings"
   }
@@ -114,13 +116,13 @@ private struct PortraitExplorationTileView: View {
             ProgressView().controlSize(.small)
               .frame(maxWidth: .infinity, maxHeight: .infinity)
           } else {
-            Image(systemName: unavailableReason == nil ? "photo" : "exclamationmark.circle")
+            Image(systemName: unavailableReason == nil ? "photo" : (failureKind == .generationFailed ? "exclamationmark.triangle" : "arrow.clockwise"))
               .foregroundStyle(.secondary)
               .frame(maxWidth: .infinity, maxHeight: .infinity)
           }
         }
         .accessibilityHidden(true)
-        Text(unavailableReason == nil ? title : "Unavailable")
+        Text(unavailableReason == nil ? (isPrevious ? "Previous option" : title) : (failureKind == .generationFailed ? "Generation failed" : "No new option"))
           .font(.caption2)
           .foregroundStyle(index == PortraitExplorationPolicy.centerIndex ? Color.primary : .secondary)
           .lineLimit(1)
