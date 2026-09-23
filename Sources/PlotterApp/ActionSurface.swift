@@ -875,7 +875,9 @@ struct ActionSurface: View {
               ? (drawsCapReference
                 ? "Drag around the cap and co-moving holder, then click the cap."
                 : (capReferenceRegion == nil
-                  ? "Drag to pan. Choose Draw Reference to select the cap and holder."
+                  ? (presentation.pointSelectionRequest?.referenceGeometry == nil
+                    ? "Drag to pan. Choose Draw Reference to select the cap and holder."
+                    : "Click the same cap anchor to reidentify it. Drag to pan; Draw Reference changes its appearance region.")
                   : "Click the cap inside the rectangle. Drag to pan; use Redraw Reference to change it."))
               : prompt)
               .font(.caption.monospaced().bold())
@@ -1018,7 +1020,7 @@ struct ActionSurface: View {
       .onChange(of: pointSelectionPendingIdentity, initial: true) { prior, current in
         if prior.request != current.request {
           capReferenceRegion = nil
-          drawsCapReference = true
+          drawsCapReference = presentation.pointSelectionRequest?.referenceGeometry == nil
           movesDrawing = false
           pointSelectionRefusal = nil
           pendingDrawingPlacement = nil

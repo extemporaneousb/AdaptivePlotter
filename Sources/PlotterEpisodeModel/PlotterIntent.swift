@@ -98,6 +98,36 @@ public enum PlotterExactPointSelectionPurpose: String, Codable, Hashable, Sendab
   case toolContact
 }
 
+/// Geometry retained from an operator-confirmed cap reference. A recovery click
+/// translates this rectangle around the same off-center anchor on a new frame.
+public struct PlotterPenCapReferenceGeometry: Codable, Hashable, Sendable {
+  public let width: Int
+  public let height: Int
+  public let anchorOffsetX: Double
+  public let anchorOffsetY: Double
+
+  public init(width: Int, height: Int, anchorOffsetX: Double, anchorOffsetY: Double) {
+    self.width = width
+    self.height = height
+    self.anchorOffsetX = anchorOffsetX
+    self.anchorOffsetY = anchorOffsetY
+  }
+
+  public func region(around point: Point2<CameraPixelSpace>) -> AxisAlignedBounds<CameraPixelSpace>? {
+    guard width > 0, height > 0, anchorOffsetX.isFinite, anchorOffsetY.isFinite,
+      anchorOffsetX >= 0, anchorOffsetX < Double(width),
+      anchorOffsetY >= 0, anchorOffsetY < Double(height) else { return nil }
+    // Retain integer crop dimensions. Passing fractional edges to the sampler
+    // would floor/ceil them and grow the patch on every recovery click.
+    let x = (point.x - anchorOffsetX).rounded()
+    let y = (point.y - anchorOffsetY).rounded()
+    guard point.x >= x, point.x < x + Double(width),
+      point.y >= y, point.y < y + Double(height) else { return nil }
+    return try? AxisAlignedBounds(minX: x, minY: y,
+      maxX: x + Double(width), maxY: y + Double(height))
+  }
+}
+
 public struct PlotterPointSelectionRequest: Codable, Hashable, Sendable {
   public let id: PlotterPointSelectionID
   public let frame: PlotterExactFrameReference
@@ -106,6 +136,7 @@ public struct PlotterPointSelectionRequest: Codable, Hashable, Sendable {
   public let prompt: String
   public let purpose: PlotterExactPointSelectionPurpose
   public let requiredPointCount: Int
+  public let referenceGeometry: PlotterPenCapReferenceGeometry?
 
   public init(
     id: PlotterPointSelectionID = PlotterPointSelectionID(),
@@ -114,7 +145,8 @@ public struct PlotterPointSelectionRequest: Codable, Hashable, Sendable {
     presentationTransformRevision: PlotterPresentationTransformRevision,
     prompt: String,
     purpose: PlotterExactPointSelectionPurpose,
-    requiredPointCount: Int
+    requiredPointCount: Int,
+    referenceGeometry: PlotterPenCapReferenceGeometry? = nil
   ) {
     self.id = id
     self.frame = frame
@@ -123,6 +155,7 @@ public struct PlotterPointSelectionRequest: Codable, Hashable, Sendable {
     self.prompt = prompt
     self.purpose = purpose
     self.requiredPointCount = requiredPointCount
+    self.referenceGeometry = referenceGeometry
   }
 }
 
@@ -393,7 +426,7 @@ public enum PlotterLearningBorderValidationAction: Codable, Hashable, Sendable {
 /// Model-owned meaning carried unchanged from actionability to the feature owner.
 public enum PlotterLearningAction: Codable, Hashable, Sendable {
   case applySavedLearning, startNewLearning, start, cancel, restart, redoThisStep
-  case recordAnotherAttempt, paperReplaced, reidentifyPenCap
+  case recordAnotherAttempt, paperReplaced, reidentifyPenCap, replacePenCapReference
   case choice(PlotterLearningChoice)
   case setPenSetpoint(PlotterLearningPenCommand, Int)
   case stopPenInteraction(PlotterPenInteractionCancellationCapabilityID)

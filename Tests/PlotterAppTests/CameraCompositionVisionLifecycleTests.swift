@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import PlotterModel
 import PlotterTestSupport
 import Testing
@@ -8,6 +10,112 @@ import Testing
 
 @Suite("Camera composition Vision lifecycle")
 struct CameraCompositionVisionLifecycleTests {
+  @MainActor
+  @Test("slow stable-cap analysis retains the live-source canvas and settles every lease outcome",
+    arguments: CanvasLeaseOutcome.allCases)
+  func slowCalibrationKeepsCameraCanvas(_ outcome: CanvasLeaseOutcome) async throws {
+    let device = CameraDevice(id: .init(rawValue: "held-canvas-camera"), name: "Held Canvas Camera")
+    let driver = VisionLifecycleCameraDriver(device: device)
+    let capture = CameraCapture(driver: driver)
+    let worker = VisionWorker()
+    let pipeline = PlotterSceneAnalysisPipeline(worker: worker, clock: DeterministicRuntimeClock())
+    let session = CameraSourceSession(live: capture, vision: worker,
+      analysisPipeline: pipeline, plannedDrawingObserver: worker)
+    let clock = CanvasFreshnessClock()
+    let application = makeCausalSimulatorAppFixture(observationSession: session,
+      residualEffectPort: TestApplicationResidualEffectPort(discoverDevices: { [] },
+        readNanoseconds: { clock.now })).workspace
+    await submitObservationConfigurationForTest(application, .refresh)
+    await submitObservationConfigurationForTest(application, .selectSource(.live, device.id))
+    await driver.emitCap(centroidXOffset: 0, captureNanoseconds: 100)
+    try await waitUntilStableCap("initial camera image reached the application") {
+      await MainActor.run { application.actionSurfacePreview.displayedFrame != nil }
+    }
+    let initial = try #require(application.actionSurfacePreview.displayedFrame)
+    let initialIdentity = ExactFrameProvenance(frame: initial.frame)
+    // This camera lifecycle fixture supplies green cap pixels. Its app fixture
+    // carries an unrelated saved appearance solely to admit cap observations.
+    await session.setPenCapReference(nil)
+    #expect(application.cameraIsLive)
+    #expect(application.workbenchCanvasPresentation.content == .plotter)
+    let captureTask = Task { @MainActor in
+      try await application.captureStableWorkflowCap(newerThan: 100)
+    }
+    try await waitUntilStableCap("calibration holds preview") {
+      await session.visionDiagnostics().activeExclusiveLeaseCount == 1
+    }
+    // The capture owner is paused, but the old application snapshot has not
+    // received a diagnostics refresh. This is the reported simulation fallback.
+    clock.set(2_000_000_100)
+    #expect(await capture.diagnostics().previewPublicationPaused)
+    #expect(application.cameraSnapshot?.diagnostics.previewPublicationPaused != true)
+    #expect(!application.cameraIsLive)
+    let held = application.workbenchCanvasPresentation
+    #expect(held.content == .plotter)
+    #expect(held.displayedFrame?.source == .live(device.id))
+    #expect(held.displayedFrame.map { ExactFrameProvenance(frame: $0.frame) } == initialIdentity)
+    #expect(held.plotterFrameStatus == "Camera frame held · camera calibration")
+    #expect(application.frameMode == .live)
+    #expect(application.exactWorkflowVisionOwner == .cameraCalibration)
+
+    if let snapshotPrefix = ProcessInfo.processInfo.environment["WORKBENCH_CANVAS_SNAPSHOT"] {
+      try await renderHeldCameraCanvas(application, expectedFrame: initial.frame,
+        path: snapshotPrefix + "-" + outcome.rawValue + ".png")
+    }
+
+    switch outcome {
+    case .success:
+      for (sample, timestamp) in [200, 300, 400].enumerated() {
+        await driver.emitCap(centroidXOffset: sample, captureNanoseconds: UInt64(timestamp))
+        try await waitUntilStableCap("stable sample \(sample + 1)") {
+          await capture.diagnostics().returnOnlyExactRequestCount >= UInt64(sample + 1)
+        }
+      }
+      let measured = try await captureTask.value
+      #expect(measured.inspection.displayedFrame.frame.captureNanoseconds == 400)
+      #expect(measured.inspection.displayedFrame.source == initial.source)
+      #expect(measured.inspection.displayedFrame.frame.cameraConfigurationID
+        == initial.frame.cameraConfigurationID)
+    case .failure:
+      await driver.emit(value: 128, captureNanoseconds: 200)
+      do {
+        _ = try await captureTask.value
+        Issue.record("Missing cap must fail")
+      } catch LearningPathOperationError.requiredState(let detail) {
+        #expect(detail.contains("Reidentify Pen Cap"))
+      }
+    case .cancelled:
+      captureTask.cancel()
+      do {
+        _ = try await captureTask.value
+        Issue.record("Cancelled analysis must throw")
+      } catch is CancellationError {}
+    }
+    let settled = await session.visionDiagnostics()
+    #expect(settled.activeExclusiveLeaseCount == 0)
+    #expect(settled.exclusiveLeaseBeginCount == 1)
+    #expect(settled.exclusiveLeaseEndCount == 1)
+    #expect(settled.capture.previewPauseAcquisitionCount == 1)
+    #expect(settled.capture.previewPauseReleaseCount == 1)
+    #expect(!settled.capture.previewPublicationPaused)
+    #expect(application.exactWorkflowVisionOwner == nil)
+    #expect(application.workbenchCanvasPresentation.content == .plotter)
+    #expect(application.workbenchCanvasPresentation.displayedFrame?.source == initial.source)
+    #expect(application.frameMode == .live)
+    // A new raw frame resumes ordinary display without a source transition.
+    clock.set(3_000_000_100)
+    await driver.emitCap(centroidXOffset: 0, captureNanoseconds: clock.now)
+    try await waitUntilStableCap("fresh preview resumes after calibration") {
+      await MainActor.run {
+        application.actionSurfacePreview.displayedFrame?.frame.captureNanoseconds == clock.now
+      }
+    }
+    #expect(application.cameraIsLive)
+    #expect(application.workbenchCanvasPresentation.plotterFrameStatus == nil)
+    #expect(application.workbenchCanvasPresentation.content == .plotter)
+    await application.shutdown()
+  }
+
   @Test("automatic inspection reconciliation and exclusive leases avoid redundant work")
   func heldPlannedObservationLifecycle() async throws {
     let device = CameraDevice(
@@ -386,7 +494,8 @@ struct CameraCompositionVisionLifecycleTests {
       Issue.record("A gray frame must not produce a cap measurement")
     } catch LearningPathOperationError.requiredState(let detail) {
       #expect(detail.contains("No pen cap detected"))
-      #expect(detail.contains("selected cap color"))
+      #expect(detail.contains("Reidentify Pen Cap"))
+      #expect(!detail.contains("reset Learning"))
     }
     let diagnostics = await session.visionDiagnostics()
     #expect(diagnostics.activeExclusiveLeaseCount == 0)
@@ -831,4 +940,58 @@ private func waitUntilStableCap(
 private enum CameraCompositionVisionLifecycleTestError: Error {
   case timedOut
   case stableCapTimedOut(String)
+}
+
+
+enum CanvasLeaseOutcome: String, CaseIterable, Sendable {
+  case success, failure, cancelled
+}
+
+private final class CanvasFreshnessClock: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: UInt64 = 100
+
+  var now: UInt64 { lock.withLock { value } }
+  func set(_ newValue: UInt64) { lock.withLock { value = newValue } }
+}
+
+@MainActor
+private func renderHeldCameraCanvas(
+  _ application: PlotterApplicationRuntime, expectedFrame: StampedFrame, path: String
+) async throws {
+  _ = NSApplication.shared
+  let view = WorkbenchCameraCanvas(application: application,
+    semantic: application.testPlotterUIProjection().semantic,
+    viewport: .constant(ActionSurfaceViewportState()),
+    pendingDrawingPlacement: .constant(nil), pendingPointSelection: .constant(nil))
+  let host = NSHostingView(rootView: view)
+  let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+    styleMask: [.borderless], backing: .buffered, defer: false)
+  window.isReleasedWhenClosed = false
+  window.contentView = host
+  defer { window.close() }
+  host.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
+  host.layoutSubtreeIfNeeded()
+  try await Task.sleep(for: .milliseconds(120))
+  host.layoutSubtreeIfNeeded()
+  window.display()
+  host.display()
+  func frameLayers(in view: NSView) -> [CameraFrameLayerHost] {
+    (view as? CameraFrameLayerHost).map { [$0] } ?? view.subviews.flatMap(frameLayers)
+  }
+  let layers = frameLayers(in: host)
+  try #require(layers.count == 1)
+  let cameraLayer = try #require(layers.first)
+  let contents = try #require(cameraLayer.layer?.sublayers?.first?.contents)
+  let renderedImage = contents as! CGImage
+  // The actual native camera layer must contain our captured frame's pixels,
+  // not the simulation fallback, whose image has a different geometry.
+  #expect(renderedImage.width == expectedFrame.width)
+  #expect(renderedImage.height == expectedFrame.height)
+  let renderedBytes = try #require(renderedImage.dataProvider?.data) as Data
+  #expect(renderedBytes == expectedFrame.bytes.data)
+  let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+  host.cacheDisplay(in: host.bounds, to: bitmap)
+  let bytes = try #require(bitmap.representation(using: .png, properties: [:]))
+  try bytes.write(to: URL(fileURLWithPath: path))
 }

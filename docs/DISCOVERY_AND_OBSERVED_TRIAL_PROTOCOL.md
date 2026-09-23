@@ -100,7 +100,9 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
    provenance. Generic and calibration analysis use the same reference identity.
    Weak/competing matches, excessive deformation, clipping and abrupt position
    jumps report tracking lost. Replaced pens and incompatible camera configurations
-   require a new reference. Old color-only selections require **Reidentify Pen Cap**
+   require a new reference. Same-anchor reacquisition can retain at most two prior
+   compatible operator-confirmed appearances alongside the new one, without
+   averaging their pixels or anchors. Old color-only selections require **Reidentify Pen Cap**
    from **Learning Path Actions** when accepted Pen Learning is already present.
 3. Cap identification requires only the current exact frame. The accepted click
    immediately opens the first Up question even when the controller is not yet
@@ -240,9 +242,10 @@ The ordered positions and roles are:
    boundary frame is not accepted cap evidence. Every inspection frame must
    yield one observed unambiguous cap candidate. Search the whole frame, centered
    on a predicted cap position when available; a wrong prediction never excludes
-   pixels or rejects an observed position. Zero color-matching pixels, equally
-   supported leading components, and acquisition failures remain explicit.
-   Component size/shape and maximum pairwise centroid spread are diagnostics,
+   pixels or resolves ambiguity. Visual-reference rejection retains candidate
+   bounds and anchor, best score against 0.82, competing-match margin against
+   0.06, and prediction residual when available. No accepted geometry is published
+   for a weak or ambiguous match. Maximum pairwise centroid spread is diagnostic,
    without numerical rejection thresholds. Retain only the newest third frame and its measured
    centroid, reference bounds, confidence, selected cap anchor, and estimator provenance
    as authoritative evidence. Do not average geometry across the three frames.
@@ -262,14 +265,37 @@ The ordered positions and roles are:
    analysis region.
 
 Camera-calibration failures remain visible in the Learning instructions with
-the detector's concrete reason. After changing a cap, use **Learning Path Actions →
-Reidentify Pen Cap** and select the replacement reference and anchor. This preserves
-accepted pen-up/down actuation, X/Y boundaries, estimated center and center arrival.
-It issues no machine command. Only a successfully saved reference invalidates the
-camera/cap map and downstream tip/drawing calibration. Cancellation, stale selection
-and save failure retain the prior Learning package. Each operator-started calibration retry
-captures a new reference frame and current machine pose; it does not reuse the
-reference from a failed attempt that may have stopped at another position.
+the detector's concrete reason and available score, margin and prediction
+residual. For the same cap, choose **Learning Path Actions → Reidentify Pen Cap**
+and click the same physical anchor on the fresh frozen frame. The previous
+rectangle follows the stored anchor offset; redraw it only when needed. This
+is an operator observation, not a successful detector result. With compatible
+camera/controller/map context and settled Idle/Pen-Up, the app can retain
+accepted camera, tip and drawing calibration and record the residual and reference
+lineage. Inside the map domain, the residual must be at most eight pixels. Outside
+it, the operator's same-anchor observation may update appearance while its
+residual is labeled extrapolated and advisory; the accepted map and domain stay
+unchanged, without extending motion authority or calibration applicability.
+A successfully saved new camera calibration
+supersedes the recovery lineage and binds the new map to the current appearance;
+failed or cancelled proposals retain the previous map and lineage. An incompatible
+context or an excessive in-domain residual refuses the change and retains the prior Learning package.
+Down or unknown pen state requires an explicit Raise Pen action; recovery does
+not raise the pen automatically.
+
+For a changed cap or anchor, choose **Replace Pen Cap Reference** and select a
+new rectangle and anchor. It preserves accepted pen-up/down actuation, X/Y
+boundaries, estimated center and center arrival. Only a successfully saved
+replacement invalidates the camera/cap map and downstream tip/drawing calibration.
+Both paths are observation-only and are permitted after a settled possible-ink
+failure; neither clears existing-mark exclusions nor permits another mark.
+Active motion and unresolved owners still block recovery. Cancellation, stale
+selection and save failure retain previous in-memory authority. A failed save
+attempts to restore the preceding checkpoint and reports uncertain durability
+if restoration also fails. Each operator-started
+calibration retry captures a new reference frame and current machine pose;
+it does not reuse the reference from a failed attempt that may have stopped
+at another position.
 
 The cap landmark is not the hidden paper-contact point. Three non-collinear
 samples without the two holdouts cannot become authority.
@@ -665,7 +691,9 @@ dependents. These preparations never request movement automatically.
 
 Redo invalidates named transitive dependents only after a successful replacement
 commit. Failure preserves the current accepted value. Record Another Attempt
-adds only compatible successful evidence.
+adds only compatible successful evidence. Preparation and point-selection
+acknowledgements follow the actual owner result; refusal, capture/sampling failure
+or persistence failure must not be shown as a successful button action.
 
 When resetting a later suffix, retained Pen Learning includes its original
 compatible cap appearance and reference frame in the saved prefix. Reloading that prefix must

@@ -55,6 +55,9 @@ enum PlotterAppUIActionID {
     action: .reidentifyPenCap
   )
   static let reidentifyPenCap = PlotterUIActionID(learningRequest: reidentifyPenCapRequest)
+  static let replacePenCapReferenceRequest = PlotterLearningActionRequest(
+    item: reidentifyPenCapRequest.item, action: .replacePenCapReference)
+  static let replacePenCapReference = PlotterUIActionID(learningRequest: replacePenCapReferenceRequest)
   static let learningMode = PlotterUIActionID(rawValue: "learning.mode")
   static let manualXNegative = PlotterUIActionID(rawValue: "manual.jog.x-negative")
   static let manualXPositive = PlotterUIActionID(rawValue: "manual.jog.x-positive")

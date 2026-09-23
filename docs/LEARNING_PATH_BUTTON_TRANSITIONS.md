@@ -37,7 +37,11 @@ in the selected suffix, including a completed unaccepted four-circle batch await
 clicks. Its confirmation names calibration marks and preserves same-sheet possible-
 ink exclusions and physical history. Selected-exercise controls remain visible;
 another active owner retains its Stop. Saved-position revalidation cannot mask
-completed-step Redo.
+completed-step Redo. Redo and Record Another report success only when the
+requested owner actually prepares an attempt. An active owner, missing required
+state or a same-sheet mark exclusion produces its concrete refusal, not a success
+checkmark. Exact point-selection actions likewise await sampling and persistence
+before reporting their result.
 
 For unusable four-circle marks, Cancel settles the owner and clears pending
 selection/proposal state; Restart/Redo explicitly prepare a new attempt. Neither
@@ -284,12 +288,27 @@ four-click pen-tip calibration. Exercises 1.3 and 1.4 begin directly with their
 physical actions.
 
 Camera-calibration failure detail is rendered in the selected exercise, including
-**Cap tracking lost** when the selected visual reference cannot be matched. The existing
-retry action captures a fresh reference frame and pose. **Learning Path Actions →
-Reidentify Pen Cap** freezes a fresh frame for a reference rectangle and anchor.
-It retains pen actuation, X/Y boundaries and center evidence without machine commands.
-Accepting the reference saves that mechanical prefix and invalidates only camera/cap
-and downstream tip/drawing calibration; cancellation or failure preserves prior authority.
+available match score, competing-match margin and prediction residual. The retry
+action captures a fresh reference frame and pose. **Learning Path Actions →
+Reidentify Pen Cap** freezes a fresh frame for a click on the same physical anchor;
+the prior reference rectangle follows its stored anchor offset. Compatible
+camera/controller/map context and settled Idle/Pen-Up can preserve calibration
+and record explicit operator-observation lineage. Within the map domain, the
+residual must be at most eight pixels. Outside it, an operator-confirmed same
+anchor can update appearance with an explicitly extrapolated/advisory residual;
+the map and its domain stay unchanged and no new motion authority is granted.
+A successfully saved new Camera Calibration supersedes the recovery
+lineage; failed or cancelled proposals retain it. An excessive in-domain residual
+or incompatible context refuses the change and keeps previous Learning. Down or unknown pen state
+requires the explicit Raise Pen action, with no actuation during recovery itself.
+
+**Replace Pen Cap Reference** instead requests a new rectangle/anchor and, after
+successful save, retains mechanical Learning while invalidating the camera/cap
+and downstream tip/drawing calibration. Both actions permit observation-only
+recovery after a settled possible-ink failure, without moving the machine,
+actuating the pen or clearing existing-mark exclusions. Cancellation, stale
+context and failure preserve prior in-memory authority. Failed save rollback
+reports uncertain saved-state durability explicitly.
 **Reset All Learning**
 clears the current source's cap appearance as well as accepted Learning, returns
 to **Identify Pen Cap**, and preserves controller, camera selection, and Motion

@@ -321,7 +321,8 @@ public actor PlotterPointSelectionRuntime {
     presentationTransformRevision: PlotterPresentationTransformRevision,
     prompt: String,
     purpose: PlotterExactPointSelectionPurpose,
-    requiredPointCount: Int
+    requiredPointCount: Int,
+    referenceGeometry: PlotterPenCapReferenceGeometry? = nil
   ) async throws -> PlotterPointSelectionStage {
     await acquireMutationPublicationBoundary()
     defer { releaseMutationPublicationBoundary() }
@@ -337,7 +338,8 @@ public actor PlotterPointSelectionRuntime {
       presentationTransformRevision: presentationTransformRevision,
       prompt: prompt,
       purpose: purpose,
-      requiredPointCount: requiredPointCount
+      requiredPointCount: requiredPointCount,
+      referenceGeometry: referenceGeometry
     )
     let committed = try await submitIntent(.pointSelection(.stage(request)))
     framesBySelectionID[request.id] = frame
@@ -373,7 +375,8 @@ public actor PlotterPointSelectionRuntime {
       presentationTransformRevision: presentationTransformRevision,
       prompt: currentRequest.prompt,
       purpose: currentRequest.purpose,
-      requiredPointCount: currentRequest.requiredPointCount
+      requiredPointCount: currentRequest.requiredPointCount,
+      referenceGeometry: currentRequest.referenceGeometry
     )
     let committed = try await submitIntent(.pointSelection(.replace(
       currentSelectionID: currentRequest.id,

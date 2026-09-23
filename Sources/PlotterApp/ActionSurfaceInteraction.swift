@@ -38,14 +38,27 @@ enum ActionSurfacePointStaging {
     referenceRegion: AxisAlignedBounds<CameraPixelSpace>?
   ) -> ActionSurfacePointStagingResult {
     guard let request = presentation.pointSelectionRequest else { return .ignored }
-    if request.purpose == .penCapAppearance, referenceRegion == nil {
+    if request.purpose == .penCapAppearance, referenceRegion == nil, request.referenceGeometry == nil {
       return .refused("Draw a reference around the cap and co-moving holder, then click the cap inside it.")
     }
-    guard let submission = ExactFramePointSubmissionBuilder.submission(
+    guard var submission = ExactFramePointSubmissionBuilder.submission(
       presentation: presentation, viewport: viewport, at: location, viewSize: viewSize,
       referenceRegion: request.purpose == .penCapAppearance ? referenceRegion : nil
     ), presentation.acceptsPendingPointSelection(submission) else {
       return .refused("Click inside the frozen camera image. If it has changed, restart this selection.")
+    }
+    if request.purpose == .penCapAppearance, referenceRegion == nil,
+      let geometry = request.referenceGeometry {
+      guard let translated = geometry.region(around: submission.point),
+        translated.minX >= 0, translated.minY >= 0,
+        translated.maxX <= Double(request.frame.width),
+        translated.maxY <= Double(request.frame.height) else {
+        return .refused("The retained reference extends outside this frame. Draw a smaller reference around the cap.")
+      }
+      submission = PlotterPointSelectionSubmission(selectionID: submission.selectionID,
+        frame: submission.frame, point: submission.point,
+        presentationTransformRevision: submission.presentationTransformRevision,
+        referenceRegion: translated)
     }
     if request.purpose == .penCapAppearance, let referenceRegion,
       !(submission.point.x >= referenceRegion.minX && submission.point.x < referenceRegion.maxX

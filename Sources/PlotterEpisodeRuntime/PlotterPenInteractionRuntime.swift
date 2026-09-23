@@ -107,6 +107,9 @@ package actor PlotterPenInteractionSetpointAdmissionGate {
 
   package init() {}
 
+  package var isHeld: Bool { held }
+  package var admittedSetpointCount: Int { admissionCount }
+
   package func holdNextAdmittedSetpoint() { armed = true }
 
   package func waitUntilHeld() async {
@@ -153,6 +156,8 @@ package actor PlotterPenInteractionConfirmationAdmissionGate {
   private var releaseWaiter: CheckedContinuation<Void, Never>?
 
   package init() {}
+
+  package var isHeld: Bool { held }
 
   package func waitUntilHeld() async {
     if held { return }

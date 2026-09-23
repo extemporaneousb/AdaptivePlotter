@@ -55,11 +55,11 @@ struct LearningPathView: View {
         .pickerStyle(.menu)
         .accessibilityIdentifier("learning.exercisePicker")
         Menu {
-          OperatorRequestButton(title: "Reidentify Pen Cap",
-            request: plotterUIProjection.request(for: PlotterAppUIActionID.reidentifyPenCap),
-            unavailableReason: plotterUIProjection.action(id: PlotterAppUIActionID.reidentifyPenCap)?.unavailableReason,
+          OperatorRequestButton(title: "Replace Pen Cap Reference",
+            request: plotterUIProjection.request(for: PlotterAppUIActionID.replacePenCapReference),
+            unavailableReason: plotterUIProjection.action(id: PlotterAppUIActionID.replacePenCapReference)?.unavailableReason,
             sink: plotterUIIntentSink,
-            nativeActionIdentifier: "learning.reidentifyPenCap",
+            nativeActionIdentifier: "learning.replacePenCapReference",
             showsUnavailableReason: false)
           Divider()
           Button("Reset Selected Step…", role: .destructive) {
@@ -79,6 +79,18 @@ struct LearningPathView: View {
         .accessibilityLabel("Learning Path Actions")
       }
       .padding(12)
+      if plotterUIProjection.action(id: PlotterAppUIActionID.reidentifyPenCap) != nil {
+        OperatorRequestButton(title: "Reidentify Pen Cap",
+          request: plotterUIProjection.request(for: PlotterAppUIActionID.reidentifyPenCap),
+          unavailableReason: plotterUIProjection.action(id: PlotterAppUIActionID.reidentifyPenCap)?.unavailableReason,
+          sink: plotterUIIntentSink, nativeActionIdentifier: "learning.reidentifyPenCap")
+          .padding(.horizontal, 12).padding(.bottom, 10)
+      }
+      if let detail = projection.capRecoveryDetail {
+        Text(detail).font(.caption).textSelection(.enabled)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(.horizontal, 12).padding(.bottom, 10)
+      }
       if selection.isReviewingAnotherItem {
         Button("Return to Current Exercise") { selection.returnToCurrent() }
           .buttonStyle(.borderless)

@@ -766,7 +766,10 @@ pipeline revisions are pushed to `PlotterApplicationRuntime`. Lifecycle counters
 remain pull-only diagnostics, absent from Video Settings, and do not invalidate the
 Learning presentation. One caller-supplied exact workflow batch owns one lease
 from preview hold through automatic-analysis restoration, including failure or
-cancellation settlement.
+cancellation settlement. `WorkbenchCanvasPresentation` keeps the retained camera
+image independent of the one-second freshness admission: an exact workflow hold
+is labeled with its owner, ordinary stale delivery is labeled as the last camera
+frame, and neither becomes a simulation image or fresh observation authority.
 
 `PlotterObservationConfigurationRuntime` is the one typed
 observation-source/configuration admission, ordering, ambient-subscription,
@@ -921,11 +924,21 @@ captures `PenCapVisualReference`, a maximum 32×32 RGB patch retaining all color
 The immutable patch identity includes region, anchor and camera geometry. The
 checkpoint adds this optional reference without making old color-only data unreadable;
 legacy appearance is explicitly unavailable for LIVE tracking until reidentified.
+Same-anchor recovery retains at most two previous operator-confirmed patches with
+their independent anchors. `OperatorPenCapObservation` records the settled pose,
+map revision, prior reference and prediction scope/domain. Checkpoint validation
+binds that lineage without rewriting historical calibration provenance during a
+sanctioned coordinate rebase. The eight-pixel gate applies inside the map domain;
+an outside-domain operator observation carries an extrapolated/advisory residual
+and cannot extend the map or motion authority. Successfully saved replacement
+Camera Calibration binds its map to the current reference estimator and supersedes
+the recovery lineage; failed or cancelled replacement keeps the prior package.
 
 `CameraSourceSession` configures both the newest-only pipeline and exclusive
-workflow Vision with the reference. `PenCapTemplateMatcher` performs global coarse
-correlation and bounded affine refinement, rejects weak or competing matches and
-maps the independent anchor. `VisionWorker` enforces short-interval continuity;
+workflow Vision with the reference. `PenCapTemplateMatcher` performs vectorized
+global coarse correlation and bounded affine refinement. A motion prediction seeds
+refinement without excluding a global competitor. It rejects weak or competing
+matches and maps the independent anchor. `VisionWorker` enforces short-interval continuity;
 older exact-frame inspections cannot replace newer continuity state. Loss publishes
 no cap geometry and never mutates the template. `PenCapMeasurement.referenceAnchor`
 is separate from the reference center, and `ToolCapAnchorEstimate` carries it into

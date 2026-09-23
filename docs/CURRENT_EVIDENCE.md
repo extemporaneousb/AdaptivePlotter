@@ -8,6 +8,139 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Pen-cap recovery, search cost, and retained camera canvas, 2026-09-22
+
+The evidence directory is
+`/Users/bullard/Projects/AdaptivePlotter/.build/CapRecovery-b457429d/`.
+All artifact names below refer to that durable local directory. Private retained
+camera inputs are in its ignored `replay-inputs/` subdirectory; the source tree
+contains no copied private camera images. `retained-evidence-manifest.json` maps
+original paths to copied artifact hashes without relabeling benchmark inputs.
+
+The camera canvas selected its simulation fallback whenever the ordinary camera
+frame exceeded the one-second freshness limit. Exact calibration deliberately
+holds preview publication, but the application's camera snapshot need not receive
+the hold diagnostics before that age expires. The corrected presentation keeps
+the exact same camera source and image while showing the owning operation's hold
+status, or a last-frame qualification for ordinary stale delivery. Freshness
+admission and exact-frame leases are unchanged.
+
+Redo and Record Another now propagate preparation refusal/failure instead of
+reporting a prepared attempt after a silent early return. Point-selection
+submission awaits its sampling/save result, and awaited start/restart retains
+shutdown cancellation precedence. Same-anchor Reidentify offers one
+click with the previous rectangle offset, validates settled Idle/Pen-Up and
+current context, and can retain compatible accepted calibration and observation
+lineage. Residuals within the map domain have an eight-pixel compatibility gate;
+outside it, operator-confirmed recovery records an extrapolated/advisory residual
+while preserving the original map/domain and granting no new motion authority.
+This distinction is necessary for the retained incident: the failed tip pose
+(857.267, 118.383) lies outside its local camera-map rectangle
+(x 743.698–803.698, y -43.24–16.76). Those coordinates are recorded controller
+units, not independently measured physical millimetres. Replace Pen Cap Reference
+is the explicit optical replacement path. Settled possible-ink failure permits
+observation recovery while retaining mark exclusions and the no-redraw boundary.
+
+The template matcher now uses vectorized coarse correlation over the same global
+search grid and accepts a predicted position as a refinement seed. Prediction
+never excludes a global competitor or resolves ambiguity. Weak and ambiguous
+results retain candidate bounds/anchors, threshold score, competitor margin and
+prediction residual. Same-anchor operator confirmation can retain the current
+appearance and two prior compatible examples, each with its own anchor/crop;
+there is no adaptive update or pixel averaging.
+
+Saved-frame DEBUG replay measured the selected-frame median at 7.121 seconds
+before and 1.373 seconds after; the calibration-frame median changed from 6.899
+to 1.395 seconds. A final repeat measured 1.208 and 1.253 seconds respectively.
+The observed one-reference range is approximately 1.2–1.4 seconds versus about
+seven seconds, with identical unhinted anchors and scores on the retained inputs.
+Prediction-seeded replay changed the calibration anchor slightly (about 0.29
+pixels from the retained expected anchor versus about 0.14 pixels unhinted);
+both passed the declared 0.75-pixel replay tolerance. Hint seeding is not an
+exact-baseline-equivalence claim. A maximum three-reference bank measured
+medians of 3.586 and 3.608 seconds for those two frames. Independent examples retain the global ambiguity checks and
+require additional work; this is not real-time tracking performance.
+
+These are three-sample local DEBUG comparisons, retained in
+`cap-matcher-baseline-replay.log`, `cap-matcher-after-replay.log`,
+`cap-matcher-after-final-replay.log` and `cap-matcher-bank-replay.log`.
+The input/source hash manifest is `cap-matcher-replay-manifest.json`.
+The focused matcher/reference/replay/pose tests passed 16 tests in 20.1 seconds
+(`cap-matcher-tests.log`). The comparisons establish reduced matching cost
+in this build, not release performance or end-to-end responsiveness. A final
+clipped-reference diagnostics correction passed 14 focused tests in 3.501 seconds
+(`cap-matcher-clipping-tests.log`). Both single-reference and confirmed-example
+searches retain an explicit clipped-support rejection reason even when score and
+margin pass. `cap-matcher-final-diagnostic-source-snapshot.json` records this later
+diagnostics-only source change separately from the benchmark source hashes. The
+rejected frame from the attended loss was not persisted, so this replay does
+not reproduce that visual failure or prove shadow robustness.
+
+The final focused recovery run passed 50 DEBUG tests in 38.807 seconds
+(`adaptiveplotter-recovery-final50.log`). Its causal LIVE-mode fixture loses
+the cap after two circle requests, preserves exactly two excluded mark locations,
+releases operation/Stop ownership, and exercises capture, cancellation and the
+successful one-click same-anchor recovery without further motion. It preserves
+the original camera-map domain and visibly qualifies extrapolated residuals;
+a nine-pixel residual outside that domain is accepted as operator evidence,
+whereas the same residual inside the domain refuses calibration preservation.
+The suite also covers malformed scope rejection, historical-map revalidation
+and reload, settled Pen-Up requirements, truthful competing-action refusal, and
+successful/failed new Camera acceptance superseding/retaining recovery lineage.
+These are production-path software fixtures with fake controller boundaries.
+An expanded strict focused run passed all 56 tests in 49.510 seconds
+(`recovery-regression-strict.log`), including shutdown cancellation and a valid
+projection-bound direct click that verifies accepted reference and actual Pen
+workflow continuation. The broader run exposed both integration cases; the
+corrections preserve truthful awaited results and the original cancellation
+assertion, rather than returning success before sampling completes.
+A subsequent strict run passed all 35 selected UI/episode/recovery tests in
+3.679 seconds (`pen-ui-scheduling-strict.log`); all 20 Pen episode tests then
+passed three serial repetitions in 1.420, 1.459 and 1.517 seconds. A diagnostic
+had identified a fixture submitting a captured request after controller and
+observation runtime revisions changed, then waiting indefinitely for admission.
+The test now renders and submits on one MainActor turn, polls bounded read-only
+test-gate state, and verifies that stale refusal produces no admission or motion.
+This preserves the production freshness guard; it does not claim that native
+clicks can never receive a stale-request refusal. Diagnostic and repeat event
+streams are retained beside their logs.
+
+The focused camera-composition/canvas run passed all 11 DEBUG tests in 1.002
+seconds (`cap-recovery-preview-tests-3.log`). It exercises the production
+CameraCapture → CameraSourceSession → application stable-cap path through
+success, failure and cancellation while a deliberately expired camera clock
+and an unrefreshed pause snapshot reproduce the original presentation trigger.
+The source, frame identity and no-fresh-admission qualification remain intact;
+all leases settle and ordinary video resumes. Hosted native WorkbenchCameraCanvas
+renders in all three cases also assert that the CGImage provider bytes equal the
+held stamped frame. The three `cap-recovery-canvas-*.png` snapshots contain the
+same fixture image and a legible camera-calibration hold caption; no simulation
+surface appears. This is native view rendering with a synthetic camera driver,
+not an attended live camera or pointer-interaction test. The initial helper
+compile error and a subsequent concurrent-source-edit build invalidation were
+resolved before this passing frozen-source run.
+
+The final source builds as DEBUG with complete Swift concurrency checking and
+warnings treated as errors. `make validate-app` passed stable-local signing,
+launcher logic/refusal checks and app-bundle negative validation
+(`cap-recovery-strict-app-final4.log`). The separately staged `AdaptivePlotter.app`
+passes strict code-signature verification and remains unlaunched. Its executable
+SHA-256 is `3fffb14c311b4188d142d853ea691059840fd4b497fb92f6b78457ef06f8d71d`.
+The prior primary `.build/AdaptivePlotter.app` was not replaced. The initial
+configured strict test compile rejected a pre-existing unnecessary `await` in a
+cancellation test. Removing that test-only await preserved all concurrency gates;
+all test targets then compiled strictly and all 14 focused tip-episode tests passed
+(`strict-tip-focused.log`). The failed first receipt and compiler diagnosis remain
+retained separately. Final configured validation receipts, full-suite counts and
+the final source manifest are retained in the same evidence directory so their
+recorded tree can remain unchanged.
+
+The previous running application PID was absent during inspection; no live stall
+profile was collected. The user's camera/controller session and Learning stores
+were not altered, and the app was not launched or replaced for these checks.
+Software fixtures and retained images do not establish physical reacquisition,
+shadow robustness, optical accuracy, or attended calibration success.
+
 ## Pen reference input and video navigation, 2026-09-22
 
 Ordinary bugfix in `task-e982e07ef715452187f0218d88b9c2b8`.

@@ -5,6 +5,7 @@ import PlotterRuntime
 
 struct PenCapAppearanceSelection: Codable, Hashable, Sendable {
   var visualReference: PenCapVisualReference? = nil
+  var operatorObservation: OperatorPenCapObservation? = nil
   let color: PenCapColor
   let frameID: FrameID
   let frameSHA256: String
@@ -52,10 +53,11 @@ struct PenCapAppearanceSelection: Codable, Hashable, Sendable {
       visualReference?.isValid == true,
       visualReference?.cameraConfigurationID == cameraConfigurationID,
       visualReference?.frameWidth == width, visualReference?.frameHeight == height,
-      visualReference?.anchor == clickPoint
+      visualReference?.anchor == clickPoint,
+      operatorObservation?.validates(point: clickPoint) ?? true
     else {
       return
-        "This saved cap needs a visual reference. Use Learning Path Actions → Reidentify Pen Cap, draw a rectangle around the cap and moving holder, then click the cap."
+        "This saved cap needs a visual reference. Use Learning Path Actions → Replace Pen Cap Reference, draw a rectangle around the cap and moving holder, then click the cap."
     }
     return nil
   }
@@ -83,6 +85,7 @@ extension PenCapAppearanceSelection {
   init(checkpoint: AcceptedPenCapAppearance) {
     self.init(
       visualReference: checkpoint.visualReference,
+      operatorObservation: checkpoint.operatorObservation,
       color: checkpoint.color,
       frameID: checkpoint.frameID,
       frameSHA256: checkpoint.frameSHA256,
@@ -112,7 +115,8 @@ extension PenCapAppearanceSelection {
       usableSampleCount: usableSampleCount,
       totalSampleCount: totalSampleCount,
       algorithmRevision: algorithmRevision,
-      visualReference: visualReference
+      visualReference: visualReference,
+      operatorObservation: operatorObservation
     )
   }
 }

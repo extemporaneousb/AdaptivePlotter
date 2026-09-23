@@ -91,7 +91,12 @@ mechanical execution to `MachineController`.
 capture lifetime, exact-frame materialization, and capability-scoped preview
 publication holds. A hold does not stop raw capture or change semantic optical
 identity. It retains only the newest raw buffer and publishes at most one newest
-preview when the final matching hold settles. Interactive LIVE capture requests
+preview when the final matching hold settles. Preview age never selects another
+canvas source. During an exact Vision hold, the workbench retains the current
+camera image and labels it held for the owning calibration. If ordinary delivery
+becomes stale, the same image remains labeled as the last camera frame; it does
+not satisfy fresh-frame admission. Simulation fallback applies only when no image
+is available for the selected camera role. Interactive LIVE capture requests
 an upstream 10 FPS device-delivery limit and independently bounds ordinary
 full-frame preview materialization to the same rate. The diagnostics state
 whether the device accepted that limit. An unsupported device limit is visible
@@ -186,13 +191,21 @@ analysis. The region does not crop or mutate the stamped frame, change exact-
 frame identity or constrain specialized workflow measurements. Unlocked analysis
 and exact workflow cap acquisition search the entire frame for the selected visual
 reference. Normalized per-channel correlation uses pattern structure, including
-black and colored surfaces. A coarse search and bounded affine refinement permit
+black and colored surfaces. A motion prediction seeds local refinement while the
+coarse search still scores the entire declared region; the prediction never
+excludes pixels or resolves a competing match. The global correlation pass is
+vectorized without reducing the search region. Bounded affine refinement permits
 0.8–1.25 axis scale, up to 10 degrees rotation and 0.12 shear. A match requires
 score at least 0.82 and a 0.06 lead over a spatially separate competitor. Short
 capture intervals also reject implausible anchor jumps; gaps over two seconds
 use global reacquisition. Weak, ambiguous, clipped or incompatible observations
-report tracking lost and publish no cap geometry. The reference never updates
-itself from a match. These are software policy bounds, not physical accuracy
+report tracking lost and publish no cap geometry. Refusals retain the best
+candidate bounds and anchor, score against the 0.82 threshold, spatially separate
+competitor margin against 0.06, and prediction residual when a prediction exists.
+A same-anchor operator confirmation can retain the current appearance and at most
+two prior compatible appearances. Each keeps its own rectangle and anchor; crops
+are never averaged and a match never updates the reference. These are software
+policy bounds, not physical accuracy
 claims. Changing camera source or configuration clears the analysis lock.
 
 
@@ -634,14 +647,41 @@ Saved physical results are not erased by loading an old appearance. SIMULATED
 geometry remains source-separated. A reference selection is recognition input,
 not proof of physical pen state, calibration accuracy or ink.
 
-**Reidentify Pen Cap** captures a new exact-frame reference without repeating pen
-actuation or replacing the accepted Pen Interaction revision. Accepted X/Y boundary,
-center and center-arrival evidence and controller pose applicability are retained.
-Success persists the new reference with that mechanical prefix, then invalidates the
-camera/cap registration and downstream tip/drawing calibration. It emits no machine
-commands and does not require Motion authorization. Cancellation, stale clicks,
-capture failure and persistence failure retain the previous accepted authority.
-Full **Redo This Step** and explicit resets keep their existing dependency semantics.
+**Reidentify Pen Cap** is an observation of the same physical anchor on a new
+exact frame. One click translates the previous reference rectangle around its
+stored anchor offset; the operator may redraw the rectangle when needed. The
+click is recorded as an operator observation. With an accepted camera map,
+compatible optical/controller/coordinate authority, unchanged capture context,
+and settled Idle/Pen-Up, it can preserve accepted camera, tip and drawing
+calibration. Inside the map's applicability rectangle, the position residual
+must be at most eight pixels. Outside that domain, the operator's same-anchor
+observation can update appearance with an explicitly extrapolated, advisory
+residual; the old map and domain remain unchanged. It grants no new motion
+authority and does not extend calibration applicability. The saved observation
+binds the prior reference, map revision, prediction scope/domain, predicted
+point and measured residual; it does not rewrite accepted calibration evidence or claim a detector measurement.
+Accepting a successfully saved new camera calibration supersedes that recovery
+lineage and binds the new map to the current appearance estimator. A failed or
+cancelled replacement proposal retains the previous map, appearance and lineage.
+Incompatible context or an excessive in-domain residual refuses preservation
+and leaves prior Learning intact, with a precise recovery reason. Down or unknown pen state
+requires the explicit Raise Pen action; reidentification never raises it itself.
+Previously revalidated saved-map provenance stays historical while the current
+exact capture, position and optical context must remain compatible.
+
+**Replace Pen Cap Reference** is the explicit changed-cap/changed-anchor path.
+It requires a new rectangle and anchor, retains accepted Pen actuation, X/Y
+boundary, center and center-arrival evidence, and invalidates camera/cap and
+downstream tip/drawing calibration only after saving the new appearance.
+Neither action moves the machine or actuates the pen, requires Motion
+authorization, resets possible-ink exclusions or erases physical history.
+Observation-only recovery is available after a settled tip-calibration failure
+with possible ink. Active motion or another unresolved owner still blocks it.
+Cancellation, stale context, capture failure and persistence failure retain the
+previous in-memory authority. A failed save attempts to restore the preceding
+checkpoint; if restoration also fails, the app explicitly reports uncertain
+saved-state durability. Full **Redo This Step** and explicit resets keep
+their dependency semantics.
 
 Video Settings offers exactly `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5`
 frames per second for generic automatic scene analysis. The selected cadence

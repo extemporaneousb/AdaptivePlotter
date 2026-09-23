@@ -13,6 +13,27 @@ public struct PenCapVisualReference: Codable, Hashable, Sendable {
   public let sampleWidth: Int
   public let sampleHeight: Int
   public let rgb: [UInt8]
+  /// Only operator-confirmed appearances of the same physical anchor. Examples
+  /// keep their own geometry; averaging crops would blur or move that anchor.
+  public var confirmedExamples: [PenCapVisualReference]? = nil
+
+  /// The caller must establish physical-anchor compatibility before retaining
+  /// history. Camera compatibility is necessary but cannot prove that identity.
+  public func retainingConfirmedExamples(from previous: Self) -> Self {
+    guard previous.isValid, previous.cameraConfigurationID == cameraConfigurationID,
+      previous.frameWidth == frameWidth, previous.frameHeight == frameHeight else { return self }
+    var result = self
+    var first = previous
+    first.confirmedExamples = nil
+    var examples = [first] + (previous.confirmedExamples ?? [])
+    examples = examples.filter { $0.region != region || $0.anchor != anchor || $0.rgb != rgb }
+    result.confirmedExamples = Array(examples.prefix(2)).map {
+      var example = $0
+      example.confirmedExamples = nil
+      return example
+    }
+    return result
+  }
 
   public var identity: String {
     // Sorted encoding also binds the anchor and camera geometry, not just appearance.
@@ -31,6 +52,12 @@ public struct PenCapVisualReference: Codable, Hashable, Sendable {
       && (4...32).contains(sampleWidth) && (4...32).contains(sampleHeight)
       && rgb.count == sampleWidth * sampleHeight * 3
       && Self.contrast(rgb) >= 8
+      && (confirmedExamples?.count ?? 0) <= 2
+      && (confirmedExamples ?? []).allSatisfy {
+        $0.confirmedExamples == nil && $0.isValid
+          && $0.cameraConfigurationID == cameraConfigurationID
+          && $0.frameWidth == frameWidth && $0.frameHeight == frameHeight
+      }
   }
 
   public static func capture(
@@ -115,13 +142,53 @@ struct PenCapTemplateMatcher {
         y + sin(angle) * a + cos(angle) * b)
     }
   }
-  private struct Sample {
-    let u: Double, v: Double
-    let r: Double, g: Double, b: Double
-  }
+  private typealias Sample = PenCapCoarseCorrelation.Sample
 
   static func detect(frame: StampedFrame, reference: PenCapVisualReference,
-    region: PixelRect) throws -> PenCapDetectionResult {
+    region: PixelRect, searchCenter: Point2<CameraPixelSpace>? = nil) throws -> PenCapDetectionResult {
+    guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
+      region.x <= frame.width - region.width, region.y <= frame.height - region.height
+    else { throw FrameError.invalidRegion }
+    guard reference.isValid else { return .failed("Invalid cap reference. Identify Pen Cap again.") }
+    let examples = [reference] + (reference.confirmedExamples ?? [])
+    guard examples.count > 1 else {
+      return try detectExample(frame: frame, reference: reference, region: region, searchCenter: searchCenter)
+    }
+    let results = try examples.map {
+      try detectExample(frame: frame, reference: $0, region: region, searchCenter: searchCenter)
+    }
+    let candidates = results.flatMap { $0.diagnostics?.template?.candidates ?? [] }.sorted { $0.score > $1.score }
+    guard let best = candidates.first else { return results[0] }
+    // Confirmed views may have different rectangles. Compare their independently
+    // transformed physical anchors, never their rectangle centers.
+    let separation = Double(min(best.boundingBox.width, best.boundingBox.height)) * 0.4
+    let competitor = candidates.dropFirst().first { $0.anchor.distance(to: best.anchor) > separation }
+    let template = PenCapTemplateDiagnostics(candidates: Array(candidates.prefix(12)),
+      acceptanceThreshold: 0.82, requiredMargin: 0.06, competitorScore: competitor?.score,
+      predictionResidualPixels: searchCenter.map { best.anchor.distance(to: $0) },
+      confirmedExampleCount: examples.count)
+    var diagnostics = PenCapDiagnostics(inspectedPixelCount: region.width * region.height,
+      thresholdPixelCount: reference.rgb.count / 3, componentCount: candidates.count,
+      candidates: [], template: template)
+    guard best.score >= 0.82 else { return .notFound(diagnostics) }
+    if let competitor, best.score - competitor.score < 0.06 {
+      return .ambiguous(candidatePixelCounts: [], diagnostics: diagnostics)
+    }
+    let bounds = best.boundingBox
+    guard bounds.x >= region.x, bounds.y >= region.y,
+      bounds.x + bounds.width <= region.x + region.width,
+      bounds.y + bounds.height <= region.y + region.height else {
+        diagnostics.template?.rejectionReason = .referenceClipped
+        return .notFound(diagnostics)
+      }
+    return .found(PenCapMeasurement(referenceAnchor: best.anchor,
+      pixelCount: reference.rgb.count / 3, boundingBox: bounds,
+      centroid: try Point2(x: Double(bounds.x) + Double(bounds.width) / 2,
+        y: Double(bounds.y) + Double(bounds.height) / 2), confidence: min(1, best.score)), diagnostics: diagnostics)
+  }
+
+  private static func detectExample(frame: StampedFrame, reference: PenCapVisualReference,
+    region: PixelRect, searchCenter: Point2<CameraPixelSpace>?) throws -> PenCapDetectionResult {
     guard reference.isValid, frame.width == reference.frameWidth,
       frame.height == reference.frameHeight,
       frame.cameraConfigurationID == reference.cameraConfigurationID,
@@ -198,14 +265,23 @@ struct PenCapTemplateMatcher {
         if candidates.count > 12 { candidates.removeLast() }
       }
       let stridePixels = max(1, min(8, Int(min(w, h) / 12)))
+      // The hint supplies an additional local basin, never a restricted search
+      // region or an ambiguity tie-breaker. Competing global matches still veto.
+      if let searchCenter {
+        let offsetX = reference.anchor.x - Double(reference.region.x) - w / 2
+        let offsetY = reference.anchor.y - Double(reference.region.y) - h / 2
+        for scale in [0.85, 1.0, 1.15] {
+          var pose = Pose(x: searchCenter.x - scale * offsetX,
+            y: searchCenter.y - scale * offsetY, sx: scale, sy: scale)
+          pose.score = score(pose, coarse)
+          retain(pose)
+        }
+      }
       for scale in [0.85, 1.0, 1.15] {
-        for y in stride(from: region.y, to: region.y + region.height, by: stridePixels) {
-          try Task.checkCancellation()
-          for x in stride(from: region.x, to: region.x + region.width, by: stridePixels) {
-            var pose = Pose(x: Double(x), y: Double(y), sx: scale, sy: scale)
-            pose.score = score(pose, coarse)
-            retain(pose)
-          }
+        try PenCapCoarseCorrelation.search(frame: frame, bytes: bytes, region: region,
+          samples: coarse, scale: scale, stridePixels: stridePixels) { x, y, value in
+          if candidates.count == 12, value < candidates.last!.score { return }
+          retain(Pose(x: x, y: y, sx: scale, sy: scale, score: value))
         }
       }
       var refined: [Pose] = []
@@ -251,27 +327,47 @@ struct PenCapTemplateMatcher {
         refined.append(pose)
       }
       refined.sort { $0.score > $1.score }
-      guard let best = refined.first, best.score >= 0.82 else {
-        return .failed("Cap tracking lost: the selected visual pattern is not visible or the match is too weak. Identify Pen Cap again if the pen changed.")
+      func box(_ pose: Pose) -> PixelRect {
+        let corners = [(-w/2,-h/2),(w/2,-h/2),(-w/2,h/2),(w/2,h/2)].map { pose.point($0.0,$0.1) }
+        let minX = Int(floor(corners.map(\.0).min()!)), minY = Int(floor(corners.map(\.1).min()!))
+        let maxX = Int(ceil(corners.map(\.0).max()!)), maxY = Int(ceil(corners.map(\.1).max()!))
+        return PixelRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
       }
-      if let competitor = refined.dropFirst().first(where: {
-        abs($0.x - best.x) > w * 0.4 || abs($0.y - best.y) > h * 0.4
-      }), best.score - competitor.score < 0.06 {
-        return .failed("Cap tracking ambiguous: more than one region matches the selected pattern.")
+      let templateCandidates = try refined.map { pose in
+        let (x, y) = pose.point(reference.anchor.x - Double(reference.region.x) - w/2,
+          reference.anchor.y - Double(reference.region.y) - h/2)
+        return PenCapTemplateCandidateDiagnostic(score: pose.score, boundingBox: box(pose),
+          anchor: try Point2(x: x, y: y))
       }
-      let corners = [(-w/2,-h/2),(w/2,-h/2),(-w/2,h/2),(w/2,h/2)].map { best.point($0.0,$0.1) }
-      let minX = Int(floor(corners.map(\.0).min()!)), minY = Int(floor(corners.map(\.1).min()!))
-      let maxX = Int(ceil(corners.map(\.0).max()!)), maxY = Int(ceil(corners.map(\.1).max()!))
-      guard minX >= region.x, minY >= region.y, maxX <= region.x + region.width,
-        maxY <= region.y + region.height else { return .failed("Cap tracking lost: the reference is clipped by the image edge.") }
-      let (x, y) = best.point(reference.anchor.x - Double(reference.region.x) - w/2,
-        reference.anchor.y - Double(reference.region.y) - h/2)
-      let box = PixelRect(x: minX, y: minY, width: maxX-minX, height: maxY-minY)
-      return .found(PenCapMeasurement(referenceAnchor: try Point2(x: x, y: y),
-        pixelCount: reference.rgb.count / 3,
-        boundingBox: box, centroid: try Point2(x: best.x, y: best.y), confidence: min(1, best.score)),
-        diagnostics: PenCapDiagnostics(inspectedPixelCount: region.width * region.height,
-          thresholdPixelCount: reference.rgb.count / 3, componentCount: refined.count, candidates: []))
+      let best = refined.first
+      let competitor = best.flatMap { best in
+        refined.dropFirst().first {
+          abs($0.x - best.x) > w * 0.4 || abs($0.y - best.y) > h * 0.4
+        }
+      }
+      let template = PenCapTemplateDiagnostics(candidates: templateCandidates,
+        acceptanceThreshold: 0.82, requiredMargin: 0.06,
+        competitorScore: competitor?.score,
+        predictionResidualPixels: templateCandidates.first.flatMap { candidate in
+          searchCenter.map { candidate.anchor.distance(to: $0) }
+        }, confirmedExampleCount: 1)
+      var diagnostics = PenCapDiagnostics(inspectedPixelCount: region.width * region.height,
+        thresholdPixelCount: reference.rgb.count / 3, componentCount: refined.count,
+        candidates: [], template: template)
+      guard let best, best.score >= 0.82 else { return .notFound(diagnostics) }
+      if let competitor, best.score - competitor.score < 0.06 {
+        return .ambiguous(candidatePixelCounts: [], diagnostics: diagnostics)
+      }
+      let bounds = box(best)
+      guard bounds.x >= region.x, bounds.y >= region.y,
+        bounds.x + bounds.width <= region.x + region.width,
+        bounds.y + bounds.height <= region.y + region.height else {
+        diagnostics.template?.rejectionReason = .referenceClipped
+        return .notFound(diagnostics)
+      }
+      return .found(PenCapMeasurement(referenceAnchor: templateCandidates[0].anchor,
+        pixelCount: reference.rgb.count / 3, boundingBox: bounds,
+        centroid: try Point2(x: best.x, y: best.y), confidence: min(1, best.score)), diagnostics: diagnostics)
     }
   }
 }

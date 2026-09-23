@@ -85,10 +85,70 @@ public struct AcceptedStageFourCheckpoint: Codable, Hashable, Sendable {
   }
 }
 
-/// The complete accepted result of Identify Pen Cap. Exact-frame provenance is
-/// retained with the learned color so a restart cannot silently promote an
-/// unproven color preference into Learning authority.
+public enum OperatorPenCapPredictionScope: String, Codable, Hashable, Sendable {
+  case withinCalibrationDomain
+  case extrapolated
+}
+
+/// An operator's exact-frame reobservation of the same physical cap anchor.
+/// This records the compatibility check; it is not an automatic detector score.
+public struct OperatorPenCapObservation: Codable, Hashable, Sendable {
+  public let machinePoint: Point2<MachineSpace>
+  public let controllerSessionID: UUID
+  public let coordinateRevision: UInt64
+  public let machineCameraRegistrationRevisionID: LearningArtifactRevisionID
+  public let preservedAnchorEstimatorRevision: String
+  public let priorReferenceIdentity: String
+  public let predictedPoint: Point2<CameraPixelSpace>
+  public let residualPixels: Double
+  /// The compatibility ceiling applies only inside the accepted map domain.
+  public let maximumResidualPixels: Double
+  /// Missing scope/domain decode as legacy in-domain observations.
+  public let predictionScope: OperatorPenCapPredictionScope?
+  public let predictionDomain: AxisAlignedBounds<MachineSpace>?
+  public var isExtrapolated: Bool { predictionScope == .extrapolated }
+
+  public init(machinePoint: Point2<MachineSpace>, controllerSessionID: UUID,
+    coordinateRevision: UInt64, machineCameraRegistrationRevisionID: LearningArtifactRevisionID,
+    preservedAnchorEstimatorRevision: String, priorReferenceIdentity: String,
+    predictedPoint: Point2<CameraPixelSpace>, residualPixels: Double,
+    maximumResidualPixels: Double,
+    predictionScope: OperatorPenCapPredictionScope? = nil,
+    predictionDomain: AxisAlignedBounds<MachineSpace>? = nil) {
+    self.machinePoint = machinePoint
+    self.controllerSessionID = controllerSessionID
+    self.coordinateRevision = coordinateRevision
+    self.machineCameraRegistrationRevisionID = machineCameraRegistrationRevisionID
+    self.preservedAnchorEstimatorRevision = preservedAnchorEstimatorRevision
+    self.priorReferenceIdentity = priorReferenceIdentity
+    self.predictedPoint = predictedPoint
+    self.residualPixels = residualPixels
+    self.maximumResidualPixels = maximumResidualPixels
+    self.predictionScope = predictionScope
+    self.predictionDomain = predictionDomain
+  }
+
+  public func validates(point: Point2<CameraPixelSpace>) -> Bool {
+    let validDomain: Bool
+    if let predictionScope, let predictionDomain {
+      validDomain = [predictionDomain.minX, predictionDomain.maxX,
+        predictionDomain.minY, predictionDomain.maxY].allSatisfy(\.isFinite)
+        && predictionDomain.minX < predictionDomain.maxX
+        && predictionDomain.minY < predictionDomain.maxY
+        && ((predictionScope == .extrapolated) != predictionDomain.contains(machinePoint))
+    } else { validDomain = predictionScope == nil && predictionDomain == nil }
+    return validDomain && !preservedAnchorEstimatorRevision.isEmpty && !priorReferenceIdentity.isEmpty
+      && residualPixels.isFinite && residualPixels >= 0
+      && maximumResidualPixels.isFinite && maximumResidualPixels > 0
+      && maximumResidualPixels <= 8 && (isExtrapolated || residualPixels <= maximumResidualPixels)
+      && abs(predictedPoint.distance(to: point) - residualPixels) < 0.000001
+  }
+}
+
+/// The complete accepted result of Identify Pen Cap, including exact-frame
+/// provenance and optional operator-confirmed same-anchor recovery lineage.
 public struct AcceptedPenCapAppearance: Codable, Hashable, Sendable {
+  public let operatorObservation: OperatorPenCapObservation?
   public let visualReference: PenCapVisualReference?
   public static let algorithmRevision = "pen-cap-click-9x9-median-v1"
   public static let minimumUsableSampleCount = 9
@@ -119,9 +179,11 @@ public struct AcceptedPenCapAppearance: Codable, Hashable, Sendable {
     usableSampleCount: Int,
     totalSampleCount: Int,
     algorithmRevision: String,
-    visualReference: PenCapVisualReference? = nil
+    visualReference: PenCapVisualReference? = nil,
+    operatorObservation: OperatorPenCapObservation? = nil
   ) throws {
     self.visualReference = visualReference
+    self.operatorObservation = operatorObservation
     guard case .live = source,
       !frameID.rawValue.isEmpty,
       Self.isSHA256(frameSHA256),
@@ -141,6 +203,9 @@ public struct AcceptedPenCapAppearance: Codable, Hashable, Sendable {
           && visualReference?.frameWidth == width && visualReference?.frameHeight == height
           && visualReference?.anchor == clickPoint)
     else { throw AcceptedLearningPathCheckpointError.invalidPenCapAppearance }
+    guard operatorObservation?.validates(point: clickPoint) ?? true else {
+      throw AcceptedLearningPathCheckpointError.invalidPenCapAppearance
+    }
     self.color = color
     self.frameID = frameID
     self.frameSHA256 = frameSHA256.lowercased()
@@ -373,9 +438,26 @@ public struct AcceptedLearningPathCheckpoint: Codable, Hashable, Sendable {
         usableSampleCount: penCapAppearance.usableSampleCount,
         totalSampleCount: penCapAppearance.totalSampleCount,
         algorithmRevision: penCapAppearance.algorithmRevision,
-        visualReference: penCapAppearance.visualReference
+        visualReference: penCapAppearance.visualReference,
+        operatorObservation: penCapAppearance.operatorObservation
       )
       if let machineCamera {
+        if let observed = penCapAppearance.operatorObservation {
+          guard observed.machineCameraRegistrationRevisionID == machineCamera.revision.id,
+            observed.preservedAnchorEstimatorRevision == machineCamera.registration.capAnchorEstimatorRevision
+          else { throw AcceptedLearningPathCheckpointError.invalidPenCapAppearance }
+          // The observation stays historical through an owner-authorized
+          // controller/coordinate rebase. Never relabel its original MPos.
+          if observed.controllerSessionID == machineCamera.registration.controllerSessionID,
+            observed.coordinateRevision == machineCamera.registration.coordinateRevision {
+            let predicted = try machineCamera.registration.fit.cameraPoint(from: observed.machinePoint)
+            guard observed.isExtrapolated != machineCamera.registration.applicabilityRectangle.contains(observed.machinePoint),
+              observed.predictionDomain == nil || observed.predictionDomain == machineCamera.registration.applicabilityRectangle,
+              predicted.distance(to: observed.predictedPoint) < 0.000001 else {
+              throw AcceptedLearningPathCheckpointError.invalidPenCapAppearance
+            }
+          }
+        }
         guard penCapAppearance.source == machineCamera.registration.source,
           penCapAppearance.width == machineCamera.registration.opticalConfiguration.width,
           penCapAppearance.height == machineCamera.registration.opticalConfiguration.height,

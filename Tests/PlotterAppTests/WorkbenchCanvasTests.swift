@@ -5,21 +5,18 @@ import Testing
 
 @Suite("Permanent canvas")
 struct WorkbenchCanvasTests {
-  @Test("missing video falls back while frozen evidence and selected portrait images stay visible")
+  @Test("last plotter image remains visible regardless of freshness, while missing video falls back")
   func sourceSelection() {
     func select(portrait: Bool = false, video: Bool = false, photo: Bool = false,
-      frame: Bool = false, retained: Bool = false, live: Bool = false, simulated: Bool = false) -> WorkbenchCanvasContent {
+      frame: Bool = false) -> WorkbenchCanvasContent {
       .select(portrait: portrait, portraitVideoAvailable: video, portraitPhotoAvailable: photo,
-        plotterFrameAvailable: frame, retainedPlotterFrame: retained, plotterLive: live, simulated: simulated)
+        plotterFrameAvailable: frame)
     }
     #expect(select() == .simulationPreview)
-    #expect(select(frame: true) == .simulationPreview)
-    #expect(select(frame: true, live: true) == .plotter)
-    #expect(select(frame: true, retained: true) == .plotter)
-    #expect(select(frame: true, simulated: true) == .plotter)
+    #expect(select(frame: true) == .plotter)
     #expect(select(portrait: true, photo: true) == .portraitPhoto)
     #expect(select(portrait: true, video: true, photo: true) == .portraitVideo)
-    #expect(select(portrait: true, frame: true, live: true) == .simulationPreview)
+    #expect(select(portrait: true, frame: true) == .simulationPreview)
   }
 
   @MainActor

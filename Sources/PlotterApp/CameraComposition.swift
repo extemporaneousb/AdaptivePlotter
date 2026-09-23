@@ -315,7 +315,7 @@ struct CameraStableWorkflowCapLeaseOperation: CameraSourceSessionVisionLeaseOper
       guard case .found(let cap, _) = inspection.measurement.penCap else {
         let detail: String
         if case .notFound = inspection.measurement.penCap {
-          detail = "No pen cap detected. No pixels matched the selected cap color; check cap visibility and lighting, or reset Learning and identify a more distinct colored cap."
+          detail = "No pen cap detected: \(inspection.measurement.penCap.diagnosticReason). Use Reidentify Pen Cap to click the cap again."
         } else {
           detail = "Pen-cap measurement refused: \(inspection.measurement.penCap.diagnosticReason)."
         }

@@ -46,6 +46,8 @@ struct PlotterOperatorThroughputPolicyTests {
     let harness = makeCausalSimulatorAppFixture()
     let workspace = harness.workspace
     await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
+    await submitControllerSession(workspace, .toggleConnection)
+    await submitControllerSession(workspace, .toggleMotionAuthorization)
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     let startProjection = workspace.testPlotterUIProjection(
       selectedItemID: owner,
@@ -62,7 +64,9 @@ struct PlotterOperatorThroughputPolicyTests {
       presentation: presentation,
       viewport: ActionSurfaceViewportState(),
       at: CGPoint(x: 160, y: 120),
-      viewSize: CGSize(width: 320, height: 240)
+      viewSize: CGSize(width: 320, height: 240),
+      referenceRegion: testCapSelectionRegion(point: try Point2(x: 160, y: 120),
+        width: 320, height: 240)
     ))
     let unbound = workspace.testPlotterUIProjection(
       selectedItemID: owner,
@@ -87,6 +91,15 @@ struct PlotterOperatorThroughputPolicyTests {
     ) == submission)
     let request = try #require(bound.request(matching: .pointSelection(submission)))
     #expect(await sink.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+    let appearance = try #require(workspace.penCapAppearanceSelection)
+    #expect(appearance.clickPoint == submission.point)
+    #expect(appearance.visualReference?.anchor == submission.point)
+    #expect(appearance.visualReference?.isValid == true)
+    try await waitForExecutorTurns {
+      workspace.activeDiscoverySequenceID == .penInteraction
+    }
+    #expect(workspace.activeExerciseAttemptOwnerID == owner)
+    #expect(workspace.discoveryError == nil)
     await workspace.shutdown()
   }
 

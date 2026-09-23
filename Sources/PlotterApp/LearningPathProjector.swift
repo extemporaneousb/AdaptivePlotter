@@ -315,6 +315,7 @@ struct PlotterLearningPresentationFacts: Sendable {
   let acceptedCheckpointStatus: AcceptedArtifactCheckpointStatus
   let savedTrainingCandidate: SavedTrainingFacts?
   let reset: ResetFacts
+  let capRecoveryDetail: String?
 
   init(
     source: OperatorFrameMode = .live,
@@ -333,7 +334,8 @@ struct PlotterLearningPresentationFacts: Sendable {
     startUnavailableReasons: [LearningPathItemID: String] = [:],
     acceptedCheckpointStatus: AcceptedArtifactCheckpointStatus = .unavailable,
     savedTrainingCandidate: SavedTrainingFacts? = nil,
-    reset: ResetFacts = ResetFacts()
+    reset: ResetFacts = ResetFacts(),
+    capRecoveryDetail: String? = nil
   ) {
     self.source = source
     self.learningEnabled = learningEnabled
@@ -352,6 +354,7 @@ struct PlotterLearningPresentationFacts: Sendable {
     self.acceptedCheckpointStatus = acceptedCheckpointStatus
     self.savedTrainingCandidate = savedTrainingCandidate
     self.reset = reset
+    self.capRecoveryDetail = capRecoveryDetail
   }
 }
 
@@ -374,6 +377,7 @@ struct LearningPathProjection: Hashable, Sendable {
   let resetSurface: LearningResetSurfacePresentation
   let menu: LearningPathMenuPresentation
 
+  var capRecoveryDetail: String? = nil
   var requiredExerciseActions: [PlotterUILearningActionStripDecision] = []
   var selectedExerciseActions: PlotterUILearningActionStripDecision? { selectedAction.actionStrip }
   var separateActiveExerciseActions: [PlotterUILearningActionStripDecision] {
@@ -690,6 +694,7 @@ struct PlotterLearningDetailedPresentationNormalizer: Sendable {
       menu: LearningPathMenuPresentation(
         resetAllPlan: actionability.resetAllPlanIsReachable ? snapshot.reset.resetAllPlan : nil
       ),
+      capRecoveryDetail: snapshot.capRecoveryDetail,
       requiredExerciseActions: actionability.strips.filter(\.mustRemainVisible)
         .compactMap { adapter.actionStrip($0) }
     )

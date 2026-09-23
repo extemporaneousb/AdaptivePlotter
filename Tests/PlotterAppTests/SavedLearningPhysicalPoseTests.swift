@@ -165,6 +165,86 @@ struct SavedLearningPhysicalPoseTests {
     await app.shutdown()
   }
 
+  @Test("operator-confirmed anchor lineage survives coordinate rebase and a second Saved Learning reload")
+  func confirmedAnchorLineageSurvivesRebaseAndReload() async throws {
+    let f = try await DrawingWorkbenchApplicationFixture.make(verifyPhysicalPose: false)
+    defer { f.stores.remove() }
+    await f.application.shutdown()
+    let original = f.accepted.checkpoint
+    let camera = try #require(original.machineCamera)
+    let appearance = try #require(original.penCapAppearance)
+    let previousReference = try #require(appearance.visualReference)
+    // Synthetic accepted observation: production one-click acceptance is tested
+    // separately. Retaining an immutable appearance changes reference identity
+    // while the explicitly recorded physical-anchor estimator remains the same.
+    var confirmedReference = previousReference
+    confirmedReference.confirmedExamples = [previousReference]
+    #expect(confirmedReference.identity != previousReference.identity)
+    let observedMachinePoint = try camera.registration.fit.machinePoint(from: appearance.clickPoint)
+    let observation = OperatorPenCapObservation(machinePoint: observedMachinePoint,
+      controllerSessionID: camera.registration.controllerSessionID,
+      coordinateRevision: camera.registration.coordinateRevision,
+      machineCameraRegistrationRevisionID: camera.revision.id,
+      preservedAnchorEstimatorRevision: camera.registration.capAnchorEstimatorRevision,
+      priorReferenceIdentity: previousReference.identity, predictedPoint: appearance.clickPoint,
+      residualPixels: 0, maximumResidualPixels: 8)
+    let confirmedAppearance = try AcceptedPenCapAppearance(color: appearance.color,
+      frameID: appearance.frameID, frameSHA256: appearance.frameSHA256, source: appearance.source,
+      cameraConfigurationID: appearance.cameraConfigurationID, width: appearance.width,
+      height: appearance.height, pixelFormat: appearance.pixelFormat, clickPoint: appearance.clickPoint,
+      usableSampleCount: appearance.usableSampleCount, totalSampleCount: appearance.totalSampleCount,
+      algorithmRevision: appearance.algorithmRevision, visualReference: confirmedReference,
+      operatorObservation: observation)
+    let confirmedPackage = try AcceptedLearningPathCheckpoint(semanticIdentity: original.semanticIdentity,
+      penInteraction: original.penInteraction, machineArtifacts: original.machineArtifacts,
+      machineCamera: camera, tipCalibration: original.tipCalibration, stageFour: original.stageFour,
+      penCapAppearance: confirmedAppearance, referenceFrame: original.referenceFrame)
+    try f.stores.checkpointStore.save(confirmedPackage)
+
+    let app = try await reloadedPoseApplication(f)
+    #expect(app.penCapAppearanceSelection?.operatorObservation == observation)
+    let beforeMap = try #require(app.machineCameraRegistration)
+    let position = try #require((await f.machine.snapshot()).machine.position)
+    let predicted = try beforeMap.fit.cameraPoint(from: position.point)
+    let displaced = try Point2<CameraPixelSpace>(x: (predicted.x + 48).rounded(),
+      y: (predicted.y + 32).rounded())
+    await f.camera.configurePoseCapture(anchor: displaced)
+    await f.machine.setPenState(.up)
+    _ = await app.refreshControllerSessionSnapshot()
+    try await reestablishPhysicalPositionForTest(app)
+    let afterMap = try #require(app.machineCameraRegistration)
+    #expect(afterMap.coordinateRevision == beforeMap.coordinateRevision + 1)
+    #expect(afterMap.capAnchorEstimatorRevision == observation.preservedAnchorEstimatorRevision)
+    guard case .loaded(let rebasedPackage) = f.stores.checkpointStore.load() else {
+      Issue.record("Confirmed anchor rebase did not persist"); await app.shutdown(); return
+    }
+    let rebasedObservation = try #require(rebasedPackage.penCapAppearance?.operatorObservation)
+    // The observation is historical exact-frame evidence. A sanctioned map
+    // rebase preserves that evidence and its anchor-estimator lineage; it must
+    // not rewrite the old click as a new observation in today's coordinates.
+    #expect(rebasedObservation == observation)
+    #expect(rebasedObservation.coordinateRevision != afterMap.coordinateRevision)
+    #expect(rebasedObservation.machineCameraRegistrationRevisionID == rebasedPackage.machineCamera?.revision.id)
+    #expect(rebasedObservation.preservedAnchorEstimatorRevision == afterMap.capAnchorEstimatorRevision)
+    #expect(rebasedPackage.penCapAppearance?.frameID == appearance.frameID)
+    #expect(rebasedPackage.penCapAppearance?.visualReference == confirmedReference)
+    #expect(rebasedPackage.stageFour == original.stageFour)
+    await app.shutdown()
+
+    let reloaded = try await reloadedPoseApplication(f)
+    #expect(reloaded.penCapAppearanceSelection?.operatorObservation == rebasedObservation)
+    #expect(reloaded.machineCameraRegistration == afterMap)
+    await f.machine.setPenState(.up)
+    _ = await reloaded.refreshControllerSessionSnapshot()
+    try await reestablishPhysicalPositionForTest(reloaded)
+    #expect(reloaded.machineCameraRegistration?.coordinateRevision == afterMap.coordinateRevision)
+    #expect(reloaded.interactiveLearningIsComplete)
+    #expect(await f.machine.requestedPenCommands.isEmpty)
+    #expect(await f.machine.requestedFeeds.isEmpty)
+    #expect(await f.machine.requestedDrawingStrokes.isEmpty)
+    await reloaded.shutdown()
+  }
+
   @Test("a uniquely acquired matching cap verifies position while confidence remains diagnostic",
     arguments: [PhysicalPoseCaptureMode.valid, .lowConfidence])
   func matchingCapRetainsCalibrationAndCurrentSessionUse(_ mode: PhysicalPoseCaptureMode) async throws {
@@ -727,6 +807,26 @@ func reestablishPhysicalPositionForTest(_ app: PlotterApplicationRuntime) async 
     "\(app.explorationError ?? String(describing: outcome))")
   try #require(!app.controllerPoseApplicability.requiresPhysicalPositionForTest,
     "\(app.explorationError ?? "Position recovery did not establish current authority")")
+}
+
+@MainActor
+private func reloadedPoseApplication(_ fixture: DrawingWorkbenchApplicationFixture) async throws -> PlotterApplicationRuntime {
+  let clock = fixture.clock
+  let machine = fixture.machine
+  let app = plotterApplicationRuntime(machine: machine,
+    observationSessionOverride: fixture.camera,
+    statePersistencePort: fixture.stores.persistence,
+    drawingEvidencePort: fixture.stores.evidencePort,
+    tipCalibrationSemanticIdentities: fixture.accepted.identities,
+    residualEffectPort: TestApplicationResidualEffectPort(
+      discoverDevices: { [machine.descriptor] }, readNanoseconds: { clock.read() }),
+    loadPenCapAppearanceSelection: { nil }, log: EventLog())
+  await app.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+  await app.establishMachineSession(machine.descriptor)
+  await submitControllerSession(app, .requestPassiveProbe)
+  await submitObservationConfigurationForTest(app, .selectSource(.live, fixture.camera.device.id))
+  try await applyCompleteSavedLearning(app)
+  return app
 }
 
 @MainActor

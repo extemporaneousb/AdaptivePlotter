@@ -188,11 +188,48 @@ public struct PenCapCandidateDiagnostic: Hashable, Sendable {
   public let confidence: Double
 }
 
+public struct PenCapTemplateCandidateDiagnostic: Hashable, Sendable {
+  public let score: Double
+  public let boundingBox: PixelRect
+  public let anchor: Point2<CameraPixelSpace>
+}
+
+public enum PenCapTemplateRejectionReason: Hashable, Sendable {
+  case referenceClipped
+
+  public var detail: String {
+    switch self {
+    case .referenceClipped: "reference is clipped by the image or search-region edge"
+    }
+  }
+}
+
+public struct PenCapTemplateDiagnostics: Hashable, Sendable {
+  public let candidates: [PenCapTemplateCandidateDiagnostic]
+  public let acceptanceThreshold: Double
+  public let requiredMargin: Double
+  public let competitorScore: Double?
+  public let predictionResidualPixels: Double?
+  public let confirmedExampleCount: Int
+  public var rejectionReason: PenCapTemplateRejectionReason? = nil
+
+  public var summary: String {
+    let score = candidates.first.map { String(format: "%.3f", $0.score) } ?? "none"
+    let margin = candidates.first.flatMap { best in competitorScore.map { best.score - $0 } }
+    var result = "template score \(score) (minimum \(String(format: "%.3f", acceptanceThreshold)))"
+    if let margin { result += "; competing-match margin \(String(format: "%.3f", margin)) (minimum \(String(format: "%.3f", requiredMargin)))" }
+    if let predictionResidualPixels { result += "; prediction residual \(String(format: "%.2f", predictionResidualPixels)) camera pixels" }
+    if let rejectionReason { result += "; \(rejectionReason.detail)" }
+    return result
+  }
+}
+
 public struct PenCapDiagnostics: Hashable, Sendable {
   public let inspectedPixelCount: Int
   public let thresholdPixelCount: Int
   public let componentCount: Int
   public let candidates: [PenCapCandidateDiagnostic]
+  public var template: PenCapTemplateDiagnostics? = nil
 }
 
 public enum PenCapDetectionResult: Hashable, Sendable {
@@ -207,13 +244,23 @@ public enum PenCapDetectionResult: Hashable, Sendable {
     return measurement
   }
 
+  public var diagnostics: PenCapDiagnostics? {
+    switch self {
+    case .found(_, let diagnostics), .notFound(let diagnostics), .ambiguous(_, let diagnostics): diagnostics
+    case .notRequested, .failed: nil
+    }
+  }
+
   public var diagnosticReason: String {
     switch self {
     case .notRequested: "not requested"
     case .found: "found"
-    case .notFound: "no pixels passed the selected pen-cap color thresholds"
-    case .ambiguous(let counts, _):
-      "candidate sizes \(counts.map(String.init).joined(separator: ", ")); refusing to choose"
+    case .notFound(let diagnostics):
+      if let template = diagnostics.template { "Cap tracking lost: \(template.summary)" }
+      else { "no pixels passed the selected pen-cap color thresholds" }
+    case .ambiguous(let counts, let diagnostics):
+      if let template = diagnostics.template { "Cap tracking ambiguous: \(template.summary)" }
+      else { "candidate sizes \(counts.map(String.init).joined(separator: ", ")); refusing to choose" }
     case .failed(let reason): reason
     }
   }
@@ -553,7 +600,8 @@ public actor VisionWorker {
     priors: PlotterSceneVisionPriors
   ) throws -> PenCapDetectionResult {
     if let reference = priors.penCapReference {
-      let result = try PenCapTemplateMatcher.detect(frame: frame, reference: reference, region: priors.capSearchRegion)
+      let result = try PenCapTemplateMatcher.detect(frame: frame, reference: reference,
+        region: priors.capSearchRegion, searchCenter: priors.searchCenter)
       if let cap = result.measurement {
         let identity = reference.identity
         if let previous = lastReferenceMatch, previous.identity == identity,

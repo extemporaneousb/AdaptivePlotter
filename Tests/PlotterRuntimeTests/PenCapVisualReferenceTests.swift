@@ -96,6 +96,138 @@ struct PenCapVisualReferenceTests {
     #expect(abs(cap.trackingPoint.y - 58) <= 2)
   }
 
+  @Test("a clipped high-score reference explains its rejection for single and confirmed-example searches")
+  func clippedReferenceDiagnostics() throws {
+    let width = 320, height = 240
+    let original = try scene(origins: [(80, 64)], scale: 4, width: width, height: height)
+    let reference = try PenCapVisualReference.capture(frame: original,
+      region: PixelRect(x: 80, y: 64, width: 112, height: 96), anchor: Point2(x: 96, y: 140))
+    let target = try scene(origins: [(0, 64)], scale: 4, width: width, height: height)
+    var pixels = target.bytes.withUnsafeBytes { Array($0) }
+    target.bytes.withUnsafeBytes { bytes in
+      // The object starts one camera pixel beyond the left edge. Its bounded
+      // reference samples still match, but the transformed rectangle is clipped.
+      for y in 0..<height {
+        for x in 0..<(width - 1) {
+          let i = (y * width + x) * 4
+          for c in 0..<4 { pixels[i + c] = bytes[i + 4 + c] }
+        }
+      }
+    }
+    let clipped = try StampedFrame(sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: configuration, width: width, height: height,
+      rowBytes: width * 4, pixelFormat: .rgba8, bytes: OwnedFrameBytes(pixels))
+    var bank = reference
+    bank.confirmedExamples = [reference, reference]
+    for selected in [reference, bank] {
+      let result = try PenCapTemplateMatcher.detect(frame: clipped, reference: selected,
+        region: PixelRect(x: 0, y: 0, width: width, height: height), searchCenter: try Point2(x: 15, y: 140))
+      #expect(result.measurement == nil)
+      let diagnostic = try #require(result.diagnostics?.template)
+      #expect(try #require(diagnostic.candidates.first).score >= diagnostic.acceptanceThreshold)
+      #expect(diagnostic.rejectionReason == .referenceClipped)
+      #expect(diagnostic.predictionResidualPixels != nil)
+      #expect(result.diagnosticReason.contains("clipped"))
+      #expect(result.diagnosticReason.contains("score"))
+    }
+  }
+
+  @Test("legacy v1 serialized references retain identity when examples are absent")
+  func legacyIdentity() throws {
+    let ref = try reference(scene(origins: [(20, 16)]))
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .sortedKeys
+    let data = try encoder.encode(ref)
+    let dictionary = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(dictionary["confirmedExamples"] == nil)
+    #expect(PenCapVisualReference.revision == "cap-visual-reference-v1")
+    let restored = try JSONDecoder().decode(PenCapVisualReference.self, from: data)
+    #expect(restored.identity == RunLedger.sha256Hex(data))
+  }
+
+  @Test("motion prediction seeds refinement without hiding a distant match or resolving a duplicate")
+  func predictionDoesNotGrantIdentity() async throws {
+    let ref = try reference(scene(origins: [(20, 16)]))
+    let hint = try Point2<CameraPixelSpace>(x: 24, y: 35)
+    let distant = try await VisionWorker().inspectPlotterScene(in: scene(origins: [(92, 48)]),
+      requestedFeatures: [.penCap], penCapReference: ref, searchCenter: hint)
+    let cap = try #require(distant.penCap.measurement)
+    #expect(abs(cap.trackingPoint.x - 96) <= 1.5)
+    #expect(abs(cap.trackingPoint.y - 67) <= 1.5)
+    let diagnostics = try #require(distant.penCap.diagnostics?.template)
+    #expect(try #require(diagnostics.predictionResidualPixels) > 70)
+    let duplicate = try await VisionWorker().inspectPlotterScene(in: scene(origins: [(20, 16), (92, 48)]),
+      requestedFeatures: [.penCap], penCapReference: ref, searchCenter: hint)
+    #expect(duplicate.penCap.measurement == nil)
+    #expect(duplicate.penCap.diagnosticReason.contains("ambiguous"))
+    #expect(duplicate.penCap.diagnosticReason.contains("margin"))
+  }
+
+  @Test("rejected patterns retain candidate scores and predictions")
+  func rejectedDiagnostics() async throws {
+    let ref = try reference(scene(origins: [(20, 16)]))
+    let result = try await VisionWorker().inspectPlotterScene(in: scene(origins: [(72, 32)], scale: 2),
+      requestedFeatures: [.penCap], penCapReference: ref, searchCenter: try Point2(x: 80, y: 60))
+    #expect(result.penCap.measurement == nil)
+    let diagnostics = try #require(result.penCap.diagnostics?.template)
+    #expect(!diagnostics.candidates.isEmpty)
+    #expect(diagnostics.predictionResidualPixels != nil)
+    #expect(result.penCap.diagnosticReason.contains("score"))
+    #expect(result.penCap.diagnosticReason.contains("camera pixels"))
+  }
+
+  @Test("confirmed appearances recover changing backgrounds without averaging anchors or self-training")
+  func confirmedBackgrounds() async throws {
+    let original = try scene(origins: [(20, 16)])
+    let changed = try scene(origins: [(76, 38)], background: 40)
+    let first = try PenCapVisualReference.capture(frame: original,
+      region: PixelRect(x: 16, y: 12, width: 36, height: 32), anchor: Point2(x: 24, y: 35))
+    let second = try PenCapVisualReference.capture(frame: changed,
+      region: PixelRect(x: 72, y: 34, width: 36, height: 32), anchor: Point2(x: 80, y: 57))
+      .retainingConfirmedExamples(from: first)
+    let identity = second.identity
+    for (frame, x, y) in [(original, 24.0, 35.0), (changed, 80.0, 57.0)] {
+      let result = try await VisionWorker().inspectPlotterScene(in: frame,
+        requestedFeatures: [.penCap], penCapReference: second)
+      let cap = try #require(result.penCap.measurement)
+      #expect(abs(cap.trackingPoint.x - x) <= 1.5)
+      #expect(abs(cap.trackingPoint.y - y) <= 1.5)
+      #expect(result.penCap.diagnostics?.template?.confirmedExampleCount == 2)
+    }
+    var combinedPixels = changed.bytes.withUnsafeBytes { Array($0) }
+    original.bytes.withUnsafeBytes { bytes in
+      for y in 12..<44 {
+        for x in 16..<52 {
+          let i = y * original.rowBytes + x * 4
+          for c in 0..<4 { combinedPixels[i + c] = bytes[i + c] }
+        }
+      }
+    }
+    let combined = try StampedFrame(sequence: 2, captureNanoseconds: 2,
+      cameraConfigurationID: configuration, width: original.width, height: original.height,
+      rowBytes: original.rowBytes, pixelFormat: .rgba8, bytes: OwnedFrameBytes(combinedPixels))
+    let ambiguous = try await VisionWorker().inspectPlotterScene(in: combined,
+      requestedFeatures: [.penCap], penCapReference: second, searchCenter: try Point2(x: 80, y: 57))
+    #expect(ambiguous.penCap.measurement == nil)
+    #expect(ambiguous.penCap.diagnosticReason.contains("ambiguous"))
+    #expect(try #require(ambiguous.penCap.diagnostics?.template?.competitorScore) > 0.95)
+    #expect(second.identity == identity)
+    #expect(try JSONDecoder().decode(PenCapVisualReference.self,
+      from: JSONEncoder().encode(second)) == second)
+    let bounded = first.retainingConfirmedExamples(from: second).retainingConfirmedExamples(from: second)
+    #expect(try #require(bounded.confirmedExamples).count <= 2)
+  }
+
+  @Test("dark multicolor structure tolerates a uniform illumination change")
+  func illumination() async throws {
+    let ref = try reference(scene(origins: [(20, 16)]))
+    let result = try await VisionWorker().inspectPlotterScene(in: scene(origins: [(76, 38)], illumination: 0.55),
+      requestedFeatures: [.penCap], penCapReference: ref)
+    let cap = try #require(result.penCap.measurement)
+    #expect(abs(cap.trackingPoint.x - 80) <= 1.5)
+    #expect(abs(cap.trackingPoint.y - 57) <= 1.5)
+  }
+
   private func reference(_ frame: StampedFrame) throws -> PenCapVisualReference {
     try .capture(frame: frame, region: PixelRect(x: 20, y: 16, width: 28, height: 24),
       anchor: Point2(x: 24, y: 35))
@@ -103,8 +235,9 @@ struct PenCapVisualReferenceTests {
 
   private func scene(origins: [(Int, Int)], scale: Double = 1,
     configuration: CameraConfigurationID? = nil, time: UInt64 = 1,
-    width: Int = 144, height: Int = 96, monochrome: Bool = false) throws -> StampedFrame {
-    var bytes = [UInt8](repeating: 220, count: width * height * 4)
+    width: Int = 144, height: Int = 96, monochrome: Bool = false,
+    background: UInt8 = 220, illumination: Double = 1) throws -> StampedFrame {
+    var bytes = [UInt8](repeating: background, count: width * height * 4)
     for (ox, oy) in origins {
       for y in 0..<Int(24 * scale) {
         for x in 0..<Int(28 * scale) {
@@ -115,6 +248,7 @@ struct PenCapVisualReferenceTests {
           else if (u > 10 && u < 14) || v < 3 { rgb = [170, 165, 160] }
           else { rgb = [12, 12, 14] }
           if monochrome { rgb = Array(repeating: UInt8(rgb.map(Int.init).reduce(0, +) / 3), count: 3) }
+          rgb = rgb.map { UInt8((Double($0) * illumination).rounded()) }
           let i = ((oy+y)*width+ox+x)*4
           bytes[i] = rgb[0]; bytes[i+1] = rgb[1]; bytes[i+2] = rgb[2]; bytes[i+3] = 255
         }

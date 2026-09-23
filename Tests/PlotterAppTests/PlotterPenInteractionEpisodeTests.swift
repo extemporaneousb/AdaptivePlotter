@@ -436,109 +436,166 @@ struct PlotterPenInteractionEpisodeTests {
   func productionUICoalescingAndConfirmationOrdering() async throws {
     let admissionGate = PlotterPenInteractionSetpointAdmissionGate()
     let fixture = try makeProductionPenWorkspace(setpointAdmissionGate: admissionGate)
-    try await preparePenQuestion(fixture.workspace, machine: fixture.machine)
-    try requireStep(fixture.workspace, "answer-initially-up")
-    #expect(await fixture.machine.requestedPenCommands.isEmpty)
+    do {
+      try await preparePenQuestion(fixture.workspace, machine: fixture.machine)
+      try requireStep(fixture.workspace, "answer-initially-up")
+      #expect(await fixture.machine.requestedPenCommands.isEmpty)
 
-    await admissionGate.holdNextAdmittedSetpoint()
-    let request55 = try currentPenSetpointRequest(fixture.workspace, value: 55)
-    let sink: any PlotterUIIntentSink = fixture.workspace
-    let first = Task { await sink.submitPlotterUIRequest(request55) }
-    await admissionGate.waitUntilHeld()
+      await admissionGate.holdNextAdmittedSetpoint()
+      let sink: any PlotterUIIntentSink = fixture.workspace
+      let firstResult = PenUISubmissionResult()
+      let first = Task { @MainActor in
+        await firstResult.submit(workspace: fixture.workspace, value: 55)
+      }
+      try await firstResult.waitForAdmission("55 is held") { await admissionGate.isHeld }
 
-    let admitted55 = await fixture.runtime.snapshot(environment: .live)
-    #expect(admitted55.projection.phase == .drainingSetpoint(.raise))
-    #expect(admitted55.projection.profile.raisedSpindleValue == 55)
-    #expect(admitted55.projection.lastRefusal == nil)
-    #expect(await fixture.machine.requestedPenCommands.isEmpty)
+      let admitted55 = await fixture.runtime.snapshot(environment: .live)
+      #expect(admitted55.projection.phase == .drainingSetpoint(.raise))
+      #expect(admitted55.projection.profile.raisedSpindleValue == 55)
+      #expect(admitted55.projection.lastRefusal == nil)
+      #expect(await fixture.machine.requestedPenCommands.isEmpty)
 
-    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    let nextActionID = learningActionID(.choice(.yes), owner: owner)
-    let preDrainSemantic = fixture.workspace.testPlotterUIProjection(
-      selectedItemID: owner,
-      includesLearningPath: true
-    ).semantic
-    #expect(preDrainSemantic.request(for: nextActionID) == nil)
-    let preDrainStopRequest = try currentPenStopRequest(fixture.workspace)
-    guard case .learningAction(let preDrainRequest) = preDrainStopRequest.intent,
-      case .stopPenInteraction(let preDrainCapability) = preDrainRequest.action
-    else {
-      Issue.record("Expected exact Pen Stop while the accepted setpoint awaits its drain.")
-      return
-    }
-    #expect(preDrainCapability == admitted55.projection.cancellationCapabilityID)
-
-    let request57 = try currentPenSetpointRequest(fixture.workspace, value: 57)
-    let second = Task { await sink.submitPlotterUIRequest(request57) }
-    await admissionGate.waitUntilAdmissionCount(2)
-    let queued57 = await fixture.runtime.snapshot(environment: .live)
-    #expect(queued57.projection.phase == .drainingSetpoint(.raise))
-    #expect(queued57.projection.profile.raisedSpindleValue == 57)
-    #expect(await fixture.machine.requestedPenCommands.isEmpty)
-
-    await admissionGate.release()
-    await fixture.lowerGate.waitUntilHeld()
-
-    let held57 = await fixture.runtime.snapshot(environment: .live)
-    #expect(held57.projection.phase == .settling(.raise))
-    #expect(held57.projection.profile.raisedSpindleValue == 57)
-    #expect(held57.acceptedHistory.records.isEmpty)
-    #expect(await fixture.machine.requestedPenCommands == [.raise])
-    let heldProfiles = await fixture.machine.requestedPenProfiles
-    #expect(heldProfiles.map(\.raisedSpindleValue) == [57])
-    #expect(heldProfiles.allSatisfy {
-      $0.raisedSpindleValue != 55
-    })
-
-    let heldSemantic = fixture.workspace.testPlotterUIProjection(
-      selectedItemID: owner,
-      includesLearningPath: true
-    ).semantic
-    #expect(heldSemantic.request(for: nextActionID) == nil)
-    let heldStopRequest = try currentPenStopRequest(fixture.workspace)
-    guard case .learningAction(let heldRequest) = heldStopRequest.intent,
-      case .stopPenInteraction(let heldCapability) = heldRequest.action
-    else {
-      Issue.record("Expected exact Pen Stop while the coalesced setpoint is settling.")
-      return
-    }
-    #expect(heldCapability == held57.projection.cancellationCapabilityID)
-    try requireStep(fixture.workspace, "answer-initially-up")
-    #expect((await fixture.runtime.snapshot(environment: .live)).acceptedHistory.records.isEmpty)
-
-    await fixture.lowerGate.releaseFirstRequest()
-    let firstDisposition = await first.value
-    let secondDisposition = await second.value
-
-    #expect(firstDisposition == .accepted(requestID: request55.id))
-    #expect(secondDisposition == .accepted(requestID: request57.id))
-    let published57 = await fixture.runtime.snapshot(environment: .live)
-    #expect(published57.projection.phase == .awaitingConfirmation(.raise))
-    #expect(published57.lastSettlement?.operationID == published57.projection.reference.operationID)
-    #expect(published57.lastExecutionByCommand[.raise]?.profile.raisedSpindleValue == 57)
-    await waitForObservedCondition {
-      fixture.workspace.testPlotterUIProjection(
+      let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+      let nextActionID = learningActionID(.choice(.yes), owner: owner)
+      let preDrainSemantic = fixture.workspace.testPlotterUIProjection(
         selectedItemID: owner,
         includesLearningPath: true
-      ).semantic.request(for: nextActionID) != nil
-        || fixture.workspace.discoveryError != nil
+      ).semantic
+      #expect(preDrainSemantic.request(for: nextActionID) == nil)
+      let preDrainStopRequest = try currentPenStopRequest(fixture.workspace)
+      guard case .learningAction(let preDrainRequest) = preDrainStopRequest.intent,
+        case .stopPenInteraction(let preDrainCapability) = preDrainRequest.action
+      else {
+        Issue.record("Expected exact Pen Stop while the accepted setpoint awaits its drain.")
+        throw PenUIAdmissionFailure(stage: "expected typed Pen result", submission: "required shape was absent")
+      }
+      #expect(preDrainCapability == admitted55.projection.cancellationCapabilityID)
+
+      let secondResult = PenUISubmissionResult()
+      let second = Task { @MainActor in
+        await secondResult.submit(workspace: fixture.workspace, value: 57)
+      }
+      try await secondResult.waitForAdmission("57 is coalesced") {
+        await admissionGate.admittedSetpointCount == 2
+      }
+      let queued57 = await fixture.runtime.snapshot(environment: .live)
+      #expect(queued57.projection.phase == .drainingSetpoint(.raise))
+      #expect(queued57.projection.profile.raisedSpindleValue == 57)
+      #expect(await fixture.machine.requestedPenCommands.isEmpty)
+
+      await admissionGate.release()
+      try await firstResult.waitForAdmission("57 reaches the lower port") {
+        await fixture.lowerGate.isHeld
+      }
+
+      let held57 = await fixture.runtime.snapshot(environment: .live)
+      #expect(held57.projection.phase == .settling(.raise))
+      #expect(held57.projection.profile.raisedSpindleValue == 57)
+      #expect(held57.acceptedHistory.records.isEmpty)
+      #expect(await fixture.machine.requestedPenCommands == [.raise])
+      let heldProfiles = await fixture.machine.requestedPenProfiles
+      #expect(heldProfiles.map(\.raisedSpindleValue) == [57])
+      #expect(heldProfiles.allSatisfy {
+        $0.raisedSpindleValue != 55
+      })
+
+      let heldSemantic = fixture.workspace.testPlotterUIProjection(
+        selectedItemID: owner,
+        includesLearningPath: true
+      ).semantic
+      #expect(heldSemantic.request(for: nextActionID) == nil)
+      let heldStopRequest = try currentPenStopRequest(fixture.workspace)
+      guard case .learningAction(let heldRequest) = heldStopRequest.intent,
+        case .stopPenInteraction(let heldCapability) = heldRequest.action
+      else {
+        Issue.record("Expected exact Pen Stop while the coalesced setpoint is settling.")
+        throw PenUIAdmissionFailure(stage: "expected typed Pen result", submission: "required shape was absent")
+      }
+      #expect(heldCapability == held57.projection.cancellationCapabilityID)
+      try requireStep(fixture.workspace, "answer-initially-up")
+      #expect((await fixture.runtime.snapshot(environment: .live)).acceptedHistory.records.isEmpty)
+
+      await fixture.lowerGate.releaseFirstRequest()
+      try await waitUntil { firstResult.result != nil && secondResult.result != nil }
+      await first.value
+      await second.value
+      let (request55, firstDisposition) = try #require(firstResult.result).get()
+      let (request57, secondDisposition) = try #require(secondResult.result).get()
+      #expect(firstDisposition == .accepted(requestID: request55.id))
+      #expect(secondDisposition == .accepted(requestID: request57.id))
+      let published57 = await fixture.runtime.snapshot(environment: .live)
+      #expect(published57.projection.phase == .awaitingConfirmation(.raise))
+      #expect(published57.lastSettlement?.operationID == published57.projection.reference.operationID)
+      #expect(published57.lastExecutionByCommand[.raise]?.profile.raisedSpindleValue == 57)
+      try await waitUntil {
+        fixture.workspace.testPlotterUIProjection(
+          selectedItemID: owner,
+          includesLearningPath: true
+        ).semantic.request(for: nextActionID) != nil
+          || fixture.workspace.discoveryError != nil
+      }
+      let nextRequest = try currentPenChoiceRequest(fixture.workspace, choice: .yes)
+      let nextDisposition = await sink.submitPlotterUIRequest(nextRequest)
+      #expect(nextDisposition == .accepted(requestID: nextRequest.id))
+      #expect(fixture.workspace.discoveryError == nil)
+      try await waitUntil {
+        fixture.workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
+          == "answer-currently-down"
+          || fixture.workspace.discoveryError != nil
+      }
+      try requireStep(fixture.workspace, "answer-currently-down")
+      let settledProfiles = await fixture.machine.requestedPenProfiles
+      #expect(settledProfiles.allSatisfy {
+        $0.raisedSpindleValue != 55
+      })
+      #expect(await fixture.machine.requestedPenCommands == [.raise, .lower])
+      await fixture.workspace.shutdown()
+    } catch {
+      await admissionGate.release()
+      await fixture.lowerGate.releaseFirstRequest()
+      await fixture.workspace.shutdown()
+      throw error
     }
-    let nextRequest = try currentPenChoiceRequest(fixture.workspace, choice: .yes)
-    let nextDisposition = await sink.submitPlotterUIRequest(nextRequest)
-    #expect(nextDisposition == .accepted(requestID: nextRequest.id))
-    #expect(fixture.workspace.discoveryError == nil)
-    await waitForObservedCondition {
-      fixture.workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
-        == "answer-currently-down"
-        || fixture.workspace.discoveryError != nil
+  }
+
+  @MainActor
+  @Test("a stale UI setpoint reports refusal before an unentered admission gate")
+  func staleProductionSetpointDoesNotWaitForAdmission() async throws {
+    let gate = PlotterPenInteractionSetpointAdmissionGate()
+    let fixture = try makeProductionPenWorkspace(setpointAdmissionGate: gate)
+    do {
+      try await preparePenQuestion(fixture.workspace, machine: fixture.machine)
+      await gate.holdNextAdmittedSetpoint()
+      let staleRequest = try currentPenSetpointRequest(fixture.workspace, value: 55)
+      await submitControllerSession(fixture.workspace, .requestPassiveProbe)
+      let result = PenUISubmissionResult()
+      let submission = Task { @MainActor in
+        await result.submit(staleRequest, workspace: fixture.workspace)
+      }
+      await #expect(throws: PenUIAdmissionFailure.self) {
+        try await result.waitForAdmission("stale request cannot enter") { await gate.isHeld }
+      }
+      await gate.release()
+      await fixture.lowerGate.releaseFirstRequest()
+      try await waitUntil { result.result != nil }
+      await submission.value
+      let (_, disposition) = try #require(result.result).get()
+      guard case .refused(let refusal) = disposition else {
+        Issue.record("Expected the deliberately stale setpoint to be refused.")
+        await fixture.workspace.shutdown()
+        throw PenUIAdmissionFailure(stage: "expected typed Pen result", submission: "required shape was absent")
+      }
+      #expect(refusal.reason == .staleUIRevision || refusal.reason == .staleRuntimeRevision)
+      #expect(await gate.admittedSetpointCount == 0)
+      #expect(!(await gate.isHeld))
+      #expect(await fixture.machine.requestedPenCommands.isEmpty)
+      await fixture.workspace.shutdown()
+    } catch {
+      await gate.release()
+      await fixture.lowerGate.releaseFirstRequest()
+      await fixture.workspace.shutdown()
+      throw error
     }
-    try requireStep(fixture.workspace, "answer-currently-down")
-    let settledProfiles = await fixture.machine.requestedPenProfiles
-    #expect(settledProfiles.allSatisfy {
-      $0.raisedSpindleValue != 55
-    })
-    #expect(await fixture.machine.requestedPenCommands == [.raise, .lower])
-    await fixture.workspace.shutdown()
   }
 
   @MainActor
@@ -546,37 +603,56 @@ struct PlotterPenInteractionEpisodeTests {
   func productionStopSupersedesHeldConfirmation() async throws {
     let gate = PlotterPenInteractionConfirmationAdmissionGate()
     let fixture = try makeProductionPenWorkspace(confirmationAdmissionGate: gate)
-    try await preparePenQuestion(fixture.workspace, machine: fixture.machine)
-    let sink: any PlotterUIIntentSink = fixture.workspace
-    let setpoint = try currentPenSetpointRequest(fixture.workspace, value: 58)
-    let setpointTask = Task { await sink.submitPlotterUIRequest(setpoint) }
-    await fixture.lowerGate.waitUntilHeld()
-    await fixture.lowerGate.releaseFirstRequest()
-    #expect(await setpointTask.value == .accepted(requestID: setpoint.id))
-    try requireStep(fixture.workspace, "answer-initially-up")
-    let evidenceCount = fixture.workspace.discoveryTransactions[.penInteraction]?
-      .evidenceSummaries.count
+    do {
+      try await preparePenQuestion(fixture.workspace, machine: fixture.machine)
+      let sink: any PlotterUIIntentSink = fixture.workspace
+      let setpointResult = PenUISubmissionResult()
+      let setpointTask = Task { @MainActor in
+        await setpointResult.submit(workspace: fixture.workspace, value: 58)
+      }
+      try await setpointResult.waitForAdmission("58 reaches the lower port") {
+        await fixture.lowerGate.isHeld
+      }
+      await fixture.lowerGate.releaseFirstRequest()
+      try await waitUntil { setpointResult.result != nil }
+      await setpointTask.value
+      let (setpoint, setpointDisposition) = try #require(setpointResult.result).get()
+      #expect(setpointDisposition == .accepted(requestID: setpoint.id))
+      try requireStep(fixture.workspace, "answer-initially-up")
+      let evidenceCount = fixture.workspace.discoveryTransactions[.penInteraction]?
+        .evidenceSummaries.count
 
-    let yes = try currentPenChoiceRequest(fixture.workspace, choice: .yes)
-    let confirmation = Task { await sink.submitPlotterUIRequest(yes) }
-    await gate.waitUntilHeld()
-    #expect((await fixture.runtime.snapshot(environment: .live)).projection.phase
-      == .confirming(.raise))
+      let confirmationResult = PenUISubmissionResult()
+      let confirmation = Task { @MainActor in
+        await confirmationResult.submitConfirmation(workspace: fixture.workspace)
+      }
+      try await confirmationResult.waitForAdmission("confirmation is held") { await gate.isHeld }
+      let yes = try #require(confirmationResult.request)
+      #expect((await fixture.runtime.snapshot(environment: .live)).projection.phase
+        == .confirming(.raise))
 
-    let stop = try currentPenStopRequest(fixture.workspace)
-    #expect(await sink.submitPlotterUIRequest(stop) == .accepted(requestID: stop.id))
-    await gate.release()
-    #expect(await confirmation.value == .accepted(requestID: yes.id))
+      let stop = try currentPenStopRequest(fixture.workspace)
+      #expect(await sink.submitPlotterUIRequest(stop) == .accepted(requestID: stop.id))
+      await gate.release()
+      try await waitUntil { confirmationResult.result != nil }
+      await confirmation.value
+      #expect(try #require(confirmationResult.result).get().1 == .accepted(requestID: yes.id))
 
-    #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
-      != "answer-currently-down")
-    #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.evidenceSummaries.count
-      == evidenceCount)
-    let terminal = await fixture.runtime.snapshot(environment: .live)
-    #expect(terminal.projection.evidenceCount == 0)
-    #expect(terminal.acceptedHistory.attempts.first?.disposition == .cancelled)
-    #expect(!terminal.projection.physicalEvidenceClaimed)
-    await fixture.workspace.shutdown()
+      #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
+        != "answer-currently-down")
+      #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.evidenceSummaries.count
+        == evidenceCount)
+      let terminal = await fixture.runtime.snapshot(environment: .live)
+      #expect(terminal.projection.evidenceCount == 0)
+      #expect(terminal.acceptedHistory.attempts.first?.disposition == .cancelled)
+      #expect(!terminal.projection.physicalEvidenceClaimed)
+      await fixture.workspace.shutdown()
+    } catch {
+      await gate.release()
+      await fixture.lowerGate.releaseFirstRequest()
+      await fixture.workspace.shutdown()
+      throw error
+    }
   }
 
   @MainActor
@@ -584,63 +660,81 @@ struct PlotterPenInteractionEpisodeTests {
   func productionShutdownSupersedesHeldConfirmation() async throws {
     let gate = PlotterPenInteractionConfirmationAdmissionGate()
     let fixture = try makeProductionPenWorkspace(confirmationAdmissionGate: gate)
-    try await preparePenQuestion(fixture.workspace, machine: fixture.machine)
-    let sink: any PlotterUIIntentSink = fixture.workspace
-    let setpoint = try currentPenSetpointRequest(fixture.workspace, value: 58)
-    let setpointTask = Task { await sink.submitPlotterUIRequest(setpoint) }
-    await fixture.lowerGate.waitUntilHeld()
-    await fixture.lowerGate.releaseFirstRequest()
-    #expect(await setpointTask.value == .accepted(requestID: setpoint.id))
-    let evidenceCount = fixture.workspace.discoveryTransactions[.penInteraction]?
-      .evidenceSummaries.count
-    let yes = try currentPenChoiceRequest(fixture.workspace, choice: .yes)
-    let confirmation = Task { await sink.submitPlotterUIRequest(yes) }
-    await gate.waitUntilHeld()
-
-    let shutdown = Task { await fixture.workspace.shutdown() }
-    var shutdownClaimedOwner = false
-    for _ in 0..<200 {
-      let projection = await fixture.runtime.snapshot(environment: .live).projection
-      if projection.phase == .cancelling || projection.reference.operationID == nil {
-        shutdownClaimedOwner = true
-        break
+    do {
+      try await preparePenQuestion(fixture.workspace, machine: fixture.machine)
+      let setpointResult = PenUISubmissionResult()
+      let setpointTask = Task { @MainActor in
+        await setpointResult.submit(workspace: fixture.workspace, value: 58)
       }
-      try await Task.sleep(nanoseconds: 1_000_000)
-    }
-    #expect(shutdownClaimedOwner)
-    await gate.release()
-    guard case .refused(let refusal) = await confirmation.value else {
-      Issue.record("Shutdown must publish the exact outer Learning cancellation refusal.")
-      return
-    }
-    #expect(refusal.reason == .retainedOwnerRefused)
-    #expect(refusal.remedy.contains("cancelled"))
-    guard case .learningAction(let learningRequest) = yes.intent else {
-      Issue.record("The rendered confirmation lost its exact Learning request.")
-      return
-    }
-    let episode = try #require(fixture.workspace.learningEpisodeRecord.entries.last)
-    #expect(episode.request == .action(learningRequest))
-    #expect(episode.postTransitionProjection.stateRevision == episode.postStateRevision)
-    #expect(episode.postTransitionProjection.activeOwner == learningRequest.item)
-    #expect(episode.stateChangePublished)
-    guard case .refused(let reason, let owner, let remedy) = episode.result else {
-      Issue.record("Shutdown cancellation must publish a typed Learning episode refusal.")
-      return
-    }
-    #expect(reason == .ownerRefused)
-    #expect(owner.rawValue == "PlotterApplicationRuntime")
-    #expect(remedy == refusal.remedy)
-    await shutdown.value
+      try await setpointResult.waitForAdmission("58 reaches the lower port") {
+        await fixture.lowerGate.isHeld
+      }
+      await fixture.lowerGate.releaseFirstRequest()
+      try await waitUntil { setpointResult.result != nil }
+      await setpointTask.value
+      let (setpoint, setpointDisposition) = try #require(setpointResult.result).get()
+      #expect(setpointDisposition == .accepted(requestID: setpoint.id))
+      let evidenceCount = fixture.workspace.discoveryTransactions[.penInteraction]?
+        .evidenceSummaries.count
+      let confirmationResult = PenUISubmissionResult()
+      let confirmation = Task { @MainActor in
+        await confirmationResult.submitConfirmation(workspace: fixture.workspace)
+      }
+      try await confirmationResult.waitForAdmission("confirmation is held") { await gate.isHeld }
+      let yes = try #require(confirmationResult.request)
 
-    #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
-      != "answer-currently-down")
-    #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.evidenceSummaries.count
-      == evidenceCount)
-    let terminal = await fixture.runtime.snapshot(environment: .live)
-    #expect(terminal.projection.evidenceCount == 0)
-    #expect(terminal.acceptedHistory.attempts.first?.disposition == .cancelled)
-    #expect(!terminal.projection.physicalEvidenceClaimed)
+      let shutdown = Task { await fixture.workspace.shutdown() }
+      var shutdownClaimedOwner = false
+      for _ in 0..<200 {
+        let projection = await fixture.runtime.snapshot(environment: .live).projection
+        if projection.phase == .cancelling || projection.reference.operationID == nil {
+          shutdownClaimedOwner = true
+          break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+      }
+      #expect(shutdownClaimedOwner)
+      await gate.release()
+      try await waitUntil { confirmationResult.result != nil }
+      await confirmation.value
+      guard case .refused(let refusal) = try #require(confirmationResult.result).get().1 else {
+        Issue.record("Shutdown must publish the exact outer Learning cancellation refusal.")
+        throw PenUIAdmissionFailure(stage: "expected typed Pen result", submission: "required shape was absent")
+      }
+      #expect(refusal.reason == .retainedOwnerRefused)
+      #expect(refusal.remedy.contains("cancelled"))
+      guard case .learningAction(let learningRequest) = yes.intent else {
+        Issue.record("The rendered confirmation lost its exact Learning request.")
+        throw PenUIAdmissionFailure(stage: "expected typed Pen result", submission: "required shape was absent")
+      }
+      let episode = try #require(fixture.workspace.learningEpisodeRecord.entries.last)
+      #expect(episode.request == .action(learningRequest))
+      #expect(episode.postTransitionProjection.stateRevision == episode.postStateRevision)
+      #expect(episode.postTransitionProjection.activeOwner == learningRequest.item)
+      #expect(episode.stateChangePublished)
+      guard case .refused(let reason, let owner, let remedy) = episode.result else {
+        Issue.record("Shutdown cancellation must publish a typed Learning episode refusal.")
+        throw PenUIAdmissionFailure(stage: "expected typed Pen result", submission: "required shape was absent")
+      }
+      #expect(reason == .ownerRefused)
+      #expect(owner.rawValue == "PlotterApplicationRuntime")
+      #expect(remedy == refusal.remedy)
+      await shutdown.value
+
+      #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
+        != "answer-currently-down")
+      #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.evidenceSummaries.count
+        == evidenceCount)
+      let terminal = await fixture.runtime.snapshot(environment: .live)
+      #expect(terminal.projection.evidenceCount == 0)
+      #expect(terminal.acceptedHistory.attempts.first?.disposition == .cancelled)
+      #expect(!terminal.projection.physicalEvidenceClaimed)
+    } catch {
+      await gate.release()
+      await fixture.lowerGate.releaseFirstRequest()
+      await fixture.workspace.shutdown()
+      throw error
+    }
   }
 
   @MainActor
@@ -907,7 +1001,7 @@ private func preparePenQuestion(
     pointProjection.request(for: PlotterAppUIActionID.pointSelection(submission))
   )
   #expect(await sink.submitPlotterUIRequest(pointRequest) == .accepted(requestID: pointRequest.id))
-  await waitForObservedCondition {
+  try await waitUntil {
     workspace.currentExerciseActionStripPresentation?.penSetpointAdjustment != nil
       || workspace.discoveryError != nil
   }
@@ -1133,7 +1227,7 @@ extension PlotterPenInteractionEpisodeTests {
     let fixture = try makeProductionPenWorkspace(speechAnnouncer: speech,
       speechOutputEnabled: false, workbenchVoiceListener: listener)
     let app = fixture.workspace
-    var confirming: Task<PlotterUIRequestDisposition, Never>?
+    var confirming: Task<Void, Never>?
     do {
       try await preparePenQuestion(app, machine: fixture.machine)
       updateProductionPenVoiceContext(app)
@@ -1142,10 +1236,14 @@ extension PlotterPenInteractionEpisodeTests {
       await speech.waitUntilStarted()
       await speech.releaseAll()
       try await waitUntil { voice.isListening }
-      let yes = try currentPenChoiceRequest(app, choice: .yes)
-      let task = Task { await app.submitPlotterUIRequest(yes) }
+      let confirmationResult = PenUISubmissionResult()
+      let task = Task { @MainActor in
+        await confirmationResult.submitConfirmation(workspace: app)
+      }
       confirming = task
-      await fixture.lowerGate.waitUntilHeld()
+      try await confirmationResult.waitForAdmission("voice confirmation reaches the lower port") {
+        await fixture.lowerGate.isHeld
+      }
       await speech.waitUntilStarted(2)
       let stop = try currentPenStopRequest(app)
       updateProductionPenVoiceContext(app)
@@ -1185,4 +1283,58 @@ extension PlotterPenInteractionEpisodeTests {
       throw error
     }
   }
+}
+
+/// Render and submit on one MainActor turn so background projection publication
+/// cannot invalidate an already-rendered request before this test submits it.
+@MainActor
+private final class PenUISubmissionResult {
+  private(set) var request: PlotterUIRequest?
+  private(set) var result: Result<(PlotterUIRequest, PlotterUIRequestDisposition), Error>?
+
+  func submit(workspace: PlotterApplicationRuntime, value: Int) async {
+    do {
+      let request = try currentPenSetpointRequest(workspace, value: value)
+      await submit(request, workspace: workspace)
+    } catch {
+      result = .failure(error)
+    }
+  }
+
+  func submitConfirmation(workspace: PlotterApplicationRuntime) async {
+    do {
+      let request = try currentPenChoiceRequest(workspace, choice: .yes)
+      await submit(request, workspace: workspace)
+    } catch {
+      result = .failure(error)
+    }
+  }
+
+  func submit(_ request: PlotterUIRequest, workspace: PlotterApplicationRuntime) async {
+    self.request = request
+    let sink: any PlotterUIIntentSink = workspace
+    let disposition = await sink.submitPlotterUIRequest(request)
+    result = .success((request, disposition))
+  }
+
+  func waitForAdmission(
+    _ stage: String,
+    reached: () async -> Bool
+  ) async throws {
+    do {
+      try await waitUntilAsync { await reached() || self.result != nil }
+    } catch {
+      throw TestTimeout(conditionDescription: "Pen UI \(stage); submission: \(String(describing: result))")
+    }
+    guard await reached() else {
+      throw PenUIAdmissionFailure(stage: stage, submission: String(describing: result))
+    }
+  }
+}
+
+private struct PenUIAdmissionFailure: Error, CustomStringConvertible {
+  let stage: String
+  let submission: String
+
+  var description: String { "Pen UI \(stage) was not reached; submission ended: \(submission)" }
 }

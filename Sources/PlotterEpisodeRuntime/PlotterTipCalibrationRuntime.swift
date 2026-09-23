@@ -150,6 +150,7 @@ public enum PlotterTipCalibrationPhase: Hashable, Sendable {
 
 public enum PlotterTipCalibrationSubmissionOutcome: Hashable, Sendable {
   case completed
+  case possibleInk(String)
   case refused(String)
   case cancelled
   case failed(String)
@@ -494,7 +495,7 @@ public final class PlotterTipCalibrationRuntime {
     if case .possibleInk(let possibleInk) = fact {
       blacklistedLocations.insert(possibleInk.location)
       phase = .possibleInkBlacklisted(possibleInk.location, possibleInk.reason)
-      return .completed
+      return .possibleInk(possibleInk.reason)
     }
     switch (intent, fact) {
     case (.beginFourMarkBatch, .markBatch(let markBatch)):

@@ -10,13 +10,51 @@ enum WorkbenchCanvasContent: Equatable {
   case plotter, portraitVideo, portraitPhoto, simulationPreview
 
   static func select(portrait: Bool, portraitVideoAvailable: Bool, portraitPhotoAvailable: Bool,
-    plotterFrameAvailable: Bool, retainedPlotterFrame: Bool, plotterLive: Bool, simulated: Bool) -> Self {
+    plotterFrameAvailable: Bool) -> Self {
     if portrait {
       if portraitVideoAvailable { return .portraitVideo }
       return portraitPhotoAvailable ? .portraitPhoto : .simulationPreview
     }
-    return plotterFrameAvailable && (retainedPlotterFrame || plotterLive || simulated)
-      ? .plotter : .simulationPreview
+    // Freshness controls camera admission, not presentation source. Exact Vision
+    // deliberately holds preview publication, and a slow or interrupted camera
+    // still owns its last image until the camera owner clears that image.
+    return plotterFrameAvailable ? .plotter : .simulationPreview
+  }
+}
+
+struct WorkbenchCanvasPresentation {
+  let content: WorkbenchCanvasContent
+  let displayedFrame: DisplayedFrame?
+  let plotterFrameStatus: String?
+}
+
+@MainActor
+extension PlotterApplicationRuntime {
+  var workbenchCanvasPresentation: WorkbenchCanvasPresentation {
+    let surface = actionSurfacePresentation
+    let displayed = surface.usesAmbientPreviewFrame
+      ? actionSurfacePreview.displayedFrame : surface.displayedFrame
+    let content = WorkbenchCanvasContent.select(
+      portrait: workbenchCameraRole == .portrait,
+      portraitVideoAvailable: portraitStudio.cameraIsRunning && portraitStudio.preview.frame != nil,
+      portraitPhotoAvailable: portraitStudio.selectedPhoto != nil,
+      plotterFrameAvailable: displayed != nil
+    )
+    // A held image remains camera-sourced; only its temporal qualification changes.
+    // This presentation does not make that image fresh enough for an observation.
+    let status: String?
+    if workbenchCameraRole == .plotter, surface.usesAmbientPreviewFrame,
+      case .live = displayed?.source {
+      if let owner = exactWorkflowVisionOwner {
+        status = "Camera frame held · \(owner.operatorLabel)"
+      } else {
+        status = cameraIsLive ? nil : "Last camera frame · waiting for video"
+      }
+    } else {
+      status = nil
+    }
+    return WorkbenchCanvasPresentation(content: content, displayedFrame: displayed,
+      plotterFrameStatus: status)
   }
 }
 
@@ -31,22 +69,23 @@ struct WorkbenchCameraCanvas: View {
 
   var body: some View {
     TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-      let surface = application.actionSurfacePresentation
-      let displayed = surface.usesAmbientPreviewFrame
-        ? application.actionSurfacePreview.displayedFrame : surface.displayedFrame
+      let canvas = application.workbenchCanvasPresentation
+      let displayed = canvas.displayedFrame
       let portrait = application.portraitStudio
-      let content = WorkbenchCanvasContent.select(
-        portrait: application.workbenchCameraRole == .portrait,
-        portraitVideoAvailable: portrait.cameraIsRunning && portrait.preview.frame != nil,
-        portraitPhotoAvailable: portrait.selectedPhoto != nil,
-        plotterFrameAvailable: displayed != nil, retainedPlotterFrame: !surface.usesAmbientPreviewFrame,
-        plotterLive: application.cameraIsLive, simulated: application.frameMode == .simulated)
       Group {
-        switch content {
+        switch canvas.content {
         case .plotter:
           PreviewingActionSurface(application: application, preview: application.actionSurfacePreview,
             viewport: $viewport, plotterUIProjection: semantic, plotterUIIntentSink: application,
             pendingDrawingPlacement: $pendingDrawingPlacement, pendingPointSelection: $pendingPointSelection)
+            .accessibilityIdentifier("workbench.canvas.plotter")
+            .overlay(alignment: .topTrailing) {
+              if let frameStatus = canvas.plotterFrameStatus {
+                Text(frameStatus).font(.caption).foregroundStyle(.white)
+                  .padding(6).background(.black.opacity(0.75)).padding(8)
+                  .accessibilityIdentifier("workbench.canvas.frameStatus")
+              }
+            }
             .overlay(alignment: .topLeading) {
               if let displayed, let detail = application.sparseTipGuideDetail(on: displayed) {
                 Text(detail).font(.caption).foregroundStyle(.white)
