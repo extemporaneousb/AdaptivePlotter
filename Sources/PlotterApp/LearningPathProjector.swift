@@ -459,7 +459,7 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
       discoveryStageHasFailure: snapshot.operations.discoveryFailure != nil
         || snapshot.operations.explorationFailure != nil,
       drawingStageHasFailure: snapshot.operations.explorationFailure != nil,
-      cameraState: cameraState(snapshot.cameraCalibration),
+      cameraState: cameraState(snapshot.cameraCalibration, boundary: snapshot.boundary),
       sparseState: sparseState(snapshot.sparseCalibration.phase),
       sparseCollectedClickCount: snapshot.sparseCalibration.collectedClickCount,
       sparseSavedCheckpointMatchesPaper: snapshot.sparseCalibration.savedCheckpointMatchesPaper,
@@ -573,10 +573,16 @@ struct PlotterLearningActionabilityFactAdapter: Sendable {
   }
 
   private func cameraState(
-    _ facts: PlotterLearningPresentationFacts.CameraCalibrationFacts
+    _ facts: PlotterLearningPresentationFacts.CameraCalibrationFacts,
+    boundary: PlotterLearningPresentationFacts.BoundaryFacts
   ) -> PlotterUILearningCameraState {
     if facts.phase != nil { return .active }
-    return facts.hasProposal ? .readyWithProposal : .readyWithoutProposal
+    if facts.hasProposal { return .readyWithProposal }
+    if let center = boundary.centerArrival, let current = boundary.currentPosition,
+      !MachinePositionAcceptancePolicy.accepts(current, target: center) {
+      return .readyForCenterReturn
+    }
+    return .readyWithoutProposal
   }
 
   private func sparseState(_ phase: PlotterTipCalibrationPhase) -> PlotterUILearningSparseState {
@@ -759,7 +765,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
         let detail: String? = if let phase = camera.phase {
           phase.description
         } else if let failure = camera.failure {
-          "Camera calibration stopped: \(failure.detail) To replace the cap reference, use Learning Path Actions → Reidentify Pen Cap. X/Y boundaries and pen-up/down calibration are retained."
+          "Camera calibration stopped: \(failure.detail) Accepted Boundary and Pen Learning are retained."
         } else if case .refused(let reason) = camera.lastOutcome {
           "Camera calibration refused: \(reason)"
         } else { nil }

@@ -10,6 +10,32 @@ import Testing
 @MainActor
 @Suite("Camera guided recovery through rendered requests")
 struct CameraGuidedRecoveryTests {
+  @Test("SIMULATED Camera return uses accepted Boundary authority without a LIVE checkpoint")
+  func simulatedAcceptedCenterReturn() async throws {
+    let harness = makeCausalSimulatorAppFixture()
+    let workspace = harness.workspace
+    try await completeSimulatedPenInteractionPrerequisite(workspace)
+    try await installAcceptedBoundaryTestProjection(runtime: harness.boundaryRuntime,
+      workspace: workspace, environment: .simulated)
+    let prior = try #require((await harness.boundaryRuntime.snapshot(for: .simulated)).acceptedMachineArtifacts)
+    let center = try #require(prior.centerArrivalPosition)
+    let graph = workspace.learningArtifactGraph.revisions
+    await workspace.submitManualMotionIntent(.jog(try PlotterJogRequest(
+      direction: .negativeY, distanceMM: 24, feedMMPerMinute: 300, routing: .relativeTravel)))
+    #expect((await harness.simulator.snapshot()).mpos.yMM == center.point.y - 24)
+    let camera = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    try await send(.cameraCalibration(.returnToAcceptedCenter), owner: camera, workspace: workspace)
+    let arrived = await harness.simulator.snapshot()
+    #expect(arrived.mpos.xMM == center.point.x)
+    #expect(arrived.mpos.yMM == center.point.y)
+    #expect((await harness.boundaryRuntime.snapshot(for: .simulated)).acceptedMachineArtifacts == prior)
+    #expect(workspace.learningArtifactGraph.revisions == graph)
+    try await send(.cameraCalibration(.buildFivePositionProposal), owner: camera, workspace: workspace)
+    #expect(workspace.proposedMachineCameraRegistration?.correspondenceProvenance.count == 5)
+    #expect(await harness.simulator.persistentInk().isEmpty)
+    await workspace.shutdown()
+  }
+
   @Test("Camera Redo preserves fallback until replacement acceptance and abandons cancelled proposals")
   func cameraReplacementLifecycle() async throws {
     let harness = makeCausalSimulatorAppFixture()

@@ -183,8 +183,11 @@ struct PenCapVisualReferenceTests {
     let first = try PenCapVisualReference.capture(frame: original,
       region: PixelRect(x: 16, y: 12, width: 36, height: 32), anchor: Point2(x: 24, y: 35))
     let second = try PenCapVisualReference.capture(frame: changed,
-      region: PixelRect(x: 72, y: 34, width: 36, height: 32), anchor: Point2(x: 80, y: 57))
+      region: PixelRect(x: 74, y: 30, width: 36, height: 38), anchor: Point2(x: 80, y: 57))
       .retainingConfirmedExamples(from: first)
+    #expect(first.region.height != second.region.height)
+    #expect(first.anchor.x - Double(first.region.x) != second.anchor.x - Double(second.region.x))
+    #expect(first.anchor.y - Double(first.region.y) != second.anchor.y - Double(second.region.y))
     let identity = second.identity
     for (frame, x, y) in [(original, 24.0, 35.0), (changed, 80.0, 57.0)] {
       let result = try await VisionWorker().inspectPlotterScene(in: frame,

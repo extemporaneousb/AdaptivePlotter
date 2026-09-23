@@ -925,7 +925,9 @@ The immutable patch identity includes region, anchor and camera geometry. The
 checkpoint adds this optional reference without making old color-only data unreadable;
 legacy appearance is explicitly unavailable for LIVE tracking until reidentified.
 Same-anchor recovery retains at most two previous operator-confirmed patches with
-their independent anchors. `OperatorPenCapObservation` records the settled pose,
+their independent anchors, including before a camera map exists. The appearance
+bank is separate from map compatibility and motion authority; explicit changed-
+anchor replacement starts a new bank. `OperatorPenCapObservation` records the settled pose,
 map revision, prior reference and prediction scope/domain. Checkpoint validation
 binds that lineage without rewriting historical calibration provenance during a
 sanctioned coordinate rebase. The eight-pixel gate applies inside the map domain;
@@ -937,7 +939,10 @@ the recovery lineage; failed or cancelled replacement keeps the prior package.
 `CameraSourceSession` configures both the newest-only pipeline and exclusive
 workflow Vision with the reference. `PenCapTemplateMatcher` performs vectorized
 global coarse correlation and bounded affine refinement. A motion prediction seeds
-refinement without excluding a global competitor. It rejects weak or competing
+refinement without excluding a global competitor. The visual-reference branch
+bypasses legacy HSV color support: spatial RGB contrast is required, not absolute
+brightness or green hue. Normalized-correlation score and global competitor margin
+remain separate acceptance gates. It rejects weak or competing
 matches and maps the independent anchor. `VisionWorker` enforces short-interval continuity;
 older exact-frame inspections cannot replace newer continuity state. Loss publishes
 no cap geometry and never mutates the template. `PenCapMeasurement.referenceAnchor`
@@ -1698,6 +1703,19 @@ reference; the adapter does not copy the Boundary center or fabricate a context
 baseline. Deterministic SIMULATED sparse-tip fixtures bind simulator Boundary
 truth to the accepted checkpoint so the later exact-frame clicks and accepted
 geometry share one source.
+
+`PlotterCameraCalibrationRuntime.returnToAcceptedCenter` owns an explicit recovery
+operation before a new calibration run. The app adapter snapshots current Boundary
+checkpoint/center revision and controller/coordinate identity, obtains fresh
+compatible Idle/Pen-Up evidence, validates the bounded segment, and uses the
+existing supervised travel with its exact Stop capability. A post-normalization
+callback rechecks cancellation and captured authority before XY admission; final
+arrival requires another fresh compatible probe. This transport does not publish
+a replacement Boundary artifact. A visually revalidated historical checkpoint
+keeps its session provenance while new calibration samples name the current
+session. A cap-only operation temporarily owns Pen selection, then restores the
+interrupted failed/restartable Camera owner and mode without executing its next
+action. Presentation review selection stays window-local.
 
 The retained Pen admission route checks shutdown both at entry and after each
 suspension before it creates a `DiscoveryTransaction`. This prevents an async

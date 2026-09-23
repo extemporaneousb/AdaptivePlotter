@@ -154,6 +154,370 @@ struct PenCapRecoveryRegressionTests {
     await app.shutdown()
   }
 
+  @Test("first Camera sample-five cap loss recovers without motion and completes the published retry")
+  func firstCameraCapLossReturnsToAcceptedCenter() async throws {
+    let fixture = try await makeCameraReturnFixture()
+    let app = fixture.app
+    let machine = fixture.machine
+    let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let boundaryBefore = try #require((await fixture.boundary.snapshot(for: .live)).acceptedMachineArtifacts)
+    let graphBefore = app.learningArtifactGraph.revisions
+    let previousReference = try #require(app.penCapAppearanceSelection?.visualReference)
+    let center = try #require(boundaryBefore.centerArrivalPosition)
+    var selection = LearningPathSelectionState(current: app.currentLearningPathItemID)
+    try #require(selection.current == cameraOwner)
+    var reviewing = selection
+    reviewing.select(.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering))
+    await fixture.observation.loseStableCapture(number: 6)
+    let feedsBefore = await machine.requestedFeeds.count
+    let run = try productionLearningRequest(app, .cameraCalibration(.buildFivePositionProposal), owner: selection.selected)
+    guard case .refused = await app.submitPlotterUIRequest(run) else {
+      Issue.record("Sample-five detector loss must refuse Camera completion."); await app.shutdown(); return
+    }
+    #expect(await fixture.observation.injectedLossCount == 1)
+    #expect(app.machineCameraRegistration == nil)
+    #expect(app.proposedMachineCameraRegistration == nil)
+    let lost = try #require((await machine.snapshot()).machine.position)
+    #expect(abs(lost.point.x - center.point.x) < 0.001)
+    #expect(abs(lost.point.y - (center.point.y - 24)) < 0.001)
+    #expect(await machine.requestedFeeds.count == feedsBefore + 4)
+    let returnID = learningActionID(.cameraCalibration(.returnToAcceptedCenter), owner: cameraOwner)
+    #expect(app.testPlotterUIProjection(selectedItemID: cameraOwner, includesLearningPath: true)
+      .semantic.request(for: returnID) != nil)
+    let penBefore = await machine.requestedPenCommands
+    let recovery = try #require(app.testPlotterUIProjection(selectedItemID: cameraOwner,
+      includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+    #expect(await app.submitPlotterUIRequest(recovery) == .accepted(requestID: recovery.id))
+    selection.updateCurrent(app.currentLearningPathItemID)
+    reviewing.updateCurrent(app.currentLearningPathItemID)
+    #expect(selection.selected == penOwner)
+    #expect(reviewing.selected == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering))
+    let cancel = try productionLearningRequest(app, .cancel, owner: selection.selected)
+    #expect(await app.submitPlotterUIRequest(cancel) == .accepted(requestID: cancel.id))
+    selection.updateCurrent(app.currentLearningPathItemID)
+    #expect(selection.selected == cameraOwner)
+    #expect(app.activeExerciseAttemptOwnerID == cameraOwner)
+    // The cancelled observation restored a prepared Camera owner. Cancel that
+    // prepared attempt before selecting a fresh observation, as normal UI does.
+    let cameraCancel = try productionLearningRequest(app, .cancel, owner: cameraOwner)
+    #expect(await app.submitPlotterUIRequest(cameraCancel) == .accepted(requestID: cameraCancel.id))
+    let again = try #require(app.testPlotterUIProjection(selectedItemID: cameraOwner,
+      includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+    #expect(await app.submitPlotterUIRequest(again) == .accepted(requestID: again.id))
+    selection.updateCurrent(app.currentLearningPathItemID)
+    let exact = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+    let clicked = PlotterPointSelectionSubmission(selectionID: exact.id, frame: exact.frame,
+      point: try Point2(x: 10.5, y: 10.5), presentationTransformRevision: exact.presentationTransformRevision,
+      referenceRegion: try AxisAlignedBounds(minX: 0, minY: 0, maxX: 12, maxY: 12))
+    let clickProjection = app.plotterUIProjection(selectedItemID: selection.selected,
+      manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingPointSelection: clicked).semantic
+    let click = try #require(clickProjection.request(for: PlotterAppUIActionID.pointSelection(clicked)))
+    let clickOutcome = await app.submitPlotterUIRequest(click)
+    try #require(clickOutcome == .accepted(requestID: click.id), "\(clickOutcome)")
+    let recoveredReference = try #require(app.penCapAppearanceSelection?.visualReference)
+    #expect(recoveredReference.confirmedExamples?.contains {
+      $0.anchor == previousReference.anchor && $0.region == previousReference.region
+    } == true)
+    #expect(app.machineCameraRegistration == nil)
+    selection.updateCurrent(app.currentLearningPathItemID)
+    reviewing.updateCurrent(app.currentLearningPathItemID)
+    #expect(selection.selected == cameraOwner)
+    #expect(reviewing.selected == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering))
+    #expect((await machine.snapshot()).machine.position == lost)
+    #expect(await machine.requestedFeeds.count == feedsBefore + 4)
+    #expect(await machine.requestedPenCommands == penBefore)
+    #expect((await fixture.boundary.snapshot(for: .live)).acceptedMachineArtifacts == boundaryBefore)
+    #expect(app.learningArtifactGraph.revisions == graphBefore)
+    let returnRequest = try productionLearningRequest(app, .cameraCalibration(.returnToAcceptedCenter), owner: selection.selected)
+    #expect(await app.submitPlotterUIRequest(returnRequest) == .accepted(requestID: returnRequest.id))
+    #expect((await machine.snapshot()).machine.position == center)
+    #expect(await machine.requestedFeeds.count == feedsBefore + 5)
+    #expect((await fixture.boundary.snapshot(for: .live)).acceptedMachineArtifacts == boundaryBefore)
+    #expect(app.learningArtifactGraph.revisions == graphBefore)
+    let retry = try productionLearningRequest(app, .cameraCalibration(.buildFivePositionProposal), owner: selection.selected)
+    #expect(await app.submitPlotterUIRequest(retry) == .accepted(requestID: retry.id))
+    let proposal = try #require(app.proposedMachineCameraRegistration)
+    #expect(proposal.correspondenceProvenance.count == 5)
+    #expect((await machine.snapshot()).machine.position == center)
+    let accept = try productionLearningRequest(app, .cameraCalibration(.acceptProposal), owner: selection.selected)
+    #expect(await app.submitPlotterUIRequest(accept) == .accepted(requestID: accept.id))
+    #expect(app.machineCameraRegistration == proposal)
+    #expect((await fixture.boundary.snapshot(for: .live)).acceptedMachineArtifacts == boundaryBefore)
+    #expect(await machine.requestedDrawingStrokes.isEmpty)
+    await app.shutdown()
+  }
+
+  @Test("cancelled Camera replacement remains the destination after cap observation", arguments: [false, true])
+  func cameraReplacementDestinationSurvivesRecovery(cancelObservation: Bool) async throws {
+    let fixture = try await makeCameraReturnFixture()
+    let app = fixture.app
+    let camera = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    for action in [PlotterLearningAction.cameraCalibration(.buildFivePositionProposal), .cameraCalibration(.acceptProposal), .redoThisStep, .cancel] {
+      let request = try productionLearningRequest(app, action, owner: camera)
+      #expect(await app.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+    }
+    let map = try #require(app.machineCameraRegistration)
+    let before = await fixture.machine.snapshot()
+    let feeds = await fixture.machine.requestedFeeds
+    var selection = LearningPathSelectionState(current: app.currentLearningPathItemID)
+    selection.select(camera)
+    let reidentify = try #require(app.testPlotterUIProjection(selectedItemID: selection.selected,
+      includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+    #expect(await app.submitPlotterUIRequest(reidentify) == .accepted(requestID: reidentify.id))
+    selection.updateCurrent(app.currentLearningPathItemID)
+    #expect(selection.selected == camera)
+    if cancelObservation {
+      let request = try productionLearningRequest(app, .cancel, owner: .humanGuidedDiscovery(.penInteraction))
+      #expect(await app.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+    } else {
+      let exact = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+      let point = try map.fit.cameraPoint(from: #require(before.machine.position).point)
+      let click = PlotterPointSelectionSubmission(selectionID: exact.id, frame: exact.frame,
+        point: point, presentationTransformRevision: exact.presentationTransformRevision,
+        referenceRegion: try AxisAlignedBounds(minX: 0, minY: 0, maxX: 12, maxY: 12))
+      let projection = app.plotterUIProjection(selectedItemID: selection.selected,
+        manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingPointSelection: click).semantic
+      let request = try #require(projection.request(for: PlotterAppUIActionID.pointSelection(click)))
+      let outcome = await app.submitPlotterUIRequest(request)
+      try #require(outcome == .accepted(requestID: request.id), "\(outcome)")
+    }
+    selection.updateCurrent(app.currentLearningPathItemID)
+    #expect(selection.current == camera)
+    #expect(selection.selected == camera)
+    #expect(app.activeExerciseAttemptOwnerID == camera)
+    #expect(app.machineCameraRegistration == map)
+    #expect((await fixture.machine.snapshot()).machine.position == before.machine.position)
+    #expect(await fixture.machine.requestedFeeds == feeds)
+    #expect(app.testPlotterUIProjection(selectedItemID: selection.selected, includesLearningPath: true)
+      .semantic.request(for: learningActionID(.cameraCalibration(.buildFivePositionProposal), owner: camera)) != nil)
+    await app.shutdown()
+  }
+
+  @Test("explicit replacement discards pre-map appearance history without granting a map")
+  func replacementClearsPreMapAppearanceHistory() async throws {
+    let fixture = try await makeCameraReturnFixture()
+    let app = fixture.app
+    let graph = app.learningArtifactGraph.revisions
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    for replaces in [false, true] {
+      let id = replaces ? PlotterAppUIActionID.replacePenCapReference : PlotterAppUIActionID.reidentifyPenCap
+      let start = try #require(app.testPlotterUIProjection(selectedItemID: app.currentLearningPathItemID,
+        includesLearningPath: true).semantic.request(for: id))
+      #expect(await app.submitPlotterUIRequest(start) == .accepted(requestID: start.id))
+      let exact = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+      let click = PlotterPointSelectionSubmission(selectionID: exact.id, frame: exact.frame,
+        point: try Point2(x: 9.5, y: 10.5), presentationTransformRevision: exact.presentationTransformRevision,
+        referenceRegion: try AxisAlignedBounds(minX: 0, minY: 0, maxX: 12, maxY: 12))
+      let projection = app.plotterUIProjection(selectedItemID: owner, manualDraft: ManualMotionDraft(),
+        includesLearningPath: true, pendingPointSelection: click).semantic
+      let request = try #require(projection.request(for: PlotterAppUIActionID.pointSelection(click)))
+      let outcome = await app.submitPlotterUIRequest(request)
+      try #require(outcome == .accepted(requestID: request.id), "\(outcome)")
+      let reference = try #require(app.penCapAppearanceSelection?.visualReference)
+      #expect((reference.confirmedExamples?.isEmpty ?? true) == replaces)
+      #expect(app.machineCameraRegistration == nil)
+      #expect(app.learningArtifactGraph.revisions == graph)
+    }
+    #expect(await fixture.machine.requestedFeeds.isEmpty)
+    await app.shutdown()
+  }
+
+  @Test("fresh off-center MPos replaces a stale Run projection with explicit center return")
+  func freshPositionExposesReturnAction() async throws {
+    let fixture = try await makeCameraReturnFixture()
+    let app = fixture.app
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let center = try #require((await fixture.boundary.snapshot(for: .live)).acceptedMachineArtifacts?.centerArrivalPosition)
+    let request = try productionLearningRequest(app, .cameraCalibration(.buildFivePositionProposal), owner: owner)
+    try await fixture.machine.setPosition(x: center.point.x, y: center.point.y - 24)
+    let feeds = await fixture.machine.requestedFeeds
+    guard case .refused = await app.submitPlotterUIRequest(request) else {
+      Issue.record("Fresh off-center position must refuse calibration capture."); await app.shutdown(); return
+    }
+    let projection = app.testPlotterUIProjection(selectedItemID: owner, includesLearningPath: true)
+    #expect(projection.semantic.request(for: learningActionID(.cameraCalibration(.returnToAcceptedCenter), owner: owner)) != nil)
+    #expect(projection.semantic.request(for: learningActionID(.cameraCalibration(.buildFivePositionProposal), owner: owner)) == nil)
+    #expect(await fixture.machine.requestedFeeds == feeds)
+    #expect(app.machineCameraRegistration == nil)
+    await app.shutdown()
+  }
+
+  @Test("Stop cancels the exact accepted-center return without publishing arrival or calibration")
+  func centerReturnStopPreservesAuthority() async throws {
+    let fixture = try await makeCameraReturnFixture(automaticallySettlesTravel: false)
+    let app = fixture.app
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let prior = try #require((await fixture.boundary.snapshot(for: .live)).acceptedMachineArtifacts)
+    let graph = app.learningArtifactGraph.revisions
+    let center = try #require(prior.centerArrivalPosition)
+    try await fixture.machine.setPosition(x: center.point.x, y: center.point.y - 24)
+    await submitControllerSession(app, .requestPassiveProbe)
+    var disposition: PlotterUIRequestDisposition?
+    let task = Task { @MainActor in
+      let request = try productionLearningRequest(app, .cameraCalibration(.returnToAcceptedCenter), owner: owner)
+      disposition = await app.submitPlotterUIRequest(request)
+    }
+    do {
+      try await waitUntilAsync { await fixture.machine.relativeJogIsAwaitingSettlement || disposition != nil }
+      try #require(await fixture.machine.relativeJogIsAwaitingSettlement)
+      let projection = app.testPlotterUIProjection(selectedItemID: owner, includesLearningPath: true).semantic
+      let stop = try #require(projection.actions.first { action in
+        guard case .learningAction(let request) = action.intent,
+          case .stop = request.action else { return false }
+        return action.isAvailable
+      }.flatMap { projection.request(for: $0.id) })
+      #expect(await app.submitPlotterUIRequest(stop) == .accepted(requestID: stop.id))
+      try await waitUntil { disposition != nil }
+      try await task.value
+      guard case .refused = disposition else {
+        Issue.record("Stopped center travel must never acknowledge arrival."); await app.shutdown(); return
+      }
+      #expect((await fixture.boundary.snapshot(for: .live)).acceptedMachineArtifacts == prior)
+      #expect(app.learningArtifactGraph.revisions == graph)
+      #expect(app.proposedMachineCameraRegistration == nil)
+      #expect(app.machineCameraRegistration == nil)
+      #expect((await fixture.machine.snapshot()).machine.position != center)
+      await app.shutdown()
+    } catch {
+      await app.shutdown()
+      throw error
+    }
+  }
+
+  @Test("cancelled or revised authority during Pen-Up normalization never admits center XY", arguments: ["cancel", "boundary", "pose"])
+  func centerReturnRevalidatesAfterPenNormalization(change: String) async throws {
+    let penGate = PenRequestGate()
+    await penGate.releaseFirstRequest()
+    let fixture = try await makeCameraReturnFixture(penGate: penGate)
+    let app = fixture.app
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let prior = try #require((await fixture.boundary.snapshot(for: .live)).acceptedMachineArtifacts)
+    let center = try #require(prior.centerArrivalPosition)
+    try await fixture.machine.setPosition(x: center.point.x, y: center.point.y - 24)
+    await submitControllerSession(app, .requestPassiveProbe)
+    let feeds = await fixture.machine.requestedFeeds
+    await penGate.holdNextRequest()
+    var outcome: PlotterUIRequestDisposition?
+    let task = Task { @MainActor in
+      let request = try productionLearningRequest(app, .cameraCalibration(.returnToAcceptedCenter), owner: owner)
+      outcome = await app.submitPlotterUIRequest(request)
+    }
+    do {
+      try await waitUntilAsync { await penGate.isHeld || outcome != nil }
+      try #require(await penGate.isHeld)
+      if change == "boundary" {
+        try await installAcceptedBoundaryTestProjection(runtime: fixture.boundary,
+          workspace: app, environment: .live)
+      } else if change == "pose" {
+        await fixture.machine.reportTransportAvailability(false)
+        _ = await app.refreshControllerSessionSnapshot()
+        #expect(app.controllerPoseApplicability.requiresPhysicalPositionForTest)
+        await fixture.machine.reportTransportAvailability(true)
+        _ = await app.refreshControllerSessionSnapshot()
+        #expect(app.controllerPoseApplicability.requiresPhysicalPositionForTest)
+      } else { task.cancel() }
+      await penGate.releaseFirstRequest()
+      try await waitUntil { outcome != nil }
+      try await task.value
+      guard case .refused = outcome else {
+        Issue.record("Cancelled or changed authority must refuse the pending return."); await app.shutdown(); return
+      }
+      #expect(await fixture.machine.requestedFeeds == feeds)
+      #expect(app.proposedMachineCameraRegistration == nil)
+      #expect((await fixture.machine.snapshot()).machine.position != center)
+      await app.shutdown()
+    } catch {
+      task.cancel()
+      await penGate.releaseFirstRequest()
+      await app.shutdown()
+      throw error
+    }
+  }
+
+  @Test("saved historical Boundary session requires visual proof before center return and camera retry", arguments: [false, true])
+  func historicalBoundaryReturnRequiresCurrentPose(verifyPose: Bool) async throws {
+    let accepted = try await CompleteAcceptedLearningFixture.make()
+    let stores = CompleteAcceptedLearningStores()
+    defer { stores.remove() }
+    try await stores.save(accepted)
+    let machine = try LowerMachineSessionFixture(log: EventLog(),
+      relativeJogSettlementOffset: Vector2(dx: 0, dy: 0))
+    let checkpoint = try #require(accepted.checkpoint.machineArtifacts)
+    let map = try #require(accepted.checkpoint.machineCamera).registration
+    let center = try #require(checkpoint.centerArrivalPosition)
+    try await machine.setPosition(x: center.point.x, y: center.point.y - 24)
+    let clock = ComputationTestClock()
+    clock.set(max(clock.read(), accepted.frame.frame.captureNanoseconds))
+    let camera = try AcceptedDrawingCameraSession(frame: accepted.frame, clock: clock)
+    let observed = PartialCapCaptureFailure(base: camera, beforeCapture: {
+      let position = try #require((await machine.snapshot()).machine.position)
+      await camera.configurePoseCapture(anchor: try map.fit.cameraPoint(from: position.point))
+    })
+    let app = plotterApplicationRuntime(machine: machine, observationSessionOverride: observed,
+      statePersistencePort: stores.persistence, tipCalibrationSemanticIdentities: accepted.identities,
+      residualEffectPort: TestApplicationResidualEffectPort(discoverDevices: { [machine.descriptor] },
+        readNanoseconds: { clock.read() }), loadPenCapAppearanceSelection: { nil }, log: EventLog())
+    await app.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+    await app.establishMachineSession(machine.descriptor)
+    await submitControllerSession(app, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(app, .selectSource(.live, camera.device.id))
+    try await applyCompleteSavedLearning(app)
+    await machine.setPenState(.up)
+    _ = await app.refreshControllerSessionSnapshot()
+    let currentSession = await app.currentBoundaryExternalFacts(for: .live).controllerSessionID
+    #expect(currentSession != checkpoint.controllerSessionID)
+    if verifyPose { try await reestablishPhysicalPositionForTest(app) }
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let redo = try productionLearningRequest(app, .redoThisStep, owner: owner)
+    #expect(await app.submitPlotterUIRequest(redo) == .accepted(requestID: redo.id))
+    let feeds = await machine.requestedFeeds
+    let request = currentLearningRequestEvenIfUnavailable(app, .cameraCalibration(.returnToAcceptedCenter), owner: owner)
+    let outcome = await app.submitPlotterUIRequest(request)
+    if verifyPose {
+      try #require(outcome == .accepted(requestID: request.id), "\(outcome)")
+      #expect((await machine.snapshot()).machine.position == center)
+      #expect(app.learningArtifactGraph.currentRevision(for: .centerArrival)?.id == checkpoint.acceptedRevisions.first { $0.kind == .centerArrival }?.id)
+      let run = try productionLearningRequest(app, .cameraCalibration(.buildFivePositionProposal), owner: owner)
+      try #require(await app.submitPlotterUIRequest(run) == .accepted(requestID: run.id))
+      let proposal = try #require(app.proposedMachineCameraRegistration)
+      #expect(proposal.controllerSessionID == currentSession)
+      #expect(proposal.correspondenceProvenance.allSatisfy { $0.controllerSessionID == currentSession })
+      #expect(proposal.correspondenceProvenance.count == 5)
+      if case .loaded(let saved) = stores.checkpointStore.load() {
+        #expect(saved.machineArtifacts == checkpoint)
+      } else { Issue.record("Saved Boundary checkpoint disappeared during Camera retry.") }
+    } else {
+      guard case .refused = outcome else {
+        Issue.record("Historical coordinates without visual proof admitted a return."); await app.shutdown(); return
+      }
+      #expect(await machine.requestedFeeds == feeds)
+      #expect(app.machineCameraRegistration == map)
+    }
+    await app.shutdown()
+  }
+
+  @Test("accepted-center return refuses Down or Unknown pen state without travel", arguments: [PenState.down, .unknown])
+  func centerReturnRequiresFreshPenUp(_ state: PenState) async throws {
+    let fixture = try await makeCameraReturnFixture()
+    let app = fixture.app
+    let center = try #require((await fixture.boundary.snapshot(for: .live)).acceptedMachineArtifacts?.centerArrivalPosition)
+    try await fixture.machine.setPosition(x: center.point.x, y: center.point.y - 24)
+    await submitControllerSession(app, .requestPassiveProbe)
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let request = try productionLearningRequest(app, .cameraCalibration(.returnToAcceptedCenter), owner: owner)
+    let feeds = await fixture.machine.requestedFeeds
+    let pen = await fixture.machine.requestedPenCommands
+    await fixture.machine.setPenState(state)
+    guard case .refused = await app.submitPlotterUIRequest(request) else {
+      Issue.record("Unproved Pen Up must refuse center travel."); await app.shutdown(); return
+    }
+    #expect(await fixture.machine.requestedFeeds == feeds)
+    #expect(await fixture.machine.requestedPenCommands == pen)
+    #expect(app.machineCameraRegistration == nil)
+    await app.shutdown()
+  }
+
   @Test("partial two-circle failure releases Learning ownership and retains exactly the contacted locations")
   func partialBatchFailureAllowsObservationOnlyRecovery() async throws {
     let log = EventLog()
@@ -335,10 +699,18 @@ private func currentLearningRequestEvenIfUnavailable(_ app: PlotterApplicationRu
 /// Pixel matching is independently tested in the matcher suite.
 private actor PartialCapCaptureFailure: PlotterObservationCameraSessionPort {
   let base: any PlotterObservationCameraSessionPort
+  let beforeCapture: @Sendable () async throws -> Void
   private(set) var completedCircles = 0
   private(set) var injectedLossCount = 0
   private var shouldLoseNextCap = false
-  init(base: any PlotterObservationCameraSessionPort) { self.base = base }
+  private var failingStableCapture: Int?
+  private var stableCaptureCount = 0
+  func loseStableCapture(number: Int) { stableCaptureCount = 0; failingStableCapture = number }
+  init(base: any PlotterObservationCameraSessionPort,
+    beforeCapture: @escaping @Sendable () async throws -> Void = {}) {
+    self.base = base
+    self.beforeCapture = beforeCapture
+  }
   func record(_ event: WorkflowTelemetryEvent) {
     guard event.operation == .sparseTipCalibration, event.phase == .circleCompleted,
       let count = event.sparseTipProgress?.completedCircleCount else { return }
@@ -346,7 +718,10 @@ private actor PartialCapCaptureFailure: PlotterObservationCameraSessionPort {
     if count == 2 { shouldLoseNextCap = true }
   }
   func captureStableWorkflowCap(_ request: StableWorkflowCapCaptureRequest) async throws -> StableWorkflowCapInspection {
-    if shouldLoseNextCap {
+    try await beforeCapture()
+    stableCaptureCount += 1
+    if shouldLoseNextCap || stableCaptureCount == failingStableCapture {
+      failingStableCapture = nil
       shouldLoseNextCap = false
       injectedLossCount += 1
       throw LearningPathOperationError.requiredState("Pen-cap measurement refused: no-pen-cap-detected (injected at the camera boundary).")
@@ -361,7 +736,8 @@ private actor PartialCapCaptureFailure: PlotterObservationCameraSessionPort {
   func snapshot() async -> CameraCaptureSnapshot { await base.snapshot() }
   func frames() async -> AsyncStream<DisplayedFrame> { await base.frames() }
   func captureFrame(newerThanNanoseconds boundary: UInt64) async throws -> DisplayedFrame? {
-    try await base.captureFrame(newerThanNanoseconds: boundary)
+    try await beforeCapture()
+    return try await base.captureFrame(newerThanNanoseconds: boundary)
   }
   func inspectWorkflowScene(newerThanNanoseconds boundary: UInt64,
     requestedFeatures: SceneFeatureSet, analysisRegion: PixelRect?) async throws -> LiveSceneInspection? {
@@ -397,4 +773,40 @@ private final class CameraReplacementSaveStore: @unchecked Sendable {
     if reject { throw LearningPathOperationError.requiredState("Injected camera replacement save failure") }
     storage.save(candidate)
   }
+}
+
+@MainActor
+private func makeCameraReturnFixture(automaticallySettlesTravel: Bool = true, penGate: PenRequestGate? = nil) async throws -> (
+  app: PlotterApplicationRuntime, machine: LowerMachineSessionFixture,
+  observation: PartialCapCaptureFailure, boundary: PlotterBoundaryRuntime
+) {
+  let log = EventLog()
+  let camera = try TestObservationCameraSession()
+  let observed = PartialCapCaptureFailure(base: resolvedObservationSession(camera))
+  let machine = try LowerMachineSessionFixture(log: log,
+    relativeJogSettlementOffset: automaticallySettlesTravel ? try Vector2(dx: 0, dy: 0) : nil,
+    penRequestGate: penGate,
+    positionObserver: { camera.trackMachinePosition($0) })
+  let store = ArtifactResetCheckpointStoreFixture()
+  let boundary = TestBoundaryRuntimeAccess()
+  let app = plotterApplicationRuntime(machine: machine, observationSessionOverride: observed,
+    statePersistencePort: TestApplicationStatePersistencePort(loadCheckpoint: { store.load() },
+      saveCheckpoint: { store.save($0) }, clearCheckpoint: { store.clear() }),
+    boundaryRuntimeAccess: boundary, log: log)
+  await app.establishMachineSession(machine.descriptor)
+  await submitControllerSession(app, .requestPassiveProbe)
+  await submitObservationConfigurationForTest(app, .selectSource(.live, nil))
+  let pen = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+  await app.performTestExerciseAction(.start, for: pen)
+  let initial = try #require(app.testActionSurfacePresentation.pointSelectionRequest)
+  submitPointSelection(app, request: initial, point: try Point2(x: 11.5, y: 11.5))
+  try await waitUntil { app.activeDiscoverySequenceID == .penInteraction }
+  for _ in 0..<3 { await app.performTestExerciseAction(.choice(.yes), for: pen) }
+  try await installAcceptedBoundaryTestProjection(runtime: #require(boundary.runtime),
+    workspace: app, environment: .live)
+  let boundaryRuntime = try #require(boundary.runtime)
+  let center = try #require((await boundaryRuntime.snapshot(for: .live)).acceptedMachineArtifacts?.centerArrivalPosition)
+  try await machine.setPosition(x: center.point.x, y: center.point.y)
+  await submitControllerSession(app, .requestPassiveProbe)
+  return (app, machine, observed, try #require(boundary.runtime))
 }

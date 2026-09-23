@@ -206,6 +206,7 @@ public enum PlotterUILearningBoundaryDirection: String, CaseIterable, Hashable, 
 
 public enum PlotterUILearningCameraState: Hashable, Sendable {
   case readyWithoutProposal
+  case readyForCenterReturn
   case readyWithProposal
   case active
 }
@@ -522,6 +523,7 @@ private extension PlotterLearningAction {
     case .replacePenCapReference: "Replace Pen Cap Reference"
     case .cameraCalibration(.buildFivePositionProposal):
       "Run Five-Position Camera Calibration"
+    case .cameraCalibration(.returnToAcceptedCenter): "Return Pen Up to Accepted Center"
     case .cameraCalibration(.acceptProposal): "Accept Camera Calibration"
     case .cameraCalibration(.rejectProposal): "Reject Camera Calibration"
     case .tipCalibration(.beginFourMarkBatch): "Draw Four Calibration Circles"
@@ -541,7 +543,7 @@ private extension PlotterLearningAction {
   var defaultRole: PlotterUILearningActionRole {
     switch self {
     case .applySavedLearning, .start, .restart,
-      .cameraCalibration(.buildFivePositionProposal), .cameraCalibration(.acceptProposal),
+      .cameraCalibration(.buildFivePositionProposal), .cameraCalibration(.returnToAcceptedCenter), .cameraCalibration(.acceptProposal),
       .tipCalibration(.beginFourMarkBatch), .tipCalibration(.captureNewClickFrame),
       .tipCalibration(.revalidateCheckpoint), .tipCalibration(.acceptProposal),
       .tipCalibration(.retryCommit), .paperReplaced,
@@ -990,6 +992,9 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
             title: "Camera calibration is working…",
             unavailableReason: "Camera calibration is in progress."
           )]
+        case .readyForCenterReturn:
+          actions = [.init(itemID: item.ownerID, action: .cameraCalibration(.returnToAcceptedCenter),
+            unavailableReason: facts.startUnavailableReasons[item.ownerID])]
         case .readyWithoutProposal:
           actions = [.init(itemID: item.ownerID, action: .cameraCalibration(.buildFivePositionProposal))]
         case .readyWithProposal:
@@ -1104,7 +1109,8 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
     if item.kind == .cameraCalibration {
       return strip(item.ownerID, [.init(
         itemID: item.ownerID,
-        action: .cameraCalibration(.buildFivePositionProposal),
+        action: .cameraCalibration(facts.cameraState == .readyForCenterReturn
+          ? .returnToAcceptedCenter : .buildFivePositionProposal),
         unavailableReason: reason
       )])
     }

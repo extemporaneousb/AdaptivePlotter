@@ -641,7 +641,7 @@ hash/identity, source, camera configuration, dimensions, format, counts and revi
 The complete reference identity feeds generic analysis and every exact calibration
 inspection and prevents mixing different anchors within a calibration proposal.
 Old color-only checkpoints remain readable; their appearance cannot authorize LIVE
-tracking and explicitly requires **Learning Path Actions → Reidentify Pen Cap**
+tracking and explicitly requires **Reidentify Pen Cap** in the Learning panel
 when accepted Pen Learning is present.
 Saved physical results are not erased by loading an old appearance. SIMULATED
 geometry remains source-separated. A reference selection is recognition input,
@@ -650,7 +650,11 @@ not proof of physical pen state, calibration accuracy or ink.
 **Reidentify Pen Cap** is an observation of the same physical anchor on a new
 exact frame. One click translates the previous reference rectangle around its
 stored anchor offset; the operator may redraw the rectangle when needed. The
-click is recorded as an operator observation. With an accepted camera map,
+click is recorded as an operator observation. Same-anchor recovery retains the
+current view and up to two previous compatible, independently anchored views even
+before the first camera map exists. This learns appearance only; it grants no
+calibration or motion authority. Explicit replacement discards prior appearances.
+With an accepted camera map,
 compatible optical/controller/coordinate authority, unchanged capture context,
 and settled Idle/Pen-Up, it can preserve accepted camera, tip and drawing
 calibration. Inside the map's applicability rectangle, the position residual
@@ -676,7 +680,11 @@ downstream tip/drawing calibration only after saving the new appearance.
 Neither action moves the machine or actuates the pen, requires Motion
 authorization, resets possible-ink exclusions or erases physical history.
 Observation-only recovery is available after a settled tip-calibration failure
-with possible ink. Active motion or another unresolved owner still blocks it.
+with possible ink, and after a settled failed Camera operation. Recovery from a
+failed or restartable Camera attempt restores a prepared Camera exercise after
+selection, cancellation or failure; it does not start calibration or travel.
+An intentional review selection remains a presentation choice. Active motion or
+another unresolved owner still blocks recovery.
 Cancellation, stale context, capture failure and persistence failure retain the
 previous in-memory authority. A failed save attempts to restore the preceding
 checkpoint; if restoration also fails, the app explicitly reports uncertain
@@ -1075,6 +1083,19 @@ Camera Calibration accepts a reference, it acquires a fresh settled machine
 observation and requires that exact position to match the accepted Boundary
 center under the same policy; neither stale MPos nor a copied Boundary center is
 accepted as current controller truth.
+
+If the current pose is off center, Camera presents **Return Pen Up to Accepted
+Center** before a new run. This explicit action uses the accepted geometry without
+replacing Boundary or camera artifacts. It requires fresh unambiguous Idle/Pen-Up
+truth, compatible controller context and current pose authority; both endpoints
+lie within the accepted Boundary. After Pen-Up normalization and before XY
+admission it rechecks cancellation and the exact attempt, operation, source,
+controller, coordinate, pose and Boundary authority. Stop uses the exact travel
+capability; only settled, freshly confirmed arrival enables the next run.
+Historical Saved Boundary evidence remains immutable and is usable only after
+current visual position revalidation and compatible fresh controller context.
+Camera failure instructions retain their actual cause; a position refusal does
+not prescribe replacing the cap reference.
 
 That exact fresh `MachinePosition` is sample zero of the calibration plan. The
 planner must retain it directly rather than reconstructing an equivalent point
@@ -2090,7 +2111,9 @@ Resetting Pen itself clears that appearance and package authority.
 
 For camera calibration, Redo and Restart explicitly prepare the existing owner for
 a fresh proposal while retaining the previous accepted map as fallback. Preparation
-starts no acquisition or movement; **Run Five-Position Camera Calibration** does.
+starts no acquisition or movement. An off-center attempt first offers **Return
+Pen Up to Accepted Center**; once centered, **Run Five-Position Camera Calibration**
+starts the acquisition and sample travel.
 Cancel/Stop settle that owner and discard unaccepted proposal/reference/failure
 state. Restart cannot revive an abandoned Accept/Reject proposal. Failed or rejected
 replacement preserves accepted calibration; successful Accept installs the reviewed

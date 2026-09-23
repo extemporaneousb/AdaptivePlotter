@@ -7,12 +7,14 @@ public enum PlotterCameraCalibrationPhase: Codable, Hashable, Sendable {
   case capturing(sample: Int, total: Int, role: String?)
   case moving(sample: Int, total: Int)
   case returningToReference
+  case returningToAcceptedCenter
   case fittingAndTestingHoldouts
   public var description: String {
     switch self {
     case .preparing: return "Preparing bounded calibration"
     case .capturing(let sample, let total, let role): return "Capturing exact sample \(sample) of \(total)\(role.map { " at \($0)" } ?? "")"
     case .moving(let sample, let total): return "Moving Pen Up to exact sample \(sample) of \(total)"
+    case .returningToAcceptedCenter: return "Returning Pen Up to the accepted Boundary center"
     case .returningToReference: return "Returning Pen Up to the recorded calibration reference pose"
     case .fittingAndTestingHoldouts: return "Checking two independent cap positions and building the five-position camera calibration"
     }
@@ -34,7 +36,7 @@ public struct PlotterCameraCalibrationOperationID: RawRepresentable, Hashable, S
 }
 
 public enum PlotterCameraCalibrationIntent: Hashable, Sendable {
-  case captureReference, buildFivePositionProposal, acceptProposal, rejectProposal
+  case captureReference, buildFivePositionProposal, returnToAcceptedCenter, acceptProposal, rejectProposal
 }
 public enum PlotterCameraCalibrationSubmissionOutcome: Hashable, Sendable {
   case completed, refused(String), cancelled, failed(String)
@@ -50,6 +52,7 @@ public enum PlotterCameraCalibrationEffectFact: Hashable, Sendable {
   case fivePositionPlan(PlotterCameraCalibrationFivePositionPlan)
   case sample(MachineCameraCorrespondenceProvenance)
   case returnedToReference
+  case returnedToAcceptedCenter
 }
 public struct PlotterCameraCalibrationFivePositionPlan: Hashable, Sendable {
   public let samplePositions: [MachinePosition]
@@ -65,6 +68,7 @@ public struct PlotterCameraCalibrationFivePositionPlan: Hashable, Sendable {
 }
 public enum PlotterCameraCalibrationEffectRequest: Hashable, Sendable {
   case captureReference(PlotterCameraCalibrationOperationID)
+  case returnToAcceptedCenter(PlotterCameraCalibrationOperationID)
   case buildFivePositionProposal(PlotterCameraCalibrationOperationID)
   case acceptProposal(PlotterCameraCalibrationOperationID, registration: MachineCameraRegistration)
   case rejectProposal(PlotterCameraCalibrationOperationID)
@@ -144,7 +148,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
     // Admission must immediately replace the action that produced this
     // request. Otherwise the same green control remains clickable while the
     // lower camera/controller effect is suspended.
-    phase = .preparing
+    phase = intent == .returnToAcceptedCenter ? .returningToAcceptedCenter : .preparing
     if intent == .buildFivePositionProposal {
       // A previous attempt may have stopped after moving away from its
       // reference. Every operator retry binds a new frame and current pose.
@@ -256,6 +260,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
 
   private func admits(_ intent: PlotterCameraCalibrationIntent) -> Bool {
     switch intent {
+    case .returnToAcceptedCenter: return phase == nil && proposedRegistration == nil && (acceptedRegistration == nil || replacementPrepared)
     case .captureReference: return phase == nil
     case .buildFivePositionProposal: return phase == nil && (acceptedRegistration == nil || replacementPrepared)
     case .acceptProposal, .rejectProposal: return phase == nil && proposedRegistration != nil
@@ -266,6 +271,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
   }
   private func request(for intent: PlotterCameraCalibrationIntent, operationID: PlotterCameraCalibrationOperationID) -> PlotterCameraCalibrationEffectRequest {
     switch intent {
+    case .returnToAcceptedCenter: return .returnToAcceptedCenter(operationID)
     case .captureReference: return .captureReference(operationID)
     case .buildFivePositionProposal: return .buildFivePositionProposal(operationID)
     case .acceptProposal: return .acceptProposal(operationID, registration: proposedRegistration!)
@@ -347,6 +353,9 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
   }
   private func apply(_ fact: PlotterCameraCalibrationEffectFact, intent: PlotterCameraCalibrationIntent) -> PlotterCameraCalibrationSubmissionOutcome {
     switch (intent, fact) {
+    case (.returnToAcceptedCenter, .returnedToAcceptedCenter):
+      clearAttemptTransients()
+      return .completed
     case let (.captureReference, .reference(frame, position, capAnchor)):
       anchorFrame = frame; referencePosition = position; referenceCapAnchor = capAnchor
       correspondenceEvidence = []; proposedRegistration = nil; failure = nil; phase = nil; return .completed
@@ -375,6 +384,7 @@ public struct PlotterCameraCalibrationRuntimeSnapshot: Hashable, Sendable {
   }
   private func refusalReason(for intent: PlotterCameraCalibrationIntent) -> String {
     switch intent {
+    case .returnToAcceptedCenter: return "Finish the active camera operation or prepare its replacement before returning to the accepted center."
     case .captureReference: return "Reference capture is unavailable while calibration is active."
     case .buildFivePositionProposal: return "Prepare an explicit replacement attempt before rebuilding accepted camera calibration."
     case .acceptProposal: return "Acceptance requires one explicit reviewable camera proposal."

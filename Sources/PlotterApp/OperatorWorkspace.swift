@@ -181,6 +181,7 @@ enum ContextualStopTarget: Hashable, Sendable {
 enum LearningMotionAction: Hashable, Sendable {
   case cameraCalibrationSample(index: Int, total: Int)
   case returnFromCameraCalibration
+  case returnToAcceptedCameraCenter
   case sparseTipApproach(ToolContactCalibrationPosition)
   case sparseTipCircleStart(ToolContactCalibrationPosition)
   case sparseTipBatchReveal
@@ -192,6 +193,7 @@ enum LearningMotionAction: Hashable, Sendable {
     switch self {
     case .cameraCalibrationSample(let index, let total):
       "Current-Camera Calibration Sample \(index) of \(total)"
+    case .returnToAcceptedCameraCenter: "Return Pen Up to Accepted Center"
     case .returnFromCameraCalibration: "Return from Current-Camera Calibration"
     case .sparseTipApproach(let position):
       "Sparse Tip Mark \(position.sparseTipBatchLocationTitle) Approach"
@@ -1517,6 +1519,12 @@ final class PlotterApplicationRuntime:
   }
   private var capReidentificationContext: CapReidentificationContext?
   private var capReidentificationAttemptID: ExerciseAttemptID?
+  private struct CapRecoveryOrigin {
+    let owner: LearningPathItemID
+    let mode: ExerciseAttemptMode
+    let restoreCameraAttempt: Bool
+  }
+  private var capRecoveryOrigin: CapRecoveryOrigin?
   private(set) var capRecoveryDetail: String? {
     get { currentEnvironmentState.capRecoveryDetail }
     set { currentEnvironmentState.capRecoveryDetail = newValue }
@@ -6459,6 +6467,7 @@ final class PlotterApplicationRuntime:
     case .cameraCalibration(let action):
       let intent: PlotterCameraCalibrationIntent = switch action {
       case .buildFivePositionProposal: .buildFivePositionProposal
+      case .returnToAcceptedCenter: .returnToAcceptedCenter
       case .acceptProposal: .acceptProposal
       case .rejectProposal: .rejectProposal
       }
@@ -6794,7 +6803,8 @@ final class PlotterApplicationRuntime:
     if frameModeSwitchInProgress || learningResetInProgress {
       return "Wait for the current Learning source change or reset."
     }
-    if activeExerciseAttemptID != nil || activeDiscoverySequenceID != nil
+    if (activeExerciseAttemptID != nil && !hasSettledFailedCameraAttempt)
+      || activeDiscoverySequenceID != nil
       || pointSelectionEpisodeProjection.exactPointSelection.request != nil {
       return "Finish or cancel the current Learning attempt first."
     }
@@ -6822,8 +6832,25 @@ final class PlotterApplicationRuntime:
     return nil
   }
 
+  private var hasSettledFailedCameraAttempt: Bool {
+    activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+      && cameraCalibrationRuntime.activeOperationID == nil
+      && cameraCalibrationRuntime.phase == nil && cameraCalibrationRuntime.failure != nil
+      && activeStopTarget == nil
+  }
+
   private func startCapReidentification(replacesAnchor: Bool) async -> String? {
     if let reason = capReidentificationUnavailableReason { return reason }
+    let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let restoresCamera = hasSettledFailedCameraAttempt || restartableExerciseItemID == cameraOwner
+    let origin = CapRecoveryOrigin(owner: restoresCamera ? cameraOwner : currentLearningPathItemID,
+      mode: activeExerciseAttemptMode ?? (machineCameraRegistration == nil ? .normal : .replacement),
+      restoreCameraAttempt: restoresCamera)
+    if hasSettledFailedCameraAttempt {
+      await cancelExerciseAttempt(cameraOwner, expectedAttemptID: activeExerciseAttemptID)
+      if let reason = capReidentificationUnavailableReason { return reason }
+    }
+    capRecoveryOrigin = origin
     beginExerciseAttempt(ownerID: .humanGuidedDiscovery(.penInteraction), mode: .normal)
     guard let attemptID = activeExerciseAttemptID else { return "Cap selection could not start." }
     capReidentificationAttemptID = attemptID
@@ -6891,7 +6918,7 @@ final class PlotterApplicationRuntime:
         activeExerciseAttemptID == attemptID else { return "Cap selection was cancelled." }
       let detail = "Reidentify Pen Cap could not freeze an exact frame: \(actionableDescription(error))"
       discoveryError = detail
-      finishActiveExerciseAttempt(disposition: .failed(detail))
+      await finishCapRecovery(attemptID: attemptID, disposition: .failed(detail))
       markSemanticPresentationChanged()
       return detail
     }
@@ -6965,9 +6992,6 @@ final class PlotterApplicationRuntime:
           residualPixels: residual, maximumResidualPixels: 8,
           predictionScope: isExtrapolated ? .extrapolated : .withinCalibrationDomain,
           predictionDomain: registration.applicabilityRectangle)
-        if let reference = learned.visualReference {
-          learned.visualReference = reference.retainingConfirmedExamples(from: previous)
-        }
         preservesCalibration = true
         detail = isExtrapolated
           ? String(format: "Operator-observed cap saved: %.2f px residual to an extrapolated prediction (advisory only; map uncertainty %.2f px). Your same-anchor identification retains calibration within its original domain; the domain is unchanged. Existing marks remain excluded.", residual, registration.uncertaintyPixels)
@@ -6984,6 +7008,14 @@ final class PlotterApplicationRuntime:
         context.registration == machineCameraRegistration,
         context.registrationRevisionID == learningArtifactGraph.currentRevision(for: .machineCameraRegistration)?.id
       else { throw LearningPathOperationError.requiredState("The exact cap observation's context changed before saving. Capture a new observation.") }
+      // The operator's same-anchor statement teaches appearance even before
+      // a camera map exists. Each view retains its own crop and clicked anchor;
+      // this grants neither map compatibility nor permission to move.
+      if !context.replacesAnchor, let previous = penCapAppearanceSelection,
+        previous.source == learned.source,
+        let reference = learned.visualReference, let priorReference = previous.visualReference {
+        learned.visualReference = reference.retainingConfirmedExamples(from: priorReference)
+      }
       // Persist the new appearance and explicit observation lineage before
       // publishing it. Accepted calibration evidence itself is never rewritten.
       if frameMode == .live {
@@ -7029,7 +7061,7 @@ final class PlotterApplicationRuntime:
       learningAuthorityError = nil
       await cancelPointSelectionRequest()
       guard ownsCapReidentification(attemptID) else { return "Cap selection was cancelled." }
-      finishActiveExerciseAttempt(disposition: .succeeded)
+      await finishCapRecovery(attemptID: attemptID, disposition: .succeeded)
       await reconcileAutomaticVisionAnalysis()
     } catch {
       guard ownsCapReidentification(attemptID) else { return "Cap selection was cancelled." }
@@ -7037,12 +7069,31 @@ final class PlotterApplicationRuntime:
       capRecoveryDetail = discoveryError
       await cancelPointSelectionRequest()
       guard ownsCapReidentification(attemptID) else { return "Cap selection was cancelled." }
-      finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
+      await finishCapRecovery(attemptID: attemptID, disposition: .failed(String(describing: error)))
       markSemanticPresentationChanged()
       return discoveryError
     }
     markSemanticPresentationChanged()
     return nil
+  }
+
+  /// Returning to the interrupted exercise only prepares its next explicit
+  /// action. Cap completion and cancellation never actuate the controller.
+  private func finishCapRecovery(attemptID: ExerciseAttemptID,
+    disposition: ExerciseAttemptDisposition) async {
+    guard capReidentificationAttemptID == attemptID, activeExerciseAttemptID == attemptID else { return }
+    let origin = capRecoveryOrigin
+    if origin?.restoreCameraAttempt == true {
+      await cameraCalibrationRuntime.prepareForNewAttempt()
+      guard applicationAdmissionIsOpen, capReidentificationAttemptID == attemptID,
+        activeExerciseAttemptID == attemptID else { return }
+    }
+    finishActiveExerciseAttempt(disposition: disposition)
+    capRecoveryOrigin = nil
+    if let origin, origin.restoreCameraAttempt {
+      beginExerciseAttempt(ownerID: origin.owner, mode: origin.mode)
+    }
+    markSemanticPresentationChanged()
   }
 
   private func penInteractionAttemptMode(
@@ -7182,6 +7233,11 @@ final class PlotterApplicationRuntime:
   ) async -> PlotterCameraCalibrationEffectResult {
     guard applicationAdmissionIsOpen else { return .cancelled }
     switch request {
+    case .returnToAcceptedCenter(let operationID):
+      do {
+        try await returnToAcceptedCameraCenter(operationID: operationID)
+        return .completed(.returnedToAcceptedCenter)
+      } catch { return .failed(cameraCalibrationEffectFailure(actionableDescription(error))) }
     case .captureReference:
       do {
         let reference = try await captureCameraCalibrationReferenceEffect()
@@ -7210,7 +7266,7 @@ final class PlotterApplicationRuntime:
         let plan = try CurrentCameraCalibrationPlan(
           targetPosition: reference,
           acceptedBoundaryAggregates: acceptedBoundaryAggregates,
-          controllerSessionID: controllerSessionID,
+          controllerSessionID: try cameraCalibrationBoundarySessionID(),
           coordinateRevision: explorationCoordinateRevision
         )
         guard let frame = cameraCalibrationAnchorFrame else {
@@ -7280,6 +7336,92 @@ final class PlotterApplicationRuntime:
     )
   }
 
+  /// Saved Boundary evidence keeps its original controller-session identity.
+  /// A current visual pose proof and fresh compatible context may bind that
+  /// historical geometry, while new observations still name the live session.
+  private func cameraCalibrationBoundarySessionID() throws -> UUID {
+    if acceptedBoundaryAggregates.values.allSatisfy({ $0.controllerSessionID == controllerSessionID }) {
+      return controllerSessionID
+    }
+    guard let checkpoint = activeMachineArtifactCheckpoint else {
+      throw LearningPathOperationError.requiredState("Accepted Boundary geometry is unavailable.")
+    }
+    if checkpoint.controllerSessionID == controllerSessionID { return controllerSessionID }
+    guard frameMode == .live, case .visuallyRevalidated = controllerPoseApplicability,
+      retainedPoseApplicabilityRefusal == nil, let probe = passiveProbeResult,
+      checkpoint.controllerContext.comparison(with: try ControllerCheckpointContext(probe: probe)).isCompatible
+    else {
+      throw LearningPathOperationError.requiredState("The retained Boundary belongs to an unverified controller session. Re-establish Position from Camera before using its center.")
+    }
+    return checkpoint.controllerSessionID
+  }
+
+  private func returnToAcceptedCameraCenter(
+    operationID: PlotterCameraCalibrationOperationID
+  ) async throws {
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    if activeExerciseAttemptID == nil { beginExerciseAttempt(ownerID: owner, mode: .normal) }
+    guard activeExerciseAttemptOwnerID == owner,
+      let attempt = activeExerciseAttemptID,
+      let checkpoint = currentBoundarySnapshot?.acceptedMachineArtifacts,
+      let target = currentBoundarySnapshot?.centerArrivalPosition,
+      let centerRevision = learningArtifactGraph.currentRevision(for: .centerArrival)?.id,
+      checkpoint.centerArrivalPosition == target,
+      checkpoint.coordinateRevision == explorationCoordinateRevision
+    else { throw LearningPathOperationError.requiredState("Return to center requires the current accepted Boundary and center revisions in this controller coordinate context.") }
+    if let reason = retainedPoseApplicabilityRefusal {
+      throw LearningPathOperationError.requiredState(reason)
+    }
+    let source = frameMode
+    let session = controllerSessionID
+    let coordinate = explorationCoordinateRevision
+    func requireCurrentAuthority() throws {
+      try requireCalibrationContinuation()
+      if let reason = retainedPoseApplicabilityRefusal {
+        throw LearningPathOperationError.requiredState(reason)
+      }
+      guard activeExerciseAttemptID == attempt, activeExerciseAttemptOwnerID == owner,
+        cameraCalibrationRuntime.activeOperationID == operationID,
+        frameMode == source, controllerSessionID == session, explorationCoordinateRevision == coordinate,
+        currentBoundarySnapshot?.acceptedMachineArtifacts == checkpoint,
+        learningArtifactGraph.currentRevision(for: .centerArrival)?.id == centerRevision,
+        currentBoundarySnapshot?.centerArrivalPosition == target
+      else { throw LearningPathOperationError.requiredState("The accepted Boundary, controller or center changed during the return. No center arrival was accepted.") }
+    }
+    let before = try await freshCalibrationMachineObservation()
+    try requireCurrentAuthority()
+    if source == .live {
+      guard let probe = passiveProbeResult,
+        checkpoint.controllerContext.comparison(with: try ControllerCheckpointContext(probe: probe)).isCompatible
+      else { throw LearningPathOperationError.requiredState("Fresh controller context does not match the accepted Boundary; revalidate it before returning to center.") }
+    }
+    // Validate the target against the accepted inset boundary before dispatch;
+    // a return is transport using existing authority, never a new Boundary fact.
+    _ = try CurrentCameraCalibrationPlan(targetPosition: target,
+      acceptedBoundaryAggregates: acceptedBoundaryAggregates,
+      controllerSessionID: try cameraCalibrationBoundarySessionID(), coordinateRevision: coordinate)
+    let bounds = try SparseTipBatchMarkPlan.boundaryEnvelope(for: acceptedBoundaryAggregates)
+    guard bounds.contains(before.position.point), bounds.contains(target.point) else {
+      throw LearningPathOperationError.requiredState("The return segment is outside the accepted Boundary. Resolve the current position before returning to center.")
+    }
+    if let delta = try Self.supervisedTravelDelta(from: before.position, to: target) {
+      let final = try await performSupervisedPenUpTravel(delta: delta, ownerID: owner,
+        action: .returnToAcceptedCameraCenter, revalidateBeforeTravel: requireCurrentAuthority)
+      try requireCurrentAuthority()
+      guard recordProtocolPoseSettlement(action: .returnToAcceptedCameraCenter,
+        target: target, actual: final) else {
+        throw LearningPathOperationError.controllerFailed("Return to accepted center did not settle within the required MPos tolerance. The previous Boundary evidence is retained.")
+      }
+    }
+    let after = try await freshCalibrationMachineObservation(contextBaseline: before.contextBaseline,
+      operationID: operationID.rawValue)
+    try requireCurrentAuthority()
+    guard recordProtocolPoseSettlement(action: .returnToAcceptedCameraCenter,
+      target: target, actual: after.position) else {
+      throw LearningPathOperationError.controllerFailed("Fresh controller MPos did not confirm the accepted center after return. Camera calibration remains unavailable.")
+    }
+  }
+
   func captureCameraCalibrationReferenceEffect() async throws -> (
     frame: DisplayedFrame,
     position: MachinePosition,
@@ -7302,7 +7444,7 @@ final class PlotterApplicationRuntime:
       target: acceptedCenter
     ) else {
       throw LearningPathOperationError.requiredState(
-        "Fresh controller MPos did not match the accepted Boundary center arrival. Return Pen Up to the accepted center before starting camera calibration."
+        "Fresh controller MPos did not match the accepted Boundary center arrival. Use Return Pen Up to Accepted Center, then run camera calibration."
       )
     }
     let targetMachinePosition = freshObservation.position
@@ -12401,6 +12543,12 @@ final class PlotterApplicationRuntime:
       await tipCalibrationRuntime.cancelAttempt()
     }
     guard activeExerciseAttemptID == cancellingAttemptID, frameMode == cancellingSource else { return }
+    if isCapReidentification, let cancellingAttemptID {
+      await cancelPointSelectionRequest()
+      guard activeExerciseAttemptID == cancellingAttemptID, frameMode == cancellingSource else { return }
+      await finishCapRecovery(attemptID: cancellingAttemptID, disposition: .cancelled)
+      return
+    }
     finishActiveExerciseAttempt(disposition: .cancelled)
     restartableExerciseItemID = isCapReidentification ? nil : ownerID
     await cancelPointSelectionRequest()
@@ -13868,21 +14016,24 @@ final class PlotterApplicationRuntime:
   private func performSupervisedPenUpTravel(
     delta: Vector2<MachineSpace>,
     ownerID: LearningPathItemID,
-    action: LearningMotionAction
+    action: LearningMotionAction,
+    revalidateBeforeTravel: (() throws -> Void)? = nil
   ) async throws -> MachinePosition {
     computationDiagnostics.record(.supervisedTravel(action, .began))
     defer { computationDiagnostics.record(.supervisedTravel(action, .ended)) }
     return try await executeSupervisedPenUpTravel(
       delta: delta,
       ownerID: ownerID,
-      action: action
+      action: action,
+      revalidateBeforeTravel: revalidateBeforeTravel
     )
   }
 
   private func executeSupervisedPenUpTravel(
     delta: Vector2<MachineSpace>,
     ownerID: LearningPathItemID,
-    action: LearningMotionAction
+    action: LearningMotionAction,
+    revalidateBeforeTravel: (() throws -> Void)? = nil
   ) async throws -> MachinePosition {
     guard applicationAdmissionIsOpen, !Task.isCancelled else {
       throw LearningPathOperationError.requiredState(
@@ -13902,6 +14053,10 @@ final class PlotterApplicationRuntime:
         "Supervised travel did not start because Pen Up did not settle."
       )
     }
+    guard applicationAdmissionIsOpen, !Task.isCancelled else {
+      throw LearningPathOperationError.controllerCancelled("Supervised travel was cancelled before XY admission.")
+    }
+    try revalidateBeforeTravel?()
     let selection = travelFeedSelection(for: delta)
     if frameMode == .simulated {
       let admission = await causalSimulatorEffectAdapter.admitRetainedWorkflowTravel(

@@ -24,7 +24,8 @@ enum PenCapCoarseCorrelation {
       $0 + minY >= region.y && $0 + maxY < region.y + region.height
     }
     guard let firstX = xs.first, !ys.isEmpty else { return }
-    let count = xs.count * ys.count, n = vDSP_Length(count)
+    let columnCount = xs.count, rowCount = ys.count
+    let count = columnCount * rowCount, n = vDSP_Length(count)
     let sampleCount = Double(samples.count)
     let tr = samples.reduce(0) { $0 + $1.r }, tg = samples.reduce(0) { $0 + $1.g }
     let tb = samples.reduce(0) { $0 + $1.b }
@@ -46,34 +47,59 @@ enum PenCapCoarseCorrelation {
       let offset = offsets[sampleIndex]
       for channel in 0..<3 {
         target.withUnsafeMutableBufferPointer { destination in
-          for (row, y) in ys.enumerated() {
-            let start = (y + offset.1) * frame.rowBytes + (firstX + offset.0) * 4 + channelOffsets[channel]
+          var row = 0
+          while row < rowCount {
+            let start = (ys[row] + offset.1) * frame.rowBytes + (firstX + offset.0) * 4 + channelOffsets[channel]
             vDSP_vfltu8(pixels.baseAddress! + start, vDSP_Stride(stridePixels * 4),
-              destination.baseAddress! + row * xs.count, 1, vDSP_Length(xs.count))
+              destination.baseAddress! + row * columnCount, 1, vDSP_Length(columnCount))
+            row += 1
           }
         }
-        // Copies of the accumulators avoid overlapping Swift exclusivity; vDSP
-        // performs the arithmetic in optimized platform code in Debug as well.
-        let previousSum = sums[channel]
-        vDSP_vadd(previousSum, 1, target, 1, &sums[channel], 1, n)
+        // Same-size vDSP arithmetic supports exact in-place input/output.
+        // One mutable borrow avoids overlapping Swift Array access and repeated
+        // copy-on-write of every full-frame accumulator in Debug builds.
+        sums[channel].withUnsafeMutableBufferPointer { accumulator in
+          vDSP_vadd(accumulator.baseAddress!, 1, target, 1, accumulator.baseAddress!, 1, n)
+        }
         vDSP_vsq(target, 1, &squared, 1, n)
-        let previousSquares = squares
-        vDSP_vadd(previousSquares, 1, squared, 1, &squares, 1, n)
+        squares.withUnsafeMutableBufferPointer { accumulator in
+          vDSP_vadd(accumulator.baseAddress!, 1, squared, 1, accumulator.baseAddress!, 1, n)
+        }
         var coefficient = Float(([sample.r, sample.g, sample.b][channel]) - means[channel])
-        let previousProducts = products
-        vDSP_vsma(target, 1, &coefficient, previousProducts, 1, &products, 1, n)
+        products.withUnsafeMutableBufferPointer { accumulator in
+          vDSP_vsma(target, 1, &coefficient, accumulator.baseAddress!, 1,
+            accumulator.baseAddress!, 1, n)
+        }
       }
     }
-    for (row, y) in ys.enumerated() {
-      try Task.checkCancellation()
-      for (column, x) in xs.enumerated() {
-        let index = row * xs.count + column
-        let sr = Double(sums[0][index]), sg = Double(sums[1][index]), sb = Double(sums[2][index])
-        let targetVariance = Double(squares[index]) - (sr * sr + sg * sg + sb * sb) / sampleCount
-        guard targetVariance > sampleCount * 3 * 16 else { continue }
-        let correlation = Double(products[index]) / sqrt(targetVariance * variance)
-        let colorDifference = (abs(sr - tr) + abs(sg - tg) + abs(sb - tb)) / (sampleCount * 765)
-        visit(Double(x), Double(y), correlation - colorDifference * 0.15)
+    // Borrow the completed sums once. Indexed traversal avoids per-pixel generic
+    // iterator/Array overhead while preserving the exact grid and visit order.
+    try sums[0].withUnsafeBufferPointer { reds in
+      try sums[1].withUnsafeBufferPointer { greens in
+        try sums[2].withUnsafeBufferPointer { blues in
+          try squares.withUnsafeBufferPointer { squareValues in
+            try products.withUnsafeBufferPointer { productValues in
+              var row = 0
+              while row < rowCount {
+                try Task.checkCancellation()
+                let y = ys[row]
+                var column = 0
+                while column < columnCount {
+                  let x = xs[column]
+                  let index = row * columnCount + column
+                  column += 1
+                  let sr = Double(reds[index]), sg = Double(greens[index]), sb = Double(blues[index])
+                  let targetVariance = Double(squareValues[index]) - (sr * sr + sg * sg + sb * sb) / sampleCount
+                  guard targetVariance > sampleCount * 3 * 16 else { continue }
+                  let correlation = Double(productValues[index]) / sqrt(targetVariance * variance)
+                  let colorDifference = (abs(sr - tr) + abs(sg - tg) + abs(sb - tb)) / (sampleCount * 765)
+                  visit(Double(x), Double(y), correlation - colorDifference * 0.15)
+                }
+                row += 1
+              }
+            }
+          }
+        }
       }
     }
   }

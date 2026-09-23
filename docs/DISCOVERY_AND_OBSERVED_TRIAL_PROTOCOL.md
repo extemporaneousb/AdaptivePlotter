@@ -101,9 +101,11 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
    Weak/competing matches, excessive deformation, clipping and abrupt position
    jumps report tracking lost. Replaced pens and incompatible camera configurations
    require a new reference. Same-anchor reacquisition can retain at most two prior
-   compatible operator-confirmed appearances alongside the new one, without
-   averaging their pixels or anchors. Old color-only selections require **Reidentify Pen Cap**
-   from **Learning Path Actions** when accepted Pen Learning is already present.
+   compatible operator-confirmed appearances alongside the new one, including
+   before the first camera map, without averaging their pixels or anchors. This
+   grants no motion or map authority; explicit reference replacement clears the
+   prior views. Old color-only selections require **Reidentify Pen Cap** in the
+   Learning panel when accepted Pen Learning is already present.
 3. Cap identification requires only the current exact frame. The accepted click
    immediately opens the first Up question even when the controller is not yet
    connected or Motion is not enabled. In that blocked state the Up slider and
@@ -231,7 +233,12 @@ The ordered positions and roles are:
 
 ### Capture, fit, and acceptance
 
-1. Press **Run Five-Position Camera Calibration**.
+1. If the tool is away from the accepted Boundary center, press **Return Pen Up
+   to Accepted Center**. This requires fresh settled Pen-Up/controller truth and
+   current position authority, uses the existing Boundary without replacing it,
+   and remains stoppable. Then press **Run Five-Position Camera Calibration**.
+   A stale displayed position cannot bypass the fresh check: a refused run
+   refreshes the pose and exposes the center-return action.
 2. The first fresh passive probe establishes this operation's controller-context
    baseline. Each later sample must compare compatible and advance that local
    baseline.
@@ -264,10 +271,14 @@ The ordered positions and roles are:
    preserves the exact visible camera-pixel rectangle and any compatible locked
    analysis region.
 
-Camera-calibration failures remain visible in the Learning instructions with
-the detector's concrete reason and available score, margin and prediction
-residual. For the same cap, choose **Learning Path Actions → Reidentify Pen Cap**
-and click the same physical anchor on the fresh frozen frame. The previous
+Camera-calibration failures remain visible with their actual cause. A position
+refusal requires the explicit center return, not a new cap reference. A detector
+refusal retains available score, margin and prediction residual. For a lost
+observation of the same cap, choose **Reidentify Pen Cap** in the Learning panel
+and click the same physical anchor on the fresh frozen frame. A settled failed
+Camera attempt permits this capture-only recovery and restores its prepared
+Camera exercise after selection or cancellation. It never starts travel or the
+next calibration run automatically. The previous
 rectangle follows the stored anchor offset; redraw it only when needed. This
 is an operator observation, not a successful detector result. With compatible
 camera/controller/map context and settled Idle/Pen-Up, the app can retain

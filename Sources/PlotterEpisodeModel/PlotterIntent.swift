@@ -410,7 +410,7 @@ public enum PlotterLearningChoice: String, Codable, CaseIterable, Hashable, Send
 }
 public enum PlotterLearningPenCommand: String, Codable, Hashable, Sendable { case raise, lower }
 public enum PlotterLearningCameraCalibrationAction: String, Codable, Hashable, Sendable {
-  case buildFivePositionProposal, acceptProposal, rejectProposal
+  case buildFivePositionProposal, returnToAcceptedCenter, acceptProposal, rejectProposal
 }
 public enum PlotterLearningTipCalibrationAction: Codable, Hashable, Sendable {
   case beginFourMarkBatch, revalidateCheckpoint, acceptProposal, rejectProposal, retryCommit

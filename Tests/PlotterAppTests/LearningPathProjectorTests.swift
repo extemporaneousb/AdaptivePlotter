@@ -174,13 +174,41 @@ struct PlotterLearningPresentationCompilerTests {
       code: .requiredStateMissing, detail: "No pen cap detected.", recovery: .resolveNamedFailure)
     let failed = project(postBoundarySnapshot(camera: .init(failure: failure)), selectedItemID: owner)
     #expect(failed.selectedAction.instructions.accessibilityText.contains("No pen cap detected."))
-    #expect(failed.selectedAction.instructions.accessibilityText.contains("Reidentify Pen Cap"))
-    #expect(failed.selectedAction.instructions.accessibilityText.contains("X/Y boundaries"))
+    #expect(failed.selectedAction.instructions.accessibilityText.contains("Accepted Boundary and Pen Learning are retained."))
     #expect(!failed.selectedAction.instructions.accessibilityText.contains("Reset All Learning"))
     let retrying = project(postBoundarySnapshot(camera: .init(phase: .preparing, failure: failure)), selectedItemID: owner)
     #expect(retrying.selectedAction.instructions.accessibilityText == "Preparing bounded calibration")
     let refused = project(postBoundarySnapshot(camera: .init(lastOutcome: .refused("Camera unavailable."))), selectedItemID: owner)
     #expect(refused.selectedAction.instructions.accessibilityText.contains("Camera unavailable."))
+  }
+
+  @Test("off-center Camera failure preserves its Return remedy and current motion blockers")
+  func cameraPositionFailurePreservesReturnRemedy() throws {
+    let owner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    let detail = "Fresh controller MPos did not match the accepted Boundary center arrival. Use Return Pen Up to Accepted Center, then run camera calibration."
+    let failure = PlotterCameraCalibrationFailure(code: .requiredStateMissing,
+      detail: detail, recovery: .resolveNamedFailure)
+    for blocker in [nil, "Connect the controller.", "Sticky ambiguity must be resolved."] {
+      let snapshot = PlotterLearningPresentationFacts(penInteractionCompleted: true,
+        controller: .init(sessionEstablished: true, motionAuthorized: true),
+        boundary: .init(acceptedDirections: BoundaryDirection.allCases,
+          allowedDirections: [], isComplete: true,
+          centerArrival: try MachinePosition(x: 0, y: 0),
+          currentPosition: try MachinePosition(x: 0, y: -24)),
+        cameraCalibration: .init(failure: failure),
+        startUnavailableReasons: blocker.map { [owner: $0] } ?? [:])
+      let projected = project(snapshot, selectedItemID: owner)
+      let instructions = projected.selectedAction.instructions.accessibilityText
+      #expect(instructions.contains(detail))
+      #expect(instructions.contains("Accepted Boundary and Pen Learning are retained."))
+      #expect(!instructions.contains("Reidentify Pen Cap"))
+      #expect(!instructions.contains("Reset All Learning"))
+      let actions = try #require(projected.selectedExerciseActions?.actions)
+      let action = try #require(actions.first)
+      #expect(action.action == .cameraCalibration(.returnToAcceptedCenter))
+      #expect(action.unavailableReason == blocker)
+      #expect(!actions.contains { $0.action == .cameraCalibration(.buildFivePositionProposal) })
+    }
   }
 
   @Test("same snapshot and review selection are deterministic")

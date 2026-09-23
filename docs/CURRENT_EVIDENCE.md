@@ -8,6 +8,73 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Off-center Camera recovery and cross-pose cap audit, 2026-09-22
+
+Evidence is retained privately under
+`/Users/bullard/Projects/AdaptivePlotter/.build/CapDoomloop-013f5b/`.
+`initial-investigation-manifest.json` and `matcher-retention-manifest.json` bind
+copied inputs to their original paths and hashes. The live application PID 26672
+was inspected read-only and left untouched. Its on-disk executable hash differs
+from the prior staged build; that alone does not identify the mapped process's
+source revision.
+
+The controller trace ends at the Camera sample-five pose, Y -14.903, while
+the accepted center is Y 9.093; the user reported cap loss. No original cap-failure
+diagnostics were retained, and no camera map was accepted.
+The old retry requires fresh MPos at that center, while completed Boundary refuses
+a second center-acceptance operation. Its generic Camera error then incorrectly
+prescribes cap reidentification. The earlier recovery regression prepared Camera
+Redo but did not execute the subsequent off-center calibration run, so it did not
+establish a complete recovery path.
+
+The unchanged matcher was rebuilt in DEBUG and replayed directly against five
+retained raw 1920×1080 BGRA frames using the current 33×79 reference and independent
+clicked anchor. Three earlier upper-pose frames scored 0.81129–0.81438, below the
+unchanged 0.82 gate; two lower-pose frames scored 0.99518 and 0.99982 and were found.
+An approximate visual hint produced the same rejected upper-pose candidates. The
+reference's spatial contrast is about 56/255, well above the reference 8/255 and
+candidate 4/255 contrast gates. The visual-reference branch does not apply the
+legacy HSV color-support gates or an absolute brightness cutoff. Global ambiguity still
+requires a 0.06 margin; prediction is a refinement seed, not a search boundary.
+
+`matcher/findings.md`, the original build/source attribution, raw input manifest,
+replay logs and crop comparison preserve the full analysis. The upper/lower crops
+show changing relative projected geometry of the blue cap and red holder; a tall
+whole-region match can favor the holder and displace the clicked anchor. This
+supports retaining independently confirmed views before the first map. It does
+not justify lowering thresholds, narrowing global search, or calling the current
+reference universally robust. A local diagnostic ROI found higher-scoring but
+visually displaced anchors, reinforcing that a passing score alone is inadequate.
+The previous operator reference and exact originally rejected acquisition were
+not retained together, so this is cross-pose evidence for the current reference,
+not reproduction of that original detector decision. Single-run DEBUG replay
+costs of 2.27–2.44 seconds per frame are not a repeated performance benchmark.
+
+The subsequent coarse-correlation optimization removes repeated accumulator
+copying and iterator overhead while preserving candidate order, scores and gates.
+Three-run DEBUG medians for one, two and three reference entries changed from
+2.465/4.854/7.199 seconds to 1.441/2.798/4.185 seconds, about a 42% reduction.
+The additional entries are constructed duplicate views for cost measurement,
+not physical multiview recovery evidence. Complete results match across all nine
+paired bank runs and all five raw frames with and without a hint. A three-entry
+match still takes about 4.19 seconds; this does not establish real-time tracking.
+Original and optimized source/build attribution and result hashes remain separate
+in `matcher/` and `matcher-optimization/`. The final strict focused matcher run
+passed 17 tests (`matcher-optimization/matcher-after-tests.log`).
+
+The strict workflow regression run passed 30 cases without failures or skips
+(`recovery/focused-run4.*`). Its production request/controller fixtures execute
+the first-camera sample-five loss, reidentify without motion, published Return
+Pen Up to Accepted Center, five-sample Run and acceptance. They also cover stale
+cached position, historical pose proof, Stop and authority changes during Pen-Up
+normalization. These are software/controller-fixture results; they do not prove
+physical recovery or native interaction with the new controls.
+
+No live camera capture, controller command, physical movement, user-store write or
+new ink was used for this audit. Workflow fixtures and final validation/bundle
+receipts belong to this task's durable evidence directory; claims from the prior
+recovery task below retain their original scope.
+
 ## Pen-cap recovery, search cost, and retained camera canvas, 2026-09-22
 
 The evidence directory is

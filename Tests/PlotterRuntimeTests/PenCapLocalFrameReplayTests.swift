@@ -80,6 +80,79 @@ struct PenCapLocalFrameReplayTests {
     }
   }
 
+  @Test("retained raw views preserve the exact clicked anchor and expose unsupported cross-pose appearance",
+    .enabled(if: ProcessInfo.processInfo.environment["PLOTTER_CAP_CROSS_POSE_REPLAY_DIRECTORY"] != nil))
+  func retainedRawCrossPoseFrames() throws {
+    let directory = URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["PLOTTER_CAP_CROSS_POSE_REPLAY_DIRECTORY"]))
+    let reference = try JSONDecoder().decode(PenCapVisualReference.self,
+      from: Data(contentsOf: directory.appendingPathComponent("current-reference.json")))
+    #expect(reference.identity == "29815e8ef4f41d9cdaf216cd7104c4d3c9122125b21a9b27f8f2a9eb28b89371")
+    let frames = try JSONDecoder().decode([RawReplayFrame].self,
+      from: Data(contentsOf: directory.appendingPathComponent("manifest.json")))
+    let hashes = [
+      "868104d54232a555ed7730a04fd8e4492861efc1f6dfebce643e44efc00d96e9",
+      "d5e8afa8bef60a166fde892b0bfce87669f9d57c6f7c04be9a4f050101112b77",
+      "9e0202e7e3129f0c5e067dedef65772abaf0bd8c8445d136a99b4a92f3dad0a7",
+      "ef87773a35e611e413fd135bc8cebb88f37d47316d988965f98551e663c69144",
+      "1b961d097ece2f6c2cb0a472b71063dd754a8ecebea382c97428372a8715d7ec"
+    ]
+    try #require(frames.count == hashes.count)
+    for (index, saved) in frames.enumerated() {
+      let raw = try Data(contentsOf: directory.appendingPathComponent(saved.name + ".frame"))
+      #expect(RunLedger.sha256Hex(raw) == hashes[index])
+      let descriptor = saved.descriptor
+      let frame = try StampedFrame(id: FrameID(rawValue: descriptor.frameID), sequence: descriptor.sequence,
+        captureNanoseconds: descriptor.captureNanoseconds, cameraConfigurationID: descriptor.stream.configuration,
+        width: descriptor.width, height: descriptor.height, rowBytes: descriptor.rowBytes,
+        pixelFormat: .bgra8, bytes: OwnedFrameBytes(Array(raw)))
+      #expect(frame.cameraConfigurationID == reference.cameraConfigurationID)
+      for predicted in [false, true] {
+        // Earlier views have no retained operator anchor. This hint is only a
+        // visually approximate proposal, never precision ground truth.
+        let hint = index < 3 ? try Point2<CameraPixelSpace>(x: 1158, y: 107) : reference.anchor
+        let start = ContinuousClock.now
+        let result = try PenCapTemplateMatcher.detect(frame: frame, reference: reference,
+          region: PixelRect(x: 0, y: 0, width: frame.width, height: frame.height),
+          searchCenter: predicted ? hint : nil)
+        let diagnostic = try #require(result.diagnostics?.template)
+        let best = try #require(diagnostic.candidates.first)
+        #expect(diagnostic.acceptanceThreshold == 0.82)
+        #expect(diagnostic.requiredMargin == 0.06)
+        if index < 3 {
+          // The current single appearance is insufficient at the earlier pose;
+          // refusing it is preferable to accepting a displaced cap anchor.
+          // This is NOT the unavailable old-reference acquisition failure.
+          #expect(result.measurement == nil)
+          #expect(best.score < diagnostic.acceptanceThreshold)
+          #expect(best.score > 0.80)
+          #expect(best.score - (try #require(diagnostic.competitorScore)) > diagnostic.requiredMargin)
+        } else {
+          let cap = try #require(result.measurement)
+          #expect(best.score > 0.99)
+          if index == 4 {
+            #expect(cap.trackingPoint.distance(to: reference.anchor) < 0.1)
+            #expect(try PenCapVisualReference.capture(frame: frame, region: reference.region,
+              anchor: reference.anchor) == reference)
+          }
+        }
+        print("CAP_CROSS_POSE_REPLAY frame=\(saved.name) rawBGRA_SHA256=\(hashes[index]) referenceIdentity=\(reference.identity) prediction=\(predicted) elapsed=\(start.duration(to: .now)) anchor=\(best.anchor) \(diagnostic.summary)")
+      }
+    }
+  }
+
+  private struct RawReplayFrame: Decodable {
+    let name: String
+    let descriptor: Descriptor
+    struct Descriptor: Decodable {
+      let frameID: String
+      let sequence: UInt64
+      let captureNanoseconds: UInt64
+      let width: Int, height: Int, rowBytes: Int
+      let stream: Stream
+      struct Stream: Decodable { let configuration: CameraConfigurationID }
+    }
+  }
+
   private func makeFrame(_ pixels: [UInt8], reference: PenCapVisualReference) throws -> StampedFrame {
     try StampedFrame(sequence: 1, captureNanoseconds: 1,
       cameraConfigurationID: reference.cameraConfigurationID, width: reference.frameWidth,

@@ -187,6 +187,7 @@ private actor CameraCalibrationPortFixture: PlotterCameraCalibrationEffectPort {
   {
     started = true
     switch request {
+    case .returnToAcceptedCenter: return .completed(.returnedToAcceptedCenter)
     case .captureReference: calls.append(.capture)
     case .buildFivePositionProposal: calls.append(.build)
     case .acceptProposal: calls.append(.accept)
@@ -304,6 +305,7 @@ private actor SuccessfulCameraCalibrationPort: PlotterCameraCalibrationEffectPor
         attemptID: ExerciseAttemptID(), capAnchorEstimatorRevision: "replacement-test",
         algorithmRevision: "replacement-test", capAnchorConfidence: 0.9, artifactRevisionID: LearningArtifactRevisionID())))
     case .returnToReference: return .completed(.returnedToReference)
+    case .returnToAcceptedCenter: return .completed(.returnedToAcceptedCenter)
     case .acceptProposal(_, let registration): return .completed(.accepted(registration))
     case .rejectProposal: return .completed(.rejected)
     case .buildFivePositionProposal: return .cancelled

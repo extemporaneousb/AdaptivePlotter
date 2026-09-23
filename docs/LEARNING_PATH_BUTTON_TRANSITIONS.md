@@ -119,12 +119,24 @@ flowchart TD
   end
 
   subgraph camera["1.3 Calibrate Camera from Pen Cap Positions"]
-    c0["Ready<br/>Run Five-Position Camera Calibration"]
+    c0["At accepted center<br/>Run Five-Position Camera Calibration"]
+    creturn["Off center; settled Pen Up<br/>Return Pen Up to Accepted Center"]
+    ctravel["Returning to accepted center<br/>Stop"]
+    cready{"Current pose at accepted center?"}
+    creidentify["Reidentify Pen Cap<br/>Frozen-frame click · Cancel Attempt"]
     c1["Camera calibration working<br/>Camera calibration is working… — disabled<br/>Stop replaces it during stoppable motion"]
     c2["Calibration review<br/>Accept Camera Calibration<br/>Reject Camera Calibration · Cancel Attempt"]
     cempty["Attempt active; no proposal<br/>Run Five-Position Camera Calibration · Cancel Attempt"]
     cdone["1.3 complete<br/>Redo This Step"]
     ccancel["Attempt settled; unaccepted proposal discarded<br/>Restart Attempt — fresh proposal preparation"]
+    creturn -->|Return Pen Up to Accepted Center| ctravel
+    ctravel -->|Fresh settled arrival| c0
+    ctravel -->|Stop settles exact travel| ccancel
+    cready -->|Yes| c0
+    cready -->|No| creturn
+    c1 -->|Settled cap loss away from center| creturn
+    creturn -->|Reidentify Pen Cap — no motion| creidentify
+    creidentify -->|Click or cancel — restore prepared Camera exercise| creturn
     c0 -->|Run Five-Position Camera Calibration| c1
     c1 -->|three fit and two check measurements pass| c2
     c1 -->|Stop settles owner and discards proposal| ccancel
@@ -133,8 +145,8 @@ flowchart TD
     c2 -->|Cancel Attempt| ccancel
     cempty -->|Run Five-Position Camera Calibration| c1
     cempty -->|Cancel Attempt| ccancel
-    ccancel -->|Restart Attempt — prepare fresh acquisition; no motion| c0
-    cdone -->|Redo This Step — prepare replacement; retain accepted fallback| c0
+    ccancel -->|Restart Attempt — prepare fresh acquisition; no motion| cready
+    cdone -->|Redo This Step — prepare replacement; retain accepted fallback| cready
   end
 
   subgraph tip["1.4 Calibrate Pen Tip from Corner Marks"]
@@ -289,9 +301,15 @@ physical actions.
 
 Camera-calibration failure detail is rendered in the selected exercise, including
 available match score, competing-match margin and prediction residual. The retry
-action captures a fresh reference frame and pose. **Learning Path Actions →
-Reidentify Pen Cap** freezes a fresh frame for a click on the same physical anchor;
-the prior reference rectangle follows its stored anchor offset. Compatible
+action captures a fresh reference frame and pose. Off-center state instead offers
+**Return Pen Up to Accepted Center**, with exact Stop during travel; a position
+refusal does not prescribe cap replacement. **Reidentify Pen Cap** in the Learning
+panel freezes a fresh frame for a click on the same physical anchor;
+the prior reference rectangle follows its stored anchor offset. Settled failed or
+restartable Camera recovery restores its Camera owner and next explicit action
+after click or cancellation, including when an accepted map remains as fallback.
+It does not override an intentional review selection or start motion. Same-anchor
+views are retained independently even before the first map. Compatible
 camera/controller/map context and settled Idle/Pen-Up can preserve calibration
 and record explicit operator-observation lineage. Within the map domain, the
 residual must be at most eight pixels. Outside it, an operator-confirmed same
