@@ -2432,6 +2432,9 @@ final class PlotterApplicationRuntime:
       } ?? false,
       analyzedOverlayFrame: overlayComposition.analyzedFrame,
       pointSelectionRequest: surfacePointSelectionRequest,
+      pointSelectionFailure: surfacePointSelectionRequest.flatMap {
+        $0.purpose == .penCapAppearance ? discoveryError : explorationError
+      },
       tipPresentation: tipPresentation,
       completedComparisonReview: completedComparisonReviewPresentation,
       drawingStudioCanvas: drawingTargetIsVisible ? drawingStudioPresentation.canvas : nil

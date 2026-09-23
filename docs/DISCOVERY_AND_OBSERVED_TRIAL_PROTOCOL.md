@@ -88,7 +88,9 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
 1. Start Exercise 1.1. **Identify Pen Cap** freezes the current exact frame.
    Drag a rectangle around the cap and nearby holder that moves with it. Include
    edges and exclude stationary rails, independently moving structure and paper.
-   Drag again to redraw; then click the cap inside the rectangle. The cap does
+   Then click the cap inside the rectangle. Further drags pan the video without
+   changing the reference; **Redraw Reference** starts a replacement rectangle.
+   **Pan Video** is available before the rectangle, too. The cap does
    not need to be centered. Existing geometry from another frame is never reused.
 2. The anchor click submits both rectangle and point with exact-frame provenance.
    A small bounded RGB image reference retains black and colored details. A region

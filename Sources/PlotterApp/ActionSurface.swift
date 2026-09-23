@@ -349,12 +349,16 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
   private(set) var presentationTransformRevision = PresentationTransformRevision()
   private(set) var panOffsetX: Int = 0
   private(set) var panOffsetY: Int = 0
+  /// Camera-pixel displacement not yet represented by the integer viewport.
+  private var fractionalPanX: Double = 0
+  private var fractionalPanY: Double = 0
   /// Exact operator-owned focus retained when a compatible context replaces
   /// the fitted target underneath the current numeric zoom and pan values.
   private var retainedCompatibleVisibleRegion: PixelRect?
   var zoom: Double = 0 {
     didSet {
       if zoom != oldValue {
+        clearFractionalPan()
         if retainedCompatibleVisibleRegion != nil {
           panOffsetX = 0
           panOffsetY = 0
@@ -367,6 +371,7 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
 
   mutating func synchronize(with context: ActionSurfaceViewportContext?) {
     guard self.context != context else { return }
+    clearFractionalPan()
     let previousContext = self.context
     let alreadyRetainingExactRegion = retainedCompatibleVisibleRegion != nil
     let preservesOperatorView =
@@ -410,6 +415,7 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
   }
 
   mutating func showFullFrame() {
+    clearFractionalPan()
     retainedCompatibleVisibleRegion = nil
     zoom = 0
     panOffsetX = 0
@@ -417,6 +423,7 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
   }
 
   mutating func showFittedBounds() {
+    clearFractionalPan()
     retainedCompatibleVisibleRegion = nil
     zoom = 1
     panOffsetX = 0
@@ -483,11 +490,20 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
       Double(viewSize.width) / Double(region.width),
       Double(viewSize.height) / Double(region.height)
     )
-    guard scale.isFinite, scale > 0 else { return }
-    let translatedX = region.x - Int((Double(translation.width) / scale).rounded())
-    let translatedY = region.y - Int((Double(translation.height) / scale).rounded())
-    let clampedX = min(max(0, translatedX), frameWidth - region.width)
-    let clampedY = min(max(0, translatedY), frameHeight - region.height)
+    guard scale.isFinite, scale > 0,
+      translation.width.isFinite, translation.height.isFinite else { return }
+    // Clamp the continuous position before rounding so outward motion cannot
+    // accumulate at an edge and delay the next drag in the opposite direction.
+    let continuousX = min(max(0,
+      Double(region.x) + fractionalPanX - Double(translation.width) / scale),
+      Double(frameWidth - region.width))
+    let continuousY = min(max(0,
+      Double(region.y) + fractionalPanY - Double(translation.height) / scale),
+      Double(frameHeight - region.height))
+    let clampedX = Int(continuousX.rounded())
+    let clampedY = Int(continuousY.rounded())
+    fractionalPanX = continuousX - Double(clampedX)
+    fractionalPanY = continuousY - Double(clampedY)
     if retainedCompatibleVisibleRegion != nil {
       let next = PixelRect(
         x: clampedX,
@@ -506,6 +522,11 @@ struct ActionSurfaceViewportState: Equatable, Sendable {
     panOffsetX = nextX
     panOffsetY = nextY
     presentationTransformRevision = PresentationTransformRevision()
+  }
+
+  private mutating func clearFractionalPan() {
+    fractionalPanX = 0
+    fractionalPanY = 0
   }
 }
 
@@ -527,6 +548,7 @@ struct ActionSurfacePresentation: Sendable {
   let analysisRegionIsLocked: Bool
   let analyzedOverlayFrame: ExactFrameOverlayProvenance?
   let pointSelectionRequest: PlotterPointSelectionRequest?
+  let pointSelectionFailure: String?
   let tipPresentation: ActionSurfaceTipPresentation
   let completedComparisonReview: CompletedComparisonReviewPresentation
   let drawingStudioCanvas: DrawingStudioCanvasPresentation?
@@ -546,12 +568,14 @@ struct ActionSurfacePresentation: Sendable {
     analysisRegionIsLocked: Bool = false,
     analyzedOverlayFrame: ExactFrameOverlayProvenance? = nil,
     pointSelectionRequest: PlotterPointSelectionRequest? = nil,
+    pointSelectionFailure: String? = nil,
     tipPresentation: ActionSurfaceTipPresentation = .notCalibrated,
     completedComparisonReview: CompletedComparisonReviewPresentation = .unavailable,
     drawingStudioCanvas: DrawingStudioCanvasPresentation? = nil
   ) {
     self.displayedFrame = displayedFrame
     self.usesAmbientPreviewFrame = usesAmbientPreviewFrame
+    self.pointSelectionFailure = pointSelectionFailure
     self.simulatedViewportID = simulatedViewportID
     self.simulatedAnnotationsAreVisible = simulatedAnnotationsAreVisible
     let compatibleAmbientFrame = ambientOverlayFrame.flatMap { measured -> DisplayedFrame? in
@@ -623,6 +647,7 @@ struct ActionSurfacePresentation: Sendable {
       analysisRegionIsLocked: matchingViewportContext == nil ? false : analysisRegionIsLocked,
       analyzedOverlayFrame: analyzedOverlayFrame,
       pointSelectionRequest: pointSelectionRequest,
+      pointSelectionFailure: pointSelectionFailure,
       tipPresentation: tipPresentation,
       completedComparisonReview: completedComparisonReview,
       drawingStudioCanvas: drawingStudioCanvas
@@ -731,6 +756,9 @@ struct ActionSurface: View {
   @StateObject private var imageCache = FramePresentationImageCache()
   @StateObject private var overlayCache = ActionSurfaceOverlayContentCache()
   @State private var capReferenceRegion: AxisAlignedBounds<CameraPixelSpace>?
+  @State private var drawsCapReference = true
+  @State private var movesDrawing = false
+  @State private var pointSelectionRefusal: String?
   @State private var priorDragTranslation: CGSize = .zero
   @State private var drawingPlacementRefusal: String?
   private let plotterUIProjection: PlotterUIProjection
@@ -803,6 +831,32 @@ struct ActionSurface: View {
       }
       .overlay(alignment: .topLeading) {
         VStack(alignment: .leading, spacing: 6) {
+          if presentation.pointSelectionRequest?.purpose == .penCapAppearance {
+            HStack {
+              Button(capReferenceRegion == nil ? "Draw Reference" : "Redraw Reference") {
+                drawsCapReference = true
+                pointSelectionRefusal = nil
+                pendingPointSelection = nil
+              }
+              .disabled(drawsCapReference)
+              Button("Pan Video") {
+                drawsCapReference = false
+                pendingPointSelection = nil
+              }
+              .disabled(!drawsCapReference || presentation.analysisRegionIsLocked)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+          } else if presentation.pointSelectionRequest == nil,
+            presentation.drawingStudioCanvas?.placement.placementIsEnabled == true {
+            Button(movesDrawing ? "Pan Video" : "Move Drawing") {
+              movesDrawing.toggle()
+              pendingDrawingPlacement = nil
+              priorDragTranslation = .zero
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+          }
           if let sourceBadgeLabel = presentation.sourceBadgeLabel {
             Text(sourceBadgeLabel)
               .font(.caption.monospaced().bold())
@@ -815,16 +869,31 @@ struct ActionSurface: View {
         .padding(8)
       }
       .overlay(alignment: .bottomLeading) {
-        if let prompt = presentation.tipPresentation.interactionPrompt {
-        Text(presentation.pointSelectionRequest?.purpose == .penCapAppearance
-          && capReferenceRegion != nil
-          ? "Click the cap inside the rectangle. Drag again to redraw the reference." : prompt)
-          .font(.caption.monospaced().bold())
-          .foregroundStyle(.white)
-          .padding(7)
-          .background(.black.opacity(0.72))
-          .padding(8)
+        VStack(alignment: .leading, spacing: 6) {
+          if let prompt = presentation.tipPresentation.interactionPrompt {
+            Text(presentation.pointSelectionRequest?.purpose == .penCapAppearance
+              ? (drawsCapReference
+                ? "Drag around the cap and co-moving holder, then click the cap."
+                : (capReferenceRegion == nil
+                  ? "Drag to pan. Choose Draw Reference to select the cap and holder."
+                  : "Click the cap inside the rectangle. Drag to pan; use Redraw Reference to change it."))
+              : prompt)
+              .font(.caption.monospaced().bold())
+              .foregroundStyle(.white)
+              .padding(7)
+              .background(.black.opacity(0.72))
+          }
+          if presentation.pointSelectionRequest != nil,
+            let refusal = pointSelectionRefusal ?? presentation.pointSelectionFailure {
+            Label(refusal, systemImage: "exclamationmark.triangle.fill")
+              .font(.caption)
+              .foregroundStyle(.orange)
+              .padding(7)
+              .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 6))
+          }
         }
+        .padding(8)
+        .allowsHitTesting(false)
       }
       .overlay(alignment: .topTrailing) {
         if overlayContent.targetPreview != nil {
@@ -895,16 +964,20 @@ struct ActionSurface: View {
       .simultaneousGesture(
         DragGesture(minimumDistance: 3, coordinateSpace: .local)
           .onChanged { value in
-            if presentation.pointSelectionRequest?.purpose == .penCapAppearance {
+            switch ActionSurfaceDragIntent.resolve(presentation: presentation,
+              drawsReference: drawsCapReference, movesDrawing: movesDrawing) {
+            case .reference:
               capReferenceRegion = PenCapReferenceSelectionGeometry.region(
                 from: value.startLocation, to: value.location, transform: transform)
               pendingPointSelection = nil
+              pointSelectionRefusal = nil
               return
-            }
-            if presentation.drawingStudioCanvas?.placement.placementIsEnabled == true {
+            case .drawing:
               priorDragTranslation = .zero
               stageDrawingPlacement(at: value.location, viewSize: proxy.size)
               return
+            case .locked: return
+            case .pan: break
             }
             guard !presentation.analysisRegionIsLocked,
               let frame = presentation.displayedFrame?.frame
@@ -921,19 +994,37 @@ struct ActionSurface: View {
               frameHeight: frame.height
             )
           }
-          .onEnded { _ in priorDragTranslation = .zero }
+          .onEnded { _ in
+            priorDragTranslation = .zero
+            if presentation.pointSelectionRequest?.purpose == .penCapAppearance, drawsCapReference {
+              if capReferenceRegion != nil {
+                drawsCapReference = false
+              } else {
+                pointSelectionRefusal = "Draw a rectangle entirely inside the camera image."
+              }
+            }
+          }
       )
       .onChange(of: presentation.viewportContext, initial: true) { _, context in
         viewport.synchronize(with: context)
       }
       .onChange(of: presentation.drawingStudioCanvas == nil, initial: true) { _, hidden in
         if hidden {
+          movesDrawing = false
           pendingDrawingPlacement = nil
           drawingPlacementRefusal = nil
         }
       }
       .onChange(of: pointSelectionPendingIdentity, initial: true) { prior, current in
-        if prior.request != current.request { capReferenceRegion = nil }
+        if prior.request != current.request {
+          capReferenceRegion = nil
+          drawsCapReference = true
+          movesDrawing = false
+          pointSelectionRefusal = nil
+          pendingDrawingPlacement = nil
+          drawingPlacementRefusal = nil
+          priorDragTranslation = .zero
+        }
         guard let pendingPointSelection else { return }
         if prior.viewportRevision != current.viewportRevision
           || !presentation.acceptsPendingPointSelection(pendingPointSelection)
@@ -959,18 +1050,17 @@ struct ActionSurface: View {
   }
 
   private func stagePointSelection(at location: CGPoint, viewSize: CGSize) {
-    if presentation.pointSelectionRequest?.purpose == .penCapAppearance,
-      capReferenceRegion == nil { return }
-    guard presentation.drawingStudioCanvas?.placement.placementIsEnabled != true,
-      let submission = ExactFramePointSubmissionBuilder.submission(
-        presentation: presentation,
-        viewport: viewport,
-        at: location,
-        viewSize: viewSize,
-        referenceRegion: presentation.pointSelectionRequest?.purpose == .penCapAppearance ? capReferenceRegion : nil
-      )
-    else { return }
-    pendingPointSelection = submission
+    switch ActionSurfacePointStaging.stage(
+      presentation: presentation, viewport: viewport, at: location, viewSize: viewSize,
+      referenceRegion: capReferenceRegion) {
+    case .ignored: break
+    case .refused(let remedy):
+      pointSelectionRefusal = remedy
+      pendingPointSelection = nil
+    case .staged(let submission):
+      pointSelectionRefusal = nil
+      pendingPointSelection = submission
+    }
   }
 
   private func submitPendingPointSelection(
@@ -985,9 +1075,16 @@ struct ActionSurface: View {
       return
     }
     let intent = PlotterUIIntent.pointSelection(submission)
-    guard let request = plotterUIProjection.request(matching: intent) else { return }
+    guard let request = plotterUIProjection.request(matching: intent) else {
+      pointSelectionRefusal = "The selection changed before it could be submitted. Click again on the current frozen image."
+      pendingPointSelection = nil
+      return
+    }
     let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
-    guard case .accepted = disposition else { return }
+    guard pendingPointSelection == submission else { return }
+    if case .refused(let refusal) = disposition {
+      pointSelectionRefusal = refusal.remedy
+    }
     if pendingPointSelection == submission {
       pendingPointSelection = nil
     }

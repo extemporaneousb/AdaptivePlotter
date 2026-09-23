@@ -8,6 +8,38 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Pen reference input and video navigation, 2026-09-22
+
+Ordinary bugfix in `task-e982e07ef715452187f0218d88b9c2b8`.
+An editable Drawing preview previously admitted the reference-rectangle drag but
+silently blocked the following cap click. LIVE sampling failures were stored in
+`discoveryError` but omitted from the main actionable-error surface. Reference
+selection also consumed every video drag, and integer rounding discarded small
+pan deltas at high magnification. These are source-supported defects; the retained
+live camera recording does not identify which particular pointer event failed.
+
+Exact point selection now takes priority over Drawing placement. After drawing
+the reference, drags pan without changing its camera-pixel coordinates;
+**Redraw Reference** returns to rectangle editing. **Pan Video** is available
+before selection, and Drawing movement requires **Move Drawing**. Invalid clicks
+and the active runtime's rejection appear beside the video prompt. Fractional
+pan displacement accumulates until visible, with excess motion discarded at
+frame edges. Existing analysis locks, exact-frame identity, reference detail
+requirements and physical authority remain in force.
+
+All 47 focused DEBUG tests passed. Coverage includes cap selection with an
+editable Drawing preview, pan between rectangle and anchor, slow fractional
+drags, edge reversal, a LIVE-mode application fixture surfacing reference
+rejection without motion, dark-blue RGBA/BGRA capture and translated reference
+tracking, and a low-detail rejection followed by successful same-frame retry.
+Blue/dark pixels do not require green in the reference path; sufficient spatial
+detail is still required. An independent source review found no blocker.
+
+The user-owned running application, camera/controller session, Learning and
+recordings were left intact. Synthetic frames and application fixtures are
+software evidence; actual mouse arbitration, this physical blue cap and attended
+tracking were not tested. The corrected app is built in DEBUG for separate staging.
+
 ## Stable style references and additive Flow support, 2026-09-22
 
 Ordinary maintenance and style-space extension in

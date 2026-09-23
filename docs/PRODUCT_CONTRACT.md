@@ -605,7 +605,12 @@ by the existing point-selection owner and never becomes an automatic retry.
 Pen-cap appearance is learned through **Identify Pen Cap** in Exercise 1.1.
 On one frozen exact frame, the operator drags a rectangle around the cap and
 holder structure that moves with it, then clicks the cap inside the rectangle.
-Dragging again redraws the rectangle. The rectangle is staged presentation state;
+After the rectangle is drawn, ordinary dragging pans the video while keeping the
+rectangle in camera coordinates; **Redraw Reference** explicitly starts another
+rectangle. **Pan Video** also permits navigation before a rectangle is drawn.
+Exact point-selection clicks take priority over an editable drawing preview.
+Invalid clicks and runtime reference refusals display their remedy on the video.
+The rectangle is staged presentation state;
 the anchor click submits both rectangle and point through the existing exact-frame
 selection authority. Frame/request changes clear the staged rectangle. Viewport
 zoom does not change the selected camera-pixel geometry. Include visible edges,
@@ -1565,6 +1570,10 @@ visible, and **Show Drawing** / **Hide Drawing** is available in Video Settings.
 Hiding clears the preview and any staged drag, retaining the program, placement,
 paper assertion, Learning and ink protection. It works while disconnected and
 requires no paper replacement. Startup begins with the authoring target hidden.
+Video drags pan by default; **Move Drawing** explicitly stages a placement
+until the operator chooses **Pan Video** or starts exact point selection. Panning
+retains fractional camera-pixel movement across pointer events and clamps at the
+frame edge without accumulating hidden excess movement.
 Exact-frame placement and paper assertion require the complete projected draft
 and external-fact identity, including the displayed frame. Experiment selection
 also binds its relevant Learning, geometry, and evidence facts. The sheet control
