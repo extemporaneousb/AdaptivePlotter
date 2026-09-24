@@ -41,6 +41,7 @@ struct WorkbenchDebugSnapshot: Codable, Identifiable, Sendable {
   let limitations: [String]
   let camera: WorkbenchDiagnosticCamera?
   let drawing: WorkbenchDiagnosticDrawing
+  let selection: LearningSelectionDiagnosticSnapshot
 
   @MainActor
   init(application: PlotterApplicationRuntime, projection: PlotterUIProjection) {
@@ -75,6 +76,7 @@ struct WorkbenchDebugSnapshot: Codable, Identifiable, Sendable {
     diagnostics = capture.diagnostics
     camera = capture.frame.map { WorkbenchDiagnosticCamera(frame: $0, visibleRegion: capture.visibleRegion, stem: capture.fileStem) }
     drawing = capture.drawing
+    selection = capture.selection
     limitations = [
       "Snapshot of current owners and the existing bounded Learning record (up to 128 retained transitions).",
       "Feature journals retain their own identities; no unrelated journals are merged.",
@@ -108,6 +110,7 @@ struct WorkbenchDiagnosticCapture: Sendable {
   let frame: DisplayedFrame?
   let visibleRegion: PixelRect?
   let drawing: WorkbenchDiagnosticDrawing
+  let selection: LearningSelectionDiagnosticSnapshot
 
   var fileStem: String {
     let stamp = ISO8601DateFormatter().string(from: capturedAt).replacingOccurrences(of: ":", with: "-")
@@ -117,7 +120,9 @@ struct WorkbenchDiagnosticCapture: Sendable {
   @MainActor
   init(application: PlotterApplicationRuntime, projection: PlotterUIProjection,
        viewport: ActionSurfaceViewportState = .init()) {
-    frame = application.actionSurfacePreview.displayedFrame
+    let canvas = application.actionSurfacePresentation
+    frame = canvas.usesAmbientPreviewFrame ? application.actionSurfacePreview.displayedFrame : canvas.displayedFrame
+    selection = application.learningSelectionDiagnosticSnapshot
     visibleRegion = frame.flatMap { viewport.visibleRegion(frameWidth: $0.frame.width, frameHeight: $0.frame.height) }
     drawing = WorkbenchDiagnosticDrawing(application: application)
     source = application.frameMode == .live ? "LIVE" : "SIMULATED"
@@ -126,7 +131,7 @@ struct WorkbenchDiagnosticCapture: Sendable {
     record = application.learningEpisodeRecord
     var details = projection.diagnostics.map(\.summary)
     details += [application.cameraError, application.visionError, application.explorationError,
-      application.drawingEvidenceError].compactMap { $0 }
+      application.drawingEvidenceError, application.videoVisionDiagnostics?.trackingEvidenceFailure].compactMap { $0 }
     let border = application.borderValidationSnapshot
     details += border.terminalHistory.map(\.detail)
     details += ["Drawing Border phase: \(border.phase)",

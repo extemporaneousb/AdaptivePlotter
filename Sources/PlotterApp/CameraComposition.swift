@@ -43,6 +43,7 @@ protocol PlotterObservationCameraSessionPort: Sendable {
   ) async throws -> StableWorkflowCapInspection
   func setSceneAnalysisRegion(_ region: PixelRect?) async
   func setPenCapReference(_ reference: PenCapVisualReference?) async
+  func setTrackingOpticalConfiguration(_ optical: CameraOpticalConfigurationIdentity?) async
   func setPenCapColor(_ color: PenCapColor) async
   func setAutomaticInspection(
     _ cadence: VisionAnalysisCadence?,
@@ -82,6 +83,8 @@ struct PlotterObservationCameraLifecycleResult: Sendable {
 }
 
 extension PlotterObservationCameraSessionPort {
+  func setTrackingOpticalConfiguration(_ optical: CameraOpticalConfigurationIdentity?) async {}
+
   func startLifecycle() async -> PlotterObservationCameraLifecycleResult {
     .exactFrameBacked(await start())
   }
@@ -181,6 +184,7 @@ struct CameraSourceSessionVisionDiagnostics: Sendable {
   let requestedFeatures: SceneFeatureSet
   let capture: CameraCaptureDiagnostics
   let pipeline: PlotterSceneAnalysisDiagnostics
+  let trackingEvidenceFailure: String?
 
   init(
     automaticInspectionConfigurationRevision: UInt64,
@@ -198,7 +202,8 @@ struct CameraSourceSessionVisionDiagnostics: Sendable {
     requestedCadence: VisionAnalysisCadence?,
     requestedFeatures: SceneFeatureSet,
     capture: CameraCaptureDiagnostics,
-    pipeline: PlotterSceneAnalysisDiagnostics
+    pipeline: PlotterSceneAnalysisDiagnostics,
+    trackingEvidenceFailure: String? = nil
   ) {
     self.automaticInspectionConfigurationRevision = automaticInspectionConfigurationRevision
     self.automaticPipelineStartCallCount = automaticPipelineStartCallCount
@@ -217,6 +222,7 @@ struct CameraSourceSessionVisionDiagnostics: Sendable {
     self.requestedFeatures = requestedFeatures
     self.capture = capture
     self.pipeline = pipeline
+    self.trackingEvidenceFailure = trackingEvidenceFailure
   }
 }
 
@@ -315,9 +321,9 @@ struct CameraStableWorkflowCapLeaseOperation: CameraSourceSessionVisionLeaseOper
       guard case .found(let cap, _) = inspection.measurement.penCap else {
         let detail: String
         if case .notFound = inspection.measurement.penCap {
-          detail = "No pen cap detected: \(inspection.measurement.penCap.diagnosticReason). Use Reidentify Pen Cap to click the cap again."
+          detail = "No tracking reference detected: \(inspection.measurement.penCap.diagnosticReason). Use Locate Tracking Reference to confirm the same physical landmark."
         } else {
-          detail = "Pen-cap measurement refused: \(inspection.measurement.penCap.diagnosticReason)."
+          detail = "Tracking measurement refused: \(inspection.measurement.penCap.diagnosticReason)."
         }
         throw LearningPathOperationError.requiredState(detail)
       }
@@ -329,6 +335,7 @@ struct CameraStableWorkflowCapLeaseOperation: CameraSourceSessionVisionLeaseOper
     let selected = try FixedCameraOpticalSettlingPolicy.newestCompatibleCapSample(samples)
     try Task.checkCancellation()
     _ = try await scope.publishValidatedFrame(selected.inspection.displayedFrame)
+    try Task.checkCancellation()
     return selected
   }
 }
@@ -368,6 +375,7 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
   private let vision: VisionWorker
   private let analysisPipeline: PlotterSceneAnalysisPipeline
   private let plannedDrawingObserver: any CameraPlannedDrawingObserverPort
+  private let trackingEvidenceRecorder: TrackingAcquisitionEvidenceRecorder?
   private var automaticInspectionFrameTask: Task<Void, Never>?
   private var automaticInspectionCadence: VisionAnalysisCadence?
   private var automaticInspectionFeatures: SceneFeatureSet = []
@@ -375,6 +383,18 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
   private var sceneAnalysisRegion: PixelRect?
   private var penCapColor: PenCapColor = .green
   private var penCapReference: PenCapVisualReference?
+  private var trackingOpticalConfiguration: CameraOpticalConfigurationIdentity?
+  private var trackingConfigurationRevision: UInt64 = 0
+  private var trackingEvidenceFailure: String?
+  private struct TrackingInspectionEvidence: Sendable {
+    let frame: DisplayedFrame
+    let detection: PenCapDetectionResult?
+    let reference: PenCapVisualReference?
+    let priors: PlotterSceneVisionPriors
+  }
+  private var pendingTrackingEvidenceWrites = 0
+  private var trackingEvidenceAttempt: UInt64 = 0
+  private var trackingInspectionsByLease: [UUID: TrackingInspectionEvidence] = [:]
   private var automaticInspectionConfigurationRevision: UInt64 = 0
   private var automaticPipelineStartCallCount: UInt64 = 0
   private var automaticFrameSubscriptionStartCount: UInt64 = 0
@@ -395,6 +415,7 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     self.vision = vision
     self.analysisPipeline = analysisPipeline
     plannedDrawingObserver = vision
+    trackingEvidenceRecorder = .shared
   }
 
   /// Internal composition seam for deterministic lifecycle tests. Production
@@ -403,12 +424,14 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     live: CameraCapture,
     vision: VisionWorker,
     analysisPipeline: PlotterSceneAnalysisPipeline,
-    plannedDrawingObserver: any CameraPlannedDrawingObserverPort
+    plannedDrawingObserver: any CameraPlannedDrawingObserverPort,
+    trackingEvidenceRecorder: TrackingAcquisitionEvidenceRecorder? = nil
   ) {
     self.live = live
     self.vision = vision
     self.analysisPipeline = analysisPipeline
     self.plannedDrawingObserver = plannedDrawingObserver
+    self.trackingEvidenceRecorder = trackingEvidenceRecorder
   }
 
   func discover() async -> CameraCaptureSnapshot {
@@ -463,7 +486,8 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
       requestedCadence: automaticInspectionCadence,
       requestedFeatures: automaticInspectionFeatures,
       capture: await live.diagnostics(),
-      pipeline: await analysisPipeline.diagnostics()
+      pipeline: await analysisPipeline.diagnostics(),
+      trackingEvidenceFailure: trackingEvidenceFailure
     )
   }
 
@@ -495,7 +519,8 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
   func captureStableWorkflowCap(
     _ request: StableWorkflowCapCaptureRequest
   ) async throws -> StableWorkflowCapInspection {
-    try await withExclusiveVisionLease(CameraStableWorkflowCapLeaseOperation(request: request))
+    try await withExclusiveVisionLease(CameraStableWorkflowCapLeaseOperation(request: request),
+      trackingRequest: request)
   }
 
   func observePlannedDrawingInk(
@@ -516,7 +541,8 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
   /// settlement is awaited exactly once before success, failure, or
   /// cancellation is returned to the caller.
   func withExclusiveVisionLease<Operation: CameraSourceSessionVisionLeaseOperation>(
-    _ operation: Operation
+    _ operation: Operation,
+    trackingRequest: StableWorkflowCapCaptureRequest? = nil
   ) async throws -> Operation.Output {
     let lease = await beginExclusiveVisionComputation()
     let scope = CameraSourceSessionVisionLeaseScope(session: self, leaseID: lease.id)
@@ -533,7 +559,25 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     case .failure(let error):
       disposition = error is CancellationError || Task.isCancelled ? .cancelled : .failed
     }
+    let trackingEvidence = trackingInspectionsByLease[lease.id]
     await endExclusiveVisionComputation(lease, disposition: disposition)
+    if let trackingRequest {
+      let phase: TrackingAcquisitionPhase
+      let detail: String?
+      switch operationResult {
+      case .success:
+        phase = Task.isCancelled ? .cancelled : .success
+        detail = Task.isCancelled ? "Acquisition cancelled during publication settlement." : nil
+      case .failure(let error):
+        phase = error is CancellationError || Task.isCancelled ? .cancelled : .failure
+        detail = String(describing: error)
+      }
+      queueTrackingAcquisition(evidence: trackingEvidence, leaseID: lease.id,
+        request: trackingRequest, phase: phase, detail: detail)
+      // Stable capture must not return success after cancellation during settlement.
+      // Other operations may represent cancellation in their nonthrowing output.
+      if case .success = operationResult { try Task.checkCancellation() }
+    }
     return try operationResult.get()
   }
 
@@ -555,15 +599,71 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
         )
       )
     else { return nil }
+    let reference = penCapReference
+    let revision = trackingConfigurationRevision
+    let binding = reference.flatMap { reference in
+      trackingOpticalConfiguration.flatMap {
+        PenCapReferenceBinding(reference: reference, frame: displayedFrame, opticalConfiguration: $0)
+      }
+    }
+    let priors = try PlotterSceneVisionPriors.sceneDefaults(
+      frameWidth: displayedFrame.frame.width, frameHeight: displayedFrame.frame.height,
+      analysisRegion: analysisRegion, penCapColor: penCapColor, penCapReference: reference,
+      referenceBinding: binding, searchCenter: searchCenter)
+    // Preserve the actual input before the first suspension into Vision. A
+    // thrown/cancelled analysis must not retain the preceding sample instead.
+    trackingInspectionsByLease[leaseID] = .init(frame: displayedFrame, detection: nil,
+      reference: reference, priors: priors)
     let measurement = try await vision.inspectPlotterScene(
-      in: displayedFrame.frame,
-      requestedFeatures: requestedFeatures,
-      analysisRegion: analysisRegion,
-      penCapColor: penCapColor,
-      penCapReference: penCapReference,
-      searchCenter: searchCenter
-    )
-    return LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
+      in: displayedFrame.frame, requestedFeatures: requestedFeatures, priors: priors)
+    let inspection = LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
+    trackingInspectionsByLease[leaseID] = .init(frame: displayedFrame, detection: measurement.penCap,
+      reference: reference, priors: priors)
+    guard revision == trackingConfigurationRevision else {
+      throw LearningPathOperationError.requiredState("The tracking reference or camera optics changed during acquisition. Retry with the current reference.")
+    }
+    return inspection
+  }
+
+  private func queueTrackingAcquisition(
+    evidence: TrackingInspectionEvidence?, leaseID: UUID, request: StableWorkflowCapCaptureRequest,
+    phase: TrackingAcquisitionPhase, detail: String?
+  ) {
+    guard let trackingEvidenceRecorder else { return }
+    trackingEvidenceAttempt &+= 1
+    let attempt = trackingEvidenceAttempt
+    guard let evidence else {
+      trackingEvidenceFailure = "No analyzed frame was available to retain for this acquisition (\(phase.rawValue))."
+      return
+    }
+    // Bound queued raw images before spawning work. Disk persistence does not
+    // hold a camera lease or delay Stop/Cancel settlement.
+    guard pendingTrackingEvidenceWrites < 2 else {
+      trackingEvidenceFailure = "Tracking evidence queue is full; this acquisition was not retained."
+      return
+    }
+    pendingTrackingEvidenceWrites += 1
+    var owner = ["operation": "stable-workflow-reference", "leaseID": leaseID.uuidString]
+    if let detail { owner["terminalDetail"] = detail }
+    if let binding = evidence.priors.referenceBinding {
+      owner["boundCaptureConfigurationID"] = binding.cameraConfigurationID.description
+      owner["boundReferenceIdentity"] = binding.referenceIdentity
+    }
+    let ownerEvidence = owner
+    Task {
+      let failure = await trackingEvidenceRecorder.record(
+        frame: evidence.frame, reference: evidence.reference, detection: evidence.detection,
+        searchCenter: request.searchCenter, phase: phase, acquisitionID: leaseID,
+        newerThanNanoseconds: request.newerThanNanoseconds, ownerEvidence: ownerEvidence,
+        priors: evidence.priors, context: request.diagnosticContext)
+      finishTrackingEvidenceWrite(failure, attempt: attempt)
+    }
+  }
+
+  private func finishTrackingEvidenceWrite(_ failure: String?, attempt: UInt64) {
+    pendingTrackingEvidenceWrites -= 1
+    // An older write cannot erase a newer overflow or missing-frame warning.
+    if attempt == trackingEvidenceAttempt { trackingEvidenceFailure = failure }
   }
 
   fileprivate func captureFrameHoldingLease(
@@ -595,7 +695,15 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     await analysisPipeline.setAnalysisRegion(region)
   }
 
+  func setTrackingOpticalConfiguration(_ optical: CameraOpticalConfigurationIdentity?) async {
+    guard trackingOpticalConfiguration != optical else { return }
+    trackingConfigurationRevision &+= 1
+    trackingOpticalConfiguration = optical
+    await analysisPipeline.setTrackingOpticalConfiguration(optical)
+  }
+
   func setPenCapReference(_ reference: PenCapVisualReference?) async {
+    if penCapReference != reference { trackingConfigurationRevision &+= 1 }
     penCapReference = reference
     await analysisPipeline.setPenCapReference(reference)
   }
@@ -708,6 +816,7 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     disposition: VisionComputationLeaseDisposition
   ) async {
     guard activeVisionComputationLeaseIDs.remove(lease.id) != nil else { return }
+    trackingInspectionsByLease[lease.id] = nil
     exclusiveLeaseEndCount &+= 1
     switch disposition {
     case .succeeded:

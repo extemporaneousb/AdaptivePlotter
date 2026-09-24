@@ -519,8 +519,8 @@ private extension PlotterLearningAction {
     case .restart: "Restart Attempt"
     case .redoThisStep: "Redo This Step"
     case .recordAnotherAttempt: "Record Another Attempt"
-    case .reidentifyPenCap: "Reidentify Pen Cap"
-    case .replacePenCapReference: "Replace Pen Cap Reference"
+    case .reidentifyPenCap: "Locate Tracking Reference"
+    case .replacePenCapReference: "Replace Tracking Reference"
     case .cameraCalibration(.buildFivePositionProposal):
       "Run Five-Position Camera Calibration"
     case .cameraCalibration(.returnToAcceptedCenter): "Return Pen Up to Accepted Center"
@@ -1150,7 +1150,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
             mode: .normal
           )) : .start,
         title: item.kind == .penInteraction
-          ? "Identify Pen Cap" : "Move Toward \(facts.selectedBoundaryDirection.displayName)",
+          ? "Identify Holder Landmark" : "Move Toward \(facts.selectedBoundaryDirection.displayName)",
         unavailableReason: reason
       )],
       directionSelection: direction,

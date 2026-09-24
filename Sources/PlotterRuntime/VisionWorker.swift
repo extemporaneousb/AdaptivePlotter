@@ -104,6 +104,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
   public let capSearchRegion: PixelRect
   public let penCapColor: PenCapColor
   public let penCapReference: PenCapVisualReference?
+  public let referenceBinding: PenCapReferenceBinding?
   public let searchCenter: Point2<CameraPixelSpace>?
   public let armatureHalfWidthFraction: Double
   public let armatureTopMarginFraction: Double
@@ -114,6 +115,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     capSearchRegion: PixelRect,
     penCapColor: PenCapColor = .green,
     penCapReference: PenCapVisualReference? = nil,
+    referenceBinding: PenCapReferenceBinding? = nil,
     searchCenter: Point2<CameraPixelSpace>? = nil,
     armatureHalfWidthFraction: Double = 0.055,
     armatureTopMarginFraction: Double = 0.025,
@@ -132,6 +134,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     self.capSearchRegion = capSearchRegion
     self.penCapColor = penCapColor
     self.penCapReference = penCapReference
+    self.referenceBinding = referenceBinding
     self.searchCenter = searchCenter
     self.armatureHalfWidthFraction = armatureHalfWidthFraction
     self.armatureTopMarginFraction = armatureTopMarginFraction
@@ -145,6 +148,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     analysisRegion: PixelRect? = nil,
     penCapColor: PenCapColor = .green,
     penCapReference: PenCapVisualReference? = nil,
+    referenceBinding: PenCapReferenceBinding? = nil,
     searchCenter: Point2<CameraPixelSpace>? = nil
   ) throws -> Self {
     guard frameWidth > 0, frameHeight > 0 else { throw FrameError.invalidDimensions }
@@ -163,6 +167,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
       capSearchRegion: region,
       penCapColor: penCapColor,
       penCapReference: penCapReference,
+      referenceBinding: referenceBinding,
       searchCenter: searchCenter,
       algorithmRevision: penCapReference.map { "\(PenCapVisualReference.revision):\($0.identity)" } ?? algorithmRevision
     )
@@ -256,10 +261,10 @@ public enum PenCapDetectionResult: Hashable, Sendable {
     case .notRequested: "not requested"
     case .found: "found"
     case .notFound(let diagnostics):
-      if let template = diagnostics.template { "Cap tracking lost: \(template.summary)" }
+      if let template = diagnostics.template { "Reference tracking lost: \(template.summary)" }
       else { "no pixels passed the selected pen-cap color thresholds" }
     case .ambiguous(let counts, let diagnostics):
-      if let template = diagnostics.template { "Cap tracking ambiguous: \(template.summary)" }
+      if let template = diagnostics.template { "Reference tracking ambiguous: \(template.summary)" }
       else { "candidate sizes \(counts.map(String.init).joined(separator: ", ")); refusing to choose" }
     case .failed(let reason): reason
     }
@@ -364,7 +369,7 @@ extension MeasurementRequest {
 }
 
 public actor VisionWorker {
-  private var lastReferenceMatch: (identity: String, time: UInt64, point: Point2<CameraPixelSpace>)?
+  private var lastReferenceMatch: (identity: String, configuration: CameraConfigurationID, time: UInt64, point: Point2<CameraPixelSpace>)?
 
   private struct PixelComponent {
     let pixelCount: Int
@@ -390,6 +395,7 @@ public actor VisionWorker {
     analysisRegion: PixelRect? = nil,
     penCapColor: PenCapColor = .green,
     penCapReference: PenCapVisualReference? = nil,
+    referenceBinding: PenCapReferenceBinding? = nil,
     searchCenter: Point2<CameraPixelSpace>? = nil
   ) throws -> PlotterSceneMeasurement {
     let frame = frame.materializingContentHash(for: .analysis)
@@ -403,6 +409,7 @@ public actor VisionWorker {
         analysisRegion: analysisRegion,
         penCapColor: penCapColor,
         penCapReference: penCapReference,
+        referenceBinding: referenceBinding,
         searchCenter: searchCenter
       )
     try validate(priors.capSearchRegion, in: frame)
@@ -601,10 +608,11 @@ public actor VisionWorker {
   ) throws -> PenCapDetectionResult {
     if let reference = priors.penCapReference {
       let result = try PenCapTemplateMatcher.detect(frame: frame, reference: reference,
-        region: priors.capSearchRegion, searchCenter: priors.searchCenter)
+        region: priors.capSearchRegion, searchCenter: priors.searchCenter, binding: priors.referenceBinding)
       if let cap = result.measurement {
         let identity = reference.identity
         if let previous = lastReferenceMatch, previous.identity == identity,
+          previous.configuration == frame.cameraConfigurationID,
           frame.captureNanoseconds > previous.time {
           let seconds = Double(frame.captureNanoseconds - previous.time) / 1_000_000_000
           // Short-interval continuity is deliberately generous; a long capture
@@ -612,12 +620,13 @@ public actor VisionWorker {
           let travel = Double(max(reference.region.width, reference.region.height)) * 2
             + Double(max(frame.width, frame.height)) * 0.5 * seconds
           if seconds <= 2, previous.point.distance(to: cap.trackingPoint) > travel {
-            return .failed("Cap tracking lost: the matching region jumped too far between frames.")
+            return .failed("Reference tracking lost: the matching region jumped too far between frames.")
           }
         }
         if lastReferenceMatch?.identity != identity
+          || lastReferenceMatch?.configuration != frame.cameraConfigurationID
           || frame.captureNanoseconds >= (lastReferenceMatch?.time ?? 0) {
-          lastReferenceMatch = (identity, frame.captureNanoseconds, cap.trackingPoint)
+          lastReferenceMatch = (identity, frame.cameraConfigurationID, frame.captureNanoseconds, cap.trackingPoint)
         }
       }
       return result
@@ -720,7 +729,9 @@ public actor VisionWorker {
         maxY: maxY
       ),
       confidence: min(1, cap.confidence * 0.55),
-      basis: "cap-anchored C920 envelope; inferred, not segmented"
+      basis: priors.penCapReference?.isRigidHolder == true
+        ? "holder-landmark-anchored envelope; inferred, not segmented"
+        : "cap-anchored C920 envelope; inferred, not segmented"
     )
   }
 

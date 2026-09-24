@@ -2704,3 +2704,21 @@ evidence. `make quick-test` excludes the explicitly retained journeys;
 errors in addition to bundle, launcher, full-test, contract, and diff gates.
 
 No automated architecture result is physical validation.
+
+### Bounded tracking acquisition diagnostics
+
+`TrackingAcquisitionEvidenceRecorder` is an App diagnostic file owner invoked at
+stable workflow acquisition boundaries. It copies immutable analyzed pixels,
+reference bank, numeric detector output and available request provenance without
+adding a task/event journal or admission authority. Its twelve-folder/128 MiB
+retention evicts only owned acquisition folders. Manifest publication follows
+raw-sidecar persistence. At most two pending immutable copies are queued after
+the camera lease releases, so storage cannot hold preview or Cancel settlement;
+overflow and storage failure remain visible diagnostics. A caller context may
+include cached reported controller position/pen state and its local snapshot
+time, explicitly separate from image capture time and visually measured pose.
+Ambient analysis does not continuously archive images.
+`WorkbenchDiagnosticCapture` resolves the same frozen-or-ambient frame as the
+camera canvas and adds a values-only selection snapshot from the existing owner.
+These copies are independent of the incident-package assembly UI and cannot be
+used as a fresh observation or replayed controller command.

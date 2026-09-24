@@ -402,7 +402,18 @@ or workflow wait. The episode journal, controller transcript, camera lifecycle,
 and structured diagnostics remain inspectable outside `MainActor`, and the
 operator can export a bounded diagnostic snapshot of existing records and current
 owner projections. A complete replay archive is optional future work, not a
-Learning admission dependency. Recording failure is visible
+Learning admission dependency. On-demand camera export resolves the same frozen
+selection frame as the canvas and includes a structured selection-owner snapshot
+(selection, attempt, phase, continuation and frame identities); it must not export
+a different ambient frame while presenting a frozen selection.
+Bounded workflow tracking diagnostics retain exact analyzed raw pixels with the
+immutable reference bank, candidate scores/anchors, rejection gates, search hint,
+algorithm options and capture provenance. At most twelve acquisition folders and
+128 MiB are retained; representative stable successes and acquisition failures are
+captured, not ambient video. Missing controller pose or pen-state evidence stays
+explicitly unknown. These diagnostic copies are never accepted Learning or motion
+authority and are separate from incident-package assembly.
+Recording failure is visible
 but cannot authorize work, manufacture evidence, alter physical safety, or delay
 Stop/shutdown.
 
@@ -615,9 +626,15 @@ through the existing `PlotterUIIntentSink`. There is no **Apply Learning Point**
 button or second user confirmation. A stale or refused click remains governed
 by the existing point-selection owner and never becomes an automatic retry.
 
-Pen-cap appearance is learned through **Identify Pen Cap** in Exercise 1.1.
-On one frozen exact frame, the operator drags a rectangle around the cap and
-holder structure that moves with it, then clicks the cap inside the rectangle.
+New tracking references are learned through **Identify Holder Landmark** in Exercise
+1.1. On one frozen exact frame, the operator drags a compact rectangle around a
+rigid permanent holder surface, then clicks a landmark on that same surface.
+The reference carries explicit `rigidHolder` purpose and semantic optical
+configuration. The clicked landmark is not an inferred pen-cap or pen-tip point;
+changing from a historical cap anchor requires the existing dependent calibration
+invalidation. Same-anchor recovery preserves the reference's existing purpose.
+Pen color, ink color and Pen-Up/Down state are not recognition labels or an
+excuse to include the moving pen or paper in the holder crop.
 After the rectangle is drawn, ordinary dragging pans the video while keeping the
 rectangle in camera coordinates; **Redraw Reference** explicitly starts another
 rectangle. **Pan Video** also permits navigation before a rectangle is drawn.
@@ -634,20 +651,24 @@ frame dimension. A bounded RGB reference (maximum 32 by 32 samples) retains dark
 and chromatic pixels; insufficient spatial detail is refused. The independent
 anchor can be anywhere inside it. Tracking transforms that point, never substitutes
 the rectangle center or bottom edge, and leaves cap-to-tip calibration separate.
-The overlay distinguishes the matched reference rectangle from the cap anchor.
+The overlay distinguishes the matched reference rectangle from its independently
+clicked anchor. Current capture-generation admission is a separate binding that
+requires matching semantic optical configuration; restarting the same camera
+does not rewrite the original reference's acquisition configuration or identity.
+Changed source, dimensions, format or optical configuration requires reidentification.
 
 The accepted Learning checkpoint persists the reference and anchor, exact frame
 hash/identity, source, camera configuration, dimensions, format, counts and revision.
 The complete reference identity feeds generic analysis and every exact calibration
 inspection and prevents mixing different anchors within a calibration proposal.
 Old color-only checkpoints remain readable; their appearance cannot authorize LIVE
-tracking and explicitly requires **Reidentify Pen Cap** in the Learning panel
+tracking and explicitly requires **Locate Tracking Reference** in the Learning panel
 when accepted Pen Learning is present.
 Saved physical results are not erased by loading an old appearance. SIMULATED
 geometry remains source-separated. A reference selection is recognition input,
 not proof of physical pen state, calibration accuracy or ink.
 
-**Reidentify Pen Cap** is an observation of the same physical anchor on a new
+**Locate Tracking Reference** is an observation of the same physical anchor on a new
 exact frame. One click translates the previous reference rectangle around its
 stored anchor offset; the operator may redraw the rectangle when needed. The
 click is recorded as an operator observation. Same-anchor recovery retains the
@@ -673,7 +694,7 @@ requires the explicit Raise Pen action; reidentification never raises it itself.
 Previously revalidated saved-map provenance stays historical while the current
 exact capture, position and optical context must remain compatible.
 
-**Replace Pen Cap Reference** is the explicit changed-cap/changed-anchor path.
+**Replace Tracking Reference** is the explicit changed-surface/changed-anchor path.
 It requires a new rectangle and anchor, retains accepted Pen actuation, X/Y
 boundary, center and center-arrival evidence, and invalidates camera/cap and
 downstream tip/drawing calibration only after saving the new appearance.
@@ -708,14 +729,14 @@ stale revision, foreign operation or capability, changed environment, wrong
 phase, missing prerequisite, or closed admission receives one typed refusal and
 remedy and invokes no lower effect.
 
-The first action remains **Identify Pen Cap**. EA-04 exact-frame point selection
+The first action remains **Identify Holder Landmark**. EA-04 exact-frame point selection
 owns that click, frame provenance, sampling, and accepted cap evidence;
 `PlotterPenInteractionRuntime` neither captures a frame nor manufactures camera
 or Vision evidence. Identification must be accepted before the first question
 or any pen actuation request. A stale or rejected click keeps identification
 pending and performs no machine action.
 
-**Identify Pen Cap** requires a current exact frame but does not require a
+**Identify Holder Landmark** requires a current exact frame but does not require a
 controller session or Motion authorization. A valid cap-body click opens the
 first Up question and remains accepted. If controller connection or Motion is
 then missing, **Confirm Pen Up** and the current servo slider stay visible but disabled

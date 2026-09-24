@@ -82,7 +82,7 @@ struct CameraCompositionVisionLifecycleTests {
         _ = try await captureTask.value
         Issue.record("Missing cap must fail")
       } catch LearningPathOperationError.requiredState(let detail) {
-        #expect(detail.contains("Reidentify Pen Cap"))
+        #expect(detail.contains("Locate Tracking Reference"))
       }
     case .cancelled:
       captureTask.cancel()
@@ -493,8 +493,8 @@ struct CameraCompositionVisionLifecycleTests {
       _ = try await request.value
       Issue.record("A gray frame must not produce a cap measurement")
     } catch LearningPathOperationError.requiredState(let detail) {
-      #expect(detail.contains("No pen cap detected"))
-      #expect(detail.contains("Reidentify Pen Cap"))
+      #expect(detail.contains("No tracking reference detected"))
+      #expect(detail.contains("Locate Tracking Reference"))
       #expect(!detail.contains("reset Learning"))
     }
     let diagnostics = await session.visionDiagnostics()
@@ -583,7 +583,7 @@ struct CameraCompositionVisionLifecycleTests {
     _ = await session.stop()
   }
 
-  @Test("planned-observation cancellation releases its one exclusive Vision lease")
+  @Test("planned-observation cancellation returns its nonthrowing rejection and releases its one exclusive Vision lease")
   func plannedObservationCancellationReleasesExclusiveLease() async throws {
     let device = CameraDevice(
       id: CameraDeviceID(rawValue: "planned-cancellation-camera"),
@@ -610,8 +610,10 @@ struct CameraCompositionVisionLifecycleTests {
     _ = await session.discover()
     _ = await session.start()
     _ = await session.setAutomaticInspection(.twoFPS, requestedFeatures: [.penCap])
+    let request = try plannedObservationRequest()
     let observationTask = Task {
-      await session.observePlannedDrawingInk(try! plannedObservationRequest())
+      let outcome = await session.observePlannedDrawingInk(request)
+      return (outcome, Task.isCancelled)
     }
     try await waitUntil { await checkpointGate.isHolding }
     var diagnostics = await session.visionDiagnostics()
@@ -621,7 +623,8 @@ struct CameraCompositionVisionLifecycleTests {
 
     observationTask.cancel()
     await checkpointGate.release()
-    let outcome = await observationTask.value
+    let (outcome, wasCancelled) = await observationTask.value
+    #expect(wasCancelled)
     guard case .rejected(let rejection) = outcome else {
       Issue.record("cancelled observation must not publish partial evidence: \(outcome)")
       return

@@ -189,7 +189,7 @@ public struct PlotterSceneAnalysisDiagnostics: Codable, Hashable, Sendable {
 public actor PlotterSceneAnalysisPipeline {
   typealias Analyzer = @Sendable (StampedFrame) async throws -> PlotterSceneMeasurement
   typealias RegionAnalyzer =
-    @Sendable (StampedFrame, SceneFeatureSet, PixelRect?, PenCapColor, PenCapVisualReference?) async throws
+    @Sendable (StampedFrame, SceneFeatureSet, PixelRect?, PenCapColor, PenCapVisualReference?, PenCapReferenceBinding?) async throws
     -> PlotterSceneMeasurement
 
   private let clock: any RuntimeClock
@@ -200,6 +200,7 @@ public actor PlotterSceneAnalysisPipeline {
   private var analysisRegion: PixelRect?
   private var penCapColor: PenCapColor = .green
   private var penCapReference: PenCapVisualReference?
+  private var trackingOpticalConfiguration: CameraOpticalConfigurationIdentity?
   private var pendingFrame: DisplayedFrame?
   private var activeFrameSequence: UInt64?
   private var submittedFrameCount: UInt64 = 0
@@ -223,13 +224,14 @@ public actor PlotterSceneAnalysisPipeline {
   ) {
     self.clock = clock
     self.activityHandler = activityHandler
-    analyzer = { frame, features, region, penCapColor, penCapReference in
+    analyzer = { frame, features, region, penCapColor, penCapReference, binding in
       try await worker.inspectPlotterScene(
         in: frame,
         requestedFeatures: features,
         analysisRegion: region,
         penCapColor: penCapColor,
-        penCapReference: penCapReference
+        penCapReference: penCapReference,
+        referenceBinding: binding
       )
     }
   }
@@ -241,7 +243,7 @@ public actor PlotterSceneAnalysisPipeline {
   ) {
     self.clock = clock
     self.activityHandler = activityHandler
-    self.analyzer = { frame, _, _, _, _ in try await analyzer(frame) }
+    self.analyzer = { frame, _, _, _, _, _ in try await analyzer(frame) }
   }
 
   public func setAnalysisRegion(_ region: PixelRect?) async {
@@ -257,6 +259,15 @@ public actor PlotterSceneAnalysisPipeline {
     guard penCapReference != reference else { return }
     let active = cancelCurrentAnalysis()
     penCapReference = reference
+    configurationRevision &+= 1
+    if active { await activityHandler(false) }
+    publishSemanticSnapshot()
+  }
+
+  public func setTrackingOpticalConfiguration(_ optical: CameraOpticalConfigurationIdentity?) async {
+    guard trackingOpticalConfiguration != optical else { return }
+    let active = cancelCurrentAnalysis()
+    trackingOpticalConfiguration = optical
     configurationRevision &+= 1
     if active { await activityHandler(false) }
     publishSemanticSnapshot()
@@ -410,7 +421,12 @@ public actor PlotterSceneAnalysisPipeline {
             requestedFeatures,
             analysisRegion,
             penCapColor,
-            penCapReference
+            penCapReference,
+            penCapReference.flatMap { reference in
+              trackingOpticalConfiguration.flatMap {
+                PenCapReferenceBinding(reference: reference, frame: analysisFrame, opticalConfiguration: $0)
+              }
+            }
           )
         )
       } catch {

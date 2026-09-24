@@ -14,7 +14,7 @@ enum ExactWorkflowVisionOwner: String, CaseIterable, Hashable, Sendable {
 
   var operatorLabel: String {
     switch self {
-    case .penCapAppearance: "pen-cap identification"
+    case .penCapAppearance: "tracking reference"
     case .cameraCalibration: "camera calibration"
     case .sparseTipCalibration: "pen-tip calibration"
     case .borderValidation: "Drawing Border validation"
@@ -316,6 +316,7 @@ struct PlotterLearningPresentationFacts: Sendable {
   let savedTrainingCandidate: SavedTrainingFacts?
   let reset: ResetFacts
   let capRecoveryDetail: String?
+  let capRecoveryIsActive: Bool
 
   init(
     source: OperatorFrameMode = .live,
@@ -335,7 +336,8 @@ struct PlotterLearningPresentationFacts: Sendable {
     acceptedCheckpointStatus: AcceptedArtifactCheckpointStatus = .unavailable,
     savedTrainingCandidate: SavedTrainingFacts? = nil,
     reset: ResetFacts = ResetFacts(),
-    capRecoveryDetail: String? = nil
+    capRecoveryDetail: String? = nil,
+    capRecoveryIsActive: Bool = false
   ) {
     self.source = source
     self.learningEnabled = learningEnabled
@@ -355,6 +357,7 @@ struct PlotterLearningPresentationFacts: Sendable {
     self.savedTrainingCandidate = savedTrainingCandidate
     self.reset = reset
     self.capRecoveryDetail = capRecoveryDetail
+    self.capRecoveryIsActive = capRecoveryIsActive
   }
 }
 
@@ -378,6 +381,7 @@ struct LearningPathProjection: Hashable, Sendable {
   let menu: LearningPathMenuPresentation
 
   var capRecoveryDetail: String? = nil
+  var capRecoveryIsActive = false
   var requiredExerciseActions: [PlotterUILearningActionStripDecision] = []
   var selectedExerciseActions: PlotterUILearningActionStripDecision? { selectedAction.actionStrip }
   var separateActiveExerciseActions: [PlotterUILearningActionStripDecision] {
@@ -701,6 +705,7 @@ struct PlotterLearningDetailedPresentationNormalizer: Sendable {
         resetAllPlan: actionability.resetAllPlanIsReachable ? snapshot.reset.resetAllPlan : nil
       ),
       capRecoveryDetail: snapshot.capRecoveryDetail,
+      capRecoveryIsActive: snapshot.capRecoveryIsActive,
       requiredExerciseActions: actionability.strips.filter(\.mustRemainVisible)
         .compactMap { adapter.actionStrip($0) }
     )
@@ -712,13 +717,13 @@ struct PlotterLearningDetailedPresentationNormalizer: Sendable {
   ) -> String {
     switch itemID {
     case .stage(.humanGuidedDiscovery):
-      "Identify and calibrate the pen, measure all four drawing-boundary sides, move to the estimated center, calibrate the camera from five pen-cap positions, and calibrate the pen tip from four corner marks."
+      "Identify and calibrate the pen, measure all four drawing-boundary sides, move to the estimated center, calibrate the camera from five tracking-landmark positions, and calibrate the pen tip from four corner marks."
     case .humanGuidedDiscovery(.penInteraction):
-      "Identify the pen cap on one frozen frame, then set and confirm the physical Pen Up, Pen Down, and final Pen Up positions."
+      "Identify a landmark on the fixed moving holder in one frozen frame, then set and confirm the physical Pen Up, Pen Down, and final Pen Up positions."
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       "Measure the X−, X+, Y−, and Y+ drawing-boundary sides with operator Stop, then move Pen Up to their estimated center."
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
-      "Run five Pen-Up cap measurements at the center and four axis positions. Three measurements fit the camera calibration and two independently check it before review."
+      "Run five Pen-Up tracking-landmark measurements at the center and four axis positions. Three measurements fit the camera calibration and two independently check it before review."
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       "Draw four 2 mm-radius calibration circles whose centers are 10 mm inside the accepted Drawing Boundary. After one final Pen-Up reveal, click the four circle centers on the unchanged frame and review the proposed pen-tip calibration."
     case .stage(.borderValidations):
@@ -908,11 +913,11 @@ extension PlotterLearningDetailedPresentationNormalizer {
   ) -> [PresentationFragment] {
     switch step {
     case .penInteraction:
-      [.text("Identify Pen Cap, set and confirm"), .cue(.up), .text("then"), .cue(.down), .text("then confirm final"), .cue(.up)]
+      [.text("Identify the holder landmark, then set and confirm"), .cue(.up), .text("then"), .cue(.down), .text("then confirm final"), .cue(.up)]
     case .pairedBoundaryDiscoveryAndCentering:
       [.text("Choose a direction, observe the side, then press"), .cue(.stop)]
     case .calibrateCameraAndVisibleCap:
-      [.text("Run five exact cap measurements at C, X−, Y+, X+, and Y−; fit the first three, check the final two independently, then accept or reject the camera calibration.")]
+      [.text("Run five exact tracking-landmark measurements at C, X−, Y+, X+, and Y−; fit the first three, check the final two independently, then accept or reject the camera calibration.")]
     case .calibratePenContactFromSparseMarks:
       [.text("The app raises the pen before moving, then draws four 2 mm-radius calibration circles with their centers 10 mm inside the accepted Drawing Boundary and Pen Up between circles. After the final Pen-Up reveal, click all four centers on the unchanged frame and review the proposed pen-tip calibration.")]
     }

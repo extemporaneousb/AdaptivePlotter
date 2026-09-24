@@ -39,7 +39,7 @@ enum ActionSurfacePointStaging {
   ) -> ActionSurfacePointStagingResult {
     guard let request = presentation.pointSelectionRequest else { return .ignored }
     if request.purpose == .penCapAppearance, referenceRegion == nil, request.referenceGeometry == nil {
-      return .refused("Draw a reference around the cap and co-moving holder, then click the cap inside it.")
+      return .refused("Draw a compact reference on the fixed moving holder, then click a distinct landmark on that same surface.")
     }
     guard var submission = ExactFramePointSubmissionBuilder.submission(
       presentation: presentation, viewport: viewport, at: location, viewSize: viewSize,

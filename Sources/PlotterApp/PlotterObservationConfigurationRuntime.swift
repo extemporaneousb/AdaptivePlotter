@@ -302,6 +302,12 @@ actor PlotterObservationConfigurationRuntime {
 
   func snapshot() async -> CameraCaptureSnapshot { await lower.snapshot() }
 
+  func setTrackingOpticalConfiguration(_ optical: CameraOpticalConfigurationIdentity?) async {
+    guard !admissionClosed else { return }
+    await lower.setTrackingOpticalConfiguration(optical)
+  }
+
+
   func workbenchCameraSnapshot() -> PlotterWorkbenchCameraSnapshot { cameraRole }
 
   private func settlePortraitForPlotterSource(admittedRole: WorkbenchCameraRole,

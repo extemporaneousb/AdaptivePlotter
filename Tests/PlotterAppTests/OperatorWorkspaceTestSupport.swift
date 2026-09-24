@@ -1670,7 +1670,8 @@ func resolvedObservationSession(
   reconfigurationGate: TestConfigurationSuspension? = nil,
   startupGate: TestConfigurationSuspension? = nil,
   snapshotProvider: (@Sendable () async -> CameraCaptureSnapshot)? = nil,
-  restartProvider: (@Sendable () async -> CameraCaptureSnapshot)? = nil
+  restartProvider: (@Sendable () async -> CameraCaptureSnapshot)? = nil,
+  captureProvider: (@Sendable (UInt64) async throws -> DisplayedFrame?)? = nil
 ) -> any PlotterObservationCameraSessionPort {
   TestObservationCameraSessionPort(
     fixture: fixture,
@@ -1680,7 +1681,8 @@ func resolvedObservationSession(
     configurationSuspension: reconfigurationGate,
     startupSuspension: startupGate,
     snapshotProvider: snapshotProvider,
-    restartProvider: restartProvider
+    restartProvider: restartProvider,
+    captureProvider: captureProvider
   )
 }
 
@@ -1695,6 +1697,7 @@ private final class TestObservationCameraSessionPort:
   let startupSuspension: TestConfigurationSuspension?
   let snapshotProvider: (@Sendable () async -> CameraCaptureSnapshot)?
   let restartProvider: (@Sendable () async -> CameraCaptureSnapshot)?
+  let captureProvider: (@Sendable (UInt64) async throws -> DisplayedFrame?)?
 
   init(
     fixture: TestObservationCameraSession,
@@ -1704,7 +1707,8 @@ private final class TestObservationCameraSessionPort:
     configurationSuspension: TestConfigurationSuspension?,
     startupSuspension: TestConfigurationSuspension?,
     snapshotProvider: (@Sendable () async -> CameraCaptureSnapshot)?,
-    restartProvider: (@Sendable () async -> CameraCaptureSnapshot)?
+    restartProvider: (@Sendable () async -> CameraCaptureSnapshot)?,
+    captureProvider: (@Sendable (UInt64) async throws -> DisplayedFrame?)?
   ) {
     self.fixture = fixture
     frameUpdateSource = frameUpdates
@@ -1714,6 +1718,7 @@ private final class TestObservationCameraSessionPort:
     self.startupSuspension = startupSuspension
     self.snapshotProvider = snapshotProvider
     self.restartProvider = restartProvider
+    self.captureProvider = captureProvider
   }
 
   func discover() async -> CameraCaptureSnapshot { fixture.discoverResponse() }
@@ -1749,6 +1754,7 @@ private final class TestObservationCameraSessionPort:
     )
   }
   func captureFrame(newerThanNanoseconds boundary: UInt64) async throws -> DisplayedFrame? {
+    if let captureProvider { return try await captureProvider(boundary) }
     await inspectionSuspension?.waitIfArmed()
     if Task.isCancelled { await inspectionSuspension?.recordCancellation() }
     try Task.checkCancellation()

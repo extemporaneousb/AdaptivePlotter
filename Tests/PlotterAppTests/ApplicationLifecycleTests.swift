@@ -16,25 +16,33 @@ struct ApplicationLifecycleTests {
 
   @Test("closing the last window terminates the local application")
   @MainActor
-  func lastWindowCloseTerminates() {
-    let delegate = AdaptivePlotterApplicationDelegate()
+  func lastWindowCloseTerminates() async throws {
+    let fixture = try isolatedApplicationDelegate()
+    let delegate = fixture.delegate
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
 
     #expect(delegate.applicationShouldTerminateAfterLastWindowClosed(NSApplication.shared))
+    await delegate.applicationRuntime.shutdown()
   }
 
   @Test("saved window state cannot suppress a fresh operator window")
   @MainActor
-  func savedApplicationStateIsDisabled() {
-    let delegate = AdaptivePlotterApplicationDelegate()
+  func savedApplicationStateIsDisabled() async throws {
+    let fixture = try isolatedApplicationDelegate()
+    let delegate = fixture.delegate
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
 
     #expect(!delegate.applicationShouldRestoreApplicationState(NSApplication.shared))
     #expect(!delegate.applicationShouldSaveApplicationState(NSApplication.shared))
+    await delegate.applicationRuntime.shutdown()
   }
 
   @Test("application composition injects artifact reset runtime and shutdown closes admission")
   @MainActor
-  func applicationOwnsArtifactResetRuntimeLifecycle() async {
-    let delegate = AdaptivePlotterApplicationDelegate()
+  func applicationOwnsArtifactResetRuntimeLifecycle() async throws {
+    let fixture = try isolatedApplicationDelegate()
+    let delegate = fixture.delegate
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
 
     #expect(!delegate.applicationRuntime.artifactResetEpisodeSnapshot.admissionClosed)
     await delegate.applicationRuntime.shutdown()
@@ -285,4 +293,21 @@ private final class ApplicationLifecycleCloseBlockingLink: MachineLink, @uncheck
   ) async throws -> MachineLinkReadReceipt {
     throw MachineLinkError.notOpen
   }
+}
+
+@MainActor
+private func isolatedApplicationDelegate() throws -> (delegate: AdaptivePlotterApplicationDelegate, directory: URL) {
+  let log = EventLog()
+  let machine = try LowerMachineSessionFixture(log: log)
+  let camera = try TestObservationCameraSession()
+  let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+    "application-lifecycle-\(UUID().uuidString)", isDirectory: true)
+  let evidence = DrawingRunEvidencePort(store: DrawingRunEvidenceStore(
+    fileURL: directory.appendingPathComponent("evidence.json")))
+  let workspace = plotterApplicationRuntime(machine: machine, camera: camera,
+    drawingEvidencePort: evidence, log: log)
+  let delegate = AdaptivePlotterApplicationDelegate(
+    composition: PlotterEpisodeComposition(application: workspace))
+  #expect(delegate.applicationRuntime === workspace)
+  return (delegate, directory)
 }

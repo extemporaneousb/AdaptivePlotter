@@ -462,6 +462,7 @@ struct StableWorkflowCapInspection: Sendable {
 struct StableWorkflowCapCaptureRequest: Sendable {
   let newerThanNanoseconds: UInt64
   var searchCenter: Point2<CameraPixelSpace>? = nil
+  var diagnosticContext: TrackingAcquisitionContext? = nil
 }
 
 protocol StableWorkflowCapCapturePort: Sendable {
@@ -654,7 +655,8 @@ private extension PlotterLearningPresentationFacts {
       acceptedCheckpointStatus: acceptedCheckpointStatus,
       savedTrainingCandidate: savedTrainingCandidate,
       reset: reset,
-      capRecoveryDetail: capRecoveryDetail
+      capRecoveryDetail: capRecoveryDetail,
+      capRecoveryIsActive: capRecoveryIsActive
     )
   }
 }
@@ -717,8 +719,25 @@ private struct PlotterApplicationEffectLease: Hashable, Sendable {
   let id: UUID
 }
 
+struct LearningSelectionDiagnosticSnapshot: Codable, Sendable {
+  let activeAttemptID: String?
+  let activeOwner: String?
+  let recoveryAttemptID: String?
+  let taskTransitionID: String?
+  let selectionID: String?
+  let selectionPhase: String
+  let continuationIsActive: Bool
+  let selectedFrameID: String?
+  let frozenFrameID: String?
+  let resolvedCanvasFrameID: String?
+  let canvasHasSelection: Bool
+}
+
 private struct PlotterApplicationLearningTask {
   let transitionID: PlotterLearningTransitionID
+  let ownerID: LearningPathItemID
+  let source: OperatorFrameMode
+  var attemptID: ExerciseAttemptID?
   let task: Task<String?, Never>
 }
 
@@ -1376,6 +1395,24 @@ final class PlotterApplicationRuntime:
     else { return nil }
     sparseTipBatchPlanCache = (acceptedBoundaryAggregates, plan)
     return plan
+  }
+
+  var learningSelectionDiagnosticSnapshot: LearningSelectionDiagnosticSnapshot {
+    let selection = pointSelectionEpisodeProjection.exactPointSelection
+    let canvas = actionSurfacePresentation
+    return LearningSelectionDiagnosticSnapshot(
+      activeAttemptID: activeExerciseAttemptID.map { String(describing: $0.rawValue) },
+      activeOwner: activeExerciseAttemptOwnerID.map { String(describing: $0) },
+      recoveryAttemptID: capReidentificationAttemptID.map { String(describing: $0.rawValue) },
+      taskTransitionID: activeLearningActionTask.map { String(describing: $0.transitionID) },
+      selectionID: selection.request.map { String(describing: $0.id.rawValue) },
+      selectionPhase: String(describing: selection.phase),
+      continuationIsActive: selection.continuationIsActive,
+      selectedFrameID: selection.request?.frame.frameID,
+      frozenFrameID: frozenPointSelectionFrame?.frame.id.rawValue,
+      resolvedCanvasFrameID: (canvas.usesAmbientPreviewFrame
+        ? actionSurfacePreview.displayedFrame : canvas.displayedFrame)?.frame.id.rawValue,
+      canvasHasSelection: canvas.pointSelectionRequest != nil)
   }
 
   var pointSelectionRequest: PlotterPointSelectionRequest? {
@@ -2409,7 +2446,8 @@ final class PlotterApplicationRuntime:
       displayedFrame: surfaceFrame,
       sceneState: visionAnalysisSnapshot,
       sceneIsAvailable: sceneOverlayIsAvailable,
-      workflowVisionIsExclusive: exactWorkflowVisionOwner != nil
+      workflowVisionIsExclusive: exactWorkflowVisionOwner != nil,
+      frozenSelectionIsActive: pointSelectionRequest != nil && frozenPointSelectionFrame != nil
     )
     let fittedRegion = surfaceFrame.flatMap(learnedBoundsPresentationRegion)
     let viewportContext = surfaceFrame.map {
@@ -3582,7 +3620,8 @@ final class PlotterApplicationRuntime:
       displayedFrame: surfaceFrame,
       sceneState: visionAnalysisSnapshot,
       sceneIsAvailable: sceneOverlayIsAvailable,
-      workflowVisionIsExclusive: exactWorkflowVisionOwner != nil
+      workflowVisionIsExclusive: exactWorkflowVisionOwner != nil,
+      frozenSelectionIsActive: pointSelectionRequest != nil && frozenPointSelectionFrame != nil
     ).statuses[overlay]!
   }
 
@@ -4212,7 +4251,7 @@ final class PlotterApplicationRuntime:
       retained.semanticIdentity.toolAssembly == identity.toolAssembly
     else { return (nil, nil) }
     let current = actionSurfacePreview.latestFrameSnapshot
-    let optical = current.flatMap { try? exactTipCalibrationFrame($0).opticalConfiguration }
+    let optical = current.flatMap { try? cameraOpticalConfiguration(for: $0) }
     let reference = retained.referenceFrame.flatMap { value in
       value.opticalConfiguration.mountRevision == identity.cameraMountRevision
         && value.opticalConfiguration.reframingRevision == identity.cameraReframingRevision
@@ -4220,6 +4259,12 @@ final class PlotterApplicationRuntime:
     }
     let appearance = retained.penCapAppearance.flatMap { value in
       guard let current else { return value }
+      if let visual = value.visualReference, visual.isRigidHolder,
+        visual.opticalConfiguration != nil {
+        guard let optical, PenCapReferenceBinding(reference: visual, frame: current,
+          opticalConfiguration: optical) != nil else { return nil }
+        return value
+      }
       return value.source == current.source
         && value.cameraConfigurationID == current.frame.cameraConfigurationID
         && value.width == current.frame.width && value.height == current.frame.height
@@ -4988,14 +5033,14 @@ final class PlotterApplicationRuntime:
     })
     candidates.append(uiCandidate(
       id: PlotterAppUIActionID.reidentifyPenCap,
-      title: "Reidentify Pen Cap",
+      title: "Locate Tracking Reference",
       intent: .learningAction(PlotterAppUIActionID.reidentifyPenCapRequest),
       unavailableReason: capReidentificationUnavailableReason,
       owner: "PlotterPointSelectionRuntime"
     ))
     candidates.append(uiCandidate(
       id: PlotterAppUIActionID.replacePenCapReference,
-      title: "Replace Pen Cap Reference",
+      title: "Replace Tracking Reference",
       intent: .learningAction(PlotterAppUIActionID.replacePenCapReferenceRequest),
       unavailableReason: capReidentificationUnavailableReason,
       owner: "PlotterPointSelectionRuntime"
@@ -6414,7 +6459,8 @@ final class PlotterApplicationRuntime:
       acceptedCheckpointStatus: acceptedArtifactCheckpointStatus,
       savedTrainingCandidate: savedTrainingCandidate,
       reset: .init(),
-      capRecoveryDetail: capRecoveryDetail
+      capRecoveryDetail: capRecoveryDetail,
+      capRecoveryIsActive: capReidentificationAttemptID != nil
     )
   }
 
@@ -6509,7 +6555,7 @@ final class PlotterApplicationRuntime:
       switch outcome {
       case .completed: return nil
       case .possibleInk(let reason):
-        return "Pen-tip calibration stopped: \(reason) Existing marks remain excluded. Reidentify Pen Cap can capture a new observation without drawing."
+        return "Pen-tip calibration stopped: \(reason) Existing marks remain excluded. Locate Tracking Reference can capture a new observation without drawing."
       case .refused(let reason), .failed(let reason): return reason
       case .cancelled: return "Pen-tip calibration was cancelled. Refresh before retrying."
       }
@@ -6525,7 +6571,9 @@ final class PlotterApplicationRuntime:
       markSemanticPresentationChanged()
       return nil
     case .cancel:
+      let pending = cancelOwnedLearningAction(ownerID: ownerID)
       await cancelExerciseAttempt(ownerID)
+      _ = await pending?.task.value
       return nil
     case .stop(let capabilityID):
       guard ownerID == activeExerciseAttemptOwnerID else {
@@ -6546,6 +6594,7 @@ final class PlotterApplicationRuntime:
     }
     activeLearningActionTask = PlotterApplicationLearningTask(
       transitionID: transitionID,
+      ownerID: ownerID, source: frameMode, attemptID: activeExerciseAttemptID,
       task: task
     )
     let remedy = await task.value
@@ -6731,10 +6780,17 @@ final class PlotterApplicationRuntime:
       mode: mode
     )
     guard let attemptID = activeExerciseAttemptID else { return }
+    let source = frameMode
+    func ownsAttempt() -> Bool {
+      applicationAdmissionIsOpen && !Task.isCancelled && frameMode == source
+        && activeExerciseAttemptID == attemptID
+        && activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction)
+    }
     let admission = await submitPenInteraction(.start(
       mode: penInteractionAttemptMode(mode),
       attemptID: attemptID.rawValue
     ))
+    guard ownsAttempt() else { return }
     guard case .applied = admission else {
       finishActiveExerciseAttempt(disposition: .refused(discoveryError ?? "Pen Interaction refused."))
       return
@@ -6750,6 +6806,7 @@ final class PlotterApplicationRuntime:
             requestedFeatures: requestedSceneFeatures,
             analysisRegion: videoAnalysisRegionLock?.region
           ) {
+            guard ownsAttempt() else { return }
             frame = inspection.displayedFrame
             displayedFrame = inspection.displayedFrame
             latestLiveCameraFrame = inspection.displayedFrame
@@ -6762,6 +6819,7 @@ final class PlotterApplicationRuntime:
             )
           }
         } catch {
+          guard ownsAttempt() else { return }
           visionError =
             "Frozen-frame overlay analysis failed — \(actionableDescription(error))"
         }
@@ -6769,16 +6827,21 @@ final class PlotterApplicationRuntime:
       if frame == nil {
         frame = try await captureProtocolFrame(newerThan: boundary)
       }
+      guard ownsAttempt() else { return }
       guard let frame else {
         throw LearningPathOperationError.freshFrameUnavailable
       }
       let staged = try await pointSelectionRuntime.stage(
         frame: frame,
         presentationTransformRevision: PlotterPresentationTransformRevision(),
-        prompt: "Draw a rectangle around the cap and moving holder, then click the cap inside it. Include edges; leave out stationary rails and paper.",
+        prompt: "Draw a compact rectangle on the fixed moving holder, then click a distinct landmark on that same surface. Exclude the replaceable pen, rails and paper.",
         purpose: .penCapAppearance,
         requiredPointCount: 1
       )
+      guard ownsAttempt() else {
+        _ = await pointSelectionRuntime.cancel(selectionID: staged.request.id)
+        return
+      }
       installPointSelectionProjection(staged.projection)
       pendingToolContactEvidence = []
       pendingToolContactClickFrame = nil
@@ -6787,9 +6850,11 @@ final class PlotterApplicationRuntime:
         staged.recordingDiagnostic ?? pointSelectionRecordingDiagnostic
       discoveryError = nil
     } catch {
+      guard ownsAttempt() else { return }
       discoveryError =
-        "Identify Pen Cap could not freeze an exact frame: \(actionableDescription(error))"
+        "Identify Holder Landmark could not freeze an exact frame: \(actionableDescription(error))"
       _ = await submitPenInteraction(.finish(.failed(String(describing: error))))
+      guard ownsAttempt() else { return }
       finishActiveExerciseAttempt(disposition: .failed(String(describing: error)))
       restartableExerciseItemID = .humanGuidedDiscovery(.penInteraction)
     }
@@ -6854,7 +6919,9 @@ final class PlotterApplicationRuntime:
     beginExerciseAttempt(ownerID: .humanGuidedDiscovery(.penInteraction), mode: .normal)
     guard let attemptID = activeExerciseAttemptID else { return "Cap selection could not start." }
     capReidentificationAttemptID = attemptID
-    capRecoveryDetail = nil
+    capRecoveryDetail = replacesAnchor
+      ? "Select a compact patch on the fixed moving holder, then click a distinct landmark on that same surface. This replaces optical learning; mechanical Learning and existing marks are retained."
+      : "Capture-only selection: click the same physical landmark in the frozen video. No pen or carriage motion is requested."
     restartableExerciseItemID = nil
     markSemanticPresentationChanged()
     do {
@@ -6896,8 +6963,8 @@ final class PlotterApplicationRuntime:
         frame: frame,
         presentationTransformRevision: PlotterPresentationTransformRevision(),
         prompt: replacesAnchor
-          ? "Select the new cap and holder, then click its anchor. This replaces the optical reference and requires Camera and Pen-Tip Calibration; mechanical Learning and existing marks are retained."
-          : "Click the same physical cap anchor. Your click is an operator observation; compatible calibration is retained after a position residual check. Use Replace Pen Cap Reference for a different cap or anchor.",
+          ? "Select a compact patch on the fixed moving holder and click a landmark on that same surface. Exclude the replaceable pen. Camera and Pen-Tip Calibration must be repeated; mechanical Learning and existing marks are retained."
+          : "Click the same physical landmark. Compatible calibration is retained after a position residual check. Use Replace Tracking Reference to move to a different surface or landmark.",
         purpose: .penCapAppearance,
         requiredPointCount: 1,
         referenceGeometry: geometry
@@ -6916,7 +6983,7 @@ final class PlotterApplicationRuntime:
     } catch {
       guard capReidentificationAttemptID == attemptID,
         activeExerciseAttemptID == attemptID else { return "Cap selection was cancelled." }
-      let detail = "Reidentify Pen Cap could not freeze an exact frame: \(actionableDescription(error))"
+      let detail = "Locate Tracking Reference could not freeze an exact frame: \(actionableDescription(error))"
       discoveryError = detail
       await finishCapRecovery(attemptID: attemptID, disposition: .failed(detail))
       markSemanticPresentationChanged()
@@ -6975,14 +7042,14 @@ final class PlotterApplicationRuntime:
           retainedPoseApplicabilityRefusal == nil,
           let previous = penCapAppearanceSelection?.visualReference
         else {
-          throw LearningPathOperationError.requiredState("Same-anchor calibration compatibility could not be established. Use Replace Pen Cap Reference and repeat optical calibration, or restore the matching camera/controller context.")
+          throw LearningPathOperationError.requiredState("Same-anchor calibration compatibility could not be established. Use Replace Tracking Reference and repeat optical calibration, or restore the matching camera/controller context.")
         }
         let predicted = try registration.fit.cameraPoint(from: position.point)
         let residual = predicted.distance(to: learned.clickPoint)
         let isExtrapolated = !registration.applicabilityRectangle.contains(position.point)
         guard isExtrapolated || residual <= 8 else {
           throw LearningPathOperationError.requiredState(String(format:
-            "Operator cap click is %.2f px from the predicted anchor (8.00 px compatibility limit). Calibration was retained unchanged. Use Replace Pen Cap Reference if the cap or anchor changed; otherwise correct the click or recalibrate the camera.", residual))
+            "Operator cap click is %.2f px from the predicted anchor (8.00 px compatibility limit). Calibration was retained unchanged. Use Replace Tracking Reference if the cap or anchor changed; otherwise correct the click or recalibrate the camera.", residual))
         }
         learned.operatorObservation = OperatorPenCapObservation(machinePoint: position.point,
           controllerSessionID: controllerSessionID, coordinateRevision: explorationCoordinateRevision,
@@ -7124,6 +7191,7 @@ final class PlotterApplicationRuntime:
     guard let observationRuntime else { throw LearningPathOperationError.freshFrameUnavailable }
     if frameMode == .simulated {
       let scene = try await captureSimulatedProtocolScene(newerThan: boundary)
+      try Task.checkCancellation()
       guard
         scene.displayedFrame.frame.captureNanoseconds
           > lastSimulatedProtocolCaptureNanoseconds
@@ -7137,6 +7205,7 @@ final class PlotterApplicationRuntime:
     guard let frame = try await observationRuntime.captureFrame(newerThanNanoseconds: boundary),
       frame.frame.captureNanoseconds > boundary
     else { throw LearningPathOperationError.freshFrameUnavailable }
+    try Task.checkCancellation()
     displayedFrame = frame
     latestLiveCameraFrame = frame
     return frame
@@ -8076,7 +8145,17 @@ final class PlotterApplicationRuntime:
     let submittedAttemptID = activeExerciseAttemptID
     let submittedSource = frameMode
     do {
-      let result = try await pointSelectionRuntime.submit(submission)
+      let referencePurpose: PenCapReferencePurpose? =
+        capReidentificationContext?.replacesAnchor == false
+          ? penCapAppearanceSelection?.visualReference?.purpose : .rigidHolder
+      // A legacy same-anchor confirmation keeps its historical optical provenance.
+      // Only an explicit new/replacement reference adopts current semantic optics.
+      let preservesLegacyOptics = capReidentificationContext?.replacesAnchor == false
+        && penCapAppearanceSelection?.visualReference?.opticalConfiguration == nil
+      let optical = preservesLegacyOptics ? nil
+        : try frozenPointSelectionFrame.map { try cameraOpticalConfiguration(for: $0) }
+      let result = try await pointSelectionRuntime.submit(submission,
+        referencePurpose: referencePurpose, opticalConfiguration: optical)
       guard submittedSource == frameMode, activeExerciseAttemptID == submittedAttemptID,
         pointSelectionEpisodeProjection.exactPointSelection.request?.id == submittedRequest?.id else {
         return "The point selection was superseded before its result settled. Use the current exact frame."
@@ -8085,7 +8164,7 @@ final class PlotterApplicationRuntime:
       case let .refused(projection, reason):
         installPointSelectionProjection(projection)
         if submittedPurpose == .penCapAppearance {
-          discoveryError = "Identify Pen Cap rejected the click: \(reason)"
+          discoveryError = "Identify Holder Landmark rejected the click: \(reason)"
         } else {
           explorationError = "Corner-mark selection failed without motion or redraw: \(reason)"
         }
@@ -8157,7 +8236,7 @@ final class PlotterApplicationRuntime:
       }
     } catch {
       if submittedPurpose == .penCapAppearance {
-        discoveryError = "Identify Pen Cap rejected the click: \(actionableDescription(error))"
+        discoveryError = "Identify Holder Landmark rejected the click: \(actionableDescription(error))"
       } else {
         explorationError =
           "Corner-mark selection failed without motion or redraw: \(actionableDescription(error))"
@@ -8199,7 +8278,6 @@ final class PlotterApplicationRuntime:
     guard !Task.isCancelled,
       pointSelectionEpisodeProjection.exactPointSelection.request?.id == selectionID
     else { throw CancellationError() }
-    await reconcileAutomaticVisionAnalysis()
   }
 
   private func installPointSelectionProjection(_ projection: PlotterEpisodeProjection) {
@@ -9941,7 +10019,7 @@ final class PlotterApplicationRuntime:
     }
     if sequenceID == .penInteraction {
       guard displayedFrame != nil else {
-        return "A current exact camera or simulated frame is required to Identify Pen Cap."
+        return "A current exact camera or simulated frame is required to Identify Holder Landmark."
       }
       return nil
     }
@@ -10624,6 +10702,8 @@ final class PlotterApplicationRuntime:
 
   private func reconcileAutomaticVisionAnalysis() async {
     guard applicationAdmissionIsOpen, let observationRuntime else { return }
+    await observationRuntime.setTrackingOpticalConfiguration(
+      displayedFrame.flatMap { try? cameraOpticalConfiguration(for: $0) })
     if automaticVisionAnalysisShouldRun {
       _ = await submitObservationIntent(.configureAutomaticAnalysis(
         cadence: visionAnalysisCadence,
@@ -11046,7 +11126,7 @@ final class PlotterApplicationRuntime:
         !isCollectingPenCapSelection
       else {
         let reason =
-          "Identify Pen Cap must be completed before pen-position calibration begins."
+          "Identify Holder Landmark must be completed before pen-position calibration begins."
         discoveryError = reason
         if activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction) {
           _ = await submitPenInteraction(.finish(.refused(reason)))
@@ -11993,7 +12073,7 @@ final class PlotterApplicationRuntime:
       !requestedFeatures.intersection([.penCap, .armatureEnvelope]).isEmpty
     {
       throw LearningPathOperationError.requiredState(
-        "Use Identify Pen Cap before requesting LIVE pen-cap analysis."
+        "Use Identify Holder Landmark before requesting LIVE pen-cap analysis."
       )
     }
     return try await observationRuntime.inspectWorkflowScene(
@@ -12022,15 +12102,35 @@ final class PlotterApplicationRuntime:
     defer { endExactWorkflowVision(owner) }
     if frameMode == .live, livePenCapAppearanceSelection == nil {
       throw LearningPathOperationError.requiredState(
-        "Use Identify Pen Cap before requesting LIVE pen-cap analysis."
+        "Use Identify Holder Landmark before requesting LIVE pen-cap analysis."
       )
     }
     guard let observationRuntime else {
       throw LearningPathOperationError.freshFrameUnavailable
     }
+    await observationRuntime.setTrackingOpticalConfiguration(
+      displayedFrame.flatMap { try? cameraOpticalConfiguration(for: $0) })
+    let reportedPosition: MachinePosition?
+    let reportedPenState: String?
+    if frameMode == .simulated, let snapshot = simulatedLearningSnapshot {
+      reportedPosition = try? MachinePosition(x: snapshot.mpos.xMM, y: snapshot.mpos.yMM)
+      reportedPenState = String(describing: snapshot.penPose)
+    } else {
+      reportedPosition = machineSnapshot?.machine.position
+      reportedPenState = machineSnapshot.map { String(describing: $0.machine.penState) }
+    }
+    let context = TrackingAcquisitionContext(
+      ownerID: activeExerciseAttemptOwnerID.map { String(describing: $0) } ?? owner.operatorLabel,
+      attemptID: activeExerciseAttemptID.map { String(describing: $0.rawValue) },
+      reportedPosition: reportedPosition, reportedPenState: reportedPenState,
+      snapshotMonotonicNanoseconds: nowNanoseconds(),
+      source: frameMode == .live
+        ? "Cached controller-session projection copied before acquisition; not an exact capture-time pose."
+        : "Cached causal-simulator projection copied before acquisition; no physical pose evidence.")
     return try await observationRuntime.captureStableWorkflowCap(
       StableWorkflowCapCaptureRequest(
-        newerThanNanoseconds: initialBoundary, searchCenter: searchCenter
+        newerThanNanoseconds: initialBoundary, searchCenter: searchCenter,
+        diagnosticContext: context
       )
     )
   }
@@ -12439,7 +12539,7 @@ final class PlotterApplicationRuntime:
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       guard tipCalibrationRuntime.blacklistedLocations.isEmpty else {
-        return .refused("Existing calibration marks remain excluded on this sheet. Reidentify Pen Cap to repair tracking without drawing; record a new sheet before another marking attempt.")
+        return .refused("Existing calibration marks remain excluded on this sheet. Locate Tracking Reference to repair tracking without drawing; record a new sheet before another marking attempt.")
       }
       beginExerciseAttempt(ownerID: ownerID, mode: mode)
     case .borderValidation(.chooseDrawingBorderPlan):
@@ -12458,6 +12558,13 @@ final class PlotterApplicationRuntime:
     return .prepared
   }
 
+  private func cancelOwnedLearningAction(ownerID: LearningPathItemID) -> PlotterApplicationLearningTask? {
+    guard let pending = activeLearningActionTask, pending.ownerID == ownerID,
+      pending.source == frameMode, pending.attemptID == activeExerciseAttemptID else { return nil }
+    pending.task.cancel()
+    return pending
+  }
+
   private func cancelExerciseAttempt(
     _ ownerID: LearningPathItemID,
     expectedAttemptID: ExerciseAttemptID? = nil
@@ -12465,6 +12572,7 @@ final class PlotterApplicationRuntime:
     guard activeExerciseAttemptOwnerID == ownerID,
       expectedAttemptID.map({ activeExerciseAttemptID == $0 }) ?? true
     else { return }
+    _ = cancelOwnedLearningAction(ownerID: ownerID)
     let cancellingAttemptID = activeExerciseAttemptID
     let cancellingSource = frameMode
     let isCapReidentification = capReidentificationAttemptID != nil
@@ -12559,6 +12667,9 @@ final class PlotterApplicationRuntime:
     mode: ExerciseAttemptMode
   ) {
     _ = currentEnvironmentState.exerciseAttempt.begin(ownerID: ownerID, mode: mode)
+    if activeLearningActionTask?.ownerID == ownerID, activeLearningActionTask?.source == frameMode {
+      activeLearningActionTask?.attemptID = activeExerciseAttemptID
+    }
   }
 
   private func finishActiveExerciseAttempt(disposition: ExerciseAttemptDisposition) {
@@ -13018,9 +13129,9 @@ final class PlotterApplicationRuntime:
       case .found(let cap, let diagnostics):
         (
           .available,
-          diagnostics.template.map { "Tracking cap anchor — \($0.summary), frame \(displayedFrame.frame.sequence)." }
+          diagnostics.template.map { "Tracking reference landmark — \($0.summary), frame \(displayedFrame.frame.sequence)." }
             ?? (cap.referenceAnchor != nil
-            ? String(format: "Tracking cap anchor — reference %d × %d px, match %.2f, frame %llu.",
+            ? String(format: "Tracking reference landmark — reference %d × %d px, match %.2f, frame %llu.",
               cap.boundingBox.width, cap.boundingBox.height, cap.confidence, displayedFrame.frame.sequence)
             : OverlayStatusGrammar.found(
             pixelCount: cap.pixelCount,

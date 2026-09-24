@@ -54,7 +54,9 @@ public enum PlotterPointSelectionSamplingError: LocalizedError, Equatable, Senda
 public enum PlotterPenCapPointSampler {
   public static func sample(
     frame: DisplayedFrame,
-    submission: PlotterPointSelectionSubmission
+    submission: PlotterPointSelectionSubmission,
+    referencePurpose: PenCapReferencePurpose? = .rigidHolder,
+    opticalConfiguration: CameraOpticalConfigurationIdentity? = nil
   ) throws -> PlotterAcceptedPenCapSample {
     guard exactFrame(submission.frame, matches: frame),
       submission.point.x >= 0, submission.point.x < Double(frame.frame.width),
@@ -73,8 +75,12 @@ public enum PlotterPenCapPointSampler {
     let region = PixelRect(x: Int(floor(bounds.minX)), y: Int(floor(bounds.minY)),
       width: Int(ceil(bounds.maxX)) - Int(floor(bounds.minX)),
       height: Int(ceil(bounds.maxY)) - Int(floor(bounds.minY)))
+    guard opticalConfiguration.map({ $0.source == frame.source }) ?? true else {
+      throw PenCapReferenceError.incompatibleOptics
+    }
     let reference = try PenCapVisualReference.capture(frame: frame.frame,
-      region: region, anchor: submission.point)
+      region: region, anchor: submission.point, purpose: referencePurpose,
+      opticalConfiguration: opticalConfiguration)
     // RGB is legacy display metadata only. Recognition uses the complete patch.
     let count = reference.rgb.count / 3
     let means = (0..<3).map { channel in
@@ -342,6 +348,10 @@ public actor PlotterPointSelectionRuntime {
       referenceGeometry: referenceGeometry
     )
     let committed = try await submitIntent(.pointSelection(.stage(request)))
+    guard committed.state.exactPointSelection.request == request,
+      committed.state.exactPointSelection.phase == .collecting else {
+      throw PlotterPointSelectionRuntimeError.stageNotCurrent
+    }
     framesBySelectionID[request.id] = frame
     return PlotterPointSelectionStage(
       request: request,
@@ -433,7 +443,9 @@ public actor PlotterPointSelectionRuntime {
   }
 
   public func submit(
-    _ submission: PlotterPointSelectionSubmission
+    _ submission: PlotterPointSelectionSubmission,
+    referencePurpose: PenCapReferencePurpose? = .rigidHolder,
+    opticalConfiguration: CameraOpticalConfigurationIdentity? = nil
   ) async throws -> PlotterPointSelectionSubmissionResult {
     await acquireMutationPublicationBoundary()
     defer { releaseMutationPublicationBoundary() }
@@ -466,7 +478,8 @@ public actor PlotterPointSelectionRuntime {
         )
       }
       do {
-        sample = try PlotterPenCapPointSampler.sample(frame: frame, submission: submission)
+        sample = try PlotterPenCapPointSampler.sample(frame: frame, submission: submission,
+          referencePurpose: referencePurpose, opticalConfiguration: opticalConfiguration)
         acceptedFrame = frame
       } catch {
         return try await refuseSample(
@@ -1054,9 +1067,18 @@ private struct CommittedPointSelectionEvent: Sendable {
   let state: PlotterEpisodeState
 }
 
-public enum PlotterPointSelectionRuntimeError: Error, Equatable, Sendable {
+public enum PlotterPointSelectionRuntimeError: LocalizedError, Equatable, Sendable {
+  case stageNotCurrent
   case operationAttributionRefused
   case replacementNotCurrent
+
+  public var errorDescription: String? {
+    switch self {
+    case .stageNotCurrent: "The reference selection was not admitted. End the current Learning action and start the selection again."
+    case .replacementNotCurrent: "The exact-frame selection changed before its replacement was admitted. Start the selection again."
+    case .operationAttributionRefused: "The selection no longer owns its continuation. Start the selection again."
+    }
+  }
 }
 
 private extension IntentDecision {

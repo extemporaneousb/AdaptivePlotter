@@ -8,6 +8,64 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Holder tracking and native reidentification diagnosis, 2026-09-23
+
+Pre-change native evidence is under `/tmp/plotter-cap-20260923-dedup/` and
+`/tmp/plotter-cap-repro-{baseline,after-cancel,after-reidentify,final}/`. These
+private host artifacts are copied with original paths and SHA-256 into
+`/Users/bullard/Projects/AdaptivePlotter/.build/HolderRecovery-4becf32a/`;
+`retention-manifest.json` records the copy provenance. They are not committed
+test fixtures. Process
+37172's fresh diagnostic export matched its process identity and verified raw
+BGRA bytes; the first raw SHA-256 is
+`9e0e150ec6910d02de90e95c9016b5584a58aa203d4bbc19dbef06349845732c`.
+The original inspector saw distinct parent/child Export Diagnostics AX wrappers
+and refused to export. A disposable inspector selected the unique deepest
+matching button for this capture. Production traversal now keeps leaf matches,
+deduplicates identical AX references, and refuses independent matching leaves or
+truncated traversal; it does not select a globally deepest unrelated button.
+
+The authorized native reproduction accepted Cancel (transition 32), Reidentify
+(33), then Cancel (34). Reidentify displayed its anchor instruction, but the
+Learning panel still said Exercise 1.1 Complete with a disabled, checked Accepted
+button; Draw Reference/Reset View were obscured by the drawing overlay text.
+The exported camera frame changed between the immediate and three-second samples
+while selection was active. Final cancellation returned to Exercise 1.4 with
+Reidentify enabled. Machine ledger sequence remained 7820 throughout; the last
+controller operation had completed Idle and Stop was disabled. No anchor was
+submitted, no calibration was replaced, and no new motion or ink occurred.
+This reproduction establishes the old UI/export failure, not physical accuracy
+of a newly selected fixed holder.
+
+`/tmp/plotter-cap-20260923-corpus/manifest.json` retains eight hash-verified
+1920×1080 BGRA point-selection frames and an extracted current persisted visual
+reference. The manifest does not assert that this reference was active at every
+frame, and frame records lack controller-pose and pen-state ground truth. This
+corpus and the older cross-pose corpus are offline regression inputs, not proof
+of robustness across all pen colors, dense blue ink, or Pen-Up/Down poses.
+
+The retained analysis-only crop experiment is in
+`HolderRecovery-4becf32a/holder-tracker-experiment/findings.md`. A compact holder
+corner crop accepted the seven other current-session frames while the whole
+crosshead crop rejected five. Analyst-selected anchors/crops are not operator
+ground truth; original failed acquisitions and Pen-Up/Down labels remain missing.
+No claim of universal crop robustness or physical calibration follows from this.
+Three optimized replay runs of copied current production matcher/coarse sources
+with attributed DEBUG dependency objects retained the same scores. Across the
+eight-frame corpus, compact-crop time had median 0.238 seconds (0.212–0.256),
+while the broad crop had median 0.075 seconds (0.073–0.078). This isolates the
+optimized matcher; it is not release-app end-to-end latency or camera cadence.
+Source/object/compiler attribution and per-frame timing are retained under
+`HolderRecovery-4becf32a/plotter-holder-optimized-probe/`.
+
+The implementation adds explicit rigid-holder reference purpose and a separate
+current-capture binding that preserves original acquisition provenance. It adds
+bounded exact acquisition diagnostics and resolves
+on-demand exports from the actual frozen-or-ambient canvas. Numeric candidate
+scores, immutable reference bank, priors, search hint and raw analyzed pixels
+remain paired for subsequent failures; unavailable pose/pen facts remain unknown.
+No post-change attended physical validation is claimed in this entry.
+
 ## Off-center Camera recovery and cross-pose cap audit, 2026-09-22
 
 Evidence is retained privately under

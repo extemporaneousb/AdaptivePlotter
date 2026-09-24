@@ -134,20 +134,32 @@ final class OperatorRequestFeedback {
   private(set) var result: String?
   private(set) var wasAccepted = false
   private(set) var startedAt: Date?
+  private var presentationGeneration: UInt64 = 0
+  private var submittedGeneration: UInt64 = 0
 
   /// Latch synchronously at mouse-up, before scheduling the asynchronous sink.
   func begin() -> Bool {
     guard !isPending else { return false }
     isPending = true
+    submittedGeneration = presentationGeneration
     startedAt = Date()
     result = nil
     wasAccepted = false
     return true
   }
 
+  func presentationChanged() {
+    presentationGeneration &+= 1
+    result = nil
+    wasAccepted = false
+    // Keep the submission latch until its own completion. A new projection
+    // must not make a second click available while the prior sink still runs.
+  }
+
   func finish(_ disposition: PlotterUIRequestDisposition) {
     isPending = false
     startedAt = nil
+    guard submittedGeneration == presentationGeneration else { return }
     switch disposition {
     case .accepted: wasAccepted = true; result = "Accepted"
     case .refused(let refusal): wasAccepted = false; result = refusal.remedy
@@ -191,6 +203,7 @@ struct OperatorRequestButton: View {
         .contentShape(Rectangle())
       }
       .operatorButton(role, isEnabled: request != nil && !feedback.isPending)
+      .onChange(of: request?.id) { _, _ in feedback.presentationChanged() }
       .help(feedback.isPending ? "Request sent; waiting for completion" : unavailableReason ?? title)
       .accessibilityValue(feedback.isPending ? "In progress" : feedback.result ?? unavailableReason ?? "Ready")
       if let startedAt = feedback.startedAt {

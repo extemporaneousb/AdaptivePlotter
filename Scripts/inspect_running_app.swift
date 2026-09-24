@@ -91,9 +91,10 @@ if applications.count != 1 {
     var accessibilityTruncated = false
     var elements: [[String: Any]] = []
     var exportButtons: [AXUIElement] = []
-    func walk(_ node: AXUIElement, _ depth: Int) {
+    @discardableResult
+    func walk(_ node: AXUIElement, _ depth: Int) -> Bool {
       guard depth < 16, elements.count < 1200, Date() < accessibilityDeadline else {
-        accessibilityTruncated = true; return
+        accessibilityTruncated = true; return false
       }
       var row: [String: Any] = ["depth": depth]
       for key in [kAXRoleAttribute, kAXTitleAttribute, kAXDescriptionAttribute, kAXIdentifierAttribute, kAXEnabledAttribute, kAXValueAttribute] {
@@ -101,10 +102,19 @@ if applications.count != 1 {
         if let item = value(node, key), CFGetTypeID(item) == CFStringGetTypeID() || CFGetTypeID(item) == CFBooleanGetTypeID() || CFGetTypeID(item) == CFNumberGetTypeID() { row[key] = item }
       }
       elements.append(row)
-      if row[kAXRoleAttribute] as? String == kAXButtonRole,
-         row[kAXIdentifierAttribute] as? String == "workbench.diagnostics",
-         row[kAXEnabledAttribute] as? Bool == true { exportButtons.append(node) }
-      for child in (value(node, kAXChildrenAttribute) as? [AXUIElement]) ?? [] { walk(child, depth + 1) }
+      let isExport = row[kAXRoleAttribute] as? String == kAXButtonRole
+        && row[kAXIdentifierAttribute] as? String == "workbench.diagnostics"
+        && row[kAXEnabledAttribute] as? Bool == true
+      var descendantExport = false
+      for child in (value(node, kAXChildrenAttribute) as? [AXUIElement]) ?? [] {
+        if walk(child, depth + 1) { descendantExport = true }
+      }
+      // SwiftUI can expose both a wrapper and its nested actionable button.
+      // Keep leaf matches, never pick the deepest of independent branches.
+      if isExport && !descendantExport && !exportButtons.contains(where: { CFEqual($0, node) }) {
+        exportButtons.append(node)
+      }
+      return isExport || descendantExport
     }
     if AXIsProcessTrusted() {
       let element = AXUIElementCreateApplication(pid)
@@ -131,7 +141,7 @@ if applications.count != 1 {
       result["accessibility"] = elements
       result["accessibilityTruncated"] = accessibilityTruncated
       if args.contains("--export-diagnostics") {
-        if exportButtons.count == 1 {
+        if exportButtons.count == 1 && !accessibilityTruncated {
           result["diagnosticExportRequestedAtUnix"] = Date().timeIntervalSince1970
           let code = AXUIElementPerformAction(exportButtons[0], kAXPressAction as CFString)
           result["diagnosticExportRequest"] = code.rawValue

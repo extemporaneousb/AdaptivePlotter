@@ -621,6 +621,8 @@ struct PlotterPenInteractionEpisodeTests {
       try requireStep(fixture.workspace, "answer-initially-up")
       let evidenceCount = fixture.workspace.discoveryTransactions[.penInteraction]?
         .evidenceSummaries.count
+      let commandsBeforeConfirmation = await fixture.machine.requestedPenCommands
+      let sequenceBeforeConfirmation = fixture.workspace.learningEpisodeRecord.entries.last?.sequence ?? 0
 
       let confirmationResult = PenUISubmissionResult()
       let confirmation = Task { @MainActor in
@@ -636,7 +638,35 @@ struct PlotterPenInteractionEpisodeTests {
       await gate.release()
       try await waitUntil { confirmationResult.result != nil }
       await confirmation.value
-      #expect(try #require(confirmationResult.result).get().1 == .accepted(requestID: yes.id))
+      // Stop cancels the admitted Learning owner as well as its Pen runtime.
+      // The superseded Confirm must publish a cancellation refusal, never an
+      // accepted outer action after its physical-evidence opportunity is gone.
+      let confirmationDisposition = try #require(confirmationResult.result).get().1
+      guard case .refused(let refusal) = confirmationDisposition else {
+        Issue.record("Stop must publish the exact outer Learning cancellation refusal: \(confirmationDisposition)")
+        throw PenUIAdmissionFailure(stage: "expected typed Pen result", submission: "required shape was absent")
+      }
+      #expect(refusal.requestID == yes.id)
+      #expect(refusal.reason == .retainedOwnerRefused)
+      #expect(refusal.remedy == "The Learning action was cancelled before settlement.")
+      guard case .learningAction(let learningRequest) = yes.intent else {
+        Issue.record("The rendered confirmation lost its exact Learning request.")
+        throw PenUIAdmissionFailure(stage: "expected typed Pen result", submission: "required shape was absent")
+      }
+      // Entries are ordered by admission sequence, so the later-admitted Stop
+      // remains last even though the held Confirm publishes after it settles.
+      let confirmationEpisodes = fixture.workspace.learningEpisodeRecord.entries.filter {
+        $0.sequence > sequenceBeforeConfirmation && $0.request == .action(learningRequest)
+      }
+      #expect(confirmationEpisodes.count == 1)
+      let episode = try #require(confirmationEpisodes.first)
+      guard case .refused(let reason, let owner, let remedy) = episode.result else {
+        Issue.record("Stop cancellation must publish a typed Learning episode refusal.")
+        throw PenUIAdmissionFailure(stage: "expected typed Pen result", submission: "required shape was absent")
+      }
+      #expect(reason == .ownerRefused)
+      #expect(owner.rawValue == "PlotterApplicationRuntime")
+      #expect(remedy == refusal.remedy)
 
       #expect(fixture.workspace.discoveryTransactions[.penInteraction]?.currentStep?.id
         != "answer-currently-down")
@@ -646,6 +676,7 @@ struct PlotterPenInteractionEpisodeTests {
       #expect(terminal.projection.evidenceCount == 0)
       #expect(terminal.acceptedHistory.attempts.first?.disposition == .cancelled)
       #expect(!terminal.projection.physicalEvidenceClaimed)
+      #expect(await fixture.machine.requestedPenCommands == commandsBeforeConfirmation)
       await fixture.workspace.shutdown()
     } catch {
       await gate.release()

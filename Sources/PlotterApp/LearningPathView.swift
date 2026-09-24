@@ -55,7 +55,7 @@ struct LearningPathView: View {
         .pickerStyle(.menu)
         .accessibilityIdentifier("learning.exercisePicker")
         Menu {
-          OperatorRequestButton(title: "Replace Pen Cap Reference",
+          OperatorRequestButton(title: "Replace Tracking Reference",
             request: plotterUIProjection.request(for: PlotterAppUIActionID.replacePenCapReference),
             unavailableReason: plotterUIProjection.action(id: PlotterAppUIActionID.replacePenCapReference)?.unavailableReason,
             sink: plotterUIIntentSink,
@@ -80,7 +80,7 @@ struct LearningPathView: View {
       }
       .padding(12)
       if plotterUIProjection.action(id: PlotterAppUIActionID.reidentifyPenCap) != nil {
-        OperatorRequestButton(title: "Reidentify Pen Cap",
+        OperatorRequestButton(title: "Locate Tracking Reference",
           request: plotterUIProjection.request(for: PlotterAppUIActionID.reidentifyPenCap),
           unavailableReason: plotterUIProjection.action(id: PlotterAppUIActionID.reidentifyPenCap)?.unavailableReason,
           sink: plotterUIIntentSink, nativeActionIdentifier: "learning.reidentifyPenCap")
@@ -100,7 +100,9 @@ struct LearningPathView: View {
       Divider()
       ScrollView {
         VStack(alignment: .leading, spacing: 0) {
-          selectedDetail(selectedPresentation).padding(16)
+          if !projection.capRecoveryIsActive {
+            selectedDetail(selectedPresentation).padding(16)
+          }
           ForEach(projection.separateActiveExerciseActions, id: \.ownerID) { current in
             Text(projection.activeExerciseHeading(for: current))
               .font(.caption.weight(.semibold))

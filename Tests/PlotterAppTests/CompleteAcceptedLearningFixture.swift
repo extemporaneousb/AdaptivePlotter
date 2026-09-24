@@ -36,8 +36,20 @@ struct CompleteAcceptedLearningFixture: Sendable {
       for: .borderValidation(.chooseDrawingBorderPlan))
     #expect(source.borderValidationSnapshot.assessment == .predictionObserved)
     let syntheticSource = FrameSourceIdentity.live(CameraDeviceID(rawValue: "accepted-learning-fixture-camera"))
-    let tip = try replacingFixtureSources(#require(source.tipCameraRegistration), with: syntheticSource)
-    let machineCamera = try replacingFixtureSources(#require(source.machineCameraRegistration), with: syntheticSource)
+    let originalAppearance = try #require(source.penCapAppearanceSelection)
+    let sourceReboundAppearance = try replacingFixtureSources(originalAppearance, with: syntheticSource)
+    // The reference includes its semantic optical source. Rebinding that source
+    // creates a new synthetic reference identity and must rebind its map lineage.
+    let estimatorRevisions = [
+      "selected-cap-anchor-v4:\(try #require(originalAppearance.visualReference).identity)":
+        "selected-cap-anchor-v4:\(try #require(sourceReboundAppearance.visualReference).identity)"
+    ]
+    let appearance = try replacingFixtureSources(sourceReboundAppearance, with: syntheticSource,
+      replacingEstimatorRevisions: estimatorRevisions)
+    let tip = try replacingFixtureSources(#require(source.tipCameraRegistration), with: syntheticSource,
+      replacingEstimatorRevisions: estimatorRevisions)
+    let machineCamera = try replacingFixtureSources(#require(source.machineCameraRegistration), with: syntheticSource,
+      replacingEstimatorRevisions: estimatorRevisions)
     let completed = source.borderValidationSnapshot
     let comparison = try #require(source.learningArtifactGraph.currentRevision(for: .comparison(completed.group)))
     let postFrame = try #require(completed.postFrame)
@@ -58,7 +70,8 @@ struct CompleteAcceptedLearningFixture: Sendable {
       placement: originalRecord.placement, plan: DrawingExecutionPlanEvidenceReference(plan: plan),
       planningProvenance: provenance, tipCalibration: originalRecord.tipCalibration,
       paper: originalRecord.paper,
-      observation: replacingFixtureSources(originalRecord.observation, with: syntheticSource),
+      observation: replacingFixtureSources(originalRecord.observation, with: syntheticSource,
+        replacingEstimatorRevisions: estimatorRevisions),
       recordedAt: originalRecord.recordedAt)
     let penHistory = await seeded.penInteractionRuntime.snapshot(environment: .simulated)
     let penAttempt = try #require(penHistory.acceptedHistory.includedSuccessfulAttempts.last)
@@ -81,9 +94,7 @@ struct CompleteAcceptedLearningFixture: Sendable {
       learnedLocalCoordinateFrame: originalMachine.learnedLocalCoordinateFrame,
       centerArrivalPosition: originalMachine.centerArrivalPosition,
       acceptedRevisions: originalMachine.acceptedRevisions)
-    // Preserve the sampled reference identity in the accepted cap map.
-    let appearance = try replacingFixtureSources(#require(source.penCapAppearanceSelection),
-      with: syntheticSource)
+    // The accepted map and appearance must name the same synthetic landmark.
     #expect(machineCamera.capAnchorEstimatorRevision
       == "selected-cap-anchor-v4:\(try #require(appearance.visualReference).identity)")
     let checkpoint = try AcceptedLearningPathCheckpoint(semanticIdentity: identities.learningPathIdentity,
@@ -114,7 +125,8 @@ struct CompleteAcceptedLearningFixture: Sendable {
 
 /// Constructs fresh synthetic fixture identities; never rewrites user archives.
 private func replacingFixtureSources<T: Codable>(_ value: T,
-  with source: FrameSourceIdentity) throws -> T {
+  with source: FrameSourceIdentity,
+  replacingEstimatorRevisions estimatorRevisions: [String: String] = [:]) throws -> T {
   let encoder = JSONEncoder()
   let replacement = try JSONSerialization.jsonObject(with: encoder.encode(source))
   func visit(_ value: Any) -> Any {
@@ -122,6 +134,9 @@ private func replacingFixtureSources<T: Codable>(_ value: T,
       return object.mapValues { visit($0) }.merging(object["source"] == nil ? [:] : ["source": replacement]) { _, new in new }
     }
     if let values = value as? [Any] { return values.map(visit) }
+    if let revision = value as? String, let replacement = estimatorRevisions[revision] {
+      return replacement
+    }
     return value
   }
   let object = try JSONSerialization.jsonObject(with: encoder.encode(value))

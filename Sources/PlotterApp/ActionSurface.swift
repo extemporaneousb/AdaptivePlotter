@@ -873,12 +873,12 @@ struct ActionSurface: View {
           if let prompt = presentation.tipPresentation.interactionPrompt {
             Text(presentation.pointSelectionRequest?.purpose == .penCapAppearance
               ? (drawsCapReference
-                ? "Drag around the cap and co-moving holder, then click the cap."
+                ? "Drag a compact reference region, then click its landmark."
                 : (capReferenceRegion == nil
                   ? (presentation.pointSelectionRequest?.referenceGeometry == nil
-                    ? "Drag to pan. Choose Draw Reference to select the cap and holder."
-                    : "Click the same cap anchor to reidentify it. Drag to pan; Draw Reference changes its appearance region.")
-                  : "Click the cap inside the rectangle. Drag to pan; use Redraw Reference to change it."))
+                    ? "Drag to pan. Choose Draw Reference to select the tracking surface."
+                    : "Click the same physical landmark. Drag to pan; Draw Reference changes its appearance region.")
+                  : "Click the landmark inside the rectangle. Drag to pan; use Redraw Reference to change it."))
               : prompt)
               .font(.caption.monospaced().bold())
               .foregroundStyle(.white)

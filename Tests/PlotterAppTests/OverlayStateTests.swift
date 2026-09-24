@@ -8,6 +8,21 @@ import Testing
 @Suite("Overlay ownership and state")
 @MainActor
 struct OverlayStateTests {
+  @Test("frozen selection never claims the ambient matcher is analyzing its pixels")
+  func frozenSelectionDoesNotBorrowAmbientProgress() throws {
+    let frame = try displayedFrame(id: "frozen", source: .live(CameraDeviceID(rawValue: "camera")),
+      configuration: CameraConfigurationID())
+    let running = PlotterSceneAnalysisSnapshot(revision: 1,
+      phase: PlotterSceneAnalysisPhase(state: .running(.twoFPS), requestedFeatures: [.penCap],
+        analysisRegion: nil, penCapColor: .green), latestResult: nil, lastError: nil)
+    let composition = OverlayPresentationComposer.compose(preference: .loaded([.penCap]),
+      channels: OverlayResultChannels(), displayedFrame: frame, sceneState: running,
+      sceneIsAvailable: true, workflowVisionIsExclusive: false, frozenSelectionIsActive: true)
+    #expect(composition.statuses[.penCap]?.state == .waiting)
+    #expect(composition.statuses[.penCap]?.message.contains("landmark click") == true)
+    #expect(composition.overlays.isEmpty)
+  }
+
   @Test("missing-cap diagnostics retain their analyzed frame and reject another camera")
   func missingCapDiagnosticIsFrameQualified() throws {
     let configuration = CameraConfigurationID()
@@ -26,18 +41,18 @@ struct OverlayStateTests {
   @Test("exactly two operator overlay preferences are retained without result cards")
   func exactGlobalControls() {
     #expect(UserSceneOverlay.allCases == [.penCap, .armatureEnvelope])
-    #expect(UserSceneOverlay.allCases.map(\.title) == ["Pen cap", "Armature envelope"])
+    #expect(UserSceneOverlay.allCases.map(\.title) == ["Tracking reference", "Armature envelope"])
   }
 
   @Test("frozen armature language never claims independent segmentation")
   func armatureGrammar() {
     #expect(
       OverlayStatusGrammar.armatureUnavailable(reason: "no threshold pixels")
-        == "Armature envelope unavailable because the pen cap was not found: no threshold pixels."
+        == "Armature envelope unavailable because the tracking landmark was not found: no threshold pixels."
     )
     #expect(
       OverlayStatusGrammar.armatureAvailable
-        == "Armature envelope available — inferred from cap; not independently segmented."
+        == "Armature envelope available — inferred from the tracking landmark; not independently segmented."
     )
   }
 

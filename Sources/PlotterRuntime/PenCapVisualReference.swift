@@ -1,6 +1,42 @@
 import Foundation
 import PlotterModel
 
+/// The absence of a purpose tag identifies historical cap references. A holder
+/// reference tracks its own fixed landmark, never an inferred cap/tip offset.
+public enum PenCapReferencePurpose: String, Codable, Hashable, Sendable {
+  case rigidHolder
+}
+
+/// Admission to a current capture generation without relabeling acquisition
+/// provenance. Constructed from the actual displayed frame and semantic optics.
+public struct PenCapReferenceBinding: Hashable, Sendable {
+  public let referenceIdentity: String
+  public let cameraConfigurationID: CameraConfigurationID
+  public let opticalConfiguration: CameraOpticalConfigurationIdentity
+  private let admittedExampleIdentities: Set<String>
+
+  public init?(reference: PenCapVisualReference, frame: DisplayedFrame,
+    opticalConfiguration: CameraOpticalConfigurationIdentity) {
+    guard reference.isValid, reference.opticalConfiguration == opticalConfiguration,
+      opticalConfiguration.source == frame.source,
+      opticalConfiguration.width == frame.frame.width,
+      opticalConfiguration.height == frame.frame.height,
+      opticalConfiguration.pixelFormat == frame.frame.pixelFormat else { return nil }
+    self.referenceIdentity = reference.identity
+    self.cameraConfigurationID = frame.frame.cameraConfigurationID
+    self.opticalConfiguration = opticalConfiguration
+    self.admittedExampleIdentities = Set(([reference] + (reference.confirmedExamples ?? [])).map(\.identity))
+  }
+
+  func admits(_ reference: PenCapVisualReference, frame: StampedFrame) -> Bool {
+    admittedExampleIdentities.contains(reference.identity)
+      && reference.opticalConfiguration == opticalConfiguration
+      && frame.cameraConfigurationID == cameraConfigurationID
+      && frame.width == opticalConfiguration.width && frame.height == opticalConfiguration.height
+      && frame.pixelFormat == opticalConfiguration.pixelFormat
+  }
+}
+
 /// Immutable, bounded image reference. Coordinates and dimensions are source-camera
 /// pixels; viewport zoom never changes its scale or the independent anchor.
 public struct PenCapVisualReference: Codable, Hashable, Sendable {
@@ -13,6 +49,10 @@ public struct PenCapVisualReference: Codable, Hashable, Sendable {
   public let sampleWidth: Int
   public let sampleHeight: Int
   public let rgb: [UInt8]
+  /// Optional keys preserve historical v1 encoding and identity unchanged.
+  public var purpose: PenCapReferencePurpose? = nil
+  public var opticalConfiguration: CameraOpticalConfigurationIdentity? = nil
+  public var isRigidHolder: Bool { purpose == .rigidHolder }
   /// Only operator-confirmed appearances of the same physical anchor. Examples
   /// keep their own geometry; averaging crops would blur or move that anchor.
   public var confirmedExamples: [PenCapVisualReference]? = nil
@@ -20,7 +60,9 @@ public struct PenCapVisualReference: Codable, Hashable, Sendable {
   /// The caller must establish physical-anchor compatibility before retaining
   /// history. Camera compatibility is necessary but cannot prove that identity.
   public func retainingConfirmedExamples(from previous: Self) -> Self {
-    guard previous.isValid, previous.cameraConfigurationID == cameraConfigurationID,
+    guard previous.isValid, previous.purpose == purpose,
+      previous.opticalConfiguration == opticalConfiguration,
+      (previous.cameraConfigurationID == cameraConfigurationID || opticalConfiguration != nil),
       previous.frameWidth == frameWidth, previous.frameHeight == frameHeight else { return self }
     var result = self
     var first = previous
@@ -52,16 +94,24 @@ public struct PenCapVisualReference: Codable, Hashable, Sendable {
       && (4...32).contains(sampleWidth) && (4...32).contains(sampleHeight)
       && rgb.count == sampleWidth * sampleHeight * 3
       && Self.contrast(rgb) >= 8
+      && (opticalConfiguration.map {
+        $0.width == frameWidth && $0.height == frameHeight
+          && ($0.pixelFormat == .rgba8 || $0.pixelFormat == .bgra8)
+          && $0.digitalZoomFactor.isFinite && $0.digitalZoomFactor >= 1
+      } ?? true)
       && (confirmedExamples?.count ?? 0) <= 2
       && (confirmedExamples ?? []).allSatisfy {
         $0.confirmedExamples == nil && $0.isValid
-          && $0.cameraConfigurationID == cameraConfigurationID
+          && $0.purpose == purpose && $0.opticalConfiguration == opticalConfiguration
+          && ($0.cameraConfigurationID == cameraConfigurationID || opticalConfiguration != nil)
           && $0.frameWidth == frameWidth && $0.frameHeight == frameHeight
       }
   }
 
   public static func capture(
-    frame: StampedFrame, region: PixelRect, anchor: Point2<CameraPixelSpace>
+    frame: StampedFrame, region: PixelRect, anchor: Point2<CameraPixelSpace>,
+    purpose: PenCapReferencePurpose? = nil,
+    opticalConfiguration: CameraOpticalConfigurationIdentity? = nil
   ) throws -> Self {
     guard frame.pixelFormat == .rgba8 || frame.pixelFormat == .bgra8,
       region.x >= 0, region.y >= 0, region.width >= 12, region.height >= 12,
@@ -94,9 +144,12 @@ public struct PenCapVisualReference: Codable, Hashable, Sendable {
         }
       }
     }
+    guard opticalConfiguration.map({
+      $0.width == frame.width && $0.height == frame.height && $0.pixelFormat == frame.pixelFormat
+    }) ?? true else { throw PenCapReferenceError.incompatibleOptics }
     let reference = Self(region: region, anchor: anchor, frameWidth: frame.width,
       frameHeight: frame.height, cameraConfigurationID: frame.cameraConfigurationID,
-      sampleWidth: width, sampleHeight: height, rgb: pixels)
+      sampleWidth: width, sampleHeight: height, rgb: pixels, purpose: purpose, opticalConfiguration: opticalConfiguration)
     guard reference.isValid else { throw PenCapReferenceError.insufficientDetail }
     return reference
   }
@@ -114,13 +167,15 @@ public struct PenCapVisualReference: Codable, Hashable, Sendable {
 }
 
 public enum PenCapReferenceError: LocalizedError {
-  case invalidRegion, insufficientDetail
+  case invalidRegion, insufficientDetail, incompatibleOptics
   public var errorDescription: String? {
     switch self {
     case .invalidRegion:
-      "Draw a rectangle around the cap and co-moving holder (at least 12 camera pixels per side, at most half the frame), then click the cap inside it."
+      "Draw a tight rectangle around a permanent moving-holder feature (at least 12 camera pixels per side, at most half the frame), then click a fixed landmark inside it. Exclude the pen, rails, cable and paper."
+    case .incompatibleOptics:
+      "The reference does not match the current camera optics. Capture a new exact reference frame."
     case .insufficientDetail:
-      "The rectangle has too little visual detail. Include the cap edges and part of the holder that moves with it."
+      "The rectangle has too little visual detail. Include a fixed holder edge and a distinctive screw or corner on the same surface."
     }
   }
 }
@@ -145,17 +200,18 @@ struct PenCapTemplateMatcher {
   private typealias Sample = PenCapCoarseCorrelation.Sample
 
   static func detect(frame: StampedFrame, reference: PenCapVisualReference,
-    region: PixelRect, searchCenter: Point2<CameraPixelSpace>? = nil) throws -> PenCapDetectionResult {
+    region: PixelRect, searchCenter: Point2<CameraPixelSpace>? = nil,
+    binding: PenCapReferenceBinding? = nil) throws -> PenCapDetectionResult {
     guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
       region.x <= frame.width - region.width, region.y <= frame.height - region.height
     else { throw FrameError.invalidRegion }
-    guard reference.isValid else { return .failed("Invalid cap reference. Identify Pen Cap again.") }
+    guard reference.isValid else { return .failed("Invalid tracking reference. Identify the holder again.") }
     let examples = [reference] + (reference.confirmedExamples ?? [])
     guard examples.count > 1 else {
-      return try detectExample(frame: frame, reference: reference, region: region, searchCenter: searchCenter)
+      return try detectExample(frame: frame, reference: reference, region: region, searchCenter: searchCenter, binding: binding)
     }
     let results = try examples.map {
-      try detectExample(frame: frame, reference: $0, region: region, searchCenter: searchCenter)
+      try detectExample(frame: frame, reference: $0, region: region, searchCenter: searchCenter, binding: binding)
     }
     let candidates = results.flatMap { $0.diagnostics?.template?.candidates ?? [] }.sorted { $0.score > $1.score }
     guard let best = candidates.first else { return results[0] }
@@ -188,12 +244,15 @@ struct PenCapTemplateMatcher {
   }
 
   private static func detectExample(frame: StampedFrame, reference: PenCapVisualReference,
-    region: PixelRect, searchCenter: Point2<CameraPixelSpace>?) throws -> PenCapDetectionResult {
+    region: PixelRect, searchCenter: Point2<CameraPixelSpace>?,
+    binding: PenCapReferenceBinding?) throws -> PenCapDetectionResult {
     guard reference.isValid, frame.width == reference.frameWidth,
       frame.height == reference.frameHeight,
-      frame.cameraConfigurationID == reference.cameraConfigurationID,
+      (reference.opticalConfiguration == nil
+        ? frame.cameraConfigurationID == reference.cameraConfigurationID
+        : binding?.admits(reference, frame: frame) == true),
       frame.pixelFormat == .rgba8 || frame.pixelFormat == .bgra8
-    else { return .failed("Cap reference does not match this camera configuration. Identify Pen Cap again.") }
+    else { return .failed("Tracking reference is not admitted for this camera source, optics or capture generation. Restore the matching camera context or identify the holder again.") }
     let w = Double(reference.region.width), h = Double(reference.region.height)
     func samples(step: Int) -> [Sample] {
       var result: [Sample] = []

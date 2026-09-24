@@ -68,6 +68,11 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     super.init()
   }
 
+  init(composition: PlotterEpisodeComposition) {
+    self.composition = composition
+    super.init()
+  }
+
   func applicationShouldRestoreApplicationState(_ app: NSApplication) -> Bool {
     false
   }

@@ -37,6 +37,8 @@ struct WorkbenchDiagnosticsTests {
     #expect(snapshot.transitions.map(\.sequence) == record.entries.map(\.sequence))
     #expect(snapshot.transitions.last?.result.contains("staleUIRevision") == true)
     #expect(snapshot.runtimeRevisions == projection.runtimeRevisions)
+    #expect(snapshot.selection.selectionID == workspace.learningSelectionDiagnosticSnapshot.selectionID)
+    #expect(snapshot.selection.resolvedCanvasFrameID == workspace.learningSelectionDiagnosticSnapshot.resolvedCanvasFrameID)
     #expect(snapshot.actions.count == projection.actions.count)
     #expect(snapshot.limitations.contains { $0.contains("not a replay archive") })
     #expect(workspace.learningEpisodeRecord.entries == record.entries)

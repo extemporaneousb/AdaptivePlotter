@@ -26,6 +26,7 @@ struct WorkbenchCanvasPresentation {
   let content: WorkbenchCanvasContent
   let displayedFrame: DisplayedFrame?
   let plotterFrameStatus: String?
+  let showsSparseTipGuide: Bool
 }
 
 @MainActor
@@ -54,7 +55,7 @@ extension PlotterApplicationRuntime {
       status = nil
     }
     return WorkbenchCanvasPresentation(content: content, displayedFrame: displayed,
-      plotterFrameStatus: status)
+      plotterFrameStatus: status, showsSparseTipGuide: surface.pointSelectionRequest == nil)
   }
 }
 
@@ -87,7 +88,8 @@ struct WorkbenchCameraCanvas: View {
               }
             }
             .overlay(alignment: .topLeading) {
-              if let displayed, let detail = application.sparseTipGuideDetail(on: displayed) {
+              if canvas.showsSparseTipGuide,
+                let displayed, let detail = application.sparseTipGuideDetail(on: displayed) {
                 Text(detail).font(.caption).foregroundStyle(.white)
                   .padding(6).background(.black.opacity(0.75)).padding(8)
                   .accessibilityIdentifier("workbench.calibrationGuideQualification")

@@ -85,7 +85,7 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
 
 ## 1.1 Identify and Calibrate the Pen
 
-1. Start Exercise 1.1. **Identify Pen Cap** freezes the current exact frame.
+1. Start Exercise 1.1. **Identify Holder Landmark** freezes the current exact frame.
    Drag a rectangle around the cap and nearby holder that moves with it. Include
    edges and exclude stationary rails, independently moving structure and paper.
    Then click the cap inside the rectangle. Further drags pan the video without
@@ -104,7 +104,7 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
    compatible operator-confirmed appearances alongside the new one, including
    before the first camera map, without averaging their pixels or anchors. This
    grants no motion or map authority; explicit reference replacement clears the
-   prior views. Old color-only selections require **Reidentify Pen Cap** in the
+   prior views. Old color-only selections require **Locate Tracking Reference** in the
    Learning panel when accepted Pen Learning is already present.
 3. Cap identification requires only the current exact frame. The accepted click
    immediately opens the first Up question even when the controller is not yet
@@ -140,7 +140,15 @@ If no LIVE appearance has been accepted, the persisted Pen cap and Armature
 envelope overlay choices do not change, but both layers report Unavailable and
 no LIVE geometry is rendered. An armature envelope is available only from an
 accepted cap result and remains explicitly inferred, not independently
-segmented. The Video settings show each enabled overlay's analysis status. A
+segmented. The Video settings show each enabled overlay's analysis status.
+Workflow acquisition diagnostics retain the exact analyzed raw frame and the
+reference/options/candidates used for that decision in the bounded local
+`~/Library/Logs/AdaptivePlotter/TrackingAcquisitions/` archive. Each folder's
+`manifest.json` identifies its `analyzed-frame.pixels` layout and SHA-256. These
+copies support offline replay; absent controller/pen evidence is unknown and
+retention is not continuous recording. On-demand Export Diagnostics copies the
+resolved canvas frame, including an active frozen selection, and exposes the
+selection owner/attempt/frame identities. A
 missing cap reports **No pen cap detected**; a learned color alone is not proof
 that the cap remains detectable.
 
@@ -274,7 +282,7 @@ The ordered positions and roles are:
 Camera-calibration failures remain visible with their actual cause. A position
 refusal requires the explicit center return, not a new cap reference. A detector
 refusal retains available score, margin and prediction residual. For a lost
-observation of the same cap, choose **Reidentify Pen Cap** in the Learning panel
+observation of the same cap, choose **Locate Tracking Reference** in the Learning panel
 and click the same physical anchor on the fresh frozen frame. A settled failed
 Camera attempt permits this capture-only recovery and restores its prepared
 Camera exercise after selection or cancellation. It never starts travel or the
@@ -294,7 +302,7 @@ context or an excessive in-domain residual refuses the change and retains the pr
 Down or unknown pen state requires an explicit Raise Pen action; recovery does
 not raise the pen automatically.
 
-For a changed cap or anchor, choose **Replace Pen Cap Reference** and select a
+For a changed cap or anchor, choose **Replace Tracking Reference** and select a
 new rectangle and anchor. It preserves accepted pen-up/down actuation, X/Y
 boundaries, estimated center and center arrival. Only a successfully saved
 replacement invalidates the camera/cap map and downstream tip/drawing calibration.

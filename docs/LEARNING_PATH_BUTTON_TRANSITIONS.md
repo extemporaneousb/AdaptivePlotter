@@ -64,7 +64,7 @@ flowchart TD
   end
 
   subgraph pen["1.1 Identify and Calibrate the Pen"]
-    p0["Ready<br/>Identify Pen Cap"]
+    p0["Ready<br/>Identify Holder Landmark"]
     p1["Frozen frame: draw reference rectangle, then click cap<br/>Cancel Attempt"]
     p2["Set and verify Up<br/>Pen Up slider · Confirm Pen Up · Cancel Attempt"]
     p3["Set and verify Down<br/>Pen Down slider · Confirm Pen Down · Cancel Attempt"]
@@ -74,7 +74,7 @@ flowchart TD
     p4a["Final Up confirmation admitted<br/>predecessor Confirm removed · exact Stop only"]
     pdone["1.1 complete<br/>Redo This Step · Record Another Attempt"]
     pcancel["Attempt settled without acceptance<br/>Restart Attempt"]
-    p0 -->|Identify Pen Cap| p1
+    p0 -->|Identify Holder Landmark| p1
     p1 -->|valid reference rectangle and cap anchor — not a button| p2
     p2 -->|Confirm Pen Up — publishes busy revision before waiting| p2a
     p2a -->|settled Up; advisory Down cue admitted without playback wait| p3
@@ -123,7 +123,7 @@ flowchart TD
     creturn["Off center; settled Pen Up<br/>Return Pen Up to Accepted Center"]
     ctravel["Returning to accepted center<br/>Stop"]
     cready{"Current pose at accepted center?"}
-    creidentify["Reidentify Pen Cap<br/>Frozen-frame click · Cancel Attempt"]
+    creidentify["Locate Tracking Reference<br/>Frozen-frame click · Cancel Attempt"]
     c1["Camera calibration working<br/>Camera calibration is working… — disabled<br/>Stop replaces it during stoppable motion"]
     c2["Calibration review<br/>Accept Camera Calibration<br/>Reject Camera Calibration · Cancel Attempt"]
     cempty["Attempt active; no proposal<br/>Run Five-Position Camera Calibration · Cancel Attempt"]
@@ -135,7 +135,7 @@ flowchart TD
     cready -->|Yes| c0
     cready -->|No| creturn
     c1 -->|Settled cap loss away from center| creturn
-    creturn -->|Reidentify Pen Cap — no motion| creidentify
+    creturn -->|Locate Tracking Reference — no motion| creidentify
     creidentify -->|Click or cancel — restore prepared Camera exercise| creturn
     c0 -->|Run Five-Position Camera Calibration| c1
     c1 -->|three fit and two check measurements pass| c2
@@ -201,7 +201,7 @@ flowchart TD
     trecovery -->|Retry Drawing Border Validation only when a new drawing is safe| t0
   end
 
-  frame -.->|enables Identify Pen Cap| p0
+  frame -.->|enables Identify Holder Landmark| p0
   connected -.->|required after the cap click| p2
   motion -.->|required after the cap click| p2
   pdone --> b0
@@ -225,7 +225,7 @@ Dependency behavior is intentionally asymmetric:
 - Every semantic **Connect** action is green and every semantic **Disconnect**
   action is red, including open connecting/probing states. An unavailable
   **Enable Motion** stays gray and shows its blocker beside the control.
-- **Identify Pen Cap** requires only a current exact frame.
+- **Identify Holder Landmark** requires only a current exact frame.
 - Every valid cap or calibration point click submits directly through its
   projection-bound request; there is no **Apply Learning Point** button.
 - After the cap click, **Confirm Pen Up** and the Pen Up slider remain visible
@@ -303,7 +303,7 @@ Camera-calibration failure detail is rendered in the selected exercise, includin
 available match score, competing-match margin and prediction residual. The retry
 action captures a fresh reference frame and pose. Off-center state instead offers
 **Return Pen Up to Accepted Center**, with exact Stop during travel; a position
-refusal does not prescribe cap replacement. **Reidentify Pen Cap** in the Learning
+refusal does not prescribe cap replacement. **Locate Tracking Reference** in the Learning
 panel freezes a fresh frame for a click on the same physical anchor;
 the prior reference rectangle follows its stored anchor offset. Settled failed or
 restartable Camera recovery restores its Camera owner and next explicit action
@@ -320,7 +320,7 @@ lineage; failed or cancelled proposals retain it. An excessive in-domain residua
 or incompatible context refuses the change and keeps previous Learning. Down or unknown pen state
 requires the explicit Raise Pen action, with no actuation during recovery itself.
 
-**Replace Pen Cap Reference** instead requests a new rectangle/anchor and, after
+**Replace Tracking Reference** instead requests a new rectangle/anchor and, after
 successful save, retains mechanical Learning while invalidating the camera/cap
 and downstream tip/drawing calibration. Both actions permit observation-only
 recovery after a settled possible-ink failure, without moving the machine,
@@ -329,5 +329,5 @@ context and failure preserve prior in-memory authority. Failed save rollback
 reports uncertain saved-state durability explicitly.
 **Reset All Learning**
 clears the current source's cap appearance as well as accepted Learning, returns
-to **Identify Pen Cap**, and preserves controller, camera selection, and Motion
+to **Identify Holder Landmark**, and preserves controller, camera selection, and Motion
 authorization. Enabled Video overlays expose their analysis status.

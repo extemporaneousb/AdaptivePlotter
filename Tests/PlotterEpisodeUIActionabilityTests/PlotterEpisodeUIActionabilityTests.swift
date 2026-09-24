@@ -72,7 +72,7 @@ struct PlotterLearningUIAuthorityTests {
     #expect(projection.item(ownerID: pen)?.status == .current)
     #expect(projection.item(ownerID: boundary)?.status == .next)
     let strip = try #require(projection.strip(ownerID: pen))
-    #expect(strip.actions.map(\.title) == ["Identify Pen Cap"])
+    #expect(strip.actions.map(\.title) == ["Identify Holder Landmark"])
     #expect(projection.strip(ownerID: boundary) == nil)
   }
 
@@ -447,7 +447,7 @@ struct PlotterLearningUIAuthorityTests {
 
     #expect(disposition == .accepted(requestID: request.id))
     #expect(fixture.projection().learningIsEnabled == !before)
-    await fixture.workspace.shutdown()
+    await fixture.shutdown()
   }
 
   @MainActor
@@ -524,7 +524,7 @@ struct PlotterLearningUIAuthorityTests {
       runtimeRevision(owner: "PlotterManualMotionRuntime", in: after.semantic)
         == initialManualRevision
     )
-    await fixture.workspace.shutdown()
+    await fixture.shutdown()
   }
 
   @MainActor
@@ -548,7 +548,7 @@ struct PlotterLearningUIAuthorityTests {
 
     #expect(refusalReason(stale) == .staleUIRevision)
     #expect(fixture.projection().learningIsEnabled == settledLearning)
-    await fixture.workspace.shutdown()
+    await fixture.shutdown()
   }
 
   @MainActor
@@ -588,7 +588,7 @@ struct PlotterLearningUIAuthorityTests {
         == .staleUIRevision
     )
     #expect(fixture.projection().learningIsEnabled == initialLearning)
-    await fixture.workspace.shutdown()
+    await fixture.shutdown()
   }
 
   @MainActor
@@ -649,7 +649,7 @@ struct PlotterLearningUIAuthorityTests {
       #expect((semantic.request(for: id) != nil) == action.isAvailable)
     }
 
-    await fixture.workspace.shutdown()
+    await fixture.shutdown()
   }
 
   @MainActor
@@ -683,7 +683,7 @@ struct PlotterLearningUIAuthorityTests {
         )
       }
     }
-    await fixture.workspace.shutdown()
+    await fixture.shutdown()
   }
 
   @MainActor
@@ -707,7 +707,7 @@ struct PlotterLearningUIAuthorityTests {
     #expect(locallyRecompiled.semantic.revision != before.semantic.revision)
     #expect(locallyRecompiled.semantic.runtimeRevisions == before.semantic.runtimeRevisions)
     #expect(locallyRecompiled.learningIsEnabled == before.learningIsEnabled)
-    await fixture.workspace.shutdown()
+    await fixture.shutdown()
   }
 
   @MainActor
@@ -733,7 +733,7 @@ struct PlotterLearningUIAuthorityTests {
     )
     guard case .accepted(let updates) = directAdmission else {
       Issue.record("Expected truthful no-source lifecycle admission")
-      await fixture.workspace.shutdown()
+      await fixture.shutdown()
       return
     }
     var observed: [PlotterIncidentPackageUINoSourceRequestUpdate] = []
@@ -742,18 +742,18 @@ struct PlotterLearningUIAuthorityTests {
     #expect(observed.count == 2)
     guard case .checkingAvailability? = observed.first else {
       Issue.record("Expected bounded availability progress before refusal")
-      await fixture.workspace.shutdown()
+      await fixture.shutdown()
       return
     }
     guard case .terminal(let refusal)? = observed.last else {
       Issue.record("Expected typed terminal no-source refusal")
-      await fixture.workspace.shutdown()
+      await fixture.shutdown()
       return
     }
     #expect(refusal.reason == .noCompleteSourceProvider)
     #expect(refusal.remedy == .provideCompleteSource)
     #expect(await fixture.incidentProvider.loadCount == 0)
-    await fixture.workspace.shutdown()
+    await fixture.shutdown()
   }
 
   @Test("completed incident metadata never upgrades software output to physical evidence")
@@ -844,6 +844,13 @@ struct PlotterEpisodeUIActionabilityTests {
 
 @MainActor
 private struct UIWorkspaceFixture {
+  let evidenceDirectory: URL
+
+  func shutdown() async {
+    await workspace.shutdown()
+    try? FileManager.default.removeItem(at: evidenceDirectory)
+  }
+
   let workspace: PlotterApplicationRuntime
   let incidentService: PlotterIncidentPackageUIService
   let incidentProvider: UnavailableIncidentSourceProbe
@@ -865,6 +872,8 @@ private struct UIWorkspaceFixture {
 
 @MainActor
 private func makeProductionWorkspace() -> UIWorkspaceFixture {
+  let evidenceDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+    "ui-actionability-\(UUID().uuidString)", isDirectory: true)
   let incidentProvider = UnavailableIncidentSourceProbe()
   let incidentService = PlotterIncidentPackageUIService(sourceProvider: incidentProvider)
   let resolvedObservationSession = CameraComposition.makeIsolatedObservationSessionForTesting()
@@ -894,7 +903,9 @@ private func makeProductionWorkspace() -> UIWorkspaceFixture {
     drawingDraftRuntime: PlotterDrawingDraftRuntime(),
     drawingRunComposition: PlotterDrawingRunComposition.make(
       machineSession: machineSession,
-      observationSession: resolvedObservationSession
+      observationSession: resolvedObservationSession,
+      evidencePort: DrawingRunEvidencePort(store: DrawingRunEvidenceStore(
+        fileURL: evidenceDirectory.appendingPathComponent("evidence.json")))
     ),
     incidentPackageUIService: incidentService,
     residualEffectPort: residualEffectPort,
@@ -905,6 +916,7 @@ private func makeProductionWorkspace() -> UIWorkspaceFixture {
   )
   boundaryComposition.install(on: workspace)
   return UIWorkspaceFixture(
+    evidenceDirectory: evidenceDirectory,
     workspace: workspace,
     incidentService: incidentService,
     incidentProvider: incidentProvider

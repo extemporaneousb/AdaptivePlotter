@@ -18,6 +18,25 @@ struct OperatorButtonGrammarTests {
     #expect(feedback.begin())
   }
 
+  @Test @MainActor
+  func changedRequestDiscardsOldSuccessWithoutReleasingPendingLatch() {
+    let feedback = OperatorRequestFeedback()
+    #expect(feedback.begin())
+    feedback.presentationChanged()
+    #expect(feedback.isPending)
+    #expect(!feedback.begin())
+    feedback.finish(.accepted(requestID: .init(rawValue: UUID())))
+    #expect(!feedback.isPending)
+    #expect(!feedback.wasAccepted)
+    #expect(feedback.result == nil)
+    #expect(feedback.begin())
+    feedback.finish(.accepted(requestID: .init(rawValue: UUID())))
+    #expect(feedback.wasAccepted)
+    feedback.presentationChanged()
+    #expect(!feedback.wasAccepted)
+    #expect(feedback.result == nil)
+  }
+
   @Test
   func stopIdentitySurvivesCapabilityRefresh() {
     let first = PlotterUILearningActionDecision(itemID: "boundary", action: .boundary(.stop(.init())))

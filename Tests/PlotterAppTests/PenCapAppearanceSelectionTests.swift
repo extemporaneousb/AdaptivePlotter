@@ -11,6 +11,41 @@ import Testing
 @Suite("Identify Pen Cap", .serialized)
 @MainActor
 struct PenCapAppearanceSelectionTests {
+  @Test("initial Identify ignores successful late capture after exact Pen Stop")
+  func lateInitialCaptureCannotRepublishAfterStop() async throws {
+    let log = EventLog()
+    let machine = try LowerMachineSessionFixture(log: log)
+    let camera = try TestObservationCameraSession()
+    let gate = TestInspectionSuspension()
+    let workspace = plotterApplicationRuntime(machine: machine,
+      observationSessionOverride: resolvedObservationSession(camera, captureProvider: { boundary in
+        await gate.waitIfArmed()
+        // Deliberately return pixels even if the owning task was cancelled.
+        return try camera.inspection(after: boundary).displayedFrame
+      }), loadPenCapAppearanceSelection: { nil }, log: log)
+    await workspace.establishMachineSession(machine.descriptor)
+    await submitControllerSession(workspace, .requestPassiveProbe)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
+    let priorFrameID = workspace.testActionSurfacePresentation.displayedFrame?.frame.id
+    await gate.arm()
+    let identify = Task { await workspace.performTestExerciseAction(.start, for: owner) }
+    try await waitForExecutorTurnsAsync(conditionDescription: "initial Identify held capture") {
+      await gate.isWaiting
+    }
+    try await performExactPenStop(workspace, owner: owner)
+    #expect(workspace.activeExerciseAttemptID == nil)
+    await gate.release()
+    await identify.value
+    #expect(workspace.activeExerciseAttemptID == nil)
+    #expect(workspace.pointSelectionEpisodeProjection.exactPointSelection.request == nil)
+    #expect(workspace.frozenPointSelectionFrame == nil)
+    #expect(workspace.testActionSurfacePresentation.displayedFrame?.frame.id == priorFrameID)
+    #expect(await machine.requestedPenCommands.isEmpty)
+    #expect(workspace.learningSelectionDiagnosticSnapshot.canvasHasSelection == false)
+    await workspace.shutdown()
+  }
+
   @Test("reference sampling preserves dark pixels, independent anchor and exact provenance")
   func visualSamplingAndPersistence() throws {
     let displayed = try DisplayedFrame(source: .live(CameraDeviceID(rawValue: "cap-reference-fixture")),
@@ -104,7 +139,7 @@ struct PenCapAppearanceSelectionTests {
     let request = try #require(presentation.pointSelectionRequest)
     let frozenFrame = try #require(presentation.displayedFrame)
     #expect(request.purpose == .penCapAppearance)
-    #expect(request.prompt == "Draw a rectangle around the cap and moving holder, then click the cap inside it. Include edges; leave out stationary rails and paper.")
+    #expect(request.prompt == "Draw a compact rectangle on the fixed moving holder, then click a distinct landmark on that same surface. Exclude the replaceable pen, rails and paper.")
     #expect(request.frame.frameID == frozenFrame.frame.id.rawValue)
     #expect(request.frame.frameSHA256 == frozenFrame.frame.contentSHA256)
     #expect(workspace.discoveryTransactions[.penInteraction] == nil)
@@ -158,7 +193,7 @@ struct PenCapAppearanceSelectionTests {
     let identifyAction = try #require(
       workspace.currentExerciseActionStripPresentation?.actions.first
     )
-    #expect(identifyAction.title == "Identify Pen Cap")
+    #expect(identifyAction.title == "Identify Holder Landmark")
     #expect(identifyAction.unavailableReason == nil)
 
     await workspace.performTestExerciseAction(.start, for: owner)
@@ -366,7 +401,7 @@ struct PenCapAppearanceSelectionTests {
 
     #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
     #expect(workspace.overlayStatus(for: .penCap).state == .unavailable)
-    #expect(workspace.overlayStatus(for: .penCap).message.contains("use Identify Pen Cap"))
+    #expect(workspace.overlayStatus(for: .penCap).message.contains("identify a fixed holder landmark"))
     #expect(camera.recordedPenCapColorRequests.isEmpty)
     await workspace.shutdown()
   }
@@ -403,7 +438,7 @@ struct PenCapAppearanceSelectionTests {
       _ = try await workspace.captureStableWorkflowCap(newerThan: 0)
       Issue.record("Expected LIVE exact-workflow Vision to require a LIVE appearance")
     } catch {
-      #expect(String(describing: error).contains("Identify Pen Cap"))
+      #expect(String(describing: error).contains("Identify Holder Landmark"))
     }
     #expect(camera.inspectionCallCount == 0)
     await workspace.shutdown()

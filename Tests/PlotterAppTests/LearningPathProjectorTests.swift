@@ -310,7 +310,7 @@ struct PlotterLearningPresentationCompilerTests {
       selectedItemID: drawingOwner
     )
 
-    #expect(try #require(pen.currentActionStrip).actions.map(\.title) == ["Identify Pen Cap"])
+    #expect(try #require(pen.currentActionStrip).actions.map(\.title) == ["Identify Holder Landmark"])
     #expect(try #require(boundary.currentActionStrip).actions.map(\.title) == ["Move Toward X+"])
     #expect(
       try #require(cameraCalibration.currentActionStrip).actions.map(\.title)

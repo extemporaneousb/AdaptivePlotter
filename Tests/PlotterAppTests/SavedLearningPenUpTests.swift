@@ -123,9 +123,10 @@ struct SavedLearningPenUpTests {
     await app.shutdown()
   }
 
-  @Test("scoped reset preserves compatible Pen optical evidence through disk reload without legacy fallback", arguments: [false, true])
-  func scopedCameraResetRetainsOpticalPrefix(resetTip: Bool) async throws {
-    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: resetTip)
+  @Test("scoped reset preserves compatible Pen optical evidence through disk reload without legacy fallback", arguments: [false, true], [false, true])
+  func scopedCameraResetRetainsOpticalPrefix(resetTip: Bool, newCameraConfiguration: Bool) async throws {
+    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: resetTip,
+      referenceFrameAtCurrentPose: newCameraConfiguration, newCameraConfiguration: newCameraConfiguration)
     defer { fixture.stores.remove() }
     let app = fixture.app
     let original = fixture.checkpoint
@@ -187,6 +188,18 @@ struct SavedLearningPenUpTests {
     let surface = app.testActionSurfacePresentation
     let viewport = ActionSurfaceViewportState()
     let frame = try #require(surface.displayedFrame).frame
+    #expect(surface.pointSelectionRequest?.id == selection.id)
+    #expect(!app.workbenchCanvasPresentation.showsSparseTipGuide)
+    #expect(app.learningSelectionDiagnosticSnapshot.canvasHasSelection)
+    let ambient = try await fixture.camera.publishNextFrame()
+    #expect(ambient.frame.id != frame.id)
+    let diagnosticProjection = app.testPlotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID,
+      includesLearningPath: true).semantic
+    let capture = WorkbenchDiagnosticCapture(application: app, projection: diagnosticProjection)
+    #expect(capture.frame?.frame.id == frame.id)
+    #expect(capture.selection.frozenFrameID == frame.id.rawValue)
+    #expect(capture.selection.selectedFrameID == frame.id.rawValue)
+    #expect(capture.selection.resolvedCanvasFrameID == frame.id.rawValue)
     guard case .staged(let clicked) = ActionSurfacePointStaging.stage(presentation: surface,
       viewport: viewport, at: CGPoint(x: predicted.x, y: predicted.y),
       viewSize: CGSize(width: frame.width, height: frame.height), referenceRegion: nil) else {
@@ -216,6 +229,17 @@ struct SavedLearningPenUpTests {
     #expect(saved.machineCamera?.registration == originalMap)
     #expect(saved.tipCalibration?.registration == originalTip)
     #expect(saved.penCapAppearance?.frameID.rawValue == selection.frame.frameID)
+    let priorReference = try #require(priorAppearance.visualReference)
+    let recoveredReference = try #require(saved.penCapAppearance?.visualReference)
+    #expect(recoveredReference.purpose == priorReference.purpose)
+    #expect(recoveredReference.opticalConfiguration == priorReference.opticalConfiguration)
+    if !newCameraConfiguration {
+      let sameAppearance = recoveredReference.region == priorReference.region
+        && recoveredReference.anchor == priorReference.anchor && recoveredReference.rgb == priorReference.rgb
+      #expect(sameAppearance || (recoveredReference.confirmedExamples ?? []).contains {
+        $0.region == priorReference.region && $0.anchor == priorReference.anchor && $0.rgb == priorReference.rgb
+      })
+    }
     for field in ["preservedAnchorEstimatorRevision", "machineCameraRegistrationRevisionID"] {
       var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(saved)) as? [String: Any])
       var appearance = try #require(json["penCapAppearance"] as? [String: Any])
@@ -291,7 +315,7 @@ struct SavedLearningPenUpTests {
     }
     try await waitUntil { app.activeExerciseAttemptID == nil || app.discoveryError != nil }
     #expect(app.discoveryError?.contains("9.00 px") == true, "\(app.discoveryError ?? "no discovery detail")")
-    #expect(app.discoveryError?.contains("Replace Pen Cap Reference") == true)
+    #expect(app.discoveryError?.contains("Replace Tracking Reference") == true)
     #expect(app.learningArtifactGraph.revisions == originalGraph)
     #expect(app.penCapAppearanceSelection == oldAppearance)
     #expect(app.machineCameraRegistration != nil && app.tipCameraRegistration != nil)
