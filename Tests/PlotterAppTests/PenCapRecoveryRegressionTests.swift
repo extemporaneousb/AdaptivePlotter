@@ -19,7 +19,12 @@ struct PenCapRecoveryRegressionTests {
       observationSessionOverride: resolvedObservationSession(camera,
         analysisUpdates: { traffic.updates() }), log: log)
     await submitObservationConfigurationForTest(app, .selectSource(.live, nil))
-    try await waitForExecutorTurns { traffic.subscriptionCount == 1 }
+    do {
+      try await waitForExecutorTurns { traffic.subscriptionCount == 1 }
+    } catch {
+      throw TestTimeout(conditionDescription:
+        "initial analysis subscription: subscriptions=\(traffic.subscriptionCount), configurations=\(camera.recordedAutomaticInspectionRequests.count), revision=\(app.visionAnalysisSnapshot.revision), phase=\(app.visionAnalysisSnapshot.phase.state); \(error)")
+    }
     let inspection = try camera.inspection(after: 100)
     let frame = inspection.displayedFrame.frame
     let diagnostics = PenCapDiagnostics(inspectedPixelCount: 576, thresholdPixelCount: 0,
@@ -79,13 +84,14 @@ struct PenCapRecoveryRegressionTests {
   @Test("LIVE Camera Redo stages new reference lineage atomically after recovery", arguments: [false, true])
   func newCameraAcceptanceSupersedesRecoveryLineage(saveFails: Bool) async throws {
     let log = EventLog()
-    let camera = try TestObservationCameraSession()
+    let camera = try TestObservationCameraSession(machineTrackingOrigin: 12)
     let machine = try LowerMachineSessionFixture(log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0),
       positionObserver: { camera.trackMachinePosition($0) })
     let store = CameraReplacementSaveStore()
     let boundary = TestBoundaryRuntimeAccess()
-    let app = plotterApplicationRuntime(machine: machine, camera: camera,
+    let app = plotterApplicationRuntime(machine: machine,
+      observationSessionOverride: recoveryObservationSession(camera),
       statePersistencePort: TestApplicationStatePersistencePort(loadCheckpoint: { store.load() },
         saveCheckpoint: { try store.save($0) }, clearCheckpoint: { store.clear() }),
       boundaryRuntimeAccess: boundary, log: log)
@@ -95,7 +101,7 @@ struct PenCapRecoveryRegressionTests {
     let pen = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await app.performTestExerciseAction(.start, for: pen)
     let initial = try #require(app.testActionSurfacePresentation.pointSelectionRequest)
-    submitPointSelection(app, request: initial, point: try Point2(x: 11.5, y: 11.5))
+    submitPointSelection(app, request: initial, point: try await recoveryMarkerSeed(app))
     try await waitUntil { app.activeDiscoverySequenceID == .penInteraction }
     for _ in 0..<3 { await app.performTestExerciseAction(.choice(.yes), for: pen) }
     try await installAcceptedBoundaryTestProjection(runtime: #require(boundary.runtime),
@@ -113,8 +119,7 @@ struct PenCapRecoveryRegressionTests {
     let selection = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
     let point = try oldMap.fit.cameraPoint(from: #require(app.machineSnapshot?.machine.position).point)
     let clicked = PlotterPointSelectionSubmission(selectionID: selection.id, frame: selection.frame,
-      point: point, presentationTransformRevision: selection.presentationTransformRevision,
-      referenceRegion: try AxisAlignedBounds(minX: 0, minY: 0, maxX: 12, maxY: 12))
+      point: point, presentationTransformRevision: selection.presentationTransformRevision)
     let clickProjection = app.plotterUIProjection(selectedItemID: pen, manualDraft: ManualMotionDraft(),
       includesLearningPath: true, pendingPointSelection: clicked).semantic
     let clickRequest = try #require(clickProjection.request(for: PlotterAppUIActionID.pointSelection(clicked)))
@@ -128,7 +133,7 @@ struct PenCapRecoveryRegressionTests {
     #expect(await app.submitPlotterUIRequest(redo) == .accepted(requestID: redo.id))
     await app.performTestExerciseAction(.cameraCalibration(.buildFivePositionProposal), for: cameraOwner)
     let proposal = try #require(app.proposedMachineCameraRegistration)
-    let expectedEstimator = "selected-cap-anchor-v4:\(try #require(recovered.visualReference).identity)"
+    let expectedEstimator = recovered.trackingEstimatorRevision
     #expect(proposal.capAnchorEstimatorRevision == expectedEstimator)
     #expect(proposal.capAnchorEstimatorRevision != recovered.operatorObservation?.preservedAnchorEstimatorRevision)
     if saveFails { store.rejectReplacement(of: previousCheckpoint.machineCamera?.revision.id) }
@@ -145,7 +150,8 @@ struct PenCapRecoveryRegressionTests {
       #expect(outcome == .accepted(requestID: accept.id))
       #expect(app.machineCameraRegistration == proposal)
       #expect(app.penCapAppearanceSelection?.operatorObservation == nil)
-      #expect(app.penCapAppearanceSelection?.visualReference == recovered.visualReference)
+      #expect(app.penCapAppearanceSelection?.markerReference == recovered.markerReference)
+      #expect(app.penCapAppearanceSelection?.visualReference == nil)
       #expect(store.checkpoint?.penCapAppearance?.operatorObservation == nil)
       #expect(store.checkpoint?.machineCamera?.registration.capAnchorEstimatorRevision == expectedEstimator)
       #expect(app.capRecoveryDetail == nil)
@@ -163,7 +169,7 @@ struct PenCapRecoveryRegressionTests {
     let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     let boundaryBefore = try #require((await fixture.boundary.snapshot(for: .live)).acceptedMachineArtifacts)
     let graphBefore = app.learningArtifactGraph.revisions
-    let previousReference = try #require(app.penCapAppearanceSelection?.visualReference)
+    let previousReference = try #require(app.penCapAppearanceSelection?.markerReference)
     let center = try #require(boundaryBefore.centerArrivalPosition)
     var selection = LearningPathSelectionState(current: app.currentLearningPathItemID)
     try #require(selection.current == cameraOwner)
@@ -208,17 +214,19 @@ struct PenCapRecoveryRegressionTests {
     selection.updateCurrent(app.currentLearningPathItemID)
     let exact = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
     let clicked = PlotterPointSelectionSubmission(selectionID: exact.id, frame: exact.frame,
-      point: try Point2(x: 10.5, y: 10.5), presentationTransformRevision: exact.presentationTransformRevision,
-      referenceRegion: try AxisAlignedBounds(minX: 0, minY: 0, maxX: 12, maxY: 12))
+      point: try await recoveryMarkerSeed(app), presentationTransformRevision: exact.presentationTransformRevision)
     let clickProjection = app.plotterUIProjection(selectedItemID: selection.selected,
       manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingPointSelection: clicked).semantic
     let click = try #require(clickProjection.request(for: PlotterAppUIActionID.pointSelection(clicked)))
     let clickOutcome = await app.submitPlotterUIRequest(click)
     try #require(clickOutcome == .accepted(requestID: click.id), "\(clickOutcome)")
-    let recoveredReference = try #require(app.penCapAppearanceSelection?.visualReference)
-    #expect(recoveredReference.confirmedExamples?.contains {
-      $0.anchor == previousReference.anchor && $0.region == previousReference.region
-    } == true)
+    let recoveredReference = try #require(app.penCapAppearanceSelection?.markerReference)
+    #expect(exact.referenceMode == .sampledColorMarker)
+    #expect(recoveredReference.color == previousReference.color)
+    #expect(recoveredReference.componentPixelCount == previousReference.componentPixelCount)
+    #expect(recoveredReference.selectionPoint == recoveredReference.acquisitionAnchor)
+    #expect(recoveredReference.frameID != previousReference.frameID)
+    #expect(app.penCapAppearanceSelection?.visualReference == nil)
     #expect(app.machineCameraRegistration == nil)
     selection.updateCurrent(app.currentLearningPathItemID)
     reviewing.updateCurrent(app.currentLearningPathItemID)
@@ -274,8 +282,7 @@ struct PenCapRecoveryRegressionTests {
       let exact = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
       let point = try map.fit.cameraPoint(from: #require(before.machine.position).point)
       let click = PlotterPointSelectionSubmission(selectionID: exact.id, frame: exact.frame,
-        point: point, presentationTransformRevision: exact.presentationTransformRevision,
-        referenceRegion: try AxisAlignedBounds(minX: 0, minY: 0, maxX: 12, maxY: 12))
+        point: point, presentationTransformRevision: exact.presentationTransformRevision)
       let projection = app.plotterUIProjection(selectedItemID: selection.selected,
         manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingPointSelection: click).semantic
       let request = try #require(projection.request(for: PlotterAppUIActionID.pointSelection(click)))
@@ -294,7 +301,7 @@ struct PenCapRecoveryRegressionTests {
     await app.shutdown()
   }
 
-  @Test("explicit replacement discards pre-map appearance history without granting a map")
+  @Test("marker Locate and replacement each retain one exact reference without granting a map")
   func replacementClearsPreMapAppearanceHistory() async throws {
     let fixture = try await makeCameraReturnFixture()
     let app = fixture.app
@@ -307,15 +314,17 @@ struct PenCapRecoveryRegressionTests {
       #expect(await app.submitPlotterUIRequest(start) == .accepted(requestID: start.id))
       let exact = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
       let click = PlotterPointSelectionSubmission(selectionID: exact.id, frame: exact.frame,
-        point: try Point2(x: 9.5, y: 10.5), presentationTransformRevision: exact.presentationTransformRevision,
-        referenceRegion: try AxisAlignedBounds(minX: 0, minY: 0, maxX: 12, maxY: 12))
+        point: try await recoveryMarkerSeed(app), presentationTransformRevision: exact.presentationTransformRevision)
       let projection = app.plotterUIProjection(selectedItemID: owner, manualDraft: ManualMotionDraft(),
         includesLearningPath: true, pendingPointSelection: click).semantic
       let request = try #require(projection.request(for: PlotterAppUIActionID.pointSelection(click)))
       let outcome = await app.submitPlotterUIRequest(request)
       try #require(outcome == .accepted(requestID: request.id), "\(outcome)")
-      let reference = try #require(app.penCapAppearanceSelection?.visualReference)
-      #expect((reference.confirmedExamples?.isEmpty ?? true) == replaces)
+      let reference = try #require(app.penCapAppearanceSelection?.markerReference)
+      #expect(exact.referenceMode == .sampledColorMarker)
+      #expect(reference.selectionPoint == reference.acquisitionAnchor)
+      #expect(reference.frameID.rawValue == exact.frame.frameID)
+      #expect(app.penCapAppearanceSelection?.visualReference == nil)
       #expect(app.machineCameraRegistration == nil)
       #expect(app.learningArtifactGraph.revisions == graph)
     }
@@ -521,8 +530,8 @@ struct PenCapRecoveryRegressionTests {
   @Test("partial two-circle failure releases Learning ownership and retains exactly the contacted locations")
   func partialBatchFailureAllowsObservationOnlyRecovery() async throws {
     let log = EventLog()
-    let camera = try TestObservationCameraSession()
-    let observed = PartialCapCaptureFailure(base: resolvedObservationSession(camera))
+    let camera = try TestObservationCameraSession(machineTrackingOrigin: 12)
+    let observed = PartialCapCaptureFailure(base: recoveryObservationSession(camera))
     let store = ArtifactResetCheckpointStoreFixture()
     let machine = try LowerMachineSessionFixture(log: log,
       relativeJogSettlementOffset: try Vector2(dx: 0, dy: 0),
@@ -541,7 +550,7 @@ struct PenCapRecoveryRegressionTests {
     let pen = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await app.performTestExerciseAction(.start, for: pen)
     let initial = try #require(app.testActionSurfacePresentation.pointSelectionRequest)
-    submitPointSelection(app, request: initial, point: try Point2(x: 11.5, y: 11.5))
+    submitPointSelection(app, request: initial, point: try await recoveryMarkerSeed(app))
     try await waitUntil { app.activeDiscoverySequenceID == .penInteraction }
     for _ in 0..<3 { await app.performTestExerciseAction(.choice(.yes), for: pen) }
     try await installAcceptedBoundaryTestProjection(runtime: #require(boundary.runtime),
@@ -594,7 +603,8 @@ struct PenCapRecoveryRegressionTests {
       Issue.record("Settled possible-ink state blocked capture-only recovery"); await app.shutdown(); return
     }
     let selection = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
-    #expect(selection.referenceGeometry != nil)
+    #expect(selection.referenceMode == .sampledColorMarker)
+    #expect(selection.referenceGeometry == nil)
     #expect(app.activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.penInteraction))
     let captured = await machine.snapshot()
     #expect(captured.machine.position == before.machine.position)
@@ -620,8 +630,7 @@ struct PenCapRecoveryRegressionTests {
     let exact = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
     let predicted = try #require(map).fit.cameraPoint(from: #require(before.machine.position).point)
     let clicked = PlotterPointSelectionSubmission(selectionID: exact.id, frame: exact.frame,
-      point: predicted, presentationTransformRevision: exact.presentationTransformRevision,
-      referenceRegion: try AxisAlignedBounds(minX: 0, minY: 0, maxX: 12, maxY: 12))
+      point: predicted, presentationTransformRevision: exact.presentationTransformRevision)
     let clickProjection = app.plotterUIProjection(selectedItemID: pen, manualDraft: ManualMotionDraft(),
       includesLearningPath: true, pendingPointSelection: clicked).semantic
     let clickRequest = try #require(clickProjection.request(for: PlotterAppUIActionID.pointSelection(clicked)))
@@ -632,7 +641,10 @@ struct PenCapRecoveryRegressionTests {
     #expect(app.machineCameraRegistration == map)
     #expect(app.learningArtifactGraph.revisions == graph)
     let confirmed = try #require(app.penCapAppearanceSelection?.operatorObservation)
-    #expect(confirmed.residualPixels == 0)
+    let observedAnchor = try #require(app.penCapAppearanceSelection?.markerReference).acquisitionAnchor
+    #expect(confirmed.residualPixels == predicted.distance(to: observedAnchor))
+    // The synthetic camera quantizes its declared tracking point to whole pixels.
+    #expect(confirmed.residualPixels <= sqrt(0.5))
     #expect(confirmed.isExtrapolated)
     #expect(confirmed.predictionDomain == map?.applicabilityRectangle)
     #expect(app.machineCameraRegistration?.applicabilityRectangle == map?.applicabilityRectangle)
@@ -672,6 +684,50 @@ struct PenCapRecoveryRegressionTests {
     try #require(store.checkpoint).validate()
     await app.shutdown()
   }
+}
+
+/// These tests inject calibrated measurements. Their operator-selection pixels
+/// must depict that same datum, rather than the shared fixture's stationary blob.
+private func recoveryObservationSession(_ camera: TestObservationCameraSession) -> any PlotterObservationCameraSessionPort {
+  resolvedObservationSession(camera, captureProvider: { boundary in
+    let inspection = try camera.inspection(after: boundary)
+    let original = inspection.displayedFrame
+    let frame = original.frame
+    let cap = try #require(inspection.measurement.penCap.measurement)
+    // The shared mock has no explicit referenceAnchor: calibration therefore
+    // consumes its bottom-center, not its deliberately offset centroid.
+    let reported = try ToolCapAnchorEstimate(componentCentroid: cap.centroid,
+      componentBounds: AxisAlignedBounds(minX: Double(cap.boundingBox.x),
+        minY: Double(cap.boundingBox.y),
+        maxX: Double(cap.boundingBox.x + cap.boundingBox.width),
+        maxY: Double(cap.boundingBox.y + cap.boundingBox.height)),
+      selectedAnchor: cap.referenceAnchor, confidence: cap.confidence,
+      estimatorRevision: "recovery-fixture-declared-datum", source: original.source,
+      frameID: frame.id, cameraConfigurationID: frame.cameraConfigurationID).point
+    // The generic fixture declares (99,52) before it has any machine position.
+    // Use the initial visible center only in that explicitly untracked state.
+    let untracked = reported.x == 99 && reported.y == 52
+    let x = untracked ? 12 : Int(reported.x.rounded())
+    let y = untracked ? 12 : Int(reported.y.rounded())
+    try #require(x >= 3 && x < frame.width - 3 && y >= 3 && y < frame.height - 3)
+    var bytes = [UInt8](repeating: 12, count: frame.rowBytes * frame.height)
+    for index in stride(from: 3, to: bytes.count, by: 4) { bytes[index] = 255 }
+    for row in (y - 2)...(y + 2) { for column in (x - 2)...(x + 2) {
+      let index = row * frame.rowBytes + column * 4
+      bytes[index] = 105; bytes[index + 1] = 185; bytes[index + 2] = 45
+    } }
+    return DisplayedFrame(source: original.source, frame: try StampedFrame(
+      id: frame.id, sequence: frame.sequence, captureNanoseconds: frame.captureNanoseconds,
+      cameraConfigurationID: frame.cameraConfigurationID, width: frame.width, height: frame.height,
+      rowBytes: frame.rowBytes, pixelFormat: frame.pixelFormat, bytes: OwnedFrameBytes(bytes)))
+  })
+}
+
+@MainActor
+private func recoveryMarkerSeed(_ app: PlotterApplicationRuntime) async throws -> Point2<CameraPixelSpace> {
+  let frame = try #require(app.testActionSurfacePresentation.displayedFrame)
+  let measured = try await VisionWorker().inspectPlotterScene(in: frame.frame, requestedFeatures: [.penCap])
+  return try #require(measured.penCap.measurement).centroid
 }
 
 @MainActor
@@ -781,8 +837,8 @@ private func makeCameraReturnFixture(automaticallySettlesTravel: Bool = true, pe
   observation: PartialCapCaptureFailure, boundary: PlotterBoundaryRuntime
 ) {
   let log = EventLog()
-  let camera = try TestObservationCameraSession()
-  let observed = PartialCapCaptureFailure(base: resolvedObservationSession(camera))
+  let camera = try TestObservationCameraSession(machineTrackingOrigin: 12)
+  let observed = PartialCapCaptureFailure(base: recoveryObservationSession(camera))
   let machine = try LowerMachineSessionFixture(log: log,
     relativeJogSettlementOffset: automaticallySettlesTravel ? try Vector2(dx: 0, dy: 0) : nil,
     penRequestGate: penGate,
@@ -799,7 +855,7 @@ private func makeCameraReturnFixture(automaticallySettlesTravel: Bool = true, pe
   let pen = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
   await app.performTestExerciseAction(.start, for: pen)
   let initial = try #require(app.testActionSurfacePresentation.pointSelectionRequest)
-  submitPointSelection(app, request: initial, point: try Point2(x: 11.5, y: 11.5))
+  submitPointSelection(app, request: initial, point: try await recoveryMarkerSeed(app))
   try await waitUntil { app.activeDiscoverySequenceID == .penInteraction }
   for _ in 0..<3 { await app.performTestExerciseAction(.choice(.yes), for: pen) }
   try await installAcceptedBoundaryTestProjection(runtime: #require(boundary.runtime),

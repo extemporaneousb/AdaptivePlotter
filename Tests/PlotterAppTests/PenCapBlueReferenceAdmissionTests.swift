@@ -11,7 +11,7 @@ import Testing
 @Suite("Dark-blue cap reference admission")
 struct PenCapBlueReferenceAdmissionTests {
   @MainActor
-  @Test("LIVE cap-reference rejection reaches the active video selection presentation")
+  @Test("LIVE marker-sample rejection reaches the active video selection presentation")
   func liveRejectionReachesVideo() async throws {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
@@ -33,13 +33,15 @@ struct PenCapBlueReferenceAdmissionTests {
         return
       }
       #expect(initial.pointSelectionFailure == nil)
+      #expect(request.referenceMode == .sampledColorMarker)
+      // This edge tap cannot provide the marker's required sampling neighborhood.
+      // Rectangle validation belongs to the explicit legacy tests below.
       app.submitPointSelection(PlotterPointSelectionSubmission(selectionID: request.id,
-        frame: request.frame, point: try Point2(x: 4, y: 4),
-        presentationTransformRevision: request.presentationTransformRevision,
-        referenceRegion: try AxisAlignedBounds(minX: 2, minY: 2, maxX: 8, maxY: 8)))
+        frame: request.frame, point: try Point2(x: 1, y: 4),
+        presentationTransformRevision: request.presentationTransformRevision))
       try await waitUntil { app.discoveryError != nil }
       let refusal = try #require(app.discoveryError)
-      #expect(refusal.contains(PenCapReferenceError.invalidRegion.localizedDescription))
+      #expect(refusal.contains(SampledColorMarkerError.incompatibleFrame.localizedDescription))
       let rejected = app.testActionSurfacePresentation
       #expect(rejected.pointSelectionFailure == refusal)
       #expect(rejected.pointSelectionRequest == request)

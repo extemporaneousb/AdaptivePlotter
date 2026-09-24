@@ -6,8 +6,8 @@ import Testing
 
 @Suite("Holder reference across actual camera generations")
 struct HolderCameraSessionTests {
-  @Test("restored reference reaches real exact, stable and ambient matchers after CameraCapture restart")
-  func actualRestart() async throws {
+  @Test("restored reference reaches real exact, stable and ambient matchers after CameraCapture restart", arguments: [false, true])
+  func actualRestart(markerMode: Bool) async throws {
     let device = CameraDevice(id: .init(rawValue: "holder-session-camera"), name: "Holder fixture")
     let driver = HolderSessionDriver(device: device)
     let capture = CameraCapture(driver: driver)
@@ -33,7 +33,12 @@ struct HolderCameraSessionTests {
     let saved = try JSONEncoder().encode(reference)
     let restored = try JSONDecoder().decode(PenCapVisualReference.self, from: saved)
     await session.setTrackingOpticalConfiguration(optical)
-    await session.setPenCapReference(restored)
+    let sampledMarker = markerMode ? try SampledColorMarkerReference.capture(frame: acquisition,
+      point: Point2(x: 15, y: 30), opticalConfiguration: optical) : nil
+    let restoredMarker = try sampledMarker.map {
+      try JSONDecoder().decode(SampledColorMarkerReference.self, from: JSONEncoder().encode($0))
+    }
+    await session.setTrackingReference(visualReference: markerMode ? nil : restored, markerReference: restoredMarker)
     let first = try #require(try await session.inspectWorkflowScene(newerThanNanoseconds: 0,
       requestedFeatures: [.penCap], analysisRegion: nil))
     #expect(first.measurement.penCap.measurement != nil)
@@ -45,7 +50,8 @@ struct HolderCameraSessionTests {
       requestedFeatures: [.penCap], analysisRegion: nil))
     #expect(restarted.displayedFrame.frame.cameraConfigurationID != acquisition.frame.cameraConfigurationID)
     let observed = try #require(restarted.measurement.penCap.measurement)
-    #expect(abs(observed.trackingPoint.x - 104) < 1.5)
+    #expect(abs(observed.trackingPoint.x - (markerMode ? 103 : 104)) < 1.5)
+    if markerMode { #expect(observed.referenceAnchor == observed.centroid) }
     #expect(restored.identity == reference.identity)
     #expect(restored.cameraConfigurationID == acquisition.frame.cameraConfigurationID)
 
@@ -79,7 +85,9 @@ struct HolderCameraSessionTests {
       .appendingPathComponent("manifest.json")
     let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
     let manifest = try decoder.decode(TrackingAcquisitionEvidence.self, from: Data(contentsOf: manifestURL))
-    #expect(manifest.referenceIdentity == restored.identity)
+    #expect(manifest.referenceIdentity == (restoredMarker?.identity ?? restored.identity))
+    #expect(manifest.markerReference == restoredMarker)
+    #expect(manifest.analysisElapsedNanoseconds != nil)
     #expect(manifest.phase == .success)
     #expect(manifest.camera.frameID == stable.inspection.displayedFrame.frame.id)
 
@@ -101,6 +109,52 @@ struct HolderCameraSessionTests {
     }
     Issue.record("Timed out waiting for the real camera/matcher pipeline")
     throw HolderSessionTestError.timeout
+  }
+
+  @Test("cancelled analysis retains its exact input and elapsed time after releasing the lease")
+  func cancelledAnalysisEvidence() async throws {
+    let device = CameraDevice(id: .init(rawValue: "cancelled-marker-camera"), name: "Cancelled analysis fixture")
+    let driver = HolderSessionDriver(device: device)
+    let capture = CameraCapture(driver: driver)
+    let worker = VisionWorker()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cancelled-marker-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let session = CameraSourceSession(live: capture, vision: worker,
+      analysisPipeline: PlotterSceneAnalysisPipeline(worker: worker), plannedDrawingObserver: worker,
+      trackingEvidenceRecorder: TrackingAcquisitionEvidenceRecorder(directory: directory))
+    _ = await session.discover(); _ = await session.start()
+    await driver.emit(origin: 12, time: 100)
+    try await waitFor { await capture.snapshot().latestFrame?.frame.captureNanoseconds == 100 }
+    let exact = try #require(try await session.captureFrame(newerThanNanoseconds: 0))
+    let cancelled = Task {
+      try await session.withExclusiveVisionLease(CancelledMarkerAnalysisOperation(),
+        trackingRequest: .init(newerThanNanoseconds: 0))
+    }
+    do { _ = try await cancelled.value; Issue.record("Expected Vision cancellation") }
+    catch is CancellationError {} // The operation cancels itself before Vision's row checkpoint.
+    #expect(await session.visionDiagnostics().activeExclusiveLeaseCount == 0)
+    try await waitFor {
+      ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
+        .contains { $0.lastPathComponent.hasPrefix("acquisition-") }
+    }
+    let folder = try #require(FileManager.default.contentsOfDirectory(at: directory,
+      includingPropertiesForKeys: nil).first { $0.lastPathComponent.hasPrefix("acquisition-") })
+    let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+    let manifest = try decoder.decode(TrackingAcquisitionEvidence.self,
+      from: Data(contentsOf: folder.appendingPathComponent("manifest.json")))
+    #expect(manifest.phase == .cancelled)
+    #expect(manifest.camera.frameID == exact.frame.id)
+    #expect(manifest.camera.contentSHA256 == exact.frame.contentSHA256)
+    #expect(manifest.detection == nil)
+    #expect(try #require(manifest.analysisElapsedNanoseconds) > 0)
+    _ = await session.stop()
+  }
+}
+
+private struct CancelledMarkerAnalysisOperation: CameraSourceSessionVisionLeaseOperation {
+  func perform(in scope: CameraSourceSessionVisionLeaseScope) async throws -> LiveSceneInspection? {
+    withUnsafeCurrentTask { $0?.cancel() }
+    return try await scope.inspectWorkflowScene(requestedFeatures: [.penCap], analysisRegion: nil)
   }
 }
 

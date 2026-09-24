@@ -12,7 +12,8 @@ enum ActionSurfaceDragIntent: Equatable {
     drawsReference: Bool,
     movesDrawing: Bool
   ) -> Self {
-    if presentation.pointSelectionRequest?.purpose == .penCapAppearance, drawsReference {
+    if presentation.pointSelectionRequest?.purpose == .penCapAppearance,
+      presentation.pointSelectionRequest?.referenceMode != .sampledColorMarker, drawsReference {
       return .reference
     }
     if presentation.pointSelectionRequest == nil, movesDrawing,
@@ -38,16 +39,18 @@ enum ActionSurfacePointStaging {
     referenceRegion: AxisAlignedBounds<CameraPixelSpace>?
   ) -> ActionSurfacePointStagingResult {
     guard let request = presentation.pointSelectionRequest else { return .ignored }
-    if request.purpose == .penCapAppearance, referenceRegion == nil, request.referenceGeometry == nil {
+    if request.purpose == .penCapAppearance, request.referenceMode != .sampledColorMarker,
+      referenceRegion == nil, request.referenceGeometry == nil {
       return .refused("Draw a compact reference on the fixed moving holder, then click a distinct landmark on that same surface.")
     }
     guard var submission = ExactFramePointSubmissionBuilder.submission(
       presentation: presentation, viewport: viewport, at: location, viewSize: viewSize,
-      referenceRegion: request.purpose == .penCapAppearance ? referenceRegion : nil
+      referenceRegion: request.purpose == .penCapAppearance && request.referenceMode != .sampledColorMarker
+        ? referenceRegion : nil
     ), presentation.acceptsPendingPointSelection(submission) else {
       return .refused("Click inside the frozen camera image. If it has changed, restart this selection.")
     }
-    if request.purpose == .penCapAppearance, referenceRegion == nil,
+    if request.purpose == .penCapAppearance, request.referenceMode != .sampledColorMarker, referenceRegion == nil,
       let geometry = request.referenceGeometry {
       guard let translated = geometry.region(around: submission.point),
         translated.minX >= 0, translated.minY >= 0,
@@ -60,7 +63,7 @@ enum ActionSurfacePointStaging {
         presentationTransformRevision: submission.presentationTransformRevision,
         referenceRegion: translated)
     }
-    if request.purpose == .penCapAppearance, let referenceRegion,
+    if request.purpose == .penCapAppearance, request.referenceMode != .sampledColorMarker, let referenceRegion,
       !(submission.point.x >= referenceRegion.minX && submission.point.x < referenceRegion.maxX
         && submission.point.y >= referenceRegion.minY && submission.point.y < referenceRegion.maxY) {
       return .refused("Click the cap inside the reference rectangle, or choose Redraw Reference.")

@@ -132,6 +132,9 @@ struct TrackingAcquisitionEvidence: Codable, Sendable {
   let phase: TrackingAcquisitionPhase
   let camera: Camera
   let reference: PenCapVisualReference?
+  let markerReference: SampledColorMarkerReference?
+  /// Monotonic time around the exact analysis await, including its scheduling.
+  let analysisElapsedNanoseconds: UInt64?
   let referenceIdentity: String?
   let referenceRevision: String
   let detection: TrackingDetectionEvidence?
@@ -161,11 +164,13 @@ actor TrackingAcquisitionEvidenceRecorder {
     detection: PenCapDetectionResult?, searchCenter: Point2<CameraPixelSpace>?,
     phase: TrackingAcquisitionPhase, acquisitionID: UUID, newerThanNanoseconds: UInt64,
     ownerEvidence: [String: String] = [:], priors: PlotterSceneVisionPriors? = nil,
-    context: TrackingAcquisitionContext? = nil) -> String? {
+    context: TrackingAcquisitionContext? = nil,
+    markerReference: SampledColorMarkerReference? = nil, analysisElapsedNanoseconds: UInt64? = nil) -> String? {
     do {
       _ = try write(frame: frame, reference: reference, detection: detection,
         searchCenter: searchCenter, phase: phase, acquisitionID: acquisitionID,
-        newerThanNanoseconds: newerThanNanoseconds, ownerEvidence: ownerEvidence, priors: priors, context: context)
+        newerThanNanoseconds: newerThanNanoseconds, ownerEvidence: ownerEvidence, priors: priors, context: context,
+        markerReference: markerReference, analysisElapsedNanoseconds: analysisElapsedNanoseconds)
       return nil
     } catch {
       return "Tracking acquisition evidence could not be saved: \(error.localizedDescription)"
@@ -176,12 +181,15 @@ actor TrackingAcquisitionEvidenceRecorder {
     detection: PenCapDetectionResult?, searchCenter: Point2<CameraPixelSpace>?,
     phase: TrackingAcquisitionPhase, acquisitionID: UUID, newerThanNanoseconds: UInt64,
     ownerEvidence: [String: String] = [:], priors: PlotterSceneVisionPriors? = nil,
-    context: TrackingAcquisitionContext? = nil) throws -> URL {
+    context: TrackingAcquisitionContext? = nil,
+    markerReference: SampledColorMarkerReference? = nil, analysisElapsedNanoseconds: UInt64? = nil) throws -> URL {
     let fm = FileManager.default
     let camera = TrackingAcquisitionEvidence.Camera(frame)
     let evidence = TrackingAcquisitionEvidence(format: "adaptiveplotter.tracking-acquisition.v1",
       acquisitionID: acquisitionID, exportedAt: Date(), phase: phase, camera: camera,
-      reference: reference, referenceIdentity: reference?.identity, referenceRevision: PenCapVisualReference.revision,
+      reference: reference, markerReference: markerReference, analysisElapsedNanoseconds: analysisElapsedNanoseconds,
+      referenceIdentity: markerReference?.identity ?? reference?.identity,
+      referenceRevision: markerReference == nil ? PenCapVisualReference.revision : SampledColorMarkerReference.revision,
       detection: detection.map(TrackingDetectionEvidence.init), searchCenter: searchCenter,
       newerThanNanoseconds: newerThanNanoseconds, options: priors.map(TrackingAcquisitionEvidence.Options.init),
       ownerEvidence: ownerEvidence, context: context, limitations: [

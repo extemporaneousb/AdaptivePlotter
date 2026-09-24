@@ -189,8 +189,10 @@ analysis may scan; an armature-envelope request expands its declared dependency
 to pen-cap analysis. Full-frame lock is canonicalized to unlocked/default
 analysis. The region does not crop or mutate the stamped frame, change exact-
 frame identity or constrain specialized workflow measurements. Unlocked analysis
-and exact workflow cap acquisition search the entire frame for the selected visual
-reference. Normalized per-channel correlation uses pattern structure, including
+and exact workflow acquisition search the entire frame for the selected tracking
+mode. Sampled markers use immutable chromatic/component evidence and reject
+competing compatible components. The retained legacy visual-template mode uses
+normalized per-channel correlation with pattern structure, including
 black and colored surfaces. A motion prediction seeds local refinement while the
 coarse search still scores the entire declared region; the prediction never
 excludes pixels or resolves a competing match. The global correlation pass is
@@ -627,35 +629,40 @@ button or second user confirmation. A stale or refused click remains governed
 by the existing point-selection owner and never becomes an automatic retry.
 
 New tracking references are learned through **Identify Holder Landmark** in Exercise
-1.1. On one frozen exact frame, the operator drags a compact rectangle around a
-rigid permanent holder surface, then clicks a landmark on that same surface.
-The reference carries explicit `rigidHolder` purpose and semantic optical
-configuration. The clicked landmark is not an inferred pen-cap or pen-tip point;
-changing from a historical cap anchor requires the existing dependent calibration
-invalidation. Same-anchor recovery preserves the reference's existing purpose.
-Pen color, ink color and Pen-Up/Down state are not recognition labels or an
-excuse to include the moving pen or paper in the holder crop.
-After the rectangle is drawn, ordinary dragging pans the video while keeping the
-rectangle in camera coordinates; **Redraw Reference** explicitly starts another
-rectangle. **Pan Video** also permits navigation before a rectangle is drawn.
-Exact point-selection clicks take priority over an editable drawing preview.
-Invalid clicks and runtime reference refusals display their remedy on the video.
-The rectangle is staged presentation state;
-the anchor click submits both rectangle and point through the existing exact-frame
-selection authority. Frame/request changes clear the staged rectangle. Viewport
-zoom does not change the selected camera-pixel geometry. Include visible edges,
-not stationary rails, independently moving gantry structure or surrounding paper.
+1.1 with one click inside a distinctive colored marker on the moving assembly.
+The exact frozen frame supplies a small chromatic sample and the connected
+component containing the click. The component centroid, not the arbitrary tap
+position, is the tracking anchor. A colored patch on the permanent holder avoids
+changing the reference when swapping pens. Dim chromatic samples are admitted by
+the same versioned signal policy used during tracking; insufficient signal,
+clipping, or another compatible same-color component produces an explicit refusal.
+New identification and **Replace Tracking Reference** require no rectangle.
+Marker policy v1 samples a 5×5 neighborhood and requires at least nine usable
+pixels. The signal floor is HSV value at least 0.12, saturation at least 0.30
+for sampling, and RGB channel spread at least 20 for admitted support. The
+persisted tracking saturation floor is the greater of 0.25 and half the greater
+of sampled saturation or the selected component's 75th-percentile saturation.
+Hue support stays within 22 degrees. Accepted component area, width and height
+must each remain within 0.5–2 times their acquired values; clipped or multiple
+compatible components refuse. These fixed software gates are not physical
+accuracy guarantees and do not adapt during tracking.
 
-The rectangle must be at least 12 source pixels per side and at most half each
-frame dimension. A bounded RGB reference (maximum 32 by 32 samples) retains dark
-and chromatic pixels; insufficient spatial detail is refused. The independent
-anchor can be anywhere inside it. Tracking transforms that point, never substitutes
-the rectangle center or bottom edge, and leaves cap-to-tip calibration separate.
-The overlay distinguishes the matched reference rectangle from its independently
-clicked anchor. Current capture-generation admission is a separate binding that
-requires matching semantic optical configuration; restarting the same camera
-does not rewrite the original reference's acquisition configuration or identity.
-Changed source, dimensions, format or optical configuration requires reidentification.
+The sampled marker retains immutable color, component geometry, measured anchor,
+selection point, exact-frame hash, and semantic optical configuration. Global
+segmentation checks competing components; a prediction does not select an
+otherwise ambiguous marker. No online color or anchor adaptation occurs. Changed
+source or optics requires compatible explicit identification. Selecting a new
+marker or changing anchor invalidates the dependent Camera and Tip results while
+preserving mechanical Pen/Boundary results and possible-ink exclusions.
+
+Existing visual-template references remain readable and use their prior detector
+and independent landmark semantics. **Locate Tracking Reference** for one of these
+references retains the rectangle/anchor workflow and optional redraw. Templates
+still require spatial detail and complete in-frame support; a uniformly colored
+small patch is not automatically a valid or cheaper template. Existing reference
+banks and compatible capture-generation binding preserve acquisition provenance.
+Exact point-selection clicks take priority over an editable drawing preview;
+invalid selections display their remedy on the actual frozen canvas.
 
 The accepted Learning checkpoint persists the reference and anchor, exact frame
 hash/identity, source, camera configuration, dimensions, format, counts and revision.
@@ -668,13 +675,13 @@ Saved physical results are not erased by loading an old appearance. SIMULATED
 geometry remains source-separated. A reference selection is recognition input,
 not proof of physical pen state, calibration accuracy or ink.
 
-**Locate Tracking Reference** is an observation of the same physical anchor on a new
-exact frame. One click translates the previous reference rectangle around its
-stored anchor offset; the operator may redraw the rectangle when needed. The
-click is recorded as an operator observation. Same-anchor recovery retains the
-current view and up to two previous compatible, independently anchored views even
-before the first camera map exists. This learns appearance only; it grants no
-calibration or motion authority. Explicit replacement discards prior appearances.
+**Locate Tracking Reference** observes the same existing marker or landmark on a
+new exact frame. Marker mode uses one click and the selected component's measured
+centroid for compatibility checks. Legacy template mode translates its prior
+rectangle around the stored anchor offset, with optional redraw and at most two
+prior compatible independently anchored views. The observation is recorded;
+recovery grants no calibration or motion authority. Explicit replacement discards
+prior appearance authority.
 With an accepted camera map,
 compatible optical/controller/coordinate authority, unchanged capture context,
 and settled Idle/Pen-Up, it can preserve accepted camera, tip and drawing

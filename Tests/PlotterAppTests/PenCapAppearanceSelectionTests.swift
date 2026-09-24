@@ -139,7 +139,8 @@ struct PenCapAppearanceSelectionTests {
     let request = try #require(presentation.pointSelectionRequest)
     let frozenFrame = try #require(presentation.displayedFrame)
     #expect(request.purpose == .penCapAppearance)
-    #expect(request.prompt == "Draw a compact rectangle on the fixed moving holder, then click a distinct landmark on that same surface. Exclude the replaceable pen, rails and paper.")
+    #expect(request.prompt == "Click a small, distinct colored marker on the fixed moving holder. Its center will be tracked; no rectangle is needed.")
+    #expect(request.referenceMode == .sampledColorMarker)
     #expect(request.frame.frameID == frozenFrame.frame.id.rawValue)
     #expect(request.frame.frameSHA256 == frozenFrame.frame.contentSHA256)
     #expect(workspace.discoveryTransactions[.penInteraction] == nil)
@@ -316,16 +317,27 @@ struct PenCapAppearanceSelectionTests {
     await workspace.shutdown()
   }
 
-  @Test("re-entering Exercise 1.1 retains exact scene overlays on its frozen frame")
-  func learnedAppearanceProducesFrozenFrameOverlays() async throws {
+  @Test("re-entering identification freezes directly without waiting for the old tracker")
+  func learnedAppearanceFreezesWithoutOldTracker() async throws {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession(providesInspectionOverlay: true)
-    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
+    let initial = try #require(camera.snapshot.latestFrame)
+    let priorAppearance = testPenCapAppearanceSelection(source: initial.source,
+      cameraConfigurationID: initial.frame.cameraConfigurationID)
+    let workspace = plotterApplicationRuntime(machine: machine,
+      observationSessionOverride: resolvedObservationSession(camera, captureProvider: { boundary in
+        // Raw acquisition must remain independent of the old matcher spy.
+        DisplayedFrame(source: initial.source, frame: try frame(
+          id: "identification-raw-capture", sequence: 2, capture: boundary + 1,
+          configurationID: initial.frame.cameraConfigurationID))
+      }), loadPenCapAppearanceSelection: { priorAppearance }, log: log)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
 
+    #expect(workspace.livePenCapAppearanceSelection == priorAppearance)
+    let inspectionCountBeforeIdentification = camera.inspectionCallCount
     await workspace.performTestExerciseAction(
       .start,
       for: .humanGuidedDiscovery(.penInteraction)
@@ -336,9 +348,11 @@ struct PenCapAppearanceSelectionTests {
     let request = try #require(presentation.pointSelectionRequest)
     #expect(request.frame.frameID == frozen.frame.id.rawValue)
     #expect(request.frame.frameSHA256 == frozen.frame.contentSHA256)
-    #expect(presentation.overlays.map(\.provenance.kind) == [.penCap])
+    #expect(request.referenceMode == .sampledColorMarker)
     #expect(presentation.overlays.allSatisfy { $0.matches(frozen) })
-    #expect(camera.inspectionCallCount >= 1)
+    #expect(frozen.frame.id.rawValue == "identification-raw-capture")
+    #expect(camera.inspectionCallCount == inspectionCountBeforeIdentification)
+    #expect(await machine.requestedPenCommands.isEmpty)
     await workspace.shutdown()
   }
 
@@ -462,6 +476,8 @@ struct PenCapAppearanceSelectionTests {
     )
 
     await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
+    let liveRequestsBeforeSelection = camera.recordedPenCapColorRequests
+    #expect(liveRequestsBeforeSelection.allSatisfy { $0 == live.color })
     await workspace.performTestExerciseAction(
       .start,
       for: .humanGuidedDiscovery(.penInteraction)
@@ -486,7 +502,12 @@ struct PenCapAppearanceSelectionTests {
     #expect(workspace.penCapAppearanceSelection == simulated)
     #expect(workspace.livePenCapAppearanceSelection == live)
     #expect(persisted.value == nil)
-    #expect(camera.recordedPenCapColorRequests.isEmpty)
+    // Source/startup reconciliation may replay the retained LIVE color. The
+    // SIM selection must never configure that camera with its own color.
+    #expect(simulated.color != live.color)
+    let requestsDuringSelection = camera.recordedPenCapColorRequests
+      .dropFirst(liveRequestsBeforeSelection.count)
+    #expect(requestsDuringSelection.allSatisfy { $0 == live.color })
     await workspace.shutdown()
   }
 

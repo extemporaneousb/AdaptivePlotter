@@ -98,8 +98,22 @@ struct ActionSurfaceInteractionTests {
       .pointSelectionFailure == "The rectangle has too little visual detail.")
   }
 
+  @Test("Sampled marker selects with one click and dragging only pans even with stale rectangle UI state")
+  func sampledMarkerNeedsNoRectangle() throws {
+    let surface = try presentation(purpose: .penCapAppearance, referenceMode: .sampledColorMarker)
+    guard case .staged(let submission) = ActionSurfacePointStaging.stage(
+      presentation: surface, viewport: ActionSurfaceViewportState(), at: CGPoint(x: 18, y: 24),
+      viewSize: CGSize(width: 64, height: 64), referenceRegion: nil) else {
+      Issue.record("Single marker click was refused"); return
+    }
+    #expect(submission.referenceRegion == nil)
+    #expect(ActionSurfaceDragIntent.resolve(presentation: surface,
+      drawsReference: true, movesDrawing: true) == .pan)
+  }
+
   private func presentation(
-    purpose: PlotterExactPointSelectionPurpose? = nil, locked: Bool = false, failure: String? = nil
+    purpose: PlotterExactPointSelectionPurpose? = nil, locked: Bool = false, failure: String? = nil,
+    referenceMode: PlotterTrackingReferenceMode? = nil
   ) throws -> ActionSurfacePresentation {
     let displayed = DisplayedFrame(source: .live(CameraDeviceID(rawValue: "selection-test")),
       frame: try StampedFrame(sequence: 1, captureNanoseconds: 1,
@@ -110,7 +124,7 @@ struct ActionSurfaceInteractionTests {
       PlotterPointSelectionRequest(frame: exactPointSelectionFrame(displayed),
         sourceObservationID: PlotterObservationID(rawValue: UUID()),
         presentationTransformRevision: PlotterPresentationTransformRevision(),
-        prompt: "Select the cap", purpose: $0, requiredPointCount: 1)
+        prompt: "Select the cap", purpose: $0, requiredPointCount: 1, referenceMode: referenceMode)
     }
     let draft = PlotterDrawingDraftSnapshot.initial(environment: .live,
       toolAssemblyRevision: ToolAssemblyRevision(),

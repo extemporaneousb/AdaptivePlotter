@@ -35,6 +35,25 @@ public struct PenCapReferenceBinding: Hashable, Sendable {
       && frame.width == opticalConfiguration.width && frame.height == opticalConfiguration.height
       && frame.pixelFormat == opticalConfiguration.pixelFormat
   }
+
+  public init?(markerReference: SampledColorMarkerReference, frame: DisplayedFrame,
+    opticalConfiguration: CameraOpticalConfigurationIdentity) {
+    guard markerReference.isValid, markerReference.opticalConfiguration == opticalConfiguration,
+      opticalConfiguration.source == frame.source,
+      opticalConfiguration.width == frame.frame.width, opticalConfiguration.height == frame.frame.height,
+      opticalConfiguration.pixelFormat == frame.frame.pixelFormat else { return nil }
+    referenceIdentity = markerReference.identity
+    cameraConfigurationID = frame.frame.cameraConfigurationID
+    self.opticalConfiguration = opticalConfiguration
+    admittedExampleIdentities = [markerReference.identity]
+  }
+
+  func admits(_ reference: SampledColorMarkerReference, frame: StampedFrame) -> Bool {
+    referenceIdentity == reference.identity && reference.opticalConfiguration == opticalConfiguration
+      && frame.cameraConfigurationID == cameraConfigurationID
+      && frame.width == opticalConfiguration.width && frame.height == opticalConfiguration.height
+      && frame.pixelFormat == opticalConfiguration.pixelFormat
+  }
 }
 
 /// Immutable, bounded image reference. Coordinates and dimensions are source-camera

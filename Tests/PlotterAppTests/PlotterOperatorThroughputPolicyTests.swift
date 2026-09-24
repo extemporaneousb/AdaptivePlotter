@@ -64,9 +64,7 @@ struct PlotterOperatorThroughputPolicyTests {
       presentation: presentation,
       viewport: ActionSurfaceViewportState(),
       at: CGPoint(x: 160, y: 120),
-      viewSize: CGSize(width: 320, height: 240),
-      referenceRegion: testCapSelectionRegion(point: try Point2(x: 160, y: 120),
-        width: 320, height: 240)
+      viewSize: CGSize(width: 320, height: 240)
     ))
     let unbound = workspace.testPlotterUIProjection(
       selectedItemID: owner,
@@ -92,9 +90,13 @@ struct PlotterOperatorThroughputPolicyTests {
     let request = try #require(bound.request(matching: .pointSelection(submission)))
     #expect(await sink.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
     let appearance = try #require(workspace.penCapAppearanceSelection)
+    let marker = try #require(appearance.markerReference)
     #expect(appearance.clickPoint == submission.point)
-    #expect(appearance.visualReference?.anchor == submission.point)
-    #expect(appearance.visualReference?.isValid == true)
+    #expect(marker.selectionPoint == submission.point)
+    #expect(marker.acquisitionAnchor != submission.point)
+    #expect(appearance.trackingAnchor == marker.acquisitionAnchor)
+    #expect(marker.isValid)
+    #expect(appearance.visualReference == nil)
     try await waitForExecutorTurns {
       workspace.activeDiscoverySequenceID == .penInteraction
     }

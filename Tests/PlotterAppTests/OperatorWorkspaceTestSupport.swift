@@ -293,6 +293,10 @@ struct CausalSimulatorProbe: Sendable {
     await runtime.capToTipPixelOffsetTruth()
   }
 
+  func cameraViewportTruth() async -> SimulatedWorldToCameraTransform {
+    await runtime.cameraViewport()
+  }
+
   func injectFault(_ fault: SimulatedLearningFault) async {
     await runtime.injectFault(fault)
   }
@@ -602,6 +606,9 @@ func boundaryEpisodeDirection(_ direction: BoundaryDirection) -> PlotterBoundary
 func makeCausalSimulatorAppFixture(
   initialMPos: SimulatedLearningMPos = .zero,
   observationSession: (any PlotterObservationCameraSessionPort)? = nil,
+  loadPenCapAppearanceSelection: @escaping @Sendable () -> PenCapAppearanceSelection? = {
+    testPenCapAppearanceSelection()
+  },
   drawingMaterials: DrawingMaterialLibrary? = nil,
   statePersistencePort: (any PlotterApplicationStatePersistencePort)? = nil,
   residualEffectPort: (any PlotterApplicationResidualEffectPort)? = nil,
@@ -672,7 +679,7 @@ func makeCausalSimulatorAppFixture(
       residualEffectPort: resolvedResidualEffectPort,
       serialDevices: [],
       observationPreferences: TestObservationPreferencePort(
-        loadPenCap: { testPenCapAppearanceSelection() },
+        loadPenCap: loadPenCapAppearanceSelection,
         loadOverlays: { Set(UserSceneOverlay.allCases) }
       )
     )
@@ -1178,7 +1185,7 @@ func completeSimulatedTipCalibration(
   let tipOwner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
   let truthOffset = await simulator.capToTipPixelOffsetTruth()
   #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
-  let registration = try #require(workspace.machineCameraRegistration)
+  let viewport = await simulator.cameraViewportTruth()
   let plan = try SparseTipBatchMarkPlan(
     acceptedBoundaryAggregates: workspace.testAcceptedBoundaryAggregates
   )
@@ -1199,7 +1206,10 @@ func completeSimulatedTipCalibration(
   try #require(request.purpose == .toolContact)
   try #require(request.requiredPointCount == 4)
   let clicks = try plan.marks.map { mark in
-    let capPoint = try registration.fit.cameraPoint(from: mark.machinePosition.point)
+    // Operator clicks identify the simulated ink, independently of the learned
+    // tracking datum. A marker centroid is not the simulator's bottom anchor.
+    let capPoint = viewport.cameraPoint(for: try SimulatedLearningMPos(
+      xMM: mark.machinePosition.point.x, yMM: mark.machinePosition.point.y))
     return try capPoint.translated(by: truthOffset)
   }
   for truthPoint in [clicks[3], clicks[1], clicks[0], clicks[2]] {
@@ -1238,7 +1248,7 @@ func submitPointSelection(
       frame: request.frame,
       point: point,
       presentationTransformRevision: request.presentationTransformRevision,
-      referenceRegion: request.purpose == .penCapAppearance
+      referenceRegion: request.purpose == .penCapAppearance && request.referenceMode != .sampledColorMarker
         ? testCapSelectionRegion(point: point, width: request.frame.width, height: request.frame.height) : nil
     )
   )
@@ -2841,6 +2851,7 @@ final class TestObservationCameraSession: @unchecked Sendable {
   private let providesAutomaticAnalysisResult: Bool
   private let automaticAnalysisError: String?
   private let capCentroidXOffsets: [Double]
+  private let machineTrackingOrigin: Double
   private let lock = NSLock()
   private var inspectionCount = 0
   private var automaticInspectionRequests: [VisionAnalysisCadence?] = []
@@ -2941,7 +2952,8 @@ final class TestObservationCameraSession: @unchecked Sendable {
     providesInspectionOverlay: Bool = false,
     providesAutomaticAnalysisResult: Bool = false,
     automaticAnalysisError: String? = nil,
-    capCentroidXOffsets: [Double] = []
+    capCentroidXOffsets: [Double] = [],
+    machineTrackingOrigin: Double = 4
   ) throws {
     self.rotatesConfiguration = rotatesConfiguration
     self.corruptsMeasurementFrameHash = corruptsMeasurementFrameHash
@@ -2949,6 +2961,7 @@ final class TestObservationCameraSession: @unchecked Sendable {
     self.providesAutomaticAnalysisResult = providesAutomaticAnalysisResult
     self.automaticAnalysisError = automaticAnalysisError
     self.capCentroidXOffsets = capCentroidXOffsets
+    self.machineTrackingOrigin = machineTrackingOrigin
     configurationID = CameraConfigurationID()
     device = CameraDevice(id: CameraDeviceID(rawValue: "camera"), name: "Fixture camera")
     let initial = DisplayedFrame(
@@ -2977,8 +2990,8 @@ final class TestObservationCameraSession: @unchecked Sendable {
     let centroidXOffset = capCentroidXOffsets.isEmpty
       ? 0
       : capCentroidXOffsets[(inspectionCount - 1) % capCentroidXOffsets.count]
-    let anchorX = trackedPosition.map { 4 + $0.point.x / 24 } ?? (99 + centroidXOffset)
-    let anchorY = trackedPosition.map { 4 + $0.point.y / 24 } ?? 52
+    let anchorX = trackedPosition.map { machineTrackingOrigin + $0.point.x / 24 } ?? (99 + centroidXOffset)
+    let anchorY = trackedPosition.map { machineTrackingOrigin + $0.point.y / 24 } ?? 52
     let boundsX = trackedPosition == nil
       ? Int((98 + centroidXOffset).rounded())
       : Int(anchorX.rounded()) - 1
@@ -3271,7 +3284,9 @@ func frame(
     rowBytes: width * 4,
     pixelFormat: .bgra8,
     bytes: OwnedFrameBytes((0..<(width * height)).flatMap { i in
-      i % width < 6 ? [UInt8(12), 12, 12, 255] : pixel
+      let x = i % width, y = i / width
+      return x >= 2 && x < width - 2 && y >= 2 && y < height - 2
+        ? pixel : [UInt8(12), 12, 12, 255]
     })
   )
 }

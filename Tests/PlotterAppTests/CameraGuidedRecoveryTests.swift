@@ -30,6 +30,16 @@ struct CameraGuidedRecoveryTests {
     #expect(arrived.mpos.yMM == center.point.y)
     #expect((await harness.boundaryRuntime.snapshot(for: .simulated)).acceptedMachineArtifacts == prior)
     #expect(workspace.learningArtifactGraph.revisions == graph)
+    let marker = try #require(workspace.penCapAppearanceSelection?.markerReference)
+    let capture = try await workspace.captureCameraCalibrationReferenceEffect()
+    let binding = try #require(PenCapReferenceBinding(markerReference: marker, frame: capture.frame,
+      opticalConfiguration: marker.opticalConfiguration))
+    let measured = try await VisionWorker().inspectPlotterScene(in: capture.frame.frame,
+      requestedFeatures: [.penCap], markerReference: marker, referenceBinding: binding)
+    let detected = try #require(measured.penCap.measurement)
+    #expect(capture.capAnchor.point == detected.centroid)
+    #expect(capture.capAnchor.point.y != Double(detected.boundingBox.y + detected.boundingBox.height))
+    #expect(capture.capAnchor.estimatorRevision == marker.estimatorRevision)
     try await send(.cameraCalibration(.buildFivePositionProposal), owner: camera, workspace: workspace)
     #expect(workspace.proposedMachineCameraRegistration?.correspondenceProvenance.count == 5)
     #expect(await harness.simulator.persistentInk().isEmpty)

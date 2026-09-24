@@ -150,6 +150,8 @@ public struct OperatorPenCapObservation: Codable, Hashable, Sendable {
 public struct AcceptedPenCapAppearance: Codable, Hashable, Sendable {
   public let operatorObservation: OperatorPenCapObservation?
   public let visualReference: PenCapVisualReference?
+  public let markerReference: SampledColorMarkerReference?
+  public var trackingAnchor: Point2<CameraPixelSpace> { markerReference?.acquisitionAnchor ?? clickPoint }
   public static let algorithmRevision = "pen-cap-click-9x9-median-v1"
   public static let minimumUsableSampleCount = 9
 
@@ -180,9 +182,11 @@ public struct AcceptedPenCapAppearance: Codable, Hashable, Sendable {
     totalSampleCount: Int,
     algorithmRevision: String,
     visualReference: PenCapVisualReference? = nil,
+    markerReference: SampledColorMarkerReference? = nil,
     operatorObservation: OperatorPenCapObservation? = nil
   ) throws {
     self.visualReference = visualReference
+    self.markerReference = markerReference
     self.operatorObservation = operatorObservation
     guard case .live = source,
       !frameID.rawValue.isEmpty,
@@ -196,14 +200,22 @@ public struct AcceptedPenCapAppearance: Codable, Hashable, Sendable {
       clickPoint.y < Double(height),
       usableSampleCount >= Self.minimumUsableSampleCount,
       totalSampleCount >= usableSampleCount,
-      (visualReference == nil
+      (markerReference.map { marker in
+        visualReference == nil && algorithmRevision == SampledColorMarkerReference.revision
+          && marker.isValid && marker.color == color && marker.selectionPoint == clickPoint
+          && marker.frameID == frameID && marker.frameSHA256 == frameSHA256.lowercased()
+          && marker.cameraConfigurationID == cameraConfigurationID
+          && marker.opticalConfiguration.source == source
+          && marker.opticalConfiguration.width == width && marker.opticalConfiguration.height == height
+          && marker.opticalConfiguration.pixelFormat == pixelFormat
+      } ?? (visualReference == nil
         ? algorithmRevision == Self.algorithmRevision && Self.isUsable(color)
         : algorithmRevision == PenCapVisualReference.revision && visualReference?.isValid == true
           && visualReference?.cameraConfigurationID == cameraConfigurationID
           && visualReference?.frameWidth == width && visualReference?.frameHeight == height
-          && visualReference?.anchor == clickPoint)
+          && visualReference?.anchor == clickPoint))
     else { throw AcceptedLearningPathCheckpointError.invalidPenCapAppearance }
-    guard operatorObservation?.validates(point: clickPoint) ?? true else {
+    guard operatorObservation?.validates(point: markerReference?.acquisitionAnchor ?? clickPoint) ?? true else {
       throw AcceptedLearningPathCheckpointError.invalidPenCapAppearance
     }
     self.color = color
@@ -439,6 +451,7 @@ public struct AcceptedLearningPathCheckpoint: Codable, Hashable, Sendable {
         totalSampleCount: penCapAppearance.totalSampleCount,
         algorithmRevision: penCapAppearance.algorithmRevision,
         visualReference: penCapAppearance.visualReference,
+        markerReference: penCapAppearance.markerReference,
         operatorObservation: penCapAppearance.operatorObservation
       )
       if let machineCamera {

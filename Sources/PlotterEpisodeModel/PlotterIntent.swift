@@ -98,6 +98,11 @@ public enum PlotterExactPointSelectionPurpose: String, Codable, Hashable, Sendab
   case toolContact
 }
 
+/// Absence retains the historical rectangle/landmark selection contract.
+public enum PlotterTrackingReferenceMode: String, Codable, Hashable, Sendable {
+  case sampledColorMarker
+}
+
 /// Geometry retained from an operator-confirmed cap reference. A recovery click
 /// translates this rectangle around the same off-center anchor on a new frame.
 public struct PlotterPenCapReferenceGeometry: Codable, Hashable, Sendable {
@@ -137,6 +142,7 @@ public struct PlotterPointSelectionRequest: Codable, Hashable, Sendable {
   public let purpose: PlotterExactPointSelectionPurpose
   public let requiredPointCount: Int
   public let referenceGeometry: PlotterPenCapReferenceGeometry?
+  public let referenceMode: PlotterTrackingReferenceMode?
 
   public init(
     id: PlotterPointSelectionID = PlotterPointSelectionID(),
@@ -146,7 +152,8 @@ public struct PlotterPointSelectionRequest: Codable, Hashable, Sendable {
     prompt: String,
     purpose: PlotterExactPointSelectionPurpose,
     requiredPointCount: Int,
-    referenceGeometry: PlotterPenCapReferenceGeometry? = nil
+    referenceGeometry: PlotterPenCapReferenceGeometry? = nil,
+    referenceMode: PlotterTrackingReferenceMode? = nil
   ) {
     self.id = id
     self.frame = frame
@@ -156,6 +163,7 @@ public struct PlotterPointSelectionRequest: Codable, Hashable, Sendable {
     self.purpose = purpose
     self.requiredPointCount = requiredPointCount
     self.referenceGeometry = referenceGeometry
+    self.referenceMode = referenceMode
   }
 }
 

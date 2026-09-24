@@ -824,14 +824,16 @@ struct ActionSurface: View {
       }
       .clipped()
       .overlay {
-        if presentation.pointSelectionRequest?.purpose == .penCapAppearance {
+        if presentation.pointSelectionRequest?.purpose == .penCapAppearance,
+          presentation.pointSelectionRequest?.referenceMode != .sampledColorMarker {
           PenCapReferenceSelectionOverlay(region: capReferenceRegion, transform: transform)
             .allowsHitTesting(false)
         }
       }
       .overlay(alignment: .topLeading) {
         VStack(alignment: .leading, spacing: 6) {
-          if presentation.pointSelectionRequest?.purpose == .penCapAppearance {
+          if presentation.pointSelectionRequest?.purpose == .penCapAppearance,
+          presentation.pointSelectionRequest?.referenceMode != .sampledColorMarker {
             HStack {
               Button(capReferenceRegion == nil ? "Draw Reference" : "Redraw Reference") {
                 drawsCapReference = true
@@ -871,7 +873,9 @@ struct ActionSurface: View {
       .overlay(alignment: .bottomLeading) {
         VStack(alignment: .leading, spacing: 6) {
           if let prompt = presentation.tipPresentation.interactionPrompt {
-            Text(presentation.pointSelectionRequest?.purpose == .penCapAppearance
+            Text(presentation.pointSelectionRequest?.referenceMode == .sampledColorMarker
+              ? "Click the colored marker. Its center is tracked. Drag to pan."
+              : presentation.pointSelectionRequest?.purpose == .penCapAppearance
               ? (drawsCapReference
                 ? "Drag a compact reference region, then click its landmark."
                 : (capReferenceRegion == nil
@@ -1020,7 +1024,9 @@ struct ActionSurface: View {
       .onChange(of: pointSelectionPendingIdentity, initial: true) { prior, current in
         if prior.request != current.request {
           capReferenceRegion = nil
-          drawsCapReference = presentation.pointSelectionRequest?.referenceGeometry == nil
+          drawsCapReference = presentation.pointSelectionRequest?.purpose == .penCapAppearance
+            && presentation.pointSelectionRequest?.referenceMode != .sampledColorMarker
+            && presentation.pointSelectionRequest?.referenceGeometry == nil
           movesDrawing = false
           pointSelectionRefusal = nil
           pendingDrawingPlacement = nil

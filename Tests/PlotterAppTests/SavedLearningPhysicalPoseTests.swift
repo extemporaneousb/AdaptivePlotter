@@ -167,7 +167,8 @@ struct SavedLearningPhysicalPoseTests {
 
   @Test("operator-confirmed anchor lineage survives coordinate rebase and a second Saved Learning reload")
   func confirmedAnchorLineageSurvivesRebaseAndReload() async throws {
-    let f = try await DrawingWorkbenchApplicationFixture.make(verifyPhysicalPose: false)
+    let f = try await DrawingWorkbenchApplicationFixture.make(verifyPhysicalPose: false,
+      legacyTemplate: true)
     defer { f.stores.remove() }
     await f.application.shutdown()
     let original = f.accepted.checkpoint

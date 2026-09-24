@@ -24,7 +24,7 @@ struct CompleteAcceptedLearningFixture: Sendable {
   var registration: TipCameraRegistration { checkpoint.tipCalibration!.registration }
 
   @MainActor
-  static func make(raisedSpindleValue: Int? = nil) async throws -> Self {
+  static func make(raisedSpindleValue: Int? = nil, legacyTemplate: Bool = false) async throws -> Self {
     let identities = TipCalibrationSemanticIdentityState.ephemeral()
     let seeded = makeCausalSimulatorAppFixture(tipCalibrationSemanticIdentities: identities)
     let source = seeded.workspace
@@ -37,12 +37,34 @@ struct CompleteAcceptedLearningFixture: Sendable {
     #expect(source.borderValidationSnapshot.assessment == .predictionObserved)
     let syntheticSource = FrameSourceIdentity.live(CameraDeviceID(rawValue: "accepted-learning-fixture-camera"))
     let originalAppearance = try #require(source.penCapAppearanceSelection)
-    let sourceReboundAppearance = try replacingFixtureSources(originalAppearance, with: syntheticSource)
+    // Explicit legacy fixtures sample a structural reference at the same physical
+    // marker centroid. This constructs synthetic history, never migrates a user's map.
+    let sampledAppearance: PenCapAppearanceSelection
+    if legacyTemplate {
+      let exact = try #require(source.displayedFrame)
+      let marker = try #require(originalAppearance.markerReference)
+      let binding = try #require(PenCapReferenceBinding(markerReference: marker, frame: exact,
+        opticalConfiguration: marker.opticalConfiguration))
+      let measurement = try await VisionWorker().inspectPlotterScene(in: exact.frame,
+        requestedFeatures: [.penCap], markerReference: marker, referenceBinding: binding)
+      let cap = try #require(measurement.penCap.measurement)
+      let box = cap.boundingBox
+      let region = try AxisAlignedBounds<CameraPixelSpace>(
+        minX: Double(max(0, box.x - 4)), minY: Double(max(0, box.y - 4)),
+        maxX: Double(min(exact.frame.width, box.x + box.width + 4)),
+        maxY: Double(min(exact.frame.height, box.y + box.height + 4)))
+      let submission = PlotterPointSelectionSubmission(selectionID: PlotterPointSelectionID(),
+        frame: exactPointSelectionFrame(exact), point: cap.centroid,
+        presentationTransformRevision: PlotterPresentationTransformRevision(), referenceRegion: region)
+      let sample = try PlotterPenCapPointSampler.sample(frame: exact, submission: submission,
+        referencePurpose: .rigidHolder, opticalConfiguration: marker.opticalConfiguration)
+      sampledAppearance = PenCapAppearanceSelection(sample: sample, frame: exact)
+    } else { sampledAppearance = originalAppearance }
+    let sourceReboundAppearance = try replacingFixtureSources(sampledAppearance, with: syntheticSource)
     // The reference includes its semantic optical source. Rebinding that source
     // creates a new synthetic reference identity and must rebind its map lineage.
     let estimatorRevisions = [
-      "selected-cap-anchor-v4:\(try #require(originalAppearance.visualReference).identity)":
-        "selected-cap-anchor-v4:\(try #require(sourceReboundAppearance.visualReference).identity)"
+      originalAppearance.trackingEstimatorRevision: sourceReboundAppearance.trackingEstimatorRevision
     ]
     let appearance = try replacingFixtureSources(sourceReboundAppearance, with: syntheticSource,
       replacingEstimatorRevisions: estimatorRevisions)
@@ -96,7 +118,7 @@ struct CompleteAcceptedLearningFixture: Sendable {
       acceptedRevisions: originalMachine.acceptedRevisions)
     // The accepted map and appearance must name the same synthetic landmark.
     #expect(machineCamera.capAnchorEstimatorRevision
-      == "selected-cap-anchor-v4:\(try #require(appearance.visualReference).identity)")
+      == appearance.trackingEstimatorRevision)
     let checkpoint = try AcceptedLearningPathCheckpoint(semanticIdentity: identities.learningPathIdentity,
       penInteraction: AcceptedPenInteractionCheckpoint(
         revision: #require(source.learningArtifactGraph.currentRevision(for: .penInteraction)),

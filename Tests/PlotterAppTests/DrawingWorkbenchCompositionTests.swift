@@ -339,12 +339,13 @@ struct DrawingWorkbenchApplicationFixture {
     portraitStudio: PortraitStudioModel? = nil,
     drawingMaterials: DrawingMaterialLibrary? = nil,
     verifyPhysicalPose: Bool = true,
+    legacyTemplate: Bool = false,
     checkpointSaveFails: Bool = false,
     holdsManualJog: Bool = false,
     penRequestGate: PenRequestGate? = nil,
     paperPersistence: any PlotterDrawingDraftPaperPersistence = PlotterDrawingDraftTransientPaperPersistence()
   ) async throws -> Self {
-    let accepted = try await CompleteAcceptedLearningFixture.make()
+    let accepted = try await CompleteAcceptedLearningFixture.make(legacyTemplate: legacyTemplate)
     let stores = CompleteAcceptedLearningStores()
     try await stores.save(accepted)
     let log = EventLog()

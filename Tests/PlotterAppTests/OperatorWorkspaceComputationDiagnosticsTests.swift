@@ -670,6 +670,17 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    // Measure diagnostics-only traffic after the real startup configuration has
+    // published its running phase, rather than counting that semantic transition.
+    try await waitForExecutorTurns {
+      let requests = camera.recordedAutomaticInspectionRequests.count
+      guard requests > 0,
+        case .running = workspace.visionAnalysisSnapshot.phase.state else { return false }
+      return workspace.visionAnalysisSnapshot.revision == UInt64(requests)
+    }
+    if let synchronization = workspace.drawingDraftSynchronizationTask {
+      await synchronization.value
+    }
     workspace.resetComputationDiagnosticsForTesting()
     _ = workspace.currentExerciseActionStripPresentation
     let baseline = workspace.computationDiagnosticsForTesting
@@ -833,10 +844,15 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
-    try await waitForExecutorTurns(
-      conditionDescription: "initial analysis subscription"
-    ) {
-      traffic.subscriptionCount == 1
+    do {
+      try await waitForExecutorTurns(
+        conditionDescription: "initial analysis subscription"
+      ) {
+        traffic.subscriptionCount == 1
+      }
+    } catch {
+      throw TestTimeout(conditionDescription:
+        "initial analysis subscription: subscriptions=\(traffic.subscriptionCount), configurations=\(camera.recordedAutomaticInspectionRequests.count), revision=\(workspace.visionAnalysisSnapshot.revision), phase=\(workspace.visionAnalysisSnapshot.phase.state); \(error)")
     }
     let prerequisitePenOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     await workspace.performTestExerciseAction(.start, for: prerequisitePenOwner)

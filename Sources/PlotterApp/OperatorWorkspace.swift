@@ -4259,6 +4259,11 @@ final class PlotterApplicationRuntime:
     }
     let appearance = retained.penCapAppearance.flatMap { value in
       guard let current else { return value }
+      if let marker = value.markerReference {
+        guard let optical, PenCapReferenceBinding(markerReference: marker, frame: current,
+          opticalConfiguration: optical) != nil else { return nil }
+        return value
+      }
       if let visual = value.visualReference, visual.isRigidHolder,
         visual.opticalConfiguration != nil {
         guard let optical, PenCapReferenceBinding(reference: visual, frame: current,
@@ -6797,46 +6802,17 @@ final class PlotterApplicationRuntime:
     }
     do {
       let boundary = displayedFrame?.frame.captureNanoseconds ?? 0
-      var frame: DisplayedFrame?
-      if frameMode == .live, livePenCapAppearanceSelection != nil, sceneAnalysisIsRequested {
-        do {
-          if let inspection = try await inspectWorkflowScene(
-            owner: .penCapAppearance,
-            newerThan: boundary,
-            requestedFeatures: requestedSceneFeatures,
-            analysisRegion: videoAnalysisRegionLock?.region
-          ) {
-            guard ownsAttempt() else { return }
-            frame = inspection.displayedFrame
-            displayedFrame = inspection.displayedFrame
-            latestLiveCameraFrame = inspection.displayedFrame
-            lastSceneMeasurement = inspection.measurement
-            overlayResultChannels.publishScene(
-              overlayChannelResult(
-                displayedFrame: inspection.displayedFrame,
-                measurement: inspection.measurement
-              )
-            )
-          }
-        } catch {
-          guard ownsAttempt() else { return }
-          visionError =
-            "Frozen-frame overlay analysis failed — \(actionableDescription(error))"
-        }
-      }
-      if frame == nil {
-        frame = try await captureProtocolFrame(newerThan: boundary)
-      }
+      // Identification freezes pixels directly; an old tracker must not delay
+      // the operator's ability to replace or cancel its reference.
+      let frame = try await captureProtocolFrame(newerThan: boundary)
       guard ownsAttempt() else { return }
-      guard let frame else {
-        throw LearningPathOperationError.freshFrameUnavailable
-      }
       let staged = try await pointSelectionRuntime.stage(
         frame: frame,
         presentationTransformRevision: PlotterPresentationTransformRevision(),
-        prompt: "Draw a compact rectangle on the fixed moving holder, then click a distinct landmark on that same surface. Exclude the replaceable pen, rails and paper.",
+        prompt: "Click a small, distinct colored marker on the fixed moving holder. Its center will be tracked; no rectangle is needed.",
         purpose: .penCapAppearance,
-        requiredPointCount: 1
+        requiredPointCount: 1,
+        referenceMode: .sampledColorMarker
       )
       guard ownsAttempt() else {
         _ = await pointSelectionRuntime.cancel(selectionID: staged.request.id)
@@ -6920,7 +6896,7 @@ final class PlotterApplicationRuntime:
     guard let attemptID = activeExerciseAttemptID else { return "Cap selection could not start." }
     capReidentificationAttemptID = attemptID
     capRecoveryDetail = replacesAnchor
-      ? "Select a compact patch on the fixed moving holder, then click a distinct landmark on that same surface. This replaces optical learning; mechanical Learning and existing marks are retained."
+      ? "Click a small, distinct colored marker on the fixed moving holder. This replaces optical learning; mechanical Learning and existing marks are retained."
       : "Capture-only selection: click the same physical landmark in the frozen video. No pen or carriage motion is requested."
     restartableExerciseItemID = nil
     markSemanticPresentationChanged()
@@ -6963,11 +6939,13 @@ final class PlotterApplicationRuntime:
         frame: frame,
         presentationTransformRevision: PlotterPresentationTransformRevision(),
         prompt: replacesAnchor
-          ? "Select a compact patch on the fixed moving holder and click a landmark on that same surface. Exclude the replaceable pen. Camera and Pen-Tip Calibration must be repeated; mechanical Learning and existing marks are retained."
+          ? "Click a small colored marker on the fixed moving holder. Its center becomes the tracking point. Camera and Pen-Tip Calibration must be repeated; mechanical Learning and existing marks are retained."
           : "Click the same physical landmark. Compatible calibration is retained after a position residual check. Use Replace Tracking Reference to move to a different surface or landmark.",
         purpose: .penCapAppearance,
         requiredPointCount: 1,
-        referenceGeometry: geometry
+        referenceGeometry: geometry,
+        referenceMode: replacesAnchor || penCapAppearanceSelection?.markerReference != nil
+          ? .sampledColorMarker : nil
       )
       guard ownsCapReidentification(attemptID) else {
         if let id = staged.projection.exactPointSelection.request?.id {
@@ -6985,6 +6963,7 @@ final class PlotterApplicationRuntime:
         activeExerciseAttemptID == attemptID else { return "Cap selection was cancelled." }
       let detail = "Locate Tracking Reference could not freeze an exact frame: \(actionableDescription(error))"
       discoveryError = detail
+      capRecoveryDetail = detail
       await finishCapRecovery(attemptID: attemptID, disposition: .failed(detail))
       markSemanticPresentationChanged()
       return detail
@@ -7040,12 +7019,12 @@ final class PlotterApplicationRuntime:
           registration.coordinateRevision == explorationCoordinateRevision,
           registration.machineGeometry == machineGeometryIdentity,
           retainedPoseApplicabilityRefusal == nil,
-          let previous = penCapAppearanceSelection?.visualReference
+          let previousIdentity = penCapAppearanceSelection?.trackingReferenceIdentity
         else {
           throw LearningPathOperationError.requiredState("Same-anchor calibration compatibility could not be established. Use Replace Tracking Reference and repeat optical calibration, or restore the matching camera/controller context.")
         }
         let predicted = try registration.fit.cameraPoint(from: position.point)
-        let residual = predicted.distance(to: learned.clickPoint)
+        let residual = predicted.distance(to: learned.trackingAnchor)
         let isExtrapolated = !registration.applicabilityRectangle.contains(position.point)
         guard isExtrapolated || residual <= 8 else {
           throw LearningPathOperationError.requiredState(String(format:
@@ -7055,7 +7034,7 @@ final class PlotterApplicationRuntime:
           controllerSessionID: controllerSessionID, coordinateRevision: explorationCoordinateRevision,
           machineCameraRegistrationRevisionID: revision,
           preservedAnchorEstimatorRevision: registration.capAnchorEstimatorRevision,
-          priorReferenceIdentity: previous.identity, predictedPoint: predicted,
+          priorReferenceIdentity: previousIdentity, predictedPoint: predicted,
           residualPixels: residual, maximumResidualPixels: 8,
           predictionScope: isExtrapolated ? .extrapolated : .withinCalibrationDomain,
           predictionDomain: registration.applicabilityRectangle)
@@ -7150,6 +7129,7 @@ final class PlotterApplicationRuntime:
     disposition: ExerciseAttemptDisposition) async {
     guard capReidentificationAttemptID == attemptID, activeExerciseAttemptID == attemptID else { return }
     let origin = capRecoveryOrigin
+    if disposition == .cancelled { capRecoveryDetail = nil }
     if origin?.restoreCameraAttempt == true {
       await cameraCalibrationRuntime.prepareForNewAttempt()
       guard applicationAdmissionIsOpen, capReidentificationAttemptID == attemptID,
@@ -7491,6 +7471,31 @@ final class PlotterApplicationRuntime:
     }
   }
 
+  /// Marker-mode simulation uses the same measured centroid as LIVE tracking.
+  /// The causal armature overlay remains the historical legacy datum only.
+  private func simulatedMarkerMeasurement(in frame: DisplayedFrame) async throws -> PenCapMeasurement? {
+    guard frameMode == .simulated,
+      let marker = simulatedPenCapAppearanceSelection?.markerReference else { return nil }
+    let attempt = activeExerciseAttemptID
+    let optical = try cameraOpticalConfiguration(for: frame)
+    guard frame.source == .simulated,
+      let binding = PenCapReferenceBinding(markerReference: marker, frame: frame,
+        opticalConfiguration: optical) else {
+      throw LearningPathOperationError.requiredState("The simulated marker does not match the current exact frame and optics.")
+    }
+    try Task.checkCancellation()
+    let measured = try await VisionWorker().inspectPlotterScene(in: frame.frame,
+      requestedFeatures: [.penCap], markerReference: marker, referenceBinding: binding)
+    try Task.checkCancellation()
+    guard applicationAdmissionIsOpen, frameMode == .simulated,
+      activeExerciseAttemptID == attempt,
+      simulatedPenCapAppearanceSelection?.markerReference == marker else { throw CancellationError() }
+    guard let cap = measured.penCap.measurement else {
+      throw LearningPathOperationError.requiredState("Simulated marker tracking refused: \(measured.penCap.diagnosticReason).")
+    }
+    return cap
+  }
+
   func captureCameraCalibrationReferenceEffect() async throws -> (
     frame: DisplayedFrame,
     position: MachinePosition,
@@ -7525,7 +7530,15 @@ final class PlotterApplicationRuntime:
     let bounds: AxisAlignedBounds<CameraPixelSpace>
     let confidence: Double
     var registrationFrame = frame
-    if frameMode == .simulated {
+    if let marker = try await simulatedMarkerMeasurement(in: frame) {
+      centroid = marker.centroid
+      selectedCapAnchor = marker.referenceAnchor
+      bounds = try AxisAlignedBounds(minX: Double(marker.boundingBox.x),
+        minY: Double(marker.boundingBox.y),
+        maxX: Double(marker.boundingBox.x + marker.boundingBox.width),
+        maxY: Double(marker.boundingBox.y + marker.boundingBox.height))
+      confidence = marker.confidence
+    } else if frameMode == .simulated {
         guard
           let point = overlayResultChannels.simulation?.overlays.compactMap({
             overlay -> Point2<CameraPixelSpace>? in
@@ -7600,10 +7613,8 @@ final class PlotterApplicationRuntime:
       observation.preservedAnchorEstimatorRevision == machineCameraRegistration?.capAnchorEstimatorRevision {
       return observation.preservedAnchorEstimatorRevision
     }
-    if let reference = penCapAppearanceSelection?.visualReference {
-      return "selected-cap-anchor-v4:\(reference.identity)"
-    }
-    return "selected-cap-\(penCapAppearanceSelection?.color.hexRGB ?? "UNLEARNED")-bottom-center-anchor-v3"
+    return penCapAppearanceSelection?.trackingEstimatorRevision
+      ?? "selected-cap-UNLEARNED-bottom-center-anchor-v3"
   }
 
   /// Makes the reviewed five-sample cap-map proposal authoritative atomically.
@@ -7712,7 +7723,15 @@ final class PlotterApplicationRuntime:
     let bounds: AxisAlignedBounds<CameraPixelSpace>
     let confidence: Double
     var evidenceFrame = frame
-    if frameMode == .simulated {
+    if let marker = try await simulatedMarkerMeasurement(in: frame) {
+      centroid = marker.centroid
+      selectedCapAnchor = marker.referenceAnchor
+      bounds = try AxisAlignedBounds(minX: Double(marker.boundingBox.x),
+        minY: Double(marker.boundingBox.y),
+        maxX: Double(marker.boundingBox.x + marker.boundingBox.width),
+        maxY: Double(marker.boundingBox.y + marker.boundingBox.height))
+      confidence = marker.confidence
+    } else if frameMode == .simulated {
       guard
         let point = overlayResultChannels.simulation?.overlays.compactMap({
           overlay -> Point2<CameraPixelSpace>? in
@@ -7865,7 +7884,15 @@ final class PlotterApplicationRuntime:
     let bounds: AxisAlignedBounds<CameraPixelSpace>
     let confidence: Double
     var evidenceFrame = frame
-    if frameMode == .simulated {
+    if let marker = try await simulatedMarkerMeasurement(in: frame) {
+      centroid = marker.centroid
+      selectedCapAnchor = marker.referenceAnchor
+      bounds = try AxisAlignedBounds(minX: Double(marker.boundingBox.x),
+        minY: Double(marker.boundingBox.y),
+        maxX: Double(marker.boundingBox.x + marker.boundingBox.width),
+        maxY: Double(marker.boundingBox.y + marker.boundingBox.height))
+      confidence = marker.confidence
+    } else if frameMode == .simulated {
       guard
         let point = overlayResultChannels.simulation?.overlays.compactMap({
           overlay -> Point2<CameraPixelSpace>? in
@@ -8151,6 +8178,7 @@ final class PlotterApplicationRuntime:
       // A legacy same-anchor confirmation keeps its historical optical provenance.
       // Only an explicit new/replacement reference adopts current semantic optics.
       let preservesLegacyOptics = capReidentificationContext?.replacesAnchor == false
+        && penCapAppearanceSelection?.markerReference == nil
         && penCapAppearanceSelection?.visualReference?.opticalConfiguration == nil
       let optical = preservesLegacyOptics ? nil
         : try frozenPointSelectionFrame.map { try cameraOpticalConfiguration(for: $0) }
@@ -8271,7 +8299,8 @@ final class PlotterApplicationRuntime:
       selection.color.red == sample.red,
       selection.color.green == sample.green,
       selection.color.blue == sample.blue,
-      selection.visualReference == sample.visualReference
+      selection.visualReference == sample.visualReference,
+      selection.markerReference == sample.markerReference
     else { throw CancellationError() }
     guard frameMode == .live else { return }
     await reconcileAutomaticVisionAnalysis()
@@ -10700,17 +10729,30 @@ final class PlotterApplicationRuntime:
     return true
   }
 
+  private var currentLiveTrackingOpticalConfiguration: CameraOpticalConfigurationIdentity? {
+    guard frameMode == .live, workbenchCameraRole == .plotter, !cameraRoleIsTransitioning,
+      let frame = latestLiveCameraFrame, case .live(let deviceID) = frame.source,
+      deviceID == selectedCameraID else { return nil }
+    // Analysis may not have produced displayedFrame yet. The admitted raw
+    // camera frame supplies stream identity, never recognition or calibration.
+    return try? cameraOpticalConfiguration(for: frame)
+  }
+
   private func reconcileAutomaticVisionAnalysis() async {
     guard applicationAdmissionIsOpen, let observationRuntime else { return }
+    await observationRuntime.setTrackingReference(
+      visualReference: livePenCapAppearanceSelection?.visualReference,
+      markerReference: livePenCapAppearanceSelection?.markerReference)
     await observationRuntime.setTrackingOpticalConfiguration(
-      displayedFrame.flatMap { try? cameraOpticalConfiguration(for: $0) })
+      currentLiveTrackingOpticalConfiguration)
     if automaticVisionAnalysisShouldRun {
       _ = await submitObservationIntent(.configureAutomaticAnalysis(
         cadence: visionAnalysisCadence,
         features: requestedSceneFeatures,
         region: videoAnalysisRegionLock?.region,
         penCapColor: livePenCapColor,
-        penCapReference: livePenCapAppearanceSelection?.visualReference
+        penCapReference: livePenCapAppearanceSelection?.visualReference,
+        markerReference: livePenCapAppearanceSelection?.markerReference
       ))
       let snapshot = await observationRuntime.snapshot()
       guard applicationAdmissionIsOpen, frameMode == .live else { return }
@@ -10723,7 +10765,8 @@ final class PlotterApplicationRuntime:
       features: [],
       region: nil,
       penCapColor: livePenCapColor,
-      penCapReference: livePenCapAppearanceSelection?.visualReference
+      penCapReference: livePenCapAppearanceSelection?.visualReference,
+      markerReference: livePenCapAppearanceSelection?.markerReference
     ))
     let cameraSnapshot = await observationRuntime.snapshot()
     self.cameraSnapshot = cameraSnapshot
@@ -12108,8 +12151,11 @@ final class PlotterApplicationRuntime:
     guard let observationRuntime else {
       throw LearningPathOperationError.freshFrameUnavailable
     }
+    await observationRuntime.setTrackingReference(
+      visualReference: livePenCapAppearanceSelection?.visualReference,
+      markerReference: livePenCapAppearanceSelection?.markerReference)
     await observationRuntime.setTrackingOpticalConfiguration(
-      displayedFrame.flatMap { try? cameraOpticalConfiguration(for: $0) })
+      currentLiveTrackingOpticalConfiguration)
     let reportedPosition: MachinePosition?
     let reportedPenState: String?
     if frameMode == .simulated, let snapshot = simulatedLearningSnapshot {
@@ -12362,6 +12408,12 @@ final class PlotterApplicationRuntime:
       return
     }
     publishActionSurfacePreview(frame)
+    let trackingStreamChanged = latestLiveCameraFrame == nil
+      || latestLiveCameraFrame?.source != frame.source
+      || latestLiveCameraFrame?.frame.cameraConfigurationID != frame.frame.cameraConfigurationID
+      || latestLiveCameraFrame?.frame.width != frame.frame.width
+      || latestLiveCameraFrame?.frame.height != frame.frame.height
+      || latestLiveCameraFrame?.frame.pixelFormat != frame.frame.pixelFormat
     let hadLiveFrame = latestLiveCameraFrame != nil
     // Compare with the state actually projected to controls. Re-evaluating
     // the previous frame's age here invents a stale -> live transition on
@@ -12374,10 +12426,23 @@ final class PlotterApplicationRuntime:
       markSemanticPresentationChanged()
     }
     reconcileCameraDependentLearningAuthority(with: frame)
+    var needsAnalysisConfiguration = false
     if let lock = videoAnalysisRegionLock, !lock.matches(frame) {
       videoAnalysisRegionLock = nil
+      needsAnalysisConfiguration = true
+    }
+    if needsAnalysisConfiguration {
       Task {
         await reconcileAutomaticVisionAnalysis()
+      }
+    } else if trackingStreamChanged {
+      Task {
+        guard applicationAdmissionIsOpen else { return }
+        // Source startup owns cadence, reference, and subscription setup.
+        // Raw-frame admission only supplies the current optical binding;
+        // repeating full setup here races startup and restarts subscriptions.
+        await observationRuntime?.setTrackingOpticalConfiguration(
+          currentLiveTrackingOpticalConfiguration)
       }
     }
 
@@ -12666,6 +12731,7 @@ final class PlotterApplicationRuntime:
     ownerID: LearningPathItemID,
     mode: ExerciseAttemptMode
   ) {
+    capRecoveryDetail = nil
     _ = currentEnvironmentState.exerciseAttempt.begin(ownerID: ownerID, mode: mode)
     if activeLearningActionTask?.ownerID == ownerID, activeLearningActionTask?.source == frameMode {
       activeLearningActionTask?.attemptID = activeExerciseAttemptID

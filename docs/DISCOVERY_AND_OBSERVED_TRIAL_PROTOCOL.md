@@ -85,27 +85,17 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
 
 ## 1.1 Identify and Calibrate the Pen
 
-1. Start Exercise 1.1. **Identify Holder Landmark** freezes the current exact frame.
-   Drag a rectangle around the cap and nearby holder that moves with it. Include
-   edges and exclude stationary rails, independently moving structure and paper.
-   Then click the cap inside the rectangle. Further drags pan the video without
-   changing the reference; **Redraw Reference** starts a replacement rectangle.
-   **Pan Video** is available before the rectangle, too. The cap does
-   not need to be centered. Existing geometry from another frame is never reused.
-2. The anchor click submits both rectangle and point with exact-frame provenance.
-   A small bounded RGB image reference retains black and colored details. A region
-   smaller than 12 camera pixels per side, larger than half the frame per side,
-   without enough visual detail, or with its anchor outside is refused explicitly.
-   The accepted Learning package persists the reference, anchor and exact frame
-   provenance. Generic and calibration analysis use the same reference identity.
-   Weak/competing matches, excessive deformation, clipping and abrupt position
-   jumps report tracking lost. Replaced pens and incompatible camera configurations
-   require a new reference. Same-anchor reacquisition can retain at most two prior
-   compatible operator-confirmed appearances alongside the new one, including
-   before the first camera map, without averaging their pixels or anchors. This
-   grants no motion or map authority; explicit reference replacement clears the
-   prior views. Old color-only selections require **Locate Tracking Reference** in the
-   Learning panel when accepted Pen Learning is already present.
+1. Start Exercise 1.1. **Identify Holder Landmark** freezes the exact frame.
+   Click inside one distinctive colored marker on the moving assembly, preferably
+   a permanent holder patch if pens will be swapped. No rectangle is required.
+2. The click selects the containing chromatic component; its measured centroid is
+   the tracking anchor. The saved marker retains color, geometry, measured anchor,
+   selection point and exact-frame/optical provenance. Low signal, clipped markers
+   and multiple compatible same-color components are refused. Tracking uses fixed
+   sampled-color segmentation, not a dense template or online color adaptation.
+   Existing template references retain their prior rectangle/landmark semantics
+   during Locate; explicit replacement selects a new marker and invalidates
+   dependent Camera/Tip calibration without clearing Pen/Boundary or possible ink.
 3. Cap identification requires only the current exact frame. The accepted click
    immediately opens the first Up question even when the controller is not yet
    connected or Motion is not enabled. In that blocked state the Up slider and
@@ -287,7 +277,8 @@ and click the same physical anchor on the fresh frozen frame. A settled failed
 Camera attempt permits this capture-only recovery and restores its prepared
 Camera exercise after selection or cancellation. It never starts travel or the
 next calibration run automatically. The previous
-rectangle follows the stored anchor offset; redraw it only when needed. This
+legacy template rectangle follows its stored anchor offset; marker mode uses the
+selected component centroid without a rectangle. This
 is an operator observation, not a successful detector result. With compatible
 camera/controller/map context and settled Idle/Pen-Up, the app can retain
 accepted camera, tip and drawing calibration and record the residual and reference
@@ -302,8 +293,8 @@ context or an excessive in-domain residual refuses the change and retains the pr
 Down or unknown pen state requires an explicit Raise Pen action; recovery does
 not raise the pen automatically.
 
-For a changed cap or anchor, choose **Replace Tracking Reference** and select a
-new rectangle and anchor. It preserves accepted pen-up/down actuation, X/Y
+For a changed marker or anchor, choose **Replace Tracking Reference** and click
+the new distinctive colored marker. It preserves accepted pen-up/down actuation, X/Y
 boundaries, estimated center and center arrival. Only a successfully saved
 replacement invalidates the camera/cap map and downstream tip/drawing calibration.
 Both paths are observation-only and are permitted after a settled possible-ink

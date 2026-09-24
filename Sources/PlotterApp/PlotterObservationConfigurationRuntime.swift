@@ -55,7 +55,8 @@ enum PlotterObservationConfigurationIntent: Hashable, Sendable {
     features: SceneFeatureSet,
     region: PixelRect?,
     penCapColor: PenCapColor?,
-    penCapReference: PenCapVisualReference? = nil
+    penCapReference: PenCapVisualReference? = nil,
+    markerReference: SampledColorMarkerReference? = nil
   )
   case requestDiagnostics
 }
@@ -256,7 +257,7 @@ actor PlotterObservationConfigurationRuntime {
         try requireOpenEffectBoundary()
         publish(.camera(lifecycle.snapshot))
         startFrameSubscriptionIfNeeded()
-      case .configureAutomaticAnalysis(let cadence, let features, let region, let color, let reference):
+      case .configureAutomaticAnalysis(let cadence, let features, let region, let color, let reference, let marker):
         try requireOpenEffectBoundary()
         await lower.setSceneAnalysisRegion(region)
         try requireOpenEffectBoundary()
@@ -264,7 +265,7 @@ actor PlotterObservationConfigurationRuntime {
           await lower.setPenCapColor(color)
           try requireOpenEffectBoundary()
         }
-        await lower.setPenCapReference(reference)
+        await lower.setTrackingReference(visualReference: reference, markerReference: marker)
         try requireOpenEffectBoundary()
         let effectiveCadence = cameraRole.role == .plotter ? cadence : nil
         let snapshot = await lower.setAutomaticInspection(effectiveCadence, requestedFeatures: features)
@@ -305,6 +306,11 @@ actor PlotterObservationConfigurationRuntime {
   func setTrackingOpticalConfiguration(_ optical: CameraOpticalConfigurationIdentity?) async {
     guard !admissionClosed else { return }
     await lower.setTrackingOpticalConfiguration(optical)
+  }
+
+  func setTrackingReference(visualReference: PenCapVisualReference?, markerReference: SampledColorMarkerReference?) async {
+    guard !admissionClosed else { return }
+    await lower.setTrackingReference(visualReference: visualReference, markerReference: markerReference)
   }
 
 

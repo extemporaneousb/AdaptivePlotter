@@ -462,6 +462,13 @@ run camera and Vision processing more slowly. Use
 application performance. The bundle and preview-performance report record the
 build configuration; performance claims must identify it.
 
+Tracking setup uses **Identify Holder Landmark** and one click inside a distinctive
+colored marker. The selected component's centroid is the anchor; choosing a new
+marker requires the dependent camera/tip calibration. **Locate Tracking Reference**
+observes the existing marker without motion. Saved template references keep their
+rectangle-based Locate behavior until explicitly replaced. See the
+[operating protocol](docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md) for recovery limits.
+
 For an isolated, synthetic 1080p detector comparison, run
 `ADAPTIVEPLOTTER_VISION_COST=1 swift test -c release --jobs 4 --filter FrameVisionTests/sceneKernelCost`
 (and repeat with `-c debug` for comparison). It reports pen-only, pen-plus-armature,

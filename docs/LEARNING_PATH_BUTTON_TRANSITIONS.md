@@ -65,7 +65,7 @@ flowchart TD
 
   subgraph pen["1.1 Identify and Calibrate the Pen"]
     p0["Ready<br/>Identify Holder Landmark"]
-    p1["Frozen frame: draw reference rectangle, then click cap<br/>Cancel Attempt"]
+    p1["Frozen frame: click distinctive colored marker<br/>Cancel Attempt"]
     p2["Set and verify Up<br/>Pen Up slider · Confirm Pen Up · Cancel Attempt"]
     p3["Set and verify Down<br/>Pen Down slider · Confirm Pen Down · Cancel Attempt"]
     p4["Verify return to Up<br/>Pen Up slider · Confirm Pen Up · Cancel Attempt"]
@@ -75,7 +75,7 @@ flowchart TD
     pdone["1.1 complete<br/>Redo This Step · Record Another Attempt"]
     pcancel["Attempt settled without acceptance<br/>Restart Attempt"]
     p0 -->|Identify Holder Landmark| p1
-    p1 -->|valid reference rectangle and cap anchor — not a button| p2
+    p1 -->|valid sampled marker and measured centroid — not a button| p2
     p2 -->|Confirm Pen Up — publishes busy revision before waiting| p2a
     p2a -->|settled Up; advisory Down cue admitted without playback wait| p3
     p3 -->|Confirm Pen Down — publishes busy revision before waiting| p3a
@@ -305,7 +305,8 @@ action captures a fresh reference frame and pose. Off-center state instead offer
 **Return Pen Up to Accepted Center**, with exact Stop during travel; a position
 refusal does not prescribe cap replacement. **Locate Tracking Reference** in the Learning
 panel freezes a fresh frame for a click on the same physical anchor;
-the prior reference rectangle follows its stored anchor offset. Settled failed or
+marker mode measures the selected component centroid; legacy template mode follows
+the prior rectangle and anchor offset. Settled failed or
 restartable Camera recovery restores its Camera owner and next explicit action
 after click or cancellation, including when an accepted map remains as fallback.
 It does not override an intentional review selection or start motion. Same-anchor
@@ -320,7 +321,7 @@ lineage; failed or cancelled proposals retain it. An excessive in-domain residua
 or incompatible context refuses the change and keeps previous Learning. Down or unknown pen state
 requires the explicit Raise Pen action, with no actuation during recovery itself.
 
-**Replace Tracking Reference** instead requests a new rectangle/anchor and, after
+**Replace Tracking Reference** instead requests a single click on a new marker and, after
 successful save, retains mechanical Learning while invalidating the camera/cap
 and downstream tip/drawing calibration. Both actions permit observation-only
 recovery after a settled possible-ink failure, without moving the machine,

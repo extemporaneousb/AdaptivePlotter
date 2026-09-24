@@ -431,6 +431,9 @@ extension PlotterApplicationRuntimeTests {
     let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
 
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    try await waitUntil {
+      workspace.testActionSurfacePresentation.overlays.count == 1
+    }
     #expect(workspace.exactWorkflowVisionOwner == nil)
     #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
     #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS])

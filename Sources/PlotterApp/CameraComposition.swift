@@ -43,6 +43,7 @@ protocol PlotterObservationCameraSessionPort: Sendable {
   ) async throws -> StableWorkflowCapInspection
   func setSceneAnalysisRegion(_ region: PixelRect?) async
   func setPenCapReference(_ reference: PenCapVisualReference?) async
+  func setTrackingReference(visualReference: PenCapVisualReference?, markerReference: SampledColorMarkerReference?) async
   func setTrackingOpticalConfiguration(_ optical: CameraOpticalConfigurationIdentity?) async
   func setPenCapColor(_ color: PenCapColor) async
   func setAutomaticInspection(
@@ -83,6 +84,9 @@ struct PlotterObservationCameraLifecycleResult: Sendable {
 }
 
 extension PlotterObservationCameraSessionPort {
+  func setTrackingReference(visualReference: PenCapVisualReference?, markerReference: SampledColorMarkerReference?) async {
+    await setPenCapReference(visualReference)
+  }
   func setTrackingOpticalConfiguration(_ optical: CameraOpticalConfigurationIdentity?) async {}
 
   func startLifecycle() async -> PlotterObservationCameraLifecycleResult {
@@ -383,6 +387,7 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
   private var sceneAnalysisRegion: PixelRect?
   private var penCapColor: PenCapColor = .green
   private var penCapReference: PenCapVisualReference?
+  private var markerReference: SampledColorMarkerReference?
   private var trackingOpticalConfiguration: CameraOpticalConfigurationIdentity?
   private var trackingConfigurationRevision: UInt64 = 0
   private var trackingEvidenceFailure: String?
@@ -391,6 +396,7 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
     let detection: PenCapDetectionResult?
     let reference: PenCapVisualReference?
     let priors: PlotterSceneVisionPriors
+    var analysisElapsedNanoseconds: UInt64? = nil
   }
   private var pendingTrackingEvidenceWrites = 0
   private var trackingEvidenceAttempt: UInt64 = 0
@@ -600,25 +606,39 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
       )
     else { return nil }
     let reference = penCapReference
+    let marker = markerReference
     let revision = trackingConfigurationRevision
-    let binding = reference.flatMap { reference in
-      trackingOpticalConfiguration.flatMap {
-        PenCapReferenceBinding(reference: reference, frame: displayedFrame, opticalConfiguration: $0)
+    let binding = trackingOpticalConfiguration.flatMap { optical in
+      if let marker {
+        return PenCapReferenceBinding(markerReference: marker, frame: displayedFrame, opticalConfiguration: optical)
       }
+      return reference.flatMap { PenCapReferenceBinding(reference: $0,
+        frame: displayedFrame, opticalConfiguration: optical) }
     }
     let priors = try PlotterSceneVisionPriors.sceneDefaults(
       frameWidth: displayedFrame.frame.width, frameHeight: displayedFrame.frame.height,
       analysisRegion: analysisRegion, penCapColor: penCapColor, penCapReference: reference,
+      markerReference: marker,
       referenceBinding: binding, searchCenter: searchCenter)
     // Preserve the actual input before the first suspension into Vision. A
     // thrown/cancelled analysis must not retain the preceding sample instead.
     trackingInspectionsByLease[leaseID] = .init(frame: displayedFrame, detection: nil,
       reference: reference, priors: priors)
-    let measurement = try await vision.inspectPlotterScene(
-      in: displayedFrame.frame, requestedFeatures: requestedFeatures, priors: priors)
+    let analysisStarted = DispatchTime.now().uptimeNanoseconds
+    let measurement: PlotterSceneMeasurement
+    do {
+      measurement = try await vision.inspectPlotterScene(
+        in: displayedFrame.frame, requestedFeatures: requestedFeatures, priors: priors)
+    } catch {
+      trackingInspectionsByLease[leaseID] = .init(frame: displayedFrame, detection: nil,
+        reference: reference, priors: priors,
+        analysisElapsedNanoseconds: DispatchTime.now().uptimeNanoseconds - analysisStarted)
+      throw error
+    }
     let inspection = LiveSceneInspection(displayedFrame: displayedFrame, measurement: measurement)
     trackingInspectionsByLease[leaseID] = .init(frame: displayedFrame, detection: measurement.penCap,
-      reference: reference, priors: priors)
+      reference: reference, priors: priors,
+      analysisElapsedNanoseconds: DispatchTime.now().uptimeNanoseconds - analysisStarted)
     guard revision == trackingConfigurationRevision else {
       throw LearningPathOperationError.requiredState("The tracking reference or camera optics changed during acquisition. Retry with the current reference.")
     }
@@ -655,7 +675,9 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
         frame: evidence.frame, reference: evidence.reference, detection: evidence.detection,
         searchCenter: request.searchCenter, phase: phase, acquisitionID: leaseID,
         newerThanNanoseconds: request.newerThanNanoseconds, ownerEvidence: ownerEvidence,
-        priors: evidence.priors, context: request.diagnosticContext)
+        priors: evidence.priors, context: request.diagnosticContext,
+        markerReference: evidence.priors.markerReference,
+        analysisElapsedNanoseconds: evidence.analysisElapsedNanoseconds)
       finishTrackingEvidenceWrite(failure, attempt: attempt)
     }
   }
@@ -703,9 +725,15 @@ actor CameraSourceSession: PlotterObservationCameraSessionPort {
   }
 
   func setPenCapReference(_ reference: PenCapVisualReference?) async {
-    if penCapReference != reference { trackingConfigurationRevision &+= 1 }
-    penCapReference = reference
-    await analysisPipeline.setPenCapReference(reference)
+    await setTrackingReference(visualReference: reference, markerReference: reference == nil ? markerReference : nil)
+  }
+
+  func setTrackingReference(visualReference: PenCapVisualReference?, markerReference: SampledColorMarkerReference?) async {
+    guard penCapReference != visualReference || self.markerReference != markerReference else { return }
+    trackingConfigurationRevision &+= 1
+    penCapReference = visualReference
+    self.markerReference = markerReference
+    await analysisPipeline.setTrackingReference(visualReference: visualReference, markerReference: markerReference)
   }
 
   func setPenCapColor(_ color: PenCapColor) async {

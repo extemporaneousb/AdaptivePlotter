@@ -5,6 +5,7 @@ import PlotterRuntime
 
 struct PenCapAppearanceSelection: Codable, Hashable, Sendable {
   var visualReference: PenCapVisualReference? = nil
+  var markerReference: SampledColorMarkerReference? = nil
   var operatorObservation: OperatorPenCapObservation? = nil
   let color: PenCapColor
   let frameID: FrameID
@@ -18,6 +19,14 @@ struct PenCapAppearanceSelection: Codable, Hashable, Sendable {
   let usableSampleCount: Int
   let totalSampleCount: Int
   let algorithmRevision: String
+
+  var trackingAnchor: Point2<CameraPixelSpace> { markerReference?.acquisitionAnchor ?? clickPoint }
+  var trackingReferenceIdentity: String? { markerReference?.identity ?? visualReference?.identity }
+  var trackingEstimatorRevision: String {
+    if let markerReference { return markerReference.estimatorRevision }
+    if let visualReference { return "selected-cap-anchor-v4:\(visualReference.identity)" }
+    return "selected-cap-\(color.hexRGB)-bottom-center-anchor-v3"
+  }
 
   func matches(_ frame: DisplayedFrame) -> Bool {
     guard let displayedSHA256 = frame.frame.materializedContentSHA256 else {
@@ -36,6 +45,11 @@ struct PenCapAppearanceSelection: Codable, Hashable, Sendable {
     guard case .live = source else {
       return
         "Persisted tracking appearance was ignored because its source is SIMULATED. Identify the holder on a LIVE camera frame."
+    }
+    if markerReference != nil {
+      return (try? acceptedCheckpoint()) == nil
+        ? "The saved marker is inconsistent with its exact frame or optical context. Use Replace Tracking Reference to select it again."
+        : nil
     }
     guard !frameID.rawValue.isEmpty,
       frameSHA256.count == 64,
@@ -60,7 +74,7 @@ struct PenCapAppearanceSelection: Codable, Hashable, Sendable {
       operatorObservation?.validates(point: clickPoint) ?? true
     else {
       return
-        "This saved tracker needs a visual reference. Use Learning Path Actions → Replace Tracking Reference, draw a tight rectangle around a permanent moving-holder feature, then click a fixed landmark inside it."
+        "This saved tracker needs a visual reference. Use Learning Path Actions → Replace Tracking Reference, then click a distinctive colored marker on the permanent moving holder."
     }
     return nil
   }
@@ -70,6 +84,7 @@ extension PenCapAppearanceSelection {
   init(sample: PlotterAcceptedPenCapSample, frame: DisplayedFrame) {
     self.init(
       visualReference: sample.visualReference,
+      markerReference: sample.markerReference,
       color: PenCapColor(red: sample.red, green: sample.green, blue: sample.blue),
       frameID: frame.frame.id,
       frameSHA256: frame.frame.contentSHA256,
@@ -88,6 +103,7 @@ extension PenCapAppearanceSelection {
   init(checkpoint: AcceptedPenCapAppearance) {
     self.init(
       visualReference: checkpoint.visualReference,
+      markerReference: checkpoint.markerReference,
       operatorObservation: checkpoint.operatorObservation,
       color: checkpoint.color,
       frameID: checkpoint.frameID,
@@ -119,6 +135,7 @@ extension PenCapAppearanceSelection {
       totalSampleCount: totalSampleCount,
       algorithmRevision: algorithmRevision,
       visualReference: visualReference,
+      markerReference: markerReference,
       operatorObservation: operatorObservation
     )
   }

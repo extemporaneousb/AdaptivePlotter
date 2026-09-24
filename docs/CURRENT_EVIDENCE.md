@@ -8,6 +8,84 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Sampled-marker recovery and tracking latency diagnosis, 2026-09-24
+
+The user-reported slow Locate session ran DEBUG code (PID 52189). Stale Locate
+prose remained over an active sparse-tip attempt; this does not establish an
+infinite Locate deadlock. Read-only
+native/process evidence and a bounded copy of seven exact raw acquisitions plus
+reference/options/controller-context metadata are retained privately at
+`/Users/bullard/Projects/AdaptivePlotter/.build/MarkerRecovery-70ef7fc5/`.
+`retention-manifest.json` binds the copied files to original `/tmp/plotter-locate-active`
+and `/tmp/plotter-color-reassessment` paths and SHA-256 hashes. Six retained
+Camera acquisitions succeeded; the sparse-mark acquisition rejected template
+score 0.748 against 0.820, despite a 0.168 competing-match margin and a 5.63-pixel
+prediction residual. These are actual template diagnostics, not proof that an
+operator click or every possible marker was invalid.
+
+The reference was 23×98 pixels, sampled to 8×32. The template's scan stride was
+one pixel and its prediction did not reduce full-frame search. A smaller patch
+therefore does not automatically imply less computation. Retained successful
+records put the cached caller-context timestamp 4.666–5.187 seconds before the
+selected raw frame; these intervals include acquisition/workflow work and are
+not isolated matcher durations. Detector execution timing was not present in
+those older manifests. Cached controller position/pen state is not an independent
+frame-synchronized physical measurement.
+
+The user explicitly requested DEBUG compilation to avoid optimized-build cost.
+App and packaging defaults remain DEBUG; any new timing comparisons must identify
+that build configuration. The investigation prioritizes algorithmic work and
+bounded acquisition rather than substituting a release build for a code fix.
+
+The integrated DEBUG focused run passed 52 tests, including sampled-marker
+selection, legacy/marker recovery and reload, actual camera-generation binding,
+exact-frame diagnostics and bounded recording. A final profile-directed scan-loop
+change passed 20 marker/replay/legacy-vision tests without changing classification.
+The raw corpus accepted all seven frames for each of three analyst-selected
+interior seeds, including the previously failed lower-frame BB9 acquisition.
+Multiplying raw RGB by 0.7 and 1.3 shifted its centroid by 0.184 and 0.110 pixels;
+these synthetic gain changes do not cover arbitrary lighting or physical poses.
+
+Final DEBUG marker analysis on the seven retained 1080p frames measured
+0.326–0.425 seconds, median 0.388. The earlier same-frame unchanged single-template
+baseline measured 3.243–3.403 seconds, median 3.371; its six successful detections
+and one failure are preserved. This is approximately an 8.7× median computation
+improvement, not camera FPS or end-to-end workflow latency. The template baseline
+had one appearance per frame; a two-view live bank was not benchmarked. Detector
+sampling and full-frame competing-component checks remain intact. Scalar policy
+equivalence tests cover the hot-loop rewrite; no release compiler flags were used.
+
+Controller raw-I/O association, retained in `frame-controller-association.json`,
+places each frame after an Idle/MPos report without intervening movement commands.
+BB9's report is `(798.759, -92.014)` only 89.161 ms before capture, unlike its stale
+cached context. This supports offline reported-position comparisons, not independent
+physical ground truth. The existing user app remains running; a fresh inspection
+found the console locked, so post-change native/hardware behavior is unverified.
+
+A subsequent lifecycle regression exposed a separate bootstrap defect: live raw
+preview was available while the analyzed `displayedFrame` was nil, so deriving
+tracking optics from analyzed output could prevent the first admitted analysis.
+The app now derives optical identity from the admitted latest live camera frame
+under the existing selected-camera, plotter and LIVE-source guards. First-frame
+and source/configuration/layout changes refresh optical binding directly; only
+an invalidated ROI performs full analysis reconfiguration. Ordinary frames add
+neither operation. The final integrated targeted run passed 122 tests, including saved-marker
+first-frame automatic-analysis bootstrap after a real session restart, newest-frame
+and stop races, recovery, overlays, and success/failure/cancellation settlement.
+The ten retained causal journeys also passed. After making the diagnostics
+fixture wait for startup synchronization before resetting its baseline, all 67
+diagnostics/startup targeted tests passed with their original cache invariants.
+The pipeline owns the retained
+latest submitted raw frame and retries it when optics become available only if
+no newer frame has been admitted under the new configuration; stop clears it.
+A repeated two-test probe also reproduced duplicate initial configuration and
+subscription creation (`subscriptions=2`, `configurations=2`), rather than slow
+scheduling. The optical-only refresh above removes that extra full configuration.
+All 47 diagnostics/recovery/pipeline/lifecycle tests and twenty fresh-process
+repetitions of both affected methods passed afterward, without widening budgets.
+This finding is software evidence, not a diagnosis of the preserved user session. Full-suite fixture failures and their
+corrections are retained in the private delivery report without changing gates.
+
 ## Holder tracking and native reidentification diagnosis, 2026-09-23
 
 Pre-change native evidence is under `/tmp/plotter-cap-20260923-dedup/` and

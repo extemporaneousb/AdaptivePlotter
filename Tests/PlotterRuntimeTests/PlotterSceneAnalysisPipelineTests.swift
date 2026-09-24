@@ -309,6 +309,79 @@ struct PlotterSceneAnalysisPipelineTests {
     await pipeline.stop()
   }
 
+  @Test("first-frame optics replays its admitted preview and stop discards that bootstrap frame")
+  func opticalBootstrapWithoutAnotherFrame() async throws {
+    let gate = AnalysisGate()
+    let pipeline = PlotterSceneAnalysisPipeline(clock: DeterministicRuntimeClock()) { frame in
+      await gate.block(frame.sequence)
+      return sceneMeasurement(for: frame)
+    }
+    await pipeline.start(cadence: .twoFPS, requestedFeatures: [.penCap])
+    await pipeline.submit(try displayedFrame(sequence: 1))
+    try await waitUntil { await gate.startedSequences == [1] }
+    await pipeline.setTrackingOpticalConfiguration(try pipelineTestOptics())
+    #expect(await pipeline.diagnostics().pendingFrameSequence == 1)
+    #expect(await pipeline.diagnostics().submittedFrameCount == 2)
+    await gate.releaseNext()
+    try await waitUntil { await gate.startedSequences == [1, 1] }
+    await gate.releaseNext()
+    try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 1 }
+    #expect(await pipeline.snapshot().latestResult?.displayedFrame.frame.sequence == 1)
+    #expect(await gate.maximumActiveCount == 1)
+
+    await pipeline.stop()
+    await pipeline.start(cadence: .twoFPS, requestedFeatures: [.penCap])
+    await pipeline.setTrackingOpticalConfiguration(nil)
+    #expect(await pipeline.diagnostics().pendingFrameSequence == nil)
+    #expect(await pipeline.diagnostics().activeFrameSequence == nil)
+    #expect(await pipeline.diagnostics().submittedFrameCount == 2)
+    #expect(await pipeline.snapshot().latestResult == nil)
+    await pipeline.stop()
+  }
+
+  @Test("optical bootstrap cannot replace newer frames or revive stopped analysis", arguments: [false, true])
+  func opticalBootstrapRespectsInterleavedWork(stopsDuringRefresh: Bool) async throws {
+    let gate = AnalysisGate()
+    let activity = AnalysisActivitySuspension()
+    let pipeline = PlotterSceneAnalysisPipeline(clock: DeterministicRuntimeClock(),
+      activityHandler: { active in await activity.record(active) }) { frame in
+      await gate.block(frame.sequence)
+      return sceneMeasurement(for: frame)
+    }
+    await pipeline.start(cadence: .twoFPS, requestedFeatures: [.penCap])
+    await pipeline.submit(try displayedFrame(sequence: 1))
+    try await waitUntil { await gate.startedSequences == [1] }
+    await activity.arm()
+    let optical = try pipelineTestOptics()
+    let refresh = Task { await pipeline.setTrackingOpticalConfiguration(optical) }
+    try await waitUntil { await activity.isHeld }
+    if stopsDuringRefresh {
+      let stop = Task { await pipeline.stop() }
+      try await waitUntil { await pipeline.snapshot().state == .stopped }
+      await activity.release()
+      await refresh.value
+      #expect(await pipeline.diagnostics().pendingFrameSequence == nil)
+      await gate.releaseNext()
+      await stop.value
+      #expect(await pipeline.snapshot().latestResult == nil)
+      #expect(await gate.startedSequences == [1])
+    } else {
+      await pipeline.submit(try displayedFrame(sequence: 2))
+      await pipeline.submit(try displayedFrame(sequence: 3))
+      await activity.release()
+      await refresh.value
+      #expect(await pipeline.diagnostics().submittedFrameCount == 3)
+      #expect(await pipeline.diagnostics().pendingFrameSequence == 3)
+      await gate.releaseNext()
+      try await waitUntil { await gate.startedSequences == [1, 3] }
+      await gate.releaseNext()
+      try await waitUntil { await pipeline.diagnostics().analyzedFrameCount == 1 }
+      #expect(await pipeline.snapshot().latestResult?.displayedFrame.frame.sequence == 3)
+      #expect(await gate.maximumActiveCount == 1)
+      await pipeline.stop()
+    }
+  }
+
   @Test("stop and restart never expose a result from the prior camera lifecycle")
   func restartClearsPriorResult() async throws {
     let pipeline = PlotterSceneAnalysisPipeline(
@@ -331,6 +404,22 @@ struct PlotterSceneAnalysisPipelineTests {
     await pipeline.stop()
   }
 }
+private actor AnalysisActivitySuspension {
+  private var isArmed = false
+  private var continuation: CheckedContinuation<Void, Never>?
+  private(set) var isHeld = false
+
+  func arm() { isArmed = true }
+  func record(_ active: Bool) async {
+    guard !active, isArmed else { return }
+    isArmed = false
+    isHeld = true
+    await withCheckedContinuation { continuation = $0 }
+    isHeld = false
+  }
+  func release() { continuation?.resume(); continuation = nil }
+}
+
 private actor AnalysisGate {
   private(set) var startedSequences: [UInt64] = []
   private var continuations: [CheckedContinuation<Void, Never>] = []
@@ -377,6 +466,12 @@ private actor SemanticSnapshotRecorder {
   func record(_ snapshot: PlotterSceneAnalysisSnapshot) {
     revisions.append(snapshot.revision)
   }
+}
+
+private func pipelineTestOptics() throws -> CameraOpticalConfigurationIdentity {
+  try .init(source: .simulated, sensorFormat: "pipeline-test-bgra8", width: 1, height: 1,
+    pixelFormat: .bgra8, orientation: .up, mirrored: false, digitalZoomFactor: 1,
+    lensIdentity: "fixed", focusConfiguration: "fixed", mountRevision: UUID(), reframingRevision: UUID())
 }
 
 private func displayedFrame(sequence: UInt64) throws -> DisplayedFrame {

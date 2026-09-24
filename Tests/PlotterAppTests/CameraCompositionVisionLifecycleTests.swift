@@ -22,24 +22,75 @@ struct CameraCompositionVisionLifecycleTests {
     let session = CameraSourceSession(live: capture, vision: worker,
       analysisPipeline: pipeline, plannedDrawingObserver: worker)
     let clock = CanvasFreshnessClock()
+    let identities = TipCalibrationSemanticIdentityState.ephemeral()
+    // Acquire a real reference from this camera fixture. Application-owned
+    // reference reconciliation must not be bypassed by clearing the session.
+    _ = await session.discover()
+    _ = await session.start()
+    await driver.emitCap(centroidXOffset: 0, captureNanoseconds: 50)
+    try await waitUntilStableCap("reference image reached capture") {
+      await capture.snapshot().latestFrame != nil
+    }
+    let preview = try #require(await capture.snapshot().latestFrame)
+    let referenceFrame = DisplayedFrame(source: preview.source,
+      frame: preview.frame.materializingContentHash(for: .exactEvidence))
+    let optical = try CameraOpticalConfigurationIdentity(source: referenceFrame.source,
+      sensorFormat: "runtime-bgra8", width: 20, height: 20, pixelFormat: .bgra8,
+      orientation: .up, mirrored: false, digitalZoomFactor: 1,
+      lensIdentity: "runtime-unreported-lens", focusConfiguration: "runtime-unreported-focus",
+      mountRevision: identities.cameraMountRevision, reframingRevision: identities.cameraReframingRevision)
+    let marker = try SampledColorMarkerReference.capture(frame: referenceFrame,
+      point: Point2(x: 8, y: 7), opticalConfiguration: optical)
+    let appearance = PenCapAppearanceSelection(markerReference: marker, color: marker.color,
+      frameID: referenceFrame.frame.id, frameSHA256: referenceFrame.frame.contentSHA256,
+      source: referenceFrame.source, cameraConfigurationID: referenceFrame.frame.cameraConfigurationID,
+      width: 20, height: 20, pixelFormat: .bgra8, clickPoint: marker.selectionPoint,
+      usableSampleCount: marker.componentPixelCount, totalSampleCount: marker.componentPixelCount,
+      algorithmRevision: SampledColorMarkerReference.revision)
+    // Saved-reference startup begins in a fresh capture generation with no
+    // retained preview. Otherwise frame50 may legitimately configure optics
+    // before the first-frame revision baseline is recorded below.
+    let restartedCamera = await session.restart()
+    #expect(restartedCamera.latestFrame == nil)
     let application = makeCausalSimulatorAppFixture(observationSession: session,
+      loadPenCapAppearanceSelection: { appearance },
       residualEffectPort: TestApplicationResidualEffectPort(discoverDevices: { [] },
-        readNanoseconds: { clock.now })).workspace
+        readNanoseconds: { clock.now }), tipCalibrationSemanticIdentities: identities).workspace
     await submitObservationConfigurationForTest(application, .refresh)
     await submitObservationConfigurationForTest(application, .selectSource(.live, device.id))
+    let configurationBeforeRawFrame = await pipeline.diagnostics().configurationRevision
     await driver.emitCap(centroidXOffset: 0, captureNanoseconds: 100)
     try await waitUntilStableCap("initial camera image reached the application") {
-      await MainActor.run { application.actionSurfacePreview.displayedFrame != nil }
+      await MainActor.run {
+        application.actionSurfacePreview.displayedFrame?.frame.captureNanoseconds == 100
+      }
+    }
+    try await waitUntilStableCap("first raw frame installs its optical configuration") {
+      await pipeline.diagnostics().configurationRevision > configurationBeforeRawFrame
+    }
+    // A restored marker must start ambient analysis from raw camera admission,
+    // without first needing a prior analyzed/semantic displayedFrame.
+    try await waitUntilStableCap("saved marker starts ambient analysis from live raw frames") {
+      await MainActor.run {
+        guard let frame = application.latestLiveCameraFrame,
+          let measurement = application.lastSceneMeasurement else { return false }
+        return frame.frame.captureNanoseconds == 100
+          && measurement.frameID == frame.frame.id
+          && measurement.penCap.measurement != nil
+      }
     }
     let initial = try #require(application.actionSurfacePreview.displayedFrame)
     let initialIdentity = ExactFrameProvenance(frame: initial.frame)
-    // This camera lifecycle fixture supplies green cap pixels. Its app fixture
-    // carries an unrelated saved appearance solely to admit cap observations.
-    await session.setPenCapReference(nil)
+    #expect(initial.frame.cameraConfigurationID != referenceFrame.frame.cameraConfigurationID)
+    #expect(application.livePenCapAppearanceSelection?.markerReference == marker)
+    let opticalFrame = try #require(application.latestLiveCameraFrame,
+      "Exact workflow optics requires an admitted live frame")
+    #expect(try application.cameraOpticalConfiguration(for: opticalFrame) == marker.opticalConfiguration)
+    let exactCaptureBaseline = await capture.diagnostics().returnOnlyExactRequestCount
     #expect(application.cameraIsLive)
     #expect(application.workbenchCanvasPresentation.content == .plotter)
     let captureTask = Task { @MainActor in
-      try await application.captureStableWorkflowCap(newerThan: 100)
+      try await application.captureStableWorkflowCap(newerThan: initial.frame.captureNanoseconds)
     }
     try await waitUntilStableCap("calibration holds preview") {
       await session.visionDiagnostics().activeExclusiveLeaseCount == 1
@@ -68,7 +119,12 @@ struct CameraCompositionVisionLifecycleTests {
       for (sample, timestamp) in [200, 300, 400].enumerated() {
         await driver.emitCap(centroidXOffset: sample, captureNanoseconds: UInt64(timestamp))
         try await waitUntilStableCap("stable sample \(sample + 1)") {
-          await capture.diagnostics().returnOnlyExactRequestCount >= UInt64(sample + 1)
+          let materialized = await capture.diagnostics().returnOnlyExactRequestCount
+          let settled = await session.visionDiagnostics().activeExclusiveLeaseCount == 0
+          return materialized >= exactCaptureBaseline + UInt64(sample + 1) || settled
+        }
+        if await session.visionDiagnostics().activeExclusiveLeaseCount == 0 {
+          _ = try await captureTask.value
         }
       }
       let measured = try await captureTask.value
@@ -77,7 +133,7 @@ struct CameraCompositionVisionLifecycleTests {
       #expect(measured.inspection.displayedFrame.frame.cameraConfigurationID
         == initial.frame.cameraConfigurationID)
     case .failure:
-      await driver.emit(value: 128, captureNanoseconds: 200)
+      await driver.emit(value: 128, captureNanoseconds: 200, width: 20, height: 20)
       do {
         _ = try await captureTask.value
         Issue.record("Missing cap must fail")
@@ -825,14 +881,14 @@ private actor VisionLifecycleCameraDriver: CameraCaptureDriver {
     eventHandler = nil
   }
 
-  func emit(value: UInt8, captureNanoseconds: UInt64) {
+  func emit(value: UInt8, captureNanoseconds: UInt64, width: Int = 2, height: Int = 2) {
     eventHandler?(
       .frame(
         CapturedBGRAFrame(
-          width: 2,
-          height: 2,
-          rowBytes: 8,
-          bytes: Data(repeating: value, count: 16),
+          width: width,
+          height: height,
+          rowBytes: width * 4,
+          bytes: Data(repeating: value, count: width * height * 4),
           captureNanoseconds: captureNanoseconds
         )
       )

@@ -29,6 +29,7 @@ struct TrackingAcquisitionEvidenceTests {
     let saved = try decoder.decode(TrackingAcquisitionEvidence.self, from: Data(contentsOf: url))
     #expect(saved.acquisitionID == id && saved.phase == .failure)
     #expect(saved.reference == reference && saved.referenceIdentity == reference.identity)
+    #expect(saved.markerReference == nil && saved.analysisElapsedNanoseconds == nil)
     #expect(saved.camera.frameID == frame.frame.id && saved.camera.captureNanoseconds == 10)
     #expect(saved.detection?.candidates.first?.score == 0.816)
     #expect(saved.detection?.acceptanceThreshold == 0.82)
@@ -38,6 +39,40 @@ struct TrackingAcquisitionEvidenceTests {
     let pixels = try Data(contentsOf: url.deletingLastPathComponent().appendingPathComponent(saved.camera.pixelsFile))
     #expect(pixels == frame.frame.bytes.data)
     #expect(RunLedger.sha256Hex(pixels) == saved.camera.contentSHA256)
+  }
+
+  @Test("marker evidence preserves sampled identity, measured anchor and explicit analysis duration")
+  func exactMarkerEvidence() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var pixels = [UInt8](repeating: 255, count: 32 * 32 * 4)
+    for y in 8..<18 { for x in 8..<18 {
+      let index = (y * 32 + x) * 4
+      pixels[index] = 12; pixels[index + 1] = 85; pixels[index + 2] = 30
+    } }
+    let frame = DisplayedFrame(source: .simulated, frame: try StampedFrame(sequence: 1,
+      captureNanoseconds: 10, cameraConfigurationID: CameraConfigurationID(),
+      width: 32, height: 32, rowBytes: 128, pixelFormat: .rgba8, bytes: OwnedFrameBytes(pixels)))
+    let optical = try CameraOpticalConfigurationIdentity(source: .simulated,
+      sensorFormat: "32x32-RGBA", width: 32, height: 32, pixelFormat: .rgba8,
+      orientation: .up, mirrored: false, digitalZoomFactor: 1, lensIdentity: "fixed",
+      focusConfiguration: "fixed", mountRevision: UUID(), reframingRevision: UUID())
+    let marker = try SampledColorMarkerReference.capture(frame: frame,
+      point: Point2(x: 11, y: 11), opticalConfiguration: optical)
+    let recorder = TrackingAcquisitionEvidenceRecorder(directory: directory)
+    let url = try await recorder.write(frame: frame, reference: nil, detection: .failed("fixture failure"),
+      searchCenter: nil, phase: .failure, acquisitionID: UUID(), newerThanNanoseconds: 9,
+      markerReference: marker, analysisElapsedNanoseconds: 123_456)
+    let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+    let saved = try decoder.decode(TrackingAcquisitionEvidence.self, from: Data(contentsOf: url))
+    #expect(saved.reference == nil)
+    #expect(saved.markerReference == marker)
+    #expect(saved.referenceIdentity == marker.identity)
+    #expect(saved.referenceRevision == SampledColorMarkerReference.revision)
+    #expect(saved.markerReference?.acquisitionAnchor != marker.selectionPoint)
+    #expect(saved.analysisElapsedNanoseconds == 123_456)
+    #expect(try Data(contentsOf: url.deletingLastPathComponent().appendingPathComponent(saved.camera.pixelsFile))
+      == frame.frame.bytes.data)
   }
 
   @Test("retention evicts only owned acquisition folders and oversized input cannot erase evidence")

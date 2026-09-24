@@ -8,6 +8,7 @@ import os
 
 public struct PlotterAcceptedPenCapSample: Codable, Hashable, Sendable {
   public let visualReference: PenCapVisualReference?
+  public let markerReference: SampledColorMarkerReference?
   public let red: UInt8
   public let green: UInt8
   public let blue: UInt8
@@ -24,9 +25,11 @@ public struct PlotterAcceptedPenCapSample: Codable, Hashable, Sendable {
     usableSampleCount: Int,
     totalSampleCount: Int,
     algorithmRevision: String,
-    visualReference: PenCapVisualReference? = nil
+    visualReference: PenCapVisualReference? = nil,
+    markerReference: SampledColorMarkerReference? = nil
   ) {
     self.visualReference = visualReference
+    self.markerReference = markerReference
     self.red = red
     self.green = green
     self.blue = blue
@@ -56,7 +59,8 @@ public enum PlotterPenCapPointSampler {
     frame: DisplayedFrame,
     submission: PlotterPointSelectionSubmission,
     referencePurpose: PenCapReferencePurpose? = .rigidHolder,
-    opticalConfiguration: CameraOpticalConfigurationIdentity? = nil
+    opticalConfiguration: CameraOpticalConfigurationIdentity? = nil,
+    referenceMode: PlotterTrackingReferenceMode? = nil
   ) throws -> PlotterAcceptedPenCapSample {
     guard exactFrame(submission.frame, matches: frame),
       submission.point.x >= 0, submission.point.x < Double(frame.frame.width),
@@ -64,6 +68,16 @@ public enum PlotterPenCapPointSampler {
     else { throw PlotterPointSelectionSamplingError.staleExactFrame }
     guard frame.frame.pixelFormat == .rgba8 || frame.frame.pixelFormat == .bgra8 else {
       throw PlotterPointSelectionSamplingError.unsupportedPixelFormat(frame.frame.pixelFormat)
+    }
+
+    if referenceMode == .sampledColorMarker {
+      guard let opticalConfiguration else { throw SampledColorMarkerError.incompatibleFrame }
+      let marker = try SampledColorMarkerReference.capture(frame: frame, point: submission.point,
+        opticalConfiguration: opticalConfiguration)
+      return PlotterAcceptedPenCapSample(red: marker.color.red, green: marker.color.green,
+        blue: marker.color.blue, clickPoint: submission.point,
+        usableSampleCount: marker.componentPixelCount, totalSampleCount: marker.componentPixelCount,
+        algorithmRevision: SampledColorMarkerReference.revision, markerReference: marker)
     }
 
     guard let bounds = submission.referenceRegion,
@@ -328,7 +342,8 @@ public actor PlotterPointSelectionRuntime {
     prompt: String,
     purpose: PlotterExactPointSelectionPurpose,
     requiredPointCount: Int,
-    referenceGeometry: PlotterPenCapReferenceGeometry? = nil
+    referenceGeometry: PlotterPenCapReferenceGeometry? = nil,
+    referenceMode: PlotterTrackingReferenceMode? = nil
   ) async throws -> PlotterPointSelectionStage {
     await acquireMutationPublicationBoundary()
     defer { releaseMutationPublicationBoundary() }
@@ -345,7 +360,8 @@ public actor PlotterPointSelectionRuntime {
       prompt: prompt,
       purpose: purpose,
       requiredPointCount: requiredPointCount,
-      referenceGeometry: referenceGeometry
+      referenceGeometry: referenceGeometry,
+      referenceMode: referenceMode
     )
     let committed = try await submitIntent(.pointSelection(.stage(request)))
     guard committed.state.exactPointSelection.request == request,
@@ -386,7 +402,8 @@ public actor PlotterPointSelectionRuntime {
       prompt: currentRequest.prompt,
       purpose: currentRequest.purpose,
       requiredPointCount: currentRequest.requiredPointCount,
-      referenceGeometry: currentRequest.referenceGeometry
+      referenceGeometry: currentRequest.referenceGeometry,
+      referenceMode: currentRequest.referenceMode
     )
     let committed = try await submitIntent(.pointSelection(.replace(
       currentSelectionID: currentRequest.id,
@@ -479,7 +496,8 @@ public actor PlotterPointSelectionRuntime {
       }
       do {
         sample = try PlotterPenCapPointSampler.sample(frame: frame, submission: submission,
-          referencePurpose: referencePurpose, opticalConfiguration: opticalConfiguration)
+          referencePurpose: referencePurpose, opticalConfiguration: opticalConfiguration,
+          referenceMode: request?.referenceMode)
         acceptedFrame = frame
       } catch {
         return try await refuseSample(

@@ -114,6 +114,12 @@ struct OverlayStateTests {
     )
     let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    try await waitUntil {
+      let presentation = workspace.testActionSurfacePresentation
+      guard let frame = presentation.displayedFrame else { return false }
+      return presentation.overlays.map(\.provenance.kind) == [.penCap]
+        && presentation.overlays.allSatisfy { $0.matches(frame) }
+    }
     let before = workspace.testActionSurfacePresentation
     #expect(before.overlays.map(\.provenance.kind) == [.penCap])
 

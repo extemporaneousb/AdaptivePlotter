@@ -104,6 +104,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
   public let capSearchRegion: PixelRect
   public let penCapColor: PenCapColor
   public let penCapReference: PenCapVisualReference?
+  public let markerReference: SampledColorMarkerReference?
   public let referenceBinding: PenCapReferenceBinding?
   public let searchCenter: Point2<CameraPixelSpace>?
   public let armatureHalfWidthFraction: Double
@@ -115,6 +116,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     capSearchRegion: PixelRect,
     penCapColor: PenCapColor = .green,
     penCapReference: PenCapVisualReference? = nil,
+    markerReference: SampledColorMarkerReference? = nil,
     referenceBinding: PenCapReferenceBinding? = nil,
     searchCenter: Point2<CameraPixelSpace>? = nil,
     armatureHalfWidthFraction: Double = 0.055,
@@ -134,6 +136,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     self.capSearchRegion = capSearchRegion
     self.penCapColor = penCapColor
     self.penCapReference = penCapReference
+    self.markerReference = markerReference
     self.referenceBinding = referenceBinding
     self.searchCenter = searchCenter
     self.armatureHalfWidthFraction = armatureHalfWidthFraction
@@ -148,6 +151,7 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
     analysisRegion: PixelRect? = nil,
     penCapColor: PenCapColor = .green,
     penCapReference: PenCapVisualReference? = nil,
+    markerReference: SampledColorMarkerReference? = nil,
     referenceBinding: PenCapReferenceBinding? = nil,
     searchCenter: Point2<CameraPixelSpace>? = nil
   ) throws -> Self {
@@ -167,9 +171,11 @@ public struct PlotterSceneVisionPriors: Hashable, Sendable {
       capSearchRegion: region,
       penCapColor: penCapColor,
       penCapReference: penCapReference,
+      markerReference: markerReference,
       referenceBinding: referenceBinding,
       searchCenter: searchCenter,
-      algorithmRevision: penCapReference.map { "\(PenCapVisualReference.revision):\($0.identity)" } ?? algorithmRevision
+      algorithmRevision: markerReference?.estimatorRevision
+        ?? penCapReference.map { "\(PenCapVisualReference.revision):\($0.identity)" } ?? algorithmRevision
     )
   }
 }
@@ -262,6 +268,9 @@ public enum PenCapDetectionResult: Hashable, Sendable {
     case .found: "found"
     case .notFound(let diagnostics):
       if let template = diagnostics.template { "Reference tracking lost: \(template.summary)" }
+      else if diagnostics.thresholdPixelCount > 0 {
+        "colored candidates were found, but none passed the reference size or complete-visibility checks"
+      }
       else { "no pixels passed the selected pen-cap color thresholds" }
     case .ambiguous(let counts, let diagnostics):
       if let template = diagnostics.template { "Reference tracking ambiguous: \(template.summary)" }
@@ -371,7 +380,7 @@ extension MeasurementRequest {
 public actor VisionWorker {
   private var lastReferenceMatch: (identity: String, configuration: CameraConfigurationID, time: UInt64, point: Point2<CameraPixelSpace>)?
 
-  private struct PixelComponent {
+  struct PixelComponent {
     let pixelCount: Int
     let minX: Int
     let minY: Int
@@ -380,6 +389,9 @@ public actor VisionWorker {
     let centroidX: Double
     let centroidY: Double
     let colorSimilarity: Double
+    var containsSelectionPoint: Bool = false
+    var selectionSupportIndices: [Int]? = nil
+    var bounds: PixelRect { PixelRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1) }
 
     // Color agreement dominates raw area; additional pixels contribute with
     // diminishing weight. This is ranking, never a score acceptance threshold.
@@ -395,6 +407,7 @@ public actor VisionWorker {
     analysisRegion: PixelRect? = nil,
     penCapColor: PenCapColor = .green,
     penCapReference: PenCapVisualReference? = nil,
+    markerReference: SampledColorMarkerReference? = nil,
     referenceBinding: PenCapReferenceBinding? = nil,
     searchCenter: Point2<CameraPixelSpace>? = nil
   ) throws -> PlotterSceneMeasurement {
@@ -409,6 +422,7 @@ public actor VisionWorker {
         analysisRegion: analysisRegion,
         penCapColor: penCapColor,
         penCapReference: penCapReference,
+        markerReference: markerReference,
         referenceBinding: referenceBinding,
         searchCenter: searchCenter
       )
@@ -606,6 +620,13 @@ public actor VisionWorker {
     frame: StampedFrame,
     priors: PlotterSceneVisionPriors
   ) throws -> PenCapDetectionResult {
+    if let marker = priors.markerReference {
+      guard priors.penCapReference == nil,
+        priors.referenceBinding?.admits(marker, frame: frame) == true else {
+        return .failed("Marker tracking requires the saved marker's matching camera and optical configuration.")
+      }
+      return try detectColorMarker(frame: frame, priors: priors, marker: marker)
+    }
     if let reference = priors.penCapReference {
       let result = try PenCapTemplateMatcher.detect(frame: frame, reference: reference,
         region: priors.capSearchRegion, searchCenter: priors.searchCenter, binding: priors.referenceBinding)
@@ -631,10 +652,10 @@ public actor VisionWorker {
       }
       return result
     }
-    let components = try capColorComponents(
+    let components = try Self.colorComponents(
       frame: frame,
       region: priors.capSearchRegion,
-      priors: priors
+      color: priors.penCapColor, searchCenter: priors.searchCenter
     )
     let thresholdPixelCount = components.reduce(0) { $0 + $1.pixelCount }
     let totalSupport = components.reduce(0.0) { $0 + $1.supportScore }
@@ -708,6 +729,34 @@ public actor VisionWorker {
     return lhs.boundingBox.width < rhs.boundingBox.width
   }
 
+  private func detectColorMarker(frame: StampedFrame, priors: PlotterSceneVisionPriors,
+    marker: SampledColorMarkerReference) throws -> PenCapDetectionResult {
+    let components = try Self.colorComponents(frame: frame, region: priors.capSearchRegion,
+      color: marker.color, searchCenter: nil, markerPolicy: true,
+      markerMinimumSaturation: marker.minimumSaturation)
+    let candidates = components.map { component in
+      let bounds = component.bounds
+      return PenCapCandidateDiagnostic(pixelCount: component.pixelCount, boundingBox: bounds,
+        colorSimilarity: component.colorSimilarity, supportScore: component.supportScore,
+        aspectRatio: Double(bounds.width) / Double(bounds.height),
+        fillFraction: Double(component.pixelCount) / Double(bounds.width * bounds.height),
+        confidence: component.colorSimilarity)
+    }.sorted(by: candidatePrecedes)
+    let diagnostics = PenCapDiagnostics(
+      inspectedPixelCount: priors.capSearchRegion.width * priors.capSearchRegion.height,
+      thresholdPixelCount: components.reduce(0) { $0 + $1.pixelCount },
+      componentCount: components.count, candidates: candidates)
+    let compatible = components.filter { marker.acceptsGeometry($0, region: priors.capSearchRegion) }
+    guard let component = compatible.first else { return .notFound(diagnostics) }
+    guard compatible.count == 1 else {
+      return .ambiguous(candidatePixelCounts: compatible.map(\.pixelCount), diagnostics: diagnostics)
+    }
+    let centroid = try Point2<CameraPixelSpace>(x: component.centroidX, y: component.centroidY)
+    return .found(PenCapMeasurement(referenceAnchor: centroid,
+      pixelCount: component.pixelCount, boundingBox: component.bounds,
+      centroid: centroid, confidence: component.colorSimilarity), diagnostics: diagnostics)
+  }
+
   private func armatureEstimate(
     cap: PenCapMeasurement,
     frame: StampedFrame,
@@ -718,7 +767,8 @@ public actor VisionWorker {
     let height = Double(frame.height) * priors.armatureHeightFraction
     let minX = max(0, cap.trackingPoint.x - halfWidth)
     let maxX = min(Double(frame.width - 1), cap.trackingPoint.x + halfWidth)
-    let capTop = priors.penCapReference == nil ? Double(cap.boundingBox.y) : cap.trackingPoint.y
+    let capTop = priors.penCapReference == nil && priors.markerReference == nil
+      ? Double(cap.boundingBox.y) : cap.trackingPoint.y
     let minY = max(0, capTop - topMargin)
     let maxY = min(Double(frame.height - 1), minY + height)
     return ArmatureEstimate(
@@ -729,27 +779,33 @@ public actor VisionWorker {
         maxY: maxY
       ),
       confidence: min(1, cap.confidence * 0.55),
-      basis: priors.penCapReference?.isRigidHolder == true
+      basis: priors.markerReference != nil ? "marker-centroid-anchored envelope; inferred, not segmented"
+        : priors.penCapReference?.isRigidHolder == true
         ? "holder-landmark-anchored envelope; inferred, not segmented"
         : "cap-anchored C920 envelope; inferred, not segmented"
     )
   }
 
-  private func capColorComponents(
+  static func colorComponents(
     frame: StampedFrame,
     region: PixelRect,
-    priors: PlotterSceneVisionPriors
+    color: PenCapColor,
+    searchCenter: Point2<CameraPixelSpace>?,
+    markerPolicy: Bool = false,
+    selectionPoint: Point2<CameraPixelSpace>? = nil,
+    markerMinimumSaturation: Double? = nil
   ) throws -> [PixelComponent] {
     let count = region.width * region.height
-    let selectedColor = Self.hsv(red: priors.penCapColor.red,
-      green: priors.penCapColor.green, blue: priors.penCapColor.blue)
+    let selectedColor = Self.hsv(red: color.red, green: color.green, blue: color.blue)
     // Expand outwards from the hint, covering every pixel in the search domain.
     // A bad or off-image prediction cannot hide a component or break a tie.
     let columns = Self.centerOutIndices(count: region.width,
-      center: priors.searchCenter.map { $0.x - Double(region.x) })
+      center: searchCenter.map { $0.x - Double(region.x) })
     let rows = Self.centerOutIndices(count: region.height,
-      center: priors.searchCenter.map { $0.y - Double(region.y) })
-    let matching = try frame.bytes.withUnsafeBytes { bytes in
+      center: searchCenter.map { $0.y - Double(region.y) })
+    let matching = markerPolicy ? try Self.markerMask(frame: frame, region: region, color: color,
+      minimumSaturation: markerMinimumSaturation)
+      : try frame.bytes.withUnsafeBytes { bytes in
       var matching = [Float](repeating: 0, count: count)
       for localY in rows {
         try Task.checkCancellation()
@@ -773,7 +829,11 @@ public actor VisionWorker {
 
     var visited = [Bool](repeating: false, count: count)
     var components: [PixelComponent] = []
-    for seed in 0..<count where matching[seed] > 0 && !visited[seed] {
+    var nextSeed = 0
+    while nextSeed < count {
+      let seed = nextSeed
+      nextSeed += 1
+      guard matching[seed] > 0, !visited[seed] else { continue }
       try Task.checkCancellation()
       var queue = [seed]
       var cursor = 0
@@ -786,6 +846,7 @@ public actor VisionWorker {
       var minY = Int.max
       var maxX = Int.min
       var maxY = Int.min
+      var containsSelectionPoint = false
       while cursor < queue.count {
         if cursor.isMultiple(of: 4_096) { try Task.checkCancellation() }
         let index = queue[cursor]
@@ -794,6 +855,9 @@ public actor VisionWorker {
         let localY = index / region.width
         let x = region.x + localX
         let y = region.y + localY
+        if let selectionPoint, x == Int(selectionPoint.x), y == Int(selectionPoint.y) {
+          containsSelectionPoint = true
+        }
         pixelCount += 1
         colorSupport += Double(matching[index])
         xSum += Double(x)
@@ -826,7 +890,9 @@ public actor VisionWorker {
           maxY: maxY,
           centroidX: xSum / Double(pixelCount),
           centroidY: ySum / Double(pixelCount),
-          colorSimilarity: colorSupport / Double(pixelCount)
+          colorSimilarity: colorSupport / Double(pixelCount),
+          containsSelectionPoint: containsSelectionPoint,
+          selectionSupportIndices: containsSelectionPoint ? queue : nil
         ))
     }
     return components
@@ -874,7 +940,73 @@ public actor VisionWorker {
     return saturationSimilarity * hueSimilarity * valueSimilarity
   }
 
-  private static func hsv(
+  static func markerColorSupport(red: UInt8, green: UInt8, blue: UInt8,
+    selectedHue: Double, minimumSaturation: Double) -> Double {
+    let maximum = Int(max(red, green, blue))
+    let delta = maximum - Int(min(red, green, blue))
+    // Cheap integer rejection avoids HSV work for paper/rails. A fixed noise
+    // floor rejects unusably dark/desaturated pixels; brightness does not rank
+    // components or pull the centroid toward their brighter side.
+    guard maximum >= 31, delta >= 20,
+      Double(delta) / Double(maximum) >= minimumSaturation else { return 0 }
+    let hue = hsv(red: red, green: green, blue: blue).hueDegrees
+    let distance = abs(hue - selectedHue)
+    return min(distance, 360 - distance) <= 22 ? 1 : 0
+  }
+
+  /// Full-resolution binary scan specialized for the selected marker. Hoisted
+  /// byte layout and raw buffers avoid per-pixel generic RGB/HSV calls in Debug.
+  /// This implements the scalar policy exactly, without downsampling or a ROI hint.
+  static func markerMask(frame: StampedFrame, region: PixelRect, color: PenCapColor,
+    minimumSaturation configuredMinimum: Double? = nil) throws -> [Float] {
+    let selected = hsv(red: color.red, green: color.green, blue: color.blue)
+    let minimumSaturation = configuredMinimum ?? max(0.25, selected.saturation * 0.5)
+    let redOffset = frame.pixelFormat == .rgba8 ? 0 : 2
+    let blueOffset = 2 - redOffset
+    var mask = [Float](repeating: 0, count: region.width * region.height)
+    try frame.bytes.withUnsafeBytes { raw in
+      try mask.withUnsafeMutableBufferPointer { destination in
+        let bytes = raw.bindMemory(to: UInt8.self).baseAddress!
+        let output = destination.baseAddress!
+        var y = 0
+        while y < region.height {
+          try Task.checkCancellation()
+          var pixel = bytes + (region.y + y) * frame.rowBytes + region.x * 4
+          var match = output + y * region.width
+          var remaining = region.width
+          while remaining > 0 {
+            remaining -= 1
+            let red = Int(pixel[redOffset]), green = Int(pixel[1]), blue = Int(pixel[blueOffset])
+            pixel += 4
+            let selectedPixel = match
+            match += 1
+            var maximum = red, minimum = red
+            if green > maximum { maximum = green }; if blue > maximum { maximum = blue }
+            if green < minimum { minimum = green }; if blue < minimum { minimum = blue }
+            let delta = maximum - minimum
+            if maximum < 31 || delta < 20 || Double(delta) / Double(maximum) < minimumSaturation { continue }
+            let hue: Double
+            if maximum == red {
+              // The ratio is in [-1, 1], so remainder by six is unnecessary.
+              let rawHue = 60 * (Double(green - blue) / Double(delta))
+              hue = rawHue < 0 ? rawHue + 360 : rawHue
+            } else if maximum == green {
+              hue = 60 * (Double(blue - red) / Double(delta) + 2)
+            } else {
+              hue = 60 * (Double(red - green) / Double(delta) + 4)
+            }
+            let difference = hue - selected.hueDegrees
+            let distance = difference < 0 ? -difference : difference
+            if distance <= 22 || distance >= 338 { selectedPixel.pointee = 1 }
+          }
+          y += 1
+        }
+      }
+    }
+    return mask
+  }
+
+  static func hsv(
     red: UInt8,
     green: UInt8,
     blue: UInt8
@@ -898,7 +1030,7 @@ public actor VisionWorker {
     return (rawHue < 0 ? rawHue + 360 : rawHue, saturation, maximum)
   }
 
-  private static func rgb(
+  static func rgb(
     frame: StampedFrame,
     bytes: UnsafeRawBufferPointer,
     x: Int,

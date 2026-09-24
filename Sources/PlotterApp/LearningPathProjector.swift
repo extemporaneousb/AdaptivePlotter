@@ -719,7 +719,7 @@ struct PlotterLearningDetailedPresentationNormalizer: Sendable {
     case .stage(.humanGuidedDiscovery):
       "Identify and calibrate the pen, measure all four drawing-boundary sides, move to the estimated center, calibrate the camera from five tracking-landmark positions, and calibrate the pen tip from four corner marks."
     case .humanGuidedDiscovery(.penInteraction):
-      "Identify a landmark on the fixed moving holder in one frozen frame, then set and confirm the physical Pen Up, Pen Down, and final Pen Up positions."
+      "Click a small colored marker on the fixed moving holder in one frozen frame, then set and confirm the physical Pen Up, Pen Down, and final Pen Up positions."
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       "Measure the X−, X+, Y−, and Y+ drawing-boundary sides with operator Stop, then move Pen Up to their estimated center."
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
@@ -913,7 +913,7 @@ extension PlotterLearningDetailedPresentationNormalizer {
   ) -> [PresentationFragment] {
     switch step {
     case .penInteraction:
-      [.text("Identify the holder landmark, then set and confirm"), .cue(.up), .text("then"), .cue(.down), .text("then confirm final"), .cue(.up)]
+      [.text("Click the colored marker, then set and confirm"), .cue(.up), .text("then"), .cue(.down), .text("then confirm final"), .cue(.up)]
     case .pairedBoundaryDiscoveryAndCentering:
       [.text("Choose a direction, observe the side, then press"), .cue(.stop)]
     case .calibrateCameraAndVisibleCap:

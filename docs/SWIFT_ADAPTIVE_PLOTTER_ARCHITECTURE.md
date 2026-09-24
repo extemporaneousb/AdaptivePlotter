@@ -917,13 +917,14 @@ retains the effective rectangle even when Exercise 1.3 replaces the fitted targe
 configuration incompatibility remains the viewport reset seam.
 
 `PenCapAppearanceSelection` transports the accepted Learning package's LIVE
-visual reference. Exercise 1.1 freezes an exact frame; Action Surface stages a
-camera-coordinate rectangle and submits it with an independent cap anchor through
-`PlotterPointSelectionSubmission`. `PlotterPenCapPointSampler` validates both and
-captures `PenCapVisualReference`, a maximum 32×32 RGB patch retaining all colors.
-The immutable patch identity includes region, anchor and camera geometry. The
-checkpoint adds this optional reference without making old color-only data unreadable;
-legacy appearance is explicitly unavailable for LIVE tracking until reidentified.
+tracking reference. New selection requests carry sampled-marker mode. An exact
+frozen-frame click captures `SampledColorMarkerReference`: fixed chromatic sample,
+clicked component geometry, measured centroid, selection point and optical/frame
+provenance. `PlotterPenCapPointSampler` preserves the existing exact-frame
+submission authority. A legacy template Locate request retains rectangle/anchor
+capture of `PenCapVisualReference`; new marker identification has no rectangle UI.
+The optional marker field keeps prior checkpoint formats readable, without
+silently converting a historical template landmark into a marker centroid.
 Same-anchor recovery retains at most two previous operator-confirmed patches with
 their independent anchors, including before a camera map exists. The appearance
 bank is separate from map compatibility and motion authority; explicit changed-
@@ -935,6 +936,26 @@ an outside-domain operator observation carries an extrapolated/advisory residual
 and cannot extend the map or motion authority. Successfully saved replacement
 Camera Calibration binds its map to the current reference estimator and supersedes
 the recovery lineage; failed or cancelled replacement keeps the prior package.
+
+`CameraSourceSession` routes the selected marker/reference through both ambient
+and exclusive workflow Vision. The explicit sampled-marker branch uses global
+color segmentation and fixed component geometry checks; multiple compatible
+components refuse rather than selecting by prediction. Marker admission compares
+semantic optics and preserves acquisition provenance across compatible capture
+generations. It does not fall back silently to a template or adapt color online.
+
+The application derives current tracking optics from its admitted
+`latestLiveCameraFrame`, guarded by the selected plotter camera and LIVE source.
+It does not require an analyzed `displayedFrame` to bootstrap the first analysis.
+A first frame or source, capture configuration or layout change refreshes optical
+binding directly, without recreating the analysis subscription. Full configuration
+reconciliation is needed only when the frame invalidates the ROI. Ordinary frame
+arrival does not rebuild the configuration.
+The pipeline retains its own latest submitted preview and configuration generation.
+When optics become available it retries that frame only if no frame has been
+admitted under the new generation, preventing an older session snapshot from
+replacing newer pending work. Stop clears retained input; replay never privately
+materializes a camera frame or bypasses exclusive-lease/cadence ownership.
 
 `CameraSourceSession` configures both the newest-only pipeline and exclusive
 workflow Vision with the reference. `PenCapTemplateMatcher` performs vectorized
@@ -2709,7 +2730,7 @@ No automated architecture result is physical validation.
 
 `TrackingAcquisitionEvidenceRecorder` is an App diagnostic file owner invoked at
 stable workflow acquisition boundaries. It copies immutable analyzed pixels,
-reference bank, numeric detector output and available request provenance without
+reference bank or sampled marker, numeric detector output and available request provenance without
 adding a task/event journal or admission authority. Its twelve-folder/128 MiB
 retention evicts only owned acquisition folders. Manifest publication follows
 raw-sidecar persistence. At most two pending immutable copies are queued after
@@ -2717,7 +2738,9 @@ the camera lease releases, so storage cannot hold preview or Cancel settlement;
 overflow and storage failure remain visible diagnostics. A caller context may
 include cached reported controller position/pen state and its local snapshot
 time, explicitly separate from image capture time and visually measured pose.
-Ambient analysis does not continuously archive images.
+An optional monotonic `analysisElapsedNanoseconds` measures the exact analysis
+await, including scheduling; missing timing stays absent. It is not total capture
+latency or physical settling time. Ambient analysis does not continuously archive images.
 `WorkbenchDiagnosticCapture` resolves the same frozen-or-ambient frame as the
 camera canvas and adds a values-only selection snapshot from the existing owner.
 These copies are independent of the incident-package assembly UI and cannot be
