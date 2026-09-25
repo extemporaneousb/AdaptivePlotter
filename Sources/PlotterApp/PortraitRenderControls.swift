@@ -34,6 +34,10 @@ struct PortraitRenderControls: View {
           Button(preset == .broadMarker ? "Coarse" : preset.rawValue) {
             var options = preset.options(for: model.style)
             options.materialContext = model.vectorOptions.materialContext
+            options.regionalTreatment = model.vectorOptions.regionalTreatment
+            options.regionalAdjustments = model.vectorOptions.regionalAdjustments
+            options.semanticHead = model.vectorOptions.semanticHead
+            options.eyeExaggeration = model.vectorOptions.eyeExaggeration
             options.flowRectilinearity = model.vectorOptions.flowRectilinearity
             options.flowSupport = model.vectorOptions.flowSupport
             options.flowStructureSupport = model.vectorOptions.flowStructureSupport

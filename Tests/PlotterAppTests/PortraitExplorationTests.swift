@@ -63,7 +63,7 @@ struct PortraitExplorationTests {
     await model.shutdown()
   }
 
-  @Test("preferring Current shrinks the internal step and Back restores the exact search state")
+  @Test("inspecting Current preserves the internal state and Back restores the exact choices")
   func adaptivePreferenceAndBack() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer, explorationSeed: 7)
@@ -77,7 +77,7 @@ struct PortraitExplorationTests {
     let first = try #require(model.explorationRound)
     let originalSearch = model.explorationSearch
     model.chooseExplorationSlot(1, roundID: first.id, strokeStyle: pen)
-    #expect(model.explorationSearch.step < originalSearch.step)
+    #expect(model.explorationSearch == originalSearch)
     #expect(try candidateBytes(#require(model.selectedCandidate)) == candidateBytes(first.center))
     await model.awaitRendering()
     model.goBackExploration()
@@ -332,7 +332,7 @@ struct PortraitExplorationTests {
     #expect(model.selectedCandidate?.id != accepted.id)
     #expect(try candidateBytes(#require(model.projectedCandidate)) == candidateBytes(accepted))
     #expect(model.sketches.entries.first?.candidate.program == accepted.program)
-    #expect(model.sketches.entries.count == 1)
+    #expect(model.sketches.sketches.count == 1)
     await model.shutdown()
   }
 
@@ -536,7 +536,7 @@ struct PortraitExplorationTests {
     await gate.release()
     #expect(await handoff.value == nil)
     #expect(model.sketches.entries.first?.exploration == newerTrace)
-    #expect(model.sketches.entries.count == 1)
+    #expect(model.sketches.sketches.count == 1)
     await model.shutdown()
   }
 
@@ -581,20 +581,23 @@ struct PortraitExplorationTests {
   }
 }
 
-private actor ExplorationTestRenderer: PortraitRendering {
+actor ExplorationTestRenderer: PortraitRendering {
   private(set) var requests: [PortraitRenderRequest] = []
   private var holdsNext = false
+  private var heldRequestNumber: Int?
   private var rejectsFuture = false
   private var noLinesRemaining = 0
   private var releaseWaiter: CheckedContinuation<Void, Never>?
 
   func holdNext() { holdsNext = true }
+  func holdRequest(number: Int) { heldRequestNumber = number }
   func rejectFutureRequests() { rejectsFuture = true }
   func rejectNextAsNoLines(_ count: Int) { noLinesRemaining = count }
   func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
     requests.append(request)
-    if holdsNext {
+    if holdsNext || heldRequestNumber == requests.count {
       holdsNext = false
+      heldRequestNumber = nil
       await withCheckedContinuation { releaseWaiter = $0 }
     }
     if rejectsFuture { throw PortraitDrawingError.unreadableImage }

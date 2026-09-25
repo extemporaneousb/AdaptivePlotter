@@ -33,8 +33,8 @@ enum PortraitFlowRenderer {
     var supportCacheHit = false
   }
 
-  /// Value-owned, source-specific preparation. The Studio owns at most two
-  /// workspaces. Each retains at most two raw-curve, structural and orientation variants;
+  /// Value-owned, source-specific preparation, retained by the Studio byte budget.
+  /// Each retains at most two raw-curve, structural and orientation variants;
   /// neither an analyzer instance nor a process-global cache owns this memory.
   struct Workspace: Sendable {
     fileprivate var source: Source?
@@ -48,6 +48,23 @@ enum PortraitFlowRenderer {
     var rawStructureVariantCount: Int { rawStructures.count }
     var orientationVariantCount: Int { orientations.count }
     var supportLevelCount: Int { support?.levels.compactMap { $0 }.count ?? 0 }
+    /// Retained array payloads, excluding small value/container headers.
+    var retainedByteCount: Int {
+      var doubles = 0, points = 0, floats = 0
+      if let source {
+        doubles += source.luminance.count
+        doubles += source.field.image.count + source.field.gx.count
+        doubles += source.field.gy.count + source.field.magnitude.count
+      }
+      for entry in structures { for path in entry.1 { points += path.count } }
+      for entry in rawStructures { for path in entry.1 { points += path.count } }
+      for entry in orientations { doubles += entry.1.cos2.count + entry.1.sin2.count }
+      for level in support?.levels ?? [] {
+        if let level { floats += level.confidence.count + level.cos2.count + level.sin2.count }
+      }
+      return doubles * MemoryLayout<Double>.stride + points * MemoryLayout<CGPoint>.stride
+        + floats * MemoryLayout<Float>.stride
+    }
   }
 
   fileprivate struct Source: Sendable {

@@ -15,8 +15,11 @@ struct PortraitStudioWorkspaceLayoutTests {
     let model = PortraitStudioModel(renderer: WorkspaceLayoutRenderer())
     let stroke = try portraitTestStyle()
     model.setStyleComparisonExpanded(expanded, strokeStyle: stroke)
+    model.setPhoto(try portraitTestImage(), for: .left, strokeStyle: stroke)
+    model.setPhoto(try portraitTestImage(), for: .right, strokeStyle: stroke)
     model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: stroke)
     await model.awaitRendering()
+    #expect(model.browsablePhotos.count >= 3)
     try #require(model.algorithmCandidates.count == (expanded ? PortraitStyle.authoringCases.count : 1))
     for size in [CGSize(width: 1000, height: 550), CGSize(width: 1280, height: 650)] {
       for style in PortraitStyle.authoringCases {
@@ -53,6 +56,13 @@ struct PortraitStudioWorkspaceLayoutTests {
         let round = try #require(model.explorationRound)
         #expect(round.slots.count == 3)
         #expect(round.slots[1].candidate?.id == model.selectedCandidate?.id)
+        #expect(model.explorationPreviewSizes.count == 3)
+        let imageSizes = model.explorationPreviewSizes.values
+        #expect(imageSizes.allSatisfy { $0.height >= 91 && $0.width >= 60 },
+          "Comparison images must remain useful with secondary controls open: \(model.explorationPreviewSizes)")
+        if let smallest = imageSizes.map(\.height).min(), let largest = imageSizes.map(\.height).max() {
+          #expect(largest - smallest < 1, "All comparison images must use equal preview heights")
+        }
         #expect(abs(host.view.bounds.width - size.width) < 1)
         #expect(abs(host.view.bounds.height - size.height) < 1)
         let views = descendants(host.view)

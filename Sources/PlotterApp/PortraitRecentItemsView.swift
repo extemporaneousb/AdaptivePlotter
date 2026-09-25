@@ -9,8 +9,8 @@ struct PortraitPhotoStrip: View {
   var body: some View {
     ScrollView(.horizontal) {
       HStack(spacing: 8) {
-        Text("Recent photos").font(.caption).foregroundStyle(.secondary)
-        ForEach(model.recentPhotos) { photo in
+        Text("Photos").font(.caption).foregroundStyle(.secondary)
+        ForEach(model.browsablePhotos) { photo in
           Button { model.selectPhoto(photo.id, strokeStyle: strokeStyle) } label: {
             PortraitPhotoThumbnail(data: photo.data, id: photo.id)
               .frame(width: 40, height: 40)
@@ -25,8 +25,15 @@ struct PortraitPhotoStrip: View {
           .accessibilityLabel("Select \(photo.label)")
           .help(photo.label)
           .contextMenu {
-            Button("Delete Photo", role: .destructive) {
-              model.removePhoto(photo.id, strokeStyle: strokeStyle)
+            if model.recentPhotos.contains(where: { $0.id == photo.id }) {
+              Button("Remove Recent Photo", role: .destructive) {
+                model.removePhoto(photo.id, strokeStyle: strokeStyle)
+              }
+              Text("Retained attempts keep their source")
+            } else {
+              Button("Delete Source and All Attempts", role: .destructive) {
+                model.deleteRetainedSource(photo.id, strokeStyle: strokeStyle)
+              }
             }
           }
         }

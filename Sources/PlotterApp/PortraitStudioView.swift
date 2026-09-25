@@ -12,6 +12,8 @@ struct PortraitStudioView: View {
   var selectCamera: () async -> String? = { nil }
   var openReviewer: () -> Void = {}
 
+  @State private var savingStyle = false
+  @State private var styleName = ""
   @State private var importing = false
   @State private var cameraSettings = false
   @State private var showsSource = false
@@ -54,9 +56,10 @@ struct PortraitStudioView: View {
             }
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
-          if model.recentPhotos.count > 1 {
-            PortraitPhotoStrip(model: model, strokeStyle: strokeStyle)
+          if !model.sketches.attempts.isEmpty {
+            PortraitHistoryView(model: model, strokeStyle: strokeStyle)
           }
+          PortraitPrototypeControls(model: model, strokeStyle: strokeStyle)
           DisclosureGroup(isExpanded: Binding(
             get: { model.isStyleComparisonExpanded },
             set: {
@@ -64,7 +67,7 @@ struct PortraitStudioView: View {
               model.setStyleComparisonExpanded($0, strokeStyle: strokeStyle)
             })) {
             PortraitStyleBrowser(model: model, strokeStyle: strokeStyle, material: previewSource.material)
-              .frame(height: 112)
+              .frame(height: 64)
           } label: {
             HStack {
               Text("Styles · \(model.selectedAlgorithm.rawValue)").font(.headline)
@@ -90,6 +93,10 @@ struct PortraitStudioView: View {
           .accessibilityIdentifier("portrait.adjustmentInspector")
         }
       }
+      if let candidate, let treatment = PortraitRegionalTreatment.summary(raster: candidate.raster, options: candidate.recipe.vectorOptions) {
+        Text(treatment).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+          .accessibilityIdentifier("portrait.regionalStatus")
+      }
       if let error = displayedError {
         HStack {
           Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
@@ -101,8 +108,8 @@ struct PortraitStudioView: View {
       }
       if case .failed(let reason) = model.sketches.persistenceState {
         HStack {
-          Text("Imagination save failed").font(.caption).foregroundStyle(.orange)
-          StudioHelpButton("Imagination save failed", text: reason)
+          Text("Studio history save failed").font(.caption).foregroundStyle(.orange)
+          StudioHelpButton("Studio history save failed", text: reason)
           Button("Retry Save") { model.sketches.retryPersistence() }
             .accessibilityIdentifier("portrait.retryArchiveSave")
           Spacer()
@@ -138,7 +145,7 @@ struct PortraitStudioView: View {
   }
 
   private var toolbar: some View {
-    HStack(spacing: 8) {
+    PortraitAdaptiveRow {
       Button {
         if model.isCapturing {
           Task { await model.cancelRendering() }
@@ -171,7 +178,7 @@ struct PortraitStudioView: View {
         .accessibilityLabel("Camera settings")
         .help("Camera settings")
         .popover(isPresented: $cameraSettings, arrowEdge: .bottom) { cameraSettingsPanel }
-      StudioHelpButton("Portrait Studio", text: "Capture Photo briefly lights the display and selects one original frame for sharpness and exposure. Keep still during capture. Choose Photo imports an existing image. Recent photos remain below the drawings; Delete Photo removes the selected source while saved imaginations keep their own copy. Choose an alternative imagination to continue from that result. Back restores the previous choices. Adjustments opens the detailed controls. Save Imagination keeps this result in Drawing Reviewer. Send to Drawing also saves it and opens Drawing with it placed on the plotter video. Sending does not move the plotter; Draw in Drawing starts execution.")
+      StudioHelpButton("Portrait Studio", text: "Capture Photo briefly lights the display and selects one original frame for sharpness and exposure. Keep still during capture. Choose Photo imports an existing image. Photos opens the retained source browser. Remove Recent Photo clears a capture-cache entry while attempts keep their own source. Delete Source and All Attempts explicitly removes a retained source and its attempts. Inspect an alternative to continue from that result. Plus marks an exact attempt promising; minus rejects only its exact source and treatment. History keeps completed attempts and branches, including rejected attempts. Back restores the previous choices. Adjustments opens the detailed controls. Save Style keeps a reusable recipe without the source photo. Save Imagination keeps this exact result and source in Drawing Reviewer. Send to Drawing also saves it and opens Drawing with it placed on the plotter video. Sending does not move the plotter; Draw in Drawing starts execution.")
       if model.isCapturing {
         Text("Keep still").font(.caption).foregroundStyle(.secondary)
         ProgressView(value: model.captureProgress).frame(width: 60)
@@ -183,7 +190,7 @@ struct PortraitStudioView: View {
       Button(role: .destructive) {
         if let id = model.selectedPhotoID { model.removePhoto(id, strokeStyle: strokeStyle) }
       } label: { Image(systemName: "trash") }
-      .disabled(model.selectedPhotoID == nil)
+      .disabled(!model.canRemoveSelectedRecentPhoto)
       .accessibilityLabel("Delete Photo")
       .accessibilityIdentifier("portrait.deletePhoto")
       .help("Delete Photo")
@@ -201,6 +208,20 @@ struct PortraitStudioView: View {
       .disabled(candidate == nil || model.isProcessing || model.isCapturing || isStartingCapture || isSubmitting)
       .accessibilityIdentifier("portrait.showOnPlotter")
       Divider().frame(height: 20)
+      Button("Save Style") {
+        styleName = candidate?.recipe.title ?? "My style"
+        savingStyle = true
+      }
+      .disabled(candidate == nil || model.isProcessing || model.isCapturing)
+      .accessibilityIdentifier("portrait.saveStyle")
+      .popover(isPresented: $savingStyle) {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Save reusable recipe").font(.headline)
+          TextField("Style name", text: $styleName)
+          Button("Save Style") { model.saveStyle(name: styleName); savingStyle = false }
+            .disabled(styleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }.padding(12).frame(width: 260)
+      }
       Button("Save Imagination") {
         submissionErrorTitle = "Imagination save failed"
         submissionError = model.keepSelection()
@@ -213,7 +234,7 @@ struct PortraitStudioView: View {
         .help("Drawing Reviewer")
     }
     .controlSize(.regular)
-    .frame(height: 32)
+    .frame(minHeight: 32)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("portrait.toolbar")
   }

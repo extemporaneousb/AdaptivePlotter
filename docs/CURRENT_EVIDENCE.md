@@ -8,6 +8,88 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Persistent Studio attempts and regional prototypes, 2026-09-25
+
+The coordinated implementation adds reusable source preparation, durable attempt
+history and three regional prototype recipes under the existing Studio and Drawing
+owners. Prepared sources retain oriented decoded pixels, source-coordinate landmarks,
+full-frame person-mask outcomes and multiscale luminance. Crops reuse that preparation;
+area-integrated sampling has explicit preprocessing v2 provenance, with historical v1
+rasters still readable. Source and crop-specific Flow retention have independent
+payload byte/count bounds. Worker results expose source/crop/Flow/vector timings.
+
+Applicable completed candidates retain exact source/raster/recipe/program data and a
+thumbnail through the existing archive. History selection is neutral and installs
+retained geometry without rendering. Plus/minus revisions mark individual attempts;
+rejected proposal identity is specific to source/pose/recipe/material. Save Style
+retains a reusable recipe and Save Imagination remains separate library qualification.
+Session Back remains bounded and is not a restart-persistent undo promise. Existing
+retained frames, including older saved sources, are available through Source/Photos,
+and each finished alternative can be published before the pair completes.
+
+Sparse structure, Angular comic and Measured eye exaggeration compose measured facial
+supports, selective stroke removal/retention, angular contours, fixed-width shadow
+or contour construction and bounded 2D expansion around measured eye centers. The
+third prototype uses disjoint compact supports without inferred pose or forehead;
+legacy semantic-head pose requirements remain unchanged. Missing reliable
+landmarks preserve base strokes with an unavailable reason. Skin and jaw support do
+not claim hair/clothing segmentation or reconstructed depth. Stroke counts and
+normalized path length expose geometric burden without inventing physical duration.
+
+The coordinator independently inspected source/cache/provenance and archive/selection
+diffs, returned anti-aliasing and deletion defects for correction, and rejected an
+initial cramped hosted layout despite its assertions passing. The corrected 1000 × 550
+workspace retains equal useful comparison previews and visible history with Styles
+and Adjustments expanded; source browsing lives in the Source/Photos popover.
+
+| Receipt | Result and scope |
+|---|---|
+| Source/cache, browser and compatibility selection | 62-test run passed; includes all 9 reusable-source tests for cross-crop/resolution reuse, unavailable analysis, area filtering, coordinate mapping, byte eviction, failed-render reuse and cancellation |
+| Earlier browser/history, regional/eye and archive selection | 57-test run passed, including 14 history regressions and legacy archive goldens |
+| Retained-photo prototypes, hosted layout/routing and exploration performance | 7-test run passed in 107.477 seconds; two opt-in AX/input cases were skipped |
+| Retained-photo eye-deformation proof | Two measured supports applied at amount 0.3; identical recipe with that modifier absent has different actual geometry; 5,065 baseline versus 5,079 resulting points |
+| Corrected benchmark oracle and retained-photo proof | 2-test run passed in 43.339 seconds; the three prototype program hashes match the accepted visual receipt |
+| Corrective browser/material and compatibility selection | 40 tests passed in 29.412 seconds after the full-suite diagnostic identified four failing cases; includes all four cases, 14 history regressions, modifier round-trip and semantic archive checks |
+
+The corrective review restored ordinary rendering's existing `headScale = 1` and
+`semanticHead = nil` behavior while retaining the separate eye modifier. Updated
+integration assertions distinguish automatic unknown attempts from saved rows and
+verify selected-work priority with cancelled/reconstructed reference work. The original
+failed required-check receipts and diagnostic assertions remain in the delivery
+manifest; the final full configured result is recorded there against its source tree.
+
+These selections overlap and are not a unique test-total claim. The retained reference
+source SHA-256 is `d66e8251b20ca9cbedf6d3a200c281276089f518de19182da1a65902828f457c`.
+The three DEBUG renders contain respectively 359, 394 and 360 strokes, with normalized
+path lengths 22.06, 27.57 and 23.42 drawing heights. The coordinator observed distinct
+stroke treatments and a modest eye change; this establishes digital operation, not
+operator approval of likeness, age/identity, usefulness or physical execution. Earlier
+legacy semantic-head attempts on two retained photos lacked measured pitch and retained
+the explicit refusal. The new measured-eye capability leaves that guard unchanged.
+
+The corrected DEBUG Flow Edge benchmark uses the same retained photo at 316 × 320
+analysis pixels, with 24 provenance aliases of its full source/raster/program preloaded
+(328 strokes, 10,049 points) and 38 attempts retained by the end. Across 24 exact history
+installs, model time was 0.063–1.517 ms; feedback mutation took 0.197–0.706 ms and Back
+0.405 ms. Navigation required no rendering. Four warm rounds published their first
+alternative in 495–2,012 ms and pair in 1,251–2,319 ms, with at most one worker and
+one cold analysis call. The cold selected drawing took 3.483 seconds. These are
+software model/publication timings, not native click-to-paint measurements. The
+roughly 0.5-second first-alternative and 2-second pair targets are not consistently met.
+
+The corrected MainActor heartbeat maximum was 15.681 ms. Earlier 323–336 ms peaks
+included a heavy benchmark geometry oracle on MainActor; those superseded receipts
+are retained, and moving that test-only oracle off MainActor did not alter product
+code. No receipt captures or explains the reported minute-long interaction. Native
+click-to-paint against the <100 ms target, AX/input interaction, real-portrait
+usefulness and attended ink/time evidence remain unverified.
+
+Full configured validation results and delivered-bundle identity are recorded in
+Blackdog task `task-dae292fbd4974396a585eab73c40ad3c` and its preserved delivery manifest;
+this chapter reports the focused, hosted-visual and measurement receipts above.
+The running user app, cameras and plotter have not been restarted or exercised by
+this implementation. A packaged build is not native interaction or physical proof.
+
 ## Pen-cap capture lifetime and Guided Learning preservation, 2026-09-24
 
 Read-only inspection of the user's DEBUG app (PID 77543), native screenshot,

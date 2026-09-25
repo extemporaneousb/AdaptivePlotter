@@ -1684,17 +1684,29 @@ Studio authoring remains available with an imported photo while disconnected.
 Portrait Studio presents the current imagination and two alternatives beside a
 large selected-drawing preview. Each alternative retains the source, framing,
 algorithm and material context. Selection installs its exact recipe and immutable
-program. Back restores the previous offered candidates and internal exploration
-state without rerendering. Explicit framing or parameter edits establish a new
-starting point and invalidate exploration history.
+program without changing preference. Back restores the previous offered candidates
+and session exploration state without rerendering. Explicit framing or parameter
+edits establish a new starting point and may clear that session Back stack; durable
+attempt history remains available.
 
-Variation is internal. Accepted parameter directions guide a bounded continuation
-proposal and a complementary proposal; repeated aligned choices can increase the
-step and reversals can decrease it. Screen positions are not parameter axes.
+Every completed applicable attempt retains its exact source, raster, recipe,
+immutable geometry, thumbnail and ancestry in the existing candidate archive.
+History inspection installs that result without rendering or voting, and further
+exploration branches from it. Plus marks the exact attempt promising; minus marks
+it rejected without deleting it. Either mark can be cleared to unknown. Feedback
+revisions persist. Rejection suppresses the same source/pose/recipe/material
+proposal, regardless of seed or title; it does not reject a renderer, face region,
+pose family or other photograph. No cross-photo preference model is fitted.
+
+Variation is internal. Whole-drawing proposals explore bounded applicable renderer
+parameters; selection no longer supplies a preferred parameter direction. A region
+choice instead adds a scoped treatment around the measured face, eyes, mouth, skin
+or jaw. Framing and source selection remain independent explicit controls. Screen
+positions are not parameter axes.
 Bounded retries reject empty, failed, duplicate and visually negligible results.
 Proposals account for material-imposed spacing and minimum-length floors before
 spending render work, and retries change the parameter direction. The additive
-Flow support and placement controls participate in the same preference space;
+Flow support and placement controls participate in the same parameter exploration;
 an evidence-scale change is inactive while both support amounts are zero.
 Parameter-only probes avoid already attempted effective settings, and recovery
 varies with the round seed and failed settings within the render-work bound. Exhausted
@@ -1703,13 +1715,21 @@ candidate from recent history may remain available as a labeled Previous option
 when the bounded search finds no useful new candidate. Keeping Current while
 alternatives are pending leaves their generation running; it cannot turn unfinished
 work into failed choices. The current drawing and Back remain usable while
-alternatives are pending. Stored choices are provenance and session
-search state, not a trained aesthetic or likeness model. Legacy nine-slot traces
+alternatives are pending. Each completed alternative becomes visible and selectable
+without waiting for the pair. Stored choices are provenance and session search
+state, not a trained aesthetic or likeness model. Legacy nine-slot traces
 remain readable under their original policy revision.
 
-The compact Source control keeps the original photo accessible. Detailed Framing
-and Style controls are collapsed by default. Styles offers three rendered
-algorithms: Flow Edge (the default), Tonal contours and Sketch. Hatch, Crosshatch
+The compact Source/Photos popover keeps the original photo and retained source
+frames accessible; its button shows the source count. Sources include recent photos,
+attempt history and older saved Imaginations. History thumbnails remain visible in
+the workspace. Detailed Framing and Style controls are collapsed by default. Start
+offers Sparse structure, Angular comic and Measured eye exaggeration recipes. They
+compose regional stroke treatment with renderer settings; the third adds bounded
+2D expansion around measured eye centers without requiring 3D pose or estimating
+a forehead. They
+are prototypes whose likeness and usefulness require operator evaluation. Styles
+also offers three rendered algorithms: Flow Edge (the default), Tonal contours and Sketch. Hatch, Crosshatch
 and Sketch + hatch remain decodable for historical candidates but are not
 generated as authoring alternatives. Selecting
 an algorithm installs its exact completed candidate. The existing renderer and one
@@ -1724,11 +1744,15 @@ tile installs that exact displayed candidate. A source, framing, pen or material
 change establishes a new baseline. Folding Styles stops unfinished reference work
 while retaining completed tiles. Reference-job identity is independent of the
 selected-drawing revision, and stale reference work cannot select a newer drawing.
-Proposals reuse analyzed rasters and bounded caches.
-Flow preparation reuses source evidence, structural curves and orientation fields
-in source-specific bounded workspaces. The render worker also constructs the
-candidate and preview footprint off the main actor; promoted candidates reuse
-their footprint.
+Source preparation retains one oriented decoded image, source-coordinate landmarks,
+a full-frame person-mask result and filtered multiscale luminance evidence. Crops,
+head margins and analysis-resolution changes reuse those results. Content identity,
+source metric and preparation revision gate reuse; unavailable analysis remains
+explicit. Source preparation and crop-specific Flow evidence, structural curves
+and orientation fields have separate bounded retention. Final render entries do
+not retain evicted preparation buffers. The serial render worker constructs each candidate, preview
+footprint and history thumbnail off the main actor. Navigation and feedback reuse
+retained results; cancellation and source/revision checks still gate publication.
 Crop to face, head margin and background removal belong to Framing; line/tone
 controls and detail presets belong to Style.
 
@@ -1744,16 +1768,39 @@ no display brightness setting changes. Recent sources remain individually
 selectable and deletable, bounded to 24 photos / 32 MiB; saved candidates own
 independent source bytes. Deleting sources cannot revive them through late work.
 
-Ordinary Studio has no continuous parameter pad, Big Head, preference-rating,
-manual Variation or named-training controls. Historical candidate formats and
-required source, raster, label and checkpoint interpretation remain compatible.
-Existing fitted checkpoints are not loaded or consulted by normal Studio generation.
-Save Imagination retains the exact candidate and bounded offered-set/choice trace
-through the existing candidate archive without switching the editor into another
-selection mode. Session Back retains exact candidates; its history is bounded and
-does not promise an unlimited or restart-persistent undo stack. Browsing Imaginations belongs to Drawing Reviewer and does not
-change the Studio edit. Source photos and vectors shown together come from the same
+Ordinary Studio has no continuous parameter pad, manual Variation or named-training
+controls. The September 25 prototype/attempt browser adds explicit promising/rejected
+feedback and landmark exaggeration without restoring the historical rating/training
+workflow. Historical candidate formats and required source, raster, label and
+checkpoint interpretation remain compatible. Existing fitted checkpoints are not
+loaded or consulted by normal Studio generation.
+Save Style captures a named reusable recipe. Save Imagination qualifies the exact
+candidate and its source for the saved library, including its bounded offered-set
+trace; automatic attempt history and plus do not implicitly save an Imagination.
+Session Back remains bounded and does not promise restart-persistent undo. Durable
+history can be revisited after loading the archive. Its explicit cleanup retains
+the current attempt plus promising and saved discoveries; individual deletion
+remains available. Removing a recent photo preserves independently retained attempts;
+Delete Source and All Attempts explicitly removes the archived source and its attempts.
+Deletion invalidates old history, Back and style-tile selection capabilities. A later
+explicit authoring action may create a fresh attempt from a reintroduced source;
+late work and previously deleted retained objects cannot revive themselves. Drawing
+Reviewer lists saved Imaginations, while inspecting an attempt in Studio changes
+the Studio selection. Source photos and vectors shown together come from the same
 candidate, including retained candidates.
+
+Regional treatment changes generated strokes. Soft overlapping source-coordinate
+supports protect measured facial features, simplify estimated skin regions, adjust
+angularity and construct additional ordered shadow/contour strokes for a fixed-width
+pen. Skin is a face-area estimate; silhouette means the observed jaw, not inferred
+hair or clothing segmentation. Missing or unreliable landmarks preserve the base
+strokes with an explicit unavailable summary. Scoped modifiers retain unaffected
+geometry; repeated adjustments have a bounded recipe depth. Eye exaggeration changes
+strokes within two disjoint, crop-contained supports; it preserves exterior geometry
+and refuses missing or unreliable bilateral measurements. Its nonfolding bound does
+not guarantee existing strokes retain their original separation. The interface reports
+stroke count and normalized ink-path length. These are geometry costs, not measured
+ink coverage or a calibrated physical time prediction.
 
 Flow Edge separates structural evidence from tonal stroke density. Its higher
 resolution analysis supports detailed curves; coherence guides smooth line flow

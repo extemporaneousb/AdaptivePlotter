@@ -9,23 +9,53 @@ dependencies are owned exclusively by
 [Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md);
 this roadmap does not restate or reorder them.
 
-The September 18 operator-directed Studio correction supersedes the earlier
-random exploration, Big Head and preference-training interface proposals. Its
-accepted scope and delivery gates are recorded in the execution plan's
+The September 25 accepted persistent attempt browser and landmark-guided regional
+prototype slice builds on the September 18 operator-directed Studio correction.
+The earlier random exploration and preference-training campaign is not a standing
+implementation authorization. The September 18 scope and delivery gates remain
+recorded in the execution plan's
 [deterministic Portrait Studio correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#deterministic-portrait-studio-correction-2026-09-18).
 The historical Trainable Drawing Studio campaign retains its dated evidence; its
 retired authoring controls are not future implementation obligations.
 
 Remaining product evidence includes actual camera/phone capture interaction,
 attended plotter geometry and ink quality. Software and hosted UI checks cannot
-close those physical claims. Capture-series persistence and raising the current
-24-photo / 32 MiB session limit remain deferred. New short captures produce one
-selected source, so multi-pose burst browsing is no longer a product objective.
+close those physical claims. New short captures still produce one selected source.
+An optional discovery capture retaining a small diverse set of sharp, identifiable
+frames remains a later extension; capture-series persistence and any change to the
+24-photo / 32 MiB recent-source bound need their own delivery scope.
+
+## Studio discovery: remaining acceptance and extensions
+
+The selected first slice combines reusable source preparation, landmark-guided
+regional stroke treatment, three prototype recipes and durable exact-attempt history
+with separate plus/minus feedback. Current behavior is specified in Product Contract;
+implementation and receipts belong to Current Evidence. Remaining work is:
+
+- Extend the DEBUG software measurements in [Current Evidence](CURRENT_EVIDENCE.md)
+  to native click-to-paint navigation and consistent warm first-alternative/pair
+  timing on the operator's machine. Acceptance targets remain <100 ms cached
+  navigation, roughly 0.5 seconds to the first warm alternative and roughly
+  2 seconds to the pair. Capture and profile an actual minute-long interaction;
+  the fixture measurements do not explain that reported delay.
+- Evaluate Sparse structure, Angular comic and Measured eye exaggeration on real
+  portraits at comparable useful path/ink budgets. Inspect preserved facial evidence,
+  age/identity, contrast between recipes and whether discoveries are found sooner.
+- Broaden automatic discovery across independent crop and retained-frame choices,
+  with optional explicit combinations and clear change cues. Initial source/framing
+  browsing stays explicit; no fusion or registration is implied.
+- Add diverse capture only after retained-photo exploration is useful. Each candidate
+  should continue to identify one source frame.
+- Consider cross-photo preference learning only after enough attributable feedback
+  exists. One rejection must not condemn a renderer, pose or facial treatment.
+- Evaluate hair/clothing interpretation separately; the current soft supports cover
+  facial features, estimated skin and observed jaw only.
 
 ## Flow Edge: portrait likeness and physical acceptance
 
-The September 21 request supersedes manual Variation and the nine-image grid with
-current plus two alternatives and internal adaptive step size. Flow Edge targets
+The September 21 request replaced manual Variation and the nine-image grid with
+current plus two alternatives; September 25 separates neutral inspection from
+feedback and adds persistent history and regional prototypes. Flow Edge targets
 smooth long lines with structural evidence independent from tone density. Current
 contract and ownership belong to Product Contract and Architecture; implementation
 and measured software evidence belong to Current Evidence.
@@ -246,18 +276,14 @@ implemented. Do not restore the deleted
 speculative online dataset, policy/reward scaffolding, model-mismatch overlay,
 or dormant navigation route as a compatibility surface.
 
-Remaining portrait work is specified by the
-[Trainable Drawing Studio campaign](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#trainable-drawing-studio-campaign-2026-09-13),
-including physical proportions, durable qualified evidence, contour/local variation,
-semantic Big Head, material-aware rendering, scoped fitting and Studio layout.
+Remaining portrait work follows the Studio discovery and physical-acceptance scope
+above. The historical
+[Trainable Drawing Studio campaign](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#trainable-drawing-studio-campaign-2026-09-13)
+retains dated evidence, not a requirement to restore retired training interfaces.
 Attended burst-camera/screen-light evaluation and ink-quality comparison across
-marker widths, paper sizes, frontal and three-quarter views remain required. The
-current studio offers individual burst frames, adjustable head framing, coarse vector
-controls, angled hatch, centerline Sketch, deterministic face-anchored big-head geometry,
-independent frame/style browsing, seeded recipe history, and bounded exportable
-preference examples. It does not yet perform
-multi-view fusion, registered temporal averaging, facial-part parsing, learned
-caricature, or identity-aware automatic preference fitting.
+marker widths, paper sizes, frontal and three-quarter views remain required.
+Multi-view fusion, registered temporal averaging, hair/clothing parsing, learned
+caricature and identity-aware automatic preference fitting remain unimplemented.
 
 An optional later learned image producer can be assessed against
 [APDrawingGAN](https://github.com/yiranran/APDrawingGAN), which uses aligned faces,
@@ -281,16 +307,11 @@ an identity. [CariGANs](https://doi.org/10.1145/3272127.3275046) separates geome
 exaggeration from appearance; the current native implementation exposes those axes
 through deterministic face geometry and ink recipes. It does not claim a learned caricature.
 
-Grades currently capture generated candidates, not the artwork a supervised GAN
-should imitate; no fitting, upload or score-dependent generation currently runs.
-The campaign's first learner will fit a native scoped ordinal model over the
-existing deterministic renderer and semantic warp parameters, persist/activate
-checkpoints and change production proposals. Exact presentation context and label
-revisions, grouped holdouts, prior/current comparison and rollback are in scope;
-export-and-train-later is not completion. A pretrained generator is optional later
-work, not a prerequisite for learning recipe preferences. [Diffusion-DPO](https://arxiv.org/abs/2311.12908)
-uses paired preferences to adapt a pretrained diffusion model and is a distinct
-future approach. Screen aesthetic and physical realization objectives stay separate.
+Current plus/minus revisions describe exact attempts; they do not train a model.
+Any later scoped learner requires enough attributable evidence, grouped holdouts,
+prior/current comparison and rollback. Screen aesthetic and physical realization
+objectives stay separate. A pretrained generator is optional research, not a
+prerequisite for evaluating useful native regional recipes.
 
 No portrait feature should own calibration, controller commands, paper state,
 plan execution, physical machine-model promotion, or Draw locks. Scoped aesthetic

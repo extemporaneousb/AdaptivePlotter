@@ -138,8 +138,9 @@ enum PortraitCandidateCoding {
   }
 }
 
-/// The immutable transient rendering result. Only an explicit qualifying event
-/// sends this same payload to durable storage. Generation alone never saves it.
+/// Immutable render payload shared by automatic attempt history and explicitly
+/// saved Imaginations. Feedback and retention status live in the archive entry;
+/// browsing never changes the source, recipe, or generated program.
 struct PortraitCandidate: Identifiable, Codable, Sendable {
   static let schemaVersion = 1
   let id: String

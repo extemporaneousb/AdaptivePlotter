@@ -29,7 +29,7 @@ struct PortraitAnalysisGeometry: Codable, Hashable, Sendable {
   let contrastApplied: Bool
 
   func validate(width: Int, height: Int) throws {
-    guard schemaVersion == 1, preprocessingRevision == "portrait-analysis-v1",
+    guard schemaVersion == 1, ["portrait-analysis-v1", "portrait-analysis-v2"].contains(preprocessingRevision),
       decodedWidth > 0, decodedHeight > 0, rasterWidth == width, rasterHeight == height,
       [crop.x, crop.y, crop.width, crop.height, contrastLow, contrastHigh].allSatisfy(\.isFinite),
       crop.x >= 0, crop.y >= 0, crop.width > 0, crop.height > 0,

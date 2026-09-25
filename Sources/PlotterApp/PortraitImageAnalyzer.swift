@@ -33,6 +33,7 @@ struct PortraitRenderRequest: Sendable {
   var sourcePixelExtent: PortraitSourceCropExtent? = nil
   /// Ephemeral worker preparation; never part of a saved photo or candidate.
   var flowWorkspace: PortraitFlowRenderer.Workspace? = nil
+  var preparedSource: PortraitSourcePreparation? = nil
 }
 
 struct PortraitRenderResult: Sendable {
@@ -41,6 +42,18 @@ struct PortraitRenderResult: Sendable {
   var transformationSummary: String? = nil
   var warpManifest: PortraitHeadWarpManifest? = nil
   var flowWorkspace: PortraitFlowRenderer.Workspace? = nil
+  var preparedSource: PortraitSourcePreparation? = nil
+  var timings: PortraitRenderTimings? = nil
+}
+
+/// A valid source remains reusable even when a recipe yields no strokes. The
+/// Studio may retain it only after checking the failed request is still current.
+/// Cancellation never carries publishable preparation.
+struct PortraitPreparedRenderFailure: Error, LocalizedError {
+  let underlyingError: any Error
+  let preparedSource: PortraitSourcePreparation
+  let timings: PortraitRenderTimings
+  var errorDescription: String? { underlyingError.localizedDescription }
 }
 
 protocol PortraitRendering: Sendable {
@@ -102,39 +115,83 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
 
   func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
     try Task.checkCancellation()
+    let clock = ContinuousClock()
+    var started = clock.now
+    var timings = PortraitRenderTimings()
     let cached = request.cachedRaster.flatMap {
       Self.cachedRasterIsCompatible($0, with: request.style) ? $0 : nil
     }
-    let raster = try cached ?? Self.analyze(data: request.data, options: request.options,
-      sourcePixelExtent: request.sourcePixelExtent,
-      maximumDimension: Self.analysisMaximumDimension(for: request.style))
-    try Task.checkCancellation()
-    var workspace: PortraitFlowRenderer.Workspace?
-    var flowLayers: PortraitFlowRenderer.Layers?
-    if request.style == .flowEdges {
-      var prepared = request.flowWorkspace ?? .init()
-      var effective = request.vectorOptions.bounded
-      if let material = effective.materialContext { effective = try material.adapting(effective, raster: raster) }
-      flowLayers = try PortraitFlowRenderer.layers(from: raster, options: effective, workspace: &prepared)
-      workspace = prepared
+    let retainedSource = request.preparedSource.flatMap { source in
+      source.key == PortraitSourcePreparation.Key(data: request.data,
+        sourcePixelExtent: request.sourcePixelExtent) ? source : nil
     }
-    let program = try PortraitVectorizer.program(
-      from: raster, pose: request.pose, style: request.style, strokeStyle: request.strokeStyle,
-      vectorOptions: request.vectorOptions, flowLayers: flowLayers)
-    try Task.checkCancellation()
-    let transformSummary: String?
-    let warpManifest = request.vectorOptions.bounded.semanticHead.map {
-      PortraitHeadTransform(raster: raster, parameters: $0).manifest
+    let prepared: PortraitSourcePreparation?
+    let raster: PortraitRaster
+    if let cached {
+      raster = cached
+      prepared = retainedSource
+      timings.rasterCacheHit = true
+    } else {
+      if let retained = retainedSource {
+        prepared = retained
+        timings.sourceCacheHit = true
+      } else {
+        prepared = try Self.prepareSource(data: request.data, sourcePixelExtent: request.sourcePixelExtent)
+      }
+      timings.sourceMS = Self.milliseconds(started.duration(to: clock.now))
+      started = clock.now
+      raster = try Self.analyze(preparedSource: prepared!, options: request.options,
+        maximumDimension: Self.analysisMaximumDimension(for: request.style))
+      timings.cropMS = Self.milliseconds(started.duration(to: clock.now))
     }
-    if let warpManifest {
-      transformSummary = warpManifest.summary
-    } else if request.vectorOptions.bounded.headScale > 1 {
-      transformSummary = PortraitHeadTransform.validFaceBounds(raster.faceBounds) == nil
-        ? "No face located; head enlargement skipped"
-        : String(format: "Head emphasis %.2f×", request.vectorOptions.bounded.headScale)
-    } else { transformSummary = nil }
-    return PortraitRenderResult(raster: raster, program: program, transformationSummary: transformSummary,
-      warpManifest: warpManifest, flowWorkspace: workspace)
+    try Task.checkCancellation()
+    var vectorStage = false
+    do {
+      started = clock.now
+      var workspace: PortraitFlowRenderer.Workspace?
+      var flowLayers: PortraitFlowRenderer.Layers?
+      if request.style == .flowEdges {
+        var prepared = request.flowWorkspace ?? .init()
+        var effective = request.vectorOptions.bounded
+        if let material = effective.materialContext { effective = try material.adapting(effective, raster: raster) }
+        flowLayers = try PortraitFlowRenderer.layers(from: raster, options: effective, workspace: &prepared)
+        workspace = prepared
+      }
+      timings.flowMS = Self.milliseconds(started.duration(to: clock.now))
+      started = clock.now
+      vectorStage = true
+      let program = try PortraitVectorizer.program(
+        from: raster, pose: request.pose, style: request.style, strokeStyle: request.strokeStyle,
+        vectorOptions: request.vectorOptions, flowLayers: flowLayers)
+      try Task.checkCancellation()
+      timings.vectorMS = Self.milliseconds(started.duration(to: clock.now))
+      let transformSummary: String?
+      let warpManifest = request.vectorOptions.bounded.semanticHead.map {
+        PortraitHeadTransform(raster: raster, parameters: $0).manifest
+      }
+      if let warpManifest {
+        transformSummary = warpManifest.summary
+      } else if request.vectorOptions.bounded.headScale > 1 {
+        transformSummary = PortraitHeadTransform.validFaceBounds(raster.faceBounds) == nil
+          ? "No face located; head enlargement skipped"
+          : String(format: "Head emphasis %.2f×", request.vectorOptions.bounded.headScale)
+      } else { transformSummary = nil }
+      return PortraitRenderResult(raster: raster, program: program, transformationSummary: transformSummary,
+        warpManifest: warpManifest, flowWorkspace: workspace, preparedSource: prepared, timings: timings)
+    } catch is CancellationError { throw CancellationError() }
+    catch {
+      try Task.checkCancellation()
+      if vectorStage { timings.vectorMS = Self.milliseconds(started.duration(to: clock.now)) }
+      else { timings.flowMS = Self.milliseconds(started.duration(to: clock.now)) }
+      if let prepared {
+        throw PortraitPreparedRenderFailure(underlyingError: error, preparedSource: prepared, timings: timings)
+      }
+      throw error
+    }
+  }
+
+  private static func milliseconds(_ duration: Duration) -> Double {
+    Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
   }
 
   static func image(from data: Data) throws -> CGImage {
@@ -208,15 +265,21 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     sourcePixelExtent: PortraitSourceCropExtent? = nil,
     maximumDimension: Int = 160) throws -> PortraitRaster {
     try Task.checkCancellation()
-    let decoded = try decodedImage(from: data)
-    let image = decoded.image
-    let originalExtent = sourcePixelExtent ?? decoded.sourcePixelExtent
+    let prepared = try prepareSource(data: data, sourcePixelExtent: sourcePixelExtent)
+    return try analyze(preparedSource: prepared, options: options, maximumDimension: maximumDimension)
+  }
+
+  static func analyze(preparedSource: PortraitSourcePreparation, options: PortraitAnalysisOptions,
+    maximumDimension: Int = 160) throws -> PortraitRaster {
+    try Task.checkCancellation()
+    let image = preparedSource.image
+    let originalExtent = preparedSource.sourcePixelExtent
     var crop = CGRect(x: 0, y: 0, width: image.width, height: image.height)
     var detectedFace: CGRect?
     var notes: [String] = []
     // Face geometry is cached for framing and optional caricature even when
     // the operator retains the full photograph. This runs only on analysis.
-    let faceAnalysis = try PortraitFaceLandmarkAnalyzer.analyze(image)
+    let faceAnalysis = preparedSource.faceAnalysis
     if let face = faceAnalysis.boundingBox {
       detectedFace = CGRect(x: face.x, y: face.y, width: face.width, height: face.height)
       if options.cropToFace {
@@ -244,7 +307,8 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     let dimension = Double(min(512, max(8, maximumDimension)))
     let width = Int(min(dimension, max(8, dimension * ratio)))
     let height = Int(min(dimension, max(8, dimension / ratio)))
-    var luminance = try grayscale(cropped, width: width, height: height)
+    let sampled = try preparedSource.sample(crop: crop, width: width, height: height)
+    var luminance = sampled.values
     // Normalize illumination before whitening the background; the matte must
     // not bias the contrast percentiles toward white.
     let sorted = luminance.sorted()
@@ -260,65 +324,54 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     var retainedAlpha: [Double]?
     var maskUnavailableReason: String?
     if options.removeBackground {
-      try Task.checkCancellation()
-      do {
-        let request = VNGeneratePersonSegmentationRequest()
-        maskRevision = request.revision
-        maskStatus = .unavailable
-        request.qualityLevel = .accurate
-        request.outputPixelFormat = kCVPixelFormatType_OneComponent8
-        try VNImageRequestHandler(cgImage: image, orientation: .up).perform([request])
-        try Task.checkCancellation()
-        if let buffer = request.results?.first?.pixelBuffer {
-          let mask = try maskImage(buffer)
-          maskWidth = mask.width
-          maskHeight = mask.height
-          let maskCrop = CGRect(
-            x: crop.minX / Double(image.width) * Double(mask.width),
-            y: crop.minY / Double(image.height) * Double(mask.height),
-            width: crop.width / Double(image.width) * Double(mask.width),
-            height: crop.height / Double(image.height) * Double(mask.height))
-            .integral.intersection(CGRect(x: 0, y: 0, width: mask.width, height: mask.height))
-          if let croppedMask = mask.cropping(to: maskCrop) {
-            retainedMaskCrop = PortraitAnalysisCrop(x: maskCrop.minX, y: maskCrop.minY,
-              width: Double(croppedMask.width), height: Double(croppedMask.height))
-            let alpha = try grayscale(croppedMask, width: width, height: height)
-            retainedAlpha = alpha
-            if alpha.contains(where: { $0 > 0.5 }) {
-              luminance = zip(luminance, alpha).map { value, mask in 1 - mask*(1-value) }
-              maskStatus = .applied
-              notes.append("Person background removed")
-            } else {
-              maskStatus = .noPerson
-              maskUnavailableReason = "No foreground alpha above 0.5"
-              notes.append("No person mask; background retained")
-            }
+      let preparedMask = preparedSource.personMask
+      maskRevision = preparedMask.requestRevision
+      maskStatus = preparedMask.status
+      maskUnavailableReason = preparedMask.unavailableReason
+      if let mask = preparedMask.image {
+        maskWidth = mask.width
+        maskHeight = mask.height
+        let maskCrop = CGRect(
+          x: crop.minX / Double(image.width) * Double(mask.width),
+          y: crop.minY / Double(image.height) * Double(mask.height),
+          width: crop.width / Double(image.width) * Double(mask.width),
+          height: crop.height / Double(image.height) * Double(mask.height))
+          .integral.intersection(CGRect(x: 0, y: 0, width: mask.width, height: mask.height))
+        if let croppedMask = mask.cropping(to: maskCrop) {
+          retainedMaskCrop = PortraitAnalysisCrop(x: maskCrop.minX, y: maskCrop.minY,
+            width: Double(croppedMask.width), height: Double(croppedMask.height))
+          let alpha = try grayscale(croppedMask, width: width, height: height)
+          retainedAlpha = alpha
+          if alpha.contains(where: { $0 > 0.5 }) {
+            luminance = zip(luminance, alpha).map { value, mask in 1 - mask*(1-value) }
+            maskStatus = .applied
+            maskUnavailableReason = nil
+            notes.append("Person background removed")
           } else {
-            maskStatus = .cropUnavailable
-            maskUnavailableReason = "The Vision mask could not be cropped to the analyzed image"
-            notes.append("Mask crop unavailable; background retained")
+            maskStatus = .noPerson
+            maskUnavailableReason = "No foreground alpha above 0.5"
+            notes.append("No person mask; background retained")
           }
         } else {
-          maskStatus = .noPerson
-          maskUnavailableReason = "Vision returned no person mask"
-          notes.append("No person mask; background retained")
+          maskStatus = .cropUnavailable
+          maskUnavailableReason = "The Vision mask could not be cropped to the analyzed image"
+          notes.append("Mask crop unavailable; background retained")
         }
-      } catch is CancellationError { throw CancellationError() }
-      catch {
-        maskStatus = .unavailable
-        maskUnavailableReason = error.localizedDescription
-        notes.append("Person masking unavailable (\(error.localizedDescription)); background retained")
+      } else if maskStatus == .noPerson {
+        notes.append("No person mask; background retained")
+      } else {
+        notes.append("Person masking unavailable (\(maskUnavailableReason ?? "unknown reason")); background retained")
       }
     }
     try Task.checkCancellation()
-    let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    let digest = preparedSource.key.contentDigest
     let rasterDigest = SHA256.hash(data: Data(luminance.map { UInt8(($0*255).rounded()) }))
       .map { String(format: "%02x", $0) }.joined()
     let geometry = PortraitAnalysisGeometry(sourcePixelExtent: originalExtent,
       decodedWidth: image.width, decodedHeight: image.height,
       crop: PortraitAnalysisCrop(x: crop.minX, y: crop.minY,
         width: Double(cropped.width), height: Double(cropped.height)),
-      rasterWidth: width, rasterHeight: height,
+      rasterWidth: width, rasterHeight: height, preprocessingRevision: "portrait-analysis-v2",
       contrastLow: low, contrastHigh: high, contrastApplied: high - low > 0.05)
     let personMask = PortraitPersonMask(status: maskStatus, requestRevision: maskRevision,
       platformVersion: ProcessInfo.processInfo.operatingSystemVersionString,
@@ -326,7 +379,7 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       sourceMaskCrop: retainedMaskCrop, alpha: retainedAlpha, unavailableReason: maskUnavailableReason)
     let result = PortraitRaster(
       width: width, height: height, luminance: luminance,
-      provenance: "image=\(digest)|raster=\(rasterDigest)|sourcePixels=\(originalExtent.widthPixels)x\(originalExtent.heightPixels)|decodedPixels=\(image.width)x\(image.height)|crop=\(crop)|size=\(width)x\(height)|face=\(options.cropToFace)|faceMargin=\(options.boundedFaceCropMargin)|mask=\(options.removeBackground)|analysisSchema=3|faceAnalysisRevision=\(faceAnalysis.algorithmRevision)|faceRequestRevision=\(faceAnalysis.requestRevision)|faceConstellation=\(faceAnalysis.constellation)|faceAnalysisStatus=\(faceAnalysis.status.rawValue)|maskStatus=\(maskStatus.rawValue)|maskRevision=\(maskRevision.map(String.init) ?? "none")",
+      provenance: "image=\(digest)|raster=\(rasterDigest)|sourcePixels=\(originalExtent.widthPixels)x\(originalExtent.heightPixels)|decodedPixels=\(image.width)x\(image.height)|crop=\(crop)|size=\(width)x\(height)|face=\(options.cropToFace)|faceMargin=\(options.boundedFaceCropMargin)|mask=\(options.removeBackground)|analysisSchema=3|sourcePreparationRevision=\(preparedSource.key.revision)|sourceEvidence=\(sampled.levelWidth)x\(sampled.levelHeight)|sourceSampling=area-pixel-centers-v1|faceAnalysisRevision=\(faceAnalysis.algorithmRevision)|faceRequestRevision=\(faceAnalysis.requestRevision)|faceConstellation=\(faceAnalysis.constellation)|faceAnalysisStatus=\(faceAnalysis.status.rawValue)|maskStatus=\(maskStatus.rawValue)|maskRevision=\(maskRevision.map(String.init) ?? "none")",
       analysisSummary: notes.joined(separator: " · "),
       faceBounds: detectedFace.map { face in
         CGRect(x: (face.minX-crop.minX)/crop.width, y: (face.minY-crop.minY)/crop.height,
@@ -363,7 +416,7 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     return bytes.map { Double($0) / 255 }
   }
 
-  private static func maskImage(_ buffer: CVPixelBuffer) throws -> CGImage {
+  static func maskImage(_ buffer: CVPixelBuffer) throws -> CGImage {
     CVPixelBufferLockBaseAddress(buffer, .readOnly)
     defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
     guard let address = CVPixelBufferGetBaseAddress(buffer) else { throw PortraitDrawingError.unreadableImage }

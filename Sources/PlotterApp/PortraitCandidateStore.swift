@@ -5,6 +5,7 @@ struct PortraitRetainedCandidate: Identifiable, Codable, Sendable {
   var candidate: PortraitCandidate
   var reasons: [PortraitRetentionEvent]
   var exploration: [PortraitExplorationRecord]? = nil
+  var attempt: PortraitAttemptRecord? = nil
   var id: String { candidate.id }
 }
 
@@ -22,6 +23,7 @@ struct PortraitCandidateArchive: Codable, Sendable {
   var entries: [PortraitRetainedCandidate] = []
   var labels: [PortraitLabelRevision] = []
   var tombstones: [PortraitArchiveTombstone] = []
+  var savedStyles: [PortraitSavedStyle]? = nil
 
   var withdrawnLabelIDs: Set<String> {
     let explicit = Set(tombstones.filter { $0.kind == .label }.map(\.identity))
@@ -154,7 +156,7 @@ actor PortraitCandidateStore {
             source: readAsset(entry.candidate.sourceSHA256),
             raster: readAsset(entry.candidate.rasterSHA256))
           try PortraitExplorationRecord.validate(entry.exploration, for: candidate)
-          entries.append(.init(candidate: candidate, reasons: entry.reasons, exploration: entry.exploration))
+          entries.append(.init(candidate: candidate, reasons: entry.reasons, exploration: entry.exploration, attempt: entry.attempt))
         } catch {
           // Preserve the damaged index and all healthy candidates. A partial
           // recovery is visible and cannot overwrite the missing record.
@@ -174,7 +176,7 @@ actor PortraitCandidateStore {
       if missing { blockers.append("Repair missing/corrupt portrait assets before saving this archive; the original index is preserved.") }
       if cleanup.count > 0 { blockers.append("Explicit asset deletion is unfinished; retry archive save to finish cleanup.") }
       writeBlock = blockers.isEmpty ? nil : blockers.joined(separator: " ")
-      return .init(archive: .init(entries: entries, labels: stored.labels, tombstones: stored.tombstones),
+      return .init(archive: .init(entries: entries, labels: stored.labels, tombstones: stored.tombstones, savedStyles: stored.savedStyles),
         issues: issues, canWrite: writeBlock == nil,
         pendingCleanupCount: cleanup.count, pendingCleanupBytes: cleanup.bytes)
     } catch {
@@ -319,11 +321,13 @@ private struct StoredArchive: Codable {
   let entries: [StoredEntry]
   let labels: [PortraitLabelRevision]
   let tombstones: [PortraitArchiveTombstone]
+  let savedStyles: [PortraitSavedStyle]?
   init(_ archive: PortraitCandidateArchive) {
     schemaVersion = 1
-    entries = archive.entries.map { StoredEntry(candidate: StoredCandidate($0.candidate), reasons: $0.reasons, exploration: $0.exploration) }
+    entries = archive.entries.map { StoredEntry(candidate: StoredCandidate($0.candidate), reasons: $0.reasons, exploration: $0.exploration, attempt: $0.attempt) }
     labels = archive.labels
     tombstones = archive.tombstones
+    savedStyles = archive.savedStyles
   }
 }
 
@@ -331,6 +335,7 @@ private struct StoredEntry: Codable {
   let candidate: StoredCandidate
   let reasons: [PortraitRetentionEvent]
   let exploration: [PortraitExplorationRecord]?
+  let attempt: PortraitAttemptRecord?
 }
 
 /// Payload metadata only; source bytes and exact analyzed raster each have one

@@ -59,8 +59,8 @@ struct PortraitCaptureTests {
     #expect(model.recentPhotos.map(\.id) == [imported.id])
     #expect(model.selectedPhotoID == imported.id)
     #expect(model.algorithmCandidates.allSatisfy { $0.photoID == imported.id })
-    #expect(model.sketches.entries.map(\.id) == [retained.id])
-    #expect(model.sketches.entries.first?.candidate.sourceData == retained.sourceData)
+    #expect(model.sketches.sketches.map(\.id) == [retained.id])
+    #expect(model.sketches.sketches.first?.candidate.sourceData == retained.sourceData)
     await model.shutdown()
   }
 

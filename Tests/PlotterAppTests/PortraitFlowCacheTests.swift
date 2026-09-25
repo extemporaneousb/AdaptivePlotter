@@ -87,7 +87,7 @@ struct PortraitFlowCacheTests {
       strokeStyle: pen, vectorOptions: .flowDefaults, flowLayers: layers)
     var cache = PortraitRenderCache()
     var ids: [UUID] = []
-    for _ in 0..<3 {
+    for _ in 0..<(PortraitRenderCache.maximumFlowWorkspaces + 1) {
       let id = UUID(); ids.append(id)
       let key = PortraitRenderCacheKey(photoID: id,
         configuration: .init(style: .flowEdges, vectors: .flowDefaults, analysis: .init()), strokeStyle: pen)
@@ -96,9 +96,31 @@ struct PortraitFlowCacheTests {
     }
     #expect(cache.flowWorkspaceCount == PortraitRenderCache.maximumFlowWorkspaces)
     #expect(cache.flowWorkspace(for: .init(photoID: ids[0], analysis: .init(), maximumDimension: 320)) == nil)
-    #expect(cache.flowWorkspace(for: .init(photoID: ids[2], analysis: .init(), maximumDimension: 320)) != nil)
-    cache.remove(photoID: ids[2])
-    #expect(cache.flowWorkspaceCount == 1)
+    #expect(cache.flowWorkspace(for: .init(photoID: ids.last!, analysis: .init(), maximumDimension: 320)) != nil)
+    cache.remove(photoID: ids.last!)
+    #expect(cache.flowWorkspaceCount == PortraitRenderCache.maximumFlowWorkspaces - 1)
+    #expect(cache.flowWorkspaceBytes <= PortraitRenderCache.maximumFlowWorkspaceBytes)
+  }
+
+
+  @Test("workspace eviction is also bounded by retained pixel and path bytes")
+  func studioByteBounds() throws {
+    let raster = cacheRaster()
+    var workspace = PortraitFlowRenderer.Workspace()
+    let layers = try PortraitFlowRenderer.layers(from: raster, options: .flowDefaults, workspace: &workspace)
+    #expect(workspace.retainedByteCount > raster.luminance.count * MemoryLayout<Double>.stride)
+    let pen = try portraitTestStyle()
+    let program = try PortraitVectorizer.program(from: raster, pose: .front, style: .flowEdges,
+      strokeStyle: pen, vectorOptions: .flowDefaults, flowLayers: layers)
+    var cache = PortraitRenderCache(flowByteLimit: workspace.retainedByteCount * 2)
+    let ids = (0..<3).map { _ in UUID() }
+    for id in ids {
+      cache.insert(.init(raster: raster, program: program, flowWorkspace: workspace), for: .init(photoID: id,
+        configuration: .init(style: .flowEdges, vectors: .flowDefaults, analysis: .init()), strokeStyle: pen))
+    }
+    #expect(cache.flowWorkspaceCount == 2)
+    #expect(cache.flowWorkspaceBytes == workspace.retainedByteCount * 2)
+    #expect(cache.flowWorkspace(for: .init(photoID: ids[0], analysis: .init(), maximumDimension: 320)) == nil)
   }
 
   @Test("Mixed and straight strokes share structural and inter-stroke material clearance")

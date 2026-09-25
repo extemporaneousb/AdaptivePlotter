@@ -49,6 +49,7 @@ extension PortraitVectorOptions {
     case tonalStrength, smoothing, sketchThreshold, hatchAngleDegrees, headScale, semanticHead, materialContext
     case flowRectilinearity
     case flowSupport, flowStructureSupport, flowSupportScale, flowSeedIrregularity
+    case regionalTreatment, regionalAdjustments, eyeExaggeration
   }
   init(from decoder: Decoder) throws {
     self.init()
@@ -69,6 +70,9 @@ extension PortraitVectorOptions {
     flowStructureSupport = Self.flowAmount(try values.decodeIfPresent(Double.self, forKey: .flowStructureSupport))
     flowSupportScale = Self.flowAmount(try values.decodeIfPresent(Double.self, forKey: .flowSupportScale))
     flowSeedIrregularity = Self.flowAmount(try values.decodeIfPresent(Double.self, forKey: .flowSeedIrregularity))
+    regionalTreatment = try values.decodeIfPresent(PortraitRegionalParameters.self, forKey: .regionalTreatment)
+    regionalAdjustments = try values.decodeIfPresent([PortraitRegionalParameters].self, forKey: .regionalAdjustments)
+    eyeExaggeration = try values.decodeIfPresent(PortraitEyeExaggerationParameters.self, forKey: .eyeExaggeration)
   }
 
   func encode(to encoder: Encoder) throws {
@@ -89,6 +93,9 @@ extension PortraitVectorOptions {
     try values.encodeIfPresent(Self.flowAmount(flowStructureSupport), forKey: .flowStructureSupport)
     try values.encodeIfPresent(Self.flowAmount(flowSupportScale), forKey: .flowSupportScale)
     try values.encodeIfPresent(Self.flowAmount(flowSeedIrregularity), forKey: .flowSeedIrregularity)
+    try values.encodeIfPresent(regionalTreatment, forKey: .regionalTreatment)
+    try values.encodeIfPresent(regionalAdjustments, forKey: .regionalAdjustments)
+    try values.encodeIfPresent(eyeExaggeration, forKey: .eyeExaggeration)
   }
 }
 

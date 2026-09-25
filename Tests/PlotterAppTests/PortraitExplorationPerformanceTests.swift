@@ -10,12 +10,20 @@ import Testing
 struct PortraitExplorationPerformanceTests {
   @Test("three-option exploration reuses analysis and bounds vector work", arguments: PortraitStyle.authoringCases)
   func cachedRoundWorkload(style: PortraitStyle) async throws {
-    let referencePath = ProcessInfo.processInfo.environment["PORTRAIT_EXPLORATION_REFERENCE_PHOTO"]
+    let environment = ProcessInfo.processInfo.environment
+    if let selectedStyle = environment["PORTRAIT_EXPLORATION_STYLE"], selectedStyle != style.rawValue {
+      return
+    }
+    let referencePath = environment["PORTRAIT_EXPLORATION_REFERENCE_PHOTO"]
     let image = try referencePath.map { try Data(contentsOf: URL(fileURLWithPath: $0)) }
       ?? explorationPerformanceImage()
     let fixtureLabel = referencePath == nil ? "analytic-portrait-480x640-v1" : "local-photo"
     let renderer = ExplorationMeasuredRenderer()
-    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 0x50302026)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-browser-performance-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = PortraitCandidateStore(directoryURL: directory)
+    let model = PortraitStudioModel(renderer: renderer, candidateStore: store, explorationSeed: 0x50302026)
+    await model.loadArchive()
     let pen = try portraitTestStyle()
     model.style = style
     if referencePath == nil {
@@ -29,12 +37,28 @@ struct PortraitExplorationPerformanceTests {
     await model.awaitRendering()
     let coldMS = elapsedMS(coldStart.duration(to: clock.now))
     let center = try #require(model.selectedCandidate)
+    // Populate with representative complete geometry, not tiny archive mocks.
+    // These synthetic provenance aliases are setup load, not diversity evidence.
+    for seed in 1...24 {
+      let recipe = PortraitStyleRecipe(id: "benchmark-alias-\(seed)", title: "History setup \(seed)",
+        seed: UInt64(seed), style: center.recipe.style, vectorOptions: center.recipe.vectorOptions,
+        analysisOptions: center.recipe.analysisOptions)
+      let candidate = try PortraitCandidate(sourceData: center.sourceData, sourcePixelExtent: center.sourcePixelExtent,
+        raster: center.raster, recipe: recipe, program: center.program, photoID: center.photoID,
+        captureSessionID: center.captureSessionID, lineage: center.lineage, pose: center.pose,
+        warpManifest: center.warpManifest)
+      model.sketches.recordAttempt(candidate, record: try .prepare(candidate: candidate, pen: pen))
+    }
+    await model.sketches.awaitPersistence()
     #expect(max(center.raster.width, center.raster.height) == PortraitImageAnalyzer.analysisMaximumDimension(for: style))
     #expect(await renderer.coldCalls == 1)
     var roundMS: [Double] = []
+    var firstReadyMS: [Double] = []
+    var pairReadyMS: [Double] = []
     var roundCalls: [Int] = []
     var availableNeighbors: [Int] = []
     var previousOptionCounts: [Int] = []
+    var geometryOracleMS: [Double] = []
     var maximumMainActorGapMS = 0.0
     let heartbeat = Task { @MainActor in
       var previous = clock.now
@@ -58,25 +82,35 @@ struct PortraitExplorationPerformanceTests {
       } else { model.setExplorationEnabled(true, strokeStyle: pen) }
       await model.awaitRendering()
       roundMS.append(elapsedMS(start.duration(to: clock.now)))
+      if let value = model.firstAlternativeSeconds { firstReadyMS.append(value * 1000) }
+      if let value = model.alternativePairSeconds { pairReadyMS.append(value * 1000) }
       roundCalls.append(await renderer.calls - beforeCalls)
       let round = try #require(model.explorationRound)
       #expect(round.slots.count == 3)
       let alternatives = round.slots.filter { $0.index != 1 }.compactMap(\.candidate)
       availableNeighbors.append(alternatives.count)
       previousOptionCounts.append(round.slots.filter(\.isPrevious).count)
-      let geometries = [round.center] + alternatives
-      for left in geometries.indices {
-        for right in geometries.indices where right > left {
-          #expect(PortraitExplorationPolicy.VisibleGeometry(geometries[left].program)
-            .isMeaningfullyDifferent(from: .init(geometries[right].program)))
+      let programs = ([round.center] + alternatives).map(\.program)
+      // The independent oracle is deliberately off MainActor. Reconstructing
+      // occupancy here otherwise contaminates the product heartbeat measurement.
+      let oracle = await Task.detached {
+        let oracleClock = ContinuousClock()
+        let oracleStart = oracleClock.now
+        let geometries = programs.map(PortraitExplorationPolicy.VisibleGeometry.init)
+        var distinct = true
+        for left in geometries.indices {
+          for right in geometries.indices where right > left {
+            distinct = distinct && geometries[left].isMeaningfullyDifferent(from: geometries[right])
+          }
         }
-      }
+        return (distinct, elapsedMS(oracleStart.duration(to: oracleClock.now)))
+      }.value
+      #expect(oracle.0)
+      geometryOracleMS.append(oracle.1)
       #expect(round.slots.compactMap(\.candidate).allSatisfy {
         $0.rasterSHA256 == center.rasterSHA256 && $0.recipe.analysisOptions == center.recipe.analysisOptions
       })
     }
-    heartbeat.cancel()
-    await heartbeat.value
     #expect(await renderer.coldCalls == 1)
     #expect(roundCalls.allSatisfy { (0...4).contains($0) })
     #expect(availableNeighbors.contains { $0 > 0 })
@@ -86,7 +120,32 @@ struct PortraitExplorationPerformanceTests {
     model.goBackExploration()
     let backMS = elapsedMS(backStart.duration(to: clock.now))
     #expect(await renderer.calls == backCalls)
+    let historyCalls = await renderer.calls
+    var historyInstallMS: [Double] = []
+    var feedbackMS: [Double] = []
+    for entry in model.sketches.attempts.prefix(24) {
+      let begin = clock.now
+      model.inspectAttempt(entry.id, strokeStyle: pen)
+      historyInstallMS.append(elapsedMS(begin.duration(to: clock.now)))
+      let feedbackStart = clock.now
+      model.toggleFeedback(.promising, candidate: entry.candidate)
+      model.toggleFeedback(.promising, candidate: entry.candidate)
+      feedbackMS.append(elapsedMS(feedbackStart.duration(to: clock.now)))
+    }
+    #expect(await renderer.calls == historyCalls)
+    await model.sketches.awaitPersistence()
+    heartbeat.cancel()
+    await heartbeat.value
+    #expect(model.sketches.persistenceState == .saved)
     let stats: [String: Any] = [
+      "persistentHistoryCount": model.sketches.attempts.count,
+      "preloadPayload": "24 provenance aliases of the full representative source/raster/program",
+      "preloadProgramStrokes": center.program.strokes.count,
+      "preloadProgramPoints": center.program.strokes.reduce(0) { $0 + $1.path.points.count },
+      "preloadSourceBytes": center.sourceData.count,
+      "historyModelInstallMS": historyInstallMS, "feedbackModelMutationMS": feedbackMS,
+      "nativeClickToPaintMeasured": false,
+      "firstAlternativeReadyMS": firstReadyMS, "pairReadyMS": pairReadyMS,
       "fixture": fixtureLabel, "encodedSHA256": PortraitCandidateCoding.digest(image),
       "style": style.rawValue, "policy": PortraitExplorationPolicy.revision,
       "analyzedWidth": center.raster.width, "analyzedHeight": center.raster.height,
@@ -97,6 +156,7 @@ struct PortraitExplorationPerformanceTests {
       "rejections": model.explorationRejections,
       "coldAnalysisCalls": await renderer.coldCalls, "backMS": backMS,
       "maximumMainActorHeartbeatGapMS": maximumMainActorGapMS,
+      "geometryOracleMS": geometryOracleMS, "geometryOracleExecutionContext": "detached off MainActor",
       "maximumConcurrentWorkers": model.workDiagnostics.maximumConcurrentWorkerCount,
       "buildConfiguration": explorationBuildConfiguration, "physicalOrHumanQualityEvidence": false
     ]

@@ -11,8 +11,8 @@ struct PortraitSavedSketch: Identifiable, Sendable {
   var recipe: PortraitStyleRecipe { candidate.recipe }
 }
 
-/// The only observable archive owner. Qualified candidates and labels have no
-/// FIFO limit; recent capture/cache budgets are deliberately unrelated.
+/// The only observable archive owner. Attempt history, saved Imaginations and
+/// labels have explicit deletion; recent capture/cache budgets are unrelated.
 @Observable @MainActor
 final class PortraitSketchCollection {
   private(set) var archive = PortraitCandidateArchive()
@@ -20,7 +20,18 @@ final class PortraitSketchCollection {
   var entries: [PortraitRetainedCandidate] { archive.entries }
   var labels: [PortraitLabelRevision] { archive.labels }
   var tombstones: [PortraitArchiveTombstone] { archive.tombstones }
-  var sketches: [PortraitSavedSketch] { entries.map { .init(candidate: $0.candidate) } }
+  var sketches: [PortraitSavedSketch] { entries.filter { !$0.reasons.isEmpty }.map { .init(candidate: $0.candidate) } }
+  var attempts: [PortraitRetainedCandidate] { entries.filter { $0.attempt != nil }.reversed() }
+  var savedStyles: [PortraitSavedStyle] { archive.savedStyles ?? [] }
+  var rejectedProposalIdentities: Set<String> {
+    var latest: [String: PortraitAttemptFeedbackRevision] = [:]
+    for entry in entries {
+      guard let attempt = entry.attempt, let revision = attempt.feedbackRevisions.last else { continue }
+      if let prior = latest[attempt.proposalIdentity], prior.createdAt > revision.createdAt { continue }
+      latest[attempt.proposalIdentity] = revision
+    }
+    return Set(latest.filter { $0.value.value == .rejected }.map(\.key))
+  }
   var selected: PortraitSavedSketch? { sketches.first { $0.id == selectedID } }
   private(set) var persistenceState: PortraitPersistenceState = .saved
   private(set) var retainedBytes = 0
@@ -55,6 +66,35 @@ final class PortraitSketchCollection {
       return nil
     } catch { return error.localizedDescription }
   }
+
+  /// Prepared and checked by the joined render worker. Storage verifies integrity
+  /// again off the main actor; publishing history never changes selection.
+  func recordAttempt(_ candidate: PortraitCandidate, record: PortraitAttemptRecord) {
+    guard !archive.tombstones.contains(where: { $0.kind != .label && candidate.createdAt <= $0.createdAt
+        && ($0.affectedCandidateIDs.contains(candidate.id)
+          || ($0.kind == .source && $0.identity == candidate.sourceSHA256)) }),
+      !entries.contains(where: { $0.id == candidate.id && $0.attempt != nil }) else { return }
+    enqueue(.attempt(candidate, record))
+  }
+
+  func setFeedback(_ value: PortraitAttemptFeedback, for id: String) {
+    guard let entry = entries.first(where: { $0.id == id }), entry.attempt != nil else { return }
+    enqueue(.feedback(id, .init(id: UUID(), value: value, createdAt: Date())))
+  }
+
+  func clearUnkeptHistory(preserving id: String? = nil) {
+    for entry in attempts where entry.id != id && entry.reasons.isEmpty && entry.attempt?.feedback != .promising {
+      remove(entry.id)
+    }
+  }
+
+  func saveStyle(name: String, recipe: PortraitStyleRecipe) {
+    let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !title.isEmpty else { return }
+    enqueue(.style(.init(id: UUID(), name: title, recipe: recipe, createdAt: Date())))
+  }
+
+  func removeStyle(_ id: UUID) { enqueue(.removeStyle(id)) }
 
   @discardableResult
   func rate(candidate: PortraitCandidate, rating: Int, scope: PortraitStyleScope,
@@ -111,9 +151,29 @@ final class PortraitSketchCollection {
     case retain(PortraitCandidate, PortraitRetentionEvent, [PortraitExplorationRecord]?)
     case rate(PortraitCandidate, PortraitLabelRevision, PortraitRetentionEvent)
     case delete(PortraitArchiveTombstone)
+    case attempt(PortraitCandidate, PortraitAttemptRecord)
+    case feedback(String, PortraitAttemptFeedbackRevision)
+    case style(PortraitSavedStyle)
+    case removeStyle(UUID)
 
     func apply(to archive: inout PortraitCandidateArchive) {
       switch self {
+      case .attempt(let candidate, let record):
+        guard !archive.tombstones.contains(where: { $0.kind != .label && candidate.createdAt <= $0.createdAt
+        && ($0.affectedCandidateIDs.contains(candidate.id)
+          || ($0.kind == .source && $0.identity == candidate.sourceSHA256)) }) else { return }
+        if let index = archive.entries.firstIndex(where: { $0.id == candidate.id }) {
+          if archive.entries[index].attempt == nil { archive.entries[index].attempt = record }
+        } else { archive.entries.append(.init(candidate: candidate, reasons: [], attempt: record)) }
+      case .feedback(let id, let revision):
+        if let index = archive.entries.firstIndex(where: { $0.id == id }),
+          archive.entries[index].attempt?.feedbackRevisions.contains(where: { $0.id == revision.id }) == false {
+          archive.entries[index].attempt?.feedbackRevisions.append(revision)
+        }
+      case .style(let style):
+        if archive.savedStyles == nil { archive.savedStyles = [] }
+        if archive.savedStyles?.contains(where: { $0.id == style.id }) == false { archive.savedStyles?.append(style) }
+      case .removeStyle(let id): archive.savedStyles?.removeAll { $0.id == id }
       case .retain(let candidate, let event, let exploration):
         Self.retain(candidate, event: event, in: &archive)
         if let exploration, let index = archive.entries.firstIndex(where: { $0.id == candidate.id }) {
@@ -155,7 +215,6 @@ final class PortraitSketchCollection {
     mutation.apply(to: &archive)
     pending.append(mutation)
     unresolvedMutations = pending.count + pendingCleanupCount
-    updateRetainedBytes()
     persistenceState = .pending
     startWorker()
   }
@@ -178,7 +237,7 @@ final class PortraitSketchCollection {
         archive = loaded.archive
         for mutation in pending { mutation.apply(to: &archive) }
         hasLoaded = true
-        updateRetainedBytes()
+        await updateRetainedBytes()
       } else {
         // Healthy recovered records remain accessible without discarding any
         // new authoring candidate or failed mutation already held in memory.
@@ -192,9 +251,13 @@ final class PortraitSketchCollection {
         for tombstone in archive.tombstones where !recovered.tombstones.contains(where: { $0.id == tombstone.id }) {
           recovered.tombstones.append(tombstone)
         }
+        for style in archive.savedStyles ?? [] where recovered.savedStyles?.contains(where: { $0.id == style.id }) != true {
+          if recovered.savedStyles == nil { recovered.savedStyles = [] }
+          recovered.savedStyles?.append(style)
+        }
         for mutation in pending { mutation.apply(to: &recovered) }
         archive = recovered
-        updateRetainedBytes()
+        await updateRetainedBytes()
         persistenceState = .failed(loaded.issues.joined(separator: " "))
         return
       }
@@ -205,6 +268,7 @@ final class PortraitSketchCollection {
       persistenceState = .pending
       do {
         if let store { try await store.save(snapshot: snapshot) }
+        await updateRetainedBytes(snapshot: snapshot)
         pending.removeFirst(mutationCount)
         unresolvedMutations = pending.count + pendingCleanupCount
       } catch {
@@ -215,8 +279,11 @@ final class PortraitSketchCollection {
     persistenceState = .saved
   }
 
-  private func updateRetainedBytes() {
-    if let bytes = try? PortraitCandidateStore.retainedByteCount(snapshot: archive) {
+  private func updateRetainedBytes(snapshot: PortraitCandidateArchive? = nil) async {
+    let value = snapshot ?? archive
+    if let bytes = try? await Task.detached(priority: .utility, operation: {
+      try PortraitCandidateStore.retainedByteCount(snapshot: value)
+    }).value {
       retainedBytes = bytes + pendingCleanupBytes
     }
   }

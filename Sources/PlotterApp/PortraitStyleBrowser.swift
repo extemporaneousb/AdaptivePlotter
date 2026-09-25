@@ -44,3 +44,33 @@ struct PortraitStyleBrowser: View {
     .accessibilityIdentifier("portrait.algorithms")
   }
 }
+
+struct PortraitPrototypeControls: View {
+  let model: PortraitStudioModel
+  let strokeStyle: PlotterModel.StrokeStyle
+  var body: some View {
+    PortraitAdaptiveRow {
+      Text("Start").font(.caption).foregroundStyle(.secondary)
+      ForEach(PortraitPrototypeRecipe.allCases, id: \.self) { prototype in
+        Button(prototype.title) { model.applyPrototype(prototype, strokeStyle: strokeStyle) }
+          .disabled(model.selectedPhoto == nil || model.isCapturing)
+          .help(prototype.detail)
+      }
+      if !model.sketches.savedStyles.isEmpty {
+        Menu("Saved styles") {
+          ForEach(model.sketches.savedStyles) { saved in
+            Button(saved.name) { model.applySavedStyle(saved, strokeStyle: strokeStyle) }
+          }
+          Divider()
+          Menu("Delete saved style") {
+            ForEach(model.sketches.savedStyles) { saved in
+              Button(saved.name, role: .destructive) { model.sketches.removeStyle(saved.id) }
+            }
+          }
+        }
+      }
+      Spacer(minLength: 0)
+    }.controlSize(.small)
+      .accessibilityIdentifier("portrait.prototypes")
+  }
+}

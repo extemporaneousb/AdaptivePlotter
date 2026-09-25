@@ -187,7 +187,7 @@ enum PortraitExplorationPolicy {
     return effective
   }
 
-  enum Rejection: String, Sendable { case duplicateConfiguration, similarGeometry, noLines, detailBudget, renderFailure }
+  enum Rejection: String, Sendable { case duplicateConfiguration, similarGeometry, noLines, detailBudget, renderFailure, rejectedAttempt }
 
   static func coordinates(_ options: PortraitVectorOptions) -> [Double] {
     let value = options.bounded

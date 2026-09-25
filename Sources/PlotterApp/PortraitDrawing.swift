@@ -34,6 +34,10 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
   var flowStructureSupport: Double? = nil
   var flowSupportScale: Double? = nil
   var flowSeedIrregularity: Double? = nil
+  var regionalTreatment: PortraitRegionalParameters? = nil
+  /// Ordered overlays preserve earlier treatment while exploring one region.
+  var regionalAdjustments: [PortraitRegionalParameters]? = nil
+  var eyeExaggeration: PortraitEyeExaggerationParameters? = nil
 
   var bounded: Self {
     var result = self
@@ -52,6 +56,9 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
     result.flowStructureSupport = Self.flowAmount(flowStructureSupport)
     result.flowSupportScale = Self.flowAmount(flowSupportScale)
     result.flowSeedIrregularity = Self.flowAmount(flowSeedIrregularity)
+    result.regionalTreatment = regionalTreatment?.bounded
+    result.regionalAdjustments = regionalAdjustments.map { $0.map(\.bounded) }
+    result.eyeExaggeration = eyeExaggeration?.bounded
     return result
   }
 
@@ -68,7 +75,12 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
     let structure = value.flowStructureSupport.map { "|flowStructureSupport=\($0)" } ?? ""
     let scale = value.flowSupportScale.map { "|flowSupportScale=\($0)" } ?? ""
     let seeds = value.flowSeedIrregularity.map { "|flowSeedIrregularity=\($0)" } ?? ""
-    return legacy + head + (materialContext.map { "|" + $0.provenance } ?? "") + flow + support + structure + scale + seeds
+    var result = legacy + head + (materialContext.map { "|" + $0.provenance } ?? "")
+    result += flow + support + structure + scale + seeds
+    if let regional = value.regionalTreatment { result += "|regional=" + regional.provenance }
+    if let overlays = value.regionalAdjustments { result += "|regionalOverlays=" + overlays.map(\.provenance).joined(separator: ";") }
+    if let eyes = value.eyeExaggeration { result += "|eyeExaggeration=\(eyes.revision),\(eyes.amount)" }
+    return result
   }
 
   static func flowAmount(_ value: Double?) -> Double? {
@@ -234,12 +246,14 @@ struct PortraitRaster: Codable, Sendable {
 }
 
 enum PortraitDrawingError: LocalizedError {
-  case unreadableImage, noLines, noCameraFrame
+  case unreadableImage, noLines, noCameraFrame, tooManyRegionalAdjustments, regionalBudgetExceeded
   var errorDescription: String? {
     switch self {
     case .unreadableImage: "The image could not be decoded."
     case .noLines: "This style produced no lines. Try another style or turn off background removal."
     case .noCameraFrame: "Waiting for a portrait camera frame. Retry Capture after the face video appears."
+    case .regionalBudgetExceeded: "This regional treatment exceeds the retained drawing point budget. Try a simpler treatment or an earlier attempt."
+    case .tooManyRegionalAdjustments: "This recipe already has eight regional adjustments. Revisit an earlier attempt to start another branch."
     }
   }
 }
@@ -276,11 +290,22 @@ enum PortraitVectorizer {
       authoredPaths = try sketch(prepared, options: options)
         + hatching(prepared, crosshatch: false, options: options)
     }
-    let paths = try enlargedHeadPaths(authoredPaths, raster: raster, options: options)
+    let eyeTransform = options.eyeExaggeration.map { PortraitEyeTransform(raster: raster, parameters: $0) }
+    let eyePaths = try eyeTransform?.paths(authoredPaths) ?? authoredPaths
+    // Construct added contours/shadows against the already-deformed frozen
+    // curves. Nonfolding alone does not preserve centerline material clearance.
+    let regional = try PortraitRegionalTreatment.apply(eyePaths, raster: raster, options: options)
+    let paths = try enlargedHeadPaths(regional.paths, raster: raster, options: options)
     guard !paths.isEmpty else { throw PortraitDrawingError.noLines }
     let producer = options.semanticHead == nil ? "portrait-v3" : "portrait-v4"
     var provenance = "\(producer)|metric=\(raster.metricProvenance)|\(raster.provenance)|pose=\(pose.rawValue)|style=\(style.rawValue)|\(options.provenance)"
     if style == .flowEdges { provenance += "|flow=\(PortraitFlowRenderer.revision)" }
+    if let manifest = regional.manifest {
+      provenance += "|regionalEvidence=" + PortraitCandidateCoding.digest(try PortraitCandidateCoding.encoder().encode(manifest))
+    }
+    if let eyeTransform {
+      provenance += "|eyeWarp=" + PortraitCandidateCoding.digest(try PortraitCandidateCoding.encoder().encode(eyeTransform.manifest))
+    }
     if let parameters = options.semanticHead {
       let manifest = PortraitHeadTransform(raster: raster, parameters: parameters).manifest
       provenance += "|headWarp=" + PortraitCandidateCoding.digest(try PortraitCandidateCoding.encoder().encode(manifest))

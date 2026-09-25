@@ -105,9 +105,9 @@ struct PortraitAlgorithmComparisonTests {
     await model.shutdown()
   }
 
-  @Test("a held style reference survives manual authoring changes and cannot replace the tuned drawing")
+  @Test("selected tuning cancels and joins a held reference before reconstructing baseline styles")
   func heldReferenceSurvivesTuning() async throws {
-    let renderer = ComparisonRenderer(heldCall: 2)
+    let renderer = ComparisonRenderer(heldCall: 2, heldCalls: [4])
     let model = PortraitStudioModel(renderer: renderer)
     let pen = try portraitTestStyle()
     let baseline = model.vectorOptions
@@ -119,15 +119,29 @@ struct PortraitAlgorithmComparisonTests {
     model.renderIfConfigurationChanged(strokeStyle: pen)
     #expect(model.algorithmCandidates.first?.id == initialID)
     let tuned = model.vectorOptions
+    // Cancellation is cooperative: the selected job waits for the old worker
+    // to settle, then runs before either missing baseline reference.
+    #expect(await renderer.requests.count == 2)
+    await renderer.release()
+    try await renderer.waitUntilHeld()
+    #expect(await renderer.cancelledStyles == [.contours])
+    #expect(await renderer.requests.map(\.style) == [.flowEdges, .contours, .flowEdges, .sketch])
+    let tunedCandidate = try #require(model.selectedCandidate)
+    #expect(tunedCandidate.recipe.vectorOptions == tuned)
+    #expect(tunedCandidate.lineage.parentID == initialID)
+    #expect(!model.algorithmCandidates.contains { $0.recipe.style == .contours })
+    #expect(!model.sketches.entries.contains { $0.candidate.recipe.style == .contours })
     await renderer.release()
     await model.awaitRendering()
-    #expect(await renderer.cancelledStyles.isEmpty)
-    #expect(await renderer.requests.count == 4)
+    #expect(await renderer.cancelledStyles == [.contours])
+    #expect(await renderer.requests.map(\.style) == [.flowEdges, .contours, .flowEdges, .sketch, .contours])
+    #expect(model.selectedCandidate?.id == tunedCandidate.id)
     #expect(model.selectedCandidate?.recipe.vectorOptions == tuned)
     #expect(model.algorithmCandidates.count == 3)
     #expect(model.algorithmCandidates.allSatisfy { $0.recipe.vectorOptions == baseline })
     #expect(model.algorithmCandidates.first?.id == initialID)
     #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
+    #expect(model.workDiagnostics.startedWorkerCount == model.workDiagnostics.settledWorkerCount)
     await model.shutdown()
   }
 
@@ -179,7 +193,7 @@ struct PortraitAlgorithmComparisonTests {
 
   @Test("reference jobs cannot satisfy newer authoring intent with the same render key but different lineage")
   func sameKeyDifferentLineage() async throws {
-    let renderer = ComparisonRenderer(heldCall: 2, heldCalls: [3])
+    let renderer = ComparisonRenderer(heldCall: 2, heldCalls: [4])
     let model = PortraitStudioModel(renderer: renderer)
     let pen = try portraitTestStyle()
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
@@ -189,23 +203,30 @@ struct PortraitAlgorithmComparisonTests {
     model.style = .contours
     model.render(strokeStyle: pen, parent: parent)
     #expect(model.isProcessing)
+    #expect(await renderer.requests.count == 2)
     await renderer.release()
-    // The explicit authoring request consumes the reference's cached vectors,
-    // but prepares a distinct candidate with the requested lineage. A later
-    // reference is held so we inspect the result before the drain completes.
+    // The canceled result is discarded. Selected authoring renders first with
+    // its own lineage; the later baseline then reuses that accepted geometry.
     try await renderer.waitUntilHeld()
+    #expect(await renderer.cancelledStyles == [.contours])
+    #expect(await renderer.requests.map(\.style) == [.flowEdges, .contours, .contours, .sketch])
     let selected = try #require(model.selectedCandidate)
     #expect(selected.recipe.style == .contours)
     #expect(selected.lineage.parentID == parent.id)
+    #expect(!model.algorithmCandidates.contains { $0.recipe.style == .contours })
+    #expect(model.sketches.entries.filter { $0.candidate.recipe.style == .contours }.map(\.id) == [selected.id])
+    #expect(model.renderCacheHits == 0)
+    await renderer.release()
+    await model.awaitRendering()
     let reference = try #require(model.algorithmCandidates.first { $0.recipe.style == .contours })
     #expect(reference.lineage.parentID == nil)
     #expect(reference.id != selected.id)
     #expect(reference.program == selected.program)
-    await renderer.release()
-    await model.awaitRendering()
     #expect(model.selectedCandidate?.id == selected.id)
-    #expect(await renderer.requests.count == 3)
+    #expect(await renderer.requests.count == 4)
     #expect(model.renderCacheHits == 1)
+    #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
+    #expect(model.workDiagnostics.startedWorkerCount == model.workDiagnostics.settledWorkerCount)
     await model.shutdown()
   }
 
@@ -379,6 +400,47 @@ struct PortraitAlgorithmComparisonTests {
     #expect(model.selectedAlgorithm == .sketch)
     #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
     #expect(!model.isComparingAlgorithms)
+    await model.shutdown()
+  }
+
+  @Test("new eye and regional modifiers survive explicit prototype, local tuning and saved-style application")
+  func newModifierRecipeApplications() async throws {
+    let renderer = ComparisonRenderer()
+    let model = PortraitStudioModel(renderer: renderer)
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    model.applyPrototype(.landmarkExaggeration, strokeStyle: pen)
+    await model.awaitRendering()
+    let prototype = try #require(model.selectedCandidate)
+    #expect(prototype.recipe.vectorOptions == PortraitPrototypeRecipe.landmarkExaggeration.options())
+    #expect(prototype.recipe.vectorOptions.eyeExaggeration != nil)
+    #expect(prototype.recipe.vectorOptions.regionalTreatment != nil)
+    #expect(prototype.recipe.vectorOptions.headScale == 1)
+    #expect(prototype.recipe.vectorOptions.semanticHead == nil)
+
+    model.vectorOptions.regionalAdjustments = [.init(scope: .eyes, contourEmphasis: 0.45)]
+    model.renderIfConfigurationChanged(strokeStyle: pen)
+    await model.awaitRendering()
+    let layered = try #require(model.selectedCandidate)
+    #expect(layered.recipe.vectorOptions.eyeExaggeration == prototype.recipe.vectorOptions.eyeExaggeration)
+    #expect(layered.recipe.vectorOptions.regionalTreatment == prototype.recipe.vectorOptions.regionalTreatment)
+    #expect(layered.recipe.vectorOptions.regionalAdjustments == model.vectorOptions.regionalAdjustments)
+    model.saveStyle(name: "Measured eyes with contour")
+    let saved = try #require(model.sketches.savedStyles.first)
+    #expect(saved.recipe == layered.recipe)
+
+    model.applyPrototype(.angularComic, strokeStyle: pen)
+    await model.awaitRendering()
+    #expect(model.selectedCandidate?.recipe.vectorOptions.eyeExaggeration == nil)
+    model.applySavedStyle(saved, strokeStyle: pen)
+    await model.awaitRendering()
+    let restored = try #require(model.selectedCandidate)
+    #expect(restored.recipe.vectorOptions == layered.recipe.vectorOptions)
+    #expect(restored.program == layered.program)
+    #expect(restored.sourceData == layered.sourceData)
+    #expect(model.sketches.savedStyles.first?.recipe == saved.recipe)
+    try restored.validateIntegrity()
     await model.shutdown()
   }
 
