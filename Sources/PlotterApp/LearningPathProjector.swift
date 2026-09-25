@@ -12,9 +12,18 @@ enum ExactWorkflowVisionOwner: String, CaseIterable, Hashable, Sendable {
   case borderValidation
   case drawingStudio
 
+  var capAcquisitionStatus: String? {
+    switch self {
+    case .cameraCalibration, .sparseTipCalibration:
+      "Looking for pen cap… Clear its view. Stop cancels."
+    case .penCapAppearance, .borderValidation, .drawingStudio:
+      nil
+    }
+  }
+
   var operatorLabel: String {
     switch self {
-    case .penCapAppearance: "tracking reference"
+    case .penCapAppearance: "pen cap"
     case .cameraCalibration: "camera calibration"
     case .sparseTipCalibration: "pen-tip calibration"
     case .borderValidation: "Drawing Border validation"
@@ -717,13 +726,13 @@ struct PlotterLearningDetailedPresentationNormalizer: Sendable {
   ) -> String {
     switch itemID {
     case .stage(.humanGuidedDiscovery):
-      "Identify and calibrate the pen, measure all four drawing-boundary sides, move to the estimated center, calibrate the camera from five tracking-landmark positions, and calibrate the pen tip from four corner marks."
+      "Identify and calibrate the pen, measure all four drawing-boundary sides, move to the estimated center, calibrate the camera from five pen-cap positions, and calibrate the pen tip from four corner marks."
     case .humanGuidedDiscovery(.penInteraction):
-      "Click a small colored marker on the fixed moving holder in one frozen frame, then set and confirm the physical Pen Up, Pen Down, and final Pen Up positions."
+      "Click the pen cap on one frozen frame, then set and confirm the physical Pen Up, Pen Down, and final Pen Up positions."
     case .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering):
       "Measure the X−, X+, Y−, and Y+ drawing-boundary sides with operator Stop, then move Pen Up to their estimated center."
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
-      "Run five Pen-Up tracking-landmark measurements at the center and four axis positions. Three measurements fit the camera calibration and two independently check it before review."
+      "Run five Pen-Up pen-cap measurements at the center and four axis positions. Three measurements fit the camera calibration and two independently check it before review."
     case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
       "Draw four 2 mm-radius calibration circles whose centers are 10 mm inside the accepted Drawing Boundary. After one final Pen-Up reveal, click the four circle centers on the unchanged frame and review the proposed pen-tip calibration."
     case .stage(.borderValidations):
@@ -764,6 +773,12 @@ extension PlotterLearningDetailedPresentationNormalizer {
             instructions: [.text("Previous Boundary attempt: \(detail)")]
               + discoveryReviewInstructions(step), actionStrip: actionStrip)
         }
+      }
+      if (step == .calibrateCameraAndVisibleCap || step == .calibratePenContactFromSparseMarks),
+        let detail = snapshot.operations.exactWorkflowVisionOwner?.capAcquisitionStatus {
+        return OperatorActionPresentation(
+          itemID: itemID, instructions: [.text(detail)], actionStrip: actionStrip
+        )
       }
       if step == .calibrateCameraAndVisibleCap {
         let camera = snapshot.cameraCalibration
@@ -913,11 +928,11 @@ extension PlotterLearningDetailedPresentationNormalizer {
   ) -> [PresentationFragment] {
     switch step {
     case .penInteraction:
-      [.text("Click the colored marker, then set and confirm"), .cue(.up), .text("then"), .cue(.down), .text("then confirm final"), .cue(.up)]
+      [.text("Click the pen cap, then set and confirm"), .cue(.up), .text("then"), .cue(.down), .text("then confirm final"), .cue(.up)]
     case .pairedBoundaryDiscoveryAndCentering:
       [.text("Choose a direction, observe the side, then press"), .cue(.stop)]
     case .calibrateCameraAndVisibleCap:
-      [.text("Run five exact tracking-landmark measurements at C, X−, Y+, X+, and Y−; fit the first three, check the final two independently, then accept or reject the camera calibration.")]
+      [.text("Run five exact pen-cap measurements at C, X−, Y+, X+, and Y−; fit the first three, check the final two independently, then accept or reject the camera calibration.")]
     case .calibratePenContactFromSparseMarks:
       [.text("The app raises the pen before moving, then draws four 2 mm-radius calibration circles with their centers 10 mm inside the accepted Drawing Boundary and Pen Up between circles. After the final Pen-Up reveal, click all four centers on the unchanged frame and review the proposed pen-tip calibration.")]
     }

@@ -44,11 +44,11 @@ struct PenCapAppearanceSelection: Codable, Hashable, Sendable {
   var persistedLiveRejectionReason: String? {
     guard case .live = source else {
       return
-        "Persisted tracking appearance was ignored because its source is SIMULATED. Identify the holder on a LIVE camera frame."
+        "Persisted tracking appearance was ignored because its source is SIMULATED. Capture the pen cap on a LIVE camera frame."
     }
     if markerReference != nil {
       return (try? acceptedCheckpoint()) == nil
-        ? "The saved marker is inconsistent with its exact frame or optical context. Use Replace Tracking Reference to select it again."
+        ? "The saved marker is inconsistent with its exact frame or optical context. Use Capture Pen Cap to select it again."
         : nil
     }
     guard !frameID.rawValue.isEmpty,
@@ -74,7 +74,7 @@ struct PenCapAppearanceSelection: Codable, Hashable, Sendable {
       operatorObservation?.validates(point: clickPoint) ?? true
     else {
       return
-        "This saved tracker needs a visual reference. Use Learning Path Actions → Replace Tracking Reference, then click a distinctive colored marker on the permanent moving holder."
+        "This saved appearance needs a new capture. Use Capture Pen Cap, then click the pen cap in the frozen video."
     }
     return nil
   }
@@ -149,7 +149,7 @@ enum PersistedPenCapAppearanceLoadState: Hashable, Sendable {
   var unavailableMessage: String {
     switch self {
     case .absent, .accepted:
-      "Not learned — identify a fixed holder landmark before LIVE tracking or armature analysis."
+      "Not learned — click the pen cap before LIVE tracking or armature analysis."
     case .refused(let reason):
       reason
     }

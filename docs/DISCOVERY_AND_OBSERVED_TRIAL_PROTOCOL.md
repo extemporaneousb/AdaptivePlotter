@@ -85,17 +85,15 @@ residuals are mandatory contextual evidence in Stage 2 and are not toggles.
 
 ## 1.1 Identify and Calibrate the Pen
 
-1. Start Exercise 1.1. **Identify Holder Landmark** freezes the exact frame.
-   Click inside one distinctive colored marker on the moving assembly, preferably
-   a permanent holder patch if pens will be swapped. No rectangle is required.
-2. The click selects the containing chromatic component; its measured centroid is
-   the tracking anchor. The saved marker retains color, geometry, measured anchor,
-   selection point and exact-frame/optical provenance. Low signal, clipped markers
-   and multiple compatible same-color components are refused. Tracking uses fixed
-   sampled-color segmentation, not a dense template or online color adaptation.
-   Existing template references retain their prior rectangle/landmark semantics
-   during Locate; explicit replacement selects a new marker and invalidates
-   dependent Camera/Tip calibration without clearing Pen/Boundary or possible ink.
+1. Start Exercise 1.1. **Capture Pen Cap** freezes the exact frame. Click the
+   pen cap or the tape attached to it. No rectangle or permanent holder feature
+   is required.
+2. The click selects the visible component; its measured center is the tracking
+   point. The saved appearance retains component geometry, selection point and
+   exact-frame/optical provenance. Recognition uses observed pixels and any
+   compatible predicted position; a prediction cannot replace an observation.
+   Ambiguous local candidates remain a refusal. Appearance capture is separate
+   from the accepted mechanical Pen/Boundary results.
 3. Cap identification requires only the current exact frame. The accepted click
    immediately opens the first Up question even when the controller is not yet
    connected or Motion is not enabled. In that blocked state the Up slider and
@@ -270,44 +268,40 @@ The ordered positions and roles are:
    analysis region.
 
 Camera-calibration failures remain visible with their actual cause. A position
-refusal requires the explicit center return, not a new cap reference. A detector
-refusal retains available score, margin and prediction residual. For a lost
-observation of the same cap, choose **Locate Tracking Reference** in the Learning panel
-and click the same physical anchor on the fresh frozen frame. A settled failed
-Camera attempt permits this capture-only recovery and restores its prepared
-Camera exercise after selection or cancellation. It never starts travel or the
-next calibration run automatically. The previous
-legacy template rectangle follows its stored anchor offset; marker mode uses the
-selected component centroid without a rectangle. This
-is an operator observation, not a successful detector result. With compatible
-camera/controller/map context and settled Idle/Pen-Up, the app can retain
-accepted camera, tip and drawing calibration and record the residual and reference
-lineage. Inside the map domain, the residual must be at most eight pixels. Outside
-it, the operator's same-anchor observation may update appearance while its
-residual is labeled extrapolated and advisory; the accepted map and domain stay
-unchanged, without extending motion authority or calibration applicability.
-A successfully saved new camera calibration
-supersedes the recovery lineage and binds the new map to the current appearance;
-failed or cancelled proposals retain the previous map and lineage. An incompatible
-context or an excessive in-domain residual refuses the change and retains the prior Learning package.
-Down or unknown pen state requires an explicit Raise Pen action; recovery does
-not raise the pen automatically.
+refusal requires the explicit center return. Transient cap absence or ambiguity
+keeps the settled workflow owner looking on newer frames, with Stop/Cancel
+available; it does not invalidate previously accepted Learning. A camera/context
+change or unavailable analysis reports its own error.
 
-For a changed marker or anchor, choose **Replace Tracking Reference** and click
-the new distinctive colored marker. It preserves accepted pen-up/down actuation, X/Y
-boundaries, estimated center and center arrival. Only a successfully saved
-replacement invalidates the camera/cap map and downstream tip/drawing calibration.
-Both paths are observation-only and are permitted after a settled possible-ink
-failure; neither clears existing-mark exclusions nor permits another mark.
-Active motion and unresolved owners still block recovery. Cancellation, stale
-selection and save failure retain previous in-memory authority. A failed save
-attempts to restore the preceding checkpoint and reports uncertain durability
-if restoration also fails. Each operator-started
-calibration retry captures a new reference frame and current machine pose;
-it does not reuse the reference from a failed attempt that may have stopped
-at another position.
+Use the single **Capture Pen Cap** control beside Guided Learning when changing a
+pen or its tape, or when a fresh appearance capture is needed. After accepted Pen
+Learning the control is also available with Learning off. Click the cap on the
+frozen frame; **Cancel Pen Cap Capture** abandons only that capture. No pen or
+carriage motion occurs and accepted Pen Up/Down, Boundary, center and possible-ink
+history remain intact. First-time capture remains part of Exercise 1.1.
 
-The cap landmark is not the hidden paper-contact point. Three non-collinear
+The app determines whether the new appearance preserves the accepted geometric
+anchor. Compatible camera/controller/map context and settled Idle/Pen-Up permit
+retaining camera, tip and drawing calibration. The residual must be at most eight
+pixels even outside the map domain; an outside-domain residual remains labeled
+extrapolated and cannot extend the map. A changed anchor or a stable optical
+context that differs from the old map requires dependent optical calibration
+after saving the new appearance, while retaining mechanical Learning. Context
+changing during capture or missing settled Idle/Pen-Up proof refuses the capture. During a suspended completed
+four-mark batch, an incompatible cap capture restores the existing frame, clicks
+and attempt rather than invalidating them. A saved template recapture uses its
+stored geometry and independent anchor with one click. Down or unknown pen state is
+never raised automatically by capture. Cancellation, stale selection and failed
+save retain the previous package; a failed rollback reports uncertain durability.
+
+Once all four circles and their reveal frame are retained, selecting and fitting
+the four centers uses that evidence. Ambient tracking loss does not require new
+paper, redraw or a new cap observation to fit those clicks. A view refresh after
+an accepted click cannot cancel the admitted fit or capture save. Explicit
+attempt cancellation still preserves possible-ink exclusions, so another physical
+marking attempt cannot redraw those locations on the same sheet.
+
+The visible pen cap is not the hidden paper-contact point. Three non-collinear
 samples without the two holdouts cannot become authority.
 
 SIMULATED uses separate causal generated geometry. It exercises the same sample

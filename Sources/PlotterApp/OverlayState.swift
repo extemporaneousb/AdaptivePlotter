@@ -10,7 +10,7 @@ enum UserSceneOverlay: String, CaseIterable, Codable, Hashable, Identifiable, Se
 
   var title: String {
     switch self {
-    case .penCap: "Tracking reference"
+    case .penCap: "Pen cap"
     case .armatureEnvelope: "Armature envelope"
     }
   }
@@ -135,10 +135,10 @@ enum OverlayStatusGrammar {
   static let stale = "Stale — result belongs to another frame or camera configuration."
   static let suspended = "Suspended — calibration owns exact-frame Vision; selection remains On."
   static func armatureUnavailable(reason: String) -> String {
-    "Armature envelope unavailable because the tracking landmark was not found: \(reason)."
+    "Armature envelope unavailable because the pen cap was not found: \(reason)."
   }
   static let armatureAvailable =
-    "Armature envelope available — inferred from the tracking landmark; not independently segmented."
+    "Armature envelope available — inferred from the pen cap; not independently segmented."
 
   static func simulatedPenCapAvailable(frame: UInt64) -> String {
     "Available — causal simulated pen-cap geometry, frame \(frame); pixel count and confidence are not applicable."
@@ -288,10 +288,10 @@ struct OverlayPresentationComposer {
             $0.provenance.kind == overlay.overlayKind && $0.matches(displayedFrame)
           })
           statuses[overlay] = scene.statuses[overlay] ?? OverlayLayerStatus(state: .waiting,
-            message: "Frozen selection frame — waiting for your landmark click.", provenance: scene.provenance)
+            message: "Frozen selection frame — waiting for your pen cap click.", provenance: scene.provenance)
         } else {
           statuses[overlay] = OverlayLayerStatus(state: .waiting,
-            message: "Frozen selection frame — waiting for your landmark click.", provenance: nil)
+            message: "Frozen selection frame — waiting for your pen cap click.", provenance: nil)
         }
         continue
       }

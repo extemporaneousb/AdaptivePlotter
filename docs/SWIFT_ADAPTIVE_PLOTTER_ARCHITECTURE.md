@@ -917,32 +917,41 @@ retains the effective rectangle even when Exercise 1.3 replaces the fitted targe
 configuration incompatibility remains the viewport reset seam.
 
 `PenCapAppearanceSelection` transports the accepted Learning package's LIVE
-tracking reference. New selection requests carry sampled-marker mode. An exact
-frozen-frame click captures `SampledColorMarkerReference`: fixed chromatic sample,
-clicked component geometry, measured centroid, selection point and optical/frame
-provenance. `PlotterPenCapPointSampler` preserves the existing exact-frame
-submission authority. A legacy template Locate request retains rectangle/anchor
-capture of `PenCapVisualReference`; new marker identification has no rectangle UI.
-The optional marker field keeps prior checkpoint formats readable, without
-silently converting a historical template landmark into a marker centroid.
-Same-anchor recovery retains at most two previous operator-confirmed patches with
-their independent anchors, including before a camera map exists. The appearance
-bank is separate from map compatibility and motion authority; explicit changed-
-anchor replacement starts a new bank. `OperatorPenCapObservation` records the settled pose,
-map revision, prior reference and prediction scope/domain. Checkpoint validation
-binds that lineage without rewriting historical calibration provenance during a
-sanctioned coordinate rebase. The eight-pixel gate applies inside the map domain;
-an outside-domain operator observation carries an extrapolated/advisory residual
-and cannot extend the map or motion authority. Successfully saved replacement
-Camera Calibration binds its map to the current reference estimator and supersedes
-the recovery lineage; failed or cancelled replacement keeps the prior package.
+pen-cap appearance. **Capture Pen Cap** selects observed pixels on one frozen
+frame and retains sampled appearance, component geometry, measured center, click
+and optical/frame provenance. It is independent of mechanical Pen and Boundary
+revisions. First-time capture precedes the Pen interaction sequence; later capture
+uses the same single control beside Guided Learning, including Learning Off.
+The pending control changes to **Cancel Pen Cap Capture**. New captures require
+no rectangle or permanent holder feature. Historical template formats remain
+readable without silently rewriting their original estimator or anchor provenance.
 
-`CameraSourceSession` routes the selected marker/reference through both ambient
-and exclusive workflow Vision. The explicit sampled-marker branch uses global
-color segmentation and fixed component geometry checks; multiple compatible
-components refuse rather than selecting by prediction. Marker admission compares
-semantic optics and preserves acquisition provenance across compatible capture
-generations. It does not fall back silently to a template or adapt color online.
+`PlotterPenCapPointSampler` retains exact-frame submission authority. A submitted
+point owns its fitting/save continuation through terminal settlement: publishing
+an accepted selection cannot cancel the command merely because a SwiftUI task ID
+or canvas projection changes. Explicit operator cancellation remains source- and
+attempt-bound. A retained four-mark batch is fitted from its frozen click frame
+and mark evidence without another cap detection.
+
+`OperatorPenCapObservation` binds compatible appearance recapture to a settled
+pose, map revision, prior appearance and prediction domain. The eight-pixel
+compatibility gate also applies outside the map domain; those observations are
+labeled extrapolated and cannot extend the map. A changed anchor requires
+dependent optical calibration after successful persistence, preserving Pen
+actuation, Boundary, center and possible-ink history. Appearance recapture never
+commands Pen Up or XY travel. Failed or cancelled capture retains the prior package.
+
+`CameraSourceSession` supplies the selected appearance to ambient and exclusive
+workflow Vision. A compatible machine-camera position or recent observed position
+can bound candidate association, while image evidence remains mandatory and
+ambiguous candidates in that neighborhood remain refused. Source/optical binding
+retains acquisition provenance across compatible capture generations.
+During exact workflow acquisition, missing/ambiguous observations clear the
+three-frame stable sequence and wait for newer frames with a 100ms cancellable
+backoff. The existing owner remains at its settled position, with Stop/Cancel
+available. Source/configuration changes, camera stall/stop and analysis errors
+remain terminal. No motion continues until stable observed evidence is available;
+a prediction never substitutes for a lost cap.
 
 The application derives current tracking optics from its admitted
 `latestLiveCameraFrame`, guarded by the selected plotter camera and LIVE source.
@@ -1465,7 +1474,7 @@ authority.
 
 ## Exercise 1.1 and manual controls
 
-`PlotterApplicationRuntime` starts Exercise 1.1 with **Identify Pen Cap** by staging a
+`PlotterApplicationRuntime` starts Exercise 1.1 with **Capture Pen Cap** by staging a
 typed `PlotterPointSelectionRequest` in `PlotterPointSelectionRuntime`.
 `ActionSurface` compiles its inverse-transformed click into the aggregate
 projection and automatically submits the matching `PlotterUIRequest` through

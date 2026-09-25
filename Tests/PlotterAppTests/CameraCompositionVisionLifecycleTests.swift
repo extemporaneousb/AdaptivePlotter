@@ -105,7 +105,7 @@ struct CameraCompositionVisionLifecycleTests {
     #expect(held.content == .plotter)
     #expect(held.displayedFrame?.source == .live(device.id))
     #expect(held.displayedFrame.map { ExactFrameProvenance(frame: $0.frame) } == initialIdentity)
-    #expect(held.plotterFrameStatus == "Camera frame held · camera calibration")
+    #expect(held.plotterFrameStatus == "Camera frame held · Looking for pen cap… Clear its view. Stop cancels.")
     #expect(application.frameMode == .live)
     #expect(application.exactWorkflowVisionOwner == .cameraCalibration)
 
@@ -136,10 +136,8 @@ struct CameraCompositionVisionLifecycleTests {
       await driver.emit(value: 128, captureNanoseconds: 200, width: 20, height: 20)
       do {
         _ = try await captureTask.value
-        Issue.record("Missing cap must fail")
-      } catch LearningPathOperationError.requiredState(let detail) {
-        #expect(detail.contains("Locate Tracking Reference"))
-      }
+        Issue.record("A stalled camera must fail without inventing cap evidence")
+      } catch LearningPathOperationError.freshFrameUnavailable {}
     case .cancelled:
       captureTask.cancel()
       do {
@@ -527,8 +525,8 @@ struct CameraCompositionVisionLifecycleTests {
     _ = await session.stop()
   }
 
-  @Test("missing cap reports detection failure and releases exact Vision ownership")
-  func missingCapReportsActionableFailure() async throws {
+  @Test("temporary cap occlusion keeps one lease and needs three new observations after the gap")
+  func missingCapWaitsAndReacquires() async throws {
     let device = CameraDevice(id: CameraDeviceID(rawValue: "missing-cap-camera"), name: "Missing Cap")
     let driver = VisionLifecycleCameraDriver(device: device)
     let capture = CameraCapture(driver: driver)
@@ -541,20 +539,96 @@ struct CameraCompositionVisionLifecycleTests {
     let request = Task {
       try await session.captureStableWorkflowCap(StableWorkflowCapCaptureRequest(newerThanNanoseconds: 100))
     }
+    defer { request.cancel() }
     try await waitUntilStableCap("missing cap lease") {
       await session.visionDiagnostics().activeExclusiveLeaseCount == 1
     }
-    await driver.emit(value: 128, captureNanoseconds: 200)
-    do {
-      _ = try await request.value
-      Issue.record("A gray frame must not produce a cap measurement")
-    } catch LearningPathOperationError.requiredState(let detail) {
-      #expect(detail.contains("No tracking reference detected"))
-      #expect(detail.contains("Locate Tracking Reference"))
-      #expect(!detail.contains("reset Learning"))
+    // Two good observations cannot bridge the missing cap and count toward
+    // the final three. The prediction cannot fill the occluded frame either.
+    for (index, visible) in [true, true, false, true, true, true].enumerated() {
+      let timestamp = UInt64(200 + index * 100)
+      if visible { await driver.emitCap(centroidXOffset: 0, captureNanoseconds: timestamp) }
+      else { await driver.emit(value: 128, captureNanoseconds: timestamp, width: 20, height: 20) }
+      try await waitUntilStableCap("occlusion sample \(index)") {
+        await capture.diagnostics().returnOnlyExactRequestCount == UInt64(index + 1)
+      }
+      if index < 5 {
+        #expect(await session.visionDiagnostics().activeExclusiveLeaseCount == 1)
+        #expect(await capture.diagnostics().explicitExactPublicationCount == 0)
+      }
     }
+    let observed = try await request.value
+    #expect(observed.inspection.displayedFrame.frame.captureNanoseconds == 700)
+    #expect(observed.cap.centroid.x == 8)
     let diagnostics = await session.visionDiagnostics()
     #expect(diagnostics.activeExclusiveLeaseCount == 0)
+    #expect(diagnostics.exclusiveLeaseBeginCount == 1)
+    #expect(diagnostics.exclusiveLeaseSuccessCount == 1)
+    #expect(diagnostics.capture.explicitExactPublicationCount == 1)
+    #expect(diagnostics.capture.previewPauseReleaseCount == 1)
+    _ = await session.stop()
+  }
+
+  @Test("changed frame geometry while the cap is hidden terminates acquisition and releases ownership")
+  func geometryChangeWhileCapIsHidden() async throws {
+    let device = CameraDevice(id: .init(rawValue: "occluded-cap-geometry"), name: "Occluded cap")
+    let driver = VisionLifecycleCameraDriver(device: device)
+    let capture = CameraCapture(driver: driver)
+    let worker = VisionWorker()
+    let session = CameraSourceSession(live: capture, vision: worker,
+      analysisPipeline: PlotterSceneAnalysisPipeline(worker: worker), plannedDrawingObserver: worker)
+    _ = await session.discover()
+    _ = await session.start()
+    let request = Task {
+      try await session.captureStableWorkflowCap(.init(newerThanNanoseconds: 100))
+    }
+    defer { request.cancel() }
+    try await waitUntilStableCap("geometry change lease") {
+      await session.visionDiagnostics().activeExclusiveLeaseCount == 1
+    }
+    await driver.emit(value: 128, captureNanoseconds: 200, width: 20, height: 20)
+    try await waitUntilStableCap("first occluded frame materialized") {
+      await capture.diagnostics().returnOnlyExactRequestCount == 1
+    }
+    await driver.emit(value: 128, captureNanoseconds: 300, width: 21, height: 20)
+    do {
+      _ = try await request.value
+      Issue.record("Changed geometry cannot continue the saved optical acquisition")
+    } catch LearningPathOperationError.requiredState(let detail) {
+      #expect(detail.contains("Camera source or configuration changed"))
+    }
+    #expect(await session.visionDiagnostics().activeExclusiveLeaseCount == 0)
+    #expect(await capture.diagnostics().explicitExactPublicationCount == 0)
+    _ = await session.stop()
+  }
+
+  @Test("Stop while the cap is hidden releases acquisition without accepting earlier observations")
+  func stopWhileCapIsHidden() async throws {
+    let device = CameraDevice(id: .init(rawValue: "occluded-cap-stop"), name: "Occluded cap")
+    let driver = VisionLifecycleCameraDriver(device: device)
+    let capture = CameraCapture(driver: driver)
+    let worker = VisionWorker()
+    let session = CameraSourceSession(live: capture, vision: worker,
+      analysisPipeline: PlotterSceneAnalysisPipeline(worker: worker), plannedDrawingObserver: worker)
+    _ = await session.discover()
+    _ = await session.start()
+    let request = Task {
+      try await session.captureStableWorkflowCap(.init(newerThanNanoseconds: 100))
+    }
+    try await waitUntilStableCap("occluded cap lease") {
+      await session.visionDiagnostics().activeExclusiveLeaseCount == 1
+    }
+    await driver.emit(value: 128, captureNanoseconds: 200, width: 20, height: 20)
+    try await waitUntilStableCap("occluded frame materialized") {
+      await capture.diagnostics().returnOnlyExactRequestCount == 1
+    }
+    request.cancel()
+    do { _ = try await request.value; Issue.record("Stop must cancel cap reacquisition") }
+    catch is CancellationError {}
+    let diagnostics = await session.visionDiagnostics()
+    #expect(diagnostics.activeExclusiveLeaseCount == 0)
+    #expect(diagnostics.exclusiveLeaseCancellationCount == 1)
+    #expect(diagnostics.capture.explicitExactPublicationCount == 0)
     #expect(diagnostics.capture.previewPauseReleaseCount == 1)
     _ = await session.stop()
   }

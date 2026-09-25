@@ -11,9 +11,10 @@ import Testing
 @MainActor
 @Suite("Saved Learning calibration Pen Up", .serialized)
 struct SavedLearningPenUpTests {
-  @Test("cap-only replacement retains mechanical authority and durably removes only the optical suffix")
-  func reidentifyCapPreservesBoundariesThroughReload() async throws {
-    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: true)
+  @Test("new cap anchor retains mechanical authority and durably removes only the optical suffix")
+  func changedCapAnchorPreservesBoundariesThroughReload() async throws {
+    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: true,
+      referenceFrameAtCurrentPose: true)
     defer { fixture.stores.remove() }
     let app = fixture.app
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
@@ -27,18 +28,26 @@ struct SavedLearningPenUpTests {
     await submitControllerSession(app, .toggleMotionAuthorization)
     let commandsBefore = await fixture.machine.requestedPenCommands
     let feedsBefore = await fixture.machine.requestedFeeds
-    await app.performTestExerciseAction(.replacePenCapReference, for: owner)
+    await app.performTestExerciseAction(.reidentifyPenCap, for: owner)
     let selection = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
-    #expect(selection.referenceMode == .sampledColorMarker)
-    #expect(selection.referenceGeometry == nil)
+    #expect(selection.referenceGeometry != nil)
     #expect(app.machineCameraRegistration == fixture.checkpoint.machineCamera?.registration)
     #expect(app.tipCameraRegistration == tipBefore)
-    submitPointSelection(app, request: selection, point: try syntheticCapPoint(app))
+    let predicted = try #require(app.machineCameraRegistration).fit.cameraPoint(
+      from: #require(position).point)
+    let changedAnchor = try Point2<CameraPixelSpace>(x: predicted.x + 9, y: predicted.y)
+    let clicked = PlotterPointSelectionSubmission(selectionID: selection.id, frame: selection.frame,
+      point: changedAnchor, presentationTransformRevision: selection.presentationTransformRevision,
+      referenceRegion: try AxisAlignedBounds(minX: predicted.x - 15, minY: predicted.y - 20,
+        maxX: predicted.x + 16, maxY: predicted.y + 12))
+    guard case .accepted = try await submitCapPointThroughUI(app, clicked) else {
+      Issue.record("Changed cap anchor was refused: \(app.discoveryError ?? "no detail")")
+      await app.shutdown(); return
+    }
     try await waitUntil { app.activeExerciseAttemptID == nil || app.discoveryError != nil }
     try #require(app.activeExerciseAttemptID == nil, "\(app.discoveryError ?? "Cap selection did not settle")")
     #expect(app.discoveryError == nil)
-    #expect(app.penCapAppearanceSelection?.markerReference != nil)
-    #expect(app.penCapAppearanceSelection?.visualReference == nil)
+    #expect(app.penCapAppearanceSelection?.visualReference != nil)
     #expect(mechanicalKinds.map { app.learningArtifactGraph.currentRevision(for: $0) } == revisions)
     #expect(app.controllerPoseApplicability == pose)
     #expect(app.machineSnapshot?.machine.position == position)
@@ -85,7 +94,7 @@ struct SavedLearningPenUpTests {
       Issue.record("Expected saved calibration"); await app.shutdown(); return
     }
     if outcome == "capture-failure" { await fixture.camera.injectFrameCaptureFailure() }
-    await app.performTestExerciseAction(.replacePenCapReference, for: owner)
+    await app.performTestExerciseAction(.reidentifyPenCap, for: owner)
     if outcome == "capture-failure" {
       #expect(app.activeExerciseAttemptID == nil)
       #expect(app.pointSelectionEpisodeProjection.exactPointSelection.request == nil)
@@ -108,7 +117,7 @@ struct SavedLearningPenUpTests {
       await app.performTestExerciseAction(.cancel, for: owner)
       #expect(app.capRecoveryDetail == nil)
       if outcome == "stale" {
-        await app.performTestExerciseAction(.replacePenCapReference, for: owner)
+        await app.performTestExerciseAction(.reidentifyPenCap, for: owner)
         submitPointSelection(app, request: selection, point: try Point2(x: 40, y: 40))
         try await waitUntil { app.discoveryError?.contains("rejected") == true }
         #expect(app.activeExerciseAttemptID != nil)
@@ -326,57 +335,21 @@ struct SavedLearningPenUpTests {
     await app.shutdown()
   }
 
-  @Test("same-anchor recovery refuses excessive operator residual without erasing accepted Learning")
-  func incompatibleRecoveryRetainsPriorAuthority() async throws {
+  @Test("new cap anchor invalidates only optical calibration, including outside the map domain", arguments: [false, true])
+  func changedAnchorRetainsMechanicalLearning(outsideMapDomain: Bool) async throws {
     let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: true,
-      referenceFrameAtCurrentPose: true)
+      referenceFrameAtCurrentPose: true, outsideMapDomain: outsideMapDomain)
     defer { fixture.stores.remove() }
     let app = fixture.app
-    let originalGraph = app.learningArtifactGraph.revisions
-    let oldAppearance = app.penCapAppearanceSelection
-    await app.performTestExerciseAction(.reidentifyPenCap,
-      for: .humanGuidedDiscovery(.penInteraction))
-    let selection = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
-    let predicted = try #require(app.machineCameraRegistration).fit.cameraPoint(
-      from: try #require(app.machineSnapshot?.machine.position).point)
-    // Keep the selected image detailed while deliberately naming another anchor.
-    let point = try Point2<CameraPixelSpace>(x: predicted.x + 9, y: predicted.y)
-    let region = try AxisAlignedBounds<CameraPixelSpace>(minX: predicted.x - 15,
-      minY: predicted.y - 20, maxX: predicted.x + 16, maxY: predicted.y + 12)
-    let clicked = PlotterPointSelectionSubmission(selectionID: selection.id, frame: selection.frame,
-      point: point, presentationTransformRevision: selection.presentationTransformRevision,
-      referenceRegion: region)
-    guard case .refused = try await submitCapPointThroughUI(app, clicked) else {
-      Issue.record("Excessive residual falsely returned accepted"); await app.shutdown(); return
-    }
-    try await waitUntil { app.activeExerciseAttemptID == nil || app.discoveryError != nil }
-    #expect(app.discoveryError?.contains("9.00 px") == true, "\(app.discoveryError ?? "no discovery detail")")
-    #expect(app.discoveryError?.contains("Replace Tracking Reference") == true)
-    #expect(app.learningArtifactGraph.revisions == originalGraph)
-    #expect(app.penCapAppearanceSelection == oldAppearance)
-    #expect(app.machineCameraRegistration != nil && app.tipCameraRegistration != nil)
-    #expect(await fixture.machine.requestedPenCommands.isEmpty)
-    #expect(await fixture.machine.requestedFeeds.isEmpty)
-    await app.shutdown()
-  }
-
-  @Test("an outside-domain operator click accepts a 9px advisory residual without extending calibration")
-  func extrapolatedRecoveryUsesOperatorObservation() async throws {
-    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: true,
-      referenceFrameAtCurrentPose: true, outsideMapDomain: true)
-    defer { fixture.stores.remove() }
-    let app = fixture.app
-    let originalMap = try #require(app.machineCameraRegistration)
-    let originalTip = app.tipCameraRegistration
-    let originalGraph = app.learningArtifactGraph.revisions
+    let mechanicalKinds = [LearningArtifactKind.penInteraction, .estimatedMachineCenter, .centerArrival]
+      + BoundaryDirection.allCases.map { .boundarySideAggregate($0) }
+    let originalMechanical = mechanicalKinds.map { app.learningArtifactGraph.currentRevision(for: $0) }
     let originalExclusions = app.blacklistedToolContactLocations
+    let originalMap = try #require(app.machineCameraRegistration)
     let originalPosition = try #require(app.machineSnapshot?.machine.position)
-    #expect(!originalMap.applicabilityRectangle.contains(originalPosition.point))
-    let penCommands = await fixture.machine.requestedPenCommands
-    let feeds = await fixture.machine.requestedFeeds
-    let request = try #require(app.testPlotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID,
-      includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
-    #expect(await app.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+    let beforeCommands = await fixture.machine.requestedPenCommands
+    let beforeFeeds = await fixture.machine.requestedFeeds
+    await app.performTestExerciseAction(.reidentifyPenCap, for: .humanGuidedDiscovery(.penInteraction))
     let selection = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
     let predicted = try originalMap.fit.cameraPoint(from: originalPosition.point)
     let clickedPoint = try Point2<CameraPixelSpace>(x: predicted.x + 9, y: predicted.y)
@@ -385,40 +358,141 @@ struct SavedLearningPenUpTests {
       referenceRegion: try AxisAlignedBounds(minX: predicted.x - 15, minY: predicted.y - 20,
         maxX: predicted.x + 16, maxY: predicted.y + 12))
     guard case .accepted = try await submitCapPointThroughUI(app, clicked) else {
-      Issue.record("Extrapolated operator observation was refused: \(app.discoveryError ?? "no detail")")
+      Issue.record("Changed anchor was refused: \(app.discoveryError ?? "no detail")")
       await app.shutdown(); return
     }
-    let observed = try #require(app.penCapAppearanceSelection?.operatorObservation)
-    #expect(observed.isExtrapolated)
-    #expect(observed.predictionDomain == originalMap.applicabilityRectangle)
-    #expect(observed.residualPixels == 9)
-    #expect(observed.validates(point: clickedPoint))
+    #expect(app.penCapAppearanceSelection?.operatorObservation == nil)
     #expect(app.penCapAppearanceSelection?.clickPoint == clickedPoint)
-    #expect(app.machineCameraRegistration == originalMap)
-    #expect(app.tipCameraRegistration == originalTip)
-    #expect(app.learningArtifactGraph.revisions == originalGraph)
+    #expect(app.machineCameraRegistration == nil && app.tipCameraRegistration == nil)
+    #expect(mechanicalKinds.map { app.learningArtifactGraph.currentRevision(for: $0) } == originalMechanical)
     #expect(app.blacklistedToolContactLocations == originalExclusions)
-    #expect(app.capRecoveryDetail?.contains("9.00 px residual to an extrapolated prediction (advisory only") == true)
     #expect(app.activeExerciseAttemptID == nil)
-    #expect(await fixture.machine.requestedPenCommands == penCommands)
-    #expect(await fixture.machine.requestedFeeds == feeds)
+    #expect(await fixture.machine.requestedPenCommands == beforeCommands)
+    #expect(await fixture.machine.requestedFeeds == beforeFeeds)
     guard case .loaded(let saved) = fixture.stores.checkpointStore.load() else {
-      Issue.record("Extrapolated observation was not saved"); await app.shutdown(); return
+      Issue.record("New appearance was not saved"); await app.shutdown(); return
     }
-    #expect(saved.penCapAppearance?.operatorObservation == observed)
-    #expect(saved.machineCamera?.registration == originalMap)
+    #expect(saved.penInteraction == fixture.checkpoint.penInteraction)
+    #expect(saved.machineArtifacts == fixture.checkpoint.machineArtifacts)
+    #expect(saved.machineCamera == nil && saved.tipCalibration == nil)
     try saved.validate()
-    // Extrapolation is a typed admission fact, not a way to silently increase
-    // the residual threshold for an in-domain or legacy observation.
-    var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(saved)) as? [String: Any])
-    var appearance = try #require(json["penCapAppearance"] as? [String: Any])
-    var evidence = try #require(appearance["operatorObservation"] as? [String: Any])
-    evidence["predictionScope"] = "withinCalibrationDomain"
-    appearance["operatorObservation"] = evidence
-    json["penCapAppearance"] = appearance
-    let corrupted = try JSONDecoder().decode(AcceptedLearningPathCheckpoint.self,
-      from: JSONSerialization.data(withJSONObject: json))
-    #expect(throws: (any Error).self) { try corrupted.validate() }
+    await app.shutdown()
+  }
+
+  @Test("cap capture survives cancellation of its submitting view and works with Learning Off", arguments: [false, true])
+  func capSubmissionHasApplicationLifetime(learningOff: Bool) async throws {
+    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: true,
+      referenceFrameAtCurrentPose: true, legacyTemplate: false)
+    defer { fixture.stores.remove() }
+    let app = fixture.app
+    let oldMap = app.machineCameraRegistration
+    let oldTip = app.tipCameraRegistration
+    let oldGraph = app.learningArtifactGraph.revisions
+    let commands = await fixture.machine.requestedPenCommands
+    let feeds = await fixture.machine.requestedFeeds
+    if learningOff {
+      let mode = try #require(app.testPlotterUIProjection(selectedItemID: app.currentLearningPathItemID,
+        includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.learningMode))
+      #expect(await app.submitPlotterUIRequest(mode) == .accepted(requestID: mode.id))
+    }
+    let start = try #require(app.testPlotterUIProjection(selectedItemID: app.currentLearningPathItemID,
+      includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+    #expect(await app.submitPlotterUIRequest(start) == .accepted(requestID: start.id))
+    #expect(app.learningIsEnabled == !learningOff)
+    let exact = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+    let predicted = try #require(oldMap).fit.cameraPoint(from: #require(app.machineSnapshot?.machine.position).point)
+    let click = PlotterPointSelectionSubmission(selectionID: exact.id, frame: exact.frame,
+      point: predicted, presentationTransformRevision: exact.presentationTransformRevision)
+    let projection = app.plotterUIProjection(selectedItemID: app.currentLearningPathItemID,
+      manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingPointSelection: click).semantic
+    let request = try #require(projection.request(for: PlotterAppUIActionID.pointSelection(click)))
+    #expect(await submitPointCancellingCallerOnProjectionChange(app, request: request) == .accepted(requestID: request.id))
+    #expect(app.activeExerciseAttemptID == nil)
+    #expect(app.pointSelectionEpisodeProjection.exactPointSelection.request == nil)
+    #expect(app.machineCameraRegistration == oldMap && app.tipCameraRegistration == oldTip)
+    #expect(app.learningArtifactGraph.revisions == oldGraph)
+    #expect(app.learningIsEnabled == !learningOff)
+    #expect(await fixture.machine.requestedPenCommands == commands)
+    #expect(await fixture.machine.requestedFeeds == feeds)
+    // The same single header action also cancels capture without Learning On.
+    let next = try #require(app.testPlotterUIProjection(selectedItemID: app.currentLearningPathItemID,
+      includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+    #expect(await app.submitPlotterUIRequest(next) == .accepted(requestID: next.id))
+    let cancel = try #require(app.testPlotterUIProjection(selectedItemID: app.currentLearningPathItemID,
+      includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+    #expect(await app.submitPlotterUIRequest(cancel) == .accepted(requestID: cancel.id))
+    #expect(app.activeExerciseAttemptID == nil)
+    #expect(app.learningIsEnabled == !learningOff)
+    await app.shutdown()
+  }
+
+  @Test("explicit Cancel after cap publication settles the committed capture")
+  func lateCapCancelRetainsCommittedAppearance() async throws {
+    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: true,
+      referenceFrameAtCurrentPose: true, legacyTemplate: false)
+    defer { fixture.stores.remove() }
+    let app = fixture.app
+    let beforeAppearance = app.penCapAppearanceSelection
+    let beforeMap = app.machineCameraRegistration
+    let beforeTip = app.tipCameraRegistration
+    let start = try #require(app.testPlotterUIProjection(selectedItemID: app.currentLearningPathItemID,
+      includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+    #expect(await app.submitPlotterUIRequest(start) == .accepted(requestID: start.id))
+    let exact = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+    let predicted = try #require(beforeMap).fit.cameraPoint(from: #require(app.machineSnapshot?.machine.position).point)
+    let click = PlotterPointSelectionSubmission(selectionID: exact.id, frame: exact.frame,
+      point: predicted, presentationTransformRevision: exact.presentationTransformRevision)
+    let probe = CapCommitCancellationProbe()
+    probe.arm(app)
+    guard case .accepted = try await submitCapPointThroughUI(app, click) else {
+      Issue.record("Committed cap capture returned a cancellation or refusal"); await app.shutdown(); return
+    }
+    try await waitUntil { probe.task != nil }
+    _ = await probe.task?.value
+    #expect(probe.reachedCommittedOwner)
+    #expect(app.penCapAppearanceSelection != beforeAppearance)
+    #expect(app.activeExerciseAttemptID == nil)
+    #expect(app.machineCameraRegistration == beforeMap && app.tipCameraRegistration == beforeTip)
+    #expect(app.discoveryError == nil)
+    guard case .loaded(let saved) = fixture.stores.checkpointStore.load() else {
+      Issue.record("Committed appearance was not saved"); await app.shutdown(); return
+    }
+    #expect(saved.penCapAppearance == (try app.penCapAppearanceSelection?.acceptedCheckpoint()))
+    await app.shutdown()
+  }
+
+  @Test("each cap capture retains exact frame bytes in an independent recording")
+  func capCapturePreservesRecordingComposition() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fixture = try await SavedCameraCalibrationFixture.make(penState: .up, includeTip: true,
+      referenceFrameAtCurrentPose: true, legacyTemplate: false,
+      capPointSelectionComposition: { PointSelectionComposition.makeRuntime(applicationSupportDirectory: { directory }) })
+    defer { fixture.stores.remove() }
+    let app = fixture.app
+    let original = app.pointSelectionEpisodeProjection.exactPointSelection
+    var priorDirectories = Set<URL>()
+    for _ in 0..<2 {
+      let start = try #require(app.testPlotterUIProjection(selectedItemID: app.currentLearningPathItemID,
+        includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+      #expect(await app.submitPlotterUIRequest(start) == .accepted(requestID: start.id))
+      let exact = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+      let artifact = try #require(exact.frame.archivedBytes)
+      #expect(artifact.digest == exact.frame.frameSHA256)
+      let locator = try #require(exact.frame.archivedByteLocator)
+      let root = directory.appendingPathComponent("AdaptivePlotter/EpisodeRecordings")
+      let recordings = Set(try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil))
+      let created = try #require(Array(recordings.subtracting(priorDirectories)).first)
+      let bytes = try Data(contentsOf: created.appendingPathComponent(locator))
+      #expect(bytes == app.testActionSurfacePresentation.displayedFrame?.frame.bytes.data)
+      priorDirectories = recordings
+      let cancel = try #require(app.testPlotterUIProjection(selectedItemID: app.currentLearningPathItemID,
+        includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+      #expect(await app.submitPlotterUIRequest(cancel) == .accepted(requestID: cancel.id))
+      #expect(app.pointSelectionEpisodeProjection.exactPointSelection == original)
+      #expect(FileManager.default.fileExists(atPath: created.appendingPathComponent(locator).path))
+    }
+    #expect(priorDirectories.count == 2)
     await app.shutdown()
   }
 
@@ -599,7 +673,8 @@ private struct SavedCameraCalibrationFixture {
     rejectCapReplacementSave: Bool = false,
     referenceFrameAtCurrentPose: Bool = false,
     newCameraConfiguration: Bool = false,
-    outsideMapDomain: Bool = false, legacyTemplate: Bool = true) async throws -> Self {
+    outsideMapDomain: Bool = false, legacyTemplate: Bool = true,
+    capPointSelectionComposition: (@MainActor () -> PointSelectionRuntimeComposition)? = nil) async throws -> Self {
     // Use synthetic accepted artifacts through the production persistence and
     // Apply Saved Learning path, retaining only the prefix before tip marking.
     let accepted = try await CompleteAcceptedLearningFixture.make(legacyTemplate: legacyTemplate)
@@ -653,6 +728,7 @@ private struct SavedCameraCalibrationFixture {
     let app = plotterApplicationRuntime(
       machine: machine,
       observationSessionOverride: includeCamera ? camera : nil,
+      capPointSelectionComposition: capPointSelectionComposition,
       statePersistencePort: persistence,
       tipCalibrationSemanticIdentities: accepted.identities,
       residualEffectPort: TestApplicationResidualEffectPort(

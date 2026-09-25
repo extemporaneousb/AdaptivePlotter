@@ -27,7 +27,7 @@ struct PenCapReferenceSelectionOverlay: View {
           width: end.x - start.x, height: end.y - start.y))
       }
       .stroke(.yellow, style: StrokeStyle(lineWidth: 2, dash: [6, 3]))
-      .accessibilityLabel("Selected tracking reference rectangle; click the landmark inside it")
+      .accessibilityLabel("Selected pen cap rectangle; click the cap inside it")
     }
   }
 }

@@ -874,15 +874,15 @@ struct ActionSurface: View {
         VStack(alignment: .leading, spacing: 6) {
           if let prompt = presentation.tipPresentation.interactionPrompt {
             Text(presentation.pointSelectionRequest?.referenceMode == .sampledColorMarker
-              ? "Click the colored marker. Its center is tracked. Drag to pan."
+              ? "Click the pen cap. Drag to pan."
               : presentation.pointSelectionRequest?.purpose == .penCapAppearance
               ? (drawsCapReference
-                ? "Drag a compact reference region, then click its landmark."
+                ? "Drag a compact reference region, then click its pen-cap point."
                 : (capReferenceRegion == nil
                   ? (presentation.pointSelectionRequest?.referenceGeometry == nil
                     ? "Drag to pan. Choose Draw Reference to select the tracking surface."
-                    : "Click the same physical landmark. Drag to pan; Draw Reference changes its appearance region.")
-                  : "Click the landmark inside the rectangle. Drag to pan; use Redraw Reference to change it."))
+                    : "Click the same physical pen-cap point. Drag to pan; Draw Reference changes its appearance region.")
+                  : "Click the pen-cap point inside the rectangle. Drag to pan; use Redraw Reference to change it."))
               : prompt)
               .font(.caption.monospaced().bold())
               .foregroundStyle(.white)
@@ -1040,9 +1040,11 @@ struct ActionSurface: View {
           self.pendingPointSelection = nil
         }
       }
-      .task(id: automaticPointSubmission) {
-        guard let automaticPointSubmission else { return }
-        await submitPendingPointSelection(automaticPointSubmission)
+      .onChange(of: automaticPointSubmission) { _, submission in
+        guard let submission else { return }
+        // Acceptance removes the selection from the rendered canvas. The
+        // application's retained submission, not this view, owns completion.
+        Task { @MainActor in await submitPendingPointSelection(submission) }
       }
       .accessibilityValue(
         [

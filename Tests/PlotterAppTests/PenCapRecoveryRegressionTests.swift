@@ -166,7 +166,6 @@ struct PenCapRecoveryRegressionTests {
     let app = fixture.app
     let machine = fixture.machine
     let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
-    let penOwner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     let boundaryBefore = try #require((await fixture.boundary.snapshot(for: .live)).acceptedMachineArtifacts)
     let graphBefore = app.learningArtifactGraph.revisions
     let previousReference = try #require(app.penCapAppearanceSelection?.markerReference)
@@ -197,9 +196,10 @@ struct PenCapRecoveryRegressionTests {
     #expect(await app.submitPlotterUIRequest(recovery) == .accepted(requestID: recovery.id))
     selection.updateCurrent(app.currentLearningPathItemID)
     reviewing.updateCurrent(app.currentLearningPathItemID)
-    #expect(selection.selected == penOwner)
+    #expect(selection.selected == cameraOwner)
     #expect(reviewing.selected == .humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering))
-    let cancel = try productionLearningRequest(app, .cancel, owner: selection.selected)
+    let cancel = try #require(app.testPlotterUIProjection(selectedItemID: selection.selected,
+      includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
     #expect(await app.submitPlotterUIRequest(cancel) == .accepted(requestID: cancel.id))
     selection.updateCurrent(app.currentLearningPathItemID)
     #expect(selection.selected == cameraOwner)
@@ -301,14 +301,14 @@ struct PenCapRecoveryRegressionTests {
     await app.shutdown()
   }
 
-  @Test("marker Locate and replacement each retain one exact reference without granting a map")
+  @Test("repeated cap captures each retain one exact reference without granting a map")
   func replacementClearsPreMapAppearanceHistory() async throws {
     let fixture = try await makeCameraReturnFixture()
     let app = fixture.app
     let graph = app.learningArtifactGraph.revisions
     let owner = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
-    for replaces in [false, true] {
-      let id = replaces ? PlotterAppUIActionID.replacePenCapReference : PlotterAppUIActionID.reidentifyPenCap
+    for _ in 0..<2 {
+      let id = PlotterAppUIActionID.reidentifyPenCap
       let start = try #require(app.testPlotterUIProjection(selectedItemID: app.currentLearningPathItemID,
         includesLearningPath: true).semantic.request(for: id))
       #expect(await app.submitPlotterUIRequest(start) == .accepted(requestID: start.id))
@@ -648,7 +648,7 @@ struct PenCapRecoveryRegressionTests {
     #expect(confirmed.isExtrapolated)
     #expect(confirmed.predictionDomain == map?.applicabilityRectangle)
     #expect(app.machineCameraRegistration?.applicabilityRectangle == map?.applicabilityRectangle)
-    #expect(app.capRecoveryDetail?.contains("extrapolated prediction (advisory only") == true)
+    #expect(app.capRecoveryDetail?.contains("extrapolated prediction (8.00 px compatibility limit") == true)
     #expect(await machine.requestedDrawingStrokes == beforeStrokes)
     #expect(await machine.requestedPenCommands == beforePen)
     #expect(await machine.requestedFeeds == beforeFeeds)
@@ -684,6 +684,104 @@ struct PenCapRecoveryRegressionTests {
     try #require(store.checkpoint).validate()
     await app.shutdown()
   }
+
+  @Test("completed corner marks and exact clicks survive cap capture without redraw", arguments: ["accepted", "cancelled", "shutdown"])
+  func completedCornerBatchSurvivesCapCapture(outcome: String) async throws {
+    let fixture = try await makeCameraReturnFixture()
+    let app = fixture.app
+    let cameraOwner = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    await app.performTestExerciseAction(.cameraCalibration(.buildFivePositionProposal), for: cameraOwner)
+    await app.performTestExerciseAction(.cameraCalibration(.acceptProposal), for: cameraOwner)
+    let map = try #require(app.machineCameraRegistration)
+    let tipOwner = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+    await app.performTestExerciseAction(.tipCalibration(.beginFourMarkBatch), for: tipOwner)
+    let exact = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+    let attempt = try #require(app.activeExerciseAttemptID)
+    let expected = app.tipCalibrationRuntime.expectedSelection
+    let clicks = try #require(app.currentSparseTipBatchPlan).marks.map {
+      try map.fit.cameraPoint(from: $0.machinePosition.point)
+    }
+    func requestForClick(_ point: Point2<CameraPixelSpace>) throws -> PlotterUIRequest {
+      let click = PlotterPointSelectionSubmission(selectionID: exact.id, frame: exact.frame,
+        point: point, presentationTransformRevision: exact.presentationTransformRevision)
+      return try #require(app.plotterUIProjection(selectedItemID: tipOwner,
+        manualDraft: ManualMotionDraft(), includesLearningPath: true,
+        pendingPointSelection: click).semantic.request(for: PlotterAppUIActionID.pointSelection(click)))
+    }
+    for point in clicks.prefix(2) {
+      let request = try requestForClick(point)
+      #expect(await app.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+    }
+    let originalSelection = app.pointSelectionEpisodeProjection.exactPointSelection
+    let originalFrame = app.testActionSurfacePresentation.displayedFrame?.frame.id
+    let originalGraph = app.learningArtifactGraph.revisions
+    let exclusions = app.blacklistedToolContactLocations
+    let commands = await fixture.machine.requestedPenCommands
+    let strokes = await fixture.machine.requestedDrawingStrokes
+    let feeds = await fixture.machine.requestedFeeds
+    let start = try #require(app.testPlotterUIProjection(selectedItemID: tipOwner,
+      includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+    #expect(await app.submitPlotterUIRequest(start) == .accepted(requestID: start.id))
+    #expect(app.currentLearningPathItemID == tipOwner)
+    #expect(app.paperManagementUnavailableReason != nil)
+    let capture = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+    #expect(capture.id != exact.id)
+    #expect(app.tipCalibrationRuntime.expectedSelection == expected)
+    let paperBefore = app.currentPaperRevisionContext
+    await app.recordNewPaperSheetOnCurrentPlane()
+    #expect(app.currentPaperRevisionContext == paperBefore)
+    let scoped = try #require(app.learningVacatePlan(from: tipOwner))
+    #expect(!(await app.performLearningVacate(scoped)))
+    #expect(app.tipCalibrationRuntime.expectedSelection == expected)
+    #expect(app.pointSelectionEpisodeProjection.exactPointSelection.request?.id == capture.id)
+    if outcome == "shutdown" {
+      await app.shutdown()
+      #expect(app.activeExerciseAttemptID == nil)
+      #expect(app.learningSelectionDiagnosticSnapshot.recoveryAttemptID == nil)
+      #expect(app.pointSelectionEpisodeProjection.exactPointSelection.request == nil)
+      #expect(app.tipCalibrationRuntime.activeOperationID == nil)
+      #expect(app.learningArtifactGraph.revisions == originalGraph)
+      #expect(await fixture.machine.requestedDrawingStrokes == strokes)
+      return
+    }
+    if outcome == "cancelled" {
+      let cancel = try #require(app.testPlotterUIProjection(selectedItemID: tipOwner,
+        includesLearningPath: true).semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+      #expect(await app.submitPlotterUIRequest(cancel) == .accepted(requestID: cancel.id))
+    } else {
+      let predicted = try map.fit.cameraPoint(from: #require(app.machineSnapshot?.machine.position).point)
+      let click = PlotterPointSelectionSubmission(selectionID: capture.id, frame: capture.frame,
+        point: predicted, presentationTransformRevision: capture.presentationTransformRevision)
+      let request = try #require(app.plotterUIProjection(selectedItemID: tipOwner,
+        manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingPointSelection: click)
+        .semantic.request(for: PlotterAppUIActionID.pointSelection(click)))
+      #expect(await submitPointCancellingCallerOnProjectionChange(app, request: request) == .accepted(requestID: request.id))
+    }
+    #expect(app.activeExerciseAttemptID == attempt)
+    #expect(app.activeExerciseAttemptOwnerID == tipOwner)
+    #expect(app.pointSelectionEpisodeProjection.exactPointSelection == originalSelection)
+    #expect(app.testActionSurfacePresentation.displayedFrame?.frame.id == originalFrame)
+    #expect(app.tipCalibrationRuntime.expectedSelection == expected)
+    #expect(app.blacklistedToolContactLocations == exclusions)
+    #expect(app.learningArtifactGraph.revisions == originalGraph)
+    #expect(app.machineCameraRegistration == map)
+    #expect(await fixture.machine.requestedPenCommands == commands)
+    #expect(await fixture.machine.requestedDrawingStrokes == strokes)
+    #expect(await fixture.machine.requestedFeeds == feeds)
+    let third = try requestForClick(clicks[2])
+    #expect(await app.submitPlotterUIRequest(third) == .accepted(requestID: third.id))
+    let fourth = try requestForClick(clicks[3])
+    #expect(await submitPointCancellingCallerOnProjectionChange(app, request: fourth) == .accepted(requestID: fourth.id))
+    #expect(app.tipCalibrationRuntime.phase == .reviewingProposal)
+    #expect(app.selectedToolContactPoints.count == 4)
+    #expect(app.proposedTipCameraRegistration != nil)
+    #expect(app.activeExerciseAttemptID == attempt)
+    #expect(await fixture.machine.requestedDrawingStrokes == strokes)
+    #expect(await fixture.machine.requestedPenCommands == commands)
+    #expect(await fixture.machine.requestedFeeds == feeds)
+    await app.shutdown()
+  }
+
 }
 
 /// These tests inject calibrated measurements. Their operator-selection pixels

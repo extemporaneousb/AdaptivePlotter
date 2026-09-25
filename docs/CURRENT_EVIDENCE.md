@@ -8,6 +8,56 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Pen-cap capture lifetime and Guided Learning preservation, 2026-09-24
+
+Read-only inspection of the user's DEBUG app (PID 77543), native screenshot,
+diagnostic exports, SQLite trace copy and twelve exact raw acquisitions is retained
+privately at `/Users/bullard/Projects/AdaptivePlotter/.build/PenCapCleanup-f69b3683/`.
+`retention-manifest.json` binds copied files to their original paths and hashes.
+The failed acquisition shows the user's hand covering the cap; the visible tape
+in the other eleven frames satisfies the existing size and complete-visibility
+checks. Offline replay preserves those eleven detections and the occluded refusal.
+This evidence does not justify weakening detection or calling a predicted position
+an observed cap.
+
+The event trace contains both a one-circle tracking failure and a later completed
+four-circle batch. The latter reached fourth-click fitting, then reported
+`cancelled`. The currently stranded cap recapture had accepted its click while
+retaining its owner and frozen frame. Source review identified the shared cause:
+the SwiftUI selection `.task(id:)` could cancel its own downstream submission when
+accepting the click changed that task's identity. This defect predates the visual
+reference redesign; reverting that redesign alone would retain it.
+
+Point submissions now have application lifetime with explicit cancellation and
+deduplication. Capture Pen Cap is one independent action, including with Learning
+off. Capturing while a completed four-dot batch awaits clicks or review suspends
+and restores that batch, its exact frame, accepted clicks and original owner.
+Each cap capture also receives its own production image-recording store; cancelled
+and refused selections remain inspectable without mixing the original batch's
+recording stream or event offsets.
+Compatible cap appearance replacement retains mechanical learning and optical
+calibration; incompatible anchor or optical context invalidates only the optical
+suffix outside such a suspended batch. An incompatible capture inside the batch
+is refused without destroying it. Same-plane paper replacement preserves learning.
+A physically different pen can still change tip offset or contact depth; a cap
+click alone is not evidence that those physical relationships are unchanged.
+
+During settled cap acquisition, missing or ambiguous observations clear the
+consecutive-sample window and continue searching newer frames under the same
+cancellable Vision lease. Three new consecutive actual observations are required
+before continuation. Stop remains explicit; camera stalls, changed optical context
+and unavailable analysis still terminate. Marker association uses the mapped
+expected position when available, otherwise the last compatible observed or clicked
+position. A distant similar object cannot take over after an occlusion. Compact
+neutral markers with strong local background contrast are also supported; these
+are synthetic image-fixture results, not physical validation of arbitrary pens.
+Before camera calibration, a small marker moving beyond its bounded neighborhood
+may still need recapture.
+
+The running app and hardware were preserved throughout investigation and delivery.
+Post-change native interaction, physical movement, contact depth and ink remain
+unverified until an attended run of the new build.
+
 ## Sampled-marker recovery and tracking latency diagnosis, 2026-09-24
 
 The user-reported slow Locate session ran DEBUG code (PID 52189). Stale Locate

@@ -189,10 +189,18 @@ analysis may scan; an armature-envelope request expands its declared dependency
 to pen-cap analysis. Full-frame lock is canonicalized to unlocked/default
 analysis. The region does not crop or mutate the stamped frame, change exact-
 frame identity or constrain specialized workflow measurements. Unlocked analysis
-and exact workflow acquisition search the entire frame for the selected tracking
-mode. Sampled markers use immutable chromatic/component evidence and reject
-competing compatible components. The retained legacy visual-template mode uses
-normalized per-channel correlation with pattern structure, including
+and exact workflow acquisition inspect the declared search region. Sampled caps
+retain immutable chromatic evidence, or fixed foreground/background contrast for
+compact neutral black, gray or white caps. Detection retains the original
+component size/visibility requirements. A compatible mapped controller position
+bounds association to observed candidates near that position; otherwise the
+clicked or last observed same-camera position supplies the neighborhood. Losing
+pixels does not expire that neighborhood into a distant competitor. Competing
+candidates within it remain ambiguous. Without a position prior, acquisition
+requires a unique compatible component.
+
+The retained legacy visual-template mode uses normalized per-channel correlation
+with pattern structure, including
 black and colored surfaces. A motion prediction seeds local refinement while the
 coarse search still scores the entire declared region; the prediction never
 excludes pixels or resolves a competing match. The global correlation pass is
@@ -628,96 +636,69 @@ through the existing `PlotterUIIntentSink`. There is no **Apply Learning Point**
 button or second user confirmation. A stale or refused click remains governed
 by the existing point-selection owner and never becomes an automatic retry.
 
-New tracking references are learned through **Identify Holder Landmark** in Exercise
-1.1 with one click inside a distinctive colored marker on the moving assembly.
-The exact frozen frame supplies a small chromatic sample and the connected
-component containing the click. The component centroid, not the arbitrary tap
-position, is the tracking anchor. A colored patch on the permanent holder avoids
-changing the reference when swapping pens. Dim chromatic samples are admitted by
-the same versioned signal policy used during tracking; insufficient signal,
-clipping, or another compatible same-color component produces an explicit refusal.
-New identification and **Replace Tracking Reference** require no rectangle.
-Marker policy v1 samples a 5×5 neighborhood and requires at least nine usable
-pixels. The signal floor is HSV value at least 0.12, saturation at least 0.30
-for sampling, and RGB channel spread at least 20 for admitted support. The
-persisted tracking saturation floor is the greater of 0.25 and half the greater
-of sampled saturation or the selected component's 75th-percentile saturation.
-Hue support stays within 22 degrees. Accepted component area, width and height
-must each remain within 0.5–2 times their acquired values; clipped or multiple
-compatible components refuse. These fixed software gates are not physical
-accuracy guarantees and do not adapt during tracking.
+**Capture Pen Cap** freezes the current exact frame; the operator clicks the
+visible pen cap or the tape attached to it. No permanent holder feature or
+rectangle is required. For a new appearance the detected component center is the tracking point;
+the click selects the component rather than defining an arbitrary pixel offset.
+Recapturing a saved template preserves its stored geometry and independent anchor
+with one click, so historical calibration is not silently converted to a centroid.
+The cap may change color or appearance when the operator changes pens. Capture
+is recognition input, not proof of physical pen state, calibration accuracy or
+ink.
 
-The sampled marker retains immutable color, component geometry, measured anchor,
-selection point, exact-frame hash, and semantic optical configuration. Global
-segmentation checks competing components; a prediction does not select an
-otherwise ambiguous marker. No online color or anchor adaptation occurs. Changed
-source or optics requires compatible explicit identification. Selecting a new
-marker or changing anchor invalidates the dependent Camera and Tip results while
-preserving mechanical Pen/Boundary results and possible-ink exclusions.
+The cap control sits beside Guided Learning, remains available after accepted Pen
+Learning when Learning is off, and becomes **Cancel Pen Cap Capture** while a
+capture is pending. First-time setup exposes the same **Capture Pen Cap** action
+in Exercise 1.1 before the Up → Down → Up sequence. There is no separate Locate
+or Replace choice. Capturing another appearance does not repeat accepted Pen
+actuation, Boundary measurement, center estimation or center arrival, move the
+machine, actuate the pen, or clear possible-ink history. Active physical work and
+incompatible camera/controller context remain explicit blockers.
 
-Existing visual-template references remain readable and use their prior detector
-and independent landmark semantics. **Locate Tracking Reference** for one of these
-references retains the rectangle/anchor workflow and optional redraw. Templates
-still require spatial detail and complete in-frame support; a uniformly colored
-small patch is not automatically a valid or cheaper template. Existing reference
-banks and compatible capture-generation binding preserve acquisition provenance.
-Exact point-selection clicks take priority over an editable drawing preview;
-invalid selections display their remedy on the actual frozen canvas.
+The accepted appearance retains exact-frame provenance, sampled appearance,
+component geometry, measured tracking point, selection point and optical
+configuration. The detector uses image evidence near a compatible predicted
+position when one exists; the prediction is a search prior, never a synthetic
+observation. Ambiguity within that neighborhood remains a refusal. Without a
+usable position prior, acquisition requires a distinctive image component.
+Older appearance formats remain readable without erasing accepted mechanical
+Learning. New appearance uses the current detector; recaptured templates preserve their
+historical estimator and anchor identities.
 
-The accepted Learning checkpoint persists the reference and anchor, exact frame
-hash/identity, source, camera configuration, dimensions, format, counts and revision.
-The complete reference identity feeds generic analysis and every exact calibration
-inspection and prevents mixing different anchors within a calibration proposal.
-Old color-only checkpoints remain readable; their appearance cannot authorize LIVE
-tracking and explicitly requires **Locate Tracking Reference** in the Learning panel
-when accepted Pen Learning is present.
-Saved physical results are not erased by loading an old appearance. SIMULATED
-geometry remains source-separated. A reference selection is recognition input,
-not proof of physical pen state, calibration accuracy or ink.
+Changing appearance and changing geometric calibration are separate decisions.
+A compatible same-anchor capture can retain accepted camera, tip and drawing
+calibration. With a map and settled Idle/Pen-Up, the capture records its residual
+to the predicted cap position. The compatibility limit is eight pixels, including
+outside the accepted domain; such an observation is explicitly extrapolated and
+cannot extend the map or grant motion authority. A new capture with a displaced
+anchor, or a stable captured optical context that differs from the old map,
+retains Pen and Boundary Learning while requiring dependent optical calibration.
+Camera/controller/coordinate context changing during capture is refused, as is
+missing settled Idle/Pen-Up proof for a mapped capture. The new appearance must
+save successfully before dependent authority changes.
+During a suspended completed four-mark batch, an incompatible capture is refused
+and the original frame, clicks and attempt are restored instead of invalidated.
+Cancellation, stale capture, or save failure retains the prior in-memory package;
+failed save rollback reports uncertain durability if restoration also fails.
+The capture itself never raises a Down or unknown pen.
 
-**Locate Tracking Reference** observes the same existing marker or landmark on a
-new exact frame. Marker mode uses one click and the selected component's measured
-centroid for compatibility checks. Legacy template mode translates its prior
-rectangle around the stored anchor offset, with optional redraw and at most two
-prior compatible independently anchored views. The observation is recorded;
-recovery grants no calibration or motion authority. Explicit replacement discards
-prior appearance authority.
-With an accepted camera map,
-compatible optical/controller/coordinate authority, unchanged capture context,
-and settled Idle/Pen-Up, it can preserve accepted camera, tip and drawing
-calibration. Inside the map's applicability rectangle, the position residual
-must be at most eight pixels. Outside that domain, the operator's same-anchor
-observation can update appearance with an explicitly extrapolated, advisory
-residual; the old map and domain remain unchanged. It grants no new motion
-authority and does not extend calibration applicability. The saved observation
-binds the prior reference, map revision, prediction scope/domain, predicted
-point and measured residual; it does not rewrite accepted calibration evidence or claim a detector measurement.
-Accepting a successfully saved new camera calibration supersedes that recovery
-lineage and binds the new map to the current appearance estimator. A failed or
-cancelled replacement proposal retains the previous map, appearance and lineage.
-Incompatible context or an excessive in-domain residual refuses preservation
-and leaves prior Learning intact, with a precise recovery reason. Down or unknown pen state
-requires the explicit Raise Pen action; reidentification never raises it itself.
-Previously revalidated saved-map provenance stays historical while the current
-exact capture, position and optical context must remain compatible.
+Transient cap absence or competing detections during an exact workflow keep the
+existing owner at its settled pose and continue looking on newer frames. Samples
+from before a gap do not count toward the next stable observation. Explicit
+Stop/Cancel remains available. Tracking loss does not invalidate accepted Pen,
+Boundary or camera calibration. A completed four-mark batch retains its exact
+frame, mark evidence and clicks independently of ambient cap detection; fitting
+those four clicks does not request a new cap observation. Replacing paper clears
+only that sheet's transients and coverage. It does not reset mechanical Learning
+or compatible contact-plane calibration.
 
-**Replace Tracking Reference** is the explicit changed-surface/changed-anchor path.
-It requires a new rectangle and anchor, retains accepted Pen actuation, X/Y
-boundary, center and center-arrival evidence, and invalidates camera/cap and
-downstream tip/drawing calibration only after saving the new appearance.
-Neither action moves the machine or actuates the pen, requires Motion
-authorization, resets possible-ink exclusions or erases physical history.
-Observation-only recovery is available after a settled tip-calibration failure
-with possible ink, and after a settled failed Camera operation. Recovery from a
-failed or restartable Camera attempt restores a prepared Camera exercise after
-selection, cancellation or failure; it does not start calibration or travel.
-An intentional review selection remains a presentation choice. Active motion or
-another unresolved owner still blocks recovery.
-Cancellation, stale context, capture failure and persistence failure retain the
-previous in-memory authority. A failed save attempts to restore the preceding
-checkpoint; if restoration also fails, the app explicitly reports uncertain
-saved-state durability. Full **Redo This Step** and explicit resets keep
-their dependency semantics.
+Every admitted point-selection command is owned through its terminal result.
+Publishing an accepted selection or removing its canvas action must not cancel
+its fitting or cap-save continuation. The view may clear its pending input while
+the runtime settles; explicit cancellation remains distinct from view updates.
+Exact clicks take priority over editable drawing placement, and refusals appear
+on the frozen selection canvas. Source or optics changes remain genuine
+compatibility changes; LIVE and SIMULATED evidence never cross.
 
 Video Settings offers exactly `0.05`, `1`, `2`, `2.58`, `3`, `4`, and `5`
 frames per second for generic automatic scene analysis. The selected cadence
@@ -736,14 +717,14 @@ stale revision, foreign operation or capability, changed environment, wrong
 phase, missing prerequisite, or closed admission receives one typed refusal and
 remedy and invokes no lower effect.
 
-The first action remains **Identify Holder Landmark**. EA-04 exact-frame point selection
+The first action remains **Capture Pen Cap**. EA-04 exact-frame point selection
 owns that click, frame provenance, sampling, and accepted cap evidence;
 `PlotterPenInteractionRuntime` neither captures a frame nor manufactures camera
 or Vision evidence. Identification must be accepted before the first question
 or any pen actuation request. A stale or rejected click keeps identification
 pending and performs no machine action.
 
-**Identify Holder Landmark** requires a current exact frame but does not require a
+**Capture Pen Cap** requires a current exact frame but does not require a
 controller session or Motion authorization. A valid cap-body click opens the
 first Up question and remains accepted. If controller connection or Motion is
 then missing, **Confirm Pen Up** and the current servo slider stay visible but disabled
@@ -1176,7 +1157,7 @@ nonphysical evidence and cannot prove live optical stability.
 The artifact retains all five exact-frame correspondences, roles, holdout
 residuals, uncertainty, applicability rectangle and derivation, semantic optical
 identity, machine geometry identity, controller session, coordinate revision,
-and estimator revision. It maps machine position to the visible cap landmark.
+and estimator revision. It maps machine position to the visible pen cap.
 It does not locate the paper-contact point.
 
 ## Exercise 1.4 pen-tip calibration authority
@@ -1322,7 +1303,7 @@ revisions, semantic applicability identities, capture sessions, accepted
 revision, estimator, timestamp, and derivation.
 
 A cap-to-tip difference at one pose is diagnostic only. It is not a durable
-camera-independent tool vector because the cap landmark and paper lie in
+camera-independent tool vector because the pen cap and paper lie in
 different planes.
 
 ## Applicability and durable checkpoints
@@ -1350,7 +1331,7 @@ Changes apply as follows:
 - known machine-coordinate rebase: rebase intercept and domain;
 - unknown origin or machine geometry/steps/direction/kinematics change:
   invalidate;
-- tool, holder, armature, cap landmark, nib, contact profile, or remount change:
+- tool, holder, armature, pen cap, nib, contact profile, or remount change:
   invalidate;
 - new sheet explicitly on the unchanged support/stock/contact plane: rotate the
   paper instance, clear sheet coverage and ink-specific state, retain tip authority;

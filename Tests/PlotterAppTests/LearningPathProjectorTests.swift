@@ -310,7 +310,7 @@ struct PlotterLearningPresentationCompilerTests {
       selectedItemID: drawingOwner
     )
 
-    #expect(try #require(pen.currentActionStrip).actions.map(\.title) == ["Identify Holder Landmark"])
+    #expect(try #require(pen.currentActionStrip).actions.map(\.title) == ["Capture Pen Cap"])
     #expect(try #require(boundary.currentActionStrip).actions.map(\.title) == ["Move Toward X+"])
     #expect(
       try #require(cameraCalibration.currentActionStrip).actions.map(\.title)
@@ -321,6 +321,28 @@ struct PlotterLearningPresentationCompilerTests {
         == ["Draw Four Calibration Circles"]
     )
     #expect(try #require(drawing.currentActionStrip).actions.map(\.title) == ["Draw and Validate Drawing Border"])
+  }
+
+  @Test("cap acquisition explains the hold without inventing a missing detection or changing ownership")
+  func capAcquisitionExplainsHold() throws {
+    for (step, visionOwner) in [
+      (HumanGuidedDiscoveryStep.calibrateCameraAndVisibleCap, ExactWorkflowVisionOwner.cameraCalibration),
+      (.calibratePenContactFromSparseMarks, .sparseTipCalibration),
+    ] {
+      let owner = LearningPathItemID.humanGuidedDiscovery(step)
+      let snapshot = PlotterLearningPresentationFacts(
+        penInteractionCompleted: true,
+        controller: .init(sessionEstablished: true, motionAuthorized: true),
+        cameraCalibration: .init(acceptedIsCurrent: step == .calibratePenContactFromSparseMarks),
+        operations: .init(activeAttemptOwner: owner, exactWorkflowVisionOwner: visionOwner)
+      )
+      let presentation = project(snapshot, selectedItemID: owner)
+      #expect(presentation.currentItemID == owner)
+      #expect(presentation.selectedAction.instructions.accessibilityText
+        == "Looking for pen cap… Clear its view. Stop cancels.")
+    }
+    #expect(ExactWorkflowVisionOwner.borderValidation.capAcquisitionStatus == nil)
+    #expect(ExactWorkflowVisionOwner.drawingStudio.capAcquisitionStatus == nil)
   }
 
   @Test("LIVE and SIMULATED use the same progression and action grammar")

@@ -28,7 +28,19 @@ struct LearningPathView: View {
           nativeActionIdentifier: "learning.mode")
           .accessibilityIdentifier("learning.mode")
       }.padding(12)
-      if learningMode.isEnabled, let projection {
+      if let capture = plotterUIProjection.action(id: PlotterAppUIActionID.reidentifyPenCap) {
+        OperatorRequestButton(title: capture.title,
+          request: plotterUIProjection.request(for: PlotterAppUIActionID.reidentifyPenCap),
+          unavailableReason: capture.unavailableReason,
+          sink: plotterUIIntentSink, nativeActionIdentifier: "learning.reidentifyPenCap")
+          .padding(.horizontal, 12).padding(.bottom, 10)
+      }
+      if let detail = projection?.capRecoveryDetail {
+        Text(detail).font(.caption).textSelection(.enabled)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(.horizontal, 12).padding(.bottom, 10)
+      }
+      if learningMode.isEnabled, let projection, !projection.capRecoveryIsActive {
         Divider()
         learningContent(projection)
       }
@@ -55,13 +67,6 @@ struct LearningPathView: View {
         .pickerStyle(.menu)
         .accessibilityIdentifier("learning.exercisePicker")
         Menu {
-          OperatorRequestButton(title: "Replace Tracking Reference",
-            request: plotterUIProjection.request(for: PlotterAppUIActionID.replacePenCapReference),
-            unavailableReason: plotterUIProjection.action(id: PlotterAppUIActionID.replacePenCapReference)?.unavailableReason,
-            sink: plotterUIIntentSink,
-            nativeActionIdentifier: "learning.replacePenCapReference",
-            showsUnavailableReason: false)
-          Divider()
           Button("Reset Selected Step…", role: .destructive) {
             pendingResetPlan = projection.resetSurface.selectedPlan
           }
@@ -79,18 +84,6 @@ struct LearningPathView: View {
         .accessibilityLabel("Learning Path Actions")
       }
       .padding(12)
-      if plotterUIProjection.action(id: PlotterAppUIActionID.reidentifyPenCap) != nil {
-        OperatorRequestButton(title: "Locate Tracking Reference",
-          request: plotterUIProjection.request(for: PlotterAppUIActionID.reidentifyPenCap),
-          unavailableReason: plotterUIProjection.action(id: PlotterAppUIActionID.reidentifyPenCap)?.unavailableReason,
-          sink: plotterUIIntentSink, nativeActionIdentifier: "learning.reidentifyPenCap")
-          .padding(.horizontal, 12).padding(.bottom, 10)
-      }
-      if let detail = projection.capRecoveryDetail {
-        Text(detail).font(.caption).textSelection(.enabled)
-          .fixedSize(horizontal: false, vertical: true)
-          .padding(.horizontal, 12).padding(.bottom, 10)
-      }
       if selection.isReviewingAnotherItem {
         Button("Return to Current Exercise") { selection.returnToCurrent() }
           .buttonStyle(.borderless)
@@ -100,9 +93,7 @@ struct LearningPathView: View {
       Divider()
       ScrollView {
         VStack(alignment: .leading, spacing: 0) {
-          if !projection.capRecoveryIsActive {
-            selectedDetail(selectedPresentation).padding(16)
-          }
+          selectedDetail(selectedPresentation).padding(16)
           ForEach(projection.separateActiveExerciseActions, id: \.ownerID) { current in
             Text(projection.activeExerciseHeading(for: current))
               .font(.caption.weight(.semibold))

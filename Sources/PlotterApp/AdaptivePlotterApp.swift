@@ -36,6 +36,7 @@ struct PlotterEpisodeComposition {
       pointSelectionRuntime: PointSelectionComposition.production.runtime,
       pointSelectionRecordingDiagnostic:
         PointSelectionComposition.production.recordingDiagnostic,
+      capPointSelectionComposition: { PointSelectionComposition.makeRuntime() },
       manualMotionComposition: manualMotionComposition,
       penInteractionRuntime: penInteractionRuntime,
       boundaryRuntime: boundaryComposition.runtime,

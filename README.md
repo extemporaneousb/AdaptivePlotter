@@ -125,8 +125,8 @@ freshness boundary is not evidence. SIMULATED geometry is separate nonphysical
 evidence and does not prove live stability.
 The first three fit an affine machine-to-cap calibration; the last two are
 independent holdouts. Both holdouts must pass before a weighted all-five refit
-can be explicitly accepted as `MachineCameraRegistration`. The visible cap
-landmark is not the hidden paper-contact point.
+can be explicitly accepted as `MachineCameraRegistration`. The visible pen
+cap is not the hidden paper-contact point.
 
 Exercise 1.4 uses one supervised **Draw Four Calibration Circles** action. There is no
 center circle. The four 2 mm-radius circle centers are the rectangle corners at
@@ -379,16 +379,14 @@ frame, and Exercise 1.3 does not rewrite that lock. A generic viewport region ne
 constrains calibration or observed-trial measurements, and full-frame lock is
 canonicalized to default unlocked analysis.
 
-Pen-cap appearance is learned only by the first **Identify Pen Cap** action in
-Exercise 1.1. The operator clicks the colored cap body, not the tip, on one
-frozen exact frame. A clipped 9 x 9 sample rejects gray, white, dark, or
-insufficiently chromatic pixels and persists the accepted median RGB color with
-the click, frame hash, source, camera configuration, dimensions, pixel format,
-sample counts, and algorithm revision. This supports arbitrary visibly colored
-caps, including blue; there is no editable color picker. Until a LIVE selection
-has been learned, Pen cap and Armature envelope remain selected according to the
-operator's persisted overlay preferences but report Unavailable and render no
-LIVE geometry.
+**Capture Pen Cap** freezes the current video frame for one click on the cap or
+its tape. Initial capture precedes Pen Up/Down calibration; later captures sit
+beside Guided Learning and remain available with Learning off. Changing appearance
+preserves accepted Pen/Boundary learning, while genuinely changed optical geometry
+requires only its dependent calibration. The detector uses compatible position
+predictions to search observed pixels. Transient cap loss keeps a settled workflow
+looking; completed four-mark evidence remains available for clicking and fitting.
+The two global overlays are **Pen cap** and **Armature envelope**.
 
 Overlay preferences are operator-owned persisted choices. Camera lifecycle,
 workflow activity, errors, stale frames, suspension, and load shedding change
@@ -462,12 +460,9 @@ run camera and Vision processing more slowly. Use
 application performance. The bundle and preview-performance report record the
 build configuration; performance claims must identify it.
 
-Tracking setup uses **Identify Holder Landmark** and one click inside a distinctive
-colored marker. The selected component's centroid is the anchor; choosing a new
-marker requires the dependent camera/tip calibration. **Locate Tracking Reference**
-observes the existing marker without motion. Saved template references keep their
-rectangle-based Locate behavior until explicitly replaced. See the
-[operating protocol](docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md) for recovery limits.
+See the [operating protocol](docs/DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md) for
+cap capture, calibration compatibility, same-plane paper replacement and retained
+four-mark evidence.
 
 For an isolated, synthetic 1080p detector comparison, run
 `ADAPTIVEPLOTTER_VISION_COST=1 swift test -c release --jobs 4 --filter FrameVisionTests/sceneKernelCost`

@@ -307,9 +307,14 @@ struct CameraStableWorkflowCapLeaseOperation: CameraSourceSessionVisionLeaseOper
   ) async throws -> StableWorkflowCapInspection {
     var boundary = request.newerThanNanoseconds
     var samples: [StableWorkflowCapInspection] = []
+    var firstFrame: DisplayedFrame?
     samples.reserveCapacity(FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount)
 
-    for _ in 0..<FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount {
+    // An occlusion is an observation gap, not a failed marking attempt. Keep
+    // the existing cancellable owner at its settled pose and look on newer
+    // frames. Never substitute the predicted position or bridge a missing
+    // observation with earlier samples. Stop/Cancel still cancels this lease.
+    while samples.count < FixedCameraOpticalSettlingPolicy.requiredCentroidFrameCount {
       try Task.checkCancellation()
       guard
         let inspection = try await scope.inspectWorkflowScene(
@@ -322,17 +327,32 @@ struct CameraStableWorkflowCapLeaseOperation: CameraSourceSessionVisionLeaseOper
       else {
         throw LearningPathOperationError.freshFrameUnavailable
       }
-      guard case .found(let cap, _) = inspection.measurement.penCap else {
-        let detail: String
-        if case .notFound = inspection.measurement.penCap {
-          detail = "No tracking reference detected: \(inspection.measurement.penCap.diagnosticReason). Use Locate Tracking Reference to confirm the same physical landmark."
-        } else {
-          detail = "Tracking measurement refused: \(inspection.measurement.penCap.diagnosticReason)."
+      let frame = inspection.displayedFrame
+      if let firstFrame {
+        guard firstFrame.source == frame.source,
+          firstFrame.frame.cameraConfigurationID == frame.frame.cameraConfigurationID,
+          firstFrame.frame.width == frame.frame.width,
+          firstFrame.frame.height == frame.frame.height,
+          firstFrame.frame.pixelFormat == frame.frame.pixelFormat else {
+          throw LearningPathOperationError.requiredState(
+            "Camera source or configuration changed while looking for the pen cap.")
         }
-        throw LearningPathOperationError.requiredState(detail)
+      } else {
+        firstFrame = frame
       }
-      samples.append(StableWorkflowCapInspection(inspection: inspection, cap: cap))
-      boundary = inspection.displayedFrame.frame.captureNanoseconds
+      boundary = frame.frame.captureNanoseconds
+      switch inspection.measurement.penCap {
+      case .found(let cap, _):
+        samples.append(StableWorkflowCapInspection(inspection: inspection, cap: cap))
+      case .notFound, .ambiguous:
+        samples.removeAll(keepingCapacity: true)
+        // Bound scan cadence during a prolonged obstruction. This sleep is
+        // cooperative: explicit cancellation releases the sole Vision lease.
+        try await Task.sleep(nanoseconds: 100_000_000)
+      case .notRequested, .failed:
+        throw LearningPathOperationError.requiredState(
+          "Pen-cap analysis is unavailable: \(inspection.measurement.penCap.diagnosticReason).")
+      }
       try Task.checkCancellation()
     }
 

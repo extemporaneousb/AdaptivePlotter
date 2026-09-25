@@ -190,11 +190,11 @@ public enum PenCapReferenceError: LocalizedError {
   public var errorDescription: String? {
     switch self {
     case .invalidRegion:
-      "Draw a tight rectangle around a permanent moving-holder feature (at least 12 camera pixels per side, at most half the frame), then click a fixed landmark inside it. Exclude the pen, rails, cable and paper."
+      "Draw a tight rectangle around the pen cap (at least 12 camera pixels per side, at most half the frame), then click the cap inside it. Exclude stationary rails, cable and paper."
     case .incompatibleOptics:
       "The reference does not match the current camera optics. Capture a new exact reference frame."
     case .insufficientDetail:
-      "The rectangle has too little visual detail. Include a fixed holder edge and a distinctive screw or corner on the same surface."
+      "The rectangle has too little visual detail. Include the pen cap edges and contrasting detail that moves with the cap."
     }
   }
 }
@@ -224,7 +224,7 @@ struct PenCapTemplateMatcher {
     guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
       region.x <= frame.width - region.width, region.y <= frame.height - region.height
     else { throw FrameError.invalidRegion }
-    guard reference.isValid else { return .failed("Invalid tracking reference. Identify the holder again.") }
+    guard reference.isValid else { return .failed("Invalid pen cap appearance. Use Capture Pen Cap again.") }
     let examples = [reference] + (reference.confirmedExamples ?? [])
     guard examples.count > 1 else {
       return try detectExample(frame: frame, reference: reference, region: region, searchCenter: searchCenter, binding: binding)
@@ -271,7 +271,7 @@ struct PenCapTemplateMatcher {
         ? frame.cameraConfigurationID == reference.cameraConfigurationID
         : binding?.admits(reference, frame: frame) == true),
       frame.pixelFormat == .rgba8 || frame.pixelFormat == .bgra8
-    else { return .failed("Tracking reference is not admitted for this camera source, optics or capture generation. Restore the matching camera context or identify the holder again.") }
+    else { return .failed("The pen cap appearance does not match this camera source, optics or capture generation. Restore the matching camera context or use Capture Pen Cap again.") }
     let w = Double(reference.region.width), h = Double(reference.region.height)
     func samples(step: Int) -> [Sample] {
       var result: [Sample] = []

@@ -22,7 +22,7 @@ public enum LearningPathTerminology {
   }
 
   public enum Action {
-    public static let identifyPenCap = "Identify Pen Cap"
+    public static let identifyPenCap = "Capture Pen Cap"
     public static let confirmPenUp = "Confirm Pen Up"
     public static let confirmPenDown = "Confirm Pen Down"
     public static let runCameraCalibration = "Run Five-Position Camera Calibration"

@@ -72,7 +72,7 @@ struct PlotterLearningUIAuthorityTests {
     #expect(projection.item(ownerID: pen)?.status == .current)
     #expect(projection.item(ownerID: boundary)?.status == .next)
     let strip = try #require(projection.strip(ownerID: pen))
-    #expect(strip.actions.map(\.title) == ["Identify Holder Landmark"])
+    #expect(strip.actions.map(\.title) == ["Capture Pen Cap"])
     #expect(projection.strip(ownerID: boundary) == nil)
   }
 

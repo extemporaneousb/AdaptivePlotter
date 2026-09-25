@@ -194,7 +194,7 @@ extension PlotterApplicationRuntimeTests {
     #expect(camera.recordedAutomaticInspectionRequests.last == .some(nil))
     #expect(camera.recordedAutomaticFeatureRequests.last == [])
     #expect(workspace.testCurrentLearningPathItemID == .humanGuidedDiscovery(.penInteraction))
-    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.title) == ["Identify Holder Landmark"])
+    #expect(workspace.currentExerciseActionStripPresentation?.actions.map(\.title) == ["Capture Pen Cap"])
     await workspace.shutdown()
   }
 

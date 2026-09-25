@@ -47,7 +47,8 @@ extension PlotterApplicationRuntime {
     if workbenchCameraRole == .plotter, surface.usesAmbientPreviewFrame,
       case .live = displayed?.source {
       if let owner = exactWorkflowVisionOwner {
-        status = "Camera frame held · \(owner.operatorLabel)"
+        status = owner.capAcquisitionStatus.map { "Camera frame held · \($0)" }
+          ?? "Camera frame held · \(owner.operatorLabel)"
       } else {
         status = cameraIsLive ? nil : "Last camera frame · waiting for video"
       }

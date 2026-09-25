@@ -1525,7 +1525,7 @@ extension TipCameraRegistration {
     case .machineGeometryChanged:
       return .invalidate("Machine geometry, steps, direction, or kinematics changed.")
     case .toolAssemblyChanged:
-      return .invalidate("Tool assembly, holder, armature, cap landmark, nib, or remount changed.")
+      return .invalidate("Tool assembly, holder, armature, pen cap, nib, or remount changed.")
     case .penContactProfileChanged:
       return .invalidate("Pen contact profile changed.")
     }

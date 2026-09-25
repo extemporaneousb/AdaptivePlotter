@@ -139,7 +139,7 @@ struct PenCapAppearanceSelectionTests {
     let request = try #require(presentation.pointSelectionRequest)
     let frozenFrame = try #require(presentation.displayedFrame)
     #expect(request.purpose == .penCapAppearance)
-    #expect(request.prompt == "Click a small, distinct colored marker on the fixed moving holder. Its center will be tracked; no rectangle is needed.")
+    #expect(request.prompt == "Click the pen cap or its distinct tape marker. Its center will be tracked; no rectangle is needed.")
     #expect(request.referenceMode == .sampledColorMarker)
     #expect(request.frame.frameID == frozenFrame.frame.id.rawValue)
     #expect(request.frame.frameSHA256 == frozenFrame.frame.contentSHA256)
@@ -194,7 +194,7 @@ struct PenCapAppearanceSelectionTests {
     let identifyAction = try #require(
       workspace.currentExerciseActionStripPresentation?.actions.first
     )
-    #expect(identifyAction.title == "Identify Holder Landmark")
+    #expect(identifyAction.title == "Capture Pen Cap")
     #expect(identifyAction.unavailableReason == nil)
 
     await workspace.performTestExerciseAction(.start, for: owner)
@@ -415,7 +415,7 @@ struct PenCapAppearanceSelectionTests {
 
     #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
     #expect(workspace.overlayStatus(for: .penCap).state == .unavailable)
-    #expect(workspace.overlayStatus(for: .penCap).message.contains("identify a fixed holder landmark"))
+    #expect(workspace.overlayStatus(for: .penCap).message.contains("click the pen cap"))
     #expect(camera.recordedPenCapColorRequests.isEmpty)
     await workspace.shutdown()
   }
@@ -452,7 +452,7 @@ struct PenCapAppearanceSelectionTests {
       _ = try await workspace.captureStableWorkflowCap(newerThan: 0)
       Issue.record("Expected LIVE exact-workflow Vision to require a LIVE appearance")
     } catch {
-      #expect(String(describing: error).contains("Identify Holder Landmark"))
+      #expect(String(describing: error).contains("Capture Pen Cap"))
     }
     #expect(camera.inspectionCallCount == 0)
     await workspace.shutdown()
@@ -564,7 +564,7 @@ struct PenCapAppearanceSelectionTests {
       await workspace.shutdown()
       return
     }
-    #expect(reason.contains("needs a visual reference"))
+    #expect(reason.contains("needs a new capture"))
     #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
     #expect(workspace.overlayStatus(for: .penCap).message == reason)
     #expect(camera.recordedPenCapColorRequests.isEmpty)

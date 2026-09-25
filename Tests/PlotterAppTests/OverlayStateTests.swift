@@ -19,7 +19,7 @@ struct OverlayStateTests {
       channels: OverlayResultChannels(), displayedFrame: frame, sceneState: running,
       sceneIsAvailable: true, workflowVisionIsExclusive: false, frozenSelectionIsActive: true)
     #expect(composition.statuses[.penCap]?.state == .waiting)
-    #expect(composition.statuses[.penCap]?.message.contains("landmark click") == true)
+    #expect(composition.statuses[.penCap]?.message.contains("pen cap click") == true)
     #expect(composition.overlays.isEmpty)
   }
 
@@ -41,18 +41,18 @@ struct OverlayStateTests {
   @Test("exactly two operator overlay preferences are retained without result cards")
   func exactGlobalControls() {
     #expect(UserSceneOverlay.allCases == [.penCap, .armatureEnvelope])
-    #expect(UserSceneOverlay.allCases.map(\.title) == ["Tracking reference", "Armature envelope"])
+    #expect(UserSceneOverlay.allCases.map(\.title) == ["Pen cap", "Armature envelope"])
   }
 
   @Test("frozen armature language never claims independent segmentation")
   func armatureGrammar() {
     #expect(
       OverlayStatusGrammar.armatureUnavailable(reason: "no threshold pixels")
-        == "Armature envelope unavailable because the tracking landmark was not found: no threshold pixels."
+        == "Armature envelope unavailable because the pen cap was not found: no threshold pixels."
     )
     #expect(
       OverlayStatusGrammar.armatureAvailable
-        == "Armature envelope available — inferred from the tracking landmark; not independently segmented."
+        == "Armature envelope available — inferred from the pen cap; not independently segmented."
     )
   }
 
