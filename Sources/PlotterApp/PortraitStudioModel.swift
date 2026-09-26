@@ -40,33 +40,9 @@ final class PortraitStudioModel {
   var vectorOptions = PortraitVectorOptions()
   let sketches: PortraitSketchCollection
   private(set) var completedCandidate: PortraitCandidate?
-  /// Stable style references belong to the source context, independently of the
-  /// currently authored drawing and its preference trajectory.
-  private var algorithmResults: [PortraitCandidate] = []
-  var algorithmCandidates: [PortraitCandidate] {
-    guard let context = comparisonContext, comparisonContextIsCurrent(context) else { return [] }
-    return algorithmResults.filter { !isDeletedAttempt($0) }
-  }
-  var selectedAlgorithm: PortraitStyle { style }
-  private(set) var isStyleComparisonExpanded = false
-  private(set) var isComparingAlgorithms = false
-  @ObservationIgnored private var pendingAlgorithms: [PendingRender] = []
-  @ObservationIgnored private var activeAlgorithm: PendingRender?
-  @ObservationIgnored private var activeAlgorithmWasCancelled = false
-  private struct ComparisonContextKey: Equatable, Sendable {
-    let photoID: UUID
-    let pose: PortraitPose
-    let analysis: PortraitAnalysisOptions
-    let material: PortraitMaterialContext?
-    let pen: StrokeStyle
-  }
-  private struct ComparisonContext: Sendable {
-    let id: UUID
-    let key: ComparisonContextKey
-    let vectors: PortraitVectorOptions
-    let lineage: PortraitCandidateLineage?
-  }
-  @ObservationIgnored private var comparisonContext: ComparisonContext?
+  @ObservationIgnored private var pendingRenders: [PendingRender] = []
+  @ObservationIgnored private var activeRender: PendingRender?
+  @ObservationIgnored private var activeRenderWasCancelled = false
   /// Exact last successful projection; gallery browsing cannot replace this association.
   private(set) var projectedCandidate: PortraitCandidate?
   private var recipeTitle: String?
@@ -156,13 +132,13 @@ final class PortraitStudioModel {
     let recipe: PortraitStyleRecipe
     let lineage: PortraitCandidateLineage?
     let ownsSource: Bool
-    var exploration: ExplorationJob? = nil
-    var comparisonID: UUID? = nil
+    var explorationID: UUID? = nil
+    var explorationCenter: DrawingProgram? = nil
   }
   private struct PreparedRender: Sendable {
     let result: PortraitRenderResult
     let candidate: PortraitCandidate
-    let geometry: PortraitExplorationPolicy.VisibleGeometry
+    let isDifferent: Bool
     let attempt: PortraitAttemptRecord
     let preparationSeconds: Double
   }
@@ -176,9 +152,12 @@ final class PortraitStudioModel {
       captureSessionID: pending.photo.captureSessionID, createdAt: pending.createdAt, lineage: pending.lineage,
       pose: pending.photo.pose, warpManifest: result.warpManifest)
     try Task.checkCancellation()
-    let geometry = PortraitExplorationPolicy.VisibleGeometry(candidate.program)
+    let isDifferent = pending.explorationCenter.map {
+      PortraitExplorationPolicy.VisibleGeometry(candidate.program)
+        .isMeaningfullyDifferent(from: PortraitExplorationPolicy.VisibleGeometry($0))
+    } ?? true
     let attempt = try PortraitAttemptRecord.prepare(candidate: candidate, pen: pending.key.strokeStyle)
-    return PreparedRender(result: result, candidate: candidate, geometry: geometry, attempt: attempt,
+    return PreparedRender(result: result, candidate: candidate, isDifferent: isDifferent, attempt: attempt,
       preparationSeconds: ProcessInfo.processInfo.systemUptime - started)
   }
 
@@ -293,10 +272,7 @@ final class PortraitStudioModel {
     acquisitionWorker?.cancel()
     renderRevision &+= 1
     renderWorker?.cancel()
-    pendingAlgorithms = []
-    algorithmResults = []
-    comparisonContext = nil
-    isComparingAlgorithms = false
+    pendingRenders = []
     requestedKey = nil
     isProcessing = false
     isCapturing = file == nil
@@ -318,7 +294,7 @@ final class PortraitStudioModel {
 
   private func drainWork() async {
     defer { workTask = nil }
-    while !isShutdown && (pendingAcquisition != nil || !pendingAlgorithms.isEmpty) {
+    while !isShutdown && (pendingAcquisition != nil || !pendingRenders.isEmpty) {
       await drainAcquisitions()
       await drainRenders()
     }
@@ -525,21 +501,17 @@ final class PortraitStudioModel {
     for source in sources { sketches.deleteSource(source) }
     recentPhotos.removeAll { photoIDs.contains($0.id) }
     for id in photoIDs { cache.remove(photoID: id) }
-    algorithmResults.removeAll { sources.contains($0.sourceSHA256) }
-    explorationHistory.removeAll { snapshot in
-      snapshot.round.slots.contains { $0.candidate.map { sources.contains($0.sourceSHA256) } == true }
-    }
-    pendingAlgorithms.removeAll { photoIDs.contains($0.photo.id) }
-    if let activeAlgorithm, photoIDs.contains(activeAlgorithm.photo.id) {
-      activeAlgorithmWasCancelled = true; renderWorker?.cancel()
+    explorationHistory.removeAll { sources.contains($0.candidate.sourceSHA256) }
+    forwardPortraits.removeAll { sources.contains($0.candidate.sourceSHA256) }
+    pendingRenders.removeAll { photoIDs.contains($0.photo.id) }
+    if let activeRender, photoIDs.contains(activeRender.photo.id) {
+      activeRenderWasCancelled = true; renderWorker?.cancel()
     }
     if let selectedPhotoID, photoIDs.contains(selectedPhotoID) {
       cancelExplorationWork()
-      explorationRound = nil
-      renderRevision &+= 1; pendingAlgorithms = []; activeAlgorithmWasCancelled = true; renderWorker?.cancel()
+      renderRevision &+= 1; pendingRenders = []; activeRenderWasCancelled = true; renderWorker?.cancel()
       completedCandidate = nil; completedKey = nil; requestedKey = nil; program = nil
       retainedEditSource = nil; self.selectedPhotoID = nil; isProcessing = false
-      comparisonContext = nil; isComparingAlgorithms = false
     }
   }
 
@@ -551,24 +523,6 @@ final class PortraitStudioModel {
       selectedPhotoID = recentPhotos.last?.id
       render(strokeStyle: strokeStyle)
     }
-  }
-
-  /// Select the immutable object displayed in the tile. No proposal or rerender
-  /// can change the result between choosing it and showing its adjustments.
-  func selectAlgorithm(_ algorithm: PortraitStyle, strokeStyle: StrokeStyle) {
-    guard !isShutdown, let candidate = algorithmCandidates.first(where: {
-      $0.recipe.style == algorithm
-    }), let key = algorithmKey(for: candidate), key.strokeStyle == strokeStyle else { return }
-    invalidateExploration()
-    cancelAuthoringWork()
-    installRecipe(candidate.recipe)
-    requestedKey = key
-    completedKey = key
-    completedCandidate = candidate
-    program = candidate.program
-    isProcessing = false
-    summary = "\(candidate.program.strokes.count) strokes"
-    beginExplorationIfNeeded()
   }
 
   func removeCaptureSession(_ id: UUID, strokeStyle: StrokeStyle) {
@@ -588,108 +542,39 @@ final class PortraitStudioModel {
     removeCaptureSession(sessionID, strokeStyle: strokeStyle)
   }
 
-  private func algorithmKey(for candidate: PortraitCandidate) -> PortraitRenderCacheKey? {
-    // Empty renderings still carry their requested pen in the comparison key.
-    guard let pen = comparisonContext?.key.pen else { return nil }
-    return .init(photoID: candidate.photoID,
-      configuration: .init(style: candidate.recipe.style,
-        vectors: candidate.recipe.vectorOptions.bounded, analysis: candidate.recipe.analysisOptions),
-      strokeStyle: pen)
-  }
-
-  private(set) var explorationRound: PortraitExplorationRound?
-  private(set) var explorationSearch = PortraitExplorationSearchState()
-  var explorationVariation: Double { explorationSearch.step }
-  var displayedExplorationRound: PortraitExplorationRound? {
-    let round = buildingExploration.map { explorationSnapshot($0, unfinishedReason: "Generating") } ?? explorationRound
-    guard let round, !isDeletedAttempt(round.center) else { return nil }
-    return .init(id: round.id, seed: round.seed, variation: round.variation, center: round.center,
-      slots: round.slots.map { slot in
-        if let candidate = slot.candidate, isDeletedAttempt(candidate) {
-          return .init(index: slot.index, candidate: nil, unavailableReason: "Attempt deleted")
-        }
-        return slot
-      })
-  }
-  var explorationDisplayID: UUID? { displayedExplorationRound?.id }
   private(set) var firstAlternativeSeconds: Double?
-  private(set) var alternativePairSeconds: Double?
   private(set) var lastHistoryNavigationSeconds: Double?
-  @ObservationIgnored private var explorationStartedAt: TimeInterval?
   var explorationRegion: PortraitTreatmentRegion? = nil {
     didSet {
       if explorationRegion != oldValue {
         forwardPortraits = []
-        cancelExplorationWork()
-        explorationRound = nil
+        cancelPortraitStep()
       }
     }
   }
-  private(set) var isExploring = false
-  private(set) var isExplorationEnabled = false
-  var canGoBackExploration: Bool {
-    explorationHistory.contains { !$0.round.slots.contains { $0.candidate.map { isDeletedAttempt($0) } == true } }
-  }
+  var isExploring: Bool { explorationJob != nil }
+  var canGoBackExploration: Bool { explorationHistory.contains { !isDeletedAttempt($0.candidate) } }
   @ObservationIgnored private var nextExplorationSeed: UInt64
-  @ObservationIgnored private var explorationPen: StrokeStyle?
-  @ObservationIgnored private var explorationHistory: [ExplorationSnapshot] = []
-  @ObservationIgnored private var explorationTrace: [PortraitExplorationRecord] = []
-  @ObservationIgnored private let explorationTraceSessionID = UUID()
-  @ObservationIgnored private var explorationTraceSequence: UInt64 = 0
-  @ObservationIgnored private var buildingExploration: ExplorationBuilder?
-  @ObservationIgnored private var geometryCache: [(String, PortraitExplorationPolicy.VisibleGeometry)] = []
+  private var explorationHistory: [(candidate: PortraitCandidate, pen: StrokeStyle)] = []
+  private var explorationJob: ExplorationJob?
   private(set) var explorationRejections: [String: Int] = [:]
-  private(set) var explorationPreviousOptionCount = 0
 
-  private func rememberGeometry(_ geometry: PortraitExplorationPolicy.VisibleGeometry, program: DrawingProgram) {
-    let key = program.contentHash.description
-    geometryCache.removeAll { $0.0 == key }
-    geometryCache.append((key, geometry))
-    if geometryCache.count > 64 { geometryCache.removeFirst() }
-  }
-
-  private func geometry(for candidate: PortraitCandidate) -> PortraitExplorationPolicy.VisibleGeometry {
-    if let retained = geometryCache.first(where: { $0.0 == candidate.program.contentHash.description }) { return retained.1 }
-    let value = PortraitExplorationPolicy.VisibleGeometry(candidate.program)
-    rememberGeometry(value, program: candidate.program)
-    return value
-  }
-
-  private func rejected(_ reason: PortraitExplorationPolicy.Rejection) {
-    explorationRejections[reason.rawValue, default: 0] += 1
-  }
-
-  private struct ExplorationJob: Sendable {
-    let roundID: UUID
-    let neighbor: Int
-    let attempt: Int
-  }
-  private struct ExplorationSnapshot {
-    let round: PortraitExplorationRound
-    let pen: StrokeStyle
-    let search: PortraitExplorationSearchState
-  }
-  private struct ExplorationBuilder {
-    let id: UUID
+  private struct ExplorationJob {
+    let id = UUID()
     let seed: UInt64
     let center: PortraitCandidate
     let photo: PortraitPhoto
     let pen: StrokeStyle
-    let variation: Double
-    let recipes: [[PortraitStyleRecipe]]
-    let previousChoices: [PortraitCandidate]
     let region: PortraitTreatmentRegion?
-    let singleStep: Bool
-    var slots: [Int: PortraitExplorationSlot] = [:]
-    var geometries: [PortraitExplorationPolicy.VisibleGeometry]
+    let startedAt = ProcessInfo.processInfo.systemUptime
+    var attempt = 0
     var configurations: Set<PortraitVectorOptions>
-    var pointCount: Int
   }
 
   func selectStudioMode(_ mode: PortraitStudioMode, strokeStyle: StrokeStyle) {
     guard !isShutdown, !isCapturing else { return }
     studioMode = mode
-    setExplorationEnabled(false, strokeStyle: strokeStyle)
+    cancelPortraitStep()
     if mode == .contour, style != .contours {
       let material = vectorOptions.materialContext
       style = .contours
@@ -700,36 +585,53 @@ final class PortraitStudioModel {
     }
   }
 
-  /// Navigation installs retained candidates synchronously; only an explicit
-  /// Next at the end of the trail requests a single bounded render search.
+  /// Retained navigation never renders. Only Next at the end requests work.
   func nextPortrait(strokeStyle: StrokeStyle) {
     guard !isShutdown, !isCapturing, !isProcessing, !isExploring,
       let current = selectedCandidate, let pen = completedKey?.strokeStyle, pen == strokeStyle else { return }
     forwardPortraits.removeAll { isDeletedAttempt($0.candidate) }
     if let next = forwardPortraits.popLast(), let pose = next.candidate.renderPose {
-      rememberExploration(singlePortraitSnapshot(current))
+      explorationHistory.append((current, pen))
+      trimHistory(&explorationHistory)
       installCandidateSource(next.candidate, pose: pose)
       installExplorationCandidate(next.candidate, pen: next.pen)
-      explorationRound = nil
       singlePortraitStatus = nil
       return
     }
-    explorationPen = pen
-    explorationRound = nil
+    guard PortraitStyle.authoringCases.contains(style), let photo = selectedSource,
+      photo.id == current.photoID else { return }
+    if explorationRegion != nil, (current.recipe.vectorOptions.regionalAdjustments?.count ?? 0) >= 8 {
+      singlePortraitStatus = "This attempt already has eight regional adjustments. Revisit an earlier attempt."
+      return
+    }
+    let seed = nextExplorationSeed
+    nextExplorationSeed &+= 1
     singlePortraitStatus = nil
-    beginExplorationIfNeeded(singleStep: true)
+    firstAlternativeSeconds = nil
+    explorationJob = .init(seed: seed, center: current, photo: photo, pen: pen,
+      region: explorationRegion,
+      configurations: [PortraitExplorationPolicy.effectiveOptions(current.recipe.vectorOptions, center: current)])
+    queueExplorationJob()
+    startWorkIfNeeded()
   }
 
   func previousPortrait() {
-    guard !isShutdown, !isCapturing, !isProcessing, canGoBackExploration,
+    guard !isShutdown, !isCapturing, !isProcessing,
       let current = selectedCandidate, let pen = completedKey?.strokeStyle else { return }
+    explorationHistory.removeAll { isDeletedAttempt($0.candidate) }
+    guard let previous = explorationHistory.popLast(), let pose = previous.candidate.renderPose else { return }
     forwardPortraits.append((current, pen))
-    while forwardPortraits.count > PortraitExplorationPolicy.maximumHistoryRounds
-      || forwardPortraits.reduce(0, { $0 + PortraitExplorationPolicy.pointCount($1.candidate) }) > PortraitExplorationPolicy.maximumHistoryPoints {
-      forwardPortraits.removeFirst()
+    trimHistory(&forwardPortraits)
+    cancelPortraitStep()
+    installCandidateSource(previous.candidate, pose: pose)
+    installExplorationCandidate(previous.candidate, pen: previous.pen)
+  }
+
+  private func trimHistory(_ history: inout [(candidate: PortraitCandidate, pen: StrokeStyle)]) {
+    while history.count > PortraitExplorationPolicy.maximumHistoryRounds
+      || history.reduce(0, { $0 + PortraitExplorationPolicy.pointCount($1.candidate) }) > PortraitExplorationPolicy.maximumHistoryPoints {
+      history.removeFirst()
     }
-    goBackExploration()
-    singlePortraitStatus = nil
   }
 
   func cancelPortraitStep() {
@@ -737,310 +639,111 @@ final class PortraitStudioModel {
     singlePortraitStatus = nil
   }
 
-  private func singlePortraitSnapshot(_ candidate: PortraitCandidate) -> PortraitExplorationRound {
-    .init(id: UUID(), seed: nextExplorationSeed, variation: explorationVariation, center: candidate,
-      slots: (0..<PortraitExplorationPolicy.slotCount).map { index in
-        .init(index: index, candidate: index == PortraitExplorationPolicy.centerIndex ? candidate : nil,
-          unavailableReason: index == PortraitExplorationPolicy.centerIndex ? nil : "Not requested")
-      })
-  }
-
-  func setExplorationEnabled(_ enabled: Bool, strokeStyle: StrokeStyle) {
-    guard !isShutdown else { return }
-    isExplorationEnabled = enabled
-    if enabled {
-      renderIfConfigurationChanged(strokeStyle: strokeStyle)
-      beginExplorationIfNeeded()
-    } else { cancelExplorationWork() }
-  }
-
-  func chooseExplorationSlot(_ index: Int, roundID: UUID, strokeStyle: StrokeStyle) {
-    guard !isShutdown, !isCapturing, currentProgram != nil else { return }
-    guard let round = displayedExplorationRound, round.id == roundID,
-      completedCandidate?.id == round.center.id,
-      let candidate = round.slots.first(where: { $0.index == index })?.candidate, !isDeletedAttempt(candidate),
-      let pen = explorationPen else { return }
-    if isExploring && index == PortraitExplorationPolicy.centerIndex { return }
-    recordExploration(round, action: .selected(index: index))
-    rememberExploration(round)
-    cancelExplorationWork()
-    explorationRound = nil
-    installExplorationCandidate(candidate, pen: pen)
-    beginExplorationIfNeeded()
-  }
-
-  func resampleExploration(roundID: UUID, strokeStyle: StrokeStyle) {
-    guard !isShutdown, !isCapturing, !isExploring, let round = explorationRound,
-      round.id == roundID else { return }
-    rememberExploration(round)
-    if round.slots.contains(where: { $0.index != PortraitExplorationPolicy.centerIndex && ($0.candidate == nil || $0.isPrevious) }) {
-      explorationSearch.direction = nil
-    }
-    explorationRound = nil
-    beginExplorationIfNeeded()
-  }
-
-  func goBackExploration() {
-    guard !isShutdown else { return }
-    explorationHistory.removeAll { $0.round.slots.contains { $0.candidate.map { isDeletedAttempt($0) } == true } }
-    guard let previous = explorationHistory.popLast(), let pose = previous.round.center.renderPose else { return }
-    cancelExplorationWork()
-    installCandidateSource(previous.round.center, pose: pose)
-    explorationSearch = previous.search
-    explorationPen = previous.pen
-    installExplorationCandidate(previous.round.center, pen: previous.pen)
-    explorationRound = previous.round
-    recordExploration(previous.round, action: .back)
-  }
-
   private func installExplorationCandidate(_ candidate: PortraitCandidate, pen: StrokeStyle) {
     guard !isDeletedAttempt(candidate) else { return }
-    // Alternative algorithms are tied to their exact configuration. They may
-    // finish independently, but cannot overwrite the selected recipe/program.
+    cancelAuthoringWork()
     installRecipe(candidate.recipe)
     let key = PortraitRenderCacheKey(photoID: candidate.photoID,
       configuration: renderConfiguration, strokeStyle: pen)
     requestedKey = key; completedKey = key; completedCandidate = candidate
     program = candidate.program; isProcessing = false; authoringError = nil
-    cancelAuthoringWork()
     summary = "\(candidate.program.strokes.count) strokes"
   }
 
-  /// A trajectory change owns only the authored drawing. Style reference jobs
-  /// retain their independent context and their place in the same serial drain.
   private func cancelAuthoringWork() {
-    pendingAlgorithms.removeAll { $0.exploration == nil && $0.comparisonID == nil }
-    if let activeAlgorithm, activeAlgorithm.exploration == nil, activeAlgorithm.comparisonID == nil {
-      activeAlgorithmWasCancelled = true
+    pendingRenders.removeAll { $0.explorationID == nil }
+    if let activeRender, activeRender.explorationID == nil {
+      activeRenderWasCancelled = true
       renderWorker?.cancel()
     }
   }
 
-  private func beginExplorationIfNeeded(singleStep: Bool = false) {
-    guard (isExplorationEnabled || singleStep), !isShutdown, !isExploring, explorationRound == nil,
-      PortraitStyle.authoringCases.contains(style),
-      let center = completedCandidate, currentProgram != nil,
-      let key = completedKey, let photo = selectedSource,
-      photo.id == center.photoID else { return }
-    if explorationRegion != nil, (center.recipe.vectorOptions.regionalAdjustments?.count ?? 0) >= 8 {
-      authoringError = "This attempt already has eight regional adjustments. Revisit an earlier attempt to start another branch."
+  private func queueExplorationJob(recipeOverride: PortraitStyleRecipe? = nil,
+    failure: String = "No useful new change. Current is still available.") {
+    guard var job = explorationJob else { return }
+    guard job.attempt < PortraitExplorationPolicy.maximumAttemptsPerSlot else {
+      explorationJob = nil
+      singlePortraitStatus = failure
       return
     }
-    let seed = nextExplorationSeed
-    explorationStartedAt = ProcessInfo.processInfo.systemUptime
-    Self.logger.info("Alternative round started seed=\(seed) region=\(self.explorationRegion?.rawValue ?? "Whole drawing", privacy: .public)")
-    firstAlternativeSeconds = nil
-    alternativePairSeconds = nil
-    nextExplorationSeed &+= 1
-    let builder = ExplorationBuilder(id: UUID(), seed: seed, center: center, photo: photo,
-      pen: key.strokeStyle, variation: explorationVariation,
-      recipes: explorationRecipes(around: center, seed: seed),
-      previousChoices: !singleStep && explorationRegion == nil ? previousChoices(for: center) : [],
-      region: explorationRegion, singleStep: singleStep,
-      geometries: [geometry(for: center)],
-      configurations: [PortraitExplorationPolicy.effectiveOptions(center.recipe.vectorOptions, center: center)],
-      pointCount: PortraitExplorationPolicy.pointCount(center))
-    explorationPen = key.strokeStyle
-    buildingExploration = builder
-    isExploring = true
-    if singleStep {
-      // Keep the historical receipt shape, but spend work on only one direction.
-      let neighbor = Int(seed % UInt64(PortraitExplorationPolicy.neighborIndices.count))
-      for other in PortraitExplorationPolicy.neighborIndices.indices where other != neighbor {
-        let index = PortraitExplorationPolicy.neighborIndices[other]
-        buildingExploration?.slots[index] = .init(index: index, candidate: nil, unavailableReason: "Not requested")
-      }
-      queueExplorationJob(roundID: builder.id, neighbor: neighbor, attempt: 0)
+    let recipe: PortraitStyleRecipe
+    if let recipeOverride { recipe = recipeOverride }
+    else if let region = job.region {
+      let neighbor = Int(job.seed % 2)
+      var vectors = job.center.recipe.vectorOptions
+      var treatment = PortraitRegionalParameters()
+      treatment.scope = region
+      treatment.featureProtection = neighbor == 0 ? 0.85 : 0.35
+      treatment.skinSuppression = neighbor == 0 ? 0.7 : 0.25
+      treatment.contourEmphasis = job.attempt == 0 ? (neighbor == 0 ? 0.25 : 0.65) : (neighbor == 0 ? 0.5 : 0.9)
+      treatment.angularity = neighbor == 0 ? 0 : 0.65
+      treatment.shadowStrength = neighbor == 0 ? 0 : (job.attempt == 0 ? 0.5 : 0.8)
+      vectors.regionalAdjustments = (vectors.regionalAdjustments ?? []) + [treatment]
+      recipe = .init(id: "region-\(region.rawValue)-\(job.seed)-\(job.attempt)",
+        title: "\(region.rawValue) treatment", seed: job.seed, style: job.center.recipe.style,
+        vectorOptions: vectors, analysisOptions: job.center.recipe.analysisOptions)
     } else {
-      for neighbor in PortraitExplorationPolicy.neighborIndices.indices { queueExplorationJob(roundID: builder.id, neighbor: neighbor, attempt: 0) }
+      recipe = PortraitExplorationPolicy.recipe(around: job.center, seed: job.seed)
     }
-    trimExplorationHistory()
-    if !pendingAlgorithms.isEmpty { startWorkIfNeeded() }
-  }
-
-  private func explorationRecipes(around center: PortraitCandidate, seed: UInt64) -> [[PortraitStyleRecipe]] {
-    guard let region = explorationRegion else {
-      return PortraitExplorationPolicy.recipes(around: center, variation: explorationVariation,
-        seed: seed, direction: nil)
-    }
-    return (0..<2).map { neighbor in
-      (0..<PortraitExplorationPolicy.maximumAttemptsPerSlot).map { attempt in
-        var vectors = center.recipe.vectorOptions
-        var treatment = PortraitRegionalParameters()
-        treatment.scope = region
-        treatment.featureProtection = neighbor == 0 ? 0.85 : 0.35
-        treatment.skinSuppression = neighbor == 0 ? 0.7 : 0.25
-        treatment.contourEmphasis = neighbor == 0 ? 0.25 : 0.65
-        treatment.angularity = neighbor == 0 ? 0 : 0.65
-        treatment.shadowStrength = neighbor == 0 ? 0 : (attempt == 0 ? 0.5 : 0.8)
-        if attempt > 0 { treatment.contourEmphasis = neighbor == 0 ? 0.5 : 0.9 }
-        vectors.regionalAdjustments = (vectors.regionalAdjustments ?? []) + [treatment]
-        return PortraitStyleRecipe(id: "region-\(region.rawValue)-\(seed)-\(neighbor)-\(attempt)",
-          title: "\(region.rawValue) treatment", seed: seed, style: center.recipe.style,
-          vectorOptions: vectors, analysisOptions: center.recipe.analysisOptions)
-      }
-    }
-  }
-
-  private func previousChoices(for center: PortraitCandidate) -> [PortraitCandidate] {
-    var seen = Set<String>(), choices: [PortraitCandidate] = []
-    let rejectedIdentities = sketches.rejectedProposalIdentities
-    for snapshot in explorationHistory.reversed() {
-      for candidate in [snapshot.round.center] + snapshot.round.slots.compactMap(\.candidate) {
-        guard !isDeletedAttempt(candidate), !isRejectedAttempt(candidate, identities: rejectedIdentities),
-          candidate.id != center.id, candidate.sourceSHA256 == center.sourceSHA256,
-          candidate.rasterSHA256 == center.rasterSHA256, candidate.recipe.style == center.recipe.style,
-          candidate.recipe.analysisOptions == center.recipe.analysisOptions,
-          candidate.recipe.vectorOptions.materialContext == center.recipe.vectorOptions.materialContext,
-          seen.insert(candidate.program.contentHash.description).inserted else { continue }
-        choices.append(candidate)
-        if choices.count == 6 { return choices }
-      }
-    }
-    return choices
-  }
-
-  private func settleMissingOption(roundID: UUID, neighbor: Int, reason: String,
-    failureKind: PortraitExplorationSlot.FailureKind = .searchExhausted) {
-    guard var builder = buildingExploration, builder.id == roundID else { return }
-    let index = PortraitExplorationPolicy.neighborIndices[neighbor]
-    for candidate in builder.previousChoices {
-      guard !isDeletedAttempt(candidate), !isRejectedAttempt(candidate, identities: sketches.rejectedProposalIdentities) else { continue }
-      let footprint = geometry(for: candidate)
-      let points = PortraitExplorationPolicy.pointCount(candidate)
-      guard builder.pointCount + points <= PortraitExplorationPolicy.maximumRoundPoints,
-        builder.geometries.allSatisfy({ footprint.isMeaningfullyDifferent(from: $0) }) else { continue }
-      builder.geometries.append(footprint)
-      builder.pointCount += points
-      builder.slots[index] = .init(index: index, candidate: candidate, unavailableReason: nil, isPrevious: true)
-      explorationPreviousOptionCount += 1
-      buildingExploration = builder
-      recordFirstAlternativeTiming()
-      settleExplorationIfReady()
+    let identity = try? PortraitAttemptRecord.proposalIdentity(
+      sourceSHA256: job.center.sourceSHA256, sourcePixelExtent: job.photo.sourcePixelExtent,
+      pose: job.photo.pose, recipe: recipe, pen: job.pen)
+    if let identity, sketches.rejectedProposalIdentities.contains(identity) {
+      retryExploration(recipe, rejection: .rejectedAttempt,
+        failure: "This exact treatment was rejected. Try Next again.")
       return
     }
-    builder.slots[index] = .init(index: index, candidate: nil, unavailableReason: reason, failureKind: failureKind)
-    buildingExploration = builder
-    settleExplorationIfReady()
-  }
-
-  private func queueExplorationJob(roundID: UUID, neighbor: Int, attempt: Int,
-    recipeOverride: PortraitStyleRecipe? = nil, failureReason: String? = nil,
-    failureKind: PortraitExplorationSlot.FailureKind = .searchExhausted) {
-    guard var builder = buildingExploration, builder.id == roundID else { return }
-    guard attempt < PortraitExplorationPolicy.maximumAttemptsPerSlot else {
-      settleMissingOption(roundID: roundID, neighbor: neighbor,
-        reason: failureReason ?? "No useful new change. Current is still available.", failureKind: failureKind)
+    let effective = PortraitExplorationPolicy.effectiveOptions(recipe.vectorOptions, center: job.center)
+    guard job.configurations.insert(effective).inserted else {
+      retryExploration(recipe, rejection: .duplicateConfiguration, failure: failure)
       return
     }
-    let recipe = recipeOverride ?? builder.recipes[neighbor][attempt]
-    let proposalIdentity = try? PortraitAttemptRecord.proposalIdentity(
-      sourceSHA256: builder.center.sourceSHA256, sourcePixelExtent: builder.photo.sourcePixelExtent,
-      pose: builder.photo.pose, recipe: recipe, pen: builder.pen)
-    if let proposalIdentity, sketches.rejectedProposalIdentities.contains(proposalIdentity) {
-      rejected(.rejectedAttempt)
-      queueExplorationJob(roundID: roundID, neighbor: neighbor, attempt: attempt + 1,
-        failureReason: "This exact treatment was rejected. Try New options.")
-      return
-    }
-    let effective = PortraitExplorationPolicy.effectiveOptions(recipe.vectorOptions, center: builder.center)
-    guard builder.configurations.insert(effective).inserted else {
-      rejected(.duplicateConfiguration)
-      let recovery = builder.region != nil ? builder.recipes[neighbor][min(attempt + 1, PortraitExplorationPolicy.maximumAttemptsPerSlot - 1)] : PortraitExplorationPolicy.recoveryRecipe(around: builder.center, failed: recipe,
-        rejection: .duplicateConfiguration, neighbor: neighbor, seed: builder.seed, variation: builder.variation,
-        excluding: builder.configurations)
-      queueExplorationJob(roundID: roundID, neighbor: neighbor, attempt: attempt + 1, recipeOverride: recovery,
-        failureReason: failureReason, failureKind: failureKind)
-      return
-    }
-    buildingExploration = builder
-    let key = PortraitRenderCacheKey(photoID: builder.photo.id,
+    explorationJob = job
+    let key = PortraitRenderCacheKey(photoID: job.photo.id,
       configuration: .init(style: recipe.style, vectors: recipe.vectorOptions, analysis: recipe.analysisOptions),
-      strokeStyle: builder.pen)
-    let pending = PendingRender(revision: renderRevision, key: key,
-      request: .init(data: builder.photo.data, pose: builder.photo.pose, style: recipe.style,
-        options: recipe.analysisOptions, cachedRaster: builder.center.raster,
-        strokeStyle: builder.pen, vectorOptions: recipe.vectorOptions,
-        sourcePixelExtent: builder.photo.sourcePixelExtent),
-      photo: builder.photo, recipe: recipe,
-      lineage: .init(parentID: builder.center.id, parentProgramHash: builder.center.program.contentHash.description,
-        parentRecipe: builder.center.recipe, ancestryGroupID: builder.center.lineage.ancestryGroupID),
-      ownsSource: retainedEditSource?.id == builder.photo.id,
-      exploration: .init(roundID: roundID, neighbor: neighbor, attempt: attempt))
-    // Current-choice feedback precedes queued style thumbnails. Cache hits
-    // retain the same serial offer order; an active worker is never interrupted.
-    let insertion = pendingAlgorithms.firstIndex { $0.exploration == nil && $0.key != requestedKey }
-      ?? pendingAlgorithms.endIndex
-    pendingAlgorithms.insert(pending, at: insertion)
+      strokeStyle: job.pen)
+    pendingRenders.append(PendingRender(revision: renderRevision, key: key,
+      request: .init(data: job.photo.data, pose: job.photo.pose, style: recipe.style,
+        options: recipe.analysisOptions, cachedRaster: job.center.raster,
+        strokeStyle: job.pen, vectorOptions: recipe.vectorOptions, sourcePixelExtent: job.photo.sourcePixelExtent),
+      photo: job.photo, recipe: recipe,
+      lineage: .init(parentID: job.center.id, parentProgramHash: job.center.program.contentHash.description,
+        parentRecipe: job.center.recipe, ancestryGroupID: job.center.lineage.ancestryGroupID),
+      ownsSource: retainedEditSource?.id == job.photo.id, explorationID: job.id,
+      explorationCenter: job.center.program))
   }
 
-  private func finishExplorationJob(_ job: ExplorationJob, pending: PendingRender,
-    result: PortraitRenderResult?, error: Error?, preparedResult: PreparedRender? = nil) async {
-    guard buildingExploration?.id == job.roundID else { return }
-    let index = PortraitExplorationPolicy.neighborIndices[job.neighbor]
-    var failure = error?.localizedDescription ?? "No useful new change. Current is still available."
-    var rejection: PortraitExplorationPolicy.Rejection = error == nil ? .similarGeometry : .renderFailure
-    if let drawingError = error as? PortraitDrawingError, case .noLines = drawingError { rejection = .noLines }
-    if let result {
-      do {
-        // Source/raster hashing and preview occupancy are joined off the main
-        // actor. The serial drain still owns publication and waits for settlement.
-        let prepared: PreparedRender
-        if let preparedResult { prepared = preparedResult }
-        else { prepared = try await Task.detached(priority: .userInitiated) {
-          try Self.prepare(result, pending: pending)
-        }.value }
-        guard var builder = buildingExploration, builder.id == job.roundID else { return }
-        let candidate = prepared.candidate, footprint = prepared.geometry
-        rememberGeometry(footprint, program: candidate.program)
-        if !builder.singleStep { sketches.recordAttempt(candidate, record: prepared.attempt) }
-        let points = PortraitExplorationPolicy.pointCount(candidate)
-        if builder.pointCount + points > PortraitExplorationPolicy.maximumRoundPoints {
-          failure = "Drawing exceeds the comparison detail budget."
-          rejection = .detailBudget
-        } else if builder.geometries.allSatisfy({ footprint.isMeaningfullyDifferent(from: $0) }) {
-          if builder.singleStep { sketches.recordAttempt(candidate, record: prepared.attempt) }
-          builder.geometries.append(footprint)
-          builder.pointCount += points
-          builder.slots[index] = .init(index: index, candidate: candidate, unavailableReason: nil)
-          buildingExploration = builder
-          recordFirstAlternativeTiming()
-          trimExplorationHistory()
-          settleExplorationIfReady()
-          return
-        }
-      } catch { failure = error.localizedDescription; rejection = .renderFailure }
-    }
-    guard let builder = buildingExploration, builder.id == job.roundID else { return }
-    rejected(rejection)
-    if job.attempt + 1 == PortraitExplorationPolicy.maximumAttemptsPerSlot {
-      settleMissingOption(roundID: job.roundID, neighbor: job.neighbor, reason: failure,
-        failureKind: rejection == .renderFailure ? .generationFailed : .searchExhausted)
+  private func retryExploration(_ recipe: PortraitStyleRecipe, rejection: PortraitExplorationPolicy.Rejection,
+    failure: String) {
+    guard var job = explorationJob else { return }
+    explorationRejections[rejection.rawValue, default: 0] += 1
+    job.attempt += 1
+    explorationJob = job
+    let recovery = job.region == nil && job.attempt < PortraitExplorationPolicy.maximumAttemptsPerSlot
+      ? PortraitExplorationPolicy.recoveryRecipe(around: job.center, failed: recipe,
+          rejection: rejection, neighbor: Int(job.seed % 2), seed: job.seed, variation: 0.35,
+          excluding: job.configurations) : nil
+    queueExplorationJob(recipeOverride: recovery, failure: failure)
+  }
+
+  private func finishExplorationJob(_ prepared: PreparedRender, pending: PendingRender) {
+    guard let job = explorationJob, job.id == pending.explorationID else { return }
+    let candidate = prepared.candidate
+    if PortraitExplorationPolicy.pointCount(candidate) + PortraitExplorationPolicy.pointCount(job.center)
+      > PortraitExplorationPolicy.maximumRoundPoints {
+      retryExploration(pending.recipe, rejection: .detailBudget, failure: "Drawing exceeds the detail budget.")
+    } else if !prepared.isDifferent {
+      retryExploration(pending.recipe, rejection: .similarGeometry,
+        failure: "No useful new change. Current is still available.")
     } else {
-      let recipe = builder.region != nil ? builder.recipes[job.neighbor][job.attempt + 1] : PortraitExplorationPolicy.recoveryRecipe(around: builder.center, failed: pending.recipe,
-        rejection: rejection, neighbor: job.neighbor, seed: builder.seed, variation: builder.variation,
-        excluding: builder.configurations)
-      queueExplorationJob(roundID: job.roundID, neighbor: job.neighbor, attempt: job.attempt + 1, recipeOverride: recipe,
-        failureReason: failure, failureKind: rejection == .renderFailure ? .generationFailed : .searchExhausted)
+      sketches.recordAttempt(candidate, record: prepared.attempt)
+      explorationHistory.append((job.center, job.pen))
+      trimHistory(&explorationHistory)
+      explorationJob = nil
+      installExplorationCandidate(candidate, pen: job.pen)
+      firstAlternativeSeconds = ProcessInfo.processInfo.systemUptime - job.startedAt
+      singlePortraitStatus = nil
     }
-  }
-
-  private func explorationSnapshot(_ builder: ExplorationBuilder,
-    unfinishedReason: String = "No visibly different option. Try New options.") -> PortraitExplorationRound {
-    let slots = (0..<PortraitExplorationPolicy.slotCount).map { index in
-      index == PortraitExplorationPolicy.centerIndex
-        ? PortraitExplorationSlot(index: index, candidate: builder.center, unavailableReason: nil)
-        : (builder.slots[index] ?? .init(index: index, candidate: nil, unavailableReason: unfinishedReason))
-    }
-    return PortraitExplorationRound(id: builder.id, seed: builder.seed,
-      variation: builder.variation, center: builder.center, slots: slots)
-  }
-
-  private func recordFirstAlternativeTiming() {
-    guard firstAlternativeSeconds == nil, let started = explorationStartedAt else { return }
-    let elapsed = ProcessInfo.processInfo.systemUptime - started
-    firstAlternativeSeconds = elapsed
-    Self.logger.info("First alternative published elapsed_ms=\(elapsed * 1000)")
   }
 
   private func isDeletedAttempt(_ candidate: PortraitCandidate) -> Bool {
@@ -1053,83 +756,11 @@ final class PortraitStudioModel {
       .reasons.contains { $0.createdAt > latest } != true
   }
 
-  private func isRejectedAttempt(_ candidate: PortraitCandidate, identities: Set<String>) -> Bool {
-    guard let record = sketches.entries.first(where: { $0.id == candidate.id })?.attempt else { return false }
-    return identities.contains(record.proposalIdentity)
-  }
-
-  private func settleExplorationIfReady() {
-    guard let builder = buildingExploration,
-      builder.slots.count == PortraitExplorationPolicy.neighborIndices.count else { return }
-    let round = explorationSnapshot(builder)
-    buildingExploration = nil
-    explorationRound = round
-    isExploring = false
-    if let started = explorationStartedAt {
-      let elapsed = ProcessInfo.processInfo.systemUptime - started
-      let available = builder.slots.values.filter { $0.candidate != nil }.count
-      alternativePairSeconds = available == 2 ? elapsed : nil
-      Self.logger.info("Alternative round settled seed=\(builder.seed) ready=\(available) elapsed_ms=\(elapsed * 1000)")
-    }
-    recordExploration(round, action: .offered)
-    if builder.singleStep {
-      if let slot = round.slots.first(where: { $0.index != PortraitExplorationPolicy.centerIndex && $0.candidate != nil }),
-        let candidate = slot.candidate {
-        rememberExploration(round)
-        recordExploration(round, action: .selected(index: slot.index))
-        explorationRound = nil
-        installExplorationCandidate(candidate, pen: builder.pen)
-        singlePortraitStatus = nil
-      } else {
-        singlePortraitStatus = round.slots.first { $0.failureKind != nil }?.unavailableReason
-          ?? "No useful new variation. Try Next again."
-        explorationRound = nil
-      }
-    }
-    trimExplorationHistory()
-  }
-
-  private func rememberExploration(_ round: PortraitExplorationRound) {
-    guard let pen = explorationPen else { return }
-    explorationHistory.append(.init(round: round, pen: pen, search: explorationSearch))
-    trimExplorationHistory()
-  }
-
-  private func trimExplorationHistory() {
-    func points() -> Int {
-      var seen = Set<String>()
-      let rounds = explorationHistory.map(\.round) + (explorationRound.map { [$0] } ?? [])
-      return rounds.flatMap(\.slots).compactMap(\.candidate).reduce(0) { count, candidate in
-        count + (seen.insert(candidate.id).inserted ? PortraitExplorationPolicy.pointCount(candidate) : 0)
-      } + (buildingExploration?.pointCount ?? 0)
-    }
-    while explorationHistory.count > PortraitExplorationPolicy.maximumHistoryRounds
-      || (!explorationHistory.isEmpty && points() > PortraitExplorationPolicy.maximumHistoryPoints) {
-      explorationHistory.removeFirst()
-    }
-  }
-
-  private func recordExploration(_ round: PortraitExplorationRound, action: PortraitExplorationRecord.Action) {
-    explorationTrace.append(.init(round: round, action: action,
-      traceSessionID: explorationTraceSessionID, sequence: explorationTraceSequence))
-    explorationTraceSequence &+= 1
-    if explorationTrace.count > PortraitExplorationPolicy.maximumRecords {
-      explorationTrace.removeFirst(explorationTrace.count - PortraitExplorationPolicy.maximumRecords)
-    }
-  }
-
-  private func explorationRecords(for candidate: PortraitCandidate) -> [PortraitExplorationRecord]? {
-    let matching = explorationTrace.filter { $0.sourceSHA256 == candidate.sourceSHA256 }
-    guard matching.contains(where: { $0.offers.contains(where: { $0.candidateID == candidate.id }) }) else { return nil }
-    return matching
-  }
-
   private func cancelExplorationWork() {
-    buildingExploration = nil
-    isExploring = false
-    pendingAlgorithms.removeAll { $0.exploration != nil }
-    if activeAlgorithm?.exploration != nil {
-      activeAlgorithmWasCancelled = true
+    explorationJob = nil
+    pendingRenders.removeAll { $0.explorationID != nil }
+    if activeRender?.explorationID != nil {
+      activeRenderWasCancelled = true
       renderWorker?.cancel()
     }
   }
@@ -1138,139 +769,24 @@ final class PortraitStudioModel {
     forwardPortraits = []
     singlePortraitStatus = nil
     cancelExplorationWork()
-    explorationRound = nil
     explorationHistory = []
-    explorationSearch = PortraitExplorationSearchState()
-  }
-
-
-  private func comparisonContextIsCurrent(_ context: ComparisonContext) -> Bool {
-    context.key.photoID == selectedPhotoID && context.key.pose == selectedSource?.pose
-      && context.key.analysis == options && context.key.material == vectorOptions.materialContext
-  }
-
-  private func establishComparisonContext(photo: PortraitPhoto, pen: StrokeStyle,
-    lineage: PortraitCandidateLineage?) {
-    let key = ComparisonContextKey(photoID: photo.id, pose: photo.pose, analysis: options,
-      material: vectorOptions.materialContext, pen: pen)
-    guard comparisonContext?.key != key else { return }
-    comparisonContext = .init(id: UUID(), key: key, vectors: vectorOptions.bounded, lineage: lineage)
-    algorithmResults = []
-    pendingAlgorithms.removeAll { $0.comparisonID != nil }
-    if activeAlgorithm?.comparisonID != nil {
-      activeAlgorithmWasCancelled = true
-      renderWorker?.cancel()
-    }
   }
 
   private func workIsApplicable(_ pending: PendingRender) -> Bool {
     guard !isShutdown, pending.key.photoID == selectedPhotoID,
       pending.ownsSource || recentPhotos.contains(where: { $0.id == pending.key.photoID }) else { return false }
-    if let id = pending.comparisonID {
-      guard let context = comparisonContext, id == context.id,
-        comparisonContextIsCurrent(context) else { return false }
-      return isStyleComparisonExpanded
-    }
+    if let id = pending.explorationID, explorationJob?.id != id { return false }
     return pending.revision == renderRevision
   }
 
-  /// Folding cancels only unfinished style-reference demand. The selected drawing
-  /// and completed reference objects retain their own identities.
-  func setStyleComparisonExpanded(_ expanded: Bool, strokeStyle: StrokeStyle) {
-    guard !isShutdown, expanded != isStyleComparisonExpanded else { return }
-    isStyleComparisonExpanded = expanded
-    if expanded {
-      renderIfNeeded(strokeStyle: strokeStyle)
-      if let photo = selectedSource, requestedKey != nil {
-        if comparisonContext == nil {
-          let candidate = selectedCandidate
-          establishComparisonContext(photo: photo, pen: strokeStyle, lineage: candidate?.lineage)
-          if let candidate, completedKey?.strokeStyle == strokeStyle { algorithmResults = [candidate] }
-        }
-        queueAlgorithmComparison(photo: photo, strokeStyle: strokeStyle, exactRaster: nil, lineage: nil)
-      }
-    } else {
-      pendingAlgorithms.removeAll { $0.comparisonID != nil }
-      if let activeAlgorithm, activeAlgorithm.comparisonID != nil {
-        activeAlgorithmWasCancelled = true
-        renderWorker?.cancel()
-      }
-      updateComparisonProgress()
-    }
-  }
-
-  private func updateComparisonProgress() {
-    guard let context = comparisonContext else { isComparingAlgorithms = false; return }
-    isComparingAlgorithms = isStyleComparisonExpanded && (
-      pendingAlgorithms.contains { $0.comparisonID == context.id && workIsApplicable($0) }
-        || (activeAlgorithm.map { $0.comparisonID == context.id && workIsApplicable($0) } == true
-          && !activeAlgorithmWasCancelled))
-  }
-
-  private func queueAlgorithmComparison(photo: PortraitPhoto, strokeStyle: StrokeStyle,
-    exactRaster: PortraitRaster?, lineage: PortraitCandidateLineage?, includeSelected: Bool = false) {
-    guard let context = comparisonContext, comparisonContextIsCurrent(context),
-      context.key.pen == strokeStyle else { return }
-    func enqueue(_ algorithm: PortraitStyle, vectors: PortraitVectorOptions,
-      lineage: PortraitCandidateLineage?, comparisonID: UUID?) {
-      let recipe = PortraitStyleRecipe(id: "algorithm-\(algorithm.rawValue)",
-        title: comparisonID == nil ? (recipeTitle ?? algorithm.rawValue) : algorithm.rawValue, seed: 0, style: algorithm,
-        vectorOptions: vectors, analysisOptions: context.key.analysis)
-      let key = PortraitRenderCacheKey(photoID: photo.id,
-        configuration: .init(style: algorithm, vectors: vectors, analysis: recipe.analysisOptions),
-        strokeStyle: strokeStyle)
-      if comparisonID != nil, algorithmResults.contains(where: { algorithmKey(for: $0) == key }) { return }
-      func satisfiesRequest(_ pending: PendingRender) -> Bool {
-        pending.key == key && workIsApplicable(pending) && pending.lineage == lineage
-          && (comparisonID != nil || pending.comparisonID == nil)
-      }
-      if pendingAlgorithms.contains(where: satisfiesRequest)
-        || (activeAlgorithm.map(satisfiesRequest) == true
-          && !activeAlgorithmWasCancelled) { return }
-      let pending = PendingRender(revision: renderRevision, key: key,
-        request: .init(data: photo.data, pose: photo.pose, style: algorithm,
-          options: recipe.analysisOptions, cachedRaster: exactRaster.flatMap { raster in
-            PortraitImageAnalyzer.cachedRasterIsCompatible(raster, with: algorithm) ? raster : nil
-          }, strokeStyle: strokeStyle, vectorOptions: vectors, sourcePixelExtent: photo.sourcePixelExtent),
-        photo: photo, recipe: recipe, lineage: lineage,
-        ownsSource: retainedEditSource?.id == photo.id, comparisonID: comparisonID)
-      if comparisonID == nil { pendingAlgorithms.insert(pending, at: 0) }
-      else { pendingAlgorithms.append(pending) }
-    }
-    // Selected authoring can reproduce a retained legacy style. Automatically
-    // offered reference tiles are limited to current authoring algorithms.
-    if includeSelected { enqueue(style, vectors: vectorOptions.bounded, lineage: lineage, comparisonID: nil) }
-    if isStyleComparisonExpanded {
-      for algorithm in PortraitStyle.authoringCases {
-        enqueue(algorithm, vectors: context.vectors, lineage: context.lineage, comparisonID: context.id)
-      }
-    }
-    updateComparisonProgress()
-    if !pendingAlgorithms.isEmpty { startWorkIfNeeded() }
-  }
-
-  private func publishAlgorithm(_ prepared: PreparedRender, pending: PendingRender) {
-    let candidate = prepared.candidate
-    sketches.recordAttempt(candidate, record: prepared.attempt)
-    rememberGeometry(prepared.geometry, program: candidate.program)
-    if let context = comparisonContext, comparisonContextIsCurrent(context),
-      pending.key.strokeStyle == context.key.pen,
-      candidate.recipe.vectorOptions.bounded == context.vectors, pending.lineage == context.lineage,
-      !algorithmResults.contains(where: { $0.recipe.style == candidate.recipe.style }) {
-      algorithmResults.append(candidate)
-      algorithmResults.sort {
-        PortraitStyle.allCases.firstIndex(of: $0.recipe.style)!
-          < PortraitStyle.allCases.firstIndex(of: $1.recipe.style)!
-      }
-    }
-    if pending.comparisonID == nil, pending.revision == renderRevision, pending.key == requestedKey {
-      completedCandidate = candidate
-      completedKey = pending.key
-      program = prepared.result.program
-      summary = "\(candidate.program.strokes.count) strokes"
-      isProcessing = false
-      beginExplorationIfNeeded()
-    }
+  private func publishRender(_ prepared: PreparedRender, pending: PendingRender) {
+    guard pending.revision == renderRevision, pending.key == requestedKey else { return }
+    sketches.recordAttempt(prepared.candidate, record: prepared.attempt)
+    completedCandidate = prepared.candidate
+    completedKey = pending.key
+    program = prepared.result.program
+    summary = "\(prepared.candidate.program.strokes.count) strokes"
+    isProcessing = false
   }
 
   func render(strokeStyle: StrokeStyle, parent: PortraitCandidate? = nil,
@@ -1283,40 +799,40 @@ final class PortraitStudioModel {
     sketches.selectedID = nil
     renderRevision &+= 1
     cancelAuthoringWork()
-    if activeAlgorithm?.comparisonID != nil {
-      activeAlgorithmWasCancelled = true
-      renderWorker?.cancel()
-    }
     program = nil
     completedKey = nil
     requestedKey = nil
     guard let photo = selectedSource else {
-      comparisonContext = nil
-      algorithmResults = []
-      pendingAlgorithms = []
-      activeAlgorithmWasCancelled = true
+      pendingRenders = []
+      activeRenderWasCancelled = true
       renderWorker?.cancel()
       completedCandidate = nil
-      isComparingAlgorithms = false
       isProcessing = false
       summary = "Capture a portrait or choose a photo."
       return
     }
-    requestedKey = .init(photoID: photo.id, configuration: renderConfiguration, strokeStyle: strokeStyle)
+    let key = PortraitRenderCacheKey(photoID: photo.id, configuration: renderConfiguration, strokeStyle: strokeStyle)
+    requestedKey = key
     isProcessing = true
     let ancestor = parent ?? completedCandidate.flatMap { $0.photoID == photo.id ? $0 : nil }
     let lineage = ancestor.map { PortraitCandidateLineage(parentID: $0.id,
       parentProgramHash: $0.program.contentHash.description, parentRecipe: $0.recipe,
       ancestryGroupID: $0.lineage.ancestryGroupID) }
-    establishComparisonContext(photo: photo, pen: strokeStyle, lineage: lineage)
-    queueAlgorithmComparison(photo: photo, strokeStyle: strokeStyle,
-      exactRaster: exactRaster, lineage: lineage, includeSelected: true)
+    let recipe = PortraitStyleRecipe(id: "algorithm-\(style.rawValue)",
+      title: recipeTitle ?? style.rawValue, seed: 0, style: style,
+      vectorOptions: vectorOptions.bounded, analysisOptions: options)
+    pendingRenders.append(PendingRender(revision: renderRevision, key: key,
+      request: .init(data: photo.data, pose: photo.pose, style: style, options: options,
+        cachedRaster: exactRaster.flatMap { PortraitImageAnalyzer.cachedRasterIsCompatible($0, with: style) ? $0 : nil },
+        strokeStyle: strokeStyle, vectorOptions: recipe.vectorOptions, sourcePixelExtent: photo.sourcePixelExtent),
+      photo: photo, recipe: recipe, lineage: lineage, ownsSource: retainedEditSource?.id == photo.id))
+    startWorkIfNeeded()
   }
 
   private func drainRenders() async {
     while pendingAcquisition == nil, !isShutdown {
-      guard !pendingAlgorithms.isEmpty else { break }
-      let pending = pendingAlgorithms.removeFirst()
+      guard !pendingRenders.isEmpty else { break }
+      let pending = pendingRenders.removeFirst()
       guard workIsApplicable(pending) else { continue }
       let cachedResult = cache.result(for: pending.key)
       if cachedResult != nil { renderCacheHits += 1 }
@@ -1334,7 +850,7 @@ final class PortraitStudioModel {
       let renderer = renderer
       let workerStartedAt = ProcessInfo.processInfo.systemUptime
       let queueMS = (workerStartedAt - pending.queuedAt) * 1000
-      let roundID = pending.exploration?.roundID.uuidString ?? "selected-or-style"
+      let roundID = pending.explorationID?.uuidString ?? "selected"
       Self.logger.info("Render started source=\(pending.photo.id.uuidString, privacy: .public) round=\(roundID, privacy: .public) revision=\(pending.revision) style=\(pending.recipe.style.rawValue, privacy: .public) queue_ms=\(queueMS) result_cache=\(cachedResult != nil) source_cache=\(request.preparedSource != nil) raster_cache=\(request.cachedRaster != nil)")
       let worker = Task.detached(priority: .userInitiated) {
         try Task.checkCancellation()
@@ -1344,9 +860,8 @@ final class PortraitStudioModel {
         return try Self.prepare(result, pending: pending)
       }
       renderWorker = worker
-      activeAlgorithm = pending
-      activeAlgorithmWasCancelled = false
-      updateComparisonProgress()
+      activeRender = pending
+      activeRenderWasCancelled = false
       workerStarted()
       // Renderer diagnostics count actual calls; work diagnostics include
       // cached-result preparation as part of the same bounded worker lifecycle.
@@ -1363,38 +878,37 @@ final class PortraitStudioModel {
           renderDiagnostics.settledWorkerCount += 1
         }
         renderWorker = nil
-        activeAlgorithm = nil
-        activeAlgorithmWasCancelled = false
-        updateComparisonProgress()
+        activeRender = nil
+        activeRenderWasCancelled = false
       }
       do {
         let prepared = try await worker.value
         let result = prepared.result
-        guard !activeAlgorithmWasCancelled, workIsApplicable(pending) else { continue }
+        guard !activeRenderWasCancelled, workIsApplicable(pending) else { continue }
         let publicationStarted = ProcessInfo.processInfo.systemUptime
         cache.insert(result, for: pending.key)
-        if let job = pending.exploration {
-          await finishExplorationJob(job, pending: pending, result: result, error: nil, preparedResult: prepared)
-        } else {
-          publishAlgorithm(prepared, pending: pending)
-        }
+        if pending.explorationID != nil { finishExplorationJob(prepared, pending: pending) }
+        else { publishRender(prepared, pending: pending) }
         let stages = cachedResult == nil ? result.timings : nil
         let publicationMS = (ProcessInfo.processInfo.systemUptime - publicationStarted) * 1000
         let elapsedMS = (ProcessInfo.processInfo.systemUptime - pending.queuedAt) * 1000
         Self.logger.info("Render published source=\(pending.photo.id.uuidString, privacy: .public) round=\(roundID, privacy: .public) revision=\(pending.revision) source_ms=\(stages?.sourceMS ?? 0) crop_ms=\(stages?.cropMS ?? 0) flow_ms=\(stages?.flowMS ?? 0) vector_ms=\(stages?.vectorMS ?? 0) preparation_ms=\(prepared.preparationSeconds * 1000) publication_ms=\(publicationMS) total_ms=\(elapsedMS)")
       } catch {
-        guard !activeAlgorithmWasCancelled, workIsApplicable(pending) else { continue }
+        guard !activeRenderWasCancelled, workIsApplicable(pending) else { continue }
         if let failure = error as? PortraitPreparedRenderFailure {
           cache.insertSourcePreparation(failure.preparedSource, for: pending.photo.id)
         }
         let renderError = (error as? PortraitPreparedRenderFailure)?.underlyingError ?? error
         let elapsedMS = (ProcessInfo.processInfo.systemUptime - pending.queuedAt) * 1000
         Self.logger.info("Render failed source=\(pending.photo.id.uuidString, privacy: .public) round=\(roundID, privacy: .public) revision=\(pending.revision) total_ms=\(elapsedMS) reason=\(renderError.localizedDescription, privacy: .public)")
-        if let job = pending.exploration {
-          await finishExplorationJob(job, pending: pending, result: nil, error: renderError)
+        if pending.explorationID != nil {
+          let rejection: PortraitExplorationPolicy.Rejection
+          if let error = renderError as? PortraitDrawingError, case .noLines = error { rejection = .noLines }
+          else { rejection = .renderFailure }
+          retryExploration(pending.recipe, rejection: rejection, failure: renderError.localizedDescription)
           continue
         }
-        if pending.comparisonID == nil, pending.revision == renderRevision, pending.key == requestedKey {
+        if pending.revision == renderRevision, pending.key == requestedKey {
           if !(renderError is CancellationError) {
             summary = renderError.localizedDescription
             authoringError = renderError.localizedDescription
@@ -1408,7 +922,7 @@ final class PortraitStudioModel {
 
   /// Material adaptation owns its requested pen. Configuration callbacks do
   /// not replace that pen with the global nominal profile; actual pen changes
-  /// use renderIfNeeded to invalidate every algorithm result.
+  /// use renderIfNeeded to invalidate the current result.
   func renderIfConfigurationChanged(strokeStyle: StrokeStyle) {
     if requestedKey?.photoID == selectedPhotoID,
       requestedKey?.configuration == renderConfiguration { return }
@@ -1499,20 +1013,15 @@ final class PortraitStudioModel {
     pendingAcquisition = nil
     acquisitionWorker?.cancel()
     finishCapture()
-    if let round = displayedExplorationRound { rememberExploration(round) }
-    else if let current = selectedCandidate, current.id != candidate.id, let pen = completedKey?.strokeStyle {
-      explorationPen = pen
-      rememberExploration(singlePortraitSnapshot(current))
+    if let current = selectedCandidate, current.id != candidate.id, let pen = completedKey?.strokeStyle {
+      explorationHistory.append((current, pen))
+      trimHistory(&explorationHistory)
     }
     cancelExplorationWork()
     renderRevision &+= 1
-    pendingAlgorithms = []
-    activeAlgorithmWasCancelled = true
+    pendingRenders = []
+    activeRenderWasCancelled = true
     renderWorker?.cancel()
-    comparisonContext = nil
-    algorithmResults = []
-    isComparingAlgorithms = false
-    explorationRound = nil
     installCandidateSource(candidate, pose: pose)
     let pen = candidate.program.strokes.first?.style ?? strokeStyle
     installExplorationCandidate(candidate, pen: pen)
@@ -1521,45 +1030,22 @@ final class PortraitStudioModel {
     Self.logger.info("History selection installed elapsed_ms=\((self.lastHistoryNavigationSeconds ?? 0) * 1000) render_count=\(self.renderDiagnostics.startedWorkerCount)")
   }
 
-  func exploreSelection(strokeStyle: StrokeStyle) {
-    if let round = displayedExplorationRound { rememberExploration(round) }
-    cancelExplorationWork()
-    explorationRound = nil
-    beginExplorationIfNeeded()
-  }
-
   func clearUnkeptHistory() {
     forwardPortraits = []
     cancelExplorationWork()
     explorationHistory = []
-    explorationRound = nil
     let displayedID = selectedCandidate?.id
       ?? (completedCandidate?.photoID == selectedPhotoID ? completedCandidate?.id : nil)
     sketches.clearUnkeptHistory(preserving: displayedID)
-    algorithmResults.removeAll { isDeletedAttempt($0) }
   }
 
   func deleteAttempt(_ id: String) {
     forwardPortraits.removeAll { $0.candidate.id == id }
-    // A deleted offered object loses its selection capability immediately. Stop
-    // the current offer so a late worker cannot refill its deleted slot.
-    let round = displayedExplorationRound
-    if round?.slots.contains(where: { $0.candidate?.id == id }) == true {
-      cancelExplorationWork()
-      if let round, round.center.id != id {
-        explorationRound = .init(id: UUID(), seed: round.seed, variation: round.variation,
-          center: round.center, slots: round.slots.map { slot in
-            slot.candidate?.id == id
-              ? .init(index: slot.index, candidate: nil, unavailableReason: "Attempt deleted") : slot
-          })
-      } else { explorationRound = nil }
-    }
+    explorationHistory.removeAll { $0.candidate.id == id }
     if completedCandidate?.id == id {
-      cancelExplorationWork(); explorationRound = nil
+      cancelExplorationWork()
       completedCandidate = nil; completedKey = nil; requestedKey = nil; program = nil
     }
-    explorationHistory.removeAll { $0.round.slots.contains { $0.candidate?.id == id } }
-    algorithmResults.removeAll { $0.id == id }
     sketches.remove(id)
   }
 
@@ -1571,17 +1057,6 @@ final class PortraitStudioModel {
   var browserTimingSummary: String {
     func ms(_ value: Double?) -> String { value.map { String(format: "%.0f ms", $0 * 1000) } ?? "Not measured" }
     return "History selection install: \(ms(lastHistoryNavigationSeconds)). Next useful variation: \(ms(firstAlternativeSeconds)). Renderer calls: \(renderDiagnostics.startedWorkerCount). Selection timing excludes display painting. Variation timing includes queue wait and publication."
-  }
-
-  func applyPrototype(_ prototype: PortraitPrototypeRecipe, strokeStyle: StrokeStyle) {
-    guard !isShutdown else { return }
-    let parent = selectedCandidate
-    let recipe = prototype.recipe(analysisOptions: options)
-    installRecipe(recipe)
-    if let parent {
-      vectorOptions.materialContext = parent.recipe.vectorOptions.materialContext
-    }
-    render(strokeStyle: strokeStyle, parent: parent)
   }
 
   func saveStyle(name: String) {
@@ -1600,7 +1075,7 @@ final class PortraitStudioModel {
     guard let candidate = selectedCandidate else { return "Wait for the selected drawing to finish rendering." }
     let selection = sketches.selectedID
     defer { sketches.selectedID = selection }
-    return sketches.retain(candidate: candidate, reason: .shortlisted, exploration: explorationRecords(for: candidate))
+    return sketches.retain(candidate: candidate, reason: .shortlisted)
   }
 
   /// Capture the immutable candidate before crossing an asynchronous acceptance
@@ -1608,13 +1083,12 @@ final class PortraitStudioModel {
   func acceptProjection(_ candidate: PortraitCandidate,
     perform: () async -> String?) async -> String? {
     guard !isDeletedAttempt(candidate) else { return "This attempt was deleted. Select a retained attempt before handoff." }
-    let exploration = explorationRecords(for: candidate)
     if let error = await perform() { return error }
     guard !isDeletedAttempt(candidate) else { return "The accepted attempt was deleted while handoff was pending." }
     projectedCandidate = candidate
     let selection = sketches.selectedID
     defer { sketches.selectedID = selection }
-    return sketches.retain(candidate: candidate, reason: .projectionAccepted(acceptanceID: UUID()), exploration: exploration)
+    return sketches.retain(candidate: candidate, reason: .projectionAccepted(acceptanceID: UUID()))
   }
 
   /// Stop expensive work without discarding captured photos or the last
@@ -1631,20 +1105,15 @@ final class PortraitStudioModel {
     captureProgress = 0
     acquisitionWorker?.cancel()
     renderRevision &+= 1
-    pendingAlgorithms = []
-    isComparingAlgorithms = false
+    pendingRenders = []
     requestedKey = currentProgram == nil ? nil : completedKey
     isProcessing = false
-    // Reference work deliberately outlives authoring revisions. A global stop
-    // must invalidate its publication and reuse ownership explicitly as well.
-    activeAlgorithmWasCancelled = true
+    activeRenderWasCancelled = true
     renderWorker?.cancel()
     await workTask?.value
   }
 
   func awaitRendering() async { await workTask?.value }
-
-  func awaitExploration() async { await workTask?.value }
 
   func cameraDiagnostics() async -> CameraCaptureSnapshot { await camera.snapshot() }
 

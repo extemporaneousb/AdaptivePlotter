@@ -2321,32 +2321,21 @@ and comparison results. These values have no model-application, controller,
 readiness, or new persistence authority. Automatic batch execution and corrected
 physical holdout evaluation remain unfinished product work.
 
-`PortraitStudioModel` owns portrait capture, selected sources, bounded render caches,
-immutable candidates and sequential browsing. `PortraitStudioMode` chooses Contour
-or Explorer. `nextPortrait` restores an exact forward candidate or starts one bounded
-single-step search; `previousPortrait` restores the prior candidate and retains the
-forward payload. The existing exploration builder marks unrequested receipt slots
-without enqueuing work. It publishes one useful result and stops; unsuccessful
-similarity probes in this path never enter the durable attempt archive. Back/Forward
-retain bounded in-memory candidates, while durable history requires explicit cleanup.
-Source, revision and round checks still gate publication through the serial worker.
+`PortraitStudioModel` owns capture/import, selected sources, bounded caches and one
+serial acquisition/render drain. The one-canvas `PortraitStudioView` has optional
+adjustments and Photos/History popovers. Entering Contour or Explorer is idle;
+Next submits one seeded proposal with at most one retry. Back/Forward install exact
+candidates from bounded stacks. Edits abandon Forward. No comparison jobs, grid
+rounds, fallback pool or fitted preference state remain. Source/revision/request
+identity and cancellation settlement gate publication. Only useful completed
+results enter durable history; footprint comparison runs only for Next.
 
-`PortraitStudioView` has one `PortraitPlaneProgramPreview`, compact mode/navigation
-controls, an optional adjustment inspector, and secondary Photos/History popovers.
-`PortraitHistoryView` uses a virtualized text list filtered to the selected photo,
-with optional all-photo and kept-only filters. The three-choice grid, always-visible
-thumbnail history, prototype row and rendered algorithm tiles are removed. Source
-inspection, Save Style, Save Imagination, feedback and explicit Drawing handoff keep
-their existing owners. The default is tonal contours; historical recipes can still
-install their exact renderer. Exploring a retained recipe preserves its algorithm.
-
-The seeded generator varies applicable renderer settings or measured regional
-adjustments. Rejection identity binds source digest, source metric, pose, canonical
-recipe and material. No fitted preference checkpoint is loaded. Legacy three-slot
-and nine-slot trace shapes remain decodable independently of the single-canvas UI.
-Source preparation and crop caches retain their existing bounded identities and
-cancellation ownership. Studio remains separate from dock placement in
-`WorkbenchLayoutState`; pen/material and physical execution remain in Drawing.
+`PortraitExplorationPolicy` varies applicable parameters with material floors and
+rejects duplicates, empty results, excessive detail and visually indistinguishable
+geometry. This measures difference, not quality. Regional requests freeze their
+scope. `PortraitExplorationRecord` only validates historical three/nine-slot archive
+receipts; current authoring does not produce or merge them. Studio remains separate
+from `WorkbenchLayoutState` dock placement and Drawing execution.
 
 The workspace caches the canonical `SparseTipBatchMarkPlan` for execution and
 planned video guides. `CameraOverlayKind.calibrationGuide` distinguishes those
@@ -2411,175 +2400,72 @@ publication recovery retains the same original bytes. Draft paper applicability
 uses preview source/configuration plus optical metadata without requiring a
 materialized content hash; exact evidence requests still require sealed pixels.
 
-`PortraitSketchCollection` remains the candidate archive owner. `PortraitAttemptRecord`
-adds a retained PNG thumbnail, proposal identity, change cue and append-only feedback
-revisions to completed applicable candidates. Automatic attempts have no saved-library
-qualification reason; `sketches` exposes qualified saved/projected entries, while
-`attempts` exposes history. `PortraitSavedStyle` stores a named reusable recipe in
-that same archive. Save and projection retain source bytes, exact raster, recipe,
-immutable program and provenance without switching editor modes. Explicit save/handoff also carries a bounded optional
-exploration trace on the retained entry through the same checksummed archive owner;
-legacy entries without it remain readable. Offered recipes/identities, seed, variation
-and choices are provenance only, with no learned-model authority. Archive candidate/source tombstones and immutable
-historical labels remain intact. Historical training contracts and decoding are
-separate from the current authoring UI; obsolete rating/training views remain deleted;
-the current single-portrait browser has no dependency on their historical exploration/training owners. `PortraitPlaneProgramPreview`
-remains the production interactive vector preview. `PortraitAttemptThumbnail` draws a
-small raster once on the worker for retained attempt evidence; it is not a
-physical-placement preview. History selection installs archived geometry directly. The Source/Photos
-popover draws from recent photos and the retained archive, including legacy saved
-entries without new attempt metadata. History remains a secondary text list. Source
-deletion prunes digest-equivalent aliases and stale Back,
-style and worker capabilities; fresh explicit authoring remains distinct from
-replaying a deleted object. Feedback and style mutations use the archive's serial persistence/recovery owner, including tombstones.
+`PortraitSketchCollection` is the serial archive/persistence owner. Applicable
+renders retain exact source, raster, recipe, program, ancestry and an off-main-actor
+thumbnail in `PortraitAttemptRecord`; feedback revisions bind an exact proposal.
+Only explicit save or successful projection qualifies a saved-library entry.
+`PortraitSavedStyle` retains reusable recipes in the same archive. History installs
+payloads without rendering. Source deletion prunes digest-equivalent aliases,
+navigation and worker capabilities; tombstones block late resurrection. Historical
+labels, checkpoints and exploration receipts remain readable without driving
+current generation. Failed persistence remains visible and retryable.
 
-Versioned `PortraitRaster` retains typed source/decoded/crop/sample geometry and the
-actual applied mask alpha, mask outcome and preprocessing bounds. Legacy/synthetic
-rasters explicitly lack this evidence. The vectorizer preserves these values through
-its preparation; recorded analysis is not reproduced by rerunning Vision by assertion.
+The observation runtime selects one active camera role. Studio capture uses a
+0.8-second burst including 0.25 seconds of settling, then keeps one frame chosen
+by sharpness/exposure evidence. It performs no registration or fusion. Cancellation
+settles acquisition and dismisses `PortraitScreenIllumination`, which changes no
+hardware brightness. Only the camera-preview leaf observes live Studio frames.
 
-The existing observation runtime exclusively selects plotter or face capture.
-The studio's own `CameraCapture` requests a 33,333,333 ns preview interval; shared
-plotter acquisition policy is unchanged. One acquisition worker illuminates the
-host display through `PortraitScreenIllumination`, waits for exposure settling, then samples strictly advancing exact
-frames during a 0.8-second still-subject burst, including 0.25 seconds of settling.
-Bounded image-quality selection retains
-one source using sharpness and exposure evidence. The temporary samples do not
-become a pose gallery and are never averaged without registration. Camera-role
-changes and cancellation settle acquisition and clear illumination. The narrow AppKit
-light bridge owns one borderless white window over the host screen, restores key-window
-focus, dismisses on deactivation/host loss, and suppresses reopening until the model
-acknowledges cancellation. It changes no hardware brightness setting. The Studio
-workspace's `PortraitCameraPreview` alone observes changing preview frames; the root
-semantic projection does not receive this traffic.
+`PortraitSourcePreparation` retains one normalized decoded image, source-coordinate
+Vision face landmarks, full-frame person-mask outcome and luminance pyramid. Its
+key binds bytes, source metric and preparation revision. `PortraitImageAnalyzer`
+reuses this evidence across crop and style changes; crop sampling integrates pixel
+footprints before contrast normalization/mask whitening. `PortraitRaster` retains
+source/decoded/crop/sample geometry, actual mask and face evidence. Missing analysis
+is explicit. Older raster versions preserve their encoded identity.
 
-`PortraitImageAnalyzer.prepareSource` normalizes orientation/size once and creates
-immutable `PortraitSourcePreparation`: decoded CGImage, source-coordinate face
-landmarks, accurate full-frame person-mask outcome and compact luminance levels.
-The key binds source bytes, supplied source metric and preparation revision.
-Unavailable face/mask outcomes are retained rather than repeatedly retried by crop
-edits. Crop sampling selects a suitable source level and integrates each exact
-pixel footprint before crop-local contrast normalization and optional mask whitening.
-The new preprocessing revision is `portrait-analysis-v2`; v1 remains valid for exact
-archived rasters. Source metric, integer decoded crop and untouched source landmarks
-remain separate from each output raster lattice.
+`PortraitRenderCache` bounds prepared sources to eight/48 MiB and crop-specific Flow
+workspaces to eight/64 MiB of retained payload, separately from raster/final-result
+caches. Final results strip preparation references. These are not process-RSS
+bounds. `PortraitPreparedRenderFailure` can preserve successfully prepared source
+only for a still-applicable request; cancellation cannot publish it. The
+`portrait-browser` logger reports queue, source, crop, Flow, vector, candidate/thumbnail
+preparation and publication durations. Navigation timing excludes native painting.
 
-`PortraitRenderCache` owns at most eight prepared sources and 48 MiB of retained
-image/mask/luminance payload, deduplicated by preparation identity. It separately
-owns up to eight crop-specific Flow workspaces within 64 MiB of retained array/path
-payload. LRU lookup, photo removal and byte eviction have explicit ownership; final
-render entries strip those preparation references. These are payload budgets, not
-claims about total process RSS or transient worker allocations. `PortraitRenderTimings`
-reports source/cache, crop, Flow and vector stages on worker results. The Studio's
-`portrait-browser` Logger category correlates source, round and request revision
-with queue, rendering, candidate/thumbnail preparation and publication durations.
-History timing measures model installation, excluding native display painting;
-first-alternative and pair timings include queue wait and publication.
-`PortraitPreparedRenderFailure` preserves successful source preparation when later
-vectorization fails; only a still-applicable failure may populate the Studio cache.
-Cancellation carries no publishable preparation.
-`PortraitAnalysisOptions` controls image analysis; separate `PortraitVectorOptions`
-controls contour length/levels/simplification, hatch spacing/angle, smoothing, tonal
-strength, sketch response threshold, and bounded semantic head amplitudes. Exact face
-landmarks and pose are cached even for full-photo framing. The normalized face
-rectangle still drives crop framing; the semantic warp consumes retained parts and
-source metric. Missing analysis preserves base geometry with an explicit summary. Vector edits reuse the analyzed raster. One latest-request
-drain serializes acquisition and rendering, retains cancelled workers until actual
-settlement, and validates render revision plus selected photo identity before publication.
-Deleting a source cannot revive it through a late result. Decoding/vectorization
-cooperatively checks cancellation.
+`PortraitVectorizer` dispatches Flow Edge, tonal contours and DoG Sketch. Flow uses
+320-pixel analysis; other renderers use 160. Flow keeps structural curves separate
+from tonal streamlines, with fixed-width separation and permitted structural
+junctions. `PortraitRegionalTreatment` uses retained landmarks for feature supports,
+estimated skin and observed jaw; it does not infer hair, clothing or depth. It can
+protect, simplify and construct strokes under material/point budgets. Unavailable
+or incompatible analysis leaves base paths unchanged with an explicit outcome.
 
-`PortraitVectorizer` generates Flow Edge paths, joined tonal contours, or
-difference-of-Gaussians centerlines for active authoring. Flow Edge uses 320-pixel
-analysis; legacy algorithms retain 160-pixel analysis. Structural edge evidence
-and tonal density are separate. A fixed subpixel noise filter and constrained
-curve fairing preserve measured edge detail; smoothing acts on the structure-tensor
-orientation field. Tone changes local streamline spacing without changing those
-structural curves. Evidence-ranked parallel suppression and spatial occupancy
-reserve separation; real structural crossings and junctions remain permitted.
-The Flow evidence/tracing stage does not infer facial semantics or depth.
-`PortraitRegionalTreatment` then applies compact overlapping source-coordinate
-supports to generated paths, protecting eyes/lips/nose while simplifying estimated
-skin, adjusting angularity and adding bounded ordered shadow/contour strokes.
-Scoped adjustments preserve unaffected path geometry instead of rerunning global
-seed competition. Its manifest binds the analysis digest, applicability and path
-changes; unavailable/incompatible analysis keeps the base paths. Fixed-width
-construction uses material spacing and a point budget. Stroke burden reports actual
-path count and normalized length, not an invented physical duration.
+Optional eye and historical head transforms retain source-coordinate evidence,
+compact support, bounded subdivision and manifests. Eye exaggeration is measured
+2D deformation, not pose or anatomy reconstruction; deformation can compress
+existing stroke spacing. Legacy semantic-head recipes retain pose requirements and
+refuse unavailable measured yaw/pitch. Candidate integrity binds recipe, raster,
+manifest and program provenance. Source pixel metric stays distinct from sample
+resolution; absent optional fields preserve old hashes. Historical hatch/combined
+renderers remain available for exact recipes.
 
-Optional `eyeExaggeration` uses `portrait-eye-scale-v1` with amount clamped to 0...0.3.
-`PortraitEyeTransform` derives two centers from retained bilateral eye landmarks and
-disjoint circular supports in decoded source coordinates: radius is at most 0.42 of
-the eye separation and 98% of the nearest crop-edge distance. A support smaller than
-0.20 of eye separation is unavailable. The radial gain `1 + a(1-r²)^3` is compact,
-with exact exterior identity and conservative determinant bound `1 - 32a/49` (at
-least 0.804 at the maximum amount). Its manifest binds retained analysis, crop
-geometry, amount and supports. Subdivision and a point budget bound long-segment
-work. This measured 2D capability infers neither pose nor forehead. It precedes
-regional construction so added strokes and angular replacements check the deformed
-curves for clearance; deformation itself can compress pre-existing stroke spacing.
-Historical hatch/crosshatch and combined algorithms remain available
-only for compatibility. Angled legacy hatch clips scan lines to the raster. Big-head
-geometry uses retained revision-3/76-point Vision landmarks and a source-metric
-orthonormal eye/nose basis. `PortraitHeadTransform` composes compact C2 vector-field
-steps with an analytic derivative norm bound of 0.2 per step; supports remain inside
-the crop and above the upper-lip protection plane. `PortraitHeadWarpManifest` owns
-analysis digest, basis, measured/estimated/unavailable anchors, requested/effective
-parameters, exact kernel coefficients/steps and conservative Jacobian/displacement
-bounds. Long lines subdivide before bending. Missing or unsupported analysis produces
-identity with a reason. The earlier bounding-box transform remains only for explicit
-legacy recipes and exact archived programs. It preserves top-left image to lower-left FieldSpace
-orientation. `PortraitAcquiredPhoto` carries the original oriented source pixel extent beside
-the bounded normalized image bytes through recent photos and render requests.
-New analyzed rasters retain the source crop extent in those original pixel
-coordinates independently of thumbnail and raster dimensions; the vectorizer maps
-raster pixel centers into that source metric before uniform field placement. The v3 producer identity
-includes that metric and all bounded authoring parameters. Semantic programs use v4
-and bind the exact manifest digest. Raster schema 3 adds retained face analysis while
-decoded older rasters keep their original encoded version; absent optional semantic
-recipe/candidate fields preserve DS-02/DS-03 archive hashes. Candidate integrity checks
-bind recipe, raster, recomputed manifest and program provenance. Historical semantic
-contracts retain exact analysis and head parameters for archive verification;
-ordinary Studio uses the separate measured 2D eye modifier for its exaggeration
-prototype. Legacy semantic-head pose requirements remain unchanged, including
-explicit refusal when measured yaw or pitch is unavailable. Regional recipes have additive optional fields, and absent fields preserve
-legacy encoding. Ordinary local proposals preserve the selected underlying renderer. Legacy rasters without
-a source metric retain explicitly identified sample-lattice interpretation.
-`PortraitProgramPreview` is retained only in historical test fixtures; production previews use `PortraitPlaneProgramPreview`.
-The main `PortraitPlanePreview` consumes a passive projection of the existing
-Draft artwork plan, retained before optional border composition, with no second
-planner invocation. Candidate ID/hash and current region must match. Machine
-points use a uniform region-to-screen transform for legacy controller placements.
-Camera placements project exact planned points and the region polygon through
-the saved affine, then fit that image with one screen scale. The ink preview uses
-a conservative maximum camera-axis width envelope. Displayed artwork dimensions
-are controller-space authored edge lengths, not independent physical dimensions.
-Material adaptation and freshness use field height times the placement's minimum
-singular scale; geometric feasibility examines the actual transformed segments.
-Missing placement uses explicitly typed reference presentation; its 100-unit
-normalization supports existing preference features and is never an actual-size
-readout. Optional `PortraitDisplayEvidence` records reference/planned mode, exact
-program hash, region, placement, plan hash and width source. New labels use renderer
-v2 for legacy/reference placements and camera renderer v3 for camera placements;
-absent evidence preserves legacy encoding, hashes, feature values and renderer.
-Border composition retains its artwork hash suffix and a camera-geometry-v1 marker.
-Existing physical rating metadata recovers authored controller height from the
-retained response and corresponding source/executed geometry, rather than assuming
-that the first stroke's command scale applies to every direction. This changes no
-automatic grading or feedback-to-motion-model policy.
-This read-only view adds no controller, planner, calibration or Learning owner. The existing
-`PlotterSceneAnalysisPipeline` continues to retain its cancelled drain until completion
-before starting replacement Vision work.
+`PortraitPlaneProgramPreview` is the production preview; it consumes the existing
+Draft artwork plan without invoking another planner. Matching program, region and
+placement are required for planned presentation. Camera placements project exact
+planned points through the saved affine with a conservative width envelope. Missing
+admission is explicitly reference presentation; its normalized field is not a
+physical-size claim. Material adaptation uses field height times placement minimum
+singular scale, and feasibility checks actual transformed segments. Retained
+`PortraitDisplayEvidence` binds the displayed plan and width source; old encodings
+and physical evidence remain interpretable.
 
-Send to Drawing selects the plotter role and opens the shared Drawing panel.
-A matching admitted program uses `.showTarget` and preserves placement; a new
-program supplies `.selectProgram(DrawingProgram)` and `.fitInDrawableRegion` to
-the existing draft runtime. The root projection binds program
-selection to the program digest rather than
-serializing its points into an action identifier. The planning adapter now
-consumes a program directly, and catalog selection remains a program producer.
-The UI sink awaits draft installation and returns the retained owner's result.
-Portrait authoring adds no run owner or evidence archive.
+`PortraitDrawingActions` is the application adapter. Send to Drawing selects the
+plotter camera role, then submits `.showTarget` for an already admitted matching
+program, or `.selectProgram(DrawingProgram)` and `.fitInDrawableRegion` for a new
+one. Acceptance retains the exact candidate only after success. Material adaptation
+passes a frozen profile/size into authoring and verifies placement/material identity
+again before projection. Drawing owns admission, placement, planning, paper, motion
+and run evidence; later Studio edits cannot mutate its selected program.
 
 The Active Learning panel exposes archived ordinary/training records through
 `.selectResidualRecord` and `.analyzeSelectedResiduals`. The existing draft owner

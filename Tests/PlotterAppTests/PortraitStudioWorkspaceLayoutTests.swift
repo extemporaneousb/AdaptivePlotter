@@ -47,9 +47,7 @@ struct PortraitStudioWorkspaceLayoutTests {
         defer { window.close() }
         #expect(!window.isKeyWindow)
         #expect(model.studioMode == mode)
-        #expect(!model.isStyleComparisonExpanded)
         #expect(model.selectedCandidate?.recipe.style == style)
-        #expect(model.explorationRound == nil)
         #expect(!model.isExploring)
         #expect(model.renderDiagnostics.startedWorkerCount == calls)
         #expect(abs(host.view.bounds.width - size.width) < 1)

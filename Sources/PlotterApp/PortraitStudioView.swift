@@ -111,10 +111,10 @@ struct PortraitStudioView: View {
     .accessibilityIdentifier("portrait.workspace")
     .onAppear {
       model.renderIfNeeded(strokeStyle: strokeStyle)
-      model.setExplorationEnabled(false, strokeStyle: strokeStyle)
+      model.cancelPortraitStep()
     }
     .onDisappear {
-      model.setExplorationEnabled(false, strokeStyle: strokeStyle)
+      model.cancelPortraitStep()
     }
     .task { await model.loadArchive() }
     .onChange(of: model.renderConfiguration) { _, _ in

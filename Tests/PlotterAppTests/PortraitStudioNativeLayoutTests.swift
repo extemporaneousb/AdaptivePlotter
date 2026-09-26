@@ -62,12 +62,10 @@ struct PortraitStudioNativeLayoutTests {
         await settle(host.view)
         await model.awaitRendering()
         await settle(host.view)
-        #expect(model.explorationRound == nil)
         #expect(!model.isExploring)
         #expect(abs(host.view.bounds.width - size.width) < 2)
         #expect(abs(host.view.bounds.height - size.height) < 2)
         #expect(!window.isKeyWindow)
-        #expect(!model.isStyleComparisonExpanded)
         for scroll in views(host.view).compactMap({ $0 as? NSScrollView }) {
           let document = try #require(scroll.documentView)
           #expect(document.bounds.height <= scroll.contentView.bounds.height + 2,
@@ -119,7 +117,7 @@ struct PortraitStudioNativeLayoutTests {
     defer { window.close() }
     do {
       await settle(host.view)
-      await model.awaitExploration()
+      await model.awaitRendering()
       await settle(host.view)
       let original = try #require(model.selectedCandidate)
       #expect(!window.isKeyWindow)

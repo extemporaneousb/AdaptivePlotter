@@ -175,9 +175,9 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
   }
 
   static let requiredPortraitControls = ["workbench.camera.portrait", "workbench.camera.plotter",
-    "portrait.stylesDisclosure", "portrait.showOnPlotter", "drawing.scale", "drawing.rotation", "drawing.fit",
+    "portrait.adjustmentsDisclosure", "portrait.showOnPlotter", "drawing.scale", "drawing.rotation", "drawing.fit",
     "workbench.toggle.motion", "workbench.scroll", "workbench.resize", "learning.analyzeDrawings"]
-      + PortraitStyle.authoringCases.map { "portrait.algorithm.\($0.id)" }
+      + [PortraitVectorPreset.fine, .balanced].map { "portrait.preset.\($0.rawValue)" }
 }
 
 struct PlotterAnalysisPerformanceWindow: Codable, Equatable, Sendable {
@@ -578,22 +578,16 @@ enum RunningAppPreviewPerformanceGate {
     if role == .portrait {
       let model = application.portraitStudio
       revealPanel(.portraitStudio)
-      if !model.isStyleComparisonExpanded {
-        samples.append(try await probe.click("portrait.stylesDisclosure", fractionX: 0.02) {
-          model.isStyleComparisonExpanded
-            && RunningAppNativeInputProbe.controlFrame("portrait.algorithms") != nil
+      if RunningAppNativeInputProbe.controlFrame("portrait.adjustmentScroll") == nil {
+        samples.append(try await probe.click("portrait.adjustmentsDisclosure") {
+          RunningAppNativeInputProbe.controlFrame("portrait.adjustmentScroll") != nil
         })
       }
-      await model.awaitRendering()
-      let index = ((PortraitStyle.authoringCases.firstIndex(of: model.style) ?? 0) + 1) % PortraitStyle.authoringCases.count
-      let nextStyle = PortraitStyle.authoringCases[index]
-      let identifier = "portrait.algorithm.\(nextStyle.id)"
-      guard let tile = model.algorithmCandidates.first(where: { $0.recipe.style == nextStyle }) else {
-        throw WorkbenchNativeInputError.unavailable("The requested algorithm tile has not rendered.")
-      }
-      samples.append(try await probe.click(identifier) {
-        model.selectedCandidate?.id == tile.id
-          && RunningAppNativeInputProbe.controlValue(identifier) == "Selected"
+      let preset: PortraitVectorPreset = model.vectorOptions.minimumContourLength == PortraitVectorPreset.fine.options(for: model.style).minimumContourLength
+        ? .balanced : .fine
+      let before = model.renderConfiguration
+      samples.append(try await probe.click("portrait.preset.\(preset.rawValue)") {
+        model.renderConfiguration != before
       })
       samples.append(try await probe.hideMotion(reveal: revealPanel))
       await model.awaitRendering()

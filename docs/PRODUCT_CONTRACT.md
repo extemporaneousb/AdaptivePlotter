@@ -1681,41 +1681,23 @@ Opening and closing it preserves those dock placements. The shared Drawing panel
 owns placement, pen/material setup, paper coverage, Draw, Stop and result review.
 Studio authoring remains available with an imported photo while disconnected.
 
-Portrait Studio displays one large portrait canvas. Contour starts with the tonal
-contour renderer and offers direct adjustments. Explorer varies the current
-renderer and recipe on that same canvas; entering either mode does not generate
-alternatives. Next requests one useful variation, with at most two render attempts,
-and keeps the current portrait visible while work runs. A successful request installs
-one exact candidate and stops. Cancel, mode/source changes and Back invalidate late
-publication. Back and Forward restore exact retained candidates without rendering;
-new framing, tuning or exploration-region edits abandon the forward branch.
-Neither navigation nor feedback automatically starts another search.
+Portrait Studio has one drawing canvas, optional adjustments and Photos/History
+popovers. Contour selects tonal contours; Explorer varies the current renderer.
+Entering either mode is idle. Next requests one variation with at most two renders;
+it preserves the current candidate during work and stops after one useful result.
+Back/Forward and history install exact retained candidates without rendering.
+Edits abandon Forward; mode/source changes, cancellation and Back invalidate late
+publication. Applicable parameter, material-floor, detail-budget and visible-distance
+checks bound proposals. Exhaustion or rendering failure keeps the current drawing.
+There are no background style comparisons, grid rounds or automatic follow-on jobs.
 
-History is an on-demand text list filtered to the current photo by default, with
-All photos and Kept only filters. It does not occupy the canvas or draw a thumbnail
-rail. Inspection installs retained geometry directly. Each applicable selected
-render and each useful new variation retains its exact source, raster, recipe,
-geometry, thumbnail and ancestry in the existing archive. Unsuccessful single-step
-similarity probes do not create durable attempts. Existing attempts are preserved;
-explicit cleanup keeps current, promising and saved results. Plus marks the exact
-attempt promising; minus rejects that exact source/pose/recipe/material proposal.
-No cross-photo preference model is fitted.
-
-The compact Photos popover retains source access. Detailed framing and renderer
-controls remain optional. Saved recipes and historical renderer families remain
-readable and usable, but Studio has no rendered algorithm comparison tiles or
-prototype button row. Contour is the default for new sessions and for new sources
-leaving a retired renderer. Explorer retains the selected renderer, framing and
-material context, avoiding automatic jumps between drawing styles. Renderer
-quality and perceptual continuity still require operator evaluation.
-
-The existing serial render drain owns authoring and bounded exploration work.
-Selection, source, revision and round identity reject stale completions. Historical
-three-slot and nine-slot exploration receipts remain readable; the internal receipt
-shape does not determine how many portraits are displayed or requested. Whole-image
-and regional proposals retain applicable-parameter, material-floor, empty-result,
-duplicate and geometry-similarity checks. Search exhaustion remains distinct from a
-rendering failure, and neither replaces the current portrait.
+Completed authoring and useful Next results retain source, raster, recipe, geometry,
+thumbnail and ancestry. Unsuccessful probes are transient. History offers current-photo,
+all-photo and kept filters. Plus/minus feedback marks an exact attempt; rejection
+suppresses its source/pose/recipe/material proposal, not a whole style. No cross-photo
+preference model is fitted. Saved recipes and historical renderer families remain
+usable; new sessions default to tonal contours. Historical three/nine-slot receipts
+remain readable, but current authoring produces no offered-set trace.
 
 Source preparation retains one oriented decoded image, source-coordinate landmarks,
 a full-frame person-mask result and filtered multiscale luminance evidence. Crops,
@@ -1723,8 +1705,8 @@ head margins and analysis-resolution changes reuse those results. Content identi
 source metric and preparation revision gate reuse; unavailable analysis remains
 explicit. Source preparation and crop-specific Flow evidence, structural curves
 and orientation fields have separate bounded retention. Final render entries do
-not retain evicted preparation buffers. The serial render worker constructs each candidate, preview
-footprint and history thumbnail off the main actor. Navigation and feedback reuse
+not retain evicted preparation buffers. The serial render worker constructs each candidate and history thumbnail off the main actor;
+only explicit Next requests compute a comparison footprint. Navigation and feedback reuse
 retained results; cancellation and source/revision checks still gate publication.
 Crop to face, head margin and background removal belong to Framing; line/tone
 controls and detail presets belong to Style.
@@ -1748,14 +1730,13 @@ rating/training workflow. Historical candidate formats and required source, rast
 checkpoint interpretation remain compatible. Existing fitted checkpoints are not
 loaded or consulted by normal Studio generation.
 Save Style captures a named reusable recipe. Save Imagination qualifies the exact
-candidate and its source for the saved library, including its bounded offered-set
-trace; automatic attempt history and plus do not implicitly save an Imagination.
+candidate and its source for the saved library; automatic attempt history and plus do not implicitly save an Imagination.
 Session Back remains bounded and does not promise restart-persistent undo. Durable
 history can be revisited after loading the archive. Its explicit cleanup retains
 the current attempt plus promising and saved discoveries; individual deletion
 remains available. Removing a recent photo preserves independently retained attempts;
 Delete Source and All Attempts explicitly removes the archived source and its attempts.
-Deletion invalidates old history, Back and style-tile selection capabilities. A later
+Deletion invalidates old history and navigation capabilities. A later
 explicit authoring action may create a fresh attempt from a reintroduced source;
 late work and previously deleted retained objects cannot revive themselves. Drawing
 Reviewer lists saved Imaginations, while inspecting an attempt in Studio changes

@@ -60,12 +60,10 @@ final class PortraitSketchCollection {
   }
 
   @discardableResult
-  func retain(candidate: PortraitCandidate, reason: PortraitRetentionReason,
-    exploration: [PortraitExplorationRecord]? = nil) -> String? {
+  func retain(candidate: PortraitCandidate, reason: PortraitRetentionReason) -> String? {
     do {
       try candidate.validateIntegrity()
-      try PortraitExplorationRecord.validate(exploration, for: candidate)
-      enqueue(.retain(candidate, .init(reason: reason), exploration))
+      enqueue(.retain(candidate, .init(reason: reason)))
       selectedID = candidate.id
       return nil
     } catch { return error.localizedDescription }
@@ -152,7 +150,7 @@ final class PortraitSketchCollection {
   }
 
   private enum Mutation {
-    case retain(PortraitCandidate, PortraitRetentionEvent, [PortraitExplorationRecord]?)
+    case retain(PortraitCandidate, PortraitRetentionEvent)
     case rate(PortraitCandidate, PortraitLabelRevision, PortraitRetentionEvent)
     case delete(PortraitArchiveTombstone)
     case attempt(PortraitCandidate, PortraitAttemptRecord)
@@ -178,12 +176,8 @@ final class PortraitSketchCollection {
         if archive.savedStyles == nil { archive.savedStyles = [] }
         if archive.savedStyles?.contains(where: { $0.id == style.id }) == false { archive.savedStyles?.append(style) }
       case .removeStyle(let id): archive.savedStyles?.removeAll { $0.id == id }
-      case .retain(let candidate, let event, let exploration):
+      case .retain(let candidate, let event):
         Self.retain(candidate, event: event, in: &archive)
-        if let exploration, let index = archive.entries.firstIndex(where: { $0.id == candidate.id }) {
-          archive.entries[index].exploration = PortraitExplorationRecord.merging(
-            archive.entries[index].exploration, with: exploration)
-        }
       case .rate(let candidate, let label, let event):
         Self.retain(candidate, event: event, in: &archive)
         if !archive.labels.contains(where: { $0.id == label.id }) { archive.labels.append(label) }

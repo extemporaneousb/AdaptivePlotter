@@ -8,6 +8,34 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Portrait Studio sampling cleanup, 2026-09-26
+
+Removed the unused style-comparison queue/context, grid slots/rounds, adaptive
+preference direction, previous-option fallback, live offered-set traces and
+production prototype selector. One serial queue now owns current rendering and
+one explicit Next request with at most two attempts. Back/Forward retain bounded
+exact candidate stacks. Historical exploration receipts remain validated and
+preserved through archive load, retention and save. Prototype recipes remain only
+as renderer test fixtures; saved recipe values keep their existing interpretation.
+Ordinary authoring no longer computes a sampling footprint. Next compares geometry
+off the main actor. The native performance harness now targets existing adjustment
+presets instead of deleted algorithm tiles; that live harness was not run.
+
+The focused serial SwiftPM selection passed 265 tests, including source replacement,
+late cancellation, pending Back, deletion, exact rejection suppression, frozen
+region scope, archive preservation, material adaptation and immutable Drawing
+handoff. Full validation passed 1,627 tests serially. Parallel runs hit timing failures
+in untouched speech, recording and telemetry tests; those passed serially. External-photo
+and opt-in native checks were skipped. The task receipt retains the validation evidence.
+
+The analytic 480×640 fixture in DEBUG measured cold first renders of 1.15–1.84 s
+and twelve warm Next requests of 0.31–1.47 s across Flow Edge, Contour and Sketch.
+Each Next used at most two renderer calls; source analysis ran once per style
+session. Back plus Forward installed exact geometry in 0.14–0.28 ms without
+rendering. These are model/worker timings, not a controlled before/after comparison,
+real-photo quality or native click-to-paint measurements. No live app launch,
+camera/controller interaction or physical drawing was performed.
+
 ## Single-canvas Portrait Studio, 2026-09-26
 
 Studio now shows one portrait, with Contour and Explorer modes, an optional

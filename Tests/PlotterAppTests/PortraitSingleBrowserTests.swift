@@ -6,6 +6,115 @@ import Testing
 @Suite("Single portrait browser")
 @MainActor
 struct PortraitSingleBrowserTests {
+  @Test("Back invalidates a pending Next and late completion cannot replace retained geometry")
+  func backDuringNext() async throws {
+    let renderer = ExplorationTestRenderer()
+    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    let first = try #require(model.selectedCandidate)
+    model.nextPortrait(strokeStyle: pen)
+    await model.awaitRendering()
+    let second = try #require(model.selectedCandidate)
+    #expect(first.id != second.id)
+    await renderer.holdNext()
+    model.nextPortrait(strokeStyle: pen)
+    try await renderer.waitUntilHeld()
+    let count = model.sketches.attempts.count
+    model.previousPortrait()
+    #expect(model.selectedCandidate?.program == first.program)
+    #expect(!model.isExploring)
+    await renderer.release()
+    await model.awaitRendering()
+    #expect(model.selectedCandidate?.program == first.program)
+    #expect(model.sketches.attempts.count == count)
+    model.nextPortrait(strokeStyle: pen)
+    #expect(model.selectedCandidate?.program == second.program)
+    #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
+    await model.shutdown()
+  }
+
+  @Test("deleting the selected attempt stops its pending Next and prunes both navigation directions")
+  func deletionDuringNext() async throws {
+    let renderer = ExplorationTestRenderer()
+    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    let first = try #require(model.selectedCandidate)
+    model.nextPortrait(strokeStyle: pen)
+    await model.awaitRendering()
+    let second = try #require(model.selectedCandidate)
+    model.previousPortrait()
+    model.deleteAttempt(second.id)
+    #expect(!model.canGoForwardPortrait)
+    await renderer.holdNext()
+    model.nextPortrait(strokeStyle: pen)
+    try await renderer.waitUntilHeld()
+    model.deleteAttempt(first.id)
+    await renderer.release()
+    await model.awaitRendering()
+    #expect(model.selectedCandidate == nil)
+    #expect(!model.isExploring)
+    #expect(!model.canGoBackExploration)
+    #expect(!model.sketches.attempts.contains { $0.id == first.id || $0.id == second.id })
+    await model.shutdown()
+  }
+
+  @Test("no-lines recovery is bounded and changing region cancels rather than retargeting a request")
+  func recoveryAndFrozenRegion() async throws {
+    let renderer = ExplorationTestRenderer()
+    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    let first = try #require(model.selectedCandidate)
+    await renderer.rejectNextAsNoLines(1)
+    let calls = await renderer.requests.count
+    model.nextPortrait(strokeStyle: pen)
+    await model.awaitRendering()
+    #expect(await renderer.requests.count - calls == 2)
+    #expect(model.explorationRejections["noLines"] == 1)
+    #expect(model.selectedCandidate != nil)
+    model.inspectAttempt(first.id, strokeStyle: pen)
+    await renderer.holdNext()
+    model.nextPortrait(strokeStyle: pen)
+    try await renderer.waitUntilHeld()
+    model.explorationRegion = .eyes
+    await renderer.release()
+    await model.awaitRendering()
+    #expect(model.selectedCandidate?.id == first.id)
+    #expect(!model.isExploring)
+    #expect(model.singlePortraitStatus == nil)
+    await model.shutdown()
+  }
+
+  @Test("rejected exact proposals are skipped before rendering, independent of seed or title")
+  func rejectedProposalIsNotRendered() async throws {
+    let renderer = ExplorationTestRenderer()
+    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    let center = try #require(model.selectedCandidate)
+    let recipe = PortraitExplorationPolicy.recipe(around: center, seed: 918)
+    let program = try PortraitVectorizer.program(from: center.raster, pose: .front,
+      style: recipe.style, strokeStyle: pen, vectorOptions: recipe.vectorOptions)
+    let rejected = try PortraitCandidate(sourceData: center.sourceData, sourcePixelExtent: center.sourcePixelExtent, raster: center.raster,
+      recipe: recipe, program: program, photoID: center.photoID, captureSessionID: center.captureSessionID, pose: .front)
+    model.sketches.recordAttempt(rejected, record: try .prepare(candidate: rejected, pen: pen))
+    model.toggleFeedback(.rejected, candidate: rejected)
+    let calls = await renderer.requests.count
+    model.nextPortrait(strokeStyle: pen)
+    await model.awaitRendering()
+    let requests = await renderer.requests
+    #expect(requests.dropFirst(calls).allSatisfy { $0.vectorOptions != recipe.vectorOptions })
+    #expect(model.explorationRejections["rejectedAttempt"] == 1)
+    #expect(model.selectedCandidate?.id != rejected.id)
+    await model.shutdown()
+  }
+
   @Test("opening modes is idle and Next creates at most one retained result")
   func boundedDemandAndExactNavigation() async throws {
     let renderer = ExplorationTestRenderer()
@@ -19,7 +128,6 @@ struct PortraitSingleBrowserTests {
     model.selectStudioMode(.explorer, strokeStyle: pen)
     await model.awaitRendering()
     #expect(await renderer.requests.count == initialCalls)
-    #expect(model.explorationRound == nil)
     model.nextPortrait(strokeStyle: pen)
     #expect(model.selectedCandidate?.id == first.id)
     await model.awaitRendering()

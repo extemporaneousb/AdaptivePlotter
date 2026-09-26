@@ -9,73 +9,31 @@ dependencies are owned exclusively by
 [Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md);
 this roadmap does not restate or reorder them.
 
-The September 25 accepted persistent attempt browser and landmark-guided regional
-prototype slice builds on the September 18 operator-directed Studio correction.
-The earlier random exploration and preference-training campaign is not a standing
-implementation authorization. The September 18 scope and delivery gates remain
-recorded in the execution plan's
-[deterministic Portrait Studio correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#deterministic-portrait-studio-correction-2026-09-18).
-The historical Trainable Drawing Studio campaign retains its dated evidence; its
-retired authoring controls are not future implementation obligations.
+## Portrait Studio: remaining acceptance
 
-Remaining product evidence includes actual camera/phone capture interaction,
-attended plotter geometry and ink quality. Software and hosted UI checks cannot
-close those physical claims. New short captures still produce one selected source.
-An optional discovery capture retaining a small diverse set of sharp, identifiable
-frames remains a later extension; capture-series persistence and any change to the
-24-photo / 32 MiB recent-source bound need their own delivery scope.
+The current single-canvas contract lives in Product Contract; dated implementation
+and measurements live in Current Evidence. Retired grid, prototype and training
+interfaces are not future obligations. Remaining work is:
 
-## Studio discovery: remaining acceptance and extensions
+- Measure native capture-to-first-drawing, warm edit/Next, retained navigation and
+  Drawing handoff separately. Cached navigation targets <100 ms and useful warm
+  Next roughly 0.5 seconds; software fixture timings do not prove click-to-paint.
+- Compare independently tuned Flow Edge, tonal contours and Sketch on retained real
+  photos at matched drawing size and path/ink budgets. Judge identity, actual age,
+  expression, structure and tone independently of waiting time. Regional/eye recipes
+  require the same evaluation before claims of usefulness.
+- Validate capture/exposure and actual line separation with the chosen camera, pen,
+  paper and size through the existing attended Drawing flow. No screenshot or
+  nominal spacing proves physical quality.
+- Extend shared source evidence only when controlled comparisons establish a need;
+  current supports cover landmarks, estimated face skin and observed jaw. Hair/clothing,
+  registered multi-frame evidence, depth and learned abstraction remain research.
+- Consider broader sampling or preference fitting only after useful style baselines
+  and attributable feedback exist. A rejection must not condemn a renderer or pose.
 
-The selected first slice combines reusable source preparation, landmark-guided
-regional stroke treatment, three prototype recipes and durable exact-attempt history
-with separate plus/minus feedback. Current behavior is specified in Product Contract;
-implementation and receipts belong to Current Evidence. Remaining work is:
-
-- Extend the DEBUG software measurements in [Current Evidence](CURRENT_EVIDENCE.md)
-  to native click-to-paint navigation and warm single-variation timing on the
-  operator's machine. Acceptance targets remain <100 ms cached navigation and
-  roughly 0.5 seconds to the next useful warm variation. The single-canvas browser
-  supersedes pair-generation acceptance. Capture and profile an actual minute-long interaction;
-  the fixture measurements do not explain that reported delay.
-- Evaluate Sparse structure, Angular comic and Measured eye exaggeration on real
-  portraits at comparable useful path/ink budgets. Inspect preserved facial evidence,
-  age/identity, contrast between recipes and whether discoveries are found sooner.
-- Broaden automatic discovery across independent crop and retained-frame choices,
-  with optional explicit combinations and clear change cues. Initial source/framing
-  browsing stays explicit; no fusion or registration is implied.
-- Add diverse capture only after retained-photo exploration is useful. Each candidate
-  should continue to identify one source frame.
-- Consider cross-photo preference learning only after enough attributable feedback
-  exists. One rejection must not condemn a renderer, pose or facial treatment.
-- Evaluate hair/clothing interpretation separately; the current soft supports cover
-  facial features, estimated skin and observed jaw only.
-
-## Flow Edge: portrait likeness and physical acceptance
-
-The September 21 request replaced manual Variation and the nine-image grid with
-current plus two alternatives; September 25 separates neutral inspection from
-feedback and adds persistent history and regional prototypes. Flow Edge targets
-smooth long lines with structural evidence independent from tone density. Current
-contract and ownership belong to Product Contract and Architecture; implementation
-and measured software evidence belong to Current Evidence.
-
-Operator acceptance remains open: compare Flow Edge, Tonal contours and Sketch on
-representative portraits at matched drawing sizes and useful ink/path budgets.
-Assess likeness, retained eyelids/lips/nose boundaries, smoothness, regional tone,
-and visual interest independently. Test whether two alternatives offer meaningful
-choices without slowing selection, and whether a short still-subject capture
-selects a useful exposure and sharp image. Software frame-quality scores do not
-prove improved optical focus or successful real-camera exposure settling.
-
-Attended drawing must establish actual line separation and quality with the chosen
-pen, paper and size. Preserve the existing Drawing admission and observation flow.
-No nominal spacing, curve metric, synthetic fixture, or screenshot proves ink
-separation or aesthetic success. Registration/fusion, super-resolution, 3D capture,
-learned portrait abstraction, and reaction-diffusion remain later comparisons,
-justified only if the current structure/flow representation demonstrably limits
-likeness or style. Pointillism and active hatch/crosshatch generation are outside
-the selected direction.
+These are acceptance gaps and conditional research, not authorization to restore
+parallel sampling interfaces or add new generation systems. Historical scope remains
+in the [deterministic Studio correction](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#deterministic-portrait-studio-correction-2026-09-18).
 
 ## Drawing motion: attended continuous-polyline comparison
 
@@ -276,42 +234,10 @@ implemented. Do not restore the deleted
 speculative online dataset, policy/reward scaffolding, model-mismatch overlay,
 or dormant navigation route as a compatibility surface.
 
-Remaining portrait work follows the Studio discovery and physical-acceptance scope
-above. The historical
+Portrait acceptance and conditional research are listed above. The historical
 [Trainable Drawing Studio campaign](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#trainable-drawing-studio-campaign-2026-09-13)
-retains dated evidence, not a requirement to restore retired training interfaces.
-Attended burst-camera/screen-light evaluation and ink-quality comparison across
-marker widths, paper sizes, frontal and three-quarter views remain required.
-Multi-view fusion, registered temporal averaging, hair/clothing parsing, learned
-caricature and identity-aware automatic preference fitting remain unimplemented.
-
-An optional later learned image producer can be assessed against
-[APDrawingGAN](https://github.com/yiranran/APDrawingGAN), which uses aligned faces,
-landmarks and masks, and
-[Informative Drawings](https://carolineec.github.io/informative_drawings/), which uses
-semantic and geometric objectives for raster line drawings. Their output still needs
-centerline vectorization, marker/paper-scale evaluation, and likeness ratings before
-being called festival-quality portrait drawing. The shipped local Sketch uses the
-[difference-of-Gaussians stylization family](https://www.cs.northwestern.edu/~sco590/winnemoeller-cag2012.pdf),
-not those learned models or a full XDoG reproduction. Apple's
-[face capture quality guidance](https://developer.apple.com/videos/play/wwdc2019/222/)
-supports future advisory same-subject frame ranking; it should preserve the operator's
-ability to choose useful profile frames. Naively averaging a rotating face would blur
-features, so any future averaging requires registration and motion rejection first.
-
-Different angles are useful source choices and may later supply identity information:
-[PhotoMaker](https://github.com/TencentARC/PhotoMaker) aggregates multiple reference
-images through identity embeddings without per-person model training. This is a research
-candidate, not a shipped dependency or a claim that arbitrary video frames reconstruct
-an identity. [CariGANs](https://doi.org/10.1145/3272127.3275046) separates geometric
-exaggeration from appearance; the current native implementation exposes those axes
-through deterministic face geometry and ink recipes. It does not claim a learned caricature.
-
-Current plus/minus revisions describe exact attempts; they do not train a model.
-Any later scoped learner requires enough attributable evidence, grouped holdouts,
-prior/current comparison and rollback. Screen aesthetic and physical realization
-objectives stay separate. A pretrained generator is optional research, not a
-prerequisite for evaluating useful native regional recipes.
+retains dated evidence, not a requirement to restore retired interfaces. Screen
+preference and physical realization remain separate objectives.
 
 No portrait feature should own calibration, controller commands, paper state,
 plan execution, physical machine-model promotion, or Draw locks. Scoped aesthetic

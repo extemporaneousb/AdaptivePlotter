@@ -1,29 +1,9 @@
 import Foundation
 import PlotterModel
 
-struct PortraitExplorationSlot: Identifiable, Sendable {
-  let index: Int
-  let candidate: PortraitCandidate?
-  let unavailableReason: String?
-  var isPrevious = false
-  enum FailureKind: Sendable { case searchExhausted, generationFailed }
-  var failureKind: FailureKind? = nil
-  var id: Int { index }
-}
-
-/// A settled offer is immutable. Back owns these actual candidates, independent
-/// of the render cache; a new round cannot replace an active tile in place.
-struct PortraitExplorationRound: Identifiable, Sendable {
-  let id: UUID
-  let seed: UInt64
-  let variation: Double
-  let center: PortraitCandidate
-  let slots: [PortraitExplorationSlot]
-}
-
-/// Small recipe/choice receipts live with explicitly retained candidates. They
-/// are investigation evidence, not labels, a trained model, or a second store.
+/// Historical archive receipts. Current authoring neither creates nor merges them.
 struct PortraitExplorationRecord: Codable, Hashable, Sendable {
+  static let maximumRecords = 64
   struct Offer: Codable, Hashable, Sendable {
     let index: Int
     let candidateID: String?
@@ -50,7 +30,7 @@ struct PortraitExplorationRecord: Codable, Hashable, Sendable {
 
   static func validate(_ records: [Self]?, for candidate: PortraitCandidate) throws {
     guard let records else { return }
-    guard !records.isEmpty, records.count <= PortraitExplorationPolicy.maximumRecords,
+    guard !records.isEmpty, records.count <= Self.maximumRecords,
       records.contains(where: { $0.offers.contains(where: { $0.candidateID == candidate.id }) }) else {
       throw PortraitCandidateError.integrityMismatch
     }
@@ -61,11 +41,11 @@ struct PortraitExplorationRecord: Codable, Hashable, Sendable {
       }
       lastSequence[record.traceSessionID] = record.sequence
       let legacy = record.policyRevision == "portrait-neighborhood-v1"
-      let slotCount = legacy ? 9 : PortraitExplorationPolicy.slotCount
-      let centerIndex = legacy ? 4 : PortraitExplorationPolicy.centerIndex
+      let slotCount = legacy ? 9 : 3
+      let centerIndex = legacy ? 4 : 1
       guard legacy || record.policyRevision == "portrait-preference-v2"
         || record.policyRevision == "portrait-preference-v3"
-        || record.policyRevision == PortraitExplorationPolicy.revision else {
+        || record.policyRevision == "portrait-preference-v4" else {
         throw PortraitCandidateError.integrityMismatch
       }
       guard
@@ -96,74 +76,13 @@ struct PortraitExplorationRecord: Codable, Hashable, Sendable {
       }
     }
   }
-
-  /// Same-session sequence order survives an asynchronous older handoff save.
-  /// Suffix truncation happens after ordering, so dropped older receipts cannot
-  /// be appended after newer ones or evict them from the bounded record.
-  static func merging(_ existing: [Self]?, with incoming: [Self]) -> [Self] {
-    var sessions: [UUID] = []
-    var records: [UUID: [UInt64: Self]] = [:]
-    for record in (existing ?? []) + incoming {
-      if records[record.traceSessionID] == nil {
-        sessions.append(record.traceSessionID)
-        records[record.traceSessionID] = [:]
-      }
-      if records[record.traceSessionID]?[record.sequence] == nil {
-        records[record.traceSessionID]?[record.sequence] = record
-      }
-    }
-    let ordered = sessions.flatMap { session in
-      (records[session] ?? [:]).sorted { $0.key < $1.key }.map(\.value)
-    }
-    return Array(ordered.suffix(PortraitExplorationPolicy.maximumRecords))
-  }
-
-  init(round: PortraitExplorationRound, action: Action, traceSessionID: UUID, sequence: UInt64) {
-    self.traceSessionID = traceSessionID; self.sequence = sequence
-    roundID = round.id; policyRevision = PortraitExplorationPolicy.revision
-    seed = round.seed; variation = round.variation; centerID = round.center.id
-    sourceSHA256 = round.center.sourceSHA256; self.action = action
-    offers = round.slots.map { .init(index: $0.index, candidateID: $0.candidate?.id,
-      recipe: $0.candidate?.recipe, programContentHash: $0.candidate?.program.contentHash.description,
-      unavailableReason: $0.unavailableReason) }
-  }
-}
-
-/// Session-local ordinal preference search. The step is internal; a choice is
-/// directional evidence, not a measured utility gradient or a trained model.
-struct PortraitExplorationSearchState: Equatable, Sendable {
-  var step = 0.35
-  var direction: [Double]?
-
-  mutating func prefer(_ selected: PortraitVectorOptions, over current: PortraitVectorOptions) {
-    let delta = zip(PortraitExplorationPolicy.coordinates(selected),
-      PortraitExplorationPolicy.coordinates(current)).map { $0.0 - $0.1 }
-    let length = sqrt(delta.reduce(0) { $0 + $1 * $1 })
-    guard length > 1e-8 else {
-      step = max(0.12, step * 0.7)
-      direction = nil
-      return
-    }
-    let next = delta.map { $0 / length }
-    if let direction {
-      let alignment = zip(direction, next).reduce(0) { $0 + $1.0 * $1.1 }
-      if alignment > 0.65 { step = min(0.75, step * 1.3) }
-      else if alignment < 0 { step = max(0.12, step * 0.7) }
-    }
-    direction = next
-  }
 }
 
 enum PortraitExplorationPolicy {
-  static let revision = "portrait-preference-v4"
-  static let slotCount = 3
-  static let centerIndex = 1
-  static let neighborIndices = [0, 2]
   static let maximumAttemptsPerSlot = 2
   static let maximumHistoryRounds = 12
   static let maximumHistoryPoints = 400_000
   static let maximumRoundPoints = 200_000
-  static let maximumRecords = 64
 
   static func boundedVariation(_ value: Double) -> Double {
     value.isFinite ? min(1, max(0, value)) : 0.35
@@ -226,53 +145,22 @@ enum PortraitExplorationPolicy {
     return dimensions
   }
 
-  /// Two purposeful directions, each with one bounded retry. A successful
-  /// direction continues; the other probes a complementary axis. No hidden pool.
-  static func recipes(around center: PortraitCandidate, variation: Double,
-    seed: UInt64, direction: [Double]? = nil) -> [[PortraitStyleRecipe]] {
+  /// One deterministic request. Failure recovery has its own bounded second attempt.
+  static func recipe(around center: PortraitCandidate, seed: UInt64) -> PortraitStyleRecipe {
     let base = canonicalOptions(center.recipe.vectorOptions, style: center.recipe.style)
     var random = Generator(state: seed)
-    let amount = boundedVariation(variation)
-    let dimensions = Self.dimensions(for: center)
-    let phase = Int(random.next() % UInt64(dimensions.count))
+    let axes = dimensions(for: center)
     let forms: [Dimension] = [.rectilinearity, .support, .structureSupport, .seedIrregularity]
-    let primary = center.recipe.style == .flowEdges && seed.isMultiple(of: 3)
-      ? forms[Int((seed / 3) % UInt64(forms.count))] : dimensions[phase]
-    let complementary: Dimension
-    let remaining = (0..<dimensions.count).map { dimensions[(phase + $0) % dimensions.count] }.filter { $0 != primary }
-    if let direction, direction.count == Dimension.allCases.count {
-      complementary = remaining.min { abs(direction[$0.rawValue]) < abs(direction[$1.rawValue]) }!
-    } else { complementary = remaining[0] }
+    let axis = center.recipe.style == .flowEdges && seed.isMultiple(of: 3)
+      ? forms[Int((seed / 3) % UInt64(forms.count))] : axes[Int(random.next() % UInt64(axes.count))]
     let sign = random.next() & 1 == 0 ? -1.0 : 1.0
-    var proposed: Set<PortraitVectorOptions> = [effectiveOptions(base, center: center)]
-    return (0..<2).map { neighbor in
-      (0..<maximumAttemptsPerSlot).map { attempt in
-        var vectors = base
-        let radius = amount * (attempt == 0 ? 1 : 1.65)
-        if neighbor == 0, let direction, direction.count == Dimension.allCases.count {
-          for axis in dimensions where abs(direction[axis.rawValue]) > 0.01 {
-            move(axis, vectors: &vectors, delta: direction[axis.rawValue] * radius, center: center)
-          }
-        } else {
-          let axis = neighbor == 0 ? primary : complementary
-          move(axis, vectors: &vectors, delta: sign * (neighbor == 0 ? 1 : -1) * radius, center: center)
-        }
-        // If a single axis is visually inert, the retry changes an additional
-        // image-relevant control without multiplying the number of evaluations.
-        if attempt > 0 {
-          let axis = dimensions[(phase + neighbor + 2) % dimensions.count]
-          move(axis, vectors: &vectors, delta: -sign * radius * 0.6, center: center)
-        }
-        if amount > 0 {
-          vectors = distinctOptions(preferred: vectors, base: base, center: center,
-            axes: dimensions, radius: radius, random: &random, excluding: proposed)
-          proposed.insert(effectiveOptions(vectors, center: center))
-        }
-        return PortraitStyleRecipe(id: "preference-\(seed)-\(neighbor)-\(attempt)",
-          title: center.recipe.title, seed: seed, style: center.recipe.style,
-          vectorOptions: canonicalOptions(vectors, style: center.recipe.style), analysisOptions: center.recipe.analysisOptions)
-      }
-    }
+    var vectors = base
+    move(axis, vectors: &vectors, delta: sign * 0.35, center: center)
+    vectors = distinctOptions(preferred: vectors, base: base, center: center,
+      axes: axes, radius: 0.35, random: &random, excluding: [effectiveOptions(base, center: center)])
+    return PortraitStyleRecipe(id: "preference-\(seed)", title: center.recipe.title, seed: seed,
+      style: center.recipe.style, vectorOptions: canonicalOptions(vectors, style: center.recipe.style),
+      analysisOptions: center.recipe.analysisOptions)
   }
 
   /// Cross effective parameter buckets instead of spending render attempts below
@@ -440,17 +328,6 @@ enum PortraitExplorationPolicy {
       // the total ink support. This is a visual-distance floor, not a quality score.
       return changed >= max(6, Int(ceil(Double(inkCount + other.inkCount) * 0.03)))
     }
-  }
-
-  /// Exact path identity remains useful for archive/tests, independent of IDs.
-  static func geometryIdentity(_ program: DrawingProgram) -> String {
-    let scale = 10_000 / program.fieldExtent.height
-    let paths = program.strokes.map { stroke -> String in
-      let points = stroke.path.points.map { "\(Int64(($0.x * scale).rounded())),\(Int64(($0.y * scale).rounded()))" }
-      let forward = points.joined(separator: ";"), reverse = points.reversed().joined(separator: ";")
-      return min(forward, reverse)
-    }.sorted().joined(separator: "|")
-    return PortraitCandidateCoding.digest(Data(paths.utf8))
   }
 
   private struct Generator {

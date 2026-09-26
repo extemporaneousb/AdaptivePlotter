@@ -1,4 +1,5 @@
 import Foundation
+@testable import PlotterApp
 
 /// Starting points use different stroke decisions, not merely preview styling.
 /// Saved recipes retain the complete parameter value, independent of these names.

@@ -61,13 +61,11 @@ struct PortraitCachedPreparationTests {
     #expect(model.isProcessing)
     model.setPhoto(Data([2]), for: .front, strokeStyle: pen)
     #expect(model.currentProgram == nil)
-    #expect(model.algorithmCandidates.isEmpty)
     await model.awaitRendering()
 
     #expect(await renderer.calls == 3)
     #expect(model.selectedCandidate?.sourceData == Data([2]))
     #expect(model.selectedCandidate?.photoID == model.selectedPhotoID)
-    #expect(model.algorithmCandidates.allSatisfy { $0.sourceData == Data([2]) })
     #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
     #expect(model.workDiagnostics.startedWorkerCount == model.workDiagnostics.settledWorkerCount)
     await model.shutdown()

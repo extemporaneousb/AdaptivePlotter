@@ -120,92 +120,6 @@ struct PortraitAttemptHistoryTests {
     await restored.shutdown()
   }
 
-  @Test("first completed alternative is selectable while the second is pending and stale completion cannot replace selection")
-  func progressivePublication() async throws {
-    let renderer = ExplorationTestRenderer()
-    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
-    let pen = try portraitTestStyle()
-    model.style = .contours
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    await renderer.holdRequest(number: 3)
-    model.setExplorationEnabled(true, strokeStyle: pen)
-    try await renderer.waitUntilHeld()
-    let partial = try #require(model.displayedExplorationRound)
-    let slot = try #require(partial.slots.first { $0.index != 1 && $0.candidate != nil })
-    let chosen = try #require(slot.candidate)
-    #expect(model.isExploring)
-    #expect(model.firstAlternativeSeconds != nil)
-    #expect(model.alternativePairSeconds == nil)
-    let search = model.explorationSearch
-    model.chooseExplorationSlot(slot.index, roundID: partial.id, strokeStyle: pen)
-    #expect(model.selectedCandidate?.id == chosen.id)
-    #expect(model.feedback(for: chosen) == .unknown)
-    #expect(model.explorationSearch == search)
-    await renderer.release()
-    await model.awaitRendering()
-    #expect(model.selectedCandidate?.id == chosen.id)
-    #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
-    await model.shutdown()
-  }
-
-  @Test("deleted offered alternative loses its click capability immediately")
-  func deletingAnOffer() async throws {
-    let renderer = ExplorationTestRenderer()
-    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
-    let pen = try portraitTestStyle()
-    model.style = .contours
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    await renderer.holdRequest(number: 3)
-    model.setExplorationEnabled(true, strokeStyle: pen)
-    try await renderer.waitUntilHeld()
-    let partial = try #require(model.displayedExplorationRound)
-    let slot = try #require(partial.slots.first { $0.index != 1 && $0.candidate != nil })
-    let deleted = try #require(slot.candidate)
-    model.deleteAttempt(deleted.id)
-    model.chooseExplorationSlot(slot.index, roundID: partial.id, strokeStyle: pen)
-    #expect(model.selectedCandidate?.id == partial.center.id)
-    #expect(!model.sketches.attempts.contains { $0.id == deleted.id })
-    #expect(model.displayedExplorationRound?.slots.contains { $0.candidate?.id == deleted.id } == false)
-    await renderer.release()
-    await model.awaitRendering()
-    #expect(!model.sketches.attempts.contains { $0.id == deleted.id })
-    await model.shutdown()
-  }
-
-  @Test("rejected old offers never reappear as fallback and region changes cannot alter queued retries")
-  func fallbackAndFrozenRegion() async throws {
-    let renderer = ExplorationTestRenderer()
-    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
-    let pen = try portraitTestStyle()
-    model.style = .contours
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    model.setExplorationEnabled(true, strokeStyle: pen)
-    await model.awaitRendering()
-    let first = try #require(model.explorationRound)
-    for slot in first.slots where slot.index != 1 {
-      if let candidate = slot.candidate { model.toggleFeedback(.rejected, candidate: candidate) }
-    }
-    await renderer.rejectFutureRequests()
-    model.resampleExploration(roundID: first.id, strokeStyle: pen)
-    await model.awaitRendering()
-    #expect(model.explorationRound?.slots.contains { $0.isPrevious } == false)
-    let before = await renderer.requests.count
-    model.explorationRegion = .eyes
-    await renderer.holdNext()
-    model.exploreSelection(strokeStyle: pen)
-    try await renderer.waitUntilHeld()
-    model.explorationRegion = .mouth
-    await renderer.release()
-    await model.awaitRendering()
-    let requests = await renderer.requests.dropFirst(before)
-    #expect(!requests.isEmpty)
-    #expect(requests.allSatisfy { $0.vectorOptions.regionalAdjustments?.last?.scope == .eyes })
-    await model.shutdown()
-  }
-
   @Test("deleting a nonselected source prunes Back and equivalent recent source aliases")
   func deletingNonselectedSource() async throws {
     let renderer = ExplorationTestRenderer()
@@ -214,74 +128,24 @@ struct PortraitAttemptHistoryTests {
     model.style = .contours
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
-    model.setExplorationEnabled(true, strokeStyle: pen)
+    model.nextPortrait(strokeStyle: pen)
     await model.awaitRendering()
     let a = try #require(model.selectedCandidate)
-    // Build a separately identified source B and retain A's round as Back.
+    // Build a separately identified source B and retain A as Back.
     model.setPhoto(Data([2]), for: .left, strokeStyle: pen)
     model.selectPhoto(try #require(model.recentPhotos.last?.id), strokeStyle: pen)
     await model.awaitRendering()
     let b = try #require(model.selectedCandidate)
     model.inspectAttempt(a.id, strokeStyle: pen)
-    model.exploreSelection(strokeStyle: pen)
+    model.nextPortrait(strokeStyle: pen)
     await model.awaitRendering()
     model.inspectAttempt(b.id, strokeStyle: pen)
     #expect(model.canGoBackExploration)
     model.deleteRetainedSource(a.photoID, strokeStyle: pen)
-    model.goBackExploration()
+    model.previousPortrait()
     #expect(model.selectedCandidate?.sourceSHA256 != a.sourceSHA256)
     #expect(!model.browsablePhotos.contains { $0.id == a.photoID })
     #expect(!model.sketches.entries.contains { $0.candidate.sourceSHA256 == a.sourceSHA256 })
-    await model.shutdown()
-  }
-
-  @Test("deleted style references lose selection capability and unkept clearing preserves current")
-  func deletingStyleReference() async throws {
-    let model = PortraitStudioModel(renderer: ExplorationTestRenderer())
-    let pen = try portraitTestStyle()
-    model.style = .contours
-    model.setStyleComparisonExpanded(true, strokeStyle: pen)
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    let selected = try #require(model.selectedCandidate)
-    let other = try #require(model.algorithmCandidates.first { $0.id != selected.id })
-    model.deleteAttempt(other.id)
-    #expect(!model.algorithmCandidates.contains { $0.id == other.id })
-    model.selectAlgorithm(other.recipe.style, strokeStyle: pen)
-    #expect(model.selectedCandidate?.id == selected.id)
-    model.clearUnkeptHistory()
-    #expect(model.selectedCandidate?.id == selected.id)
-    #expect(model.sketches.attempts.map(\.id) == [selected.id])
-    #expect(model.algorithmCandidates.allSatisfy { $0.id == selected.id })
-    await model.shutdown()
-  }
-
-  @Test("selected edits cancel a blocked style reference and run first after its serial join")
-  func selectedWorkPreemptsStyleReference() async throws {
-    let renderer = ExplorationTestRenderer()
-    let model = PortraitStudioModel(renderer: renderer)
-    let pen = try portraitTestStyle()
-    model.style = .contours
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    await renderer.holdNext()
-    model.setStyleComparisonExpanded(true, strokeStyle: pen)
-    try await renderer.waitUntilHeld()
-    let blockedCount = await renderer.requests.count
-    #expect(await renderer.requests.last?.style != .contours)
-    model.vectorOptions.tonalStrength = 1.8
-    model.renderIfConfigurationChanged(strokeStyle: pen)
-    // Cancellation must join the ignored-cancellation reference before another worker starts.
-    #expect(await renderer.requests.count == blockedCount)
-    #expect(model.workDiagnostics.activeWorkerCount == 1)
-    await renderer.release()
-    await model.awaitRendering()
-    let next = try #require(await renderer.requests.dropFirst(blockedCount).first)
-    #expect(next.style == .contours)
-    #expect(next.vectorOptions.tonalStrength == 1.8)
-    #expect(model.selectedCandidate?.recipe.style == .contours)
-    #expect(model.selectedCandidate?.recipe.vectorOptions.tonalStrength == 1.8)
-    #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
     await model.shutdown()
   }
 
