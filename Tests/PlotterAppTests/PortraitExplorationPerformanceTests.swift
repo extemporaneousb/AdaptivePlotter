@@ -25,8 +25,8 @@ struct PortraitExplorationPerformanceTests {
     await model.awaitRendering()
     let coldMS = elapsedMS(coldStart.duration(to: clock.now))
     let center = try #require(model.selectedCandidate)
-    var nextMS: [Double] = [], nextCalls: [Int] = [], accepted = 0
-    for _ in 0..<4 {
+    var nextMS: [Double] = [], nextCalls: [Int] = [], accepted = 0, lateAccepted = 0
+    for step in 0..<24 {
       let previous = try #require(model.selectedCandidate)
       let calls = await renderer.calls
       let started = clock.now
@@ -39,6 +39,7 @@ struct PortraitExplorationPerformanceTests {
       #expect(candidate.recipe.style == style)
       if candidate.id != previous.id {
         accepted += 1
+        if step >= 12 { lateAccepted += 1 }
         let different = await Task.detached {
           PortraitExplorationPolicy.VisibleGeometry(candidate.program)
             .isMeaningfullyDifferent(from: PortraitExplorationPolicy.VisibleGeometry(previous.program))
@@ -49,6 +50,10 @@ struct PortraitExplorationPerformanceTests {
     #expect(await renderer.coldCalls == 1)
     #expect(nextCalls.allSatisfy { (0...2).contains($0) })
     #expect(accepted > 0)
+    if style == .contours || style == .flowEdges {
+      #expect(accepted >= 12)
+      #expect(lateAccepted >= 5)
+    }
     #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
     let calls = await renderer.calls
     let current = try #require(model.selectedCandidate)
@@ -59,7 +64,7 @@ struct PortraitExplorationPerformanceTests {
     #expect(model.selectedCandidate?.program == current.program)
     #expect(await renderer.calls == calls)
     let stats: [String: Any] = ["style": style.rawValue, "coldMS": coldMS, "nextMS": nextMS,
-      "nextRenderCalls": nextCalls, "accepted": accepted, "backForwardMS": navigationMS,
+      "nextRenderCalls": nextCalls, "accepted": accepted, "lateAccepted": lateAccepted, "backForwardMS": navigationMS,
       "nativeClickToPaintMeasured": false, "physicalOrHumanQualityEvidence": false]
     let bytes = try JSONSerialization.data(withJSONObject: stats, options: [.sortedKeys])
     print("PORTRAIT_SEQUENTIAL_WORKLOAD " + String(decoding: bytes, as: UTF8.self))

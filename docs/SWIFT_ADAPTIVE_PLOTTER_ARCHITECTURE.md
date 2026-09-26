@@ -2322,20 +2322,32 @@ readiness, or new persistence authority. Automatic batch execution and corrected
 physical holdout evaluation remain unfinished product work.
 
 `PortraitStudioModel` owns capture/import, selected sources, bounded caches and one
-serial acquisition/render drain. The one-canvas `PortraitStudioView` has optional
-adjustments and Photos/History popovers. Entering Contour or Explorer is idle;
-Next submits one seeded proposal with at most one retry. Back/Forward install exact
-candidates from bounded stacks. Edits abandon Forward. No comparison jobs, grid
-rounds, fallback pool or fitted preference state remain. Source/revision/request
-identity and cancellation settlement gate publication. Only useful completed
-results enter durable history; footprint comparison runs only for Next.
+serial acquisition/render drain. The one-canvas `PortraitStudioView` exposes shared
+Previous/Next and region controls with optional Advanced editing. Contour and Flow Edge
+buttons reset the existing recipe to canonical parameters, preserving framing and
+material. There is no interaction-mode state. Next submits one seeded proposal with
+at most one retry. Navigation installs exact candidates from bounded stacks; either end can request a new
+sample. Edits
+abandon forward history. Source/revision/request identity and cancellation settlement
+gate publication. Only useful completed results enter durable history; footprint
+comparison runs only for Next. No comparison jobs, grid rounds, fallback pool or
+fitted preference state remain.
 
-`PortraitExplorationPolicy` varies applicable parameters with material floors and
-rejects duplicates, empty results, excessive detail and visually indistinguishable
-geometry. This measures difference, not quality. Regional requests freeze their
-scope. `PortraitExplorationRecord` only validates historical three/nine-slot archive
-receipts; current authoring does not produce or merge them. Studio remains separate
-from `WorkbenchLayoutState` dock placement and Drawing execution.
+`PortraitExplorationPolicy` samples the existing recipe coordinates. Global requests
+vary applicable renderer axes with material floors and reflection at bounds. Regional
+requests freeze their scope and resample `PortraitRegionalParameters`; Advanced edits
+the same fields. `PortraitVectorOptions.setTreatment` replaces prior entries for that
+scope, leaving other scopes intact. Existing stacked recipes are not rewritten on load.
+The renderer permits the historical eight overlays plus at most four previously absent
+regions; new recipes need at most one entry per region. Point/path/material budgets
+remain enforced. Landmark-supported masks restrict occupancy-distance checks to the
+requested feature. Novelty is a visible-distance floor, not a portrait-quality score.
+Source preparation and the regional postprocessor are shared across kernels; renderer
+selection is still discrete and does not imply continuous style interpolation.
+
+`PortraitExplorationRecord` only validates historical three/nine-slot archive receipts;
+current authoring does not produce or merge them. Studio remains separate from
+`WorkbenchLayoutState` dock placement and Drawing execution.
 
 The workspace caches the canonical `SparseTipBatchMarkPlan` for execution and
 planned video guides. `CameraOverlayKind.calibrationGuide` distinguishes those

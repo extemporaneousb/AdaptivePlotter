@@ -139,7 +139,12 @@ enum PortraitExplorationPolicy {
       if center.recipe.style != .flowEdges { dimensions += [.angle] }
     }
     if [.sketch, .sketchHatch, .flowEdges].contains(center.recipe.style) { dimensions += [.threshold] }
-    let effective = effectiveOptions(center.recipe.vectorOptions, center: center)
+    // An authored upper bound is reversible. Exclude an axis only when the
+    // physical material floor itself occupies its entire usable range.
+    var floorOptions = center.recipe.vectorOptions
+    floorOptions.minimumContourLength = 0
+    floorOptions.hatchSpacing = 1
+    let effective = effectiveOptions(floorOptions, center: center)
     if effective.minimumContourLength >= 40 { dimensions.removeAll { $0 == .minimumLength } }
     if effective.hatchSpacing >= 16 { dimensions.removeAll { $0 == .spacing } }
     return dimensions
@@ -155,12 +160,42 @@ enum PortraitExplorationPolicy {
       ? forms[Int((seed / 3) % UInt64(forms.count))] : axes[Int(random.next() % UInt64(axes.count))]
     let sign = random.next() & 1 == 0 ? -1.0 : 1.0
     var vectors = base
-    move(axis, vectors: &vectors, delta: sign * 0.35, center: center)
+    let radius = 0.35 + Double(random.next() % 451) / 1000
+    move(axis, vectors: &vectors, delta: sign * radius, center: center)
+    // Pair detail changes with an independent tonal/structural change. A Next
+    // request seeks another drawing, not a fixed one-dimensional direction.
+    let companions: [Dimension] = center.recipe.style == .contours ? [.tone, .levels, .smoothing] : axes
+    if let companion = shuffled(companions, random: &random).first(where: { $0 != axis }) {
+      move(companion, vectors: &vectors, delta: (random.next() & 1 == 0 ? -1 : 1) * radius, center: center)
+    }
     vectors = distinctOptions(preferred: vectors, base: base, center: center,
-      axes: axes, radius: 0.35, random: &random, excluding: [effectiveOptions(base, center: center)])
+      axes: axes, radius: radius, random: &random, excluding: [effectiveOptions(base, center: center)])
     return PortraitStyleRecipe(id: "preference-\(seed)", title: center.recipe.title, seed: seed,
       style: center.recipe.style, vectorOptions: canonicalOptions(vectors, style: center.recipe.style),
       analysisOptions: center.recipe.analysisOptions)
+  }
+
+  /// Resample the same editable regional coordinates for every rendering kernel.
+  /// Each request has a fresh seed; retries are independent of earlier accepted
+  /// settings and replace the selected region instead of accumulating overlays.
+  static func regionalRecipe(around center: PortraitCandidate, region: PortraitTreatmentRegion,
+    seed: UInt64, attempt: Int) -> PortraitStyleRecipe {
+    var random = Generator(state: seed ^ (UInt64(attempt) &* 0xd1b54a32d192ed03))
+    var vectors = center.recipe.vectorOptions
+    var treatment = vectors.treatment(for: region).bounded
+    let axes: [WritableKeyPath<PortraitRegionalParameters, Double>] = [
+      \.featureProtection, \.angularity, \.shadowStrength, \.contourEmphasis]
+      + (region == .face || region == .skin ? [\.skinSuppression] : [])
+    for axis in axes {
+      // A modular jump stays mobile at either boundary; no clamping or binary
+      // preset alternation. Keep the complete deterministic values in the recipe.
+      let jump = 0.25 + Double(random.next() % 501) / 1000
+      treatment[keyPath: axis] = (treatment[keyPath: axis] + jump).truncatingRemainder(dividingBy: 1)
+    }
+    vectors.setTreatment(treatment)
+    return .init(id: "region-\(region.rawValue)-\(seed)-\(attempt)",
+      title: center.recipe.style.rawValue + " · " + region.rawValue, seed: seed,
+      style: center.recipe.style, vectorOptions: vectors, analysisOptions: center.recipe.analysisOptions)
   }
 
   /// Cross effective parameter buckets instead of spending render attempts below
@@ -318,15 +353,40 @@ enum PortraitExplorationPolicy {
       nearbyInk = nearby
     }
 
-    func isMeaningfullyDifferent(from other: Self) -> Bool {
-      var changed = 0
+    /// Convert the renderer's landmark support to the same preview lattice.
+    /// The program uses Y-up field coordinates; retained analysis uses Y-down
+    /// raster pixels and may carry a non-square source metric.
+    static func regionMask(_ region: PortraitTreatmentRegion, raster: PortraitRaster,
+      program: DrawingProgram) -> [UInt64]? {
+      guard let field = PortraitRegionalTreatment.Field(raster: raster) else { return nil }
+      let scale = Double(side - 1) / max(program.fieldExtent.width, program.fieldExtent.height)
+      var mask = [UInt64](repeating: 0, count: side * side / 64)
+      for y in 0..<side { for x in 0..<side {
+        let u = Double(x) / scale / program.fieldExtent.width
+        let v = 1 - Double(y) / scale / program.fieldExtent.height
+        guard (0...1).contains(u), (0...1).contains(v) else { continue }
+        let metric = raster.sourceCropExtent != nil
+        let point = CGPoint(x: metric ? u * Double(raster.width) - 0.5 : u * Double(raster.width - 1),
+          y: metric ? v * Double(raster.height) - 0.5 : v * Double(raster.height - 1))
+        if field.weight(point, region: region) > 0.05 {
+          let cell = y * side + x
+          mask[cell >> 6] |= UInt64(1) << (cell & 63)
+        }
+      } }
+      return mask
+    }
+
+    func isMeaningfullyDifferent(from other: Self, mask: [UInt64]? = nil) -> Bool {
+      var changed = 0, support = 0
       for i in ink.indices {
-        changed += (ink[i] & ~other.nearbyInk[i]).nonzeroBitCount
-          + (other.ink[i] & ~nearbyInk[i]).nonzeroBitCount
+        let region = mask?[i] ?? UInt64.max
+        changed += (ink[i] & ~other.nearbyInk[i] & region).nonzeroBitCount
+          + (other.ink[i] & ~nearbyInk[i] & region).nonzeroBitCount
+        support += (ink[i] & region).nonzeroBitCount + (other.ink[i] & region).nonzeroBitCount
       }
-      // Require at least six independently visible samples and three percent of
-      // the total ink support. This is a visual-distance floor, not a quality score.
-      return changed >= max(6, Int(ceil(Double(inkCount + other.inkCount) * 0.03)))
+      // Six visible samples and three percent of the relevant ink support.
+      // Regional changes must not compete with all the unchanged exterior ink.
+      return changed >= max(6, Int(ceil(Double(support) * 0.03)))
     }
   }
 

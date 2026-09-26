@@ -20,6 +20,26 @@ struct PortraitRenderControls: View {
       Toggle("Remove background", isOn: $model.options.removeBackground)
         .accessibilityIdentifier("portrait.removeBackground")
       Divider().padding(.vertical, 2)
+      if let region = model.explorationRegion {
+        HStack {
+          Text(region.rawValue).font(.headline)
+          Spacer()
+          StudioHelpButton("Feature adjustments", text: "Next varies these same landmark-based controls in every style. Editing replaces earlier settings for this region. Other regions and source framing stay fixed.")
+        }
+        PortraitAdjustmentSlider("Protection", value: regionalBinding(\.featureProtection, region: region),
+          range: 0...1, step: 0.05, unit: "")
+        PortraitAdjustmentSlider("Angularity", value: regionalBinding(\.angularity, region: region),
+          range: 0...1, step: 0.05, unit: "")
+        PortraitAdjustmentSlider("Shadows", value: regionalBinding(\.shadowStrength, region: region),
+          range: 0...1, step: 0.05, unit: "")
+        PortraitAdjustmentSlider("Emphasis", value: regionalBinding(\.contourEmphasis, region: region),
+          range: 0...1, step: 0.05, unit: "")
+        if region == .face || region == .skin {
+          PortraitAdjustmentSlider("Skin cleanup", value: regionalBinding(\.skinSuppression, region: region),
+            range: 0...1, step: 0.05, unit: "")
+        }
+        Divider().padding(.vertical, 2)
+      }
       HStack {
         Text(model.style.rawValue).font(.headline)
         Spacer()
@@ -103,6 +123,15 @@ struct PortraitRenderControls: View {
     .controlSize(.small)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("portrait.adjustments")
+  }
+
+  private func regionalBinding(_ keyPath: WritableKeyPath<PortraitRegionalParameters, Double>,
+    region: PortraitTreatmentRegion) -> Binding<Double> {
+    Binding(get: { model.vectorOptions.treatment(for: region)[keyPath: keyPath] }, set: { value in
+      var treatment = model.vectorOptions.treatment(for: region)
+      treatment[keyPath: keyPath] = value
+      model.vectorOptions.setTreatment(treatment)
+    })
   }
 
   private func flowBinding(_ keyPath: WritableKeyPath<PortraitVectorOptions, Double?>) -> Binding<Double> {

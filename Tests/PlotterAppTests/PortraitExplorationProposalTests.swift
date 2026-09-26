@@ -21,6 +21,38 @@ struct PortraitExplorationProposalTests {
     }
   }
 
+  @Test("bounded global parameter corners remain renewable", arguments: [PortraitStyle.contours, .flowEdges], [false, true])
+  func boundarySampling(style: PortraitStyle, upper: Bool) throws {
+    var vectors = PortraitVectorOptions()
+    vectors.tonalStrength = upper ? 2 : 0.4
+    vectors.smoothing = upper ? 4 : 0
+    vectors.minimumContourLength = upper ? 40 : 0
+    vectors.simplificationTolerance = upper ? 3 : 0
+    vectors.contourLevels = upper ? 12 : 1
+    vectors.hatchSpacing = upper ? 16 : 3
+    vectors.sketchThreshold = upper ? 0.08 : 0.002
+    vectors.flowRectilinearity = upper ? 1 : nil
+    vectors.flowSupport = upper ? 1 : nil
+    vectors.flowStructureSupport = upper ? 1 : nil
+    vectors.flowSupportScale = upper ? 1 : nil
+    vectors.flowSeedIrregularity = upper ? 1 : nil
+    let center = try fixture(style: style, vectors: vectors)
+    let base = PortraitExplorationPolicy.effectiveOptions(vectors, center: center)
+    var seen = Set<PortraitVectorOptions>()
+    for seed in UInt64(0)..<100 {
+      let recipe = PortraitExplorationPolicy.recipe(around: center, seed: seed)
+      let effective = PortraitExplorationPolicy.effectiveOptions(recipe.vectorOptions, center: center)
+      #expect(recipe.vectorOptions == recipe.vectorOptions.bounded)
+      #expect(effective != base)
+      seen.insert(effective)
+    }
+    #expect(seen.count > 80)
+    if upper {
+      #expect(seen.contains { $0.minimumContourLength < 40 })
+      if style == .flowEdges { #expect(seen.contains { $0.hatchSpacing < 16 }) }
+    }
+  }
+
   @Test("material floors and disabled evidence scale do not consume ineffective probes")
   func materialFloors() throws {
     var vectors = PortraitVectorOptions.flowDefaults

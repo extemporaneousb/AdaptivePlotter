@@ -33,6 +33,25 @@ struct PortraitRegionalParameters: Codable, Hashable, Sendable {
   private static func amount(_ value: Double) -> Double { value.isFinite ? min(1, max(0, value)) : 0 }
 }
 
+extension PortraitVectorOptions {
+  /// New edits replace this region's state. Historical stacked recipes remain
+  /// untouched until the operator edits that region.
+  func treatment(for region: PortraitTreatmentRegion) -> PortraitRegionalParameters {
+    regionalAdjustments?.last(where: { $0.scope == region })
+      ?? (regionalTreatment?.scope == region ? regionalTreatment : nil)
+      ?? PortraitRegionalParameters(scope: region, skinSuppression: 0, featureProtection: 0.65)
+  }
+
+  mutating func setTreatment(_ treatment: PortraitRegionalParameters) {
+    if regionalTreatment?.scope == treatment.scope { regionalTreatment = nil }
+    var edits = regionalAdjustments ?? []
+    let insertion = edits.firstIndex(where: { $0.scope == treatment.scope }) ?? edits.count
+    edits.removeAll { $0.scope == treatment.scope }
+    edits.insert(treatment.bounded, at: min(insertion, edits.count))
+    regionalAdjustments = edits
+  }
+}
+
 /// This report identifies the exact analysis used, including truthful identity
 /// fallback. Program provenance binds its digest; no mutable renderer state is used.
 struct PortraitRegionalManifest: Codable, Hashable, Sendable {
@@ -170,7 +189,11 @@ enum PortraitRegionalTreatment {
   static func apply(_ base: [[CGPoint]], raster: PortraitRaster, options: PortraitVectorOptions) throws -> Result {
     let parameters = [options.regionalTreatment].compactMap { $0 } + (options.regionalAdjustments ?? [])
     guard !parameters.isEmpty else { return Result(paths: base, manifest: nil) }
-    guard (options.regionalAdjustments?.count ?? 0) <= 8 else { throw PortraitDrawingError.tooManyRegionalAdjustments }
+    // Historical stacks may already contain eight entries. Leave them intact
+    // while allowing one edit for each previously absent scope (at most four).
+    let adjustments = options.regionalAdjustments ?? []
+    let repeatedScopes = adjustments.count - Set(adjustments.map(\.scope)).count
+    guard repeatedScopes <= 7 else { throw PortraitDrawingError.tooManyRegionalAdjustments }
     try Task.checkCancellation()
     let digest = try raster.faceAnalysis.map { PortraitCandidateCoding.digest(try PortraitCandidateCoding.encoder().encode($0)) }
     let geometryDigest = try raster.analysisGeometry.map { PortraitCandidateCoding.digest(try PortraitCandidateCoding.encoder().encode($0)) }

@@ -18,8 +18,6 @@ final class PortraitCameraPreviewModel {
   var frame: DisplayedFrame?
 }
 
-enum PortraitStudioMode: Hashable { case contour, explorer }
-
 @Observable @MainActor
 final class PortraitStudioModel {
   private static let logger = Logger(subsystem: "com.adaptiveplotter.app", category: "portrait-browser")
@@ -32,7 +30,6 @@ final class PortraitStudioModel {
     }
   }
   var style: PortraitStyle = .contours
-  private(set) var studioMode: PortraitStudioMode = .contour
   private(set) var singlePortraitStatus: String?
   private var forwardPortraits: [(candidate: PortraitCandidate, pen: StrokeStyle)] = []
   var canGoForwardPortrait: Bool { forwardPortraits.contains { !isDeletedAttempt($0.candidate) } }
@@ -134,6 +131,7 @@ final class PortraitStudioModel {
     let ownsSource: Bool
     var explorationID: UUID? = nil
     var explorationCenter: DrawingProgram? = nil
+    var explorationRegion: PortraitTreatmentRegion? = nil
   }
   private struct PreparedRender: Sendable {
     let result: PortraitRenderResult
@@ -153,8 +151,12 @@ final class PortraitStudioModel {
       pose: pending.photo.pose, warpManifest: result.warpManifest)
     try Task.checkCancellation()
     let isDifferent = pending.explorationCenter.map {
-      PortraitExplorationPolicy.VisibleGeometry(candidate.program)
-        .isMeaningfullyDifferent(from: PortraitExplorationPolicy.VisibleGeometry($0))
+      let mask = pending.explorationRegion.flatMap {
+        PortraitExplorationPolicy.VisibleGeometry.regionMask($0, raster: candidate.raster,
+          program: candidate.program)
+      }
+      return PortraitExplorationPolicy.VisibleGeometry(candidate.program)
+        .isMeaningfullyDifferent(from: PortraitExplorationPolicy.VisibleGeometry($0), mask: mask)
     } ?? true
     let attempt = try PortraitAttemptRecord.prepare(candidate: candidate, pen: pending.key.strokeStyle)
     return PreparedRender(result: result, candidate: candidate, isDifferent: isDifferent, attempt: attempt,
@@ -566,26 +568,26 @@ final class PortraitStudioModel {
     let photo: PortraitPhoto
     let pen: StrokeStyle
     let region: PortraitTreatmentRegion?
+    let backwards: Bool
     let startedAt = ProcessInfo.processInfo.systemUptime
     var attempt = 0
     var configurations: Set<PortraitVectorOptions>
   }
 
-  func selectStudioMode(_ mode: PortraitStudioMode, strokeStyle: StrokeStyle) {
-    guard !isShutdown, !isCapturing else { return }
-    studioMode = mode
+  /// Named starting points in the recipe space, not interaction modes.
+  func resetStyle(_ preset: PortraitStyle, strokeStyle: StrokeStyle) {
+    guard !isShutdown, !isCapturing, PortraitStyle.authoringCases.contains(preset) else { return }
     cancelPortraitStep()
-    if mode == .contour, style != .contours {
-      let material = vectorOptions.materialContext
-      style = .contours
-      vectorOptions = PortraitVectorOptions()
-      vectorOptions.materialContext = material
-      recipeTitle = nil
-      render(strokeStyle: strokeStyle)
-    }
+    forwardPortraits = []
+    var vectors = preset == .flowEdges ? PortraitVectorOptions.flowDefaults : PortraitVectorOptions()
+    vectors.materialContext = vectorOptions.materialContext
+    style = preset
+    vectorOptions = vectors
+    recipeTitle = nil
+    renderIfConfigurationChanged(strokeStyle: strokeStyle)
   }
 
-  /// Retained navigation never renders. Only Next at the end requests work.
+  /// Retained navigation never renders. Either end can request a fresh sample.
   func nextPortrait(strokeStyle: StrokeStyle) {
     guard !isShutdown, !isCapturing, !isProcessing, !isExploring,
       let current = selectedCandidate, let pen = completedKey?.strokeStyle, pen == strokeStyle else { return }
@@ -598,10 +600,14 @@ final class PortraitStudioModel {
       singlePortraitStatus = nil
       return
     }
-    guard PortraitStyle.authoringCases.contains(style), let photo = selectedSource,
+    requestPortraitStep(current: current, pen: pen, backwards: false)
+  }
+
+  private func requestPortraitStep(current: PortraitCandidate, pen: StrokeStyle, backwards: Bool) {
+    guard !isExploring, PortraitStyle.authoringCases.contains(style), let photo = selectedSource,
       photo.id == current.photoID else { return }
-    if explorationRegion != nil, (current.recipe.vectorOptions.regionalAdjustments?.count ?? 0) >= 8 {
-      singlePortraitStatus = "This attempt already has eight regional adjustments. Revisit an earlier attempt."
+    if explorationRegion != nil, PortraitRegionalTreatment.Field(raster: current.raster) == nil {
+      singlePortraitStatus = "Feature edits need reliable facial landmarks. Choose Whole portrait or another photo."
       return
     }
     let seed = nextExplorationSeed
@@ -609,7 +615,7 @@ final class PortraitStudioModel {
     singlePortraitStatus = nil
     firstAlternativeSeconds = nil
     explorationJob = .init(seed: seed, center: current, photo: photo, pen: pen,
-      region: explorationRegion,
+      region: explorationRegion, backwards: backwards,
       configurations: [PortraitExplorationPolicy.effectiveOptions(current.recipe.vectorOptions, center: current)])
     queueExplorationJob()
     startWorkIfNeeded()
@@ -619,7 +625,10 @@ final class PortraitStudioModel {
     guard !isShutdown, !isCapturing, !isProcessing,
       let current = selectedCandidate, let pen = completedKey?.strokeStyle else { return }
     explorationHistory.removeAll { isDeletedAttempt($0.candidate) }
-    guard let previous = explorationHistory.popLast(), let pose = previous.candidate.renderPose else { return }
+    guard let previous = explorationHistory.popLast(), let pose = previous.candidate.renderPose else {
+      requestPortraitStep(current: current, pen: pen, backwards: true)
+      return
+    }
     forwardPortraits.append((current, pen))
     trimHistory(&forwardPortraits)
     cancelPortraitStep()
@@ -659,7 +668,7 @@ final class PortraitStudioModel {
   }
 
   private func queueExplorationJob(recipeOverride: PortraitStyleRecipe? = nil,
-    failure: String = "No useful new change. Current is still available.") {
+    failure: String = "No visible change this time. Next tries different parameters.") {
     guard var job = explorationJob else { return }
     guard job.attempt < PortraitExplorationPolicy.maximumAttemptsPerSlot else {
       explorationJob = nil
@@ -669,19 +678,8 @@ final class PortraitStudioModel {
     let recipe: PortraitStyleRecipe
     if let recipeOverride { recipe = recipeOverride }
     else if let region = job.region {
-      let neighbor = Int(job.seed % 2)
-      var vectors = job.center.recipe.vectorOptions
-      var treatment = PortraitRegionalParameters()
-      treatment.scope = region
-      treatment.featureProtection = neighbor == 0 ? 0.85 : 0.35
-      treatment.skinSuppression = neighbor == 0 ? 0.7 : 0.25
-      treatment.contourEmphasis = job.attempt == 0 ? (neighbor == 0 ? 0.25 : 0.65) : (neighbor == 0 ? 0.5 : 0.9)
-      treatment.angularity = neighbor == 0 ? 0 : 0.65
-      treatment.shadowStrength = neighbor == 0 ? 0 : (job.attempt == 0 ? 0.5 : 0.8)
-      vectors.regionalAdjustments = (vectors.regionalAdjustments ?? []) + [treatment]
-      recipe = .init(id: "region-\(region.rawValue)-\(job.seed)-\(job.attempt)",
-        title: "\(region.rawValue) treatment", seed: job.seed, style: job.center.recipe.style,
-        vectorOptions: vectors, analysisOptions: job.center.recipe.analysisOptions)
+      recipe = PortraitExplorationPolicy.regionalRecipe(around: job.center, region: region,
+        seed: job.seed, attempt: job.attempt)
     } else {
       recipe = PortraitExplorationPolicy.recipe(around: job.center, seed: job.seed)
     }
@@ -710,7 +708,7 @@ final class PortraitStudioModel {
       lineage: .init(parentID: job.center.id, parentProgramHash: job.center.program.contentHash.description,
         parentRecipe: job.center.recipe, ancestryGroupID: job.center.lineage.ancestryGroupID),
       ownsSource: retainedEditSource?.id == job.photo.id, explorationID: job.id,
-      explorationCenter: job.center.program))
+      explorationCenter: job.center.program, explorationRegion: job.region))
   }
 
   private func retryExploration(_ recipe: PortraitStyleRecipe, rejection: PortraitExplorationPolicy.Rejection,
@@ -734,11 +732,16 @@ final class PortraitStudioModel {
       retryExploration(pending.recipe, rejection: .detailBudget, failure: "Drawing exceeds the detail budget.")
     } else if !prepared.isDifferent {
       retryExploration(pending.recipe, rejection: .similarGeometry,
-        failure: "No useful new change. Current is still available.")
+        failure: "No visible change this time. Next tries different parameters.")
     } else {
       sketches.recordAttempt(candidate, record: prepared.attempt)
-      explorationHistory.append((job.center, job.pen))
-      trimHistory(&explorationHistory)
+      if job.backwards {
+        forwardPortraits.append((job.center, job.pen))
+        trimHistory(&forwardPortraits)
+      } else {
+        explorationHistory.append((job.center, job.pen))
+        trimHistory(&explorationHistory)
+      }
       explorationJob = nil
       installExplorationCandidate(candidate, pen: job.pen)
       firstAlternativeSeconds = ProcessInfo.processInfo.systemUptime - job.startedAt
@@ -1025,7 +1028,6 @@ final class PortraitStudioModel {
     installCandidateSource(candidate, pose: pose)
     let pen = candidate.program.strokes.first?.style ?? strokeStyle
     installExplorationCandidate(candidate, pen: pen)
-    if candidate.recipe.style != .contours { studioMode = .explorer }
     lastHistoryNavigationSeconds = ProcessInfo.processInfo.systemUptime - started
     Self.logger.info("History selection installed elapsed_ms=\((self.lastHistoryNavigationSeconds ?? 0) * 1000) render_count=\(self.renderDiagnostics.startedWorkerCount)")
   }
@@ -1067,7 +1069,6 @@ final class PortraitStudioModel {
   func applySavedStyle(_ saved: PortraitSavedStyle, strokeStyle: StrokeStyle) {
     let parent = selectedCandidate
     installRecipe(saved.recipe)
-    if saved.recipe.style != .contours { studioMode = .explorer }
     render(strokeStyle: strokeStyle, parent: parent)
   }
 

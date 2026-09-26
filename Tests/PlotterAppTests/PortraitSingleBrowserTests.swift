@@ -115,7 +115,7 @@ struct PortraitSingleBrowserTests {
     await model.shutdown()
   }
 
-  @Test("opening modes is idle and Next creates at most one retained result")
+  @Test("Next creates at most one retained result and navigation is exact")
   func boundedDemandAndExactNavigation() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
@@ -125,7 +125,6 @@ struct PortraitSingleBrowserTests {
     let first = try #require(model.selectedCandidate)
     let initialCalls = await renderer.requests.count
     let initialAttempts = model.sketches.attempts.count
-    model.selectStudioMode(.explorer, strokeStyle: pen)
     await model.awaitRendering()
     #expect(await renderer.requests.count == initialCalls)
     model.nextPortrait(strokeStyle: pen)
@@ -170,11 +169,10 @@ struct PortraitSingleBrowserTests {
     await model.awaitRendering()
     let first = try #require(model.selectedCandidate)
     let count = model.sketches.attempts.count
-    model.selectStudioMode(.explorer, strokeStyle: pen)
     await renderer.holdNext()
     model.nextPortrait(strokeStyle: pen)
     try await renderer.waitUntilHeld()
-    model.selectStudioMode(.contour, strokeStyle: pen)
+    model.resetStyle(.contours, strokeStyle: pen)
     #expect(!model.isExploring)
     await renderer.release()
     await model.awaitRendering()

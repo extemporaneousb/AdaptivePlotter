@@ -230,39 +230,36 @@ struct PortraitStudioView: View {
 
   private var browserControls: some View {
     PortraitAdaptiveRow {
-      Picker("Mode", selection: Binding(
-        get: { model.studioMode },
-        set: { mode in
-          model.selectStudioMode(mode, strokeStyle: strokeStyle)
-          showsAdjustments = mode == .contour
-        })) {
-        Text("Contour").tag(PortraitStudioMode.contour)
-        Text("Explorer").tag(PortraitStudioMode.explorer)
+      Button { model.previousPortrait() } label: { Label("Previous", systemImage: "chevron.left") }
+        .help(model.canGoBackExploration ? "Revisit the previous retained drawing" : "Try another drawing before this one")
+        .disabled(candidate == nil || model.isCapturing || model.isProcessing || (model.isExploring && !model.canGoBackExploration))
+        .keyboardShortcut(.leftArrow, modifiers: [.command])
+        .accessibilityIdentifier("portrait.exploration.back")
+      Button { model.nextPortrait(strokeStyle: strokeStyle) } label: {
+        Label("Next", systemImage: "chevron.right")
       }
-      .pickerStyle(.segmented).labelsHidden().frame(width: 180)
-      .accessibilityIdentifier("portrait.mode")
-      if model.studioMode == .explorer {
-        Button { model.previousPortrait() } label: { Label("Back", systemImage: "chevron.left") }
-          .disabled(!model.canGoBackExploration || model.isCapturing || model.isProcessing)
-          .keyboardShortcut(.leftArrow, modifiers: [.command])
-          .accessibilityIdentifier("portrait.exploration.back")
-        Button { model.nextPortrait(strokeStyle: strokeStyle) } label: {
-          Label(model.canGoForwardPortrait ? "Forward" : "Next", systemImage: "chevron.right")
-        }
-        .disabled(candidate == nil || model.isExploring || model.isCapturing || model.isProcessing)
-        .keyboardShortcut(.rightArrow, modifiers: [.command])
-        .accessibilityIdentifier("portrait.exploration.next")
-        if model.isExploring {
-          Button("Cancel") { model.cancelPortraitStep() }
-            .accessibilityIdentifier("portrait.exploration.cancel")
-        }
-        Picker("Explore region", selection: $model.explorationRegion) {
-          Text("Whole portrait").tag(Optional<PortraitTreatmentRegion>.none)
-          ForEach(PortraitTreatmentRegion.allCases) { Text($0.rawValue).tag(Optional($0)) }
-        }.labelsHidden().frame(maxWidth: 150)
-          .disabled(model.isExploring)
-          .accessibilityIdentifier("portrait.exploration.region")
+      .help(model.canGoForwardPortrait ? "Revisit the next retained drawing" : "Try different parameters for the selected region")
+      .disabled(candidate == nil || model.isExploring || model.isCapturing || model.isProcessing)
+      .keyboardShortcut(.rightArrow, modifiers: [.command])
+      .accessibilityIdentifier("portrait.exploration.next")
+      if model.isExploring {
+        Button("Cancel") { model.cancelPortraitStep() }
+          .accessibilityIdentifier("portrait.exploration.cancel")
       }
+      Picker("Explore region", selection: $model.explorationRegion) {
+        Text("Whole portrait").tag(Optional<PortraitTreatmentRegion>.none)
+        ForEach(PortraitTreatmentRegion.allCases) { Text($0.rawValue).tag(Optional($0)) }
+      }.labelsHidden().frame(maxWidth: 150)
+        .disabled(model.isExploring)
+        .accessibilityIdentifier("portrait.exploration.region")
+      HStack(spacing: 5) {
+        Text("Reset to").font(.caption).foregroundStyle(.secondary)
+        ForEach([PortraitStyle.contours, .flowEdges]) { preset in
+          Button(preset.rawValue) { model.resetStyle(preset, strokeStyle: strokeStyle) }
+            .help("Reset drawing parameters to the canonical \(preset.rawValue) preset, keeping photo framing and pen settings")
+            .accessibilityIdentifier("portrait.reset.\(preset.rawValue)")
+        }
+      }.disabled(model.isCapturing)
       Spacer(minLength: 0)
       Button("Photos", systemImage: "photo") { showsSource.toggle() }
         .accessibilityIdentifier("portrait.sourceToggle")
@@ -325,7 +322,7 @@ struct PortraitStudioView: View {
         Text("Portrait").font(.headline)
         Spacer()
         Toggle(isOn: $showsAdjustments) {
-          Label("Adjustments", systemImage: "slider.horizontal.3")
+          Label("Advanced", systemImage: "slider.horizontal.3")
         }
         .toggleStyle(.button)
         .controlSize(.small)

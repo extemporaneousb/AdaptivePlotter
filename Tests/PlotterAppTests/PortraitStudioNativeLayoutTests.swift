@@ -43,8 +43,8 @@ struct PortraitStudioNativeLayoutTests {
       model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: pen)
       await model.awaitRendering()
       let sizes = [NSSize(width: 1000, height: 550), NSSize(width: 1280, height: 650)]
-      for (size, mode) in sizes.flatMap({ size in [PortraitStudioMode.contour, .explorer].map { (size, $0) } }) {
-        model.selectStudioMode(mode, strokeStyle: pen)
+      for (size, style) in sizes.flatMap({ size in [PortraitStyle.contours, .flowEdges].map { (size, $0) } }) {
+        model.resetStyle(style, strokeStyle: pen)
         await model.awaitRendering()
         let host = NSHostingController(rootView:
           PlotterApplicationRuntimeView(application: application).panelContent(.portraitStudio)
@@ -80,7 +80,7 @@ struct PortraitStudioNativeLayoutTests {
           #expect(host.view.bounds.insetBy(dx: -2, dy: -2).contains(rect),
             "Production Portrait control was clipped: \(rect) in \(host.view.bounds)")
         }
-        try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: "workspace-\(mode == .explorer ? "explorer" : "contour")")
+        try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: "workspace-\(style.rawValue)")
         window.close()
       }
       await application.shutdown()
@@ -124,7 +124,6 @@ struct PortraitStudioNativeLayoutTests {
       #expect(!descendants(window).contains { $0.accessibilityIdentifier() == "portrait.adjustmentInspector" })
       #expect(descendants(window).filter { $0.accessibilityIdentifier() == "portrait.drawingFrame" }.count == 1)
       #expect(!descendants(window).contains { ($0.accessibilityIdentifier() ?? "").hasPrefix("portrait.exploration.slot.") })
-      model.selectStudioMode(.explorer, strokeStyle: stroke)
       await settle(host.view)
       #expect(try requiredElement("portrait.exploration.next", in: window).accessibilityPerformPress())
       await model.awaitRendering()

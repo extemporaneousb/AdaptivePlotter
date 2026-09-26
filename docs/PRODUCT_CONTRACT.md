@@ -1681,14 +1681,27 @@ Opening and closing it preserves those dock placements. The shared Drawing panel
 owns placement, pen/material setup, paper coverage, Draw, Stop and result review.
 Studio authoring remains available with an imported photo while disconnected.
 
-Portrait Studio has one drawing canvas, optional adjustments and Photos/History
-popovers. Contour selects tonal contours; Explorer varies the current renderer.
-Entering either mode is idle. Next requests one variation with at most two renders;
-it preserves the current candidate during work and stops after one useful result.
-Back/Forward and history install exact retained candidates without rendering.
-Edits abandon Forward; mode/source changes, cancellation and Back invalidate late
-publication. Applicable parameter, material-floor, detail-budget and visible-distance
-checks bound proposals. Exhaustion or rendering failure keeps the current drawing.
+Portrait Studio has one drawing canvas, optional Advanced controls and Photos/History
+popovers. Previous/Next and feature selection work with every authoring renderer.
+Reset to Contour or Flow Edge restores canonical drawing parameters, including when
+already using that renderer; photo framing and material remain selected. These are
+recipe presets, not interaction modes. The kernels remain distinct and are not
+continuously interpolated.
+
+Next requests different parameters with at most two renders, preserves the current
+candidate during work and stops after one useful result. Retained navigation
+installs exact candidates without rendering; either end can request another sample. Edits abandon forward history;
+source changes, cancellation, reset and Previous invalidate late publication.
+Whole-portrait proposals vary applicable axes and reflect at bounds. Regional proposals
+resample the same controls available in Advanced, replace the selected region's state
+and compare visible change within its landmark support. Repeated requests have fresh
+seeds and no accumulated-edit stopping count. Historical stacked recipes retain their
+interpretation until that region is edited. Missing reliable landmarks give an explicit
+unavailable result; they do not silently retarget another region.
+
+Material floors, detail budgets and visible-distance checks still bound proposals.
+A finite-resolution drawing cannot guarantee a distinct useful result on every click;
+a failed two-attempt request keeps the current drawing and Next can try fresh settings.
 There are no background style comparisons, grid rounds or automatic follow-on jobs.
 
 Completed authoring and useful Next results retain source, raster, recipe, geometry,

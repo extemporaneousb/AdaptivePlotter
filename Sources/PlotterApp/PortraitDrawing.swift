@@ -35,7 +35,7 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
   var flowSupportScale: Double? = nil
   var flowSeedIrregularity: Double? = nil
   var regionalTreatment: PortraitRegionalParameters? = nil
-  /// Ordered overlays preserve earlier treatment while exploring one region.
+  /// Ordered regional state; historical repeated scopes remain readable.
   var regionalAdjustments: [PortraitRegionalParameters]? = nil
   var eyeExaggeration: PortraitEyeExaggerationParameters? = nil
 
@@ -253,7 +253,7 @@ enum PortraitDrawingError: LocalizedError {
     case .noLines: "This style produced no lines. Try another style or turn off background removal."
     case .noCameraFrame: "Waiting for a portrait camera frame. Retry Capture after the face video appears."
     case .regionalBudgetExceeded: "This regional treatment exceeds the retained drawing point budget. Try a simpler treatment or an earlier attempt."
-    case .tooManyRegionalAdjustments: "This recipe already has eight regional adjustments. Revisit an earlier attempt to start another branch."
+    case .tooManyRegionalAdjustments: "This recipe exceeds the regional treatment budget."
     }
   }
 }

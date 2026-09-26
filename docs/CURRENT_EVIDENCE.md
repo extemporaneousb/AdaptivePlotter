@@ -8,6 +8,38 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Shared portrait exploration controls, 2026-09-26
+
+Removed Contour/Explorer mode state. Both kernels now expose Previous/Next and
+feature selection; Contour and Flow Edge buttons reset canonical recipe parameters
+while retaining source framing and material. Advanced edits the same regional fields
+as sampling. Either end of retained navigation can request a fresh sample; navigation
+within retained history remains exact and render-free. One serial owner and at most
+two renders per request remain. Ordinary authored upper bounds no longer masquerade
+as material floors. Regional requests replace that scope's settings, use fresh seeds,
+and compare visible geometry within retained landmark support. Old stacked recipes
+keep their original interpretation until a scope is edited; point and material
+constraints remain enforced. The two rendering kernels are still discrete.
+
+The focused debug selection passed 25 tests, including actual-kernel sequences,
+parameter corners, canonical resets, exact navigation, cancellation, historical
+recipe geometry and hosted layouts. On a retained analytic landmark fixture, 24
+successive eye/face requests accepted 23/21 changes for Contour and 24/24 for Flow
+Edge. The last twelve requests accepted 12/11 and 12/12 respectively; each recipe
+retained one regional entry. Unique stroke geometries were 19/21 and 24/24. Mean
+request times were 560/654 ms and 313/516 ms in DEBUG, excluding native painting.
+A separate 24-step whole-portrait analytic workload accepted 24 Contour, 20 Flow
+Edge and 23 Sketch changes; late halves accepted 12, 10 and 11. Preparation ran
+once per session, and retained back/forward navigation performed no rendering.
+This second selection and the updated hosted-layout checks passed.
+
+Hosted snapshots were inspected at 1000×550 with Advanced closed/open; layout
+assertions also cover 1280×650 and feature controls. These are analytic software
+and offscreen-host observations, not before/after speedup, real-photo aesthetic,
+live-session or physical drawing evidence. The running app and hardware were not
+restarted or exercised. Configured release validation is recorded separately in
+the task's machine receipts.
+
 ## Portrait Studio sampling cleanup, 2026-09-26
 
 Removed the unused style-comparison queue/context, grid slots/rounds, adaptive

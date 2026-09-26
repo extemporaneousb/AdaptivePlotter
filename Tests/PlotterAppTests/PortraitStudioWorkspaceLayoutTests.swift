@@ -8,9 +8,9 @@ import Testing
 @Suite("Portrait Studio bounded workspace", .serialized)
 @MainActor
 struct PortraitStudioWorkspaceLayoutTests {
-  @Test("one portrait fits in both modes with optional adjustments",
-    arguments: [PortraitStudioMode.contour, .explorer], [false, true])
-  func controlsFit(mode: PortraitStudioMode, detailsExpanded: Bool) async throws {
+  @Test("one portrait fits with shared navigation and optional Advanced controls",
+    arguments: [PortraitStyle.contours, .flowEdges], [false, true])
+  func controlsFit(style: PortraitStyle, detailsExpanded: Bool) async throws {
     _ = NSApplication.shared
     let model = PortraitStudioModel(renderer: WorkspaceLayoutRenderer())
     let stroke = try portraitTestStyle()
@@ -20,9 +20,10 @@ struct PortraitStudioWorkspaceLayoutTests {
     await model.awaitRendering()
     #expect(model.browsablePhotos.count >= 3)
     #expect(!model.isExploring)
+    model.explorationRegion = detailsExpanded ? .eyes : nil
     for size in [CGSize(width: 1000, height: 550), CGSize(width: 1280, height: 650)] {
-      for style in [PortraitStyle.contours] {
-        model.selectStudioMode(mode, strokeStyle: stroke)
+      do {
+        model.resetStyle(style, strokeStyle: stroke)
         model.renderIfNeeded(strokeStyle: stroke)
         await model.awaitRendering()
         let host = NSHostingController(rootView: PortraitStudioView(model: model,
@@ -46,7 +47,6 @@ struct PortraitStudioWorkspaceLayoutTests {
         try await settle(host.view)
         defer { window.close() }
         #expect(!window.isKeyWindow)
-        #expect(model.studioMode == mode)
         #expect(model.selectedCandidate?.recipe.style == style)
         #expect(!model.isExploring)
         #expect(model.renderDiagnostics.startedWorkerCount == calls)
@@ -81,7 +81,7 @@ struct PortraitStudioWorkspaceLayoutTests {
           let image = try #require(bitmap.cgImage)
           let index = try #require(PortraitStyle.authoringCases.firstIndex(of: style))
           try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: directory)
-            .appendingPathComponent("studio-\(Int(size.width))-style-\(index)-\(mode == .explorer ? "explorer" : "contour")-details-\(detailsExpanded ? "open" : "closed").png"))
+            .appendingPathComponent("studio-\(Int(size.width))-style-\(index)-details-\(detailsExpanded ? "open" : "closed").png"))
 
         }
       }
