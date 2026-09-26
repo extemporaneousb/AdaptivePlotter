@@ -67,6 +67,40 @@ struct PortraitPlanePreview {
   let materialUnavailableReason: String?
   let savedPresentation: PortraitPresentationContext?
 
+  // Only the factories in this file construct previews. plannedStrokes is the
+  // matching immutable plan or its prefix, so plan hash + count identifies it.
+  fileprivate struct GeometryKey: Equatable {
+    let programHash: Digest?
+    let region: DrawableMachineRegion?
+    let evidence: PortraitDisplayEvidence?
+    let plannedStrokeCount: Int?
+    let inkWidthMM: Double
+  }
+
+  fileprivate var geometryKey: GeometryKey {
+    .init(programHash: program?.contentHash, region: region, evidence: evidence,
+      plannedStrokeCount: plannedStrokes?.count, inkWidthMM: inkWidthMM)
+  }
+
+  fileprivate init(program: DrawingProgram?, region: DrawableMachineRegion?,
+    evidence: PortraitDisplayEvidence?, plannedStrokes: [PlannedMachineStroke]?,
+    inkWidthMM: Double, inkWidthIsMeasured: Bool,
+    materialProfile: DrawingMaterialProfileRevision?, materialRevision: String?,
+    statusText: String, materialUnavailableReason: String?,
+    savedPresentation: PortraitPresentationContext?) {
+    self.program = program
+    self.region = region
+    self.evidence = evidence
+    self.plannedStrokes = plannedStrokes
+    self.inkWidthMM = inkWidthMM
+    self.inkWidthIsMeasured = inkWidthIsMeasured
+    self.materialProfile = materialProfile
+    self.materialRevision = materialRevision
+    self.statusText = statusText
+    self.materialUnavailableReason = materialUnavailableReason
+    self.savedPresentation = savedPresentation
+  }
+
   /// A sealed execution plan is sufficient to draw its exact machine paths.
   /// No current authoring program or second planning pass participates.
   static func planned(_ plan: ExecutionPlanRevision, completedStrokeCount: Int? = nil) -> Self {
@@ -210,32 +244,109 @@ struct PortraitPlanePreview {
   }
 }
 
+/// Screen-space drawing commands shared by cached and uncached presentation.
+/// Separate paths preserve the original per-stroke compositing and rounded caps.
+struct PortraitPlaneDrawing {
+  let outline: Path
+  let paths: [Path]
+  let lineWidth: Double
+  let pointCount: Int
+
+  init?(preview: PortraitPlanePreview, size: CGSize) {
+    guard let geometry = preview.geometry(in: size) else { return nil }
+    outline = geometry.regionOutline.map { points in
+      Path { path in
+        if let first = points.first { path.move(to: first) }
+        for point in points.dropFirst() { path.addLine(to: point) }
+        path.closeSubpath()
+      }
+    } ?? Path(geometry.regionRect)
+    paths = geometry.paths.map { points in
+      Path { path in
+        if let first = points.first { path.move(to: first) }
+        for point in points.dropFirst() { path.addLine(to: point) }
+      }
+    }
+    lineWidth = geometry.lineWidth
+    pointCount = geometry.paths.reduce(0) { $0 + $1.count }
+  }
+
+  func draw(in context: inout GraphicsContext) {
+    context.clip(to: outline)
+    let style = SwiftUI.StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+    for path in paths { context.stroke(path, with: .color(.black), style: style) }
+    context.stroke(outline, with: .color(.gray.opacity(0.5)), lineWidth: 1)
+  }
+}
+
+/// One viewport-sized entry per mounted preview. Mutable cache state is confined
+/// to the view's main actor; Canvas receives only immutable drawing commands.
+@MainActor
+final class PortraitPlanePreviewCache: ObservableObject {
+  static let maximumPoints = 200_000
+  static let maximumStrokes = 10_000
+  private var key: PortraitPlanePreview.GeometryKey?
+  private var size: CGSize?
+  private var drawing: PortraitPlaneDrawing?
+  private(set) var buildCount = 0
+  private(set) var hitCount = 0
+  var retainedPointCount: Int { drawing?.pointCount ?? 0 }
+
+  func resolve(_ preview: PortraitPlanePreview, size: CGSize) -> PortraitPlaneDrawing? {
+    let next = preview.geometryKey
+    if key == next, self.size == size {
+      hitCount += 1
+      return drawing
+    }
+    buildCount += 1
+    let result = PortraitPlaneDrawing(preview: preview, size: size)
+    // Oversized drawings still paint in full, but never become retained buffers.
+    if let result, result.pointCount <= Self.maximumPoints,
+      result.paths.count <= Self.maximumStrokes {
+      key = next
+      self.size = size
+      drawing = result
+    } else {
+      key = nil
+      self.size = nil
+      drawing = nil
+    }
+    return result
+  }
+}
+
 struct PortraitPlaneProgramPreview: View {
   let preview: PortraitPlanePreview
+  @StateObject private var cache: PortraitPlanePreviewCache
+
+  init(preview: PortraitPlanePreview, cache: PortraitPlanePreviewCache? = nil) {
+    self.preview = preview
+    _cache = StateObject(wrappedValue: cache ?? PortraitPlanePreviewCache())
+  }
+
   var body: some View {
-    Canvas { context, size in
-      guard let geometry = preview.geometry(in: size) else { return }
-      let outline = geometry.regionOutline.map { points in
-        Path { path in
-          if let first = points.first { path.move(to: first) }
-          for point in points.dropFirst() { path.addLine(to: point) }
-          path.closeSubpath()
-        }
-      } ?? Path(geometry.regionRect)
-      context.clip(to: outline)
-      for points in geometry.paths {
-        var path = Path()
-        for (index, point) in points.enumerated() {
-          if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
-        }
-        context.stroke(path, with: .color(.black),
-          style: SwiftUI.StrokeStyle(lineWidth: geometry.lineWidth, lineCap: .round, lineJoin: .round))
-      }
-      context.stroke(outline, with: .color(.gray.opacity(0.5)), lineWidth: 1)
+    PortraitPlaneCachedCanvas(preview: preview, cache: cache).equatable()
+      .background(.white)
+      .accessibilityLabel("Portrait drawing plane preview")
+      .accessibilityIdentifier("portrait.planePreview")
+  }
+}
+
+/// Status-only parent updates do not invalidate the Canvas display list. Viewport
+/// changes still reach GeometryReader, where the path cache checks the new size.
+private struct PortraitPlaneCachedCanvas: View, Equatable {
+  let preview: PortraitPlanePreview
+  let cache: PortraitPlanePreviewCache
+
+  nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.cache === rhs.cache && lhs.preview.geometryKey == rhs.preview.geometryKey
+  }
+
+  var body: some View {
+    GeometryReader { geometry in
+      let drawing = cache.resolve(preview, size: geometry.size)
+      Canvas { context, _ in drawing?.draw(in: &context) }
     }
-    .background(.white)
-    .accessibilityLabel("Portrait drawing plane preview")
-    .accessibilityIdentifier("portrait.planePreview")
   }
 }
 

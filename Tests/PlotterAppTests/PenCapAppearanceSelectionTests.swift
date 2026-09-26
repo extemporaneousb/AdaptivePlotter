@@ -626,7 +626,9 @@ struct PenCapAppearanceSelectionTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let camera = try TestObservationCameraSession()
-    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, log: log)
+    // The wait below must observe this click, not a preloaded fixture reference.
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera,
+      loadPenCapAppearanceSelection: { nil }, log: log)
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -646,12 +648,23 @@ struct PenCapAppearanceSelectionTests {
     )
     try await waitUntil { workspace.penCapAppearanceSelection != nil }
     try await performExactPenStop(workspace, owner: owner)
+    // The question may have started before Stop. Its cancelled history is
+    // retained by the owner; Restart must not revive or replace that history.
+    let stoppedTransaction = workspace.discoveryTransactions[.penInteraction]
+    if let stoppedTransaction {
+      #expect(stoppedTransaction.state == .cancelled)
+      #expect(stoppedTransaction.completedStepCount == 1)
+    }
     await workspace.performTestExerciseAction(.restart, for: owner)
 
     let restartedAttemptID = try #require(workspace.activeExerciseAttemptID)
     #expect(restartedAttemptID != cancelledAttemptID)
-    #expect(workspace.discoveryTransactions[.penInteraction] == nil)
-    #expect(workspace.testActionSurfacePresentation.pointSelectionRequest?.purpose == .penCapAppearance)
+    #expect(workspace.discoveryTransactions[.penInteraction] == stoppedTransaction)
+    #expect(workspace.activeDiscoverySequenceID == nil)
+    #expect(workspace.selectedOperatorActionPresentation(for: owner).question == nil)
+    let restartedRequest = try #require(workspace.testActionSurfacePresentation.pointSelectionRequest)
+    #expect(restartedRequest.purpose == .penCapAppearance)
+    #expect(restartedRequest.id != request.id)
     try await performExactPenStop(workspace, owner: owner)
     await workspace.submitTestPlotterUIAction(PlotterAppUIActionID.learningMode)
     try await waitUntil { !workspace.testLearningIsEnabled }
