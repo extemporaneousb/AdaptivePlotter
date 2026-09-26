@@ -1,91 +1,63 @@
-import ImageIO
 import PlotterModel
 import SwiftUI
 
 struct PortraitHistoryView: View {
   let model: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
+  var didSelect: () -> Void = {}
   @State private var onlyPromising = false
+  @State private var allPhotos = false
 
   var body: some View {
-    let attempts = model.sketches.attempts
-    let entries = onlyPromising
-      ? attempts.filter { $0.attempt?.feedback == .promising || !$0.reasons.isEmpty }
-      : attempts
-    VStack(alignment: .leading, spacing: 4) {
+    let entries = model.sketches.attempts.filter { entry in
+      (allPhotos || entry.candidate.photoID == model.selectedPhotoID)
+        && (!onlyPromising || entry.attempt?.feedback == .promising || !entry.reasons.isEmpty)
+    }
+    VStack(alignment: .leading, spacing: 8) {
       HStack {
-        Text("History · \(attempts.count)").font(.caption)
-        Toggle("Kept", isOn: $onlyPromising).toggleStyle(.button).controlSize(.mini)
-          .help("Show promising attempts and saved imaginations")
+        Text("History · \(entries.count)").font(.headline)
         Spacer()
-        if model.sketches.persistenceState == .pending || model.sketches.persistenceState == .loading {
-          ProgressView().controlSize(.mini).help("Saving attempt history")
-        }
         Menu {
           Button("Clear unkept history") { model.clearUnkeptHistory() }
           Text("Keeps current, promising and saved imaginations")
         } label: { Image(systemName: "ellipsis") }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .accessibilityLabel("History actions")
+        .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("History actions")
       }
-      ScrollView(.horizontal) {
-        LazyHStack(spacing: 6) {
-          ForEach(entries) { entry in
-            Button { model.inspectAttempt(entry.id, strokeStyle: strokeStyle) } label: {
-              VStack(spacing: 2) {
-                PortraitAttemptThumbnailView(data: entry.attempt?.thumbnailPNG, identity: entry.id)
-                  .frame(width: 40, height: 40)
-                  .background(.white)
-                  .overlay(alignment: .topTrailing) {
-                    if entry.attempt?.feedback == .promising { Image(systemName: "plus.circle.fill").foregroundStyle(.green) }
-                    else if entry.attempt?.feedback == .rejected { Image(systemName: "minus.circle.fill").foregroundStyle(.secondary) }
-                  }
-                  .overlay {
-                    RoundedRectangle(cornerRadius: 4)
-                      .stroke(model.selectedCandidate?.id == entry.id ? Color.accentColor : .clear, lineWidth: 2)
-                  }
-                Text(entry.attempt?.changeCue ?? entry.candidate.recipe.title)
-                  .font(.caption2).lineLimit(1).frame(width: 60)
-              }
+      HStack {
+        Toggle("All photos", isOn: $allPhotos)
+        Toggle("Kept only", isOn: $onlyPromising)
+      }.toggleStyle(.checkbox).controlSize(.small)
+      List(entries) { entry in
+        Button {
+          model.inspectAttempt(entry.id, strokeStyle: strokeStyle)
+          didSelect()
+        } label: {
+          HStack {
+            Image(systemName: model.selectedCandidate?.id == entry.id ? "checkmark.circle.fill" : "circle")
+              .foregroundStyle(model.selectedCandidate?.id == entry.id ? Color.accentColor : .secondary)
+            VStack(alignment: .leading, spacing: 2) {
+              Text(entry.attempt?.changeCue ?? entry.candidate.recipe.title).lineLimit(1)
+              Text("\(entry.candidate.program.strokes.count) strokes · \(entry.candidate.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                .font(.caption).foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Inspect \(entry.candidate.recipe.title), \(entry.attempt?.feedback.rawValue ?? "unknown")")
-            .accessibilityIdentifier("portrait.history.\(entry.id)")
-            .help("\(entry.candidate.recipe.title) · \(entry.candidate.program.strokes.count) strokes. Inspecting does not change feedback.")
-            .contextMenu {
-              Button("Mark promising") { model.sketches.setFeedback(.promising, for: entry.id) }
-              Button("Mark rejected") { model.sketches.setFeedback(.rejected, for: entry.id) }
-              Button("Clear feedback") { model.sketches.setFeedback(.unknown, for: entry.id) }
-              Divider()
-              Button("Delete Attempt", role: .destructive) { model.deleteAttempt(entry.id) }
-            }
-          }
-        }.padding(2)
+            Spacer()
+            if entry.attempt?.feedback == .promising { Image(systemName: "plus.circle.fill").foregroundStyle(.green) }
+            if entry.attempt?.feedback == .rejected { Image(systemName: "minus.circle.fill").foregroundStyle(.orange) }
+          }.contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("portrait.history.\(entry.id)")
+        .contextMenu {
+          Button("Mark promising") { model.sketches.setFeedback(.promising, for: entry.id) }
+          Button("Mark rejected") { model.sketches.setFeedback(.rejected, for: entry.id) }
+          Button("Clear feedback") { model.sketches.setFeedback(.unknown, for: entry.id) }
+          Divider()
+          Button("Delete Attempt", role: .destructive) { model.deleteAttempt(entry.id) }
+        }
       }
-      .scrollIndicators(.hidden)
-      .frame(height: 58)
-    }
-    .accessibilityIdentifier("portrait.history")
-  }
-}
-
-struct PortraitAttemptThumbnailView: View {
-  let data: Data?
-  let identity: String
-  @State private var image: CGImage?
-  var body: some View {
-    Group {
-      if let image { Image(decorative: image, scale: 1).resizable().scaledToFit() }
-      else { Color.secondary.opacity(0.08) }
-    }
-    .task(id: identity) {
-      let data = data
-      let decoded = await Task.detached(priority: .utility) {
-        guard let data, let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil as CGImage? }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
-      }.value
-      if !Task.isCancelled { image = decoded }
-    }
+      .overlay {
+        if entries.isEmpty { Text("No attempts in this view").foregroundStyle(.secondary) }
+      }
+    }.accessibilityIdentifier("portrait.history")
   }
 }

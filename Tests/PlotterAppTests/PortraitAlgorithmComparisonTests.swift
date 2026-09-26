@@ -4,6 +4,8 @@ import Testing
 
 @testable import PlotterApp
 
+// These cancellation fixtures deliberately begin with Flow Edge so the held
+// second request remains Contour, independently of the Studio product default.
 @Suite("Portrait algorithm comparison")
 @MainActor
 struct PortraitAlgorithmComparisonTests {
@@ -11,6 +13,8 @@ struct PortraitAlgorithmComparisonTests {
   func foldedWorkload() async throws {
     let renderer = ComparisonRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.style = .sketch
     #expect(!model.isStyleComparisonExpanded)
@@ -41,6 +45,8 @@ struct PortraitAlgorithmComparisonTests {
   func demandAndCacheReuse() async throws {
     let renderer = ComparisonRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -77,6 +83,8 @@ struct PortraitAlgorithmComparisonTests {
   func lazyBaselineAfterTuning() async throws {
     let renderer = ComparisonRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -109,6 +117,8 @@ struct PortraitAlgorithmComparisonTests {
   func heldReferenceSurvivesTuning() async throws {
     let renderer = ComparisonRenderer(heldCall: 2, heldCalls: [4])
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     let baseline = model.vectorOptions
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
@@ -195,6 +205,8 @@ struct PortraitAlgorithmComparisonTests {
   func sameKeyDifferentLineage() async throws {
     let renderer = ComparisonRenderer(heldCall: 2, heldCalls: [4])
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
@@ -234,6 +246,8 @@ struct PortraitAlgorithmComparisonTests {
   func heldReferenceContextReplacement(change: String) async throws {
     let renderer = ComparisonRenderer(heldCall: 2)
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
@@ -270,6 +284,8 @@ struct PortraitAlgorithmComparisonTests {
   func canceledReferenceCannotSatisfyRestart() async throws {
     let renderer = ComparisonRenderer(heldCall: 2)
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     let baseline = model.vectorOptions
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
@@ -307,6 +323,8 @@ struct PortraitAlgorithmComparisonTests {
   func foldingHeldAlternative(reopenBeforeSettlement: Bool) async throws {
     let renderer = ComparisonRenderer(heldCall: 2)
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
@@ -347,6 +365,8 @@ struct PortraitAlgorithmComparisonTests {
   func foldingHeldSelection() async throws {
     let renderer = ComparisonRenderer(heldCall: 1)
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
@@ -367,6 +387,8 @@ struct PortraitAlgorithmComparisonTests {
   func exactSelectionAndSharedAnalysis() async throws {
     let renderer = ComparisonRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.vectorOptions.headScale = 1.4
     model.vectorOptions.semanticHead = .init()
@@ -407,6 +429,8 @@ struct PortraitAlgorithmComparisonTests {
   func newModifierRecipeApplications() async throws {
     let renderer = ComparisonRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
@@ -448,6 +472,8 @@ struct PortraitAlgorithmComparisonTests {
   func supersededComparison() async throws {
     let renderer = ComparisonRenderer(heldCall: 1)
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
@@ -478,6 +504,8 @@ struct PortraitAlgorithmComparisonTests {
   func selectionDuringComparison() async throws {
     let renderer = ComparisonRenderer(heldCall: 3)
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
@@ -499,6 +527,8 @@ struct PortraitAlgorithmComparisonTests {
   func penInvalidation() async throws {
     let renderer = ComparisonRenderer()
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.setStyleComparisonExpanded(true, strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
@@ -549,6 +579,8 @@ struct PortraitAlgorithmComparisonTests {
   func deleteHeldBurst() async throws {
     let renderer = ComparisonRenderer(heldCall: 1)
     let model = PortraitStudioModel(renderer: renderer)
+    model.style = .flowEdges
+    model.vectorOptions = .flowDefaults
     let pen = try portraitTestStyle()
     model.renderIfNeeded(strokeStyle: pen)
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)

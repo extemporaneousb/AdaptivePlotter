@@ -3,7 +3,7 @@ import PlotterRuntime
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// A bounded workspace: capture, compare and tune without leaving the drawing.
+/// One portrait canvas, with secondary source and history browsers.
 struct PortraitStudioView: View {
   @Bindable var model: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
@@ -17,6 +17,7 @@ struct PortraitStudioView: View {
   @State private var importing = false
   @State private var cameraSettings = false
   @State private var showsSource = false
+  @State private var showsHistory = false
   @State var showsAdjustments = false
   @State private var submissionError: String?
   @State private var submissionErrorTitle = "Studio action failed"
@@ -44,39 +45,27 @@ struct PortraitStudioView: View {
     VStack(spacing: 10) {
       toolbar
       Divider()
+      browserControls
       HStack(alignment: .top, spacing: 16) {
         VStack(spacing: 8) {
-          HStack(spacing: 12) {
-            PortraitExplorationGridView(model: model, strokeStyle: strokeStyle,
-              material: previewSource.material, showsSource: $showsSource) { sourcePreview }
-            drawingPreviewFrame(preview) {
-              PortraitPlaneProgramPreview(preview: preview)
-                .overlay(alignment: .topTrailing) {
-                  if model.isProcessing { ProgressView().controlSize(.small).padding(8) }
+          drawingPreviewFrame(preview) {
+            PortraitPlaneProgramPreview(preview: preview)
+              .overlay(alignment: .topTrailing) {
+                if model.isProcessing || model.isExploring {
+                  ProgressView().controlSize(.small).padding(8)
                 }
-            }
+              }
           }
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-          if !model.sketches.attempts.isEmpty {
-            PortraitHistoryView(model: model, strokeStyle: strokeStyle)
-          }
-          PortraitPrototypeControls(model: model, strokeStyle: strokeStyle)
-          DisclosureGroup(isExpanded: Binding(
-            get: { model.isStyleComparisonExpanded },
-            set: {
-              WorkbenchRequestTelemetry.nativeActionHandled("portrait.stylesDisclosure")
-              model.setStyleComparisonExpanded($0, strokeStyle: strokeStyle)
-            })) {
-            PortraitStyleBrowser(model: model, strokeStyle: strokeStyle, material: previewSource.material)
-              .frame(height: 64)
-          } label: {
+          if let candidate {
             HStack {
-              Text("Styles · \(model.selectedAlgorithm.rawValue)").font(.headline)
+              PortraitAttemptFeedbackButtons(model: model, candidate: candidate)
+              Text(model.burdenSummary(for: candidate)).font(.caption).foregroundStyle(.secondary)
               Spacer()
-              StudioHelpButton("Style algorithms", text: "These starting drawings stay fixed while you explore or adjust the selected drawing. A different photo, framing, pen or material refreshes them. Select a style to use its exact displayed drawing. Closing Styles stops unfinished alternatives and retains completed previews.")
+              Text(model.singlePortraitStatus ?? candidate.recipe.title)
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                .help(model.singlePortraitStatus ?? candidate.recipe.title)
             }
           }
-          .accessibilityIdentifier("portrait.stylesDisclosure")
         }
         if showsAdjustments {
           VStack(alignment: .leading, spacing: 12) {
@@ -122,10 +111,9 @@ struct PortraitStudioView: View {
     .accessibilityIdentifier("portrait.workspace")
     .onAppear {
       model.renderIfNeeded(strokeStyle: strokeStyle)
-      model.setExplorationEnabled(true, strokeStyle: strokeStyle)
+      model.setExplorationEnabled(false, strokeStyle: strokeStyle)
     }
     .onDisappear {
-      model.setStyleComparisonExpanded(false, strokeStyle: strokeStyle)
       model.setExplorationEnabled(false, strokeStyle: strokeStyle)
     }
     .task { await model.loadArchive() }
@@ -179,7 +167,7 @@ struct PortraitStudioView: View {
         .accessibilityLabel("Camera settings")
         .help("Camera settings")
         .popover(isPresented: $cameraSettings, arrowEdge: .bottom) { cameraSettingsPanel }
-      StudioHelpButton("Portrait Studio", text: "Capture Photo briefly lights the display and selects one original frame for sharpness and exposure. Keep still during capture. Choose Photo imports an existing image. Photos opens the retained source browser. Remove Recent Photo clears a capture-cache entry while attempts keep their own source. Delete Source and All Attempts explicitly removes a retained source and its attempts. Inspect an alternative to continue from that result. Plus marks an exact attempt promising; minus rejects only its exact source and treatment. History keeps completed attempts and branches, including rejected attempts. Back restores the previous choices. Adjustments opens the detailed controls. Save Style keeps a reusable recipe without the source photo. Save Imagination keeps this exact result and source in Drawing Reviewer. Send to Drawing also saves it and opens Drawing with it placed on the plotter video. Sending does not move the plotter; Draw in Drawing starts execution.")
+      StudioHelpButton("Portrait Studio", text: "Capture or import a photo, then work with one portrait. Contour opens direct controls. Explorer varies the current drawing one step at a time; Next requests a new result only when no forward result is retained. Back and Forward restore exact results without rendering. History lists attempts for the current photo. Plus keeps an attempt promising; minus rejects that exact treatment. Save Imagination retains the result in Drawing Reviewer. Send to Drawing places it in Drawing; Draw there starts execution.")
       if model.isCapturing {
         Text("Keep still").font(.caption).foregroundStyle(.secondary)
         ProgressView(value: model.captureProgress).frame(width: 60)
@@ -240,6 +228,73 @@ struct PortraitStudioView: View {
     .accessibilityIdentifier("portrait.toolbar")
   }
 
+  private var browserControls: some View {
+    PortraitAdaptiveRow {
+      Picker("Mode", selection: Binding(
+        get: { model.studioMode },
+        set: { mode in
+          model.selectStudioMode(mode, strokeStyle: strokeStyle)
+          showsAdjustments = mode == .contour
+        })) {
+        Text("Contour").tag(PortraitStudioMode.contour)
+        Text("Explorer").tag(PortraitStudioMode.explorer)
+      }
+      .pickerStyle(.segmented).labelsHidden().frame(width: 180)
+      .accessibilityIdentifier("portrait.mode")
+      if model.studioMode == .explorer {
+        Button { model.previousPortrait() } label: { Label("Back", systemImage: "chevron.left") }
+          .disabled(!model.canGoBackExploration || model.isCapturing || model.isProcessing)
+          .keyboardShortcut(.leftArrow, modifiers: [.command])
+          .accessibilityIdentifier("portrait.exploration.back")
+        Button { model.nextPortrait(strokeStyle: strokeStyle) } label: {
+          Label(model.canGoForwardPortrait ? "Forward" : "Next", systemImage: "chevron.right")
+        }
+        .disabled(candidate == nil || model.isExploring || model.isCapturing || model.isProcessing)
+        .keyboardShortcut(.rightArrow, modifiers: [.command])
+        .accessibilityIdentifier("portrait.exploration.next")
+        if model.isExploring {
+          Button("Cancel") { model.cancelPortraitStep() }
+            .accessibilityIdentifier("portrait.exploration.cancel")
+        }
+        Picker("Explore region", selection: $model.explorationRegion) {
+          Text("Whole portrait").tag(Optional<PortraitTreatmentRegion>.none)
+          ForEach(PortraitTreatmentRegion.allCases) { Text($0.rawValue).tag(Optional($0)) }
+        }.labelsHidden().frame(maxWidth: 150)
+          .disabled(model.isExploring)
+          .accessibilityIdentifier("portrait.exploration.region")
+      }
+      Spacer(minLength: 0)
+      Button("Photos", systemImage: "photo") { showsSource.toggle() }
+        .accessibilityIdentifier("portrait.sourceToggle")
+        .popover(isPresented: $showsSource, arrowEdge: .bottom) {
+          VStack(alignment: .leading, spacing: 8) {
+            sourcePreview.frame(width: 330, height: 360)
+            PortraitPhotoStrip(model: model, strokeStyle: strokeStyle).frame(width: 330)
+          }.padding(12).accessibilityIdentifier("portrait.sourceFrame")
+        }
+      Button("History", systemImage: "clock") { showsHistory.toggle() }
+        .accessibilityIdentifier("portrait.historyToggle")
+        .popover(isPresented: $showsHistory, arrowEdge: .bottom) {
+          PortraitHistoryView(model: model, strokeStyle: strokeStyle) { showsHistory = false }
+            .padding(12).frame(width: 380, height: 400)
+        }
+      if !model.sketches.savedStyles.isEmpty {
+        Menu("Saved styles") {
+          ForEach(model.sketches.savedStyles) { saved in
+            Button(saved.name) { model.applySavedStyle(saved, strokeStyle: strokeStyle) }
+          }
+          Divider()
+          Menu("Delete saved style") {
+            ForEach(model.sketches.savedStyles) { saved in
+              Button(saved.name, role: .destructive) { model.sketches.removeStyle(saved.id) }
+            }
+          }
+        }
+      }
+    }.controlSize(.small)
+      .accessibilityIdentifier("portrait.browserControls")
+  }
+
   private var cameraSettingsPanel: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("Camera").font(.headline)
@@ -267,7 +322,7 @@ struct PortraitStudioView: View {
   private func drawingPreviewFrame<Content: View>(_ preview: PortraitPlanePreview, @ViewBuilder content: () -> Content) -> some View {
     VStack(spacing: 5) {
       HStack {
-        Text("Drawing").font(.headline)
+        Text("Portrait").font(.headline)
         Spacer()
         Toggle(isOn: $showsAdjustments) {
           Label("Adjustments", systemImage: "slider.horizontal.3")
@@ -278,7 +333,7 @@ struct PortraitStudioView: View {
         .help(showsAdjustments ? "Hide framing and algorithm adjustments" : "Show framing and algorithm adjustments")
         Text(model.isProcessing ? "Updating" : preview.evidence?.mode == .planned ? "Placed" : "Reference")
           .font(.caption).foregroundStyle(.secondary)
-        StudioHelpButton("Drawing preview", text: preview.statusText + "\n\n" + preview.dimensionsText)
+        StudioHelpButton("Drawing preview", text: preview.statusText + "\n\n" + preview.dimensionsText + "\n\n" + model.browserTimingSummary)
       }
       content()
         .frame(maxWidth: .infinity, maxHeight: .infinity)

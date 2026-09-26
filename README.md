@@ -284,13 +284,14 @@ diagnostic; automatic batch execution, corrected physical holdouts, and explicit
 model acceptance are still required before adaptive drawing readiness.
 
 Open **Portrait Studio** through **View** to capture a burst or import a photo.
-The full workspace keeps the current photo, drawing and the selected algorithm's
-framing and tuning controls visible together. Styles starts folded; opening it
-renders the five style choices, while a closed section renders only the chosen style.
-Contour, Hatch, Crosshatch, Sketch and Sketch + Hatch share one deterministic
-render pipeline. **Send to Drawing** saves and hands the immutable drawing to the
+The workspace displays one portrait. **Contour** provides direct adjustments;
+**Explorer** steps through variations of the current style using **Back** and **Next**.
+New variations are requested one at a time. Back/Forward restore retained results
+without rendering. **Photos** opens source access and **History** lists attempts for
+the current photo, with optional all-photo and kept-only filters.
+**Send to Drawing** saves and hands the immutable drawing to the
 shared **Drawing** panel; an unchanged drawing retains its existing placement.
-**Save Drawing** is optional library storage for the source-independent **Drawing
+**Save Imagination** is optional library storage for the source-independent **Drawing
 Reviewer**. To execute: Send to Drawing, adjust placement and confirm paper, then
 press **Draw**. Sending and saving do not move hardware.
 The reviewer can browse and delete saved drawings and physical results. Deleting a

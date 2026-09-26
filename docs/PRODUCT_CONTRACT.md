@@ -1681,69 +1681,42 @@ Opening and closing it preserves those dock placements. The shared Drawing panel
 owns placement, pen/material setup, paper coverage, Draw, Stop and result review.
 Studio authoring remains available with an imported photo while disconnected.
 
-Portrait Studio presents the current imagination and two alternatives beside a
-large selected-drawing preview. Each alternative retains the source, framing,
-algorithm and material context. Selection installs its exact recipe and immutable
-program without changing preference. Back restores the previous offered candidates
-and session exploration state without rerendering. Explicit framing or parameter
-edits establish a new starting point and may clear that session Back stack; durable
-attempt history remains available.
+Portrait Studio displays one large portrait canvas. Contour starts with the tonal
+contour renderer and offers direct adjustments. Explorer varies the current
+renderer and recipe on that same canvas; entering either mode does not generate
+alternatives. Next requests one useful variation, with at most two render attempts,
+and keeps the current portrait visible while work runs. A successful request installs
+one exact candidate and stops. Cancel, mode/source changes and Back invalidate late
+publication. Back and Forward restore exact retained candidates without rendering;
+new framing, tuning or exploration-region edits abandon the forward branch.
+Neither navigation nor feedback automatically starts another search.
 
-Every completed applicable attempt retains its exact source, raster, recipe,
-immutable geometry, thumbnail and ancestry in the existing candidate archive.
-History inspection installs that result without rendering or voting, and further
-exploration branches from it. Plus marks the exact attempt promising; minus marks
-it rejected without deleting it. Either mark can be cleared to unknown. Feedback
-revisions persist. Rejection suppresses the same source/pose/recipe/material
-proposal, regardless of seed or title; it does not reject a renderer, face region,
-pose family or other photograph. No cross-photo preference model is fitted.
+History is an on-demand text list filtered to the current photo by default, with
+All photos and Kept only filters. It does not occupy the canvas or draw a thumbnail
+rail. Inspection installs retained geometry directly. Each applicable selected
+render and each useful new variation retains its exact source, raster, recipe,
+geometry, thumbnail and ancestry in the existing archive. Unsuccessful single-step
+similarity probes do not create durable attempts. Existing attempts are preserved;
+explicit cleanup keeps current, promising and saved results. Plus marks the exact
+attempt promising; minus rejects that exact source/pose/recipe/material proposal.
+No cross-photo preference model is fitted.
 
-Variation is internal. Whole-drawing proposals explore bounded applicable renderer
-parameters; selection no longer supplies a preferred parameter direction. A region
-choice instead adds a scoped treatment around the measured face, eyes, mouth, skin
-or jaw. Framing and source selection remain independent explicit controls. Screen
-positions are not parameter axes.
-Bounded retries reject empty, failed, duplicate and visually negligible results.
-Proposals account for material-imposed spacing and minimum-length floors before
-spending render work, and retries change the parameter direction. The additive
-Flow support and placement controls participate in the same parameter exploration;
-an evidence-scale change is inactive while both support amounts are zero.
-Parameter-only probes avoid already attempted effective settings, and recovery
-varies with the round seed and failed settings within the render-work bound. Exhausted
-similar options are distinct from rendering failures. A compatible, visibly distinct
-candidate from recent history may remain available as a labeled Previous option
-when the bounded search finds no useful new candidate. Keeping Current while
-alternatives are pending leaves their generation running; it cannot turn unfinished
-work into failed choices. The current drawing and Back remain usable while
-alternatives are pending. Each completed alternative becomes visible and selectable
-without waiting for the pair. Stored choices are provenance and session search
-state, not a trained aesthetic or likeness model. Legacy nine-slot traces
-remain readable under their original policy revision.
+The compact Photos popover retains source access. Detailed framing and renderer
+controls remain optional. Saved recipes and historical renderer families remain
+readable and usable, but Studio has no rendered algorithm comparison tiles or
+prototype button row. Contour is the default for new sessions and for new sources
+leaving a retired renderer. Explorer retains the selected renderer, framing and
+material context, avoiding automatic jumps between drawing styles. Renderer
+quality and perceptual continuity still require operator evaluation.
 
-The compact Source/Photos popover keeps the original photo and retained source
-frames accessible; its button shows the source count. Sources include recent photos,
-attempt history and older saved Imaginations. History thumbnails remain visible in
-the workspace. Detailed Framing and Style controls are collapsed by default. Start
-offers Sparse structure, Angular comic and Measured eye exaggeration recipes. They
-compose regional stroke treatment with renderer settings; the third adds bounded
-2D expansion around measured eye centers without requiring 3D pose or estimating
-a forehead. They
-are prototypes whose likeness and usefulness require operator evaluation. Styles
-also offers three rendered algorithms: Flow Edge (the default), Tonal contours and Sketch. Hatch, Crosshatch
-and Sketch + hatch remain decodable for historical candidates but are not
-generated as authoring alternatives. Selecting
-an algorithm installs its exact completed candidate. The existing renderer and one
-cancel-and-join work drain own center, exploration and algorithm-comparison work.
-Selected candidates remain usable while a new neighborhood is pending; stale source,
-configuration, round or tile identities cannot replace a later choice. Algorithm
-comparisons remain lazy. The three style tiles are fixed starting drawings for
-the current photo, framing, pen and material. Their baseline tuning and lineage
-are frozen when that context is established; trajectory selection, Current, Back
-and ordinary vector adjustments do not regenerate or replace them. Selecting a
-tile installs that exact displayed candidate. A source, framing, pen or material
-change establishes a new baseline. Folding Styles stops unfinished reference work
-while retaining completed tiles. Reference-job identity is independent of the
-selected-drawing revision, and stale reference work cannot select a newer drawing.
+The existing serial render drain owns authoring and bounded exploration work.
+Selection, source, revision and round identity reject stale completions. Historical
+three-slot and nine-slot exploration receipts remain readable; the internal receipt
+shape does not determine how many portraits are displayed or requested. Whole-image
+and regional proposals retain applicable-parameter, material-floor, empty-result,
+duplicate and geometry-similarity checks. Search exhaustion remains distinct from a
+rendering failure, and neither replaces the current portrait.
+
 Source preparation retains one oriented decoded image, source-coordinate landmarks,
 a full-frame person-mask result and filtered multiscale luminance evidence. Crops,
 head margins and analysis-resolution changes reuse those results. Content identity,
@@ -1769,9 +1742,9 @@ selectable and deletable, bounded to 24 photos / 32 MiB; saved candidates own
 independent source bytes. Deleting sources cannot revive them through late work.
 
 Ordinary Studio has no continuous parameter pad, manual Variation or named-training
-controls. The September 25 prototype/attempt browser adds explicit promising/rejected
-feedback and landmark exaggeration without restoring the historical rating/training
-workflow. Historical candidate formats and required source, raster, label and
+controls. Exact-attempt promising/rejected feedback remains available. Historical
+prototype recipes remain interpretable without restoring their button row or the
+rating/training workflow. Historical candidate formats and required source, raster, label and
 checkpoint interpretation remain compatible. Existing fitted checkpoints are not
 loaded or consulted by normal Studio generation.
 Save Style captures a named reusable recipe. Save Imagination qualifies the exact
@@ -1842,7 +1815,7 @@ establishing physical drawing quality. Explanatory and provenance text is behind
 accessible question-mark popovers; the default interface retains control labels,
 concise progress and actionable error states.
 
-The same `PortraitPlaneProgramPreview` renders Studio, algorithm tiles and retained
+The same `PortraitPlaneProgramPreview` renders the Studio canvas and retained
 vector previews. Planned presentation uses only an exact candidate/program/region
 match to the admitted artwork plan; otherwise the view is explicitly a reference
 preview. Reference presentation does not invent physical size. The legacy thumbnail

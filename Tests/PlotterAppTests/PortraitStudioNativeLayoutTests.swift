@@ -40,14 +40,11 @@ struct PortraitStudioNativeLayoutTests {
       let model = application.portraitStudio
       let pen = application.drawingStrokeStyle
       model.options = .init(cropToFace: false, removeBackground: false)
-      model.setStyleComparisonExpanded(true, strokeStyle: pen)
       model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: pen)
       await model.awaitRendering()
-      #expect(model.algorithmCandidates.count == PortraitStyle.authoringCases.count)
-      model.selectAlgorithm(.contours, strokeStyle: pen)
       let sizes = [NSSize(width: 1000, height: 550), NSSize(width: 1280, height: 650)]
-      for (size, expanded) in sizes.flatMap({ size in [false, true].map { (size, $0) } }) {
-        model.setStyleComparisonExpanded(false, strokeStyle: pen)
+      for (size, mode) in sizes.flatMap({ size in [PortraitStudioMode.contour, .explorer].map { (size, $0) } }) {
+        model.selectStudioMode(mode, strokeStyle: pen)
         await model.awaitRendering()
         let host = NSHostingController(rootView:
           PlotterApplicationRuntimeView(application: application).panelContent(.portraitStudio)
@@ -63,18 +60,14 @@ struct PortraitStudioNativeLayoutTests {
         window.setContentSize(size)
         window.orderFront(nil)
         await settle(host.view)
-        // Open Styles only after this actual host has appeared and the prior
-        // window's onDisappear has finished removing its comparison demand.
-        model.setStyleComparisonExpanded(expanded, strokeStyle: pen)
         await model.awaitRendering()
-        await model.awaitExploration()
         await settle(host.view)
-        #expect(model.explorationRound?.slots.count == 3)
-        #expect(model.explorationRound?.center.id == model.selectedCandidate?.id)
+        #expect(model.explorationRound == nil)
+        #expect(!model.isExploring)
         #expect(abs(host.view.bounds.width - size.width) < 2)
         #expect(abs(host.view.bounds.height - size.height) < 2)
         #expect(!window.isKeyWindow)
-        #expect(model.isStyleComparisonExpanded == expanded)
+        #expect(!model.isStyleComparisonExpanded)
         for scroll in views(host.view).compactMap({ $0 as? NSScrollView }) {
           let document = try #require(scroll.documentView)
           #expect(document.bounds.height <= scroll.contentView.bounds.height + 2,
@@ -89,7 +82,7 @@ struct PortraitStudioNativeLayoutTests {
           #expect(host.view.bounds.insetBy(dx: -2, dy: -2).contains(rect),
             "Production Portrait control was clipped: \(rect) in \(host.view.bounds)")
         }
-        try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: "workspace-\(expanded ? "expanded" : "folded")")
+        try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: "workspace-\(mode == .explorer ? "explorer" : "contour")")
         window.close()
       }
       await application.shutdown()
@@ -99,7 +92,7 @@ struct PortraitStudioNativeLayoutTests {
     }
   }
 
-  @Test("native exploration controls promote, resample and restore exact grids",
+  @Test("native single-canvas Next, Back and Forward preserve exact results",
     .enabled(if: ProcessInfo.processInfo.environment["PORTRAIT_NATIVE_AX_CHECK"] == "1"))
   func explorationAXInteraction() async throws {
     await diagnoseKnownSwiftUIControl()
@@ -128,42 +121,26 @@ struct PortraitStudioNativeLayoutTests {
       await settle(host.view)
       await model.awaitExploration()
       await settle(host.view)
-      let original = try #require(model.explorationRound)
+      let original = try #require(model.selectedCandidate)
       #expect(!window.isKeyWindow)
       #expect(!descendants(window).contains { $0.accessibilityIdentifier() == "portrait.adjustmentInspector" })
-      var frames: [CGRect] = []
-      for index in 0..<3 {
-        let tile = try requiredElement("portrait.exploration.slot.\(index)", in: window)
-        let frame = tile.accessibilityFrame()
-        #expect(frame.width >= 80 && frame.height >= 60)
-        #expect(window.frame.insetBy(dx: -2, dy: -2).contains(frame))
-        frames.append(frame)
-      }
-      #expect(abs(frames[0].minY - frames[2].minY) < 2)
-      #expect(frames[0].maxX < frames[1].minX && frames[1].maxX < frames[2].minX)
-      let neighbor = try #require(original.slots.first { $0.index != 1 && $0.candidate != nil })
-      let choice = try #require(neighbor.candidate)
-      #expect(try requiredElement("portrait.exploration.slot.\(neighbor.index)", in: window)
-        .accessibilityPerformPress())
-      await model.awaitExploration()
+      #expect(descendants(window).filter { $0.accessibilityIdentifier() == "portrait.drawingFrame" }.count == 1)
+      #expect(!descendants(window).contains { ($0.accessibilityIdentifier() ?? "").hasPrefix("portrait.exploration.slot.") })
+      model.selectStudioMode(.explorer, strokeStyle: stroke)
       await settle(host.view)
-      #expect(model.selectedCandidate?.id == choice.id)
-      let promoted = try #require(model.explorationRound)
-      #expect(promoted.center.id == choice.id)
-      #expect(try requiredElement("portrait.exploration.slot.1", in: window).accessibilityPerformPress())
-      await model.awaitExploration()
+      #expect(try requiredElement("portrait.exploration.next", in: window).accessibilityPerformPress())
+      await model.awaitRendering()
       await settle(host.view)
-      #expect(model.selectedCandidate?.id == choice.id)
-      #expect(model.explorationRound?.id != promoted.id)
+      let choice = try #require(model.selectedCandidate)
+      #expect(choice.id != original.id)
+      let calls = model.renderDiagnostics.startedWorkerCount
       #expect(try requiredElement("portrait.exploration.back", in: window).accessibilityPerformPress())
       await settle(host.view)
-      #expect(model.explorationRound?.id == promoted.id)
-      #expect(try requiredElement("portrait.exploration.back", in: window).accessibilityPerformPress())
+      #expect(model.selectedCandidate?.id == original.id)
+      #expect(try requiredElement("portrait.exploration.next", in: window).accessibilityPerformPress())
       await settle(host.view)
-      #expect(model.explorationRound?.id == original.id)
-      #expect(model.selectedCandidate?.id == original.center.id)
-      #expect(!descendants(window).contains { $0.accessibilityIdentifier() == "portrait.exploration.variation" })
-      #expect(model.explorationVariation == original.variation)
+      #expect(model.selectedCandidate?.id == choice.id)
+      #expect(model.renderDiagnostics.startedWorkerCount == calls)
       #expect(try requiredElement("portrait.adjustmentsDisclosure", in: window).accessibilityPerformPress())
       await settle(host.view)
       _ = try requiredElement("portrait.adjustmentInspector", in: window)

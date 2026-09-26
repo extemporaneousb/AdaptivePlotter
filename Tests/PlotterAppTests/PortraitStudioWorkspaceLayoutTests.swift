@@ -8,23 +8,21 @@ import Testing
 @Suite("Portrait Studio bounded workspace", .serialized)
 @MainActor
 struct PortraitStudioWorkspaceLayoutTests {
-  @Test("grid and selected drawing fit with Styles and Adjustments folded or expanded",
-    arguments: [false, true], [false, true])
-  func controlsFit(expanded: Bool, detailsExpanded: Bool) async throws {
+  @Test("one portrait fits in both modes with optional adjustments",
+    arguments: [PortraitStudioMode.contour, .explorer], [false, true])
+  func controlsFit(mode: PortraitStudioMode, detailsExpanded: Bool) async throws {
     _ = NSApplication.shared
     let model = PortraitStudioModel(renderer: WorkspaceLayoutRenderer())
     let stroke = try portraitTestStyle()
-    model.setStyleComparisonExpanded(expanded, strokeStyle: stroke)
     model.setPhoto(try portraitTestImage(), for: .left, strokeStyle: stroke)
     model.setPhoto(try portraitTestImage(), for: .right, strokeStyle: stroke)
     model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: stroke)
     await model.awaitRendering()
     #expect(model.browsablePhotos.count >= 3)
-    try #require(model.algorithmCandidates.count == (expanded ? PortraitStyle.authoringCases.count : 1))
+    #expect(!model.isExploring)
     for size in [CGSize(width: 1000, height: 550), CGSize(width: 1280, height: 650)] {
-      for style in PortraitStyle.authoringCases {
-        model.setStyleComparisonExpanded(false, strokeStyle: stroke)
-        model.style = style
+      for style in [PortraitStyle.contours] {
+        model.selectStudioMode(mode, strokeStyle: stroke)
         model.renderIfNeeded(strokeStyle: stroke)
         await model.awaitRendering()
         let host = NSHostingController(rootView: PortraitStudioView(model: model,
@@ -43,26 +41,17 @@ struct PortraitStudioWorkspaceLayoutTests {
         window.setContentSize(size)
         window.orderFront(nil)
         try await settle(host.view)
-        // Close the previous host before simulating disclosure input on this
-        // one; its delayed onDisappear otherwise legitimately folds the model.
-        model.setStyleComparisonExpanded(expanded, strokeStyle: stroke)
+        let calls = model.renderDiagnostics.startedWorkerCount
         await model.awaitRendering()
-        await model.awaitExploration()
         try await settle(host.view)
         defer { window.close() }
         #expect(!window.isKeyWindow)
-        #expect(model.isStyleComparisonExpanded == expanded)
+        #expect(model.studioMode == mode)
+        #expect(!model.isStyleComparisonExpanded)
         #expect(model.selectedCandidate?.recipe.style == style)
-        let round = try #require(model.explorationRound)
-        #expect(round.slots.count == 3)
-        #expect(round.slots[1].candidate?.id == model.selectedCandidate?.id)
-        #expect(model.explorationPreviewSizes.count == 3)
-        let imageSizes = model.explorationPreviewSizes.values
-        #expect(imageSizes.allSatisfy { $0.height >= 91 && $0.width >= 60 },
-          "Comparison images must remain useful with secondary controls open: \(model.explorationPreviewSizes)")
-        if let smallest = imageSizes.map(\.height).min(), let largest = imageSizes.map(\.height).max() {
-          #expect(largest - smallest < 1, "All comparison images must use equal preview heights")
-        }
+        #expect(model.explorationRound == nil)
+        #expect(!model.isExploring)
+        #expect(model.renderDiagnostics.startedWorkerCount == calls)
         #expect(abs(host.view.bounds.width - size.width) < 1)
         #expect(abs(host.view.bounds.height - size.height) < 1)
         let views = descendants(host.view)
@@ -94,22 +83,8 @@ struct PortraitStudioWorkspaceLayoutTests {
           let image = try #require(bitmap.cgImage)
           let index = try #require(PortraitStyle.authoringCases.firstIndex(of: style))
           try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: directory)
-            .appendingPathComponent("studio-\(Int(size.width))-style-\(index)-\(expanded ? "expanded" : "folded")-details-\(detailsExpanded ? "open" : "closed").png"))
-          if detailsExpanded, style == .flowEdges {
-            for scroll in inspectorScrolls {
-              guard let document = scroll.documentView else { continue }
-              let y = document.isFlipped
-                ? max(0, document.bounds.height - scroll.contentView.bounds.height) : 0
-              scroll.contentView.scroll(to: CGPoint(x: 0, y: y))
-              scroll.reflectScrolledClipView(scroll.contentView)
-            }
-            try await settle(host.view)
-            let lowerBitmap = try #require(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
-            host.view.cacheDisplay(in: host.view.bounds, to: lowerBitmap)
-            let lowerImage = try #require(lowerBitmap.cgImage)
-            try PortraitImageAnalyzer.encodedImage(lowerImage).write(to: URL(fileURLWithPath: directory)
-              .appendingPathComponent("studio-\(Int(size.width))-flow-support-\(expanded ? "expanded" : "folded").png"))
-          }
+            .appendingPathComponent("studio-\(Int(size.width))-style-\(index)-\(mode == .explorer ? "explorer" : "contour")-details-\(detailsExpanded ? "open" : "closed").png"))
+
         }
       }
     }

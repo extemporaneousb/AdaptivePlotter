@@ -2321,46 +2321,32 @@ and comparison results. These values have no model-application, controller,
 readiness, or new persistence authority. Automatic batch execution and corrected
 physical holdout evaluation remain unfinished product work.
 
-`PortraitStudioModel` owns optional portrait capture, UUID-selected recent sources,
-source/configuration-keyed render caches, immutable authored candidates and bounded
-three-choice exploration. `PortraitExplorationRound` holds the exact current
-candidate, two alternatives, seed, internal step and round identity. Promotion
-installs the offered candidate directly without preference feedback; Back restores
-retained candidates and session search state. Source, framing and explicit tuning
-changes can reset that session stack without deleting durable attempt history.
-Stale round IDs cannot select current slots. The building round publishes each
-completed alternative before the pair is complete.
+`PortraitStudioModel` owns portrait capture, selected sources, bounded render caches,
+immutable candidates and sequential browsing. `PortraitStudioMode` chooses Contour
+or Explorer. `nextPortrait` restores an exact forward candidate or starts one bounded
+single-step search; `previousPortrait` restores the prior candidate and retains the
+forward payload. The existing exploration builder marks unrequested receipt slots
+without enqueuing work. It publishes one useful result and stops; unsuccessful
+similarity probes in this path never enter the durable attempt archive. Back/Forward
+retain bounded in-memory candidates, while durable history requires explicit cleanup.
+Source, revision and round checks still gate publication through the serial worker.
 
-The seeded proposal generator varies applicable current renderer parameters, or
-appends a bounded `PortraitRegionalParameters` adjustment for the selected region.
-Inspection does not call preference adaptation. Exact rejected proposal identities
-bind source digest, source metric, pose, canonical recipe options and pen/material;
-seed, title and ancestry do not bypass rejection. Bounded retries and display-scale
-geometry checks reject negligible or invalid alternatives. No fitted checkpoint
-is loaded, and feedback does not generalize across photographs. Versioned choice receipts
-retain legacy nine-slot/manual-Variation interpretation independently of new
-three-slot records.
+`PortraitStudioView` has one `PortraitPlaneProgramPreview`, compact mode/navigation
+controls, an optional adjustment inspector, and secondary Photos/History popovers.
+`PortraitHistoryView` uses a virtualized text list filtered to the selected photo,
+with optional all-photo and kept-only filters. The three-choice grid, always-visible
+thumbnail history, prototype row and rendered algorithm tiles are removed. Source
+inspection, Save Style, Save Imagination, feedback and explicit Drawing handoff keep
+their existing owners. The default is tonal contours; historical recipes can still
+install their exact renderer. Exploring a retained recipe preserves its algorithm.
 
-The existing serial acquisition/render drain owns center, exploration and lazy
-algorithm-comparison work. The selected drawing and Back remain available while
-new alternatives are pending. Session Back and in-memory geometry caches remain
-bounded; durable attempt retention has explicit deletion/cleanup instead of silent
-eviction of discoveries. Revision/source/round checks prevent late publication; supersession cancels then
-joins the active worker. Raster cache identity includes sampling resolution so
-Flow Edge's higher resolution cannot silently borrow legacy analysis.
-
-`PortraitStudioView` fills the editing workspace. Its fixed toolbar owns capture,
-import, source access, explicit Drawing handoff, Save Imagination and reviewer
-presentation, plus named Save Style. Three imagination choices, independent
-plus/minus feedback and a large selected-drawing preview form the primary interaction.
-A thumbnail history installs exact retained candidates; `PortraitPrototypeRecipe`
-provides Sparse structure, Angular comic and Measured eye exaggeration starting
-points. Detailed framing/style parameters remain collapsed by default. `PortraitStyle.authoringCases` offers Flow Edge, Tonal contours and
-Sketch; historical hatch families remain in decoding and legacy renderer tests,
-not active style generation. Flow Edge uses separate density, coherence, spacing
-and edge-response controls. Pen & material preserves applicable width provenance
-and explicit material adaptation through ordinary Drawing. Studio presentation
-remains separate from dock placement in `WorkbenchLayoutState`.
+The seeded generator varies applicable renderer settings or measured regional
+adjustments. Rejection identity binds source digest, source metric, pose, canonical
+recipe and material. No fitted preference checkpoint is loaded. Legacy three-slot
+and nine-slot trace shapes remain decodable independently of the single-canvas UI.
+Source preparation and crop caches retain their existing bounded identities and
+cancellation ownership. Studio remains separate from dock placement in
+`WorkbenchLayoutState`; pen/material and physical execution remain in Drawing.
 
 The workspace caches the canonical `SparseTipBatchMarkPlan` for execution and
 planned video guides. `CameraOverlayKind.calibrationGuide` distinguishes those
@@ -2437,14 +2423,12 @@ legacy entries without it remain readable. Offered recipes/identities, seed, var
 and choices are provenance only, with no learned-model authority. Archive candidate/source tombstones and immutable
 historical labels remain intact. Historical training contracts and decoding are
 separate from the current authoring UI; obsolete rating/training views remain deleted;
-the current three-choice browser has no dependency on their historical exploration/training owners. `PortraitPlaneProgramPreview`
+the current single-portrait browser has no dependency on their historical exploration/training owners. `PortraitPlaneProgramPreview`
 remains the production interactive vector preview. `PortraitAttemptThumbnail` draws a
-small raster once on the worker for history browsing; it is not a physical-placement
-preview. History selection installs archived geometry directly. The Source/Photos
+small raster once on the worker for retained attempt evidence; it is not a
+physical-placement preview. History selection installs archived geometry directly. The Source/Photos
 popover draws from recent photos and the retained archive, including legacy saved
-entries without new attempt metadata; its button displays the source count. Persistent
-history stays visible as 40-pixel thumbnails. The comparison slots share equal footers
-and at least 92-pixel image height; Styles references use 64-pixel previews. Source
+entries without new attempt metadata. History remains a secondary text list. Source
 deletion prunes digest-equivalent aliases and stale Back,
 style and worker capabilities; fresh explicit authoring remains distinct from
 replaying a deleted object. Feedback and style mutations use the archive's serial persistence/recovery owner, including tombstones.

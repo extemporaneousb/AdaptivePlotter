@@ -15,11 +15,11 @@ struct PortraitExplorationTests {
     model.style = .hatch
     model.vectorOptions.materialContext = material
     model.setPhoto(Data([1]), for: .front, strokeStyle: try portraitTestStyle())
-    #expect(model.style == .flowEdges)
+    #expect(model.style == .contours)
     #expect(model.vectorOptions.materialContext == material)
-    #expect(model.vectorOptions.hatchSpacing == PortraitVectorOptions.flowDefaults.hatchSpacing)
+    #expect(model.vectorOptions.hatchSpacing == PortraitVectorOptions().hatchSpacing)
     await model.awaitRendering()
-    #expect(model.selectedCandidate?.recipe.style == .flowEdges)
+    #expect(model.selectedCandidate?.recipe.style == .contours)
     await model.shutdown()
   }
 

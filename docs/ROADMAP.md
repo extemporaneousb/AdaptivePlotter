@@ -33,10 +33,10 @@ with separate plus/minus feedback. Current behavior is specified in Product Cont
 implementation and receipts belong to Current Evidence. Remaining work is:
 
 - Extend the DEBUG software measurements in [Current Evidence](CURRENT_EVIDENCE.md)
-  to native click-to-paint navigation and consistent warm first-alternative/pair
-  timing on the operator's machine. Acceptance targets remain <100 ms cached
-  navigation, roughly 0.5 seconds to the first warm alternative and roughly
-  2 seconds to the pair. Capture and profile an actual minute-long interaction;
+  to native click-to-paint navigation and warm single-variation timing on the
+  operator's machine. Acceptance targets remain <100 ms cached navigation and
+  roughly 0.5 seconds to the next useful warm variation. The single-canvas browser
+  supersedes pair-generation acceptance. Capture and profile an actual minute-long interaction;
   the fixture measurements do not explain that reported delay.
 - Evaluate Sparse structure, Angular comic and Measured eye exaggeration on real
   portraits at comparable useful path/ink budgets. Inspect preserved facial evidence,

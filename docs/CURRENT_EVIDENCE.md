@@ -8,6 +8,44 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Single-canvas Portrait Studio, 2026-09-26
+
+Studio now shows one portrait, with Contour and Explorer modes, an optional
+adjustment inspector, and separate Photos/History popovers. The three-choice grid,
+large duplicate preview, permanent thumbnail rail, rendered style comparison and
+prototype row are removed. Contour is the starting renderer. Explorer preserves
+the selected renderer and requests one useful variation per Next action, with at
+most two render attempts. It stops after selection; opening Studio, changing modes,
+and navigating retained results do not start another batch. Failed single-step
+similarity probes are transient. Existing archived attempts remain unchanged.
+History is a virtualized text list filtered to the current source, with All photos
+and Kept only filters. Back/Forward install exact retained payloads synchronously.
+
+Targeted browser checks passed for idle mode entry, bounded Next demand, exact
+Back/Forward, cancellation against late completion, exhausted search, transient
+similarity probes and edit-driven branch invalidation. The five-test fixture run
+measured roughly 0.15 ms average retained navigation installation per step, excluding
+painting; it proves neither real-photo rendering latency nor native click-to-paint
+performance. The existing 20-test exploration selection and 17-test comparison
+cancellation selection passed. Hosted production and isolated workspace layout
+checks passed at 1000×550 and 1280×650, in both modes with optional adjustments;
+small-window snapshots were visually inspected. Strict AX interaction tests were
+not enabled in this host. Full configured validation is retained in the Blackdog
+task receipt.
+
+The existing running app (PID 44173) was identified as a debug build. Its unified
+log from 09:04:20–09:08:05 PDT contained 96 completed renders: mean total latency
+1,136 ms, median 802 ms and maximum 3,168 ms. The 110 render starts had median
+queue wait 296 ms and maximum 2,661 ms. Publication averaged 8 ms; 42 retained
+history selections installed in median 0.51 ms, maximum 1.04 ms. These are observed
+pre-change timings, not a controlled comparison or click-to-paint measurement.
+They support removing unsolicited render demand without attributing all delay to
+main-actor selection. The running app was left running. No
+camera, controller, paper, calibration or physical drawing check was performed.
+Renderer aesthetics are unchanged; likeness, perceptual usefulness and new-variation
+latency remain unverified with real portraits. An optimized signed build is a
+software artifact, not evidence that the operator's running session was updated.
+
 ## Portrait Studio redundant-work cleanup, 2026-09-25
 
 Archive saves validate every candidate, but install/verify each shared asset once
