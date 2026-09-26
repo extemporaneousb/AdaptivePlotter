@@ -40,6 +40,7 @@ struct PortraitStudioView: View {
   }
 
   var body: some View {
+    let preview = planePreview
     VStack(spacing: 10) {
       toolbar
       Divider()
@@ -48,8 +49,8 @@ struct PortraitStudioView: View {
           HStack(spacing: 12) {
             PortraitExplorationGridView(model: model, strokeStyle: strokeStyle,
               material: previewSource.material, showsSource: $showsSource) { sourcePreview }
-            previewFrame("Drawing") {
-              PortraitPlaneProgramPreview(preview: planePreview)
+            drawingPreviewFrame(preview) {
+              PortraitPlaneProgramPreview(preview: preview)
                 .overlay(alignment: .topTrailing) {
                   if model.isProcessing { ProgressView().controlSize(.small).padding(8) }
                 }
@@ -86,7 +87,7 @@ struct PortraitStudioView: View {
             }
             .accessibilityIdentifier("portrait.adjustmentScroll")
             Divider()
-            penAndMaterial
+            penAndMaterial(preview)
           }
           .frame(width: 284)
           .frame(maxHeight: .infinity, alignment: .top)
@@ -263,23 +264,21 @@ struct PortraitStudioView: View {
     }
   }
 
-  private func previewFrame<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+  private func drawingPreviewFrame<Content: View>(_ preview: PortraitPlanePreview, @ViewBuilder content: () -> Content) -> some View {
     VStack(spacing: 5) {
       HStack {
-        Text(title).font(.headline)
+        Text("Drawing").font(.headline)
         Spacer()
-        if title == "Drawing" {
-          Toggle(isOn: $showsAdjustments) {
-            Label("Adjustments", systemImage: "slider.horizontal.3")
-          }
-          .toggleStyle(.button)
-          .controlSize(.small)
-          .accessibilityIdentifier("portrait.adjustmentsDisclosure")
-          .help(showsAdjustments ? "Hide framing and algorithm adjustments" : "Show framing and algorithm adjustments")
-          Text(model.isProcessing ? "Updating" : planePreview.evidence?.mode == .planned ? "Placed" : "Reference")
-            .font(.caption).foregroundStyle(.secondary)
-          StudioHelpButton("Drawing preview", text: planePreview.statusText + "\n\n" + planePreview.dimensionsText)
+        Toggle(isOn: $showsAdjustments) {
+          Label("Adjustments", systemImage: "slider.horizontal.3")
         }
+        .toggleStyle(.button)
+        .controlSize(.small)
+        .accessibilityIdentifier("portrait.adjustmentsDisclosure")
+        .help(showsAdjustments ? "Hide framing and algorithm adjustments" : "Show framing and algorithm adjustments")
+        Text(model.isProcessing ? "Updating" : preview.evidence?.mode == .planned ? "Placed" : "Reference")
+          .font(.caption).foregroundStyle(.secondary)
+        StudioHelpButton("Drawing preview", text: preview.statusText + "\n\n" + preview.dimensionsText)
       }
       content()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -289,20 +288,20 @@ struct PortraitStudioView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .accessibilityElement(children: .contain)
-    .accessibilityIdentifier(title == "Photo" ? "portrait.sourceFrame" : "portrait.drawingFrame")
+    .accessibilityIdentifier("portrait.drawingFrame")
   }
 
-  private var penAndMaterial: some View {
+  private func penAndMaterial(_ preview: PortraitPlanePreview) -> some View {
     VStack(alignment: .leading, spacing: 5) {
       HStack {
         Text("Pen & Material").font(.headline)
         Spacer()
-        StudioHelpButton("Pen & Material", text: planePreview.inkDescription
+        StudioHelpButton("Pen & Material", text: preview.inkDescription
           + "\n\nPen width is a calibration or material setting, not a style parameter. The preview uses the available width. Change drawing detail using the style controls. Material selection, measurement and adaptation at the placed size are in Drawing.")
       }
       HStack {
-        Text("\(planePreview.inkWidthMM, specifier: "%.2f") mm").monospacedDigit()
-        Text(planePreview.inkWidthIsMeasured ? "Measured" : "Estimated").foregroundStyle(.secondary)
+        Text("\(preview.inkWidthMM, specifier: "%.2f") mm").monospacedDigit()
+        Text(preview.inkWidthIsMeasured ? "Measured" : "Estimated").foregroundStyle(.secondary)
         Spacer()
       }.font(.caption)
     }

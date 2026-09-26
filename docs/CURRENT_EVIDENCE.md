@@ -8,6 +8,23 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Portrait Studio redundant-work cleanup, 2026-09-25
+
+Archive saves validate every candidate, but install/verify each shared asset once
+per save and return the committed byte count instead of re-encoding the archive
+for accounting. Label ancestry checks use ID lookups. Studio selection, history,
+feedback and preview composition avoid repeated scans and temporary collections;
+the unused pose-slot accessor and unreachable photo-preview branch are removed.
+Sketch thinning counts neighbors without filtered temporary arrays. Drawing
+scale/rotation commits skip unchanged values.
+
+The focused serial SwiftPM selection passed 57 tests, covering archive corruption
+and deletion recovery, exact retained byte counts, shared-asset re-verification,
+authoring cancellation, browsing/history and retained-plan preview ownership.
+The external-reference-photo test was not enabled. These are software receipts,
+not measured native speedup, aesthetic quality or physical plotting evidence.
+The user-owned running app was not replaced or restarted.
+
 ## Persistent Studio attempts and regional prototypes, 2026-09-25
 
 The coordinated implementation adds reusable source preparation, durable attempt

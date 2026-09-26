@@ -2390,8 +2390,11 @@ tombstones against delayed loads and does not restore/reset runtime during delet
 
 `DrawingReviewerView.task` calls the same `PortraitStudioModel.loadArchive` as
 Studio. `PortraitSketchCollection` serializes both calls and persistence through
-its existing worker; the reviewer exposes loading/failure/retry and lists valid
-qualified saved/projected entries. Automatic attempts remain in Studio history. `DrawingReviewGeometry` only projects retained evidence: exact
+its existing worker; each save validates every candidate while installing and
+verifying each shared source/raster blob once. The store returns the committed
+index-plus-asset byte count, so publication does not serialize the archive again
+just to measure retained bytes. The reviewer exposes loading/failure/retry and lists
+valid qualified saved/projected entries. Automatic attempts remain in Studio history. `DrawingReviewGeometry` only projects retained evidence: exact
 record execution plan first, explicit source-program reference second, unavailable
 reason otherwise. `PortraitPlanePreview.planned` renders retained machine paths
 without current Draft or calibration. Missing photographs never become geometry

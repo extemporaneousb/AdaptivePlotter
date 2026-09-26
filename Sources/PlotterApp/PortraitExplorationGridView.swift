@@ -12,7 +12,8 @@ struct PortraitExplorationGridView<SourcePreview: View>: View {
 
   var body: some View {
     let round = model.displayedExplorationRound
-    let displayID = model.explorationDisplayID
+    let displayID = round?.id
+    let photoCount = model.browsablePhotos.count
     VStack(spacing: 6) {
       HStack(spacing: 8) {
         Text("Imaginations").font(.headline)
@@ -37,7 +38,7 @@ struct PortraitExplorationGridView<SourcePreview: View>: View {
         .labelStyle(.iconOnly)
         .help("Generate two new options")
         Button { showsSource.toggle() } label: {
-          Label(model.browsablePhotos.isEmpty ? "Source" : "Photos \(model.browsablePhotos.count)", systemImage: "photo")
+          Label(photoCount == 0 ? "Source" : "Photos \(photoCount)", systemImage: "photo")
         }
         .accessibilityIdentifier("portrait.sourceToggle")
         .help("Show the source photo or camera preview")
@@ -47,7 +48,7 @@ struct PortraitExplorationGridView<SourcePreview: View>: View {
             sourcePreview()
               .frame(width: 330, height: 360)
               .clipShape(RoundedRectangle(cornerRadius: 6))
-            if !model.browsablePhotos.isEmpty {
+            if photoCount > 0 {
               PortraitPhotoStrip(model: model, strokeStyle: strokeStyle).frame(width: 330)
             }
           }
@@ -87,10 +88,11 @@ struct PortraitExplorationGridView<SourcePreview: View>: View {
               }
             VStack(spacing: 2) {
               if let candidate {
+                let burden = model.burdenSummary(for: candidate)
                 PortraitAttemptFeedbackButtons(model: model, candidate: candidate).frame(height: 16)
-                Text(model.burdenSummary(for: candidate).replacingOccurrences(of: " drawing-heights of ink path", with: "×height"))
+                Text(burden.replacingOccurrences(of: " drawing-heights of ink path", with: "×height"))
                   .font(.caption2).foregroundStyle(.secondary).lineLimit(1).frame(height: 12)
-                  .help(model.burdenSummary(for: candidate) + ". Ink path is normalized by drawing height; this is not a time estimate.")
+                  .help(burden + ". Ink path is normalized by drawing height; this is not a time estimate.")
                 Text(isCurrent ? candidate.recipe.title
                   : (model.sketches.entries.first(where: { $0.id == candidate.id })?.attempt?.changeCue ?? "Treatment"))
                   .font(.caption2).foregroundStyle(.secondary).lineLimit(1).frame(height: 12)
@@ -195,18 +197,19 @@ struct PortraitAttemptFeedbackButtons: View {
   let model: PortraitStudioModel
   let candidate: PortraitCandidate
   var body: some View {
+    let feedback = model.feedback(for: candidate)
     HStack(spacing: 10) {
       Button { model.toggleFeedback(.promising, candidate: candidate) } label: {
-        Image(systemName: model.feedback(for: candidate) == .promising ? "plus.circle.fill" : "plus.circle")
+        Image(systemName: feedback == .promising ? "plus.circle.fill" : "plus.circle")
       }
-      .foregroundStyle(model.feedback(for: candidate) == .promising ? Color.green : .secondary)
+      .foregroundStyle(feedback == .promising ? Color.green : .secondary)
       .help("Promising: retain this exact attempt. Click again to clear feedback.")
       .accessibilityLabel("Mark promising")
       .accessibilityIdentifier("portrait.feedback.plus.\(candidate.id)")
       Button { model.toggleFeedback(.rejected, candidate: candidate) } label: {
-        Image(systemName: model.feedback(for: candidate) == .rejected ? "minus.circle.fill" : "minus.circle")
+        Image(systemName: feedback == .rejected ? "minus.circle.fill" : "minus.circle")
       }
-      .foregroundStyle(model.feedback(for: candidate) == .rejected ? Color.orange : .secondary)
+      .foregroundStyle(feedback == .rejected ? Color.orange : .secondary)
       .help("Reject this exact treatment without deleting it. Click again to clear feedback.")
       .accessibilityLabel("Mark rejected")
       .accessibilityIdentifier("portrait.feedback.minus.\(candidate.id)")

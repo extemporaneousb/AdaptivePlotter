@@ -189,17 +189,30 @@ actor PortraitCandidateStore {
     return .init(archive: .init(), issues: [message], canWrite: false)
   }
 
-  func save(snapshot: PortraitCandidateArchive) throws {
+  /// Returns the committed index and unique asset bytes, without re-encoding the archive.
+  @discardableResult
+  func save(snapshot: PortraitCandidateArchive) throws -> Int {
     if !hasInspected { _ = load() }
     if let writeBlock { throw PortraitCandidateStoreError.invalidIndex(writeBlock) }
     let manager = FileManager.default
     try manager.createDirectory(at: blobDirectory, withIntermediateDirectories: true)
     let encoder = PortraitCandidateCoding.encoder()
+    var assetBytes: [String: Int] = [:]
     for entry in snapshot.entries {
       try entry.candidate.validateIntegrity()
       try PortraitExplorationRecord.validate(entry.exploration, for: entry.candidate)
-      try install(entry.candidate.sourceData, hash: entry.candidate.sourceSHA256)
-      try install(try encoder.encode(entry.candidate.raster), hash: entry.candidate.rasterSHA256)
+      let candidate = entry.candidate
+      // Every candidate is validated above, but shared blobs need installation
+      // and disk verification only once within this save.
+      if assetBytes[candidate.sourceSHA256] == nil {
+        try install(candidate.sourceData, hash: candidate.sourceSHA256)
+        assetBytes[candidate.sourceSHA256] = candidate.sourceData.count
+      }
+      if assetBytes[candidate.rasterSHA256] == nil {
+        let raster = try encoder.encode(candidate.raster)
+        try install(raster, hash: candidate.rasterSHA256)
+        assetBytes[candidate.rasterSHA256] = raster.count
+      }
     }
     let stored = StoredArchive(snapshot)
     try validateLabels(stored.labels, entries: stored.entries)
@@ -221,9 +234,9 @@ actor PortraitCandidateStore {
     // Explicit deletion removes unreferenced assets after the tombstone/index
     // commit. Interrupted cleanup is reported on the next load and never risks
     // references to blobs already deleted before their index update.
-    let referenced = Set(snapshot.entries.flatMap { [$0.candidate.sourceSHA256, $0.candidate.rasterSHA256] })
-    let cleanup = try cleanupDeletedAssets(snapshot.tombstones, referenced: referenced)
+    let cleanup = try cleanupDeletedAssets(snapshot.tombstones, referenced: Set(assetBytes.keys))
     if cleanup.count > 0 { throw PortraitCandidateStoreError.invalidIndex(cleanup.issues.joined(separator: " ")) }
+    return bytes.count + assetBytes.values.reduce(0, +)
   }
 
   private func cleanupDeletedAssets(_ tombstones: [PortraitArchiveTombstone],
@@ -251,7 +264,9 @@ actor PortraitCandidateStore {
     var assets: [String: Int] = [:]
     for entry in snapshot.entries {
       assets[entry.candidate.sourceSHA256] = entry.candidate.sourceData.count
-      assets[entry.candidate.rasterSHA256] = try encoder.encode(entry.candidate.raster).count
+      if assets[entry.candidate.rasterSHA256] == nil {
+        assets[entry.candidate.rasterSHA256] = try encoder.encode(entry.candidate.raster).count
+      }
     }
     let payload = try encoder.encode(StoredArchive(snapshot))
     let envelope = IndexEnvelope(schemaVersion: 1, sha256: PortraitCandidateCoding.digest(payload), payload: payload)
@@ -263,16 +278,18 @@ actor PortraitCandidateStore {
       Set(entries.map { $0.candidate.id }).count == entries.count else {
       throw PortraitCandidateStoreError.invalidIndex("duplicate candidate or label identity")
     }
+    let labelsByID = Dictionary(uniqueKeysWithValues: labels.map { ($0.id, $0) })
+    let entriesByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.candidate.id, $0) })
     for label in labels {
       try PortraitArchiveValidation.label(label)
       if let previous = label.previousRevisionID {
-        guard let predecessor = labels.first(where: { $0.id == previous }),
+        guard let predecessor = labelsByID[previous],
           predecessor.id != label.id, predecessor.candidateID == label.candidateID,
           predecessor.scope.id == label.scope.id else {
           throw PortraitCandidateStoreError.invalidIndex("invalid label revision ancestry")
         }
       }
-      if let candidate = entries.first(where: { $0.candidate.id == label.candidateID })?.candidate,
+      if let candidate = entriesByID[label.candidateID]?.candidate,
         (candidate.program.contentHash.description != label.programContentHash
           || !label.scope.allowedFamilies.contains(candidate.recipe.style)) {
         throw PortraitCandidateStoreError.invalidIndex("label program identity mismatch")

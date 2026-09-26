@@ -65,8 +65,11 @@ final class PortraitStudioModel {
   private(set) var projectedCandidate: PortraitCandidate?
   private var recipeTitle: String?
   var selectedCandidate: PortraitCandidate? {
-    let candidate = sketches.selected?.candidate ?? (currentProgram == nil ? nil : completedCandidate)
-    return candidate.flatMap { isDeletedAttempt($0) ? nil : $0 }
+    if let candidate = sketches.selected?.candidate {
+      return isDeletedAttempt(candidate) ? nil : candidate
+    }
+    // currentProgram already checks configuration and deletion applicability.
+    return currentProgram == nil ? nil : completedCandidate
   }
   var renderConfiguration: PortraitRenderConfiguration {
     .init(style: style, vectors: vectorOptions.bounded, analysis: options)
@@ -107,11 +110,6 @@ final class PortraitStudioModel {
   }
   var selectedPhoto: Data? { selectedCandidate?.sourceData ?? selectedSource?.data }
   var retainedPhotoBytes: Int { recentPhotos.reduce(0) { $0 + $1.data.count } }
-  // Transitional access for existing source-provenance consumers. New studio
-  // controls use identified recent photos, never left/center/right slots.
-  var photos: [PortraitPose: Data] {
-    Dictionary(recentPhotos.map { ($0.pose, $0.data) }, uniquingKeysWith: { _, newest in newest })
-  }
   let captureDuration: Double = 0.8
   private(set) var isCapturing = false
   private(set) var captureProgress = 0.0
@@ -965,7 +963,7 @@ final class PortraitStudioModel {
   }
 
   private func isDeletedAttempt(_ candidate: PortraitCandidate) -> Bool {
-    let deletions = sketches.tombstones.filter { $0.kind != .label && candidate.createdAt <= $0.createdAt
+    let deletions = sketches.tombstones.lazy.filter { $0.kind != .label && candidate.createdAt <= $0.createdAt
       && ($0.affectedCandidateIDs.contains(candidate.id) || ($0.kind == .source && $0.identity == candidate.sourceSHA256)) }
     guard let latest = deletions.map(\.createdAt).max() else { return false }
     // The legacy archive API permits an explicit re-retention after deletion.

@@ -7,14 +7,14 @@ struct PortraitHistoryView: View {
   let strokeStyle: PlotterModel.StrokeStyle
   @State private var onlyPromising = false
 
-  private var entries: [PortraitRetainedCandidate] {
-    model.sketches.attempts.filter { !onlyPromising || $0.attempt?.feedback == .promising || !$0.reasons.isEmpty }
-  }
-
   var body: some View {
+    let attempts = model.sketches.attempts
+    let entries = onlyPromising
+      ? attempts.filter { $0.attempt?.feedback == .promising || !$0.reasons.isEmpty }
+      : attempts
     VStack(alignment: .leading, spacing: 4) {
       HStack {
-        Text("History · \(model.sketches.attempts.count)").font(.caption)
+        Text("History · \(attempts.count)").font(.caption)
         Toggle("Kept", isOn: $onlyPromising).toggleStyle(.button).controlSize(.mini)
           .help("Show promising attempts and saved imaginations")
         Spacer()

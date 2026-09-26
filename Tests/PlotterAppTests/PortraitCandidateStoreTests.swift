@@ -106,9 +106,35 @@ struct PortraitCandidateStoreTests {
     #expect(collection.labels[0].presentation != collection.labels[1].presentation)
     let assets = try FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent("assets").path)
     #expect(assets.count == 2)
+    let assetDirectory = directory.appendingPathComponent("assets")
+    let actualBytes = try Data(contentsOf: directory.appendingPathComponent("index-v1.json")).count
+      + assets.reduce(0) { try $0 + Data(contentsOf: assetDirectory.appendingPathComponent($1)).count }
+    #expect(collection.retainedBytes == actualBytes)
+    #expect(try PortraitCandidateStore.retainedByteCount(snapshot: collection.archive) == actualBytes)
     let restored = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(restored.canWrite)
     #expect(restored.archive.entries.count == 40)
+  }
+
+  @Test("shared assets are verified again on later saves")
+  func sharedAssetCorruptionAfterSave() async throws {
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let candidates = try (1...3).map { try portraitPersistenceCandidate(seed: UInt64($0)) }
+    let archive = PortraitCandidateArchive(entries: candidates.map {
+      .init(candidate: $0, reasons: [.init(reason: .shortlisted)])
+    })
+    let store = PortraitCandidateStore(directoryURL: directory)
+    try await store.save(snapshot: archive)
+    let index = directory.appendingPathComponent("index-v1.json")
+    let originalIndex = try Data(contentsOf: index)
+    let source = directory.appendingPathComponent("assets").appendingPathComponent(candidates[0].sourceSHA256)
+    try Data("corrupt".utf8).write(to: source)
+    do {
+      try await store.save(snapshot: archive)
+      Issue.record("A later save must not trust a previously verified shared blob")
+    } catch {}
+    #expect(try Data(contentsOf: index) == originalIndex)
   }
 
   @Test("partial save reports retained staging/orphan blobs without inventing candidates")

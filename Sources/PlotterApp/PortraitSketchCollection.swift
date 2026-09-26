@@ -32,7 +32,11 @@ final class PortraitSketchCollection {
     }
     return Set(latest.filter { $0.value.value == .rejected }.map(\.key))
   }
-  var selected: PortraitSavedSketch? { sketches.first { $0.id == selectedID } }
+  var selected: PortraitSavedSketch? {
+    guard let selectedID,
+      let entry = entries.first(where: { $0.id == selectedID && !$0.reasons.isEmpty }) else { return nil }
+    return PortraitSavedSketch(candidate: entry.candidate)
+  }
   private(set) var persistenceState: PortraitPersistenceState = .saved
   private(set) var retainedBytes = 0
   private(set) var unresolvedMutations = 0
@@ -267,8 +271,14 @@ final class PortraitSketchCollection {
       let mutationCount = pending.count
       persistenceState = .pending
       do {
-        if let store { try await store.save(snapshot: snapshot) }
-        await updateRetainedBytes(snapshot: snapshot)
+        if let store {
+          retainedBytes = try await store.save(snapshot: snapshot)
+          // A successful save has also completed any previously pending cleanup.
+          pendingCleanupCount = 0
+          pendingCleanupBytes = 0
+        } else {
+          await updateRetainedBytes(snapshot: snapshot)
+        }
         pending.removeFirst(mutationCount)
         unresolvedMutations = pending.count + pendingCleanupCount
       } catch {

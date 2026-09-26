@@ -224,7 +224,7 @@ struct PortraitDrawingTests {
     await renderer.release()
     await cancellation.value
     #expect(model.program == nil)
-    #expect(model.photos.count == 1)
+    #expect(model.recentPhotos.count == 1)
     #expect(model.renderDiagnostics.activeWorkerCount == 0)
     model.style = .contours
     model.render(strokeStyle: style)
@@ -253,7 +253,7 @@ struct PortraitDrawingTests {
     await model.awaitRendering()
     let program = try #require(model.program)
     #expect(program.source.sourceIdentifier.contains("pose=Left|style=Crosshatch"))
-    #expect(model.photos.count == 2)
+    #expect(model.recentPhotos.count == 2)
     model.pose = .right
     model.render(strokeStyle: style)
     #expect(model.program == nil)
@@ -273,13 +273,13 @@ struct PortraitDrawingTests {
       replacements.append(Task { await model.importPhoto(URL(fileURLWithPath: "/tmp/\(index)"), strokeStyle: style) })
       try await awaitPortraitTestState { model.acquisitionDiagnostics.requestedWorkCount >= index }
     }
-    #expect(model.photos.isEmpty)
+    #expect(model.recentPhotos.isEmpty)
     #expect(model.acquisitionDiagnostics.activeWorkerCount == 1)
     await acquirer.release()
     await first.value
     for replacement in replacements { await replacement.value }
     await model.awaitRendering()
-    #expect(model.photos[.front] == Data([21]))
+    #expect(model.recentPhotos.last(where: { $0.pose == .front })?.data == Data([21]))
     #expect(await acquirer.inputs == [1, 21])
     #expect(model.acquisitionDiagnostics.maximumConcurrentWorkerCount == 1)
     #expect(model.acquisitionDiagnostics.settledWorkerCount == 2)
@@ -323,11 +323,11 @@ struct PortraitDrawingTests {
     await acquirer.release()
     await cancellation.value
     await capture.value
-    #expect(model.photos.isEmpty)
+    #expect(model.recentPhotos.isEmpty)
     #expect(model.renderDiagnostics.startedWorkerCount == 0)
     await model.importPhoto(URL(fileURLWithPath: "/tmp/2"), strokeStyle: style)
     await model.awaitRendering()
-    #expect(model.photos[.front] == Data([2]))
+    #expect(model.recentPhotos.last(where: { $0.pose == .front })?.data == Data([2]))
     #expect(model.program != nil)
     #expect(model.acquisitionDiagnostics.maximumConcurrentWorkerCount == 1)
     #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
@@ -354,7 +354,7 @@ struct PortraitDrawingTests {
     await importing.value
     await model.importPhoto(URL(fileURLWithPath: "/tmp/2"), strokeStyle: style)
     model.setPhoto(Data([3]), for: .front, strokeStyle: style)
-    #expect(model.photos.isEmpty)
+    #expect(model.recentPhotos.isEmpty)
     #expect(model.summary == originalSummary)
     #expect(model.renderDiagnostics.startedWorkerCount == 0)
     #expect(model.acquisitionDiagnostics.startedWorkerCount == 1)

@@ -608,9 +608,9 @@ enum PortraitVectorizer {
             let i = y*w+x
             let p = [ink[i-w], ink[i-w+1], ink[i+1], ink[i+w+1],
                      ink[i+w], ink[i+w-1], ink[i-1], ink[i-w-1]]
-            let count = p.filter { $0 }.count
+            let count = p.reduce(0) { $0 + ($1 ? 1 : 0) }
             guard (2...6).contains(count) else { continue }
-            let transitions = (0..<8).filter { !p[$0] && p[($0+1)%8] }.count
+            let transitions = (0..<8).reduce(0) { $0 + (!p[$1] && p[($1+1)%8] ? 1 : 0) }
             guard transitions == 1 else { continue }
             let first = pass == 0 ? !(p[0] && p[2] && p[4]) : !(p[0] && p[2] && p[6])
             let second = pass == 0 ? !(p[2] && p[4] && p[6]) : !(p[0] && p[4] && p[6])

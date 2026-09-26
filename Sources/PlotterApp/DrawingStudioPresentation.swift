@@ -728,12 +728,14 @@ struct DrawingStudioView<BeforeRun: View>: View {
   private func commitScale() {
     guard let value = scaleDraft else { return }
     scaleDraft = nil
+    guard value != presentation.canvas.placement.uniformScale else { return }
     submitDraft(.setUniformScale(value))
   }
 
   private func commitRotation() {
     guard let value = rotationDraft else { return }
     rotationDraft = nil
+    guard value != presentation.canvas.placement.rotationDegrees else { return }
     submitDraft(.setRotationDegrees(value))
   }
 
