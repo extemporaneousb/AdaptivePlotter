@@ -17,6 +17,10 @@ public struct DrawingRunObservationPose: Codable, Hashable, Sendable {
 /// movement. In particular a terminal failure/Stop does not authorize its poses.
 public struct DrawingRunObservationPlan: Codable, Hashable, Sendable {
   public enum Mode: String, Codable, Hashable, Sendable { case singlePose, multiPose }
+  public enum Policy: String, Sendable {
+    case nearestClearing = "accepted-bounds-drawing-rectangle-v1"
+    case carriagePark = "accepted-bounds-carriage-park-v2"
+  }
   public let executionPlanRevisionID: ExecutionPlanRevisionID
   public let acceptedMovementBounds: AxisAlignedBounds<MachineSpace>
   public let currentPosition: MachinePosition
@@ -31,7 +35,7 @@ public struct DrawingRunObservationPlan: Codable, Hashable, Sendable {
   public init(executionPlan: ExecutionPlanRevision,
     acceptedMovementBounds bounds: AxisAlignedBounds<MachineSpace>,
     currentPosition: MachinePosition, requestedClearanceMM: Double = 10,
-    maximumPoseCount: Int = 3) throws {
+    maximumPoseCount: Int = 3, policy: Policy = .carriagePark) throws {
     guard requestedClearanceMM.isFinite, requestedClearanceMM > 0,
       (1...3).contains(maximumPoseCount) else { throw DrawingRunObservationPlanError.invalidPolicy }
     guard bounds.contains(currentPosition.point) else {
@@ -68,7 +72,17 @@ public struct DrawingRunObservationPlan: Codable, Hashable, Sendable {
     }
     let clearing = candidates.filter { clearance($0) >= requestedClearanceMM }.sorted(by: nearer)
     var selected: [Point2<MachineSpace>]
-    if let first = clearing.first {
+    if policy == .carriagePark {
+      // The supported carriage extends behind the pen along Y. Merely raising
+      // the tip beyond the upper drawing edge leaves its rails over the image.
+      // Park at the minimum-Y accepted edge and the X edge with most lateral
+      // clearance. This remains a geometric proposal, not measured visibility.
+      let left = try Point2<MachineSpace>(x: bounds.minX, y: bounds.minY)
+      let right = try Point2<MachineSpace>(x: bounds.maxX, y: bounds.minY)
+      let leftGap = minX - bounds.minX, rightGap = bounds.maxX - maxX
+      selected = [leftGap == rightGap ? (nearer(left, right) ? left : right)
+        : leftGap > rightGap ? left : right]
+    } else if let first = clearing.first {
       selected = [first]
     } else {
       // Geometric shortfall is explicit. Additional poses maximize separation;
@@ -93,13 +107,15 @@ public struct DrawingRunObservationPlan: Codable, Hashable, Sendable {
     poses = selected.map { DrawingRunObservationPose(id: UUID(), position: MachinePosition(point: $0),
       minimumGeometryClearanceMM: clearance($0)) }
     mode = selected.count == 1 ? .singlePose : .multiPose
-    requestedClearanceAchieved = !clearing.isEmpty
+    requestedClearanceAchieved = selected.contains { clearance($0) >= requestedClearanceMM }
     requiredPenState = .up
-    derivationVersion = "accepted-bounds-drawing-rectangle-v1"
+    derivationVersion = policy.rawValue
     limitations = [
       "XY clearance excludes an unmeasured armature envelope; actual visibility remains unknown until exact-frame evidence establishes it.",
       "Only the run owner may execute these pen-up poses; Stop, failed execution or ambiguous motion prohibits automatic photo repositioning."
-    ] + (clearing.isEmpty ? ["No candidate achieves the requested drawing-region clearance inside accepted movement bounds; coverage may remain incomplete."] : [])
+    ] + (requestedClearanceAchieved ? [] : [policy == .nearestClearing
+      ? "No candidate achieves the requested drawing-region clearance inside accepted movement bounds; coverage may remain incomplete."
+      : "The bounded carriage park cannot achieve the requested drawing-region clearance; final visibility remains unverified."])
   }
 }
 
@@ -111,9 +127,12 @@ extension DrawingRunObservationPlan {
       requiredPenState == .up, executionPlanRevisionID == executionPlan.revisionID else {
       throw DrawingRunObservationPlanError.invalidPolicy
     }
+    guard let policy = Policy(rawValue: derivationVersion) else {
+      throw DrawingRunObservationPlanError.invalidPolicy
+    }
     let rebuilt = try DrawingRunObservationPlan(executionPlan: executionPlan,
       acceptedMovementBounds: acceptedMovementBounds, currentPosition: currentPosition,
-      requestedClearanceMM: requestedClearanceMM, maximumPoseCount: poses.count)
+      requestedClearanceMM: requestedClearanceMM, maximumPoseCount: poses.count, policy: policy)
     guard rebuilt.poses.map(\.position) == poses.map(\.position),
       rebuilt.poses.map(\.minimumGeometryClearanceMM) == poses.map(\.minimumGeometryClearanceMM),
       rebuilt.mode == mode, rebuilt.requestedClearanceAchieved == requestedClearanceAchieved,

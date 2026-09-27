@@ -234,6 +234,7 @@ public struct PlotterDrawingRunSnapshot: Hashable, Sendable {
   /// This never borrows the currently editable draft.
   public let retainedExecutionPlan: ExecutionPlanRevision?
   public let progress: DrawingPlanProgressSnapshot?
+  public let executionDisposition: DrawingRunExecutionDisposition?
   public let stopCapabilityID: PlotterDrawingRunStopCapabilityID?
   public let terminal: PlotterDrawingRunTerminal?
   public let noRedraw: PlotterDrawingRunNoRedrawState
@@ -1707,6 +1708,10 @@ public actor PlotterDrawingRunRuntime {
 
   private func captureProgressPhoto(_ owner: ActiveRun,
     progress: DrawingPlanProgressSnapshot, position: MachinePosition) async {
+    guard !admissionClosed, isCurrent(owner, environment: .live),
+      !cancellationWasRequested(owner, environment: .live) else { return }
+    // Publish every settled stroke, independently of the sparse photo schedule.
+    update(owner, environment: .live) { $0.progress = progress }
     let count = progress.completedStrokeIDs.count
     guard DrawingRunProgressFrame.checkpointCounts(plannedStrokeCount: owner.plan.plan.strokes.count).contains(count),
       !admissionClosed, isCurrent(owner, environment: .live),
@@ -1894,6 +1899,7 @@ public actor PlotterDrawingRunRuntime {
       planIdentity: state.active?.plan.identity ?? state.currentPlanIdentity,
       retainedExecutionPlan: state.active?.plan.plan ?? state.terminal?.record.plan.executionPlan ?? unresolvedPlan,
       progress: state.progress,
+      executionDisposition: state.terminal?.record.executionDisposition ?? state.pendingRecord?.executionDisposition,
       stopCapabilityID: state.active?.stopCapabilityID,
       terminal: state.terminal,
       noRedraw: state.noRedraw,

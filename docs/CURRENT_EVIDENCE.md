@@ -8,6 +8,31 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing progress and completion presentation, 2026-09-26
+
+Drawing publishes every settled stroke independently of the quarter-run photo
+schedule and displays a determinate completed/total-stroke bar. The run snapshot
+exposes its retained execution disposition while evidence is appending, so Drawing
+done remains distinct from move-clear positioning, capture and durable publication.
+A read-only inspection of the current run's retained final photo showed its vertical
+carriage still covering the portrait: the nearest-tip-clearing pose was above the
+drawing. New versioned observation plans park at the lower accepted Y boundary and
+the X boundary with greater lateral clearance. Historical plans retain v1 validation.
+The existing Pen-Up run and evidence owners retain motion and capture authority. A durable post-positioning photograph displays Final photo saved;
+a fallback completion photograph, failed repositioning/capture, Stop and failed
+publication remain distinct visible outcomes.
+
+The focused sequential debug selection passed 60 tests. Coverage includes versioned
+legacy-plan validation, bounded corner parking and clearance shortfalls, progress
+publication on a non-photo final checkpoint, done-before-photo-save presentation,
+execute/fallback-photo/travel/post-photo/append ordering, changed-fact refusal,
+Stop during acquisition, and exact-byte publication-only recovery. Documentation
+and diff checks passed. A stable-local signed debug bundle was built and validated,
+then staged without launch. The existing live app and physical run were preserved;
+native interaction and physical clearance at the new park target were not validated.
+The full configured suite passed before the parking adjustment; final parking
+validation is scoped to the planner, archive, run, capture and presentation paths.
+
 ## Shared portrait exploration controls, 2026-09-26
 
 Removed Contour/Explorer mode state. Both kernels now expose Previous/Next and

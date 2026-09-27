@@ -145,6 +145,56 @@ struct DrawingStudioControl: Hashable, Identifiable, Sendable {
   }
 }
 
+/// Execution completion and photo persistence are separate facts.
+struct DrawingStudioExecutionPresentation: Hashable, Sendable {
+  let completedStrokes: Int
+  let plannedStrokes: Int
+  let drawingIsDone: Bool
+  let finalPhotoIsSaved: Bool
+  let detail: String
+
+  var fraction: Double {
+    plannedStrokes > 0 ? min(1, Double(completedStrokes) / Double(plannedStrokes)) : 0
+  }
+
+  init(snapshot: PlotterDrawingRunSnapshot, phaseDetail: String) {
+    completedStrokes = snapshot.progress?.controllerCompletedStrokeCount
+      ?? snapshot.terminal.map { Int($0.record.executionFrontiers.controllerCompletedStrokeCount) } ?? 0
+    plannedStrokes = snapshot.progress?.plannedStrokeCount
+      ?? snapshot.terminal.map { Int($0.record.executionFrontiers.plannedStrokeCount) }
+      ?? snapshot.retainedExecutionPlan?.strokes.count ?? 0
+    if let disposition = snapshot.executionDisposition {
+      drawingIsDone = disposition == .completed
+    } else {
+      drawingIsDone = snapshot.activeRunID != nil && [.positioningForPostObservation,
+        .capturingPostFrame, .observingInk].contains(snapshot.phase)
+    }
+    if case .persisted = snapshot.evidencePersistence,
+      let attempt = snapshot.terminal?.record.attemptEvidence {
+      finalPhotoIsSaved = drawingIsDone && attempt.terminalFrames.contains {
+        $0.captureAfterNanoseconds != nil
+      }
+    } else { finalPhotoIsSaved = false }
+    if case .failed(_, _, let reason) = snapshot.evidencePersistence {
+      detail = "Evidence save failed: " + reason
+    } else if snapshot.terminal != nil {
+      if finalPhotoIsSaved {
+        detail = snapshot.terminal?.record.attemptEvidence?.intent.observationPlan?.requestedClearanceAchieved == false
+          ? "Final photo saved; parking clearance is limited · Review Run"
+          : "Final photo saved · Review Run"
+      } else if drawingIsDone {
+        let hasFallback = snapshot.terminal?.record.attemptEvidence?.terminalFrames.contains {
+          $0.completionCaptureAfterNanoseconds != nil
+        } == true
+        let status = hasFallback ? "Completion photo retained; move-clear photo unavailable."
+          : "Final photo unavailable."
+        detail = [status, snapshot.terminal?.record.attemptEvidence?.missingCoverageReason]
+          .compactMap { $0 }.joined(separator: " ")
+      } else { detail = "Drawing stopped before completion." }
+    } else { detail = phaseDetail }
+  }
+}
+
 struct DrawingStudioPresentation: Hashable, Sendable {
   let canvas: DrawingStudioCanvasPresentation
   let drawingPreview: DrawingStudioPreview?
@@ -153,6 +203,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   let editingIsEnabled: Bool
   let runProjection: PlotterDrawingRunProjectionReference?
   let runState: DrawingStudioRunState
+  let execution: DrawingStudioExecutionPresentation?
   let coverageExperiment: DrawingCoverageExperiment?
   let coverageAssessment: DrawingCoverageAssessment?
   let coverageUnavailableReason: String?
@@ -187,6 +238,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     editingIsEnabled: Bool,
     runProjection: PlotterDrawingRunProjectionReference?,
     runState: DrawingStudioRunState,
+    execution: DrawingStudioExecutionPresentation? = nil,
     coverageExperiment: DrawingCoverageExperiment? = nil,
     coverageAssessment: DrawingCoverageAssessment? = nil,
     coverageUnavailableReason: String? = nil,
@@ -214,6 +266,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     self.editingIsEnabled = editingIsEnabled
     self.runProjection = runProjection
     self.runState = runState
+    self.execution = execution
     self.coverageExperiment = coverageExperiment
     self.coverageAssessment = coverageAssessment
     self.coverageUnavailableReason = coverageUnavailableReason
@@ -658,8 +711,19 @@ struct DrawingStudioView<BeforeRun: View>: View {
 
   private var runStatus: some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text(presentation.paperReplacementStatus == nil ? presentation.runState.title : "Sheet recorded")
+      Text(presentation.execution?.drawingIsDone == true ? "Drawing done"
+        : presentation.paperReplacementStatus == nil ? presentation.runState.title : "Sheet recorded")
         .font(.headline)
+      if let execution = presentation.execution {
+        if execution.plannedStrokes > 0 {
+          ProgressView(value: execution.fraction)
+            .accessibilityIdentifier("drawing.progress")
+          Text("\(execution.completedStrokes) / \(execution.plannedStrokes) strokes completed")
+            .font(.caption.monospacedDigit())
+        }
+        Text(execution.detail).font(.caption).foregroundStyle(.secondary)
+          .accessibilityIdentifier("drawing.completionStatus")
+      }
       StudioHelpButton("Drawing status", text: presentation.paperReplacementStatus ?? presentation.runState.detail)
     }
   }

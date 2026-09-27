@@ -2012,9 +2012,24 @@ automatically retains a strictly newer photograph from the run's camera/configur
 before optional Pen-Up reveal travel. Retaining this photograph does not require matched-pose
 coverage or Vision success and does not claim unobstructed visibility or verified
 ink. Matched observation still requires its own settled pose and fresh frame.
+New observation plans park at the minimum-Y accepted boundary and the X boundary
+with the greatest lateral separation from the drawing. This keeps the supported
+carriage from merely lifting its tip above the drawing while its rails remain over
+it. The same parked pose owns baseline and final captures. It does not establish a
+measured armature envelope or guarantee visibility; insufficient bounded clearance
+remains explicit. Historical nearest-tip-clearance plans retain their original
+versioned validation and are never rewritten or replayed as new motion.
 Existing sheet/camera applicability depends on stream and optical identity, not
 whether a current preview has already computed its evidence hash. Exact-frame
 assertions and measurements still require sealed pixels.
+
+Drawing displays a determinate bar and completed/total strokes from each settled
+Pen-Up checkpoint, independently of photo retention. It is stroke progress, not an
+ETA or ink measurement. Successful execution is shown as Drawing done while
+move-clear positioning, result capture and evidence persistence continue. Final
+photo saved requires durable post-positioning media; a pre-reveal fallback photo
+and move-clear failure are reported separately. Stop and publication failures
+remain explicit and never imply a completed result.
 
 For plans of at least four strokes, the same interpreter pauses at up to three
 existing settled Pen-Up checkpoints near 25%, 50%, and 75% of the stroke count.

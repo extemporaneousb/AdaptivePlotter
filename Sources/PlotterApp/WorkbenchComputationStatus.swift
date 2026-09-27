@@ -20,7 +20,10 @@ extension PlotterApplicationRuntime {
     }
     if let snapshot = drawingRunSnapshot,
       snapshot.activeRunID != nil || snapshot.phase == .appendingEvidence {
-      return .init(title: "Drawing in progress", detail: drawingRunPhaseDetail(snapshot.phase))
+      let execution = DrawingStudioExecutionPresentation(snapshot: snapshot,
+        phaseDetail: drawingRunPhaseDetail(snapshot.phase))
+      return .init(title: execution.drawingIsDone ? "Drawing done" : "Drawing in progress",
+        detail: execution.detail)
     }
     if let reason = currentCameraCalibrationBusyReason {
       return .init(title: "Calibrating camera", detail: reason)

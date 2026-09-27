@@ -518,7 +518,7 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
       task: Task {
         let kind = await gate?.wait(request) ?? fallback
         if self.emitProgressCheckpoints, let checkpointObserver {
-          for count in 1..<request.plan.strokes.count {
+          for count in 1...request.plan.strokes.count {
             let progress = drawingRunCheckpointProgress(request, completed: count)
             let position = MachinePosition(point: request.plan.strokes[count - 1].path.end)
             self.setPosition(position)

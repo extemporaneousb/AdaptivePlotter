@@ -26,8 +26,22 @@ struct DrawingProgressCaptureTests {
     let gate = DrawingRunHoldGate()
     await harness.camera.holdCapture(ordinal: 5, at: gate)
     let ready = await harness.runtime.synchronize(environment: .live)
+    let updates = await harness.runtime.snapshots(environment: .live)
+    let publications = Task { () -> [PlotterDrawingRunSnapshot] in
+      var values: [PlotterDrawingRunSnapshot] = []
+      for await value in updates {
+        values.append(value)
+        if value.terminal != nil { break }
+      }
+      return values
+    }
     let running = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilHeld()
+    let capturing = await harness.runtime.snapshot(environment: .live)
+    let status = DrawingStudioExecutionPresentation(snapshot: capturing, phaseDetail: "Capturing final photo")
+    #expect(status.drawingIsDone)
+    #expect(status.fraction == 1)
+    #expect(!status.finalPhotoIsSaved)
     let reopened = try #require(await harness.evidence.reopenedArchive())
     #expect(reopened.records.isEmpty)
     let attempt = try #require(reopened.incompleteAttempts.first)
@@ -49,6 +63,13 @@ struct DrawingProgressCaptureTests {
     #expect(stageGeometry.preview.evidence?.planContentHash == plan.plan.contentHash.description)
     await gate.release()
     let result = await running.value
+    let published = await publications.value
+    // Final stroke is not a photo checkpoint; it must still publish while executing.
+    #expect(published.contains { $0.phase == .executingPlan && $0.progress?.controllerCompletedStrokeCount == 4 })
+    let done = DrawingStudioExecutionPresentation(snapshot: result.snapshot, phaseDetail: "")
+    #expect(done.drawingIsDone)
+    #expect(done.finalPhotoIsSaved)
+    #expect(done.detail == "Final photo saved · Review Run")
     let record = try #require(result.snapshot.terminal?.record)
     let retained = try #require(record.attemptEvidence)
     #expect(retained.progressFrames == attempt.progressFrames)

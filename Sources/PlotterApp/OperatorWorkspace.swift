@@ -2947,6 +2947,11 @@ final class PlotterApplicationRuntime:
       editingIsEnabled: editingIsEnabled && !drawingRunRequiresNewPlan,
       runProjection: run?.projection,
       runState: drawingStudioRunState(run),
+      execution: run.flatMap { snapshot in
+        guard snapshot.activeRunID != nil || snapshot.terminal != nil else { return nil }
+        return DrawingStudioExecutionPresentation(snapshot: snapshot,
+          phaseDetail: drawingRunPhaseDetail(snapshot.phase))
+      },
       coverageExperiment: draft.coverageExperiment,
       coverageAssessment: draft.coverageAssessment,
       coverageUnavailableReason: draft.coverageUnavailableReason,
@@ -3019,12 +3024,12 @@ final class PlotterApplicationRuntime:
     case .stagingIntent: "Saving the exact physical attempt before motion."
     case .stagingBaseline: "Saving original baseline images before ink dispatch."
     case .markingInkDispatchPossible: "Recording ink-dispatch intent."
-    case .positioningForPostObservation: "Returning Pen Up to the matched observation pose."
+    case .positioningForPostObservation: "Drawing done. Moving the raised pen clear for the final photo."
     case .normalizingPenUp: "Normalizing Pen Up through RunInterpreter."
     case .positioningForBaseline: "Moving to the exact observation pose."
     case .capturingBaseline: "Capturing the exact pre-drawing frame."
     case .executingPlan: "Executing the checkpointed drawing plan."
-    case .capturingPostFrame: "Capturing a newer exact post-drawing frame."
+    case .capturingPostFrame: "Drawing done. Capturing the final photo."
     case .observingInk: "Vision is comparing intended and observed ink."
     case .appendingEvidence: "Appending immutable run evidence before publication."
     case .terminal: "The run has settled."

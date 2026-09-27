@@ -22,6 +22,10 @@ struct DrawingResultCaptureTests {
     let record = try #require(result.snapshot.terminal?.record)
     let attempt = try #require(record.attemptEvidence)
     #expect(record.executionDisposition == .completed)
+    let status = DrawingStudioExecutionPresentation(snapshot: result.snapshot, phaseDetail: "")
+    #expect(status.drawingIsDone)
+    #expect(!status.finalPhotoIsSaved)
+    #expect(status.detail.contains("move-clear photo unavailable"))
     #expect(record.observation == .notAttempted(.frameEvidenceUnavailable))
     #expect(!result.snapshot.physicalEvidenceClaimed)
     #expect(attempt.terminalFrames.count == 1)
@@ -126,6 +130,9 @@ struct DrawingResultCaptureTests {
     await gate.release()
     let result = await run.value
     #expect(result.snapshot.terminal?.disposition == .cancelled)
+    let status = DrawingStudioExecutionPresentation(snapshot: result.snapshot, phaseDetail: "")
+    #expect(!status.drawingIsDone)
+    #expect(!status.finalPhotoIsSaved)
     #expect(await harness.camera.requests.count == 2)
     #expect(await harness.vision.requests.isEmpty)
     let events = await harness.events.values
@@ -143,6 +150,10 @@ struct DrawingResultCaptureTests {
     let failed = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
     let terminal = try #require(failed.snapshot.terminal)
     #expect(terminal.disposition == .publicationIncomplete)
+    let status = DrawingStudioExecutionPresentation(snapshot: failed.snapshot, phaseDetail: "")
+    #expect(status.drawingIsDone)
+    #expect(!status.finalPhotoIsSaved)
+    #expect(status.detail.contains("Evidence save failed"))
     let photo = try #require(terminal.record.attemptEvidence?.terminalFrames.first)
     #expect(photo.frame == ExactFrameProvenance(frame: fixture.completionFrame.frame))
     guard case .failed(_, let capability, _) = failed.snapshot.evidencePersistence else {

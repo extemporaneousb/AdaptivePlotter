@@ -838,6 +838,10 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(MachinePositionAcceptancePolicy.accepts(postPosition, target: pose.position))
     #expect(MachinePositionAcceptancePolicy.accepts(postPosition, target: baselinePosition))
     #expect(pose.position != fixture.finalPosition)
+    let events = await harness.events.values
+    let afterDrawing = Array(events[(try #require(events.firstIndex(of: "execute")))...])
+    #expect(afterDrawing.filter { ["execute", "capture-completion", "travel", "capture-post", "append"].contains($0) }
+      == ["execute", "capture-completion", "travel", "capture-post", "append"])
     #expect(try #require(attempt.missingCoverageReason).isEmpty == false)
     if let coverage = attempt.mediaCoverage {
       #expect(coverage.coveredPixelCount == 0)
