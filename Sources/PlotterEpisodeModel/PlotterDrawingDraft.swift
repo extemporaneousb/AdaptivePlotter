@@ -25,9 +25,15 @@ public struct PlotterDrawingDraftCameraPlacement: Hashable, Sendable {
   public let frame: PlotterExactFrameReference
   public let point: Point2<CameraPixelSpace>
 
-  public init(frame: PlotterExactFrameReference, point: Point2<CameraPixelSpace>) {
+  public let uniformScale: Double?
+  public let draftRevision: PlotterDrawingDraftRevision?
+
+  public init(frame: PlotterExactFrameReference, point: Point2<CameraPixelSpace>,
+    uniformScale: Double? = nil, draftRevision: PlotterDrawingDraftRevision? = nil) {
     self.frame = frame
     self.point = point
+    self.uniformScale = uniformScale
+    self.draftRevision = draftRevision
   }
 }
 

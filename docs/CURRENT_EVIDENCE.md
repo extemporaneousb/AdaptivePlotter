@@ -8,6 +8,63 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Movable artwork frame within the learned Boundary, 2026-09-26
+
+Ordinary Drawing now derives an artwork frame from the program's authored field
+extent and existing `DrawingPlacement`. **Edit Frame** retains the displayed video
+frame, exposes body movement and four corner handles, and stages a uniform resize
+about the fixed center. Apply submits the existing exact-frame Draft intent.
+Shared geometry constrains the complete rectangle to the learned machine Boundary;
+Fit can use that full Boundary. Center includes authored margins. The optional
+**Draw frame** composes this placed rectangle before artwork in the same plan.
+The fixed 10 mm calibration Drawing Border, Learning sequence, full-Boundary paper
+assertion, tip applicability and no-redraw authority remain unchanged.
+
+Low-reasoning research established the existing owners and border geometry before
+implementation. Sources/tests and canonical docs/evidence had separate delegated
+owners, and a separate read-only review accepted the final geometry/runtime and
+presentation-session changes. No new Learning step or paper-region workflow was
+introduced. Frame editing only retains already-displayed pixels; unique session,
+lifetime and context guards prevent cancelled or superseded asynchronous starts
+from restoring stale video. It neither captures a new camera frame nor changes
+authored placement before the existing projected Apply request. Pending or staged
+frame edits exclude Draw through existing application projection and ingress;
+cached starts are refused, and pending/active Draw excludes an edit start. This
+keeps a staged preview from executing an older applied placement and retains the
+existing Stop path. The final guard received separate read-only review, and its
+59-test sequential Draft/presentation/workbench selection passed, including the
+pending/staged/Apply/Cancel/active-run regression and exact-frame cancellation.
+
+The focused sequential selection passed 98 tests, covering rotated and sheared
+camera responses, all-corner containment, offset-preserving body drag, each resize
+handle, whole-Boundary Fit, asymmetric authored margins, frame-first composition,
+strict invalid-placement refusal, exact-frame Apply from unsealed advancing video,
+unchanged paper coverage and existing execution/no-redraw behavior. A subsequent
+pending-start cancellation regression passed independently. All 10 retained
+Learning/Boundary/drawing journeys passed. The production overlay rendered offscreen
+with four correctly projected handles and a separated caption; that dedicated test
+passed and its PNG was visually inspected. Configured validation is recorded in
+the task's machine receipts on the final source tree.
+
+The larger frame exposed two existing observation limits in full-suite fixtures.
+Artwork or its optional inked frame fitted to the complete machine Boundary can
+execute successfully while remaining outside retained tip applicability and
+producing a non-attributable result. The full-resolution dense-crosshatch fixture at full fit detected 52,522
+pixels across 191 segments and reached the unchanged 5,000,000-evaluation observer
+budget, retaining `association-budget-exceeded` rather than attributable ink.
+These limits do not change the machine Boundary or add Learning. Calibration
+applicability and observer budgets are preserved; the raster fixture retains its
+positive observation workload at an explicit smaller Size. A 12-test follow-up
+passed the full-fit preview, two-sheet execution/non-attribution, unchanged-budget
+rejection and smaller dense-raster positive cases.
+
+A stable-local signed debug bundle was built and its signature/bundle contract
+validated without launch. The running user app, camera, controller and physical
+session were preserved. Gesture-helper, runtime-owner and offscreen-overlay checks
+are software evidence; native pointer interaction against live video, physical
+placement accuracy, pen travel and resulting ink were not exercised. Existing
+outside-tip-applicability limitations remain explicit even for Boundary-valid plans.
+
 ## Drawing progress and completion presentation, 2026-09-26
 
 Drawing publishes every settled stroke independently of the quarter-run photo

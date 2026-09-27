@@ -180,8 +180,7 @@ struct PlotterDrawingRunEpisodeTests {
         penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue)))
     let built = PlotterDrawingPlanningAdapter.buildDraft(program: program, machineCenter: nil,
       uniformScale: 0.02, rotationDegrees: 0, drawableRegion: fixture.drawableRegion,
-      registration: fixture.registration, drawBorder: true,
-      drawingBorderBounds: fixture.registration.applicabilityRectangle)
+      registration: fixture.registration, drawBorder: true)
     let borderFirstProgram = try #require(built.program)
     let borderFirstPlan = try #require(built.plan)
     let reordered = Array(borderFirstProgram.strokes.dropFirst()) + [borderFirstProgram.strokes[0]]
@@ -278,7 +277,7 @@ struct PlotterDrawingRunEpisodeTests {
         y: (fixture.registration.applicabilityRectangle.minY + fixture.registration.applicabilityRectangle.maxY)/2),
       uniformScale: 0.02, rotationDegrees: 0,
       drawableRegion: fixture.drawableRegion, registration: fixture.registration,
-      drawBorder: drawBorder, drawingBorderBounds: fixture.registration.applicabilityRectangle)
+      drawBorder: drawBorder)
     let plan = PlotterDrawingRunPlan(
       draftRevision: PlotterDrawingDraftRevision(rawValue: 2), program: try #require(built.program),
       placementID: UUID(), plan: try #require(built.plan), evidenceRole: .ordinaryDrawing,
@@ -896,8 +895,7 @@ struct PlotterDrawingRunEpisodeTests {
     let program = fixture.plan.program
     let built = PlotterDrawingPlanningAdapter.buildDraft(program: program, machineCenter: nil,
       uniformScale: 0.02, rotationDegrees: 0, drawableRegion: fixture.drawableRegion,
-      registration: fixture.registration, drawBorder: true,
-      drawingBorderBounds: fixture.registration.applicabilityRectangle)
+      registration: fixture.registration, drawBorder: true)
     let plan = PlotterDrawingRunPlan(draftRevision: .init(rawValue: 2),
       program: try #require(built.program), placementID: UUID(), plan: try #require(built.plan),
       evidenceRole: .ordinaryDrawing, paperCoverage: fixture.plan.paperCoverage,

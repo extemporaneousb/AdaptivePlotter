@@ -1535,17 +1535,23 @@ and sends no motion. Fit changes size and is inappropriate for an unchanged
 remain authoritative. Physical millimetres require independently accepted metric
 evidence; these deterministic targets prepare that measurement.
 
-Ordinary drawings expose **Draw border**, defaulting off for each new drawing.
+The accepted Drawing Boundary is the learned machine envelope. The movable
+artwork frame is the authored `DrawingProgram.fieldExtent` transformed by the
+current `DrawingPlacement`; it is composition geometry inside that envelope.
+Moving or resizing it does not replace the Boundary, create a paper region, or
+change accepted Learning. The current Learning sequence and fixed calibration
+Drawing Border, exactly 10 mm inside the Boundary, are unchanged.
+
+Ordinary drawings expose **Draw frame**, defaulting off for each new drawing.
 Edits retain the current drawing's explicit choice; **New Drawing** or a new-sheet
-plan handoff resets it off. This draft choice controls physical ink only: accepted Learning and the displayed calibrated
-outline remain available regardless. The border is the existing calibrated
-Drawing Border (10 mm inside the accepted Boundary for current calibration),
-not a repeat of Exercise 2.1. When selected, it precedes the artwork in one immutable
-`DrawingProgram` and plan, so an interrupted portrait can still have its frame.
-Previously retained plans keep their original order. Its geometry participates in preview, identity,
-containment, checkpoints/progress, cancellation, possible-ink handling, and the
-ordinary drawing's evidence. Initial Learning validation keeps its original
-exercise and evidence meaning. A replacement sheet needs new coverage, not
+plan handoff resets it off. The choice adds the current artwork rectangle before
+the artwork in one immutable `DrawingProgram` and plan. The optional ink frame
+moves, resizes and rotates with the artwork through the same placement. It
+participates in preview, identity, containment, checkpoints/progress, cancellation,
+possible-ink handling, and the ordinary drawing's evidence. Previously retained
+plans keep their original geometry and order. Initial Learning validation keeps
+its original exercise and evidence meaning; neither composition nor the optional
+ink frame adds a Learning step. A replacement sheet needs new coverage, not
 another Learning border exercise.
 
 
@@ -1640,13 +1646,27 @@ visible, and **Show Drawing** / **Hide Drawing** is available in Video Settings.
 Hiding clears the preview and any staged drag, retaining the program, placement,
 paper assertion, Learning and ink protection. It works while disconnected and
 requires no paper replacement. Startup begins with the authoring target hidden.
-Video drags pan by default; **Move Drawing** explicitly stages a placement
-until the operator chooses **Pan Video** or starts exact point selection. Panning
-retains fractional camera-pixel movement across pointer events and clamps at the
-frame edge without accumulating hidden excess movement.
+Video drags pan by default. **Edit Frame** retains the displayed exact video
+frame, labels it **Frame editing · frozen video**, and exposes the artwork
+rectangle with four resize handles. Dragging its
+body preserves the grab offset; dragging a corner resizes about its fixed center
+with authored aspect ratio and rotation preserved. **Apply Drawing Placement**
+commits the staged placement through the Draft owner; **Cancel Frame Edit** discards it.
+Draw remains unavailable while a frame edit is pending or staged, including a
+cached Draw request, so the plotter cannot execute the prior placement beneath a
+staged preview. A pending or active Draw prevents a new frame edit; Stop remains
+available through its existing owner. The frame remains inside the accepted machine Boundary. Size and rotation edits
+constrain or reposition the frame only as needed for containment. **Center
+Drawing** centers the authored frame, including intentional margins. Cancelling
+the edit, hiding the drawing or starting exact point selection retires the
+staged edit. Panning retains fractional camera-pixel movement across pointer
+events and clamps at the video-frame edge without accumulating hidden excess.
 Exact-frame placement and paper assertion require the complete projected draft
-and external-fact identity, including the displayed frame. Experiment selection
-also binds its relevant Learning, geometry, and evidence facts. The sheet control
+and external-fact identity, including the displayed frame. Starting a frame edit
+materializes and retains that frame explicitly; advancing passive video does not
+need to hash every frame. A changed calibration, Boundary, program or other
+bound context refuses stale placement. Experiment selection also binds its
+relevant Learning, geometry, and evidence facts. The sheet control
 prepares that exact reference when the operator clicks, because ambient analysis
 does not refresh the cached controls. A context change during preparation still
 refuses confirmation. Creative authoring, previews, ratings, galleries and training
@@ -1821,7 +1841,7 @@ A successful handoff saves the exact candidate and reveals shared Drawing contro
 Studio → Send to Drawing → placement/material/paper setup → Draw. Sending invokes
 no motion. Later Studio edits do not mutate the placed program until another
 explicit handoff. The existing Drawing panel keeps the exact admitted plan visible above its
-scrolling controls in its region frame, including rotation, clipping and optional border. While a run
+scrolling controls in its region frame, including rotation and the optional artwork frame. While a run
 or terminal is retained it uses that sealed run plan; it never substitutes a later
 Studio candidate. Without an admitted plan, an authored preview is labeled reference.
 
@@ -1850,11 +1870,12 @@ the sheet clear or erase material evidence. Deleted review identities cannot be
 resurrected by a delayed archive load. Candidate/source deletion continues to use
 the qualified portrait archive's existing tombstones.
 
-Fit retains the authored rotation and selects a valid uniform scale and centre.
-The same fitting calculation supplies scale limits; rotating ordinary artwork
-retains the current scale and clips at the accepted region. Center moves the
-transformed, un-clipped ink bounds midpoint to the region midpoint without changing
-scale or rotation; it does not center empty margins of the authored field. Planned
+Fit retains the authored rotation and selects a valid uniform scale and center.
+The same frame geometry supplies scale limits; rotating ordinary artwork retains
+scale and center where possible and otherwise constrains them to keep the complete
+frame inside the accepted region. Center moves the authored field rectangle's
+midpoint to the region midpoint without changing scale or rotation, including
+intentional margins. Planned
 geometry remains visible across advancing compatible frames and changes with
 program, placement, registration, Drawing Boundary, or optics. Measured ink and
 exact-frame point selections keep their exact identity requirements. The displayed
@@ -1898,13 +1919,15 @@ controller calibration, and does not update the mapping from later drawing grade
 Camera foreshortening is accepted as part of this camera-relative drawing objective;
 physical ratios, orthogonality, and millimeters remain independently unverified.
 The Size multiplier preserves nominal command area; Fit uses the corrected rotated
-field bounds. Explicit metric square/rectangle targets, coverage experiments and
+field bounds and may fill the accepted Boundary without the former hidden 90%
+margin. Draft placement constrains all four artwork-frame corners to that same
+Boundary. Explicit metric square/rectangle targets, coverage experiments and
 Guided Learning marks retain their authored controller-distance geometry. Camera
-square/circle targets exercise the same compensated placement as portraits. `DrawingPlanner` remains the single planner. Ordinary artwork explicitly opts
-into clipping at the effective `DrawableMachineRegion`; exits and re-entries split
-into deterministic separate strokes and checkpoints, with no pen-down bridge.
-Fully excluded artwork produces no runnable plan. Strict containment remains the
-default for calibration, explicit metric targets and coverage experiments. The resulting
+square/circle targets exercise the same compensated placement as portraits.
+`DrawingPlanner` remains the single planner. The ordinary Draft route plans with
+strict containment after frame placement, so invalid out-of-Boundary geometry
+produces no runnable plan. Calibration, explicit metric targets and coverage
+experiments retain strict containment. The resulting
 `ExecutionPlanRevision` is content-addressed and binds program, placement,
 region, calibration/model provenance, ordered strokes, and one checkpoint per
 logical stroke. The video preview projects that exact plan through the current
@@ -2084,7 +2107,7 @@ Boundary envelope, inset frame, four centers and all four circle paths. They are
 planned geometry with a separate calibration-guide semantic identity and visual
 grammar, separate from artwork intended paths, measured ink and exact-frame
 selections. Hide Drawing hides artwork only; compatible calibration guides remain.
-A guide never supplies an ordinary border/artwork preview or changes the exact
+A guide never supplies an ordinary frame/artwork preview or changes the exact
 frame of its prediction. Compatible
 tip registration is used when available; projection outside the circle centers
 remains labeled extrapolation. Before tip acceptance, the machine-camera

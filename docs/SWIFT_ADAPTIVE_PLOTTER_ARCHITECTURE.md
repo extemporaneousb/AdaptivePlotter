@@ -1420,10 +1420,11 @@ under revision `acceptedBoundaryNumericalEpsilonV1`; its 1e-9 mm epsilon absorbs
 floating-point residue without admitting physically meaningful geometry beyond
 the accepted Boundary. `MachinePositionAcceptancePolicy` separately owns
 revision `controllerQuantizedEuclideanV2`, the Euclidean residual metric, and
-the 1 mm requested-pose settlement tolerance. Strict planning refuses geometry outside its own epsilon. Ordinary Draft
-artwork opts into `DrawingBoundaryPolicy.clipToDrawableRegion` in the same planner;
-segment clipping emits separate deterministic fragments/checkpoints at exits and
-re-entries. Metric targets, Learning marks and coverage retain strict planning.
+the 1 mm requested-pose settlement tolerance. Strict planning refuses geometry
+outside its own epsilon. The ordinary Draft route uses
+`DrawingBoundaryPolicy.rejectOutside` after complete-frame containment. The lower
+planner retains its explicit clipping policy for callers that request it; metric
+targets, Learning marks and coverage retain strict planning.
 `RunInterpreter` owns a whole plan as one `RunOperation`, with
 subordinate Pen-Up travel, pen actuation, finite drawing segments, Stop, and one
 checkpoint per planned stroke. `DrawingWireSchedule` derives distinct rounded
@@ -1857,7 +1858,7 @@ Exercise 1.4 graph. Stage 2 Drawing Border plans and local baselines consume the
 tip revision; later frame/post-frame/ink/residual nodes retain that dependency
 transitively.
 
-### Paper replacement and ordinary border ownership
+### Paper replacement and ordinary artwork-frame ownership
 
 `PlotterArtifactResetRuntime` preserves durable-before-memory paper publication.
 `PlotterApplicationRuntime.applyInMemoryPaperReplacement` separates per-sheet
@@ -1883,20 +1884,21 @@ Late analysis results cannot replace a newer selected exact frame; the current
 Drawing Run facts use the coherent frame chosen by Draft, preserving the same
 frame through coverage admission and downstream readiness.
 
-The application's existing `drawingBorderBounds(for:acceptedBoundary:)` geometry
-owner supplies `drawingBorderBounds` to `PlotterDrawingDraftExternalFacts`.
-The draft's `.setDrawBorder(Bool)` choice and that geometry participate in the
-revision/derivation identity. `PlotterDrawingPlanningAdapter` maps the border
-back through the existing placement and composes it before the original artwork
-in one `DrawingProgram`, then submits it to `DrawingPlanner`. Original artwork
-points/IDs remain available for candidate identity even when final paths clip.
-The no-redraw geometry comparison matches paths independent of order, so changing
-border order cannot authorize the same ink again. The resulting single plan
-feeds preview, `PlotterDrawingRunRuntime`, checkpoints, Stop, possible ink, and
-ordinary evidence. Original artwork remains the editable source for Fit/Center;
-the Learning border owner is unchanged. Every canonical `.beginNewPlan`
-handoff resets **Draw border** off, including a successful new-sheet handoff;
-other edits of the same draft preserve its explicit choice.
+The ordinary artwork frame derives from the authored `DrawingProgram.fieldExtent`
+and the existing `DrawingPlacement`. It does not own a second drawable region or
+replace accepted machine-space geometry. The draft's `.setDrawBorder(Bool)`
+choice is presented as **Draw frame** and participates in revision/derivation
+identity. `PlotterDrawingPlanningAdapter` composes the authored field rectangle
+before the original artwork in one `DrawingProgram`, then submits it through the
+same placement to `DrawingPlanner`. Original artwork points/IDs remain available
+for candidate identity. The no-redraw geometry comparison matches paths independent
+of order, so changing frame order cannot authorize the same ink again. The
+resulting single plan feeds preview, `PlotterDrawingRunRuntime`, checkpoints,
+Stop, possible ink, and ordinary evidence. Original artwork remains the editable
+source for Fit/Center. The Learning Border owner and its fixed 10 mm inset are
+unchanged. Every canonical `.beginNewPlan` handoff resets **Draw frame** off,
+including a successful new-sheet handoff; other edits of the same draft preserve
+its explicit choice.
 
 `MachineController` retains each status report with receipt timestamp and sequence
 in `MachineSnapshot.latestStatusSample`. `MotionReadoutModel` reads the existing
@@ -2248,16 +2250,37 @@ the canvas's staged drag, leaves execution/paper/evidence authority unchanged,
 and cannot reveal an archive overlay behind the target. Startup retains the
 Draft owner's hidden default.
 
+**Edit Frame** prepares a retained exact displayed frame through application
+composition before staging a placement. Begin/end callbacks only pin and release
+displayed pixels; they do not author a draft, plan, Learning or calibration change,
+acquire a new camera frame, or establish another runtime authority. Session identity,
+lifetime and bound-context checks prevent a delayed start from restoring a cancelled
+or invalid edit. The canvas renders the authored field rectangle through the current
+`DrawingPlacement` and tip registration. Metric targets retain controller-relative
+placement with no camera correction. Body drag retains its grab offset; corner
+drag changes uniform scale about the fixed center with rotation preserved. The
+same pure `DrawingFrameGeometry` four-corner calculation constrains staged previews
+and runtime placement, including Size/Rotation edits. Only the existing projected
+Apply request authors placement and creates the ordinary plan; **Cancel Frame
+Edit** retires presentation staging. The retained exact reference permits an edit
+begun on an unsealed live frame without weakening stale-context rejection or
+materializing every passive frame. Existing application projection and ingress
+exclude Draw while this presentation session is pending or staged, including a
+previously cached start request. A bounded pending-start flag closes the await
+window before the Run owner publishes active state and prevents a simultaneous
+frame-edit start. A missing start result is a refusal, never accepted success;
+Stop retains priority. Learning, Boundary, paper and execution authority remain
+with their existing owners.
+
 `PlotterDrawingPlanningAdapter` is the sole upper-layer route into the retained
 lower pure `DrawingPlanner`. The draft route produces deterministic catalog,
 program, placement, and content-addressed `ExecutionPlanRevision` identity.
 Its package-only `planRetainedDrawingBorder` route lets the explicitly retained
 EA-10E Border workflow reuse the same pure planner without granting draft
 authority or moving Border sequencing, motion, evidence, or outcome semantics.
-Ordinary artwork explicitly opts into clipping through that same planner. A path
-that exits and re-enters the effective region becomes separate strokes/checkpoints;
-fully excluded artwork has no runnable plan. Retained Border, metric targets,
-Learning marks and coverage experiments keep strict containment by default.
+Ordinary artwork uses strict planning after the Draft owner constrains its entire
+artwork frame. Out-of-region paths refuse planning. Retained Border, metric
+targets, Learning marks and coverage experiments keep their strict containment.
 
 The runtime derives the drawable region from the accepted Drawing Boundary and
 projects it through a typed diagnostic affine value, including the area between
@@ -2275,14 +2298,19 @@ Predicted preview binds compatible source, camera configuration, pixel layout,
 program content hash and plan revision. It remains visible as frame identity
 advances; measured overlays and operator clicks retain exact-frame requirements.
 `.fitInDrawableRegion` retains the explicitly authored rotation, chooses one
-Size multiplier within the drawable region, and centers the result. Fit never
-chooses a different orientation. The same camera-corrected, rotated field bounds
-supply the scale slider's bounds. A changed accepted registration rebuilds the
+Size multiplier within the full accepted drawable region, and centers the result;
+it has no implicit 90% margin. Fit never chooses a different orientation. The
+same camera-corrected, rotated field extent supplies the artwork frame and scale
+slider's bounds. Draft placement containment checks the frame's four machine-space
+corners against the accepted Boundary before the planner's strict per-stroke
+containment check. The artwork frame is not a `DrawableMachineRegion` and
+moving it does not invalidate unchanged full-Boundary paper coverage or mutate
+Learning artifacts. A changed accepted registration rebuilds the
 placement through the existing derivation key; invalid response geometry refuses
 planning rather than reverting ordinary artwork to equal controller travel.
 Registration/configuration mismatch is unavailable. Ordinary preview uses the
-admitted clipped plan; an empty result has no planned preview. Strict targets
-still refuse outside-region geometry; outside-applicability projection is diagnostic-only.
+exact admitted plan; unavailable planning has no planned preview. All Draft
+targets refuse outside-region geometry; outside-applicability projection is diagnostic-only.
 None is camera/ink or physical evidence.
 
 `PaperCoverageObservation` is a separate paper-instance assertion.

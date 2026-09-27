@@ -30,9 +30,9 @@ enum DrawingStudioPreview: Hashable, Sendable {
   var detail: String {
     switch self {
     case .planned(_, true):
-      "The exact drawing retained by this run, including placement, clipping and any selected border. Later Studio edits do not replace it. The frame is the accepted drawing region. This preview is not evidence that ink was deposited."
+      "The exact drawing retained by this run, including placement and any selected drawing frame. Later Studio edits do not replace it. The outer outline is the learned machine Boundary. This preview is not evidence that ink was deposited."
     case .planned(_, false):
-      "The current planned drawing, including placement, clipping and any selected border. The frame is the accepted drawing region. Draw uses this plan after its prerequisites are satisfied. This preview does not establish physical dimensions or pen contact."
+      "The current planned drawing, including placement and any selected drawing frame. The outer outline is the learned machine Boundary. Draw uses this plan after its prerequisites are satisfied. This preview does not establish physical dimensions or pen contact."
     case .reference:
       "The authored drawing before placement is available. This reference is fitted for viewing and does not show an admitted drawing size or location."
     }

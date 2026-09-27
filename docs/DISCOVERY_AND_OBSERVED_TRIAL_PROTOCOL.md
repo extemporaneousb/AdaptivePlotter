@@ -464,7 +464,7 @@ For an unchanged physical setup:
    translation. Learning remains complete. Unavailable, ambiguous, stale or
    incompatible evidence leaves drawing blocked with the specific recovery
    reason; cancellation or persistence failure publishes no partial authority.
-7. Confirm coverage for the current sheet and exact frame, choose **Draw border**
+7. Confirm coverage for the current sheet and exact frame, choose **Draw frame**
    if wanted, and Draw. Do not repeat Learning merely to recover a compatible
    carriage translation. A verified uninterrupted session does not require this
    recovery again for ordinary known motion or a same-plane replacement sheet.
@@ -523,10 +523,11 @@ After a new sheet on the explicitly unchanged contact plane:
    passive video does no hashing. A late older analysis cannot substitute another
    frame. Draft and Run retain a coherent selected frame. Neither assertion
    measures paper edges or requires existing ink.
-4. Choose **Draw border** if this ordinary drawing should ink the calibrated
-   border. Each new drawing defaults off; edits of that drawing retain the
-   explicit choice. It shares the drawing's plan/Stop/evidence and does
-   not repeat the Learning exercise. Inspect the target and click **Draw**.
+4. Choose **Draw frame** if this ordinary drawing should ink its placed artwork
+   rectangle. Each new drawing defaults off; edits of that drawing retain the
+   explicit choice. The frame follows artwork placement and shares the drawing's
+   plan/Stop/evidence. The fixed calibration Drawing Border and Learning sequence
+   are unchanged. Inspect the target and click **Draw**.
 
 If accepted data survives but active calibration was lost by an earlier reset,
 use **Use Saved Learning** to reapply the compatible package through current
@@ -621,15 +622,23 @@ separate facts; completion does not assert general adaptive-drawing readiness.
    physical sheet over it and choose **Sheet Covers Target**. The assertion
    cites the current paper instance, contact plane, source, exact frame, and
    camera configuration. It does not change calibration.
-3. Review the retained portrait target. **Fit to Drawing Area** recomputes uniform
-   scale while preserving rotation. **Center Drawing** centers transformed ink
-   bounds without changing scale or rotation. The plan remains deterministic.
-   Active Learning separately supplies sealed coverage-experiment programs.
-4. Click the video to place its center, then set uniform scale and rotation.
-   The workspace creates a new immutable placement and content-addressed plan on
-   each change. Ordinary artwork is clipped at the accepted Drawing Boundary;
-   exits and re-entries become separate strokes without bridges. Fully excluded
-   artwork has no runnable plan. Metric/calibration targets retain strict containment.
+3. Review the retained portrait target and its artwork frame. **Fit to Drawing
+   Area** recomputes uniform scale while preserving rotation and can use the full
+   learned Boundary. **Center Drawing** centers the placed frame without changing
+   scale or rotation. The frame derives from the authored field extent, including
+   intentional margins. The plan remains deterministic. Active Learning separately
+   supplies sealed coverage-experiment programs.
+4. Choose **Edit Frame** on the video. The displayed exact frame is retained for
+   this edit with **Frame editing · frozen video** visible. Drag the artwork
+   rectangle to move it; drag any corner handle to
+   resize uniformly about its center while preserving rotation. The complete
+   rectangle stays inside the learned Drawing Boundary. **Apply Drawing
+   Placement** commits the staged placement; **Cancel Frame Edit** discards it. Size and
+   Rotation controls use the same containment. Each applied edit creates an
+   immutable placement and content-addressed plan without moving hardware,
+   changing the Boundary or repeating Learning or unchanged sheet coverage.
+   **Draw frame** optionally inks this placed rectangle before the artwork in
+   that same plan. The fixed Learning Drawing Border remains unchanged.
 5. Review the exact plan in Drawing and on advancing compatible plotter frames.
    The Drawing image remains visible above scrolling controls. Ordinary portrait
    drawing has no pre-run learning-role selector. Active Learning assigns its

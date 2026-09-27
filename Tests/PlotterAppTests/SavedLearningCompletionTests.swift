@@ -155,15 +155,30 @@ extension SavedLearningCompletionTests {
       }
       #expect(await run.value == .accepted(requestID: start.id))
       let terminal = try #require(app.drawingRunSnapshot?.terminal)
-      #expect(terminal.disposition == .succeeded)
+      // Full-Boundary Fit reaches beyond this saved tip calibration's measured
+      // applicability. Completed controller commands cannot supply ink proof.
+      #expect(terminal.disposition == .nonAttributable)
+      #expect(terminal.record.evidenceDisposition == .nonAttributable)
+      #expect(terminal.record.observation == .notAttempted(.projectionOutsideTipApplicability))
+      #expect(terminal.record.executionDisposition == .completed)
+      #expect(app.drawingRunSnapshot?.physicalEvidenceClaimed == false)
       #expect(terminal.record.role == .ordinaryDrawing)
       let executedPlan = try #require(terminal.record.plan.executionPlan)
       #expect(executedPlan.strokes.count == program.strokes.count + (border ? 1 : 0))
+      let frontiers = terminal.record.executionFrontiers
+      #expect(frontiers.plannedStrokeCount == UInt32(executedPlan.strokes.count))
+      #expect(frontiers.commandedStrokeCount == frontiers.plannedStrokeCount)
+      #expect(frontiers.controllerCompletedStrokeCount == frontiers.plannedStrokeCount)
+      #expect(frontiers.inkVerifiedStrokeCount == 0)
       #expect(terminal.record.program.source?.sourceIdentifier.contains("|draw-border-v1|") == border)
       if border {
-        let envelope = try SparseTipBatchMarkPlan.boundaryEnvelope(for: originalBoundary)
-        let bounds = try SparseTipBatchMarkPlan.drawingBorderBounds(for: envelope)
-        let expected = try DrawingBorderPlan(bounds: bounds).pathPositions.map(\.point)
+        let extent = program.fieldExtent
+        let fieldCorners: [Point2<FieldSpace>] = [
+          try Point2(x: 0, y: 0), try Point2(x: extent.width, y: 0),
+          try Point2(x: extent.width, y: extent.height), try Point2(x: 0, y: extent.height),
+          try Point2(x: 0, y: 0),
+        ]
+        let expected = try fieldCorners.map { try executedPlan.placement.applying(to: $0) }
         let path = try #require(executedPlan.strokes.first).path.points
         #expect(path.count == expected.count)
         #expect(path.first == path.last)
@@ -171,6 +186,7 @@ extension SavedLearningCompletionTests {
           #expect(abs(actual.x - corner.x) <= DrawingRegionContainmentPolicy.numericalEpsilonMM)
           #expect(abs(actual.y - corner.y) <= DrawingRegionContainmentPolicy.numericalEpsilonMM)
         }
+        #expect(executedPlan.strokes.dropFirst().map(\.logicalStrokeID) == program.strokes.map(\.id))
       }
       records.append(terminal.record)
       if index == 0 {

@@ -1,4 +1,5 @@
 import Foundation
+import PlotterEpisodeRuntime
 import PlotterModel
 import PlotterRuntime
 import SwiftUI
@@ -23,7 +24,7 @@ struct ActionSurfaceOverlayContent: Equatable, Sendable {
   let clickMarkers: [Point2<CameraPixelSpace>]
   let simulatedAnnotations: [SimulatedLearningAnnotation]
 
-  init(presentation: ActionSurfacePresentation) {
+  init(presentation: ActionSurfacePresentation, stagedFrame: PlotterDrawingDraftFrame? = nil) {
     frameContext = presentation.displayedFrame.map {
       FrameContext(source: $0.source, configuration: $0.frame.cameraConfigurationID,
         width: $0.frame.width, height: $0.frame.height, pixelFormat: $0.frame.pixelFormat)
@@ -35,7 +36,21 @@ struct ActionSurfaceOverlayContent: Equatable, Sendable {
     } else {
       allowsLiveGeometryTolerance = false
     }
-    targetPreview = presentation.drawingStudioCanvas?.targetPreview(for: presentation.displayedFrame)
+    let preview = presentation.drawingStudioCanvas?.targetPreview(for: presentation.displayedFrame)
+    if let stagedFrame, let original = presentation.drawingStudioCanvas?.frame, let preview,
+      let center = try? original.cameraCenter, let nextCenter = try? stagedFrame.cameraCenter {
+      let ratio = stagedFrame.geometry.placement.uniformScale / original.geometry.placement.uniformScale
+      let strokes = try? preview.strokes.map { stroke in
+        try Polyline<CameraPixelSpace>(points: stroke.points.map {
+          try Point2(x: nextCenter.x + ($0.x - center.x) * ratio,
+            y: nextCenter.y + ($0.y - center.y) * ratio)
+        })
+      }
+      targetPreview = strokes.map { DrawingStudioTargetPreview(provenance: preview.provenance,
+        strokes: $0, bounds: nil, programContentHash: preview.programContentHash,
+        executionPlanContentHash: nil, status: preview.status,
+        showsStrokeBounds: false) }
+    } else { targetPreview = preview }
     overlays = presentation.renderedOverlays
     analyzedOverlayFrame = presentation.analyzedOverlayFrame
     tipReview = presentation.tipPresentation.reviewGeometry
@@ -67,7 +82,7 @@ struct ActionSurfaceOverlayContent: Equatable, Sendable {
     switch (lhs, rhs) {
     case (nil, nil): true
     case (.some(let lhs), .some(let rhs)):
-      lhs.strokes == rhs.strokes && lhs.bounds == rhs.bounds
+      lhs.strokes == rhs.strokes && lhs.bounds == rhs.bounds && lhs.showsStrokeBounds == rhs.showsStrokeBounds
         && (lhs.status == .ready) == (rhs.status == .ready)
     default: false
     }

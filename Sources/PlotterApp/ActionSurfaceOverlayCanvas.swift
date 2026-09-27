@@ -60,7 +60,7 @@ struct ActionSurfaceOverlayCanvas: View, Equatable {
       }
       context.stroke(path, with: .color(color), lineWidth: 2)
     }
-    if let bounds = target.bounds,
+    if target.showsStrokeBounds, let bounds = target.bounds,
       let minimum = try? Point2<CameraPixelSpace>(x: bounds.minX, y: bounds.minY),
       let maximum = try? Point2<CameraPixelSpace>(x: bounds.maxX, y: bounds.maxY)
     {

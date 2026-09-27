@@ -45,17 +45,16 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(!changedPaper.paperCoverageIsCurrent)
   }
 
-  @Test("clipped bordered portraits preserve candidate source identity")
-  func clippedBorderRetainsOriginalArtwork() async throws {
+  @Test("framed portraits preserve candidate source identity")
+  func framedDrawingRetainsOriginalArtwork() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let style = try StrokeStyle(nominalLineWidth: 0.4,
       penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue))
     let program = try DrawingProgramCatalog.program(for: .square, style: style)
-    let bounds = fixture.drawableRegion.effectiveBounds
     let built = PlotterDrawingPlanningAdapter.buildDraft(program: program,
-      machineCenter: try Point2(x: bounds.minX, y: (bounds.minY + bounds.maxY) / 2),
+      machineCenter: nil,
       uniformScale: 0.02, rotationDegrees: 30, drawableRegion: fixture.drawableRegion,
-      registration: fixture.registration, drawBorder: true, drawingBorderBounds: bounds)
+      registration: fixture.registration, drawBorder: true)
     let execution = try #require(built.program)
     let plan = try #require(built.plan)
     let reference = DrawingRunCandidateReference(candidateID: program.contentHash.description,
@@ -66,7 +65,8 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(plan.sourceProgramContentHash == execution.contentHash)
     #expect(plan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
     #expect(plan.strokes.first?.path.points.count == 5)
-    #expect(plan.strokes.dropFirst().contains { $0.logicalStrokeID != program.strokes[0].id })
+    #expect(plan.strokes.dropFirst().map(\.logicalStrokeID) == program.strokes.map(\.id))
+    #expect(execution.fieldExtent == program.fieldExtent)
   }
 
   @Test("metric and coverage targets retain strict boundary rejection")
@@ -88,8 +88,8 @@ struct PlotterDrawingDraftEpisodeTests {
     }
   }
 
-  @Test("Center uses un-clipped ink bounds and repeats without position drift", arguments: [false, true])
-  func centerInkBounds(drawBorder: Bool) async throws {
+  @Test("Center uses the authored frame despite asymmetric ink and repeats without drift", arguments: [false, true])
+  func centerAuthoredFrame(drawBorder: Bool) async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let runtime = PlotterDrawingDraftRuntime()
     let facts = fixture.facts()
@@ -105,7 +105,7 @@ struct PlotterDrawingDraftEpisodeTests {
       snapshot = try applied(await runtime.submit(.init(projection: snapshot.projection, intent: intent), facts: facts))
     }
     let plan = try #require(snapshot.artworkPlan)
-    let points = try program.strokes.flatMap { try plan.placement.applying(to: $0.path).points }
+    let points = try DrawingFrameGeometry(extent: program.fieldExtent, placement: plan.placement).machineCorners
     let bounds = fixture.drawableRegion.effectiveBounds
     #expect(abs(points.map(\.x).min()! + points.map(\.x).max()! - bounds.minX - bounds.maxX) < 1e-9)
     #expect(abs(points.map(\.y).min()! + points.map(\.y).max()! - bounds.minY - bounds.maxY) < 1e-9)
@@ -117,8 +117,8 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(repeated.rotationDegrees == 47)
   }
 
-  @Test("rotation retains authored size and exposes a drawable cropped plan at every angle")
-  func rotationRetainsSizeWithClipping() async throws {
+  @Test("rotation preserves the whole authored frame inside Boundary at every angle")
+  func rotationContainsFrame() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let runtime = PlotterDrawingDraftRuntime()
     let facts = fixture.facts()
@@ -130,8 +130,9 @@ struct PlotterDrawingDraftEpisodeTests {
       snapshot = try applied(await runtime.submit(.init(projection: snapshot.projection,
         intent: .setRotationDegrees(degrees)), facts: facts))
       let plan = try #require(snapshot.plan)
-      #expect(snapshot.uniformScale == scale)
-      #expect(snapshot.allowedScale.contains(scale))
+      #expect(snapshot.uniformScale <= scale)
+      #expect(snapshot.allowedScale.contains(snapshot.uniformScale))
+      #expect(try #require(snapshot.frame).geometry.isContained(in: fixture.drawableRegion))
       #expect(plan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
       #expect(snapshot.planningRefusal == nil)
     }
@@ -166,7 +167,11 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(border.semanticRole == .drawing)
     let fitted = try applied(await runtime.submit(.init(projection: bordered.projection,
       intent: .fitInDrawableRegion), facts: facts))
-    #expect(zip(fitted.plan!.strokes.first!.path.points, border.path.points).allSatisfy { $0.distance(to: $1) < 1e-9 })
+    #expect(fitted.plan!.strokes.first!.path != border.path)
+    let fittedCorners = try #require(fitted.frame).geometry.machineCorners
+    #expect(zip(fitted.plan!.strokes.first!.path.points, fittedCorners + [fittedCorners[0]])
+      .allSatisfy { $0.distance(to: $1) < 1e-9 })
+    #expect(fitted.projection.externalFacts.drawingBorderBounds == opened.projection.externalFacts.drawingBorderBounds)
     let restored = try applied(await runtime.submit(.init(projection: fitted.projection,
       intent: .setDrawBorder(false)), facts: facts))
     #expect(restored.program == opened.program)
@@ -207,18 +212,17 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(result.snapshot.plan?.revisionID == opened.plan?.revisionID)
   }
 
-  @Test("a border outside the contained region cannot bypass planning")
-  func optionalBorderContainmentFailure() async throws {
+  @Test("a frame outside Boundary cannot bypass planning even when its ink is sparse")
+  func frameContainmentFailure() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let program = try DrawingProgramCatalog.program(for: .circle,
       style: StrokeStyle(nominalLineWidth: 0.4,
         penProfileID: PenProfileID(fixture.registration.applicability.toolAssembly.rawValue)))
     let bounds = fixture.drawableRegion.effectiveBounds
-    let built = PlotterDrawingPlanningAdapter.buildDraft(program: program, machineCenter: nil,
+    let built = PlotterDrawingPlanningAdapter.buildDraft(program: program,
+      machineCenter: try Point2(x: bounds.minX, y: (bounds.minY + bounds.maxY) / 2),
       uniformScale: 0.02, rotationDegrees: 0, drawableRegion: fixture.drawableRegion,
-      registration: fixture.registration, drawBorder: true,
-      drawingBorderBounds: try AxisAlignedBounds(minX: bounds.minX - 1, minY: bounds.minY,
-        maxX: bounds.maxX, maxY: bounds.maxY))
+      registration: fixture.registration, drawBorder: true)
     #expect(built.plan == nil)
     #expect(built.failure != nil)
   }
@@ -277,8 +281,6 @@ struct PlotterDrawingDraftEpisodeTests {
     for size in [(240.0, 120.0), (100.0, 250.0), (160.0, 160.0)] {
       let region = try DrawableMachineRegion(bounds: AxisAlignedBounds(
         minX: -30, minY: 40, maxX: -30 + size.0, maxY: 40 + size.1))
-      let border = try AxisAlignedBounds<MachineSpace>(
-        minX: -20, minY: 50, maxX: -40 + size.0, maxY: 30 + size.1)
       for entry in DrawingCatalogEntryID.allCases {
         let program = try DrawingProgramCatalog.program(for: entry, style: style)
         let cameraGeometry = try PlotterDrawingPlanningAdapter.cameraGeometry(for: program, registration: fixture.registration)
@@ -292,7 +294,7 @@ struct PlotterDrawingDraftEpisodeTests {
           let bordered = PlotterDrawingPlanningAdapter.buildDraft(program: program,
             machineCenter: nil, uniformScale: scale, rotationDegrees: angle,
             drawableRegion: region, registration: fixture.registration,
-            drawBorder: true, drawingBorderBounds: border)
+            drawBorder: true)
           let borderPlan = try #require(bordered.plan)
           let reference = DrawingRunCandidateReference(candidateID: program.contentHash.description,
             contentHash: program.contentHash, sourceProgram: program)
@@ -954,48 +956,26 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(abs(plan.placement.rotationRadians - .pi / 2) < 1e-12)
   }
 
-  @Test("ordinary artwork crossing the boundary produces only contained executable fragments")
-  func outsideRegionClipsOrdinaryArtwork() async throws {
+  @Test("ordinary frame crossing Boundary is refused without clipping or replacing the prior plan")
+  func outsideRegionPreservesPriorFrame() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let runtime = PlotterDrawingDraftRuntime()
     let facts = fixture.facts()
-    var snapshot = try await open(runtime, facts: facts)
-    snapshot = try applied(await runtime.submit(
-      PlotterDrawingDraftSubmission(
-        projection: snapshot.projection,
-        intent: .setUniformScale(0.02)
-      ),
-      facts: facts
-    ))
+    let opened = try await open(runtime, facts: facts)
+    let snapshot = try applied(await runtime.submit(.init(projection: opened.projection,
+      intent: .setUniformScale(0.02)), facts: facts))
     let bounds = fixture.drawableRegion.effectiveBounds
-    let outsideCenter = try Point2<MachineSpace>(
-      x: bounds.minX,
-      y: (bounds.minY + bounds.maxY) / 2
-    )
+    let outsideCenter = try Point2<MachineSpace>(x: bounds.minX, y: (bounds.minY + bounds.maxY) / 2)
     let cameraPoint = try fixture.registration.cameraFromMachine.applying(to: outsideCenter)
-    snapshot = try applied(await runtime.submit(
-      PlotterDrawingDraftSubmission(
-        projection: snapshot.projection,
-        intent: .placeAtCameraPoint(PlotterDrawingDraftCameraPlacement(
-          frame: fixture.frame.plotterExactFrameReference,
-          point: cameraPoint
-        ))
-      ),
-      facts: facts
-    ))
-
-    let preservedCenter = try #require(snapshot.machineCenter)
-    #expect(preservedCenter.x.isFinite)
-    #expect(preservedCenter.y.isFinite)
-    #expect(abs(preservedCenter.x - outsideCenter.x) <= 1e-9)
-    #expect(abs(preservedCenter.y - outsideCenter.y) <= 1e-9)
-    #expect(snapshot.program != nil)
-    let plan = try #require(snapshot.plan)
-    #expect(snapshot.planningRefusal == nil)
-    #expect(plan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
-    #expect(plan.strokes.flatMap(\.path.points).contains { abs($0.x - bounds.minX) < 1e-9 })
-    #expect(snapshot.preview?.strokes.count == plan.strokes.count)
-    #expect(plan.sourceProgramContentHash == snapshot.program?.contentHash)
+    let rejected = await runtime.submit(.init(projection: snapshot.projection,
+      intent: .placeAtCameraPoint(.init(frame: fixture.frame.plotterExactFrameReference,
+        point: cameraPoint))), facts: facts)
+    #expect(try refusal(rejected).reason == .planningFailed("Frame outside Boundary"))
+    #expect(rejected.snapshot.machineCenter == snapshot.machineCenter)
+    #expect(rejected.snapshot.plan == snapshot.plan)
+    #expect(rejected.snapshot.preview == snapshot.preview)
+    #expect(rejected.snapshot.projection.draftRevision == snapshot.projection.draftRevision)
+    #expect(rejected.snapshot.placementID == snapshot.placementID)
   }
 
   @Test("retained Drawing Border planning uses the adapter without draft mutation authority")
@@ -1597,7 +1577,7 @@ private enum DraftPaperPersistenceError: Error {
 }
 
 private actor DraftPaperPersistenceProbe: PlotterDrawingDraftPaperPersistence {
-  private let blocksSave: Bool
+  private var blocksSave: Bool
   private let failsSave: Bool
   private var saveStarted = false
   private var saveStartedWaiters: [CheckedContinuation<Void, Never>] = []
@@ -1637,6 +1617,12 @@ private actor DraftPaperPersistenceProbe: PlotterDrawingDraftPaperPersistence {
     await withCheckedContinuation { continuation in
       saveStartedWaiters.append(continuation)
     }
+  }
+
+  func holdNextSave() {
+    blocksSave = true
+    saveStarted = false
+    saveWasReleased = false
   }
 
   func releaseSave() {
@@ -1703,7 +1689,7 @@ extension PlotterDrawingDraftEpisodeTests {
     let bordered = PlotterDrawingPlanningAdapter.buildDraft(program: candidate.program,
       machineCenter: ordinary.center, uniformScale: 0.5, rotationDegrees: 15,
       drawableRegion: fixture.drawableRegion, registration: fixture.registration,
-      drawBorder: true, drawingBorderBounds: fixture.registration.applicabilityRectangle,
+      drawBorder: true,
       materialContextHash: material)
     let program = try #require(bordered.program)
     let reference = try #require(model.projectedReference(for: program))
@@ -1776,4 +1762,301 @@ extension PlotterDrawingDraftEpisodeTests {
     #expect(result.snapshot.paperCoverageObservation == nil)
     #expect(!result.snapshot.sheetPlacementIsCurrent)
   }
+}
+
+extension PlotterDrawingDraftEpisodeTests {
+  @Test("atomic camera frame edits retain Boundary and paper coverage and refuse invalid or stale edits")
+  func atomicFramePlacement() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let facts = fixture.facts()
+    let runtime = PlotterDrawingDraftRuntime(clock: DraftRuntimeClock(now: fixture.frame.frame.captureNanoseconds + 100))
+    let opened = try await open(runtime, facts: facts)
+    let covered = try applied(await runtime.submit(.init(projection: opened.projection, intent: .assertPaperCoverage), facts: facts))
+    let frame = try #require(covered.frame)
+    let resized = try frame.resized(scale: covered.uniformScale * 0.6, minimumScale: covered.allowedScale.lowerBound)
+    let center = try resized.cameraCenter
+    let staged = try resized.translated(to: Point2(x: center.x + 4, y: center.y + 3))
+    let placement = PlotterDrawingDraftCameraPlacement(frame: fixture.frame.plotterExactFrameReference,
+      point: try staged.cameraCenter, uniformScale: staged.geometry.placement.uniformScale,
+      draftRevision: covered.projection.draftRevision)
+    let edited = try applied(await runtime.submit(.init(projection: covered.projection,
+      intent: .placeAtCameraPoint(placement)), facts: facts))
+    #expect(edited.uniformScale == staged.geometry.placement.uniformScale)
+    #expect(try #require(edited.machineCenter).distance(to: staged.geometry.placement.machineAnchor) < 1e-9)
+    #expect(edited.paperCoverageObservation == covered.paperCoverageObservation)
+    #expect(edited.paperCoverageIsCurrent)
+    #expect(edited.projection.externalFacts.drawableRegion == covered.projection.externalFacts.drawableRegion)
+    #expect(edited.projection.externalFacts.drawingBorderBounds == covered.projection.externalFacts.drawingBorderBounds)
+    #expect(edited.projection.externalFacts.registrationRevisionID == covered.projection.externalFacts.registrationRevisionID)
+    #expect(edited.plan?.drawableRegion == covered.plan?.drawableRegion)
+    let stale = await runtime.submit(.init(projection: edited.projection,
+      intent: .placeAtCameraPoint(placement)), facts: facts)
+    #expect(try refusal(stale).reason == .staleProjection)
+    #expect(stale.snapshot.plan == edited.plan)
+    let outside = PlotterDrawingDraftCameraPlacement(frame: placement.frame,
+      point: try fixture.registration.cameraFromMachine.applying(to: Point2(x: 100_000, y: 100_000)),
+      uniformScale: edited.uniformScale * 0.9, draftRevision: edited.projection.draftRevision)
+    let rejected = await runtime.submit(.init(projection: edited.projection,
+      intent: .placeAtCameraPoint(outside)), facts: facts)
+    #expect(try refusal(rejected).reason == .planningFailed("Frame outside Boundary"))
+    #expect(rejected.snapshot.plan == edited.plan)
+    #expect(rejected.snapshot.uniformScale == edited.uniformScale)
+    #expect(rejected.snapshot.placementID == edited.placementID)
+    let staleFacts = fixture.facts(displayedFrame: try replacingFrame(fixture.frame, id: "frame-advanced", sequenceDelta: 1))
+    let wrongFrame = await runtime.submit(.init(projection: edited.projection,
+      intent: .placeAtCameraPoint(outside)), facts: staleFacts)
+    #expect(try refusal(wrongFrame).reason == .staleProjection)
+    #expect(wrongFrame.snapshot.plan == edited.plan)
+  }
+
+  @Test("all corner resize maxima pass the same atomic runtime admission", arguments: [0.0, 17, 45, 90])
+  func maximumResizeAdmission(degrees: Double) async throws {
+    let f = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    var snapshot = try await open(runtime, facts: f.facts())
+    snapshot = try applied(await runtime.submit(.init(projection: snapshot.projection,
+      intent: .setRotationDegrees(degrees)), facts: f.facts()))
+    snapshot = try applied(await runtime.submit(.init(projection: snapshot.projection,
+      intent: .centerInDrawableRegion), facts: f.facts()))
+    let frame = try #require(snapshot.frame)
+    let expanded = try frame.resized(scale: 100_000, minimumScale: snapshot.allowedScale.lowerBound)
+    let placement = PlotterDrawingDraftCameraPlacement(frame: f.frame.plotterExactFrameReference,
+      point: try expanded.cameraCenter, uniformScale: expanded.geometry.placement.uniformScale,
+      draftRevision: snapshot.projection.draftRevision)
+    let result = try applied(await runtime.submit(.init(projection: snapshot.projection,
+      intent: .placeAtCameraPoint(placement)), facts: f.facts()))
+    #expect(try #require(result.frame).geometry.isContained(in: f.drawableRegion))
+    #expect(abs(result.uniformScale - expanded.geometry.placement.uniformScale) < 1e-12)
+  }
+
+  @Test("metric targets retain their video frame and strict controller geometry")
+  func metricVideoFrameRemainsAvailable() async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let runtime = PlotterDrawingDraftRuntime()
+    var snapshot = try await open(runtime, facts: fixture.facts())
+    for id in [DrawingCatalogEntryID.metricSquare40, .metricRectangle40x20] {
+      snapshot = try applied(await runtime.submit(.init(projection: snapshot.projection,
+        intent: .selectCatalogItem(id)), facts: fixture.facts()))
+      let frame = try #require(snapshot.frame)
+      #expect(frame.geometry.placement.cameraGeometry == nil)
+      let center = try frame.cameraCenter
+      let moved = try frame.translated(to: Point2(x: center.x + 1, y: center.y))
+      snapshot = try applied(await runtime.submit(.init(projection: snapshot.projection,
+        intent: .placeAtCameraPoint(.init(frame: fixture.frame.plotterExactFrameReference,
+          point: try moved.cameraCenter))), facts: fixture.facts()))
+      #expect(snapshot.plan?.placement.cameraGeometry == nil)
+      #expect(try #require(snapshot.frame).geometry.isContained(in: fixture.drawableRegion))
+    }
+  }
+
+  @Test("production frame edit seals one unsealed preview and applies while ambient frames advance")
+  func productionFrozenFrameEdit() async throws {
+    let harness = makeCausalSimulatorAppFixture()
+    let app = harness.workspace
+    try await completeSimulatedPenInteractionPrerequisite(app)
+    try await installAcceptedBoundaryTestProjection(runtime: harness.boundaryRuntime, workspace: app, environment: .simulated)
+    try await completeSimulatedTipCalibration(app, simulator: harness.simulator)
+    _ = await app.currentDrawingRunFacts(for: .simulated)
+    let show = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingDraft(.showTarget)))
+    #expect(await app.submitPlotterUIRequest(show) == .accepted(requestID: show.id))
+    let source = try #require(app.displayedFrame)
+    func unsealed(_ delta: UInt64) throws -> DisplayedFrame {
+      DisplayedFrame(source: source.source, frame: try StampedFrame(sequence: source.frame.sequence + delta,
+        captureNanoseconds: source.frame.captureNanoseconds + delta, cameraConfigurationID: source.frame.cameraConfigurationID,
+        width: source.frame.width, height: source.frame.height, rowBytes: source.frame.rowBytes,
+        pixelFormat: source.frame.pixelFormat, bytes: source.frame.bytes, eagerlyMaterializeContentHash: false))
+    }
+    let initial = try unsealed(1), advanced = try unsealed(2)
+    #expect(!initial.frame.contentHashIsMaterialized)
+    app.actionSurfacePreview.publish(initial)
+    let before = app.drawingDraftSnapshot
+    let sessionID = UUID()
+    #expect(await app.beginDrawingFrameEdit(id: sessionID, on: initial))
+    let session = try #require(app.drawingFrameEditSession)
+    #expect(session.frame.frame.contentHashIsMaterialized)
+    #expect(initial.frame.contentHashIsMaterialized) // The selected frame shares its sealed digest storage.
+    #expect(app.drawingDraftSnapshot.plan == before.plan)
+    app.actionSurfacePreview.publish(advanced)
+    let pinned = app.testActionSurfacePresentation.resolvingAmbientPreviewFrame(session.frame, forceRetainedFrame: true)
+    #expect(pinned.displayedFrame == session.frame)
+    #expect(!advanced.frame.contentHashIsMaterialized)
+    _ = await app.currentDrawingRunFacts(for: .simulated)
+    #expect(app.drawingDraftSnapshot.projection.externalFacts.displayedFrame == session.frame.plotterExactFrameReference)
+    let frame = try #require(app.drawingDraftSnapshot.frame)
+    let resized = try frame.resized(scale: before.uniformScale * 0.8, minimumScale: before.allowedScale.lowerBound)
+    let placement = PlotterDrawingDraftCameraPlacement(frame: session.frame.plotterExactFrameReference,
+      point: try resized.cameraCenter, uniformScale: resized.geometry.placement.uniformScale,
+      draftRevision: app.drawingDraftSnapshot.projection.draftRevision)
+    let ui = app.plotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID,
+      manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingDrawingPlacement: placement)
+    let request = try #require(ui.semantic.request(matching: .drawingDraft(.placeAtCameraPoint(placement))))
+    #expect(await app.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+    #expect(app.drawingDraftSnapshot.uniformScale == resized.geometry.placement.uniformScale)
+    #expect(app.drawingDraftSnapshot.projection.externalFacts.drawableRegion == before.projection.externalFacts.drawableRegion)
+    #expect(app.drawingDraftSnapshot.projection.externalFacts.registrationRevisionID == before.projection.externalFacts.registrationRevisionID)
+    #expect(app.drawingFrameEditSession == nil)
+    app.endDrawingFrameEdit(id: sessionID)
+    #expect(app.actionSurfacePreview.displayedFrame == advanced)
+    #expect(!advanced.frame.contentHashIsMaterialized)
+    #expect(await app.beginDrawingFrameEdit(id: UUID(), on: advanced))
+    let nextID = try #require(app.drawingFrameEditSession?.id)
+    app.endDrawingFrameEdit(id: sessionID)
+    #expect(app.drawingFrameEditSession?.id == nextID)
+    let capRequest = try #require(app.testPlotterUIProjection(
+      selectedItemID: .humanGuidedDiscovery(.penInteraction), includesLearningPath: true)
+      .semantic.request(for: PlotterAppUIActionID.reidentifyPenCap))
+    #expect(await app.submitPlotterUIRequest(capRequest) == .accepted(requestID: capRequest.id))
+    #expect(app.drawingFrameEditSession == nil)
+    let selection = try #require(app.pointSelectionEpisodeProjection.exactPointSelection.request)
+    let capSurface = app.testActionSurfacePresentation
+    #expect(capSurface.pointSelectionRequest == selection)
+    #expect(try selection.matchesExactDisplayedFrame(#require(capSurface.displayedFrame)))
+    app.endDrawingFrameEdit(id: nextID)
+    #expect(app.drawingFrameEditSession == nil)
+    await app.shutdown()
+  }
+}
+
+extension PlotterDrawingDraftEpisodeTests {
+  @Test("pending and staged frame edits exclude Draw until Apply or Cancel, while active Run excludes editing")
+  func frameEditExcludesDrawingRun() async throws {
+    let persistence = DraftPaperPersistenceProbe()
+    let fixture = try await DrawingWorkbenchApplicationFixture.make(paperPersistence: persistence)
+    defer { fixture.stores.remove() }
+    let app = fixture.application
+    try await fixture.submit(.showTarget)
+    try await fixture.submit(.assertPaperCoverage)
+    try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }
+    let appliedBeforeEdit = try #require(app.drawingDraftSnapshot.plan)
+    let cachedDraw = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)))
+    let frame = try #require(app.displayedFrame)
+
+    // Hold an existing persistence await, so Edit installs its pending session
+    // before it can finish preparing the exact Draft projection.
+    await persistence.holdNextSave()
+    let coverage = Task { try await fixture.submit(.assertPaperCoverage) }
+    await persistence.waitUntilSaveStarted()
+    let pendingID = UUID()
+    let semanticBeforeBegin = app.semanticPresentationRevision
+    let beginning = Task { @MainActor in await app.beginDrawingFrameEdit(id: pendingID, on: frame) }
+    do {
+      try await waitUntil { app.drawingFrameEditSession?.id == pendingID }
+      #expect(app.semanticPresentationRevision > semanticBeforeBegin)
+      let refused = await app.submitPlotterUIRequest(cachedDraw)
+      guard case .refused(let reason) = refused else {
+        throw FrameEditRunExclusionTestError.drawWasNotRefused
+      }
+      #expect(reason.reason == .unavailableAction)
+      #expect(reason.remedy == "Apply or Cancel Frame Edit before drawing.")
+      let pending = app.testPlotterUIProjection()
+      #expect(pending.drawingStudio.runState == .unavailable(reason: reason.remedy))
+      #expect(pending.semantic.request(matching: .drawingRun(.start)) == nil)
+      #expect(await fixture.planGate.request == nil)
+      let semanticBeforeCancel = app.semanticPresentationRevision
+      app.endDrawingFrameEdit(id: pendingID)
+      #expect(app.semanticPresentationRevision > semanticBeforeCancel)
+      await persistence.releaseSave()
+      try await coverage.value
+      #expect(!(await beginning.value))
+    } catch {
+      app.endDrawingFrameEdit(id: pendingID)
+      await persistence.releaseSave()
+      _ = try? await coverage.value
+      _ = await beginning.value
+      await app.shutdown()
+      throw error
+    }
+    #expect(app.drawingDraftSnapshot.plan == appliedBeforeEdit)
+    try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }
+    let afterCancel = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)))
+
+    let editID = UUID()
+    #expect(await app.beginDrawingFrameEdit(id: editID, on: try #require(app.displayedFrame)))
+    let session = try #require(app.drawingFrameEditSession)
+    let draft = app.drawingDraftSnapshot
+    let resized = try #require(draft.frame).resized(scale: draft.uniformScale * 0.8,
+      minimumScale: draft.allowedScale.lowerBound)
+    let placement = PlotterDrawingDraftCameraPlacement(frame: session.frame.plotterExactFrameReference,
+      point: try resized.cameraCenter, uniformScale: resized.geometry.placement.uniformScale,
+      draftRevision: draft.projection.draftRevision)
+    let staged = app.plotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID,
+      manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingDrawingPlacement: placement)
+    #expect(staged.semantic.request(matching: .drawingRun(.start)) == nil)
+    #expect(app.drawingDraftSnapshot.plan == appliedBeforeEdit)
+    guard case .refused(let stagedRefusal) = await app.submitPlotterUIRequest(afterCancel) else {
+      await app.shutdown()
+      throw FrameEditRunExclusionTestError.drawWasNotRefused
+    }
+    #expect(stagedRefusal.remedy == "Apply or Cancel Frame Edit before drawing.")
+    #expect(await fixture.planGate.request == nil)
+    let apply = try #require(staged.semantic.request(matching: .drawingDraft(.placeAtCameraPoint(placement))))
+    #expect(await app.submitPlotterUIRequest(apply) == .accepted(requestID: apply.id))
+    #expect(app.drawingFrameEditSession == nil)
+    let applied = try #require(app.drawingDraftSnapshot.plan)
+    #expect(applied.placement == resized.geometry.placement)
+    try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }
+    let draw = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)))
+    let running = Task { await app.submitPlotterUIRequest(draw) }
+    do {
+      try await waitUntilAsync { await fixture.planGate.request != nil }
+      #expect(await fixture.planGate.request?.plan == applied)
+      #expect(!(await app.beginDrawingFrameEdit(id: UUID(), on: frame)))
+      #expect(app.drawingFrameEditSession == nil)
+      let capability = try #require(app.drawingRunSnapshot?.stopCapabilityID)
+      #expect(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.stop(capability))) != nil)
+    } catch {
+      await fixture.planGate.release(.cancelled)
+      _ = await running.value
+      await app.shutdown()
+      throw error
+    }
+    await fixture.planGate.release(.completed)
+    #expect(await running.value == .accepted(requestID: draw.id))
+    await app.shutdown()
+  }
+
+  @Test("cancelling a frame edit while Draft synchronization waits cannot resurrect retained video")
+  func cancelledPendingFrameEdit() async throws {
+    let persistence = DraftPaperPersistenceProbe(blocksSave: true)
+    let runtime = PlotterDrawingDraftRuntime(paperPersistence: persistence)
+    let harness = makeCausalSimulatorAppFixture(drawingDraftRuntime: runtime)
+    let app = harness.workspace
+    try await completeSimulatedPenInteractionPrerequisite(app)
+    try await installAcceptedBoundaryTestProjection(runtime: harness.boundaryRuntime, workspace: app, environment: .simulated)
+    try await completeSimulatedTipCalibration(app, simulator: harness.simulator)
+    _ = await app.currentDrawingRunFacts(for: .simulated)
+    let show = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingDraft(.showTarget)))
+    #expect(await app.submitPlotterUIRequest(show) == .accepted(requestID: show.id))
+    let fixture = try draftAuthorityFixture(from: app)
+    // Occupy the existing actor mutation boundary with a persistence await in
+    // the other source state. No camera, controller or physical effect is used.
+    let heldFacts = fixture.facts(environment: .live)
+    let heldSnapshot = await runtime.synchronize(heldFacts)
+    let held = Task { await runtime.submit(.init(projection: heldSnapshot.projection,
+      intent: .assertPaperCoverage), facts: heldFacts) }
+    await persistence.waitUntilSaveStarted()
+    let id = UUID()
+    let beginning = Task { @MainActor in await app.beginDrawingFrameEdit(id: id, on: fixture.frame) }
+    do {
+      try await waitUntilAsync { await runtime.pendingMutationCount > 0 }
+      #expect(app.drawingFrameEditSession?.id == id)
+      app.endDrawingFrameEdit(id: id)
+      #expect(app.drawingFrameEditSession == nil)
+    } catch {
+      await persistence.releaseSave()
+      _ = await held.value
+      _ = await beginning.value
+      await app.shutdown()
+      throw error
+    }
+    await persistence.releaseSave()
+    _ = await held.value
+    #expect(!(await beginning.value))
+    #expect(app.drawingFrameEditSession == nil)
+    await app.shutdown()
+  }
+}
+
+private enum FrameEditRunExclusionTestError: Error {
+  case drawWasNotRefused
 }

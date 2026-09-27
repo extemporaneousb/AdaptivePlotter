@@ -13,7 +13,7 @@ struct DrawingStudioPlacementPresentation: Hashable, Sendable {
   let placementIsEnabled: Bool
 
   var locationText: String {
-    guard let centerCameraPixel else { return "Choose Move Drawing on the video, then drag to place" }
+    guard let centerCameraPixel else { return "Choose Edit Frame on the video, then drag to place" }
     return String(
       format: "Camera X %.1f Y %.1f", centerCameraPixel.x, centerCameraPixel.y)
   }
@@ -57,6 +57,7 @@ struct DrawingStudioTargetPreview: Hashable, Sendable {
   let programContentHash: String
   let executionPlanContentHash: String?
   let status: DrawingStudioTargetPreviewStatus
+  var showsStrokeBounds: Bool = true
 
   func matches(_ displayedFrame: DisplayedFrame) -> Bool {
     // Predicted artwork is independent of the observation frame's pixels.
@@ -73,6 +74,7 @@ struct DrawingStudioCanvasPresentation: Hashable, Sendable {
   let draftProjection: PlotterDrawingDraftProjectionReference
   let placement: DrawingStudioPlacementPresentation
   let targetPreview: DrawingStudioTargetPreview?
+  var frame: PlotterDrawingDraftFrame? = nil
 
   func targetPreview(for displayedFrame: DisplayedFrame?) -> DrawingStudioTargetPreview? {
     guard let displayedFrame, let targetPreview, targetPreview.matches(displayedFrame) else {
@@ -258,7 +260,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
         rotationDegrees: canvas.placement.rotationDegrees,
         placementIsEnabled: canvas.placement.placementIsEnabled && editingIsEnabled
       ),
-      targetPreview: canvas.targetPreview
+      targetPreview: canvas.targetPreview, frame: canvas.frame
     )
     self.paperReplacementStatus = paperReplacementStatus
     self.drawingPreview = drawingPreview
@@ -603,13 +605,13 @@ struct DrawingStudioView<BeforeRun: View>: View {
         .accessibilityIdentifier("drawing.testTarget")
         StudioHelpButton("Geometry", text: "Nominal Scale sets the selected drawing to its declared controller dimensions. Physical accuracy requires measurement. Camera square and circle use Guided Learning to preserve visible proportions. Metric targets retain controller distances.")
       }
-      Toggle("Draw border", isOn: Binding(
+      Toggle("Draw frame", isOn: Binding(
         get: { presentation.drawBorder },
         set: { submitDraft(.setDrawBorder($0)) }))
         .disabled(!presentation.authoringIsEnabled
           || draftRequest(.setDrawBorder(!presentation.drawBorder)) == nil)
         .accessibilityIdentifier("drawing.drawBorder")
-        .help("Ink the calibrated Drawing Border as part of this drawing. The outline stays visible when off.")
+        .help("Ink the movable drawing frame before the artwork. The learned machine Boundary and calibration Border stay unchanged.")
       StudioHelpButton("Placement", text: presentation.canvas.placement.locationText)
       HStack {
         Text("Size")

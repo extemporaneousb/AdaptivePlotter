@@ -76,7 +76,7 @@ struct PortraitRasterObservationTests {
     var scale = 0.8 * min((bounds.maxX - bounds.minX) / program.fieldExtent.width,
       (bounds.maxY - bounds.minY) / program.fieldExtent.height)
     let executionPlan: ExecutionPlanRevision
-    if workload == .fullResolutionDenseCrosshatch {
+    if workload.usesFittedDenseCrosshatch {
       // Exercise the same authoring intents as Show on Plotter Video. Retain
       // every vectorized stroke, explicitly rotate, then fit without changing orientation.
       let draftRuntime = PlotterDrawingDraftRuntime()
@@ -98,8 +98,23 @@ struct PortraitRasterObservationTests {
       #expect(fitted.disposition == .applied)
       #expect(fitted.snapshot.rotationDegrees == 90)
       #expect(fitted.snapshot.uniformScale == fitted.snapshot.allowedScale.upperBound)
-      scale = fitted.snapshot.uniformScale
-      executionPlan = try #require(fitted.snapshot.plan)
+      let fittedPlan = try #require(fitted.snapshot.plan)
+      #expect(fittedPlan.strokes.map(\.logicalStrokeID) == program.strokes.map(\.id))
+      #expect(fittedPlan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
+      if workload == .fullResolutionDenseCrosshatch {
+        // Keep the original bounded positive workload via the ordinary Size
+        // intent; full-Boundary Fit is a separate budget-refusal case below.
+        let sized = await draftRuntime.submit(.init(projection: fitted.snapshot.projection,
+          intent: .setUniformScale(0.9 * fitted.snapshot.uniformScale)), facts: authoringFacts)
+        #expect(sized.disposition == .applied)
+        #expect(sized.snapshot.rotationDegrees == 90)
+        #expect(sized.snapshot.uniformScale == 0.9 * fitted.snapshot.uniformScale)
+        scale = sized.snapshot.uniformScale
+        executionPlan = try #require(sized.snapshot.plan)
+      } else {
+        scale = fitted.snapshot.uniformScale
+        executionPlan = fittedPlan
+      }
       #expect(executionPlan.strokes.map(\.logicalStrokeID) == program.strokes.map(\.id))
       #expect(executionPlan.strokes.allSatisfy { fixture.drawableRegion.contains($0.path) })
       #expect(program.strokes.count == 191)
@@ -133,7 +148,7 @@ struct PortraitRasterObservationTests {
       captureNanoseconds: 1, cameraConfigurationID: configuration)
     let baseline = try renderer.render(strokes: [], sequence: 10,
       captureNanoseconds: 10, cameraConfigurationID: configuration)
-    let post = workload == .fullResolutionDenseCrosshatch
+    let post = workload.usesFittedDenseCrosshatch
       ? try finiteWidthPortraitRaster(plan: executionPlan, registration: registration,
         baseline: baseline, xError: xError, yError: yError)
       : try renderer.render(strokes: rasterStrokes(realized), sequence: 20,
@@ -206,6 +221,26 @@ struct PortraitRasterObservationTests {
       } else { rejectedPixels = 0 }
       #expect(analysis.constraints.isEmpty)
       #expect(analysis.candidate == nil)
+      if workload == .fullResolutionDenseCrosshatchFullBoundary {
+        guard case .rejected(let rejection) = record.observation else {
+          Issue.record("Full-Boundary dense raster did not retain its typed rejection")
+          return
+        }
+        #expect(rejection.reason == .algorithmFailure(code: "association-budget-exceeded"))
+        #expect(rejectedPixels > 0)
+        #expect(rejectedPixels * segments > request.maximumAssociationEvaluationCount)
+        #expect(terminal.disposition == .visionRejected)
+        #expect(record.evidenceDisposition == .visionUnclear)
+        #expect(record.executionDisposition == .completed)
+        #expect(record.executionFrontiers.plannedStrokeCount == UInt32(program.strokes.count))
+        #expect(record.executionFrontiers.commandedStrokeCount == UInt32(program.strokes.count))
+        #expect(record.executionFrontiers.controllerCompletedStrokeCount == UInt32(program.strokes.count))
+        #expect(record.executionFrontiers.inkVerifiedStrokeCount == 0)
+        #expect(!submission.snapshot.physicalEvidenceClaimed)
+        rasterReceipt("Full-Boundary dense raster: \(rejectedPixels) detected pixels, \(segments) segments; "
+          + "retained association-budget-exceeded under unchanged \(request.maximumAssociationEvaluationCount) budget")
+        return
+      }
       let support = try await rasterSupportDiagnostic(request)
       let diagnostic = "\(workload.rawValue): \(program.strokes.count) strokes, \(points) points, "
         + "\(segments) segments, \(rejectedPixels) detected pixels, all-pairs \(rejectedPixels * segments), "
@@ -233,6 +268,7 @@ struct PortraitRasterObservationTests {
       return
     }
     #expect(record.evidenceDisposition == .attributable)
+    #expect(workload != .fullResolutionDenseCrosshatchFullBoundary)
     #expect(!workload.expectsUnresolvedObservation)
     #expect(record.executionFrontiers.inkVerifiedStrokeCount == UInt32(program.strokes.count))
     #expect(observation.evidence.frames == request.frames)
@@ -393,11 +429,13 @@ private func finiteWidthPortraitRaster(
 enum PortraitRasterWorkload: String, CaseIterable, Sendable {
   case contours, crosshatch, denseContours, denseCrosshatch
   case fullResolutionDenseContours, fullResolutionDenseCrosshatch
+  case fullResolutionDenseCrosshatchFullBoundary
   case fullResolutionDenseCrosshatchAliased
   case fullResolutionDenseCrosshatchThin
 
   var isFullResolution: Bool {
-    isIdentifiableDensePositive || self == .fullResolutionDenseCrosshatchAliased
+    isIdentifiableDensePositive || self == .fullResolutionDenseCrosshatchFullBoundary
+      || self == .fullResolutionDenseCrosshatchAliased
       || self == .fullResolutionDenseCrosshatchThin
   }
 
@@ -406,7 +444,11 @@ enum PortraitRasterWorkload: String, CaseIterable, Sendable {
   }
 
   var hasSmallResidual: Bool {
-    self == .fullResolutionDenseCrosshatch || self == .fullResolutionDenseCrosshatchThin
+    usesFittedDenseCrosshatch || self == .fullResolutionDenseCrosshatchThin
+  }
+
+  var usesFittedDenseCrosshatch: Bool {
+    self == .fullResolutionDenseCrosshatch || self == .fullResolutionDenseCrosshatchFullBoundary
   }
 
   var expectsUnresolvedObservation: Bool {

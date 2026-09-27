@@ -624,8 +624,8 @@ struct ActionSurfacePresentation: Sendable {
     self.drawingStudioCanvas = drawingStudioCanvas
   }
 
-  func resolvingAmbientPreviewFrame(_ frame: DisplayedFrame?) -> Self {
-    guard usesAmbientPreviewFrame else { return self }
+  func resolvingAmbientPreviewFrame(_ frame: DisplayedFrame?, forceRetainedFrame: Bool = false) -> Self {
+    guard usesAmbientPreviewFrame || forceRetainedFrame else { return self }
     let matchingViewportContext: ActionSurfaceViewportContext? = viewportContext.flatMap {
       context in
       guard let frame,
@@ -636,10 +636,10 @@ struct ActionSurfacePresentation: Sendable {
     }
     return Self(
       displayedFrame: frame,
-      usesAmbientPreviewFrame: true,
+      usesAmbientPreviewFrame: usesAmbientPreviewFrame && !forceRetainedFrame,
       overlays: overlays,
-      ambientOverlays: renderedOverlays,
-      ambientOverlayFrame: ambientOverlayFrame ?? displayedFrame,
+      ambientOverlays: forceRetainedFrame ? [] : renderedOverlays,
+      ambientOverlayFrame: forceRetainedFrame ? nil : ambientOverlayFrame ?? displayedFrame,
       simulatedAnnotations: simulatedAnnotations,
       simulatedViewportID: simulatedViewportID,
       simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible,
@@ -682,13 +682,15 @@ struct PreviewingActionSurface: View {
   var body: some View {
     let _ = preview.presentationRevision
     ActionSurface(
-      presentation: application.actionSurfacePresentation.resolvingAmbientPreviewFrame(preview.displayedFrame),
+      presentation: application.actionSurfacePresentation.resolvingAmbientPreviewFrame(application.drawingFrameEditSession?.frame ?? preview.displayedFrame, forceRetainedFrame: application.drawingFrameEditSession != nil),
       renderDiagnostics: preview,
       viewport: $viewport,
       plotterUIProjection: plotterUIProjection,
       plotterUIIntentSink: plotterUIIntentSink,
       pendingDrawingPlacement: $pendingDrawingPlacement,
-      pendingPointSelection: $pendingPointSelection
+      pendingPointSelection: $pendingPointSelection,
+      beginFrameEdit: { await application.beginDrawingFrameEdit(id: $0, on: $1) },
+      endFrameEdit: { application.endDrawingFrameEdit(id: $0) }
     )
   }
 }
@@ -758,6 +760,12 @@ struct ActionSurface: View {
   @State private var capReferenceRegion: AxisAlignedBounds<CameraPixelSpace>?
   @State private var drawsCapReference = true
   @State private var movesDrawing = false
+  @State private var frameEditID: UUID?
+  @State private var frameEditProjection: PlotterDrawingDraftProjectionReference?
+  @State private var drawingDrag: DrawingFrameDrag?
+  @State private var stagedFrame: PlotterDrawingDraftFrame?
+  private let beginFrameEdit: (@MainActor (UUID, DisplayedFrame) async -> Bool)?
+  private let endFrameEdit: (@MainActor (UUID) -> Void)?
   @State private var pointSelectionRefusal: String?
   @State private var priorDragTranslation: CGSize = .zero
   @State private var drawingPlacementRefusal: String?
@@ -771,7 +779,9 @@ struct ActionSurface: View {
     plotterUIProjection: PlotterUIProjection,
     plotterUIIntentSink: any PlotterUIIntentSink,
     pendingDrawingPlacement: Binding<PlotterDrawingDraftCameraPlacement?> = .constant(nil),
-    pendingPointSelection: Binding<PlotterPointSelectionSubmission?> = .constant(nil)
+    pendingPointSelection: Binding<PlotterPointSelectionSubmission?> = .constant(nil),
+    beginFrameEdit: (@MainActor (UUID, DisplayedFrame) async -> Bool)? = nil,
+    endFrameEdit: (@MainActor (UUID) -> Void)? = nil
   ) {
     self.presentation = presentation
     self.renderDiagnostics = renderDiagnostics
@@ -780,6 +790,8 @@ struct ActionSurface: View {
     self.plotterUIIntentSink = plotterUIIntentSink
     _pendingDrawingPlacement = pendingDrawingPlacement
     _pendingPointSelection = pendingPointSelection
+    self.beginFrameEdit = beginFrameEdit
+    self.endFrameEdit = endFrameEdit
   }
 
   var body: some View {
@@ -811,7 +823,7 @@ struct ActionSurface: View {
         )
       }
       let overlayContent = overlayCache.resolve(
-        ActionSurfaceOverlayContent(presentation: presentation), transform: transform)
+        ActionSurfaceOverlayContent(presentation: presentation, stagedFrame: stagedFrame), transform: transform)
       ActionSurfaceOverlayCanvas(
         content: overlayContent,
         transform: transform,
@@ -828,6 +840,13 @@ struct ActionSurface: View {
           presentation.pointSelectionRequest?.referenceMode != .sampledColorMarker {
           PenCapReferenceSelectionOverlay(region: capReferenceRegion, transform: transform)
             .allowsHitTesting(false)
+        }
+      }
+      .overlay {
+        if let frame = stagedFrame ?? presentation.drawingStudioCanvas?.frame,
+          presentation.drawingStudioCanvas?.targetPreview(for: presentation.displayedFrame) != nil,
+          let transform {
+          DrawingFrameOverlay(frame: frame, transform: transform, editing: movesDrawing, staged: stagedFrame != nil)
         }
       }
       .overlay(alignment: .topLeading) {
@@ -850,14 +869,38 @@ struct ActionSurface: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
           } else if presentation.pointSelectionRequest == nil,
-            presentation.drawingStudioCanvas?.placement.placementIsEnabled == true {
-            Button(movesDrawing ? "Pan Video" : "Move Drawing") {
-              movesDrawing.toggle()
-              pendingDrawingPlacement = nil
-              priorDragTranslation = .zero
+            presentation.drawingStudioCanvas?.placement.placementIsEnabled == true,
+            presentation.drawingStudioCanvas?.frame != nil,
+            overlayContent.targetPreview != nil {
+            Button(frameEditID != nil ? "Cancel Frame Edit" : "Edit Frame") {
+              if frameEditID != nil { cancelFrameEdit() }
+              else if let frame = presentation.displayedFrame, let beginFrameEdit {
+                let id = UUID()
+                frameEditID = id
+                frameEditProjection = presentation.drawingStudioCanvas?.draftProjection
+                Task { @MainActor in
+                  guard frameEditID == id else { return }
+                  let began = await beginFrameEdit(id, frame)
+                  guard frameEditID == id else { endFrameEdit?(id); return }
+                  if began {
+                    movesDrawing = true
+                    drawingPlacementRefusal = nil
+                  } else {
+                    cancelFrameEdit()
+                    drawingPlacementRefusal = "Show a compatible drawing preview before editing its frame."
+                  }
+                }
+              }
             }
+            .accessibilityIdentifier("drawing.editFrame")
+            .help("Drag the frame body to move. Drag a corner to resize about the center. Apply to update the drawing.")
             .buttonStyle(.bordered)
             .controlSize(.small)
+          }
+          if movesDrawing {
+            Text("Frame editing · frozen video")
+              .font(.caption.bold()).foregroundStyle(.yellow)
+              .padding(6).background(.black.opacity(0.78))
           }
           if let sourceBadgeLabel = presentation.sourceBadgeLabel {
             Text(sourceBadgeLabel)
@@ -980,7 +1023,7 @@ struct ActionSurface: View {
               return
             case .drawing:
               priorDragTranslation = .zero
-              stageDrawingPlacement(at: value.location, viewSize: proxy.size)
+              stageDrawingPlacement(from: value.startLocation, to: value.location, transform: transform)
               return
             case .locked: return
             case .pan: break
@@ -1001,6 +1044,7 @@ struct ActionSurface: View {
             )
           }
           .onEnded { _ in
+            drawingDrag = nil
             priorDragTranslation = .zero
             if presentation.pointSelectionRequest?.purpose == .penCapAppearance, drawsCapReference {
               if capReferenceRegion != nil {
@@ -1014,20 +1058,26 @@ struct ActionSurface: View {
       .onChange(of: presentation.viewportContext, initial: true) { _, context in
         viewport.synchronize(with: context)
       }
-      .onChange(of: presentation.drawingStudioCanvas == nil, initial: true) { _, hidden in
-        if hidden {
-          movesDrawing = false
-          pendingDrawingPlacement = nil
-          drawingPlacementRefusal = nil
+      .onChange(of: presentation.drawingStudioCanvas == nil || overlayContent.targetPreview == nil, initial: true) { _, hidden in
+        if hidden { cancelFrameEdit() }
+      }
+      .onChange(of: presentation.drawingStudioCanvas?.draftProjection) { _, current in
+        if let origin = frameEditProjection,
+          current.map({ DrawingFrameEditSession.matches(origin, $0) }) != true {
+          cancelFrameEdit()
         }
       }
+      .onChange(of: viewport.presentationTransformRevision) { _, _ in
+        if movesDrawing { cancelFrameEdit() }
+      }
+      .onDisappear { cancelFrameEdit() }
       .onChange(of: pointSelectionPendingIdentity, initial: true) { prior, current in
         if prior.request != current.request {
           capReferenceRegion = nil
           drawsCapReference = presentation.pointSelectionRequest?.purpose == .penCapAppearance
             && presentation.pointSelectionRequest?.referenceMode != .sampledColorMarker
             && presentation.pointSelectionRequest?.referenceGeometry == nil
-          movesDrawing = false
+          cancelFrameEdit()
           pointSelectionRefusal = nil
           pendingDrawingPlacement = nil
           drawingPlacementRefusal = nil
@@ -1100,27 +1150,31 @@ struct ActionSurface: View {
     }
   }
 
-  private func stageDrawingPlacement(at location: CGPoint, viewSize: CGSize) {
-    guard let canvas = presentation.drawingStudioCanvas,
-      canvas.placement.placementIsEnabled,
-      let displayedFrame = presentation.displayedFrame,
-      let transform = CameraPixelToViewTransform(
-        frameWidth: displayedFrame.frame.width,
-        frameHeight: displayedFrame.frame.height,
-        viewWidth: viewSize.width,
-        viewHeight: viewSize.height,
-        focusRegion: viewport.visibleRegion(
-          frameWidth: displayedFrame.frame.width,
-          frameHeight: displayedFrame.frame.height
-        )
-      ),
+  private func cancelFrameEdit() {
+    if let id = frameEditID { endFrameEdit?(id) }
+    frameEditID = nil
+    frameEditProjection = nil
+    movesDrawing = false
+    pendingDrawingPlacement = nil
+    stagedFrame = nil
+    drawingDrag = nil
+    priorDragTranslation = .zero
+  }
+
+  private func stageDrawingPlacement(from start: CGPoint, to location: CGPoint,
+    transform: CameraPixelToViewTransform?) {
+    guard let canvas = presentation.drawingStudioCanvas, canvas.placement.placementIsEnabled,
+      let original = stagedFrame ?? canvas.frame, let transform,
       let point = transform.cameraPoint(location),
-      let exactFrame = displayedFrame.plotterExactFrameReferenceIfMaterialized
-    else { return }
-    pendingDrawingPlacement = PlotterDrawingDraftCameraPlacement(
-      frame: exactFrame,
-      point: point
-    )
+      let exactFrame = presentation.displayedFrame?.plotterExactFrameReferenceIfMaterialized else { return }
+    if drawingDrag == nil { drawingDrag = DrawingFrameDrag(frame: original, start: start, transform: transform) }
+    guard let updated = try? drawingDrag?.updated(at: point, minimumScale: canvas.placement.allowedScale.lowerBound),
+      let center = try? updated.cameraCenter else { return }
+    stagedFrame = updated
+    pendingDrawingPlacement = PlotterDrawingDraftCameraPlacement(frame: exactFrame,
+      point: center, uniformScale: updated.geometry.placement.uniformScale,
+      draftRevision: canvas.draftProjection.draftRevision)
+    drawingPlacementRefusal = nil
   }
 
   private func submitPendingDrawingPlacement() {
@@ -1137,7 +1191,7 @@ struct ActionSurface: View {
       let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
       if case .accepted = disposition, pendingDrawingPlacement == placement {
         drawingPlacementRefusal = nil
-        pendingDrawingPlacement = nil
+        cancelFrameEdit()
       } else if case .refused(let refusal) = disposition {
         drawingPlacementRefusal = refusal.remedy
       }

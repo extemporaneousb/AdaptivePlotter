@@ -2718,14 +2718,34 @@ final class PlotterApplicationRuntime:
     commitSemanticPresentationChange(invalidatesActionSurface: true)
   }
 
+  var drawingFrameEditSession: DrawingFrameEditSession? {
+    didSet {
+      guard oldValue?.id != drawingFrameEditSession?.id else { return }
+      markSemanticPresentationChanged()
+    }
+  }
+
+  // App ingress exclusion only: Run continues to own admission and execution.
+  private var drawingRunStartSubmissionIsPending = false {
+    didSet {
+      guard oldValue != drawingRunStartSubmissionIsPending else { return }
+      markSemanticPresentationChanged()
+    }
+  }
+
+  private var drawingFrameEditRunUnavailableReason: String? {
+    drawingFrameEditSession == nil ? nil : "Apply or Cancel Frame Edit before drawing."
+  }
+
   var drawingDraftExternalFacts: PlotterDrawingDraftExternalFacts {
+    let draftFrame = drawingFrameEditSession?.frame ?? displayedFrame
     let opticalConfiguration = displayedFrame.flatMap {
       try? cameraOpticalConfiguration(for: $0)
     }
     return PlotterDrawingDraftExternalFacts(
       environment: manualMotionEnvironment,
       interactiveLearningIsComplete: interactiveLearningIsComplete,
-      displayedFrame: displayedFrame,
+      displayedFrame: draftFrame,
       opticalConfiguration: opticalConfiguration,
       registration: tipCameraRegistration,
       drawableRegion: currentDrawableMachineRegion,
@@ -2743,6 +2763,46 @@ final class PlotterApplicationRuntime:
       materialContextHash: currentDrawingMaterialContextHash,
       placementGuide: displayedFrame.flatMap { sparseTipPlacementGuide(on: $0) }
     )
+  }
+
+  func beginDrawingFrameEdit(id: UUID, on frame: DisplayedFrame) async -> Bool {
+    guard applicationAdmissionIsOpen, drawingStudioPresentation.canvas.placement.placementIsEnabled,
+      !drawingRunStartSubmissionIsPending, !drawingRunIsActive,
+      drawingDraftSnapshot.isTargetVisible, drawingDraftSnapshot.frame != nil,
+      pointSelectionEpisodeProjection.exactPointSelection.request == nil,
+      let optical = try? cameraOpticalConfiguration(for: frame),
+      optical == drawingDraftSnapshot.projection.externalFacts.opticalConfiguration else { return false }
+    let origin = drawingDraftSnapshot.projection
+    let exact = DisplayedFrame(source: frame.source, frame: frame.frame.materializingEvidenceContentHash())
+    let session = DrawingFrameEditSession(id: id, frame: exact, projection: origin)
+    drawingFrameEditSession = session
+    // Join the existing synchronization chain before binding the retained frame;
+    // an older ambient-facts publication must not overwrite this exact projection.
+    drawingDraftSynchronizationGeneration &+= 1
+    let previous = drawingDraftSynchronizationTask
+    previous?.cancel()
+    await previous?.value
+    guard drawingFrameEditSession?.id == id, !Task.isCancelled,
+      !drawingRunStartSubmissionIsPending, !drawingRunIsActive,
+      session.matches(drawingDraftSnapshot.projection) else {
+      if drawingFrameEditSession?.id == id { drawingFrameEditSession = nil }
+      return false
+    }
+    let prepared = await drawingDraftRuntime.synchronize(drawingDraftExternalFacts)
+    guard drawingFrameEditSession?.id == id, !drawingRunStartSubmissionIsPending, !drawingRunIsActive,
+      session.matches(prepared.projection),
+      prepared.projection.externalFacts == drawingDraftExternalFacts.revisions else {
+      if drawingFrameEditSession?.id == id { drawingFrameEditSession = nil }
+      return false
+    }
+    drawingFrameEditSession = DrawingFrameEditSession(id: id, frame: exact, projection: prepared.projection)
+    installDrawingDraftSnapshot(prepared)
+    return true
+  }
+
+  func endDrawingFrameEdit(id: UUID) {
+    guard drawingFrameEditSession?.id == id else { return }
+    drawingFrameEditSession = nil
   }
 
   private func performDrawingDraftSubmission(
@@ -2803,6 +2863,10 @@ final class PlotterApplicationRuntime:
 
   private func installDrawingDraftSnapshot(_ snapshot: PlotterDrawingDraftSnapshot) {
     guard snapshot.projection.environment == manualMotionEnvironment else { return }
+    if let session = drawingFrameEditSession,
+      !snapshot.isTargetVisible || !session.matches(snapshot.projection) {
+      drawingFrameEditSession = nil
+    }
     guard snapshot != drawingDraftSnapshot else { return }
     drawingDraftSnapshot = snapshot
   }
@@ -2930,7 +2994,7 @@ final class PlotterApplicationRuntime:
       hasUnresolvedAttempt = true
     } else { hasUnresolvedAttempt = false }
     let runOwnsPlan = run?.activeRunID != nil || run?.terminal != nil || hasUnresolvedAttempt
-    let editingIsEnabled = !runOwnsPlan
+    let editingIsEnabled = !runOwnsPlan && !drawingRunStartSubmissionIsPending
     let placement = DrawingStudioPlacementPresentation(
       centerCameraPixel: draft.centerCameraPixel,
       uniformScale: draft.uniformScale,
@@ -2942,7 +3006,7 @@ final class PlotterApplicationRuntime:
       canvas: DrawingStudioCanvasPresentation(
         draftProjection: draft.projection,
         placement: placement,
-        targetPreview: drawingStudioTargetPreview(from: draft.preview)
+        targetPreview: drawingStudioTargetPreview(from: draft.preview), frame: draft.frame
       ),
       editingIsEnabled: editingIsEnabled && !drawingRunRequiresNewPlan,
       runProjection: run?.projection,
@@ -2980,6 +3044,12 @@ final class PlotterApplicationRuntime:
     }
     if snapshot.activeRunID != nil {
       return .processing(detail: drawingRunPhaseDetail(snapshot.phase))
+    }
+    if let reason = drawingFrameEditRunUnavailableReason {
+      return .unavailable(reason: reason)
+    }
+    if drawingRunStartSubmissionIsPending {
+      return .unavailable(reason: "Drawing Run is admitting the current drawing.")
     }
     if case .failed(_, let recoveryCapabilityID, let detail) =
       snapshot.evidencePersistence
@@ -3100,7 +3170,7 @@ final class PlotterApplicationRuntime:
       bounds: preview.bounds,
       programContentHash: preview.programContentHash.description,
       executionPlanContentHash: preview.planRevisionID?.description,
-      status: status
+      status: status, showsStrokeBounds: drawingDraftSnapshot.frame == nil
     )
   }
 
@@ -3164,6 +3234,12 @@ final class PlotterApplicationRuntime:
   @discardableResult
   func submitDrawingRun(_ submission: PlotterDrawingRunSubmission) async -> PlotterDrawingRunSubmissionResult? {
     guard applicationAdmissionIsOpen else { return nil }
+    let startsRun = submission.intent == .start
+    if startsRun {
+      guard drawingFrameEditSession == nil, !drawingRunStartSubmissionIsPending else { return nil }
+      drawingRunStartSubmissionIsPending = true
+    }
+    defer { if startsRun { drawingRunStartSubmissionIsPending = false } }
     let result = await drawingRunRuntime.submit(submission)
     guard applicationAdmissionIsOpen else { return result }
     installDrawingRunSnapshot(result.snapshot)
@@ -3210,6 +3286,7 @@ final class PlotterApplicationRuntime:
     guard snapshot != drawingRunSnapshot else { return }
     let previousPersistence = drawingRunSnapshot?.evidencePersistence
     drawingRunSnapshot = snapshot
+    if drawingRunIsActive { drawingFrameEditSession = nil }
     if let post = snapshot.postFrame,
       let observation = snapshot.presentationObservation
     {
@@ -5145,7 +5222,7 @@ final class PlotterApplicationRuntime:
         owner: "PlotterDrawingDraftRuntime"))
       let borderIntent = PlotterDrawingDraftIntent.setDrawBorder(!drawing.drawBorder)
       candidates.append(uiCandidate(id: PlotterAppUIActionID.drawingDraft(borderIntent),
-        title: "Draw border", intent: .drawingDraft(borderIntent),
+        title: "Draw frame", intent: .drawingDraft(borderIntent),
         unavailableReason: drawing.authoringUnavailableReason, owner: "PlotterDrawingDraftRuntime"))
       let fitIntent = PlotterDrawingDraftIntent.fitInDrawableRegion
       candidates.append(uiCandidate(id: PlotterAppUIActionID.drawingDraft(fitIntent),
@@ -5653,6 +5730,14 @@ final class PlotterApplicationRuntime:
         remedy: "The root application runtime is shut down; no successor effect can start."
       )
     }
+    // A retained edit stages different geometry from the applied plan. Check
+    // current presentation ownership even for a Draw request cached before
+    // Edit Frame, without weakening the ordinary revision checks below.
+    if request.intent == .drawingRun(.start), let reason = drawingFrameEditRunUnavailableReason {
+      return plotterUIRefusal(request, reason: .unavailableAction,
+        currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
+        remedy: reason)
+    }
     let isImmediateStop: Bool = if case .learningAction(let action) = request.intent {
       action.action.isImmediateStop
     } else { false }
@@ -5758,6 +5843,15 @@ final class PlotterApplicationRuntime:
       await resolveManualMotionEvidence(using: action)
     case .drawingDraft(let intent)
       where request.actionID == PlotterAppUIActionID.drawingDraft(intent):
+      if case .placeAtCameraPoint(let placement) = intent, let session = drawingFrameEditSession {
+        guard session.matches(drawingDraftSnapshot.projection),
+          session.projection.externalFacts == drawingDraftExternalFacts.revisions,
+          placement.frame == session.frame.plotterExactFrameReferenceIfMaterialized else {
+          return plotterUIRefusal(request, reason: .retainedOwnerRefused,
+            currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
+            remedy: "The drawing or calibration context changed. Cancel and edit the current frame again.")
+        }
+      }
       if intent == .assertPaperCoverage {
         // Ambient analysis does not recompile the controls. Bind this explicit
         // operator assertion to the exact frame available at the click, then
@@ -5804,11 +5898,16 @@ final class PlotterApplicationRuntime:
           remedy: "Wait for Drawing Run projection synchronization."
         )
       }
-      let result = await submitDrawingRun(PlotterDrawingRunSubmission(
+      guard let result = await submitDrawingRun(PlotterDrawingRunSubmission(
         projection: drawingRunSnapshot.projection,
         intent: intent
-      ))
-      if case .refused(let refusal) = result?.disposition {
+      )) else {
+        return plotterUIRefusal(request, reason: .retainedOwnerRefused,
+          currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(),
+          remedy: drawingFrameEditRunUnavailableReason
+            ?? "Drawing Run did not admit this request. Refresh its current controls before retrying.")
+      }
+      if case .refused(let refusal) = result.disposition {
         return plotterUIRefusal(request, reason: .retainedOwnerRefused,
           currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
           remedy: drawingRunRefusalDetail(refusal))
@@ -8439,6 +8538,9 @@ final class PlotterApplicationRuntime:
 
   private func installPointSelectionProjection(_ projection: PlotterEpisodeProjection) {
     guard pointSelectionEpisodeProjection != projection else { return }
+    // Exact point selection owns its own retained image and gesture surface.
+    // Release presentation-only drawing pixels before that request is projected.
+    if projection.exactPointSelection.request != nil { drawingFrameEditSession = nil }
     pointSelectionEpisodeProjection = projection
     markSemanticPresentationChanged()
   }

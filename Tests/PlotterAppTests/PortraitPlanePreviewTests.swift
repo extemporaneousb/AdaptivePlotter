@@ -83,10 +83,10 @@ struct PortraitPlanePreviewTests {
       uniformScale: scale, rotationRadians: rotation * .pi / 180, cameraGeometry: camera)
     let field = try AxisAlignedBounds<FieldSpace>(minX: 0, minY: 0, maxX: 100, maxY: 160)
     let points = try field.corners.map { try placement.applying(to: $0) }
-    #expect(points.allSatisfy { region.effectiveBounds.contains($0) })
+    #expect(points.allSatisfy { region.contains($0) })
     let width = try #require(points.map(\.x).max()) - #require(points.map(\.x).min())
     let height = try #require(points.map(\.y).max()) - #require(points.map(\.y).min())
-    #expect(abs(max(width / 210, height / 80) - 0.9) < 1e-12)
+    #expect(abs(max(width / 210, height / 80) - 1.0) < 1e-12)
   }
 
   @Test("Camera preview preserves proportions, shows the projected region, and replays its saved mapping",

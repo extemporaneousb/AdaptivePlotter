@@ -361,6 +361,7 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
   public let coverageUnavailableReason: String?
   public let residualRecords: [DrawingResidualRecordSummary]
   public let residualAnalysis: DrawingRetrospectiveResidualAnalysis?
+  public var frame: PlotterDrawingDraftFrame? = nil
 
   public static func initial(
     environment: PlotterEnvironment,
@@ -442,7 +443,6 @@ public enum PlotterDrawingPlanningAdapter {
     drawableRegion: DrawableMachineRegion,
     registration: TipCameraRegistration,
     drawBorder: Bool = false,
-    drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil,
     materialContextHash: PlotterModel.Digest? = nil
   ) -> PlotterDrawingDraftPlanBuild {
     var allowedScale = 0.02...1.0
@@ -469,25 +469,25 @@ public enum PlotterDrawingPlanningAdapter {
         rotationRadians: rotationDegrees * .pi / 180,
         cameraGeometry: cameraGeometry
       )
+      if cameraGeometry != nil, !DrawingFrameGeometry(extent: program.fieldExtent, placement: placement).isContained(in: drawableRegion) {
+        throw PlotterModelError.invalidValue("The complete drawing frame must remain inside the accepted Boundary.")
+      }
       var plan = try DrawingPlanner.plan(
         program: program,
         placement: placement,
         drawableRegion: drawableRegion,
         provenance: try planningProvenance(for: registration, materialContextHash: materialContextHash),
-        boundaryPolicy: cameraGeometry == nil ? .rejectOutside : .clipToDrawableRegion
+        boundaryPolicy: .rejectOutside
       )
       var executionProgram = program
       let artworkPlan = plan
       if drawBorder {
-        guard let drawingBorderBounds else {
-          throw PlotterModelError.invalidValue("The calibrated Drawing Border is unavailable.")
-        }
         let composed = try includingBorder(program: program, artworkPlan: plan,
-          bounds: drawingBorderBounds, region: drawableRegion)
+          region: drawableRegion)
         executionProgram = composed.program
         plan = try DrawingPlanner.plan(program: composed.program, placement: composed.placement,
           drawableRegion: drawableRegion, provenance: planningProvenance(for: registration, materialContextHash: materialContextHash),
-          boundaryPolicy: cameraGeometry == nil ? .rejectOutside : .clipToDrawableRegion)
+          boundaryPolicy: .rejectOutside)
       }
       return PlotterDrawingDraftPlanBuild(
         program: executionProgram,
@@ -509,58 +509,38 @@ public enum PlotterDrawingPlanningAdapter {
     }
   }
 
-  /// Compose a new ordinary program while retaining all original artwork points.
-  /// The accepted border geometry is supplied by its existing calibration owner;
-  /// the normal planner still checks every stroke and creates every checkpoint.
+  /// The optional ordinary frame is an authored stroke under the same placement.
+  /// Learning's retained calibration Border never participates in this composition.
   private static func includingBorder(
-    program: DrawingProgram, artworkPlan: ExecutionPlanRevision,
-    bounds: AxisAlignedBounds<MachineSpace>, region: DrawableMachineRegion
+    program: DrawingProgram, artworkPlan: ExecutionPlanRevision, region: DrawableMachineRegion
   ) throws -> (program: DrawingProgram, placement: DrawingPlacement) {
-    let points: [Point2<MachineSpace>] = try [
-      Point2(x: bounds.minX, y: bounds.minY), Point2(x: bounds.minX, y: bounds.maxY),
-      Point2(x: bounds.maxX, y: bounds.maxY), Point2(x: bounds.maxX, y: bounds.minY),
-      Point2(x: bounds.minX, y: bounds.minY),
-    ]
-    guard points.allSatisfy({ region.contains($0) }) else {
-      throw PlotterModelError.invalidValue("The calibrated Drawing Border is outside the drawable region.")
+    let frame = DrawingFrameGeometry(extent: program.fieldExtent, placement: artworkPlan.placement)
+    guard frame.isContained(in: region) else {
+      throw PlotterModelError.invalidValue("The drawing frame is outside the accepted Boundary.")
     }
-    let inverse = try artworkPlan.placement.fieldToMachineTransform.inverted()
-    let borderPoints = try points.map { try inverse.applying(to: $0) }
-    let minX = min(0, borderPoints.map(\.x).min()!), minY = min(0, borderPoints.map(\.y).min()!)
-    let maxX = max(program.fieldExtent.width, borderPoints.map(\.x).max()!)
-    let maxY = max(program.fieldExtent.height, borderPoints.map(\.y).max()!)
-    func shifted(_ point: Point2<FieldSpace>) throws -> Point2<FieldSpace> {
-      try Point2(x: point.x - minX, y: point.y - minY)
-    }
-    let boundsHash = try canonicalDigest(of: bounds)
     let cameraMarker = artworkPlan.placement.cameraGeometry == nil ? "" : "|camera-geometry-v1"
-    let seed = "ordinary-drawing-border-v1|\(program.contentHash)|\(artworkPlan.contentHash)|\(boundsHash)"
+    let seed = "ordinary-drawing-frame-v1|\(program.contentHash)|\(artworkPlan.contentHash)"
     let bytes = Array(SHA256.hash(data: Data(seed.utf8)).prefix(16))
     let id = UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
       bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
     guard let style = program.strokes.first?.style else {
-      throw PlotterModelError.invalidValue("The artwork has no pen style for its border.")
+      throw PlotterModelError.invalidValue("The artwork has no pen style for its frame.")
     }
-    // The frame is the first ordinary stroke, before any artwork can be stopped.
-    var strokes = [LogicalStroke(id: StrokeID(id), path: try Polyline(points: borderPoints.map(shifted)),
+    var strokes = [LogicalStroke(id: StrokeID(id),
+      path: try Polyline(points: frame.fieldCorners + [frame.fieldCorners[0]]),
       style: style, semanticRole: .drawing, ordering: 0)]
-    strokes += try program.strokes.enumerated().map { index, stroke in
-      LogicalStroke(id: stroke.id, path: try Polyline(points: stroke.path.points.map(shifted)),
-        style: stroke.style, semanticRole: stroke.semanticRole, ordering: UInt32(index + 1))
+    strokes += program.strokes.enumerated().map { index, stroke in
+      LogicalStroke(id: stroke.id, path: stroke.path, style: stroke.style,
+        semanticRole: stroke.semanticRole, ordering: UInt32(index + 1))
     }
-    return (try DrawingProgram(id: ProgramID(id),
-      fieldExtent: Size2(width: maxX - minX, height: maxY - minY),
+    // Retain the composition marker consumed by candidate/no-redraw evidence.
+    return (try DrawingProgram(id: ProgramID(id), fieldExtent: program.fieldExtent,
       strokes: strokes, source: DrawingSourceProvenance(kind: program.source.kind,
         sourceIdentifier: "\(program.source.sourceIdentifier)\(cameraMarker)|draw-border-v1|artwork=\(program.contentHash)")),
-      try DrawingPlacement(fieldAnchor: shifted(artworkPlan.placement.fieldAnchor),
-        machineAnchor: artworkPlan.placement.machineAnchor,
-        uniformScale: artworkPlan.placement.uniformScale,
-        rotationRadians: artworkPlan.placement.rotationRadians,
-        cameraGeometry: artworkPlan.placement.cameraGeometry))
+      artworkPlan.placement)
   }
 
-  /// Center the transformed, un-clipped artwork bounds. Using the cropped plan
-  /// would make repeated Center actions drift as different strokes enter view.
+  /// Center the authored frame independently of sparse/asymmetric ink.
   public static func centeredMachineAnchor(
     program: DrawingProgram, uniformScale: Double, rotationDegrees: Double,
     drawableRegion: DrawableMachineRegion, registration: TipCameraRegistration
@@ -570,7 +550,7 @@ public enum PlotterDrawingPlanningAdapter {
       machineAnchor: Point2(x: 0, y: 0), uniformScale: uniformScale,
       rotationRadians: rotationDegrees * .pi / 180,
       cameraGeometry: cameraGeometry(for: program, registration: registration))
-    let points = try program.strokes.flatMap { try placement.applying(to: $0.path).points }
+    let points = try DrawingFrameGeometry(extent: program.fieldExtent, placement: placement).machineCorners
     let region = drawableRegion.effectiveBounds
     return try Point2(x: (region.minX + region.maxX - points.map(\.x).min()! - points.map(\.x).max()!) / 2,
       y: (region.minY + region.maxY - points.map(\.y).min()! - points.map(\.y).max()!) / 2)
@@ -606,7 +586,7 @@ public enum PlotterDrawingPlanningAdapter {
     let height = extent.width * abs(d * c + e * s) + extent.height * abs(-d * s + e * c)
     let bounds = region.effectiveBounds
     let maximum = min((bounds.maxX - bounds.minX) / width,
-      (bounds.maxY - bounds.minY) / height) * 0.9
+      (bounds.maxY - bounds.minY) / height) * (cameraGeometry == nil ? 0.9 : 1)
     return min(0.02, maximum)...maximum
   }
 
@@ -676,7 +656,6 @@ public actor PlotterDrawingDraftRuntime {
     let catalog: DrawingCatalogEntryID
     let suppliedProgramHash: PlotterModel.Digest?
     let drawBorder: Bool
-    let drawingBorderBounds: AxisAlignedBounds<MachineSpace>?
     let center: Point2<MachineSpace>?
     let scale: Double
     let rotation: Double
@@ -693,7 +672,6 @@ public actor PlotterDrawingDraftRuntime {
       catalog = state.selectedCatalogItemID
       suppliedProgramHash = state.suppliedProgram?.contentHash
       drawBorder = state.drawBorder
-      drawingBorderBounds = facts.revisions.drawingBorderBounds
       center = state.machineCenter
       scale = state.uniformScale
       rotation = state.rotationDegrees
@@ -964,9 +942,13 @@ public actor PlotterDrawingDraftRuntime {
       state.isTargetVisible = true
       state.suppliedProgram = program
       state.evidenceRole = .ordinaryDrawing
-      state.uniformScale = min(state.uniformScale, allowedScale(state: state, facts: facts, includingCurrentScale: false).upperBound)
+      state.uniformScale = min(state.uniformScale, allowedScale(state: state, facts: facts).upperBound)
       state.placementID = UUID()
     case .placeAtCameraPoint(let placement):
+      if let revision = placement.draftRevision, revision != state.revision {
+        return refuse(submission, state: &state, facts: facts, owner: Authority.draft,
+          reason: .staleProjection, remedy: "The drawing changed. Edit the current frame again.")
+      }
       guard placement.frame == facts.revisions.displayedFrame else {
         return refuse(
           submission,
@@ -990,7 +972,32 @@ public actor PlotterDrawingDraftRuntime {
           remedy: "Restore a current accepted pen-tip registration before placing the target."
         )
       }
+      let scale = placement.uniformScale ?? state.uniformScale
+      guard scale.isFinite, scale > 0,
+        placement.uniformScale == nil || allowedScale(state: state, facts: facts).contains(scale) else {
+        return refuse(submission, state: &state, facts: facts, owner: Authority.planner,
+          reason: .invalidScale, remedy: "Resize the frame within the published scale range.")
+      }
+      guard let program = authoredProgram(state: state, facts: facts), let region = facts.revisions.drawableRegion else {
+        return refuse(submission, state: &state, facts: facts, owner: Authority.region,
+          reason: .drawableRegionUnavailable, remedy: "Restore the learned machine Boundary before placing the frame.")
+      }
+      do {
+        let cameraGeometry = try PlotterDrawingPlanningAdapter.cameraGeometry(for: program, registration: registration)
+        let candidate = try DrawingPlacement(fieldAnchor: Point2(x: program.fieldExtent.width / 2,
+          y: program.fieldExtent.height / 2), machineAnchor: point, uniformScale: scale,
+          rotationRadians: state.rotationDegrees * .pi / 180, cameraGeometry: cameraGeometry)
+        guard DrawingFrameGeometry(extent: program.fieldExtent, placement: candidate).isContained(in: region) else {
+          return refuse(submission, state: &state, facts: facts, owner: Authority.region,
+            reason: .planningFailed("Frame outside Boundary"),
+            remedy: "Keep all four frame corners inside the learned machine Boundary.")
+        }
+      } catch {
+        return refuse(submission, state: &state, facts: facts, owner: Authority.planner,
+          reason: .planningFailed(String(describing: error)), remedy: "Restore compatible frame placement geometry.")
+      }
       state.machineCenter = point
+      state.uniformScale = scale
       state.placementID = UUID()
     case .setUniformScale(let scale):
       let allowed = allowedScale(state: state, facts: facts)
@@ -1026,7 +1033,7 @@ public actor PlotterDrawingDraftRuntime {
       }
       // Fit changes size and position only. Rotation is authored intent and
       // must never change merely because another orientation occupies more area.
-      state.uniformScale = allowedScale(state: state, facts: facts, includingCurrentScale: false).upperBound
+      state.uniformScale = allowedScale(state: state, facts: facts).upperBound
       let bounds = region.effectiveBounds
       state.machineCenter = try? Point2(x: (bounds.minX + bounds.maxX) / 2,
         y: (bounds.minY + bounds.maxY) / 2)
@@ -1330,6 +1337,20 @@ public actor PlotterDrawingDraftRuntime {
         remedy: assessment.blocker ?? "This trial is recorded. Select Next Experiment Trial or leave the experiment.")
       return
     }
+    if let cameraGeometry = try? PlotterDrawingPlanningAdapter.cameraGeometry(for: program, registration: registration) {
+      let bounds = region.effectiveBounds
+      let maximum = PlotterDrawingPlanningAdapter.scaleRange(extent: program.fieldExtent,
+        rotationDegrees: state.rotationDegrees, region: region, cameraGeometry: cameraGeometry).upperBound
+      if let placement = try? DrawingPlacement(fieldAnchor: Point2(x: program.fieldExtent.width / 2,
+        y: program.fieldExtent.height / 2), machineAnchor: state.machineCenter
+          ?? Point2(x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2),
+        uniformScale: min(state.uniformScale, maximum), rotationRadians: state.rotationDegrees * .pi / 180,
+        cameraGeometry: cameraGeometry),
+        let contained = try? DrawingFrameGeometry(extent: program.fieldExtent, placement: placement).constrained(to: region) {
+        state.machineCenter = contained.placement.machineAnchor
+        state.uniformScale = contained.placement.uniformScale
+      }
+    }
     let built = PlotterDrawingPlanningAdapter.buildDraft(
       program: program,
       machineCenter: state.machineCenter,
@@ -1338,7 +1359,6 @@ public actor PlotterDrawingDraftRuntime {
       drawableRegion: region,
       registration: registration,
       drawBorder: state.drawBorder && state.coverageExperiment == nil,
-      drawingBorderBounds: facts.revisions.drawingBorderBounds,
       materialContextHash: facts.revisions.materialContextHash
     )
     state.machineCenter = built.center ?? state.machineCenter
@@ -1529,14 +1549,23 @@ public actor PlotterDrawingDraftRuntime {
       residualRecords: facts.coverageRecords.reversed().map {
         DrawingResidualRecordSummary(record: $0, isSelected: state.selectedResidualRecordIDs.contains($0.recordID))
       },
-      residualAnalysis: state.residualAnalysis
+      residualAnalysis: state.residualAnalysis,
+      frame: makeFrame(state: state, facts: facts)
     )
+  }
+
+  private func makeFrame(state: SourceState, facts: PlotterDrawingDraftExternalFacts) -> PlotterDrawingDraftFrame? {
+    guard state.coverageExperiment == nil, let program = authoredProgram(state: state, facts: facts),
+      let executionPlan = state.plan, executionPlan.contentHash == state.artworkExecutionPlanHash,
+      let plan = state.artworkPlan, plan.sourceProgramContentHash == program.contentHash,
+      let registration = facts.registration, let region = facts.revisions.drawableRegion else { return nil }
+    return PlotterDrawingDraftFrame(geometry: DrawingFrameGeometry(extent: program.fieldExtent,
+      placement: plan.placement), boundary: region, cameraFromMachine: registration.cameraFromMachine)
   }
 
   private func allowedScale(
     state: SourceState,
-    facts: PlotterDrawingDraftExternalFacts,
-    includingCurrentScale: Bool = true
+    facts: PlotterDrawingDraftExternalFacts
   ) -> ClosedRange<Double> {
     if state.coverageExperiment != nil { return 1...1 }
     guard let region = facts.revisions.drawableRegion else { return 0.02...1 }
@@ -1550,10 +1579,7 @@ public actor PlotterDrawingDraftRuntime {
     }
     let fitted = PlotterDrawingPlanningAdapter.scaleRange(extent: extent,
       rotationDegrees: state.rotationDegrees, region: region, cameraGeometry: cameraGeometry)
-    // Rotation may crop ordinary artwork without silently shrinking its size.
-    // Keep that retained scale representable by the existing Size control.
-    return fitted.lowerBound...max(fitted.upperBound,
-      includingCurrentScale && cameraGeometry != nil ? state.uniformScale : fitted.upperBound)
+    return fitted
   }
 
   private func authoredProgram(
