@@ -1391,20 +1391,119 @@ final class PlotterApplicationRuntime:
   private var pendingToolContactClickFrame: ExactTipCalibrationFrame?
   private var pendingToolContactEvidence: [PendingToolContactEvidence] = []
   @ObservationIgnored private var sparseTipBatchPlanCache:
-    (boundary: [BoundaryDirection: BoundarySideAggregate], plan: SparseTipBatchMarkPlan)?
+    (boundary: [BoundaryDirection: BoundarySideAggregate], context: PlotterTipWorkingRegionContext?,
+      region: AxisAlignedBounds<MachineSpace>?, plan: SparseTipBatchMarkPlan)?
+  private var retainedCalibrationWorkingRegionFrame: DisplayedFrame?
+  var calibrationWorkingRegionFrame: DisplayedFrame? {
+    get {
+      guard let edit = tipCalibrationRuntime.workingRegionEdit,
+        edit.selection.context == calibrationWorkingRegionCurrentContext,
+        isSparseTipRegionContext,
+        tipCalibrationRuntime.workingRegionIsEditable else { return nil }
+      return retainedCalibrationWorkingRegionFrame
+    }
+    set { retainedCalibrationWorkingRegionFrame = newValue }
+  }
 
-  /// Both execution and video consume this exact canonical batch value. Sheet
-  /// identity and navigation do not alter geometry; Boundary changes do.
+  func calibrationWorkingRegionContext(on frame: DisplayedFrame) -> PlotterTipWorkingRegionContext? {
+    guard let boundary = try? SparseTipBatchMarkPlan.boundaryEnvelope(for: acceptedBoundaryAggregates),
+      acceptedBoundaryAggregates.values.allSatisfy({ $0.coordinateRevision == explorationCoordinateRevision }),
+      let map = machineCameraRegistration, let optical = opticalIdentity(for: frame),
+      map.opticalConfiguration == optical, map.machineGeometry == machineGeometryIdentity,
+      map.coordinateRevision == explorationCoordinateRevision,
+      let revision = learningArtifactGraph.currentRevision(for: .machineCameraRegistration)?.id else { return nil }
+    return PlotterTipWorkingRegionContext(boundary: boundary, machineMap: map, machineMapRevision: revision,
+      controllerSessionID: controllerSessionID, paper: currentPaperRevisionContext,
+      toolAssembly: toolAssemblyRevision, penContactProfile: penContactProfileRevision,
+      cameraConfigurationID: frame.frame.cameraConfigurationID,
+      boundaryRevisionIDs: Set(acceptedBoundaryAggregates.values.map(\.revisionID)))
+  }
+
+  private var calibrationWorkingRegionCurrentContext: PlotterTipWorkingRegionContext? {
+    guard let frame = displayedFrame else { return nil }
+    return calibrationWorkingRegionContext(on: frame)
+  }
+
+  var isSparseTipRegionContext: Bool {
+    // Active ownership must not rebuild Learning presentation during each mark.
+    activeExerciseAttemptOwnerID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+      || currentLearningPathItemID == .humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+  }
+
+  var calibrationWorkingRegionPresentation: CalibrationWorkingRegionPresentation? {
+    guard applicationAdmissionIsOpen, isSparseTipRegionContext,
+      let context = calibrationWorkingRegionCurrentContext else { return nil }
+    let frozen = tipCalibrationRuntime.frozenWorkingRegion
+    if let frozen, frozen.context != context { return nil }
+    let selected = tipCalibrationRuntime.selectedWorkingRegion
+    let restored = tipCameraRegistration.flatMap { try? SparseTipBatchMarkPlan.selectedWorkingRegion(for: $0) }
+    let reason: String?
+    if !overlayPreferenceState.enabled.contains(.drawingRegion) { reason = "Show Drawing Region in Video Settings to edit." }
+    else if drawingRunStartSubmissionIsPending || drawingRunIsActive { reason = "Wait for drawing to finish, or use Stop." }
+    else if drawingFrameEditSession != nil { reason = "Apply or Cancel drawing positioning first." }
+    else if !tipCalibrationRuntime.workingRegionIsEditable { reason = "Finish the current calibration or resolve possible ink first." }
+    else if pointSelectionEpisodeProjection.exactPointSelection.request != nil { reason = "Finish the current point selection first." }
+    else { reason = nil }
+    return CalibrationWorkingRegionPresentation(context: context,
+      bounds: frozen?.bounds ?? selected.flatMap { context.contains($0.bounds) ? $0.bounds : nil } ?? restored ?? context.boundary,
+      edit: tipCalibrationRuntime.workingRegionEdit,
+      isStale: selected.map { $0.context != context } ?? false, unavailableReason: reason)
+  }
+
+  func beginCalibrationWorkingRegionEdit(id: UUID, on frame: DisplayedFrame) -> Bool {
+    guard let preview = calibrationWorkingRegionPresentation, preview.unavailableReason == nil,
+      calibrationWorkingRegionContext(on: frame) == preview.context else { return false }
+    let exact = DisplayedFrame(source: frame.source, frame: frame.frame.materializingEvidenceContentHash())
+    guard let reference = exact.plotterExactFrameReferenceIfMaterialized else { return false }
+    let edit = PlotterTipWorkingRegionEdit(id: id, exactFrame: reference,
+      selection: .init(context: preview.context, bounds: preview.bounds))
+    guard tipCalibrationRuntime.submitWorkingRegion(.begin(edit), currentContext: calibrationWorkingRegionCurrentContext) == .completed else { return false }
+    calibrationWorkingRegionFrame = exact
+    markSemanticPresentationChanged()
+    return true
+  }
+
+  func applyCalibrationWorkingRegion(_ edit: PlotterTipWorkingRegionEdit,
+    bounds: AxisAlignedBounds<MachineSpace>) -> String? {
+    guard retainedCalibrationWorkingRegionFrame?.plotterExactFrameReferenceIfMaterialized == edit.exactFrame else {
+      return "The retained working-region frame changed. Cancel and edit again."
+    }
+    let outcome = tipCalibrationRuntime.submitWorkingRegion(.apply(edit, bounds), currentContext: calibrationWorkingRegionCurrentContext)
+    markSemanticPresentationChanged()
+    if case .refused(let reason) = outcome { return reason }
+    calibrationWorkingRegionFrame = nil
+    return nil
+  }
+
+  func cancelCalibrationWorkingRegionEdit(id: UUID) {
+    guard tipCalibrationRuntime.workingRegionEdit?.id == id else { return }
+    _ = tipCalibrationRuntime.submitWorkingRegion(.cancel(id), currentContext: calibrationWorkingRegionCurrentContext)
+    calibrationWorkingRegionFrame = nil
+    markSemanticPresentationChanged()
+  }
+
+  /// Execution and preview derive from the owner-frozen selection once Go is
+  /// admitted. The accepted v8 domain restores the working extent after reload.
   var currentSparseTipBatchPlan: SparseTipBatchMarkPlan? {
     guard acceptedBoundaryAggregates.values.allSatisfy({
       $0.coordinateRevision == explorationCoordinateRevision
     }) else { return nil }
-    if let cached = sparseTipBatchPlanCache, cached.boundary == acceptedBoundaryAggregates {
-      return cached.plan
-    }
-    guard let plan = try? SparseTipBatchMarkPlan(acceptedBoundaryAggregates: acceptedBoundaryAggregates)
-    else { return nil }
-    sparseTipBatchPlanCache = (acceptedBoundaryAggregates, plan)
+    let context = calibrationWorkingRegionCurrentContext
+    let frozen = tipCalibrationRuntime.frozenWorkingRegion
+    let selected = tipCalibrationRuntime.selectedWorkingRegion
+    let region: AxisAlignedBounds<MachineSpace>?
+    if let frozen {
+      guard frozen.context == context else { return nil }
+      region = frozen.bounds
+    } else if let selected {
+      guard selected.context == context else { return nil }
+      region = selected.bounds
+    } else { region = tipCameraRegistration.flatMap { try? SparseTipBatchMarkPlan.selectedWorkingRegion(for: $0) } }
+    if let cached = sparseTipBatchPlanCache, cached.boundary == acceptedBoundaryAggregates,
+      cached.context == context, cached.region == region { return cached.plan }
+    guard let plan = try? SparseTipBatchMarkPlan(acceptedBoundaryAggregates: acceptedBoundaryAggregates,
+      workingRegion: region) else { return nil }
+    sparseTipBatchPlanCache = (acceptedBoundaryAggregates, context, region, plan)
     return plan
   }
 
@@ -2445,7 +2544,8 @@ final class PlotterApplicationRuntime:
 
   private var retainedActionSurfaceFrame: DisplayedFrame? {
     return
-      frozenPointSelectionFrame
+      calibrationWorkingRegionFrame
+      ?? frozenPointSelectionFrame
       ?? (borderValidationSnapshot.comparisonReviewIsPinned
         ? borderValidationSnapshot.postFrame
         : nil)
@@ -2514,7 +2614,7 @@ final class PlotterApplicationRuntime:
         + (surfaceFrame.map(borderValidationPredictionOverlays) ?? []),
       simulatedAnnotations: simulatedAnnotations,
       simulatedViewportID: simulatedViewportID,
-      simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible,
+      simulatedAnnotationsAreVisible: simulatedAnnotationsAreVisible && overlayPreferenceState.enabled.contains(.simulatorDiagnostics),
       viewportContext: viewportContext,
       analysisRegionIsLocked: surfaceFrame.map {
         videoAnalysisRegionLock?.matches($0) == true
@@ -2526,7 +2626,10 @@ final class PlotterApplicationRuntime:
       },
       tipPresentation: tipPresentation,
       completedComparisonReview: completedComparisonReviewPresentation,
-      drawingStudioCanvas: drawingTargetIsVisible ? drawingStudioPresentation.canvas : nil
+      drawingStudioCanvas: drawingTargetIsVisible ? drawingStudioPresentation.canvas : nil,
+      showsMachineBoundary: overlayPreferenceState.enabled.contains(.machineBoundary),
+      showsDrawingRegion: overlayPreferenceState.enabled.contains(.drawingRegion),
+      drawingPositioningUnavailableReason: drawingPositioningUnavailableReason
     )
     let signature = ActionSurfaceDiagnosticSignature(
       frameID: presentation.displayedFrame?.frame.id,
@@ -2734,11 +2837,15 @@ final class PlotterApplicationRuntime:
   }
 
   private var drawingFrameEditRunUnavailableReason: String? {
-    drawingFrameEditSession == nil ? nil : "Apply or Cancel Frame Edit before drawing."
+    if tipCalibrationRuntime.workingRegionEdit != nil {
+      return "Apply or Cancel the working-region edit before drawing."
+    }
+    return drawingFrameEditSession == nil ? nil : "Apply or Cancel Frame Edit before drawing."
   }
 
   var drawingDraftExternalFacts: PlotterDrawingDraftExternalFacts {
-    let draftFrame = drawingFrameEditSession?.frame ?? displayedFrame
+    let draftFrame = tipCalibrationRuntime.workingRegionEdit == nil
+      ? drawingFrameEditSession?.frame ?? displayedFrame : nil
     let opticalConfiguration = displayedFrame.flatMap {
       try? cameraOpticalConfiguration(for: $0)
     }
@@ -2761,13 +2868,46 @@ final class PlotterApplicationRuntime:
       }(),
       drawingBorderBounds: currentDrawingBorderBounds,
       materialContextHash: currentDrawingMaterialContextHash,
-      placementGuide: displayedFrame.flatMap { sparseTipPlacementGuide(on: $0) }
+      placementGuide: displayedFrame.flatMap { sparseTipPlacementGuide(on: $0) },
+      paperCoverageOutlineIsVisible: paperCoverageOutlineIsVisible
     )
   }
 
+  var paperCoverageOutlineIsVisible: Bool {
+    overlayPreferenceState.enabled.contains(.drawingRegion)
+      && tipCalibrationRuntime.workingRegionEdit == nil && drawingFrameEditSession == nil
+      && !(tipCameraRegistration != nil && isSparseTipRegionContext)
+  }
+
+  var drawingPositioningUnavailableReason: String? {
+    if isSparseTipRegionContext { return "Finish calibration before positioning artwork." }
+    if !overlayPreferenceState.enabled.contains(.drawingRegion) { return "Show Drawing Region in Video Settings to position artwork." }
+    if pointSelectionEpisodeProjection.exactPointSelection.request != nil { return "Finish the current point selection first." }
+    if drawingRunStartSubmissionIsPending || drawingRunIsActive { return "Wait for drawing to finish, or use Stop." }
+    if tipCalibrationRuntime.workingRegionEdit != nil { return "Apply or Cancel the region edit first." }
+    if !drawingTargetIsVisible { return "Show Drawing to position it." }
+    if tipCameraRegistration == nil { return "Complete tip calibration first." }
+    if drawingRunRequiresNewPlan { return "Prepare the next drawing first." }
+    if drawingDraftSnapshot.coverageExperiment != nil { return "Leave the coverage experiment first." }
+    if drawingDraftSnapshot.frame == nil { return "Select a drawing that fits the working area." }
+    guard let frame = retainedActionSurfaceFrame ?? displayedFrame,
+      drawingStudioPresentation.canvas.targetPreview(for: frame) != nil else {
+      return "Show a compatible drawing preview first."
+    }
+    if !drawingStudioPresentation.canvas.placement.placementIsEnabled { return "Finish the current operation before positioning artwork." }
+    return nil
+  }
+
+  var videoViewportAdjustmentUnavailableReason: String? {
+    if videoAnalysisRegionLock != nil { return "Unlock the video region first." }
+    if pointSelectionEpisodeProjection.exactPointSelection.request != nil { return "Finish the current point selection first." }
+    if tipCalibrationRuntime.workingRegionEdit != nil || drawingFrameEditSession != nil { return "Apply or Cancel the edit first." }
+    return nil
+  }
+
   func beginDrawingFrameEdit(id: UUID, on frame: DisplayedFrame) async -> Bool {
-    guard applicationAdmissionIsOpen, drawingStudioPresentation.canvas.placement.placementIsEnabled,
-      !drawingRunStartSubmissionIsPending, !drawingRunIsActive,
+    guard applicationAdmissionIsOpen, drawingPositioningUnavailableReason == nil, drawingStudioPresentation.canvas.placement.placementIsEnabled,
+      !drawingRunStartSubmissionIsPending, !drawingRunIsActive, tipCalibrationRuntime.workingRegionEdit == nil,
       drawingDraftSnapshot.isTargetVisible, drawingDraftSnapshot.frame != nil,
       pointSelectionEpisodeProjection.exactPointSelection.request == nil,
       let optical = try? cameraOpticalConfiguration(for: frame),
@@ -2783,13 +2923,13 @@ final class PlotterApplicationRuntime:
     previous?.cancel()
     await previous?.value
     guard drawingFrameEditSession?.id == id, !Task.isCancelled,
-      !drawingRunStartSubmissionIsPending, !drawingRunIsActive,
+      !drawingRunStartSubmissionIsPending, !drawingRunIsActive, tipCalibrationRuntime.workingRegionEdit == nil,
       session.matches(drawingDraftSnapshot.projection) else {
       if drawingFrameEditSession?.id == id { drawingFrameEditSession = nil }
       return false
     }
     let prepared = await drawingDraftRuntime.synchronize(drawingDraftExternalFacts)
-    guard drawingFrameEditSession?.id == id, !drawingRunStartSubmissionIsPending, !drawingRunIsActive,
+    guard drawingFrameEditSession?.id == id, !drawingRunStartSubmissionIsPending, !drawingRunIsActive, tipCalibrationRuntime.workingRegionEdit == nil,
       session.matches(prepared.projection),
       prepared.projection.externalFacts == drawingDraftExternalFacts.revisions else {
       if drawingFrameEditSession?.id == id { drawingFrameEditSession = nil }
@@ -2912,7 +3052,7 @@ final class PlotterApplicationRuntime:
         reason:
           drawingDraftSnapshot.sheetPlacementIsCurrent
             ? "Sheet placement accepted against the approximate cap map. Pen-tip calibration and calibrated sheet coverage are still required for Drawing."
-            : "Place the current sheet over the outlined Drawing Boundary and assert that it covers the outline."
+            : "Place the current sheet over the outlined working region and assert that it covers the outline."
       )
     return WorkbenchCapabilityPresentation(learning: learning, paper: paper)
   }
@@ -2995,6 +3135,7 @@ final class PlotterApplicationRuntime:
     } else { hasUnresolvedAttempt = false }
     let runOwnsPlan = run?.activeRunID != nil || run?.terminal != nil || hasUnresolvedAttempt
     let editingIsEnabled = !runOwnsPlan && !drawingRunStartSubmissionIsPending
+      && tipCalibrationRuntime.workingRegionEdit == nil
     let placement = DrawingStudioPlacementPresentation(
       centerCameraPixel: draft.centerCameraPixel,
       uniformScale: draft.uniformScale,
@@ -3170,7 +3311,7 @@ final class PlotterApplicationRuntime:
       bounds: preview.bounds,
       programContentHash: preview.programContentHash.description,
       executionPlanContentHash: preview.planRevisionID?.description,
-      status: status, showsStrokeBounds: drawingDraftSnapshot.frame == nil
+      status: status, showsStrokeBounds: false
     )
   }
 
@@ -3236,7 +3377,8 @@ final class PlotterApplicationRuntime:
     guard applicationAdmissionIsOpen else { return nil }
     let startsRun = submission.intent == .start
     if startsRun {
-      guard drawingFrameEditSession == nil, !drawingRunStartSubmissionIsPending else { return nil }
+      guard drawingFrameEditSession == nil, tipCalibrationRuntime.workingRegionEdit == nil,
+        !drawingRunStartSubmissionIsPending else { return nil }
       drawingRunStartSubmissionIsPending = true
     }
     defer { if startsRun { drawingRunStartSubmissionIsPending = false } }
@@ -3353,9 +3495,15 @@ final class PlotterApplicationRuntime:
   }
 
   private func drawableMachineRegion() throws -> DrawableMachineRegion {
-    try DrawableMachineRegion(
-      bounds: SparseTipBatchMarkPlan.boundaryEnvelope(for: acceptedBoundaryAggregates)
-    )
+    let boundary = try SparseTipBatchMarkPlan.boundaryEnvelope(for: acceptedBoundaryAggregates)
+    if let registration = tipCameraRegistration,
+      let selected = try SparseTipBatchMarkPlan.selectedWorkingRegion(for: registration) {
+      guard TipCalibrationWorkingRegionPolicy.contains(selected, in: boundary) else {
+        throw CurrentCameraCalibrationPlanningError.selectedWorkingRegionOutsideBoundary
+      }
+      return try DrawableMachineRegion(bounds: selected)
+    }
+    return try DrawableMachineRegion(bounds: boundary)
   }
 
   private func drawingBorderBounds(
@@ -3363,6 +3511,9 @@ final class PlotterApplicationRuntime:
     acceptedBoundary: AxisAlignedBounds<MachineSpace>?
   ) throws -> AxisAlignedBounds<MachineSpace> {
     if registration.estimatorRevision == SparseTipCircularMarkPlan.registrationEstimatorRevision {
+      return registration.applicabilityRectangle
+    }
+    if registration.estimatorRevision == SparseTipCircularMarkPlan.boundaryInsetFourCircleRegistrationEstimatorRevision {
       guard let acceptedBoundary else {
         throw CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope
       }
@@ -3404,24 +3555,24 @@ final class PlotterApplicationRuntime:
         ? registration : nil
     }
     func project(_ point: Point2<MachineSpace>) throws -> Point2<CameraPixelSpace> {
-      if let tip { return try tip.diagnosticProjection(at: point).cameraPoint }
+      if let tip, !isSparseTipRegionContext { return try tip.diagnosticProjection(at: point).cameraPoint }
       return try machineMap.fit.cameraPoint(from: point)
     }
     do {
-      let border = try DrawingBorderPlan(bounds: plan.applicabilityRectangle)
       let boundary = try DrawingBorderPlan(bounds: plan.boundaryEnvelope)
-      var geometry: [CameraPixelGeometry] = [
-        .polyline(try Polyline(points: boundary.pathPositions.map { try project($0.point) })),
-        .polyline(try Polyline(points: border.pathPositions.map { try project($0.point) }))]
+      let working = try DrawingBorderPlan(bounds: plan.workingRegion)
+      var geometry: [(CameraOverlayKind, CameraPixelGeometry)] = [
+        (.acceptedBoundary, .polyline(try Polyline(points: boundary.pathPositions.map { try project($0.point) }))),
+        (.drawingRegion, .polyline(try Polyline(points: working.pathPositions.map { try project($0.point) })))]
       for mark in plan.marks {
-        geometry.append(.point(try project(mark.machinePosition.point)))
-        geometry.append(.polyline(try Polyline(points: mark.circle.pathPositions.map { try project($0.point) })))
+        geometry.append((.calibrationGuide, .point(try project(mark.machinePosition.point))))
+        geometry.append((.calibrationGuide, .polyline(try Polyline(points: mark.circle.pathPositions.map { try project($0.point) }))))
       }
-      return geometry.map { geometry in
+      return geometry.map { kind, geometry in
         CameraOverlayMeasurement(frameID: frame.frame.id,
           cameraConfigurationID: frame.frame.cameraConfigurationID, geometry: geometry,
-          provenance: CameraMeasurementProvenance(kind: .calibrationGuide, source: .planned,
-            algorithmRevision: tip == nil
+          provenance: CameraMeasurementProvenance(kind: kind, source: .planned,
+            algorithmRevision: tip == nil || isSparseTipRegionContext
               ? "planned-four-circle-cap-map-unknown-tip-offset-extrapolation-v1"
               : "planned-four-circle-compatible-tip-projection-v1"))
       }
@@ -3433,7 +3584,7 @@ final class PlotterApplicationRuntime:
       let map = machineCameraRegistration,
       let revision = learningArtifactGraph.currentRevision(for: .machineCameraRegistration)?.id,
       let plan = currentSparseTipBatchPlan,
-      let region = try? DrawableMachineRegion(bounds: plan.boundaryEnvelope) else { return nil }
+      let region = try? DrawableMachineRegion(bounds: plan.workingRegion) else { return nil }
     let overlays = sparseTipGuideOverlays(on: frame)
     guard !overlays.isEmpty else { return nil }
     return PlotterDrawingDraftPlacementGuide(opticalConfiguration: map.opticalConfiguration,
@@ -3451,11 +3602,17 @@ final class PlotterApplicationRuntime:
     let guides = sparseTipGuideOverlays(on: frame)
     guard let first = guides.first else { return nil }
     return first.provenance.algorithmRevision.contains("unknown-tip-offset")
-      ? "Planned frame and circles · approximate cap map · unknown tip offset; extrapolation possible"
-      : "Planned frame and circles · calibrated tip projection; Boundary outside the circle centers is extrapolated"
+      ? "Calibration circles · approximate cap map · unknown tip offset; extrapolation possible"
+      : "Calibration circles · calibrated tip projection; outside the circle-center rectangle is extrapolated"
   }
 
   var paperAcceptanceUnavailableReason: String? {
+    if tipCameraRegistration != nil && isSparseTipRegionContext { return "Finish calibration before confirming sheet coverage." }
+    if drawingFrameEditSession != nil { return "Apply or Cancel drawing positioning before confirming sheet coverage." }
+    if !overlayPreferenceState.enabled.contains(.drawingRegion) { return "Show Drawing Region before confirming sheet coverage." }
+    if tipCalibrationRuntime.workingRegionEdit != nil {
+      return "Apply or Cancel the working-region edit before accepting sheet placement."
+    }
     if let reason = paperReplacementInProgressReason { return reason }
     if tipCalibrationRuntime.activeOperationID != nil {
       return "Wait for position verification or pen-tip calibration to finish, or use Stop before accepting this sheet."
@@ -3466,7 +3623,8 @@ final class PlotterApplicationRuntime:
       registration: tipCameraRegistration, drawableRegion: currentDrawableMachineRegion,
       placementGuide: frame.flatMap { sparseTipPlacementGuide(on: $0) },
       paper: currentPaperRevisionContext, toolAssemblyRevision: toolAssemblyRevision,
-      runInProgress: drawingRunIsActive, terminalRequiresNewPlan: drawingRunRequiresNewPlan)
+      runInProgress: drawingRunIsActive, terminalRequiresNewPlan: drawingRunRequiresNewPlan,
+      paperCoverageOutlineIsVisible: paperCoverageOutlineIsVisible)
   }
 
   var sheetAcceptanceTitle: String {
@@ -3476,7 +3634,7 @@ final class PlotterApplicationRuntime:
 
   var sheetAcceptanceDetail: String {
     tipCameraRegistration == nil ? PlotterDrawingDraftPlacementGuide.qualification
-      : "Confirm that this current sheet covers the outlined Drawing Boundary. This is an operator assertion, not measured paper edges or permission to replay marks."
+      : "Confirm that this current sheet covers the outlined working region. This is an operator assertion, not measured paper edges or permission to replay marks."
   }
 
   private func learnedDrawingOverlays(
@@ -3506,70 +3664,33 @@ final class PlotterApplicationRuntime:
     } else {
       context = nil
     }
-    let plannedGuides = sparseTipGuideOverlays(on: displayedFrame)
+    let allGuides = sparseTipGuideOverlays(on: displayedFrame)
+    let plannedGuides = isSparseTipRegionContext ? allGuides : allGuides.filter { $0.provenance.kind != .calibrationGuide }
+    if isSparseTipRegionContext { return plannedGuides }
     guard let context else { return plannedGuides }
     let registration = context.registration
-    guard
-      displayedFrame.source == registration.applicability.opticalConfiguration.source,
+    guard displayedFrame.source == registration.applicability.opticalConfiguration.source,
       displayedFrame.frame.width == registration.applicability.opticalConfiguration.width,
       displayedFrame.frame.height == registration.applicability.opticalConfiguration.height,
-      displayedFrame.frame.pixelFormat
-        == registration.applicability.opticalConfiguration.pixelFormat
+      displayedFrame.frame.pixelFormat == registration.applicability.opticalConfiguration.pixelFormat
     else { return plannedGuides }
-
-    let boundary: AxisAlignedBounds<MachineSpace>? =
-      if context.acceptedBoundaryAggregates.values.allSatisfy({
-        $0.coordinateRevision == registration.applicability.machineCoordinateFrame.rawValue
-      }) {
-        try? SparseTipBatchMarkPlan.boundaryEnvelope(for: context.acceptedBoundaryAggregates)
-      } else {
-        nil
-      }
-    guard let bounds = try? drawingBorderBounds(
-      for: registration,
-      acceptedBoundary: boundary
-    ) else { return plannedGuides }
-    var overlays: [CameraOverlayMeasurement] = plannedGuides
-    if let boundary,
-      let boundaryOutline = try? closedMachineRectanglePositions(bounds: boundary),
-      let projectedBoundary = try? Polyline<CameraPixelSpace>(
-        points: boundaryOutline.map {
+    let boundary: AxisAlignedBounds<MachineSpace>? = context.acceptedBoundaryAggregates.values.allSatisfy {
+      $0.coordinateRevision == registration.applicability.machineCoordinateFrame.rawValue
+    } ? try? SparseTipBatchMarkPlan.boundaryEnvelope(for: context.acceptedBoundaryAggregates) : nil
+    guard let boundary else { return plannedGuides }
+    // Persistent references describe travel and the entire operator-attested
+    // working area. Observed-center Border geometry stays in its actual plan.
+    let region = (try? SparseTipBatchMarkPlan.selectedWorkingRegion(for: registration)) ?? boundary
+    var overlays = isSparseTipRegionContext ? plannedGuides.filter { $0.provenance.kind == .calibrationGuide } : []
+    for (bounds, kind) in [(boundary, CameraOverlayKind.acceptedBoundary), (region, .drawingRegion)] {
+      guard let rectangle = try? DrawingBorderPlan(bounds: bounds),
+        let projected = try? Polyline(points: rectangle.pathPositions.map {
           try registration.diagnosticProjection(at: $0.point).cameraPoint
-        }
-      )
-    {
-      overlays.append(
-        CameraOverlayMeasurement(
-          frameID: displayedFrame.frame.id,
-          cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
-          geometry: .polyline(projectedBoundary),
-          provenance: CameraMeasurementProvenance(
-            kind: .acceptedBoundary,
-            source: .inferred,
-            algorithmRevision: "accepted-drawing-boundary-tip-extrapolation-v2"
-          )
-        )
-      )
-    }
-    if let drawingBorder = try? DrawingBorderPlan(bounds: bounds),
-      let projectedBorder = try? Polyline<CameraPixelSpace>(
-        points: drawingBorder.pathPositions.map { try registration.tipPixel(at: $0.point) }
-      )
-    {
-      overlays.append(
-        CameraOverlayMeasurement(
-          frameID: displayedFrame.frame.id,
-          cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
-          geometry: .polyline(projectedBorder),
-          provenance: CameraMeasurementProvenance(
-            kind: context.isProposed ? .intendedPath : .drawingBorder,
-            source: context.isProposed ? .planned : .inferred,
-            algorithmRevision: context.isProposed
-              ? "proposed-tip-drawing-border-preview-v2"
-              : "accepted-tip-drawing-border-region-v3"
-          )
-        )
-      )
+        }) else { continue }
+      overlays.append(CameraOverlayMeasurement(frameID: displayedFrame.frame.id,
+        cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
+        geometry: .polyline(projected), provenance: CameraMeasurementProvenance(kind: kind,
+          source: .inferred, algorithmRevision: "admitted-machine-boundary-and-working-region-reference-v1")))
     }
     if let savedCandidate,
       let machineCamera = savedCandidate.machineCamera?.registration,
@@ -3589,27 +3710,8 @@ final class PlotterApplicationRuntime:
         )
       )
     }
-    // Saved Learning supplies calibrated guides, not a selection of artwork.
-    // Archived plans retain their original placement and evidence context;
-    // projecting them all here bypasses Draft visibility and duplicates targets.
-    if let coverage = drawingDraftSnapshot.paperCoverageDisplay,
-      coverage.source == displayedFrame.source,
-      coverage.frame == ExactFrameProvenance(frame: displayedFrame.frame),
-      let polygon = try? Polyline(points: coverage.polygon + [coverage.polygon[0]])
-    {
-      overlays.append(
-        CameraOverlayMeasurement(
-          frameID: displayedFrame.frame.id,
-          cameraConfigurationID: displayedFrame.frame.cameraConfigurationID,
-          geometry: .polyline(polygon),
-          provenance: CameraMeasurementProvenance(
-            kind: .paperCoverage,
-            source: .diagnostic,
-            algorithmRevision: "drawing-draft-paper-coverage-exact-frame-v1"
-          )
-        )
-      )
-    }
+    // Paper coverage remains an exact assertion in Draft; rendering a second
+    // coverage polygon here would duplicate the Drawing Region reference.
     return overlays
   }
 
@@ -3713,6 +3815,10 @@ final class PlotterApplicationRuntime:
   }
 
   func overlayStatus(for overlay: UserSceneOverlay) -> OverlayLayerStatus {
+    if !overlay.usesSceneAnalysis {
+      let enabled = overlayPreferenceState.enabled.contains(overlay)
+      return OverlayLayerStatus(state: enabled ? .available : .off, message: enabled ? "Visible" : "Off", provenance: nil)
+    }
     if frameMode == .live,
       overlayPreferenceState.enabled.contains(overlay),
       livePenCapAppearanceSelection == nil
@@ -3749,20 +3855,18 @@ final class PlotterApplicationRuntime:
     return true
   }
 
-  private func learnedBoundsPresentationRegion(_ frame: DisplayedFrame) -> PixelRect? {
+  func learnedBoundsPresentationRegion(_ frame: DisplayedFrame) -> PixelRect? {
     guard let registration = machineCameraRegistration,
-      let negativeX = acceptedBoundaryAggregates[.negativeX]?.estimateMM,
-      let positiveX = acceptedBoundaryAggregates[.positiveX]?.estimateMM,
-      let negativeY = acceptedBoundaryAggregates[.negativeY]?.estimateMM,
-      let positiveY = acceptedBoundaryAggregates[.positiveY]?.estimateMM
+      let optical = opticalIdentity(for: frame), registration.opticalConfiguration == optical,
+      registration.machineGeometry == machineGeometryIdentity,
+      registration.coordinateRevision == explorationCoordinateRevision,
+      acceptedBoundaryAggregates.values.allSatisfy({ $0.coordinateRevision == explorationCoordinateRevision }),
+      learningArtifactGraph.currentRevision(for: .machineCameraRegistration) != nil,
+      let outline = learnedDrawingOverlays(on: frame).first(where: { $0.provenance.kind == .acceptedBoundary }),
+      case .polyline(let path) = outline.geometry
     else { return nil }
-    let corners = [
-      try? Point2<MachineSpace>(x: negativeX, y: negativeY),
-      try? Point2<MachineSpace>(x: negativeX, y: positiveY),
-      try? Point2<MachineSpace>(x: positiveX, y: negativeY),
-      try? Point2<MachineSpace>(x: positiveX, y: positiveY),
-    ].compactMap { $0 }.compactMap { try? registration.fit.cameraPoint(from: $0) }
-    guard corners.count == 4 else { return nil }
+    let corners = path.points
+    guard corners.count >= 4 else { return nil }
     let minX = Int(floor(corners.map(\.x).min()!))
     let minY = Int(floor(corners.map(\.y).min()!))
     let maxX = Int(ceil(corners.map(\.x).max()!))
@@ -4837,6 +4941,10 @@ final class PlotterApplicationRuntime:
       guard let overlay = UserSceneOverlay(rawValue: identifier) else {
         return "Refresh the current overlay controls before retrying."
       }
+      if overlay == .drawingRegion, !enabled,
+        tipCalibrationRuntime.workingRegionEdit != nil || drawingFrameEditSession != nil {
+        return "Apply or Cancel the edit before hiding Drawing Region."
+      }
       let prior = overlayPreferenceState
       overlayPreferenceState.applyOperatorSelection(overlay, enabled: enabled)
       do {
@@ -5853,6 +5961,10 @@ final class PlotterApplicationRuntime:
         }
       }
       if intent == .assertPaperCoverage {
+        if let reason = paperAcceptanceUnavailableReason {
+          return plotterUIRefusal(request, reason: .retainedOwnerRefused,
+            currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions, remedy: reason)
+        }
         // Ambient analysis does not recompile the controls. Bind this explicit
         // operator assertion to the exact frame available at the click, then
         // retain Draft's full-reference admission through the submission.
@@ -5868,7 +5980,8 @@ final class PlotterApplicationRuntime:
           frame: visibleFrame.frame.materializingEvidenceContentHash())
         let factsAtClick = drawingDraftExternalFacts
         let prepared = await drawingDraftRuntime.synchronize(factsAtClick)
-        guard prepared.projection.environment == referenceAtClick.environment,
+        guard paperCoverageOutlineIsVisible,
+          prepared.projection.environment == referenceAtClick.environment,
           prepared.projection.draftRevision == referenceAtClick.draftRevision,
           factsAtClick.revisions == drawingDraftExternalFacts.revisions else {
           return plotterUIRefusal(
@@ -6485,9 +6598,16 @@ final class PlotterApplicationRuntime:
         case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
           // Marking owns an initial settled Pen Up; capture-only checkpoint
           // revalidation still requires the current pen to already be up.
-          reason = savedCheckpointMatchesPaper
-            ? positionRevalidationUnavailableReason
-            : learningExerciseMotionUnavailableReason(requiresCamera: true, normalizesPenUp: true)
+          if tipCalibrationRuntime.workingRegionEdit != nil {
+            reason = "Apply or Cancel the working-region edit before drawing calibration circles."
+          } else if let selection = tipCalibrationRuntime.selectedWorkingRegion,
+            selection.context != calibrationWorkingRegionCurrentContext {
+            reason = "Edit and Apply the working region again with the current camera, Boundary and paper."
+          } else {
+            reason = savedCheckpointMatchesPaper
+              ? positionRevalidationUnavailableReason
+              : learningExerciseMotionUnavailableReason(requiresCamera: true, normalizesPenUp: true)
+          }
         case .borderValidation(let step):
           reason = borderValidationActionUnavailableReason(
             for: step == .chooseDrawingBorderPlan ? borderValidation.step : step
@@ -6683,6 +6803,10 @@ final class PlotterApplicationRuntime:
       case .retryCommit: .retryCommit
       }
       if case .beginFourMarkBatch = intent {
+        guard let context = calibrationWorkingRegionCurrentContext,
+          let plan = currentSparseTipBatchPlan else { return "A current cap map, Boundary and camera frame are required before marking." }
+        let admission = tipCalibrationRuntime.freezeWorkingRegion(context: context, defaultBounds: plan.workingRegion)
+        if case .refused(let reason) = admission { return reason }
         await tipCalibrationRuntime.prepareForNewAttempt()
       }
       let outcome: PlotterTipCalibrationSubmissionOutcome
@@ -8654,7 +8778,9 @@ final class PlotterApplicationRuntime:
     var activeLocation: BlacklistedToolContactLocation?
     do {
       try requireSparseTipBatchContinuation()
-      guard let batchPlan = currentSparseTipBatchPlan else {
+      guard let frozen = tipCalibrationRuntime.frozenWorkingRegion,
+        frozen.context == calibrationWorkingRegionCurrentContext,
+        let batchPlan = currentSparseTipBatchPlan, batchPlan.workingRegion == frozen.bounds else {
         throw CurrentCameraCalibrationPlanningError.incompleteBoundaryEnvelope
       }
       batchTelemetryTotalCircleCount = batchPlan.marks.count
@@ -9584,7 +9710,7 @@ final class PlotterApplicationRuntime:
         algorithmRevisions: [
           try AlgorithmRevisionEvidence(
             component: "sparse-tip-workspace",
-            revision: "boundary-10mm-inset-four-circle-batch-unordered-global-association-v7"
+            revision: "selected-working-region-10mm-inset-four-circle-batch-unordered-global-association-v8"
           ),
           try AlgorithmRevisionEvidence(
             component: "pen-actuation",
@@ -10955,7 +11081,7 @@ final class PlotterApplicationRuntime:
   }
 
   private var sceneAnalysisIsRequested: Bool {
-    !overlayPreferenceState.enabled.isEmpty
+    overlayPreferenceState.enabled.contains(where: \.usesSceneAnalysis)
   }
 
   private var requestedSceneFeatures: SceneFeatureSet {
@@ -11779,6 +11905,10 @@ final class PlotterApplicationRuntime:
   }
 
   private func requireSparseTipBatchContinuation() throws {
+    if let frozen = tipCalibrationRuntime.frozenWorkingRegion,
+      frozen.context != calibrationWorkingRegionCurrentContext {
+      throw LearningPathOperationError.requiredState("The selected calibration region context changed; no later mark segment is admitted.")
+    }
     guard !Task.isCancelled,
       let operation = retainedStopRegistration,
       case .sparseTipBatch = operation.target,
@@ -13912,6 +14042,7 @@ final class PlotterApplicationRuntime:
   }
 
   private func resetTipCalibrationRuntimeForCurrentPaper() {
+    retainedCalibrationWorkingRegionFrame = nil
     tipCalibrationRuntime.resetForPaper(
       PaperInstanceRevision(rawValue: explorationPaperInstanceRevision)
     )
@@ -14298,8 +14429,9 @@ final class PlotterApplicationRuntime:
         sourceIdentifier:
           registration.estimatorRevision
             == SparseTipCircularMarkPlan.registrationEstimatorRevision
-          ? "accepted-boundary-10mm-inset-drawing-border-v2"
-          : "retained-registration-drawing-border-v1"
+          ? "selected-working-region-observed-center-drawing-border-v3"
+          : registration.estimatorRevision == SparseTipCircularMarkPlan.boundaryInsetFourCircleRegistrationEstimatorRevision
+            ? "accepted-boundary-10mm-inset-drawing-border-v2" : "retained-registration-drawing-border-v1"
       )
     )
     let placement = try DrawingPlacement(

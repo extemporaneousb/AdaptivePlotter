@@ -536,7 +536,8 @@ errors, overlays, speech, capability status, and documentation:
 | Concept | Required visible term |
 | --- | --- |
 | accepted four-side machine extent | **Drawing Boundary** |
-| closed target 10 mm inside the Drawing Boundary | **Drawing Border** |
+| selected outer extent for calibration, sheet coverage and artwork | **Paper working region** |
+| closed target through the four accepted calibration-circle centers | **Drawing Border** |
 | five-position machine/cap result | **camera calibration** |
 | four-corner machine/contact-pixel result | **pen-tip calibration** |
 | Drawing Border plan and ink comparison | **Drawing Border validation** |
@@ -1176,13 +1177,30 @@ It does not locate the paper-contact point.
 
 ## Exercise 1.4 pen-tip calibration authority
 
-One supervised **Draw Four Calibration Circles** action owns one exercise attempt
-and one stoppable operation. It draws no center mark. The four 2 mm-radius mark
-centers are inset 10 mm from their adjacent accepted Boundary edges:
-`minX + 10 mm`, `minY + 10 mm`, `maxX − 10 mm`, and `maxY − 10 mm`. The full
-2 mm-radius paths therefore retain 8 mm of clearance to those edges. The
-retained corner
-values are canonical evidence-slot identities, not fixed axis-only physical
+Before marking, **Edit Drawing Region** in the existing Exercise 1.4 preview lets
+the operator move and resize a paper working rectangle inside the accepted Drawing
+Boundary. Boundary
+is the measured machine travel envelope; it does not establish paper coverage.
+The selected rectangle is the reusable working extent for this calibration and
+later paper confirmation and artwork placement. Its pre-calibration camera
+projection uses the cap map and remains explicitly approximate because the tip
+offset is unknown. Selection does not establish calibrated tip or paper evidence.
+
+One supervised **Draw Four Calibration Circles** action admits that selected
+geometry as one immutable batch, owned by the existing tip-calibration runtime,
+one exercise attempt and one stoppable operation. It draws no center mark. The
+four 2 mm-radius mark centers are inset 10 mm from the adjacent selected working
+rectangle edges: `minX + 10 mm`, `minY + 10 mm`, `maxX − 10 mm`, and
+`maxY − 10 mm`. The full paths therefore retain 8 mm of clearance inside that
+rectangle and must also remain inside the machine Boundary. A collapsed inset
+or out-of-Boundary region is refused. New working regions require at least 25 mm
+per axis: two 10 mm center insets, the 4 mm circle diameter and a 1 mm gap between
+adjacent outlines. Historical accepted geometry is not subjected to a new
+interpretation of that selection limit. The overlay and physical execution consume
+the same admitted plan; active motion, possible ink and retained click/proposal
+evidence cannot be moved by editing the frame. Stale source, paper, optical,
+machine, coordinate or calibration context refuses the edit or admission.
+The retained corner values are canonical evidence-slot identities, not fixed axis-only physical
 offsets. Exercise 1.3 retains its separate center plus four ±24 mm camera-
 calibration positions and holdout authority. Operator-visible motion text names
 the actual minimum/maximum-axis corner.
@@ -1230,23 +1248,31 @@ strictly newer exact frame. It issues no motion, Pen command, redraw, or
 automatic retry. One or more retained clicks disable replacement until the
 operator explicitly clears them.
 Acceptance installs the rectangle through the four circle centers as the
-`TipCameraRegistration` applicability rectangle. The accepted Drawing Boundary,
-not that inset rectangle, is the Drawing Studio drawable region. Preview and paper-
-coverage projection between the Border and Boundary use the registration's inferred
-affine projection and do not enlarge the recorded calibration applicability.
+`TipCameraRegistration` applicability rectangle. For a newly selected-frame
+calibration, the recorded working extent supplies Drawing's drawable region and
+paper-coverage target, within the machine Boundary. Artwork retains its own
+independent placement and size inside that working extent. Preview and paper-
+coverage projection in the band between the center rectangle and the working
+extent use the registration's inferred affine projection and do not enlarge the
+recorded calibration applicability.
 That extrapolation is diagnostic presentation only: it cannot by itself support
 attributable camera/ink evidence. When an operator accepts a paper-coverage
 polygon, the operator assertion supplies paper-coverage authority; the projected
 polygon remains diagnostic and supplies no tip-map or camera/ink evidence.
-Exercise
-1.4 never changes zoom, pan, preferred zoom, or viewport focus
-automatically. During proposal review, the camera view separately labels the
-accepted Drawing Boundary projection and renders the proposed Drawing Border
-in cyan. The Boundary projection is an inferred 10 mm extrapolation from the
-proposed contact map, not measured boundary ink. The 10 mm-inset estimator has a
-new revision: previously accepted fixed-offset, v6 edge-touching, and five-mark
-registrations remain truthful only within their recorded applicability rectangles
-and are never widened or reinterpreted without a fresh physical batch.
+Exercise 1.4 never changes zoom, pan, preferred zoom, or viewport focus
+automatically. **Fit Machine Boundary** and **Show Full Video** are explicit
+viewport operations that respect exact-frame and edit locks. The normal guides
+are the machine Boundary and paper Drawing Region, independently visible through
+Video Settings. Calibration circles remain scoped to their preparation/review;
+the internal center rectangle is not another persistent outline. The actual
+Border exercise still previews and retains its own commanded and observed geometry.
+A Boundary projection outside the observed centers is inferred extrapolation
+from the contact map, not measured boundary ink. The
+selected-frame estimator has its own revision. Only that revision recovers the
+working extent by expanding the recorded center rectangle by its known 10 mm
+inset. Historical v3–v7 registrations retain their recorded geometry and previous
+Boundary-based planning behavior; they are never interpreted as selected-frame
+calibration, widened, or moved without a fresh physical batch.
 
 Each accepted `ToolContactObservation` is immutable raw evidence for one
 commanded circular mark and asserted circle center. It retains:
@@ -1368,8 +1394,9 @@ its possible-ink plan index for the current paper. Records on the prior sheet
 remain immutable, and the same-sheet no-redraw rejection remains in force.
 Prior calibration and drawing records keep their original identities. Blank
 paper has no ink yet; that is not missing calibration. The compatible current
-camera immediately displays the calibrated outline. Confirming coverage binds
-the actual visible preview frame at the operator action. Only that explicit
+camera can display the admitted working-extent outline. Confirming coverage
+requires that full Drawing Region to be visible and binds the actual preview frame
+at the operator action. Only that explicit
 assertion seals the frame's content identity; passive video does no hashing.
 An older completed analysis cannot replace a newer exact selected frame.
 Draft and Run consume the coherent selected frame after confirmation.
@@ -1478,9 +1505,11 @@ exact current `TipCameraRegistration` revision.
 Exercise 2.1 constructs one immutable closed polyline through the four accepted
 circle centers: minimum/minimum, minimum/maximum, maximum/maximum,
 maximum/minimum, and back to minimum/minimum. It therefore has four orthogonal
-edges and right-angle turns. For the current calibration, those centers define
-the Drawing Border exactly 10 mm inside every accepted Drawing Boundary edge.
-The planner admits that border against the accepted Drawing Boundary using the
+edges and right-angle turns. For a selected-frame calibration, those centers define
+the Drawing Border exactly 10 mm inside the selected working extent. The exact
+accepted registration supplies this target; it is not recomputed by insetting the
+machine Boundary. The planner admits that border against the applicable working
+extent within the accepted Drawing Boundary using the
 planning-containment policy: no commanded ink geometry may lie outside the
 Boundary, except for a separately versioned numerical epsilon that cannot equal
 or reuse machine-position settlement tolerance. The Drawing Border is target
@@ -1549,12 +1578,14 @@ and sends no motion. Fit changes size and is inappropriate for an unchanged
 remain authoritative. Physical millimetres require independently accepted metric
 evidence; these deterministic targets prepare that measurement.
 
-The accepted Drawing Boundary is the learned machine envelope. The movable
+The accepted Drawing Boundary is the learned machine envelope. A selected-frame
+tip calibration retains a smaller paper working extent inside it. The movable
 artwork frame is the authored `DrawingProgram.fieldExtent` transformed by the
-current `DrawingPlacement`; it is composition geometry inside that envelope.
-Moving or resizing it does not replace the Boundary, create a paper region, or
-change accepted Learning. The current Learning sequence and fixed calibration
-Drawing Border, exactly 10 mm inside the Boundary, are unchanged.
+current `DrawingPlacement`; it is composition geometry inside the current working
+extent. Moving or resizing artwork does not replace the Boundary, change that
+paper extent, or change accepted Learning. The calibration Drawing Border remains
+the fixed target through the accepted circle centers. Historical calibrations
+without a selected working extent retain their previous Boundary-based region.
 
 Ordinary drawings expose **Draw frame**, defaulting off for each new drawing.
 Edits retain the current drawing's explicit choice; **New Drawing** or a new-sheet
@@ -1660,18 +1691,34 @@ visible, and **Show Drawing** / **Hide Drawing** is available in Video Settings.
 Hiding clears the preview and any staged drag, retaining the program, placement,
 paper assertion, Learning and ink protection. It works while disconnected and
 requires no paper replacement. Startup begins with the authoring target hidden.
-Video drags pan by default. **Edit Frame** retains the displayed exact video
-frame, labels it **Frame editing · frozen video**, and exposes the artwork
-rectangle with four resize handles. Dragging its
+Video Settings exposes independent **Machine Boundary** and **Drawing Region**
+visibility toggles under **Reference frames**, initially on. Simulator diagnostics
+are separate and initially off. These control presentation only; neither changes
+Learning, coverage, geometry, plans or ink. Outside editing, Drawing Region is the
+admitted paper working extent (or historical drawable extent), not an extra
+artwork or inset calibration outline. New sheet confirmation requires that full
+extent to be visible; hiding it does not revoke an existing assertion. A reopened
+Exercise 1.4 preparation view cannot confirm new coverage against retained older
+tip calibration before the current calibration finishes.
+Video drags pan by default. **Position Drawing** remains visible with a concise
+reason when editing is unavailable. For ordinary artwork it retains the displayed
+exact video frame, labels it **Artwork positioning · frozen video**, and temporarily
+replaces the working-extent outline with the artwork rectangle and four resize
+handles. Dragging its
 body preserves the grab offset; dragging a corner resizes about its fixed center
 with authored aspect ratio and rotation preserved. **Apply Drawing Placement**
-commits the staged placement through the Draft owner; **Cancel Frame Edit** discards it.
+commits the staged placement through the Draft owner; cancelling discards it.
+Both restore the admitted working-extent outline with the independently placed
+artwork strokes. Paper confirmation cannot occur during this temporary edit view.
 Draw remains unavailable while a frame edit is pending or staged, including a
 cached Draw request, so the plotter cannot execute the prior placement beneath a
 staged preview. A pending or active Draw prevents a new frame edit; Stop remains
-available through its existing owner. The frame remains inside the accepted machine Boundary. Size and rotation edits
+available through its existing owner. The frame remains inside the applicable
+working extent and accepted machine Boundary. Size and rotation edits
 constrain or reposition the frame only as needed for containment. **Center
-Drawing** centers the authored frame, including intentional margins. Cancelling
+Drawing** centers the authored frame, including intentional margins. **Fit to
+Drawing Area** and Size use the full contained extent without an implicit 90%
+margin. Cancelling
 the edit, hiding the drawing or starting exact point selection retires the
 staged edit. Panning retains fractional camera-pixel movement across pointer
 events and clamps at the video-frame edge without accumulating hidden excess.
@@ -1933,9 +1980,10 @@ controller calibration, and does not update the mapping from later drawing grade
 Camera foreshortening is accepted as part of this camera-relative drawing objective;
 physical ratios, orthogonality, and millimeters remain independently unverified.
 The Size multiplier preserves nominal command area; Fit uses the corrected rotated
-field bounds and may fill the accepted Boundary without the former hidden 90%
-margin. Draft placement constrains all four artwork-frame corners to that same
-Boundary. Explicit metric square/rectangle targets, coverage experiments and
+field bounds and may fill the current drawable region without the former hidden
+90% margin: the selected working extent for selected-frame calibration, or the
+accepted Boundary for historical calibration. Draft placement constrains all four
+artwork-frame corners to that same region. Explicit metric square/rectangle targets, coverage experiments and
 Guided Learning marks retain their authored controller-distance geometry. Camera
 square/circle targets exercise the same compensated placement as portraits.
 `DrawingPlanner` remains the single planner. The ordinary Draft route plans with
@@ -2117,7 +2165,8 @@ candidate-versus-prior, and shape-holdout requirements have attributable
 evidence.
 
 The four-circle placement guides project the canonical `SparseTipBatchMarkPlan`:
-Boundary envelope, inset frame, four centers and all four circle paths. They are
+machine Boundary, selected working extent, inset frame, four centers and all four
+circle paths. They are
 planned geometry with a separate calibration-guide semantic identity and visual
 grammar, separate from artwork intended paths, measured ink and exact-frame
 selections. Hide Drawing hides artwork only; compatible calibration guides remain.

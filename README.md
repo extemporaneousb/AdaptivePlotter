@@ -128,20 +128,30 @@ independent holdouts. Both holdouts must pass before a weighted all-five refit
 can be explicitly accepted as `MachineCameraRegistration`. The visible pen
 cap is not the hidden paper-contact point.
 
-Exercise 1.4 uses one supervised **Draw Four Calibration Circles** action. There is no
-center circle. The four 2 mm-radius circle centers are the rectangle corners at
+Exercise 1.4 previews a paper working rectangle inside the measured machine
+Boundary. **Edit Drawing Region** lets the operator move and resize it on retained
+video before marking; **Smaller** can bring initially offscreen handles into view.
+Its cap-map projection is approximate because tip offset is still unknown.
+Apply retains the chosen extent without adding a Learning step
+or granting paper-coverage authority. Each axis must span at least 25 mm.
+One supervised **Draw Four Calibration Circles** action freezes that geometry.
+There is no center circle. The four 2 mm-radius circle centers are the selected
+working-rectangle corners at
 `minX + 10 mm`, `minY + 10 mm`,
 `maxX − 10 mm`, and `maxY − 10 mm`. Every circle outline therefore remains 8 mm
-clear of its adjacent accepted Boundary edges. The camera view distinguishes the
-orange dashed accepted Drawing Boundary from the inner Drawing Border; after the
-fourth click it also previews that proposed Drawing Border in cyan before map acceptance.
+clear of its adjacent working-rectangle edges. Video Settings independently shows
+or hides **Machine Boundary** and **Drawing Region**, both visible by default.
+The region is the selected paper working extent; calibration circles appear for
+preparation/review without another persistent inset rectangle. The later Border
+exercise retains its actual plan and observed evidence.
 Exercise 1.3 retains its separate existing ±24 mm camera-calibration spacing. One
 exercise attempt and one stoppable operation draw the four circles in canonical
 evidence-slot order. For every circle the app travels and settles Pen Up at the
 intended position, retains its exact pre-mark frame/cap/controller evidence,
 moves Pen Up to the circle start, lowers and settles using the current Pen
-Interaction profile, draws one closed 16-chord circle of 2 mm radius at no more
-than 100 mm/min, then raises and settles Pen Up before any inter-circle travel.
+Interaction profile, draws one closed 16-chord circle of 2 mm radius at 500 mm/min
+or the lower controller-reported ceiling, then raises and settles Pen Up before
+any inter-circle travel.
 There are exactly 64 circle chords and no connecting Pen-Down strokes during
 calibration. Exercise 2.1 draws the physical Drawing Border through the
 four accepted circle centers as one closed drawing plan.
@@ -150,8 +160,9 @@ Only after the fourth circle does the app return Pen Up to the rectangle center,
 require Idle/final-MPos settlement, revalidate the current camera/cap
 applicability, and capture one newer exact frame. That exact frame is frozen
 unchanged for all four clicks. Accepting the resulting pen-tip calibration makes the four
-circle centers its applicability rectangle. The accepted Drawing Boundary is the
-Drawing Studio drawable region. The target evidence contract permits the
+circle centers its applicability rectangle. New selected-region calibration
+retains the outer working extent for Drawing placement and sheet confirmation;
+historical calibrations retain their previous Boundary-based region. The target evidence contract permits the
 registration's inferred affine projection outside its inset applicability
 rectangle only for diagnostic presentation; that extrapolation cannot support
 attributable camera/ink evidence without newly validated applicability.
@@ -303,29 +314,34 @@ rectangle, square, triangle, regular polygon, circle, ellipse, star, pyramid and
 elephant. **Pen & Material** identifies the applicable ink width; explicit material
 measurement and detail adaptation operate in Drawing, outside algorithm tuning.
 With current calibration, place the target on the video, resize it, rotate it,
-and inspect the same exact plan in Drawing and on the video. Ordinary artwork
-clips at the drawable boundary as it rotates; Center aligns the un-clipped ink
-bounds, and Fit changes scale. Curves are deterministically tessellated before
+and inspect the same exact plan in Drawing and on the video. The complete artwork
+frame stays inside the current working region; Center aligns that authored frame
+including its margins, and Fit changes scale. Curves are deterministically tessellated before
 execution. Running still requires completed Exercise 2.1 validation, the current
 calibration, paper coverage, and explicit motion authorization. Learning
 completion does not establish adaptive training.
 
-The accepted Drawing Boundary projects as the persistent drawable outline.
-Paper is a separate operator fact:
-**Confirm Paper Coverage** binds the current sheet and exact frame to the
-outlined region before Run can become eligible. **New Sheet — Same Contact
+The normal **Drawing Region** outline represents the admitted paper working
+extent inside the machine Boundary. **Position Drawing** temporarily replaces
+that outline with the artwork frame for body movement and uniform corner resizing;
+Apply or Cancel restores the paper extent while artwork retains its own placement.
+The edit control remains discoverable and explains unavailable prerequisites.
+**Fit Machine Boundary** and **Show Full Video** change only viewport framing,
+respect edit/frame locks, and never run automatically or change geometry.
+Paper is a separate operator fact: **Sheet Covers Target** binds the current sheet
+and exact frame to the full admitted working extent, which must be visible before
+confirmation. Hiding a guide does not revoke accepted coverage or alter a plan. **New Sheet — Same Contact
 Plane** preserves accepted calibration and completed Learning but requires fresh
-exact-frame coverage confirmation. Select **Draw border** (initially off) only
-when this ordinary drawing should ink the calibrated border first; its outline
-remains visible either way. **Contact Plane Changed** invalidates dependent tip calibration
+exact-frame coverage confirmation. Select **Draw frame** (initially off) only
+when this ordinary drawing should ink its independently placed artwork frame first.
+Guide visibility is independent of this ink option. **Contact Plane Changed** invalidates dependent tip calibration
 while retaining unrelated valid machine/camera Learning. If only active
 calibration was lost, **Use Saved Learning** can reapply a compatible retained
 package after its initial startup application.
 
-`DrawingPlanner` clips ordinary artwork at the accepted Drawing Boundary and
-keeps strict containment for calibration and metric targets. Its immutable plan
-contains separate strokes/checkpoints for clipped fragments, without bridges
-across excluded geometry. `RunInterpreter` owns Pen-Up travel, lowering,
+`DrawingPlanner` applies strict containment within the current working region to
+ordinary artwork, calibration and metric targets. Its immutable plan preserves
+separate strokes and checkpoints. `RunInterpreter` owns Pen-Up travel, lowering,
 every finite drawing segment, raising, Stop, and checkpoint progress as one
 operation. A completed run returns to the preselected observation pose, captures
 a newer exact frame, compares arbitrary planned polylines with new ink, and

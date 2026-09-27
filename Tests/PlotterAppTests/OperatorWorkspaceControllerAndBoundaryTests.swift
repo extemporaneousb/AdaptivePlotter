@@ -435,16 +435,16 @@ extension PlotterApplicationRuntimeTests {
       workspace.testActionSurfacePresentation.overlays.count == 1
     }
     #expect(workspace.exactWorkflowVisionOwner == nil)
-    #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
+    #expect(workspace.overlayPreferenceState.enabled == UserSceneOverlay.defaultEnabled)
     #expect(camera.recordedAutomaticInspectionRequests == [.twoFPS])
     #expect(camera.recordedAutomaticFeatureRequests == [[.penCap, .armatureEnvelope]])
     #expect(workspace.testActionSurfacePresentation.overlays.count == 1)
 
-    for overlay in UserSceneOverlay.allCases {
+    for overlay in UserSceneOverlay.allCases where overlay.usesSceneAnalysis {
       await submitObservationConfigurationForTest(workspace, .setOverlay(overlay, enabled: false))
     }
     try await waitUntil { camera.recordedAutomaticInspectionRequests.last == .some(nil) }
-    #expect(workspace.overlayPreferenceState.enabled.isEmpty)
+    #expect(workspace.overlayPreferenceState.enabled == [.machineBoundary, .drawingRegion])
     #expect(camera.recordedAutomaticFeatureRequests.last == [])
     #expect(workspace.testActionSurfacePresentation.overlays.isEmpty)
     await workspace.shutdown()

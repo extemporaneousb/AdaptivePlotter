@@ -210,6 +210,9 @@ public struct PlotterTipCalibrationRuntimeSnapshot: Hashable, Sendable {
   public let recoverableCheckpoint: AcceptedTipCalibrationCheckpoint?
   public let blacklistedLocations: Set<BlacklistedToolContactLocation>
   public let terminalHistory: [PlotterTipCalibrationTerminalRecord]
+  public let workingRegionEdit: PlotterTipWorkingRegionEdit?
+  public let selectedWorkingRegion: PlotterTipWorkingRegionSelection?
+  public let frozenWorkingRegion: PlotterTipWorkingRegionSelection?
 }
 
 /// Pure unintegrated EA-10D scaffold. It references no App/workspace type and
@@ -240,6 +243,72 @@ public final class PlotterTipCalibrationRuntime {
   public private(set) var recoverableCheckpoint: AcceptedTipCalibrationCheckpoint?
   public private(set) var blacklistedLocations: Set<BlacklistedToolContactLocation> = []
 
+  public private(set) var workingRegionEdit: PlotterTipWorkingRegionEdit?
+  public private(set) var selectedWorkingRegion: PlotterTipWorkingRegionSelection?
+  public private(set) var frozenWorkingRegion: PlotterTipWorkingRegionSelection?
+
+  public var workingRegionIsEditable: Bool {
+    !admissionClosed && activeOperationID == nil && expectedSelection == nil
+      && retainedDomainEvidence == nil && blacklistedLocations.isEmpty
+      && (phase == .idle || phase == .accepted || phase == .rejected)
+  }
+
+  /// Gesture staging is local to the view; only this owner admits Apply.
+  public func submitWorkingRegion(_ intent: PlotterTipWorkingRegionIntent,
+    currentContext: PlotterTipWorkingRegionContext?) -> PlotterTipCalibrationSubmissionOutcome {
+    if case .cancel(let id) = intent {
+      if workingRegionEdit?.id == id { workingRegionEdit = nil }
+      return .completed
+    }
+    guard workingRegionIsEditable, let currentContext else {
+      return .refused("Working-region editing requires current camera/Boundary context and no active or retained calibration marks.")
+    }
+    switch intent {
+    case .begin(let edit):
+      guard workingRegionEdit == nil || workingRegionEdit == edit else {
+        return .refused("Another working-region edit owns the retained frame. Apply or Cancel that edit first.")
+      }
+      guard edit.selection.context == currentContext, currentContext.contains(edit.selection.bounds),
+        currentContext.matchesFrame(edit.exactFrame) else {
+        return .refused("The working-region preview changed. Start editing on the current frame.")
+      }
+      workingRegionEdit = edit
+      return .completed
+    case .apply(let edit, let bounds):
+      guard workingRegionEdit == edit else {
+        return .refused("This Apply does not belong to the current working-region edit.")
+      }
+      guard edit.selection.context == currentContext else {
+        workingRegionEdit = nil
+        return .refused("The camera, cap map, Boundary, controller, tool or paper changed. Start a new working-region edit.")
+      }
+      guard currentContext.contains(bounds) else {
+        return .refused("The working region must remain inside Boundary and span at least 25 mm on both axes.")
+      }
+      selectedWorkingRegion = PlotterTipWorkingRegionSelection(context: currentContext, bounds: bounds)
+      frozenWorkingRegion = nil
+      workingRegionEdit = nil
+      return .completed
+    case .cancel: return .completed
+    }
+  }
+
+  /// Freeze before admitting Go. This value is shared by preview, execution and
+  /// fitting; a changed context never silently replaces an operator selection.
+  public func freezeWorkingRegion(context: PlotterTipWorkingRegionContext,
+    defaultBounds: AxisAlignedBounds<MachineSpace>) -> PlotterTipCalibrationSubmissionOutcome {
+    guard workingRegionIsEditable, workingRegionEdit == nil else {
+      return .refused("Apply or Cancel the working-region edit before drawing calibration circles.")
+    }
+    if let selectedWorkingRegion, selectedWorkingRegion.context != context {
+      return .refused("The selected working region is stale. Edit and Apply it again with the current camera, Boundary and paper.")
+    }
+    let selection = selectedWorkingRegion ?? PlotterTipWorkingRegionSelection(context: context, bounds: defaultBounds)
+    guard context.contains(selection.bounds) else { return .refused("The working region is outside Boundary or too small for four circles.") }
+    frozenWorkingRegion = selection
+    return .completed
+  }
+
   public init(effectPort: any PlotterTipCalibrationEffectPort) { self.effectPort = effectPort }
 
   public var acceptedObservations: [AcceptedToolContactObservation] {
@@ -265,6 +334,9 @@ public final class PlotterTipCalibrationRuntime {
   }
 
   public func restoreAcceptedRegistration(_ registration: TipCameraRegistration?) {
+    if registration != nil, activeOperationID == nil, expectedSelection == nil, retainedDomainEvidence == nil {
+      clearWorkingRegionSelection()
+    }
     acceptedRegistration = registration
     if registration != nil { recoverableCheckpoint = nil }
     if registration == nil, retainedDomainEvidence == nil, expectedSelection == nil {
@@ -288,9 +360,16 @@ public final class PlotterTipCalibrationRuntime {
     phase = expectedSelection.map { .awaitingCompletedPointSelection($0) } ?? .idle
   }
 
+  private func clearWorkingRegionSelection() {
+    workingRegionEdit = nil
+    selectedWorkingRegion = nil
+    frozenWorkingRegion = nil
+  }
+
   /// Clear only work tied to a replaced sheet. Accepted calibration is a
   /// contact-plane dependency and survives this transition.
   public func clearPaperTransients(_ paperInstance: PaperInstanceRevision) {
+    clearWorkingRegionSelection()
     // Synchronous dependency invalidation must suppress late effects while
     // retaining the exact owner identity until its task has actually settled.
     if activeOperationID != nil {
@@ -381,6 +460,7 @@ public final class PlotterTipCalibrationRuntime {
       if cancellationDepth == 0, !shutdownRequested { admissionClosed = false }
     }
     await closeAdmission()
+    workingRegionEdit = nil
     expectedSelection = nil
     completedSelection = nil
     retainedDomainEvidence = nil
@@ -422,13 +502,16 @@ public final class PlotterTipCalibrationRuntime {
       acceptedRegistration: acceptedRegistration,
       recoverableCheckpoint: recoverableCheckpoint,
       blacklistedLocations: blacklistedLocations,
-      terminalHistory: terminalHistory
+      terminalHistory: terminalHistory,
+      workingRegionEdit: workingRegionEdit,
+      selectedWorkingRegion: selectedWorkingRegion,
+      frozenWorkingRegion: frozenWorkingRegion
     )
   }
 
   private func validatesAdmission(_ intent: PlotterTipCalibrationIntent) -> Bool {
     switch intent {
-    case .beginFourMarkBatch: phase == .idle
+    case .beginFourMarkBatch: phase == .idle && workingRegionEdit == nil
     case .captureNewClickFrame(let retainedPointCount):
       retainedPointCount == 0
         && expectedSelection.map { phase == .awaitingCompletedPointSelection($0) } == true
@@ -521,6 +604,7 @@ public final class PlotterTipCalibrationRuntime {
       phase = .reviewingProposal
       return .completed
     case (.revalidateCheckpoint, .revalidated(let registration)):
+      if registration != nil { clearWorkingRegionSelection() }
       acceptedRegistration = registration
       positionRecoveryIsAvailable = false
       recoverableCheckpoint = nil
@@ -530,6 +614,7 @@ public final class PlotterTipCalibrationRuntime {
       phase = registration == nil ? .idle : .accepted
       return .completed
     case (.acceptProposal, .committed(let registration)), (.retryCommit, .committed(let registration)):
+      clearWorkingRegionSelection()
       acceptedRegistration = registration
       recoverableCheckpoint = nil
       expectedSelection = nil

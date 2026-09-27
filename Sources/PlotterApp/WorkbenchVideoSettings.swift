@@ -45,9 +45,31 @@ struct WorkbenchVideoSettings: View {
     VStack(alignment: .leading, spacing: 10) {
       Text("Zoom")
       Slider(value: $viewport.zoom, in: 0...1)
-        .disabled(application.workbenchCameraRole == .plotter && projection.regionLock != nil)
+        .disabled(application.workbenchCameraRole == .plotter && application.videoViewportAdjustmentUnavailableReason != nil)
         .accessibilityIdentifier("workbench.video.zoom")
       if application.workbenchCameraRole == .plotter {
+        HStack {
+          Button("Fit Machine Boundary") {
+            guard application.videoViewportAdjustmentUnavailableReason == nil,
+              let context = application.actionSurfacePresentation.viewportContext,
+              context.fittedRegion != nil else { return }
+            viewport.synchronize(with: context)
+            viewport.showFittedBounds()
+          }
+          .disabled(application.videoViewportAdjustmentUnavailableReason != nil
+            || application.actionSurfacePresentation.viewportContext?.fittedRegion == nil)
+          .accessibilityIdentifier("workbench.video.fitMachineBoundary")
+          Button("Show Full Video") {
+            guard application.videoViewportAdjustmentUnavailableReason == nil else { return }
+            viewport.showFullFrame()
+          }
+          .disabled(application.videoViewportAdjustmentUnavailableReason != nil)
+          .accessibilityIdentifier("workbench.video.showFullVideo")
+        }.controlSize(.small)
+        Text("Reference frames").font(.subheadline.bold())
+        ForEach([UserSceneOverlay.machineBoundary, .drawingRegion], id: \.self) { overlay in
+          overlayToggle(overlay)
+        }
         OperatorRequestButton(
           title: application.drawingTargetIsVisible ? "Hide Drawing" : "Show Drawing",
           request: semantic.request(matching: .drawingDraft(
@@ -71,14 +93,14 @@ struct WorkbenchVideoSettings: View {
             .accessibilityLabel("Refresh cameras")
         }
         VStack(alignment: .leading, spacing: 8) {
-          ForEach(UserSceneOverlay.allCases, id: \.self) { overlay in
-            Toggle(overlay.title, isOn: Binding(
-              get: { projection.enabledOverlays.contains(overlay) },
-              set: { submit(PlotterAppUIActionID.observationOverlay(overlay.rawValue, enabled: $0)) }))
+          Text("Vision diagnostics").font(.subheadline.bold())
+          ForEach(UserSceneOverlay.allCases.filter(\.usesSceneAnalysis), id: \.self) { overlay in
+            overlayToggle(overlay)
             if projection.enabledOverlays.contains(overlay) {
               VideoOverlayStatus(application: application, overlay: overlay)
             }
           }
+          if projection.frameMode == .simulated { overlayToggle(.simulatorDiagnostics) }
         }
         Picker("Analysis rate", selection: Binding(get: { projection.cadence }, set: {
           submit(PlotterAppUIActionID.observationCadence($0))
@@ -104,6 +126,13 @@ struct WorkbenchVideoSettings: View {
           .font(.caption).foregroundStyle(.secondary)
       }
     }
+  }
+
+  private func overlayToggle(_ overlay: UserSceneOverlay) -> some View {
+    Toggle(overlay.title, isOn: Binding(
+      get: { projection.enabledOverlays.contains(overlay) },
+      set: { submit(PlotterAppUIActionID.observationOverlay(overlay.rawValue, enabled: $0)) }))
+      .accessibilityIdentifier("workbench.video.\(overlay.rawValue)")
   }
 
   private func submit(_ action: PlotterUIActionID) {

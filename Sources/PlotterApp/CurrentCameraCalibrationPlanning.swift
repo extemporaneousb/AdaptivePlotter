@@ -19,6 +19,7 @@ enum CurrentCameraCalibrationPlanningError: Error, Equatable, Sendable {
   case insufficientYAxisSpan
   case insufficientSparseTipXAxisSpan
   case insufficientSparseTipYAxisSpan
+  case selectedWorkingRegionOutsideBoundary
   case circularMarkOutsideBoundaryEnvelope
   case unsupportedSparseTipEstimatorRevision(String)
 }
@@ -39,9 +40,11 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
     case .insufficientYAxisSpan:
       "The accepted Y boundaries do not leave a symmetric calibration rectangle with at least 10 mm usable Y span."
     case .insufficientSparseTipXAxisSpan:
-      "The accepted X boundaries must span more than 20 mm to leave four distinct calibration-circle centers after the 10 mm safety inset."
+      "The accepted X boundaries must span at least 25 mm for 10 mm-inset circles with at least 1 mm between outlines."
     case .insufficientSparseTipYAxisSpan:
-      "The accepted Y boundaries must span more than 20 mm to leave four distinct calibration-circle centers after the 10 mm safety inset."
+      "The accepted Y boundaries must span at least 25 mm for 10 mm-inset circles with at least 1 mm between outlines."
+    case .selectedWorkingRegionOutsideBoundary:
+      "The selected paper working region must remain entirely inside the accepted machine Boundary."
     case .circularMarkOutsideBoundaryEnvelope:
       "The 2 mm-radius calibration circle would cross the accepted Boundary envelope. Increase the usable paper/machine clearance before drawing."
     case .unsupportedSparseTipEstimatorRevision(let revision):
@@ -53,11 +56,13 @@ extension CurrentCameraCalibrationPlanningError: LocalizedError {
 /// One visible Exercise 1.4 mark. The circle is a 16-chord approximation whose
 /// maximum radial deviation is checked by the machine-position acceptance policy.
 struct SparseTipCircularMarkPlan: Hashable, Sendable {
-  static let radiusMM = 2.0
+  static let radiusMM = TipCalibrationWorkingRegionPolicy.circleRadiusMM
   static let chordCount = 16
   static let maximumFeedMMPerMinute =
     PlotterMotionThroughput.applicationXYFeedMMPerMinute
   static let registrationEstimatorRevision =
+    "affine-first-selected-working-region-10mm-inset-four-circle-2mm-radius-16-chord-v8"
+  static let boundaryInsetFourCircleRegistrationEstimatorRevision =
     "affine-first-boundary-10mm-inset-four-circle-2mm-radius-16-chord-v7"
   static let boundaryExtremeFourCircleRegistrationEstimatorRevision =
     "affine-first-boundary-extreme-four-circle-2mm-radius-16-chord-v6"
@@ -70,6 +75,7 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
 
   static func supportsRestoredGeometry(for estimatorRevision: String) -> Bool {
     estimatorRevision == registrationEstimatorRevision
+      || estimatorRevision == boundaryInsetFourCircleRegistrationEstimatorRevision
       || estimatorRevision == boundaryExtremeFourCircleRegistrationEstimatorRevision
       || estimatorRevision == insetFiveCircleRegistrationEstimatorRevision
       || estimatorRevision == boundaryCornerRegistrationEstimatorRevision
@@ -168,11 +174,11 @@ struct SparseTipCircularMarkPlan: Hashable, Sendable {
 }
 
 /// The complete Exercise 1.4 physical mark layout. The four circle centers are
-/// inset 10 mm from the operator-accepted Boundary envelope, leaving 8 mm
-/// between each 2 mm-radius outline and its adjacent accepted edges. No center
+/// inset 10 mm from the selected paper working extent inside machine Boundary,
+/// leaving 8 mm between each 2 mm-radius outline and its adjacent working edge. No center
 /// mark is drawn. The final reveal remains a Pen-Up move to the rectangle center.
 struct SparseTipBatchMarkPlan: Hashable, Sendable {
-  static let boundaryInsetMM = 10.0
+  static let boundaryInsetMM = TipCalibrationWorkingRegionPolicy.centerInsetMM
 
   struct Mark: Hashable, Sendable {
     let position: ToolContactCalibrationPosition
@@ -181,22 +187,38 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
   }
 
   let marks: [Mark]
-  /// The exact accepted Exercise 1.2 machine-space Boundary from which this batch
-  /// is derived. It remains distinct from the inset calibration/Border domain.
+  /// The fixed accepted Exercise 1.2 travel limit, independent of the selected
+  /// working extent and its inset calibration/Border domain.
   let boundaryEnvelope: AxisAlignedBounds<MachineSpace>
   /// The calibration applicability and 10 mm-inset Drawing Border bounds
   /// through the four observed mark centers.
   let applicabilityRectangle: AxisAlignedBounds<MachineSpace>
+  let workingRegion: AxisAlignedBounds<MachineSpace>
   let finalRevealPosition: MachinePosition
 
   init(
-    acceptedBoundaryAggregates: [BoundaryDirection: BoundarySideAggregate]
+    acceptedBoundaryAggregates: [BoundaryDirection: BoundarySideAggregate],
+    workingRegion selectedRegion: AxisAlignedBounds<MachineSpace>? = nil
   ) throws {
-    let acceptedBoundary = try Self.boundaryEnvelope(
-      for: acceptedBoundaryAggregates
-    )
+    try self.init(boundaryEnvelope: Self.boundaryEnvelope(for: acceptedBoundaryAggregates),
+      workingRegion: selectedRegion)
+  }
+
+  init(boundaryEnvelope acceptedBoundary: AxisAlignedBounds<MachineSpace>,
+    workingRegion selectedRegion: AxisAlignedBounds<MachineSpace>? = nil) throws {
     boundaryEnvelope = acceptedBoundary
-    applicabilityRectangle = try Self.drawingBorderBounds(for: acceptedBoundary)
+    let region = selectedRegion ?? acceptedBoundary
+    guard TipCalibrationWorkingRegionPolicy.contains(region, in: acceptedBoundary) else {
+      throw CurrentCameraCalibrationPlanningError.selectedWorkingRegionOutsideBoundary
+    }
+    guard TipCalibrationWorkingRegionPolicy.permitsSpan(region.maxX - region.minX) else {
+      throw CurrentCameraCalibrationPlanningError.insufficientSparseTipXAxisSpan
+    }
+    guard TipCalibrationWorkingRegionPolicy.permitsSpan(region.maxY - region.minY) else {
+      throw CurrentCameraCalibrationPlanningError.insufficientSparseTipYAxisSpan
+    }
+    workingRegion = region
+    applicabilityRectangle = try Self.drawingBorderBounds(for: region)
     let center = try MachinePosition(
       x: (applicabilityRectangle.minX + applicabilityRectangle.maxX) / 2,
       y: (applicabilityRectangle.minY + applicabilityRectangle.maxY) / 2
@@ -217,7 +239,7 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
         machinePosition: machinePosition,
         circle: try SparseTipCircularMarkPlan(
           center: machinePosition,
-          boundaryEnvelope: acceptedBoundary
+          boundaryEnvelope: region
         )
       )
     }
@@ -256,6 +278,15 @@ struct SparseTipBatchMarkPlan: Hashable, Sendable {
       maxX: acceptedBoundary.maxX - inset,
       maxY: acceptedBoundary.maxY - inset
     )
+  }
+
+  /// Only v8 encodes a selected paper extent as exactly 10 mm beyond its
+  /// retained observed-center domain. Earlier revisions keep their old meaning.
+  static func selectedWorkingRegion(for registration: TipCameraRegistration) throws -> AxisAlignedBounds<MachineSpace>? {
+    guard registration.estimatorRevision == SparseTipCircularMarkPlan.registrationEstimatorRevision else { return nil }
+    let domain = registration.applicabilityRectangle
+    return try AxisAlignedBounds(minX: domain.minX - boundaryInsetMM, minY: domain.minY - boundaryInsetMM,
+      maxX: domain.maxX + boundaryInsetMM, maxY: domain.maxY + boundaryInsetMM)
   }
 
   static func applicabilityRectangle(

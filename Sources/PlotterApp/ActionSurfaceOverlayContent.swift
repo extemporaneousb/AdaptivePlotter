@@ -24,7 +24,7 @@ struct ActionSurfaceOverlayContent: Equatable, Sendable {
   let clickMarkers: [Point2<CameraPixelSpace>]
   let simulatedAnnotations: [SimulatedLearningAnnotation]
 
-  init(presentation: ActionSurfacePresentation, stagedFrame: PlotterDrawingDraftFrame? = nil) {
+  init(presentation: ActionSurfacePresentation, stagedFrame: PlotterDrawingDraftFrame? = nil, hidesCalibrationGuides: Bool = false, replacesDrawingRegion: Bool = false) {
     frameContext = presentation.displayedFrame.map {
       FrameContext(source: $0.source, configuration: $0.frame.cameraConfigurationID,
         width: $0.frame.width, height: $0.frame.height, pixelFormat: $0.frame.pixelFormat)
@@ -51,7 +51,16 @@ struct ActionSurfaceOverlayContent: Equatable, Sendable {
         executionPlanContentHash: nil, status: preview.status,
         showsStrokeBounds: false) }
     } else { targetPreview = preview }
-    overlays = presentation.renderedOverlays
+    overlays = presentation.renderedOverlays.filter {
+      switch $0.provenance.kind {
+      case .acceptedBoundary: presentation.showsMachineBoundary
+      case .drawingRegion: presentation.showsDrawingRegion && !replacesDrawingRegion
+      case .paperCoverage: false
+      case .drawingBorder: $0.provenance.source == .planned || $0.provenance.source == .measured
+      case .calibrationGuide: !hidesCalibrationGuides
+      default: true
+      }
+    }
     analyzedOverlayFrame = presentation.analyzedOverlayFrame
     tipReview = presentation.tipPresentation.reviewGeometry
     clickMarkers = presentation.tipPresentation.clickMarkers

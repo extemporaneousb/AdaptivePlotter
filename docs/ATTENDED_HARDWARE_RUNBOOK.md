@@ -158,14 +158,21 @@ the attended run with explicit invalidation and new evidence.
 
 ## 3. Exercise 1.4 — four 10 mm-inset 2 mm-radius circles
 
-Confirm Exercise 1.4 plans no center circle. Its four corner-circle centers are
-exactly 10 mm inside the accepted Boundary on both adjacent axes, so each 2 mm-
-radius footprint remains 8 mm clear of those edges. Exercise 1.3
+In the existing Exercise 1.4 preview, select a paper working region within the
+machine Boundary and over the disposable sheet. Verify body movement, corner
+resize, **Smaller**, Apply and Cancel on the retained frame; **Smaller** must remain
+usable when the full Boundary's handles are offscreen. The cap-map guide remains
+approximate and must disclose the unknown tip offset. Confirm no motion occurs
+during editing and each selected span is at least 25 mm. Confirm the batch plans
+no center circle. Its four corner-circle centers are exactly 10 mm inside the
+selected working extent on both adjacent axes, so each 2 mm-radius footprint
+remains 8 mm clear of those edges and adjacent outlines remain at least 1 mm apart.
+Exercise 1.3
 remains on its separate center plus four ±24 mm camera-calibration positions.
 
 1. Press **Draw Four Calibration Circles** once.
 2. For each of the four framing marks, watch Pen-Up travel settle at the
-   intended MPos, compare each center with the accepted Boundary coordinate and
+   intended MPos, compare each center with the selected working-region coordinate and
    exact 10 mm inset, confirm the pre-mark
    frame/cap/controller evidence is retained, and watch Pen-Up travel settle at
    the circle start.

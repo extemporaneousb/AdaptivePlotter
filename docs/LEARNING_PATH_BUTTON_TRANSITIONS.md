@@ -150,7 +150,8 @@ flowchart TD
   end
 
   subgraph tip["1.4 Calibrate Pen Tip from Corner Marks"]
-    s0["Ready<br/>Draw Four Calibration Circles"]
+    s0["Ready; approximate paper working-region preview<br/>Edit Drawing Region · Draw Four Calibration Circles"]
+    sregion["Frozen preview: move body or resize corners<br/>Default · Smaller · Apply · Cancel<br/>unknown tip offset; no coverage authority"]
     s1["Automatic four-circle drawing and reveal<br/>busy action — disabled<br/>Stop replaces it during stoppable motion"]
     s2["Frozen current click frame; zero clicks<br/>Capture New Click Frame · Cancel Attempt"]
     s2capture["Capturing strictly newer exact frame<br/>Capture New Click Frame… — disabled<br/>Cancel Attempt"]
@@ -161,7 +162,12 @@ flowchart TD
     sdone["1.4 complete<br/>Redo This Step"]
     scancel["Attempt settled without acceptance<br/>Restart Attempt"]
     spaper["Possible-ink location excluded<br/>Record Paper Replacement"]
-    s0 -->|Draw Four Calibration Circles| s1
+    s0 -->|Edit Drawing Region — no motion| sregion
+    sregion -->|Default — stage full machine Boundary| sregion
+    sregion -->|Smaller — stage 20% shrink; 25 mm minimum| sregion
+    sregion -->|Apply — validate and retain region| s0
+    sregion -->|Cancel — discard edit| s0
+    s0 -->|Draw Four Calibration Circles — freeze selected region| s1
     s1 -->|one final reveal frame| s2
     s1 -->|Stop before possible contact| scancel
     s1 -->|Stop or ambiguity after possible contact| spaper
@@ -296,8 +302,15 @@ Dependency behavior is intentionally asymmetric:
 The two normal-flow acceptance buttons commit reviewable calibration evidence;
 they are not forward gates. **Accept Camera Calibration** commits the
 five-position camera calibration. **Accept Pen-Tip Calibration** commits the
-four-click pen-tip calibration. Exercises 1.3 and 1.4 begin directly with their
-physical actions.
+four-click pen-tip calibration. Exercise 1.3 begins directly with its physical
+action. Exercise 1.4 keeps **Draw Four Calibration Circles** as its physical action;
+**Edit Drawing Region** edits the existing pre-mark preview without adding a
+Learning step or acceptance gate. A pending edit must be applied or cancelled
+before drawing. Accepted v8 geometry retains the selected outer paper extent;
+its four circle centers and later Drawing Border are inset 10 mm, with 8 mm
+outline clearance. The cap-map preview remains approximate and grants no paper
+coverage or calibrated tip authority. Marking, possible ink and retained click
+review exclude region editing.
 
 Camera-calibration failure detail is rendered with its actual cause. Off-center
 state offers **Return Pen Up to Accepted Center**, with exact Stop during travel.

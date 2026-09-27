@@ -91,7 +91,7 @@ extension SavedLearningCompletionTests {
     let originalRegistration = try #require(app.tipCameraRegistration)
     let originalBoundary = app.testAcceptedBoundaryAggregates
     let originalOutlines = app.testActionSurfacePresentation.overlays.filter {
-      [.acceptedBoundary, .drawingBorder].contains($0.provenance.kind)
+      [.acceptedBoundary, .drawingRegion].contains($0.provenance.kind)
     }
     #expect(originalOutlines.count == 2)
     let program = try PortraitVectorizer.program(from: portraitTestRaster(), pose: .front,
@@ -215,7 +215,7 @@ extension SavedLearningCompletionTests {
         #expect(app.borderValidationSnapshot.assessment != nil)
         #expect(app.currentDrawableMachineRegion != nil)
         let outlines = app.testActionSurfacePresentation.overlays.filter {
-          [.acceptedBoundary, .drawingBorder].contains($0.provenance.kind)
+          [.acceptedBoundary, .drawingRegion].contains($0.provenance.kind)
         }
         #expect(outlines.count == 2)
         #expect(outlines.map(\.geometry) == originalOutlines.map(\.geometry))

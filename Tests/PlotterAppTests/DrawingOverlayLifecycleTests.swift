@@ -33,7 +33,7 @@ struct DrawingOverlayLifecycleTests {
       assertNoArtwork(app)
       try await applyCompleteSavedLearning(app)
       assertNoArtwork(app)
-      assertCalibrationGuides(app.testActionSurfacePresentation)
+      assertReferenceFrames(app.testActionSurfacePresentation)
       guard case .loaded(let archive) = await f.stores.evidenceStore.load() else {
         Issue.record("The drawing archive must remain available")
         await app.shutdown(); return
@@ -67,8 +67,8 @@ struct DrawingOverlayLifecycleTests {
       let before = app.drawingDraftSnapshot
       let plan = try #require(before.plan)
       let beforePreview = try #require(ActionSurfaceOverlayContent(presentation: app.testActionSurfacePresentation).targetPreview)
-      let guidesBeforeHide = calibrationGuideGeometry(app.testActionSurfacePresentation)
-      assertCalibrationGuides(app.testActionSurfacePresentation)
+      let guidesBeforeHide = referenceFrameGeometry(app.testActionSurfacePresentation)
+      assertReferenceFrames(app.testActionSurfacePresentation)
       let inkProtection = app.drawingRunSnapshot?.noRedraw
       if case .planMayContainInk = inkProtection {} else {
         Issue.record("The stopped drawing must establish ink protection before Hide Drawing")
@@ -80,13 +80,13 @@ struct DrawingOverlayLifecycleTests {
 
       try await f.submit(.hideTarget)
       assertNoArtwork(app)
-      assertCalibrationGuides(app.testActionSurfacePresentation)
-      #expect(calibrationGuideGeometry(app.testActionSurfacePresentation) == guidesBeforeHide)
+      assertReferenceFrames(app.testActionSurfacePresentation)
+      #expect(referenceFrameGeometry(app.testActionSurfacePresentation) == guidesBeforeHide)
       let advancedFrame = try await f.camera.publishNextFrame()
       let advanced = app.testActionSurfacePresentation.resolvingAmbientPreviewFrame(advancedFrame)
       #expect(ActionSurfaceOverlayContent(presentation: advanced).targetPreview == nil)
       #expect(!advanced.renderedOverlays.contains { $0.provenance.kind == .intendedPath })
-      #expect(advanced.renderedOverlays.contains { $0.provenance.kind == .calibrationGuide })
+      #expect(advanced.renderedOverlays.contains { $0.provenance.kind == .drawingRegion })
       #expect(app.drawingDraftSnapshot.program == before.program)
       #expect(app.drawingDraftSnapshot.plan == plan)
       #expect(app.drawingDraftSnapshot.projection.draftRevision == before.projection.draftRevision)
@@ -98,8 +98,8 @@ struct DrawingOverlayLifecycleTests {
       try await f.submit(.showTarget)
       let shown = try #require(ActionSurfaceOverlayContent(presentation: app.testActionSurfacePresentation).targetPreview)
       #expect(shown.strokes == beforePreview.strokes)
-      assertCalibrationGuides(app.testActionSurfacePresentation)
-      #expect(calibrationGuideGeometry(app.testActionSurfacePresentation) == guidesBeforeHide)
+      assertReferenceFrames(app.testActionSurfacePresentation)
+      #expect(referenceFrameGeometry(app.testActionSurfacePresentation) == guidesBeforeHide)
       #expect(shown.executionPlanContentHash == plan.revisionID.description)
       #expect(!app.testActionSurfacePresentation.overlays.contains { $0.provenance.kind == .intendedPath })
       #expect(await f.machine.requestedFeeds == feeds)
@@ -113,17 +113,16 @@ struct DrawingOverlayLifecycleTests {
     } catch { await app.shutdown(); throw error }
   }
 
-  private func calibrationGuideGeometry(_ surface: ActionSurfacePresentation) -> [CameraPixelGeometry] {
-    surface.overlays.filter { $0.provenance.kind == .calibrationGuide }.map(\.geometry)
+  private func referenceFrameGeometry(_ surface: ActionSurfacePresentation) -> [CameraPixelGeometry] {
+    surface.overlays.filter { [.acceptedBoundary, .drawingRegion].contains($0.provenance.kind) }.map(\.geometry)
   }
 
-  private func assertCalibrationGuides(_ surface: ActionSurfacePresentation) {
-    let guides = surface.overlays.filter { $0.provenance.kind == .calibrationGuide }
-    // Boundary + inset frame + four centers + four paths survive artwork Hide.
-    #expect(guides.count == 10)
-    #expect(guides.allSatisfy { $0.provenance.source == .planned })
-    #expect(guides.filter { if case .point = $0.geometry { return true }; return false }.count == 4)
-    #expect(guides.filter { if case .polyline = $0.geometry { return true }; return false }.count == 6)
+  private func assertReferenceFrames(_ surface: ActionSurfacePresentation) {
+    let guides = surface.overlays.filter { [.acceptedBoundary, .drawingRegion].contains($0.provenance.kind) }
+    // Normal video retains the two reference frames independently of artwork.
+    #expect(guides.count == 2)
+    #expect(guides.allSatisfy { if case .polyline = $0.geometry { return true }; return false })
+    #expect(!surface.overlays.contains { $0.provenance.kind == .calibrationGuide })
   }
 
   private func assertNoArtwork(_ app: PlotterApplicationRuntime) {
@@ -132,6 +131,6 @@ struct DrawingOverlayLifecycleTests {
     #expect(ActionSurfaceOverlayContent(presentation: surface).targetPreview == nil)
     #expect(!surface.renderedOverlays.contains { $0.provenance.kind == .intendedPath })
     #expect(surface.overlays.contains { $0.provenance.kind == .acceptedBoundary })
-    #expect(surface.overlays.contains { $0.provenance.kind == .drawingBorder })
+    #expect(surface.overlays.contains { $0.provenance.kind == .drawingRegion })
   }
 }

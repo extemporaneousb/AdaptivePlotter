@@ -101,7 +101,8 @@ work on those owners.
 
 Run the complete [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md) on a
 disposable sheet. Validate actual controller settlement, five cap captures,
-four 10 mm-inset Boundary-corner 2 mm-radius circular marks with no center
+selection of the paper working extent inside the machine Boundary, four
+2 mm-radius circular marks inset 10 mm from its corners with no center
 mark and Pen Up
 between them, one final center Pen-Up reveal, the separately labeled accepted
 Exercise 1.2 Drawing Boundary and inset Drawing Border overlays, one shared frozen exact frame, four

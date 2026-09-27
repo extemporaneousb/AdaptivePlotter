@@ -254,15 +254,15 @@ struct CurrentCameraCalibrationPlanningTests {
     let smallestAccepted = try SparseTipBatchMarkPlan(
       acceptedBoundaryAggregates: boundaryEnvelope(
         negativeX: 0,
-        positiveX: 20.1,
+        positiveX: 25,
         negativeY: 0,
-        positiveY: 20.1
+        positiveY: 25
       )
     )
     #expect(smallestAccepted.applicabilityRectangle.minX == 10)
     #expect(smallestAccepted.applicabilityRectangle.minY == 10)
-    #expect(abs(smallestAccepted.applicabilityRectangle.maxX - 10.1) < 1e-12)
-    #expect(abs(smallestAccepted.applicabilityRectangle.maxY - 10.1) < 1e-12)
+    #expect(abs(smallestAccepted.applicabilityRectangle.maxX - 15) < 1e-12)
+    #expect(abs(smallestAccepted.applicabilityRectangle.maxY - 15) < 1e-12)
   }
 
   @Test("sparse circle refuses any mark that would cross the accepted Boundary envelope")
@@ -623,4 +623,59 @@ private func boundaryAggregate(
     history: history,
     estimator: estimator
   )
+}
+
+
+extension CurrentCameraCalibrationPlanningTests {
+  @Test("off-center selected extent owns all circle footprints and the retained center domain")
+  func selectedWorkingExtent() throws {
+    let boundary = try boundaryEnvelope(negativeX: -100, positiveX: 200, negativeY: -80, positiveY: 160)
+    let selected = try AxisAlignedBounds<MachineSpace>(minX: -65, minY: 12, maxX: 47, maxY: 95)
+    let plan = try SparseTipBatchMarkPlan(acceptedBoundaryAggregates: boundary, workingRegion: selected)
+    #expect(plan.workingRegion == selected)
+    #expect(plan.applicabilityRectangle == (try AxisAlignedBounds(minX: -55, minY: 22, maxX: 37, maxY: 85)))
+    for mark in plan.marks {
+      #expect(DrawingRegionContainmentPolicy.containsCircle(center: mark.machinePosition.point,
+        radiusMM: SparseTipCircularMarkPlan.radiusMM, in: selected))
+      #expect(DrawingRegionContainmentPolicy.containsCircle(center: mark.machinePosition.point,
+        radiusMM: SparseTipCircularMarkPlan.radiusMM, in: plan.boundaryEnvelope))
+    }
+    for invalid in [
+      try AxisAlignedBounds<MachineSpace>(minX: -101, minY: 0, maxX: 50, maxY: 80),
+      try AxisAlignedBounds<MachineSpace>(minX: 0, minY: -81, maxX: 50, maxY: 80),
+      try AxisAlignedBounds<MachineSpace>(minX: 0, minY: 0, maxX: 201, maxY: 80),
+      try AxisAlignedBounds<MachineSpace>(minX: 0, minY: 0, maxX: 50, maxY: 161),
+    ] {
+      #expect(throws: CurrentCameraCalibrationPlanningError.selectedWorkingRegionOutsideBoundary) {
+        try SparseTipBatchMarkPlan(acceptedBoundaryAggregates: boundary, workingRegion: invalid)
+      }
+    }
+    #expect(throws: CurrentCameraCalibrationPlanningError.insufficientSparseTipXAxisSpan) {
+      try SparseTipBatchMarkPlan(acceptedBoundaryAggregates: boundary,
+        workingRegion: .init(minX: 0, minY: 0, maxX: 24.999, maxY: 25))
+    }
+    let smallest = try SparseTipBatchMarkPlan(acceptedBoundaryAggregates: boundary,
+      workingRegion: .init(minX: 0, minY: 0, maxX: 25, maxY: 25))
+    let a = smallest.marks[0].machinePosition.point, b = smallest.marks[1].machinePosition.point
+    #expect(a.distance(to: b) - 2 * SparseTipCircularMarkPlan.radiusMM == 1)
+  }
+
+  @Test("historical v3-v7 mark restoration remains distinct from v8 selected-region provenance")
+  func historicalEstimatorGeometry() throws {
+    let domain = try AxisAlignedBounds<MachineSpace>(minX: -20, minY: 10, maxX: 60, maxY: 70)
+    let revisions = [SparseTipCircularMarkPlan.cardinalRegistrationEstimatorRevision,
+      SparseTipCircularMarkPlan.boundaryCornerRegistrationEstimatorRevision,
+      SparseTipCircularMarkPlan.insetFiveCircleRegistrationEstimatorRevision,
+      SparseTipCircularMarkPlan.boundaryExtremeFourCircleRegistrationEstimatorRevision,
+      SparseTipCircularMarkPlan.boundaryInsetFourCircleRegistrationEstimatorRevision,
+      SparseTipCircularMarkPlan.registrationEstimatorRevision]
+    for revision in revisions {
+      #expect(SparseTipCircularMarkPlan.supportsRestoredGeometry(for: revision))
+      let mark = try SparseTipCircularMarkPlan.restoredGeometry(for: .negativeX, in: domain, estimatorRevision: revision)
+      #expect(mark.center.point.x == domain.minX)
+      #expect(mark.center.point.y == (revision == revisions[0] ? 40 : domain.minY))
+    }
+    #expect(SparseTipCircularMarkPlan.boundaryInsetFourCircleRegistrationEstimatorRevision.hasSuffix("-v7"))
+    #expect(SparseTipCircularMarkPlan.registrationEstimatorRevision.hasSuffix("-v8"))
+  }
 }

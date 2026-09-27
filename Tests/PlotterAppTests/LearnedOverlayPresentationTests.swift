@@ -15,8 +15,9 @@ struct LearnedOverlayPresentationTests {
     #expect(
       ActionSurfaceOverlayPresentationGrammar.semanticLabel(
         for: .acceptedBoundary
-      ) == "ACCEPTED DRAWING BOUNDARY"
+      ) == "MACHINE BOUNDARY"
     )
+    #expect(ActionSurfaceOverlayPresentationGrammar.semanticLabel(for: .drawingRegion) == "DRAWING REGION")
     #expect(
       ActionSurfaceOverlayPresentationGrammar.semanticLabel(
         for: .predictedContactPoint

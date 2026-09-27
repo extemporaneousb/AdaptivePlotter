@@ -8,6 +8,95 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Selected paper working region and visible placement controls, 2026-09-26
+
+**Edit Drawing Region** in the existing Exercise 1.4 preview stages a paper
+working rectangle inside the learned machine Boundary. It retains the displayed
+frame for body movement and independent corner resizing. **Default** stages the
+full Boundary; **Smaller** reduces each span by 20% about the center, stopping at
+25 mm. Apply/Cancel settles the edit without adding Learning. Four 2 mm-radius
+circles have centers 10 mm inside the selected extent, leaving 8 mm edge clearance
+and at least 1 mm between adjacent circles at the minimum size. The cap-only
+projection explicitly remains approximate while the tip offset is unknown.
+
+Video Settings separates **Reference frames** from Vision and simulator
+diagnostics. **Machine Boundary** and **Drawing Region** independently default
+on; simulator diagnostics default off. The v2 preference migration retains
+previous cap/armature choices. The normal region outline represents the full
+admitted paper working extent, or the historical drawable extent for older
+registrations. It does not stack artwork, paper-coverage and persistent inset
+calibration rectangles. Actual circles remain in the relevant calibration
+preparation/review, and the actual Border plan and evidence remain retained.
+Reference-frame visibility requests no Vision work and changes no geometry,
+plan, accepted coverage or ink authority.
+
+**Position Drawing** remains discoverable with a concise unavailable reason.
+It temporarily replaces the paper-extent outline with the artwork frame and
+**Artwork positioning · frozen video** caption on a retained exact frame. Body drag moves artwork;
+corner drag uniformly resizes about its fixed center. Apply/Cancel restores the
+full paper outline plus independently placed artwork strokes. Fit and the Size
+limit now use full geometric containment without an implicit 90% margin;
+unplaced Portrait reference padding and calibration sample locations remain
+separate. **Fit Machine Boundary** and **Show Full Video** use the existing
+viewport state, respect edit/frame/context locks and never run automatically.
+
+New sheet confirmation requires the full admitted region to be visible and no
+pending region/artwork edit or reopened Exercise 1.4 preparation; the owner also
+refuses cached submissions after
+visibility changes. Hiding a guide preserves existing coverage and does not
+independently block Drawing. Paper attestation is still bound to the current
+sheet, exact displayed frame and compatible registration. The smaller artwork
+frame is never silently substituted for a larger invisible coverage target.
+
+The existing tip owner admits one immutable region/plan for preview and marking.
+Stale context, active marking, retained clicks/review and possible ink prevent
+replacement or automatic redraw. The explicit v8 estimator recovers its selected
+outer extent from the accepted observed-center domain; later Border v3 uses that
+exact domain. Historical v3-v7 registration geometry and planning interpretation
+remain unchanged. The full machine Boundary is still travel authority; the
+working extent bounds paper/artwork, and its outer 10 mm band does not expand
+observed tip applicability or permit attributable camera/ink evidence.
+
+Low-reasoning research preceded delegated source/test and documentation/evidence
+work. The coordinator independently reviewed the final owners, geometry,
+compatibility, presentation and paper-assertion guards. The user-authorized base
+integration retained the landed Boundary session fix and its evidence entry.
+The broader sequential focused selection passed 84 tests in 61.217 seconds,
+including four gated render skips. The final presentation/admission/render
+selection passed 39 tests in 10.163 seconds; a subsequent test-only retained-frame
+render correction passed its single test in 2.365 seconds. Coverage includes
+visibility migration, independent toggles, current/cached paper refusal, preserved
+plan and coverage identities, full Fit/Size, context-bound viewport focus,
+selected-region geometry, restoration and affected Saved Learning lifecycle cases.
+Settings, normal/hidden reference layers, artwork positioning and calibration
+PNGs were visually inspected. Backed labels remain legible on white paper;
+hiding both guides retains the exact photographed ink/cap and planned artwork.
+The positioning PNG is a production overlay composite, not a native gesture.
+The episode architecture contract check passed.
+
+The combined-tree configured serial run exposed one computation regression:
+Exercise 1.4 rebuilt the Learning projection 22 times where its unchanged test
+requires two. Cheap registration/active-owner guards now short-circuit before the
+heavy projection getter; geometry, admission semantics and test expectations were
+unchanged. The computation diagnostics, frame-reference presentation and working-
+region selection passed 30 tests in 12.033 seconds, including three gated render
+skips, with the original two-build assertion passing. The failed full-run receipt
+and raw output remain retained separately from the subsequent verification.
+
+A stable-local signed debug app was built; its bundle validator and negative
+bundle-validation tests passed without launch. Configured verification runs
+`make docs-check`, `make quick-test` with `SWIFT_FLAGS=--no-parallel`, and
+`git diff --check` in an exclusive Swift window. Retained machine receipts bind
+those outcomes to the combined source tree, and raw Swift logs retain names,
+skips and failures. External bundle provenance records executable/signature
+identity. Replacement of the primary app bundle is a separate delivery action
+whose installed identity is verified outside this tracked ledger.
+
+The agent did not launch the app, reset Learning or perform live camera/controller
+operation. Offscreen rendering, owner tests and build receipts do not establish
+native pointer behavior on live video, physical paper coverage, pen travel or ink.
+Installing the new UI does not retrofit a smaller extent into saved v7 Learning.
+
 ## Boundary session mismatch and operator diagnostics, 2026-09-26
 
 A reported Y+ repeat attempted to pool a new controller session into a retained

@@ -70,7 +70,8 @@ public struct LearningFrameMetricGeometry: Codable, Hashable, Sendable {
       record.executionFrontiers.commandedStrokeCount == 1,
       record.executionFrontiers.controllerCompletedStrokeCount == 1,
       record.program.source?.kind == "learning-path-drawing-border",
-      ["accepted-boundary-10mm-inset-drawing-border-v2", "retained-registration-drawing-border-v1"]
+      ["selected-working-region-observed-center-drawing-border-v3",
+        "accepted-boundary-10mm-inset-drawing-border-v2", "retained-registration-drawing-border-v1"]
         .contains(record.program.source?.sourceIdentifier ?? ""),
       plan.sourceProgramID == record.program.programID,
       plan.sourceProgramContentHash == record.program.contentHash,

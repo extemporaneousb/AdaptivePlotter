@@ -13,7 +13,7 @@ struct DrawingStudioPlacementPresentation: Hashable, Sendable {
   let placementIsEnabled: Bool
 
   var locationText: String {
-    guard let centerCameraPixel else { return "Choose Edit Frame on the video, then drag to place" }
+    guard let centerCameraPixel else { return "Choose Position Drawing on the video, then drag to place" }
     return String(
       format: "Camera X %.1f Y %.1f", centerCameraPixel.x, centerCameraPixel.y)
   }

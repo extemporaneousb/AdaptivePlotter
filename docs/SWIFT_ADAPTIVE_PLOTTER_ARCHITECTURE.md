@@ -1791,11 +1791,13 @@ Exercise 1.4 is split across four owners:
   final cap-bearing reveal, the explicit zero-click replacement-frame phase,
   proposal review, accepted-tip checkpoint retention,
   possible-ink terminal state, and atomic commit/revalidation installation.
-- `SparseTipBatchMarkPlan` derives the four mark centers from the accepted
-  Drawing Boundary envelope with one canonical 10 mm inset, drawing no center
-  mark. Its 16-chord circles request the canonical `500` mm/min app-owned XY
+- `SparseTipBatchMarkPlan` derives the four mark centers from a selected paper
+  working extent contained by the accepted Drawing Boundary, with one canonical
+  10 mm inset and no center mark. The existing tip owner admits the selected
+  pre-mark geometry as one immutable batch used by both preview and execution.
+  Its 16-chord circles request the canonical `500` mm/min app-owned XY
   feed, reduced only by the existing controller-reported applicable ceiling. Its
-  2 mm-radius outlines therefore retain 8 mm of adjacent-edge clearance. Its
+  2 mm-radius outlines therefore retain 8 mm of adjacent working-edge clearance. Its
   corner-center rectangle is the proposed tip-map
   applicability rectangle, and its final reveal pose is the rectangle center.
 - `PlotterApplicationRuntime` is the runtime's lower effect/projection port for that
@@ -1808,6 +1810,19 @@ Exercise 1.4 is split across four owners:
 - `TipCalibrationAuthority` owns validated evidence types, four-corner affine-first
   construction, constant construction fallback, diagnostic residual/covariance/
   uncertainty, applicability decisions, rebase derivations, and checkpoints.
+
+`TipCalibrationWorkingRegionPolicy` centralizes the 10 mm center inset, 2 mm circle
+radius and 1 mm minimum gap, giving a 25 mm minimum span for each selected axis.
+`PlotterTipWorkingRegionContext` binds the machine Boundary, accepted cap-map
+revision and complete map, camera configuration, controller session, paper, tool
+and contact profile.
+`PlotterTipCalibrationRuntime` owns edit admission, the applied selection and the
+frozen batch region. `CalibrationWorkingRegionDrag` maps retained-frame gestures
+through the inverse cap affine, preserving a machine-axis-aligned rectangle even
+when the camera view is rotated or sheared. `ActionSurface` stages gestures only;
+Apply validates the same edit identity and context at the existing owner. The
+editor retains the displayed exact frame and releases it on Apply, Cancel or
+context retirement. It grants no motion, paper-coverage or tip authority.
 
 The sparse-tip flow stages one four-point `PlotterPointSelectionRequest` with
 the shared frozen reveal `ExactTipCalibrationFrame` and presentation-transform
@@ -1831,8 +1846,14 @@ originate in `ActionSurface` or its direct click-submission policy.
 replacement, capacity enforcement, and accepted four-point batch evidence
 without motion, ink, zoom, or pan. Before EA-10D, `SparseTipCalibrationCoordinator` retains the
 machine-position association, fit, calibration acceptance, and artifact graph.
-Tip-map acceptance installs the outer-center applicability rectangle without
-changing viewport state.
+Tip-map acceptance installs the exact circle-center applicability rectangle without
+changing viewport state. The selected-frame estimator revision preserves the
+working extent through its known 10 mm expansion of that recorded rectangle.
+Only that revision may make this derivation; historical v3–v7 registrations retain
+their original geometry, provenance and prior Boundary-based planning region.
+Coordinate rebasing translates the accepted geometry together rather than
+rebuilding it from the present machine Boundary. The pre-mark cap-map projection
+remains approximate, with unknown tip offset and extrapolation explicitly labeled.
 
 After click four, the app projects all four corner machine positions through
 current `MachineCameraRegistration`, centers projected and clicked sets to
@@ -1895,8 +1916,9 @@ for candidate identity. The no-redraw geometry comparison matches paths independ
 of order, so changing frame order cannot authorize the same ink again. The
 resulting single plan feeds preview, `PlotterDrawingRunRuntime`, checkpoints,
 Stop, possible ink, and ordinary evidence. Original artwork remains the editable
-source for Fit/Center. The Learning Border owner and its fixed 10 mm inset are
-unchanged. Every canonical `.beginNewPlan` handoff resets **Draw frame** off,
+source for Fit/Center. The Learning Border owner consumes the exact accepted
+circle-center rectangle, 10 mm inside the selected working extent for new
+calibrations. Every canonical `.beginNewPlan` handoff resets **Draw frame** off,
 including a successful new-sheet handoff; other edits of the same draft preserve
 its explicit choice.
 
@@ -2000,11 +2022,15 @@ uses the owning reset. Explicit semantic-revision controls remain a roadmap item
 ## Stage 2 ownership
 
 Stage 2 does not reuse a Stage 1 target, baseline, or reveal pose.
-`DrawingBorderPlan` creates one closed polyline through the four accepted
-10 mm-inset circle centers, with four orthogonal edges and right-angle turns.
-`PlotterApplicationRuntime` supplies the accepted Drawing Boundary—not that inset
-Drawing Border—as the plan's `DrawableMachineRegion`. The region admits exact
-Boundary geometry and only its separately versioned 1e-9 mm numerical epsilon;
+`DrawingBorderPlan` creates one closed polyline with four orthogonal edges and
+right-angle turns. For selected-frame calibration, its source is the exact
+accepted tip registration's circle-center rectangle; historical revisions retain
+their existing versioned derivation. `PlotterApplicationRuntime` supplies the
+selected working extent within the
+machine Boundary as the plan's `DrawableMachineRegion` for a selected-frame
+calibration; historical revisions retain their prior Boundary-based region.
+The inset Drawing Border remains target geometry. Containment uses closed region
+bounds and only its separately versioned 1e-9 mm numerical epsilon;
 it never imports or equals controller-position settlement tolerance.
 The visible 2.1 row owns one attempt from **Draw and Validate Drawing Border** through normal comparison; its
 six typed phases update activity and subsystem presentation but do not create
@@ -2250,8 +2276,22 @@ the canvas's staged drag, leaves execution/paper/evidence authority unchanged,
 and cannot reveal an archive overlay behind the target. Startup retains the
 Draft owner's hidden default.
 
-**Edit Frame** prepares a retained exact displayed frame through application
-composition before staging a placement. Begin/end callbacks only pin and release
+Video Settings keeps **Machine Boundary** and **Drawing Region** visibility as
+presentation state in the **Reference frames** group, initially visible. The v2
+overlay preferences retain prior cap/armature choices; simulator diagnostics are
+separate and initially off. Reference-frame toggles do not request Vision work.
+One resolved region layer shows the admitted
+paper working extent outside editing, the staged working region during Exercise
+1.4 editing, or the artwork frame while ordinary placement owns an exact frame.
+It does not stack another paper, artwork or persistent inset-Border rectangle.
+Calibration target/evidence rendering remains scoped to the corresponding exercise.
+A hidden region refuses a new sheet assertion without deleting accepted coverage.
+**Fit Machine Boundary** and **Show Full Video** use the existing viewport authority,
+respect frame/edit locks, and do not mutate calibration or execution geometry.
+
+**Position Drawing** remains discoverable with its current refusal reason and
+prepares a retained exact displayed frame through application composition before
+staging an ordinary artwork placement. Begin/end callbacks only pin and release
 displayed pixels; they do not author a draft, plan, Learning or calibration change,
 acquire a new camera frame, or establish another runtime authority. Session identity,
 lifetime and bound-context checks prevent a delayed start from restoring a cancelled
@@ -2261,8 +2301,10 @@ placement with no camera correction. Body drag retains its grab offset; corner
 drag changes uniform scale about the fixed center with rotation preserved. The
 same pure `DrawingFrameGeometry` four-corner calculation constrains staged previews
 and runtime placement, including Size/Rotation edits. Only the existing projected
-Apply request authors placement and creates the ordinary plan; **Cancel Frame
-Edit** retires presentation staging. The retained exact reference permits an edit
+Apply request authors placement and creates the ordinary plan; cancellation
+retires presentation staging. Apply/Cancel returns the region layer to the admitted
+paper extent while preserving the independently authored artwork placement.
+Paper assertion is excluded while the edit owns the temporary artwork frame. The retained exact reference permits an edit
 begun on an unsealed live frame without weakening stale-context rejection or
 materializing every passive frame. Existing application projection and ingress
 exclude Draw while this presentation session is pending or staged, including a
@@ -2282,14 +2324,16 @@ Ordinary artwork uses strict planning after the Draft owner constrains its entir
 artwork frame. Out-of-region paths refuse planning. Retained Border, metric
 targets, Learning marks and coverage experiments keep their strict containment.
 
-The runtime derives the drawable region from the accepted Drawing Boundary and
-projects it through a typed diagnostic affine value, including the area between
-the inset applicability rectangle and Boundary, alongside the predicted current
+The runtime derives the drawable region from the selected working extent within
+the accepted Drawing Boundary for a selected-frame calibration, retaining the
+prior Boundary region for historical revisions. It projects the region through a
+typed diagnostic affine value, including the area between the inset applicability
+rectangle and working-extent edge, alongside the predicted current
 tip point. This does not enlarge recorded tip-calibration applicability.
 `TipApplicabilityEvidencePolicy` is the sole constructor of observer-bound
 intended geometry: it uses `TipCameraRegistration.tipPixel(at:)` for every plan
 point and returns an unforgeable all-or-nothing projection token. One outside
-point keeps the Boundary-valid plan executable but prevents Vision invocation
+point keeps the region-valid plan executable but prevents Vision invocation
 and records a completed, non-attributable run with zero verified strokes. Only
 a separately accepted registration revision whose recorded rectangle contains
 the same plan can make it camera/ink evidence eligible.
@@ -2302,9 +2346,9 @@ Size multiplier within the full accepted drawable region, and centers the result
 it has no implicit 90% margin. Fit never chooses a different orientation. The
 same camera-corrected, rotated field extent supplies the artwork frame and scale
 slider's bounds. Draft placement containment checks the frame's four machine-space
-corners against the accepted Boundary before the planner's strict per-stroke
+corners against the current working region before the planner's strict per-stroke
 containment check. The artwork frame is not a `DrawableMachineRegion` and
-moving it does not invalidate unchanged full-Boundary paper coverage or mutate
+moving it does not invalidate unchanged working-region paper coverage or mutate
 Learning artifacts. A changed accepted registration rebuilds the
 placement through the existing derivation key; invalid response geometry refuses
 planning rather than reverting ordinary artwork to equal controller travel.
@@ -2319,7 +2363,7 @@ production `PaperCoverageComposition` injects one nominal
 `UserDefaultsDrawingDraftPaperPersistence`. A LIVE save completes before the
 accepted snapshot is published; failure returns a typed refusal without
 installing the assertion. The operator supplies paper-coverage authority; the
-displayed diagnostic Boundary polygon supplies no tip-map or camera/ink evidence
+displayed diagnostic working-region polygon supplies no tip-map or camera/ink evidence
 authority. Its polygon is shown only on its exact frame. Currentness is a
 separate `PaperCoverageValidationContext` decision: newer same-context frames
 and a restarted capture with matching recorded physical optics/region remain

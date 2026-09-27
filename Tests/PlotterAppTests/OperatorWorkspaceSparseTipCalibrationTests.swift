@@ -237,23 +237,22 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
     )
     let proposedFrameOverlay = try #require(
       proposalOverlays.first {
-        $0.provenance.kind == .intendedPath
-          && $0.provenance.algorithmRevision == "proposed-tip-drawing-border-preview-v2"
+        $0.provenance.kind == .drawingRegion
       }
     )
     guard case .polyline(let proposedBoundary) = proposedBoundaryOverlay.geometry,
       case .polyline(let proposedFrame) = proposedFrameOverlay.geometry
     else {
-      Issue.record("Expected the accepted Drawing Boundary and proposed Drawing Border polylines.")
+      Issue.record("Expected the machine Boundary and selected Drawing Region polylines.")
       return
     }
     let boundaryOutline = try DrawingBorderPlan(bounds: batch.boundaryEnvelope)
-    let proposedBorder = try DrawingBorderPlan(bounds: batch.applicabilityRectangle)
+    let proposedBorder = try DrawingBorderPlan(bounds: batch.workingRegion)
     let proposedBoundaryPoints = try boundaryOutline.pathPositions.map {
-      try proposed.cameraFromMachine.applying(to: $0.point)
+      try registration.fit.cameraPoint(from: $0.point)
     }
     let proposedFramePoints = try proposedBorder.pathPositions.map {
-      try proposed.tipPixel(at: $0.point)
+      try registration.fit.cameraPoint(from: $0.point)
     }
     #expect(proposedBoundary.points == proposedBoundaryPoints)
     #expect(proposedFrame.points == proposedFramePoints)
@@ -312,7 +311,7 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
     #expect(calibratedGuides.allSatisfy { $0.provenance.algorithmRevision == "planned-four-circle-compatible-tip-projection-v1" })
     let regionOverlay = try #require(
       workspace.testActionSurfacePresentation.overlays.first {
-        $0.provenance.kind == .drawingBorder
+        $0.provenance.kind == .drawingRegion
       }
     )
     guard case .polyline(let regionPolyline) = regionOverlay.geometry else {
@@ -330,7 +329,7 @@ struct PlotterApplicationRuntimeSparseTipCalibrationTests {
     }
     #expect(workspace.currentDrawableMachineRegion?.effectiveBounds == batch.boundaryEnvelope)
     let acceptedFramePoints = try proposedBorder.pathPositions.map {
-      try accepted.tipPixel(at: $0.point)
+      try accepted.diagnosticProjection(at: $0.point).cameraPoint
     }
     #expect(regionPolyline.points == acceptedFramePoints)
     let acceptedBoundaryPoints = try boundaryOutline.pathPositions.map {

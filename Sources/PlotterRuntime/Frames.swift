@@ -379,6 +379,7 @@ public enum CameraOverlayKind: String, Codable, CaseIterable, Hashable, Sendable
   case acceptedBoundary
   // Preserve the durable raw value used by existing overlay archives.
   case drawingBorder = "calibratedDrawableRegion"
+  case drawingRegion
   case paperCoverage
   case predictedContactPoint
   case penCap

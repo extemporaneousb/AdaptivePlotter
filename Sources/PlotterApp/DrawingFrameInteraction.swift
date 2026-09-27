@@ -52,12 +52,13 @@ struct DrawingFrameOverlay: View {
   var body: some View {
     Canvas { context, _ in
       guard let corners = try? frame.cameraCorners, let first = corners.first else { return }
-      let color: Color = staged ? .yellow : .cyan
+      let color: Color = .yellow
       var path = Path()
       path.move(to: transform.point(first))
       for corner in corners.dropFirst() { path.addLine(to: transform.point(corner)) }
       path.closeSubpath()
-      context.stroke(path, with: .color(color), style: .init(lineWidth: 1.5, dash: staged ? [6, 3] : []))
+      context.stroke(path, with: .color(.black.opacity(0.8)), style: .init(lineWidth: 3.5, dash: [6, 3]))
+      context.stroke(path, with: .color(color), style: .init(lineWidth: 1.5, dash: [6, 3]))
       if editing {
         for corner in corners {
           let point = transform.point(corner)
@@ -68,7 +69,7 @@ struct DrawingFrameOverlay: View {
       }
       let projected = corners.map(transform.point)
       let caption = CGPoint(x: projected.map(\.x).min()!, y: projected.map(\.y).min()! - 9)
-      context.draw(Text(staged ? "DRAWING FRAME · STAGED" : "DRAWING FRAME")
+      context.draw(Text(staged ? "ARTWORK POSITION · STAGED" : "ARTWORK POSITION")
         .font(.caption2.monospaced().bold()).foregroundStyle(color),
         at: caption, anchor: .bottomLeading)
     }

@@ -284,6 +284,10 @@ struct ActionSurfaceOverlayCanvas: View, Equatable {
         path.addLine(to: transform.point(point))
       }
       let style = lineStyle(for: overlay.provenance.kind)
+      if overlay.provenance.kind == .acceptedBoundary || overlay.provenance.kind == .drawingRegion {
+        context.stroke(path, with: .color(.black.opacity(0.8)),
+          style: SwiftUI.StrokeStyle(lineWidth: style.width + 2, dash: style.dash))
+      }
       context.stroke(
         path,
         with: .color(style.color),
@@ -296,13 +300,15 @@ struct ActionSurfaceOverlayCanvas: View, Equatable {
       let anchor = overlayLabelAnchor(overlay.geometry)
     {
       let style = lineStyle(for: overlay.provenance.kind)
-      context.draw(
-        Text(label)
-          .font(.caption2.monospaced().bold())
-          .foregroundStyle(style.color),
-        at: transform.point(anchor),
-        anchor: .bottomLeading
-      )
+      let text = context.resolve(Text(label).font(.caption2.monospaced().bold()).foregroundStyle(style.color))
+      var point = transform.point(anchor)
+      if overlay.provenance.kind == .acceptedBoundary { point.y -= 18 }
+      if overlay.provenance.kind == .acceptedBoundary || overlay.provenance.kind == .drawingRegion {
+        let size = text.measure(in: CGSize(width: 1000, height: 100))
+        context.fill(Path(CGRect(x: point.x - 3, y: point.y - size.height - 2,
+          width: size.width + 6, height: size.height + 4)), with: .color(.black.opacity(0.78)))
+      }
+      context.draw(text, at: point, anchor: .bottomLeading)
     }
   }
 
@@ -330,7 +336,9 @@ struct ActionSurfaceOverlayCanvas: View, Equatable {
     case .residual:
       return (.orange, 1.5, [])
     case .acceptedBoundary:
-      return (.orange, 2.5, [12, 6])
+      return (.white, 1.5, [2, 5])
+    case .drawingRegion:
+      return (.yellow, 1.5, [6, 3])
     case .drawingBorder:
       return (.blue, 2.5, [9, 5])
     case .paperCoverage:

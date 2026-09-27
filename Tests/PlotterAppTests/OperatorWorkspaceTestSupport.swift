@@ -680,7 +680,7 @@ func makeCausalSimulatorAppFixture(
       serialDevices: [],
       observationPreferences: TestObservationPreferencePort(
         loadPenCap: loadPenCapAppearanceSelection,
-        loadOverlays: { Set(UserSceneOverlay.allCases) }
+        loadOverlays: { UserSceneOverlay.defaultEnabled }
       )
     )
   boundaryComposition.install(on: workspace)
@@ -1162,7 +1162,8 @@ func completeSimulatedPenInteractionPrerequisite(
 @MainActor
 func completeSimulatedTipCalibration(
   _ workspace: PlotterApplicationRuntime,
-  simulator: CausalSimulatorProbe
+  simulator: CausalSimulatorProbe,
+  workingRegion: AxisAlignedBounds<MachineSpace>? = nil
 ) async throws {
   let registrationOwner = LearningPathItemID.humanGuidedDiscovery(
     .calibrateCameraAndVisibleCap
@@ -1186,15 +1187,24 @@ func completeSimulatedTipCalibration(
   let truthOffset = await simulator.capToTipPixelOffsetTruth()
   #expect(abs(truthOffset.dx) + abs(truthOffset.dy) > 0)
   let viewport = await simulator.cameraViewportTruth()
-  let plan = try SparseTipBatchMarkPlan(
-    acceptedBoundaryAggregates: workspace.testAcceptedBoundaryAggregates
-  )
+  if let workingRegion {
+    let frame = try #require(workspace.testActionSurfacePresentation.displayedFrame)
+    try #require(workspace.beginCalibrationWorkingRegionEdit(id: UUID(), on: frame))
+    let edit = try #require(workspace.tipCalibrationRuntime.workingRegionEdit)
+    try #require(workspace.applyCalibrationWorkingRegion(edit, bounds: workingRegion) == nil)
+  }
+  let plan = try #require(workspace.currentSparseTipBatchPlan)
   try requireEnabledPublicAction(
     .tipCalibration(.beginFourMarkBatch),
     owner: tipOwner,
     workspace: workspace
   )
   await workspace.performTestExerciseAction(.tipCalibration(.beginFourMarkBatch), for: tipOwner)
+  if workingRegion != nil {
+    #expect(workspace.tipCalibrationRuntime.frozenWorkingRegion?.bounds == plan.workingRegion)
+    #expect(workspace.currentSparseTipBatchPlan == plan)
+    #expect(!workspace.tipCalibrationRuntime.workingRegionIsEditable)
+  }
   let request = try #require(
     workspace.testActionSurfacePresentation.pointSelectionRequest,
     "missing five-click selection request: \(workspace.explorationError ?? "no error")"

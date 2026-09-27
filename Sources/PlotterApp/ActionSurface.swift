@@ -552,6 +552,9 @@ struct ActionSurfacePresentation: Sendable {
   let tipPresentation: ActionSurfaceTipPresentation
   let completedComparisonReview: CompletedComparisonReviewPresentation
   let drawingStudioCanvas: DrawingStudioCanvasPresentation?
+  let showsMachineBoundary: Bool
+  let showsDrawingRegion: Bool
+  let drawingPositioningUnavailableReason: String?
 
   var rendererIdentity: String { Self.rendererIdentity }
 
@@ -571,7 +574,10 @@ struct ActionSurfacePresentation: Sendable {
     pointSelectionFailure: String? = nil,
     tipPresentation: ActionSurfaceTipPresentation = .notCalibrated,
     completedComparisonReview: CompletedComparisonReviewPresentation = .unavailable,
-    drawingStudioCanvas: DrawingStudioCanvasPresentation? = nil
+    drawingStudioCanvas: DrawingStudioCanvasPresentation? = nil,
+    showsMachineBoundary: Bool = true,
+    showsDrawingRegion: Bool = true,
+    drawingPositioningUnavailableReason: String? = nil
   ) {
     self.displayedFrame = displayedFrame
     self.usesAmbientPreviewFrame = usesAmbientPreviewFrame
@@ -622,6 +628,9 @@ struct ActionSurfacePresentation: Sendable {
     self.tipPresentation = tipPresentation
     self.completedComparisonReview = completedComparisonReview
     self.drawingStudioCanvas = drawingStudioCanvas
+    self.showsMachineBoundary = showsMachineBoundary
+    self.showsDrawingRegion = showsDrawingRegion
+    self.drawingPositioningUnavailableReason = drawingPositioningUnavailableReason
   }
 
   func resolvingAmbientPreviewFrame(_ frame: DisplayedFrame?, forceRetainedFrame: Bool = false) -> Self {
@@ -650,7 +659,10 @@ struct ActionSurfacePresentation: Sendable {
       pointSelectionFailure: pointSelectionFailure,
       tipPresentation: tipPresentation,
       completedComparisonReview: completedComparisonReview,
-      drawingStudioCanvas: drawingStudioCanvas
+      drawingStudioCanvas: drawingStudioCanvas,
+      showsMachineBoundary: showsMachineBoundary,
+      showsDrawingRegion: showsDrawingRegion,
+      drawingPositioningUnavailableReason: drawingPositioningUnavailableReason
     )
   }
 
@@ -682,7 +694,7 @@ struct PreviewingActionSurface: View {
   var body: some View {
     let _ = preview.presentationRevision
     ActionSurface(
-      presentation: application.actionSurfacePresentation.resolvingAmbientPreviewFrame(application.drawingFrameEditSession?.frame ?? preview.displayedFrame, forceRetainedFrame: application.drawingFrameEditSession != nil),
+      presentation: application.actionSurfacePresentation.resolvingAmbientPreviewFrame(application.calibrationWorkingRegionFrame ?? application.drawingFrameEditSession?.frame ?? preview.displayedFrame, forceRetainedFrame: application.calibrationWorkingRegionFrame != nil || application.drawingFrameEditSession != nil),
       renderDiagnostics: preview,
       viewport: $viewport,
       plotterUIProjection: plotterUIProjection,
@@ -690,7 +702,11 @@ struct PreviewingActionSurface: View {
       pendingDrawingPlacement: $pendingDrawingPlacement,
       pendingPointSelection: $pendingPointSelection,
       beginFrameEdit: { await application.beginDrawingFrameEdit(id: $0, on: $1) },
-      endFrameEdit: { application.endDrawingFrameEdit(id: $0) }
+      endFrameEdit: { application.endDrawingFrameEdit(id: $0) },
+      workingRegion: application.calibrationWorkingRegionPresentation,
+      beginWorkingRegionEdit: { application.beginCalibrationWorkingRegionEdit(id: $0, on: $1) },
+      applyWorkingRegion: { application.applyCalibrationWorkingRegion($0, bounds: $1) },
+      cancelWorkingRegionEdit: { application.cancelCalibrationWorkingRegionEdit(id: $0) }
     )
   }
 }
@@ -766,6 +782,14 @@ struct ActionSurface: View {
   @State private var stagedFrame: PlotterDrawingDraftFrame?
   private let beginFrameEdit: (@MainActor (UUID, DisplayedFrame) async -> Bool)?
   private let endFrameEdit: (@MainActor (UUID) -> Void)?
+  private let workingRegion: CalibrationWorkingRegionPresentation?
+  private let beginWorkingRegionEdit: ((UUID, DisplayedFrame) -> Bool)?
+  private let applyWorkingRegion: ((PlotterTipWorkingRegionEdit, AxisAlignedBounds<MachineSpace>) -> String?)?
+  private let cancelWorkingRegionEdit: ((UUID) -> Void)?
+  @State private var workingRegionEditID: UUID?
+  @State private var stagedWorkingRegion: AxisAlignedBounds<MachineSpace>?
+  @State private var workingRegionDrag: CalibrationWorkingRegionDrag?
+  @State private var workingRegionRefusal: String?
   @State private var pointSelectionRefusal: String?
   @State private var priorDragTranslation: CGSize = .zero
   @State private var drawingPlacementRefusal: String?
@@ -781,7 +805,11 @@ struct ActionSurface: View {
     pendingDrawingPlacement: Binding<PlotterDrawingDraftCameraPlacement?> = .constant(nil),
     pendingPointSelection: Binding<PlotterPointSelectionSubmission?> = .constant(nil),
     beginFrameEdit: (@MainActor (UUID, DisplayedFrame) async -> Bool)? = nil,
-    endFrameEdit: (@MainActor (UUID) -> Void)? = nil
+    endFrameEdit: (@MainActor (UUID) -> Void)? = nil,
+    workingRegion: CalibrationWorkingRegionPresentation? = nil,
+    beginWorkingRegionEdit: ((UUID, DisplayedFrame) -> Bool)? = nil,
+    applyWorkingRegion: ((PlotterTipWorkingRegionEdit, AxisAlignedBounds<MachineSpace>) -> String?)? = nil,
+    cancelWorkingRegionEdit: ((UUID) -> Void)? = nil
   ) {
     self.presentation = presentation
     self.renderDiagnostics = renderDiagnostics
@@ -792,6 +820,10 @@ struct ActionSurface: View {
     _pendingPointSelection = pendingPointSelection
     self.beginFrameEdit = beginFrameEdit
     self.endFrameEdit = endFrameEdit
+    self.workingRegion = workingRegion
+    self.beginWorkingRegionEdit = beginWorkingRegionEdit
+    self.applyWorkingRegion = applyWorkingRegion
+    self.cancelWorkingRegionEdit = cancelWorkingRegionEdit
   }
 
   var body: some View {
@@ -823,8 +855,8 @@ struct ActionSurface: View {
         )
       }
       let overlayContent = overlayCache.resolve(
-        ActionSurfaceOverlayContent(presentation: presentation, stagedFrame: stagedFrame), transform: transform)
-      ActionSurfaceOverlayCanvas(
+        ActionSurfaceOverlayContent(presentation: presentation, stagedFrame: stagedFrame, hidesCalibrationGuides: workingRegion != nil, replacesDrawingRegion: workingRegion != nil || movesDrawing), transform: transform)
+      let canvas = ActionSurfaceOverlayCanvas(
         content: overlayContent,
         transform: transform,
         diagnostics: renderDiagnostics
@@ -843,76 +875,22 @@ struct ActionSurface: View {
         }
       }
       .overlay {
-        if let frame = stagedFrame ?? presentation.drawingStudioCanvas?.frame,
+        if movesDrawing, presentation.showsDrawingRegion, workingRegion == nil,
+          let frame = stagedFrame ?? presentation.drawingStudioCanvas?.frame,
           presentation.drawingStudioCanvas?.targetPreview(for: presentation.displayedFrame) != nil,
           let transform {
           DrawingFrameOverlay(frame: frame, transform: transform, editing: movesDrawing, staged: stagedFrame != nil)
         }
       }
-      .overlay(alignment: .topLeading) {
-        VStack(alignment: .leading, spacing: 6) {
-          if presentation.pointSelectionRequest?.purpose == .penCapAppearance,
-          presentation.pointSelectionRequest?.referenceMode != .sampledColorMarker {
-            HStack {
-              Button(capReferenceRegion == nil ? "Draw Reference" : "Redraw Reference") {
-                drawsCapReference = true
-                pointSelectionRefusal = nil
-                pendingPointSelection = nil
-              }
-              .disabled(drawsCapReference)
-              Button("Pan Video") {
-                drawsCapReference = false
-                pendingPointSelection = nil
-              }
-              .disabled(!drawsCapReference || presentation.analysisRegionIsLocked)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-          } else if presentation.pointSelectionRequest == nil,
-            presentation.drawingStudioCanvas?.placement.placementIsEnabled == true,
-            presentation.drawingStudioCanvas?.frame != nil,
-            overlayContent.targetPreview != nil {
-            Button(frameEditID != nil ? "Cancel Frame Edit" : "Edit Frame") {
-              if frameEditID != nil { cancelFrameEdit() }
-              else if let frame = presentation.displayedFrame, let beginFrameEdit {
-                let id = UUID()
-                frameEditID = id
-                frameEditProjection = presentation.drawingStudioCanvas?.draftProjection
-                Task { @MainActor in
-                  guard frameEditID == id else { return }
-                  let began = await beginFrameEdit(id, frame)
-                  guard frameEditID == id else { endFrameEdit?(id); return }
-                  if began {
-                    movesDrawing = true
-                    drawingPlacementRefusal = nil
-                  } else {
-                    cancelFrameEdit()
-                    drawingPlacementRefusal = "Show a compatible drawing preview before editing its frame."
-                  }
-                }
-              }
-            }
-            .accessibilityIdentifier("drawing.editFrame")
-            .help("Drag the frame body to move. Drag a corner to resize about the center. Apply to update the drawing.")
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-          }
-          if movesDrawing {
-            Text("Frame editing · frozen video")
-              .font(.caption.bold()).foregroundStyle(.yellow)
-              .padding(6).background(.black.opacity(0.78))
-          }
-          if let sourceBadgeLabel = presentation.sourceBadgeLabel {
-            Text(sourceBadgeLabel)
-              .font(.caption.monospaced().bold())
-              .foregroundStyle(.white)
-              .padding(.horizontal, 9)
-              .padding(.vertical, 6)
-              .background(Color.blue.opacity(0.88))
-          }
+      .overlay {
+        if let workingRegion, let transform {
+          CalibrationWorkingRegionOverlay(context: workingRegion.context,
+            bounds: stagedWorkingRegion ?? workingRegion.bounds, transform: transform,
+            editing: workingRegionEditID != nil, showsRegion: presentation.showsDrawingRegion)
         }
-        .padding(8)
       }
+      let content = canvas
+      .overlay(alignment: .topLeading) { topControls(hasTargetPreview: overlayContent.targetPreview != nil) }
       .overlay(alignment: .bottomLeading) {
         VStack(alignment: .leading, spacing: 6) {
           if let prompt = presentation.tipPresentation.interactionPrompt {
@@ -1002,6 +980,7 @@ struct ActionSurface: View {
           .foregroundStyle(.white)
         }
       }
+      content
       .clipShape(RoundedRectangle(cornerRadius: 7))
       .contentShape(Rectangle())
       .gesture(
@@ -1010,51 +989,7 @@ struct ActionSurface: View {
             stagePointSelection(at: value.location, viewSize: proxy.size)
           }
       )
-      .simultaneousGesture(
-        DragGesture(minimumDistance: 3, coordinateSpace: .local)
-          .onChanged { value in
-            switch ActionSurfaceDragIntent.resolve(presentation: presentation,
-              drawsReference: drawsCapReference, movesDrawing: movesDrawing) {
-            case .reference:
-              capReferenceRegion = PenCapReferenceSelectionGeometry.region(
-                from: value.startLocation, to: value.location, transform: transform)
-              pendingPointSelection = nil
-              pointSelectionRefusal = nil
-              return
-            case .drawing:
-              priorDragTranslation = .zero
-              stageDrawingPlacement(from: value.startLocation, to: value.location, transform: transform)
-              return
-            case .locked: return
-            case .pan: break
-            }
-            guard !presentation.analysisRegionIsLocked,
-              let frame = presentation.displayedFrame?.frame
-            else { return }
-            let delta = CGSize(
-              width: value.translation.width - priorDragTranslation.width,
-              height: value.translation.height - priorDragTranslation.height
-            )
-            priorDragTranslation = value.translation
-            viewport.pan(
-              by: delta,
-              viewSize: proxy.size,
-              frameWidth: frame.width,
-              frameHeight: frame.height
-            )
-          }
-          .onEnded { _ in
-            drawingDrag = nil
-            priorDragTranslation = .zero
-            if presentation.pointSelectionRequest?.purpose == .penCapAppearance, drawsCapReference {
-              if capReferenceRegion != nil {
-                drawsCapReference = false
-              } else {
-                pointSelectionRefusal = "Draw a rectangle entirely inside the camera image."
-              }
-            }
-          }
-      )
+      .simultaneousGesture(surfaceDragGesture(transform: transform, viewSize: proxy.size))
       .onChange(of: presentation.viewportContext, initial: true) { _, context in
         viewport.synchronize(with: context)
       }
@@ -1069,8 +1004,14 @@ struct ActionSurface: View {
       }
       .onChange(of: viewport.presentationTransformRevision) { _, _ in
         if movesDrawing { cancelFrameEdit() }
+        if workingRegionEditID != nil { clearWorkingRegionEdit() }
       }
-      .onDisappear { cancelFrameEdit() }
+      .onChange(of: workingRegion?.context) { _, _ in clearWorkingRegionEdit() }
+      .onChange(of: workingRegion?.edit?.id) { _, id in
+        if let workingRegionEditID, id != workingRegionEditID { clearWorkingRegionEdit() }
+      }
+      .onChange(of: workingRegion == nil) { _, hidden in if hidden { clearWorkingRegionEdit() } }
+      .onDisappear { cancelFrameEdit(); clearWorkingRegionEdit() }
       .onChange(of: pointSelectionPendingIdentity, initial: true) { prior, current in
         if prior.request != current.request {
           capReferenceRegion = nil
@@ -1107,6 +1048,133 @@ struct ActionSurface: View {
         ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ". ")
       )
     }
+  }
+
+  private func surfaceDragGesture(transform: CameraPixelToViewTransform?, viewSize: CGSize) -> some Gesture {
+    DragGesture(minimumDistance: 3, coordinateSpace: .local)
+      .onChanged { value in
+        if workingRegionEditID != nil {
+          guard let workingRegion, let transform, let point = transform.cameraPoint(value.location) else { return }
+          if workingRegionDrag == nil {
+            workingRegionDrag = CalibrationWorkingRegionDrag(bounds: stagedWorkingRegion ?? workingRegion.bounds,
+              context: workingRegion.context, start: value.startLocation, transform: transform)
+          }
+          if let bounds = try? workingRegionDrag?.updated(at: point) { stagedWorkingRegion = bounds }
+          return
+        }
+        switch ActionSurfaceDragIntent.resolve(presentation: presentation,
+          drawsReference: drawsCapReference, movesDrawing: movesDrawing) {
+        case .reference:
+          capReferenceRegion = PenCapReferenceSelectionGeometry.region(
+            from: value.startLocation, to: value.location, transform: transform)
+          pendingPointSelection = nil
+          pointSelectionRefusal = nil
+          return
+        case .drawing:
+          priorDragTranslation = .zero
+          stageDrawingPlacement(from: value.startLocation, to: value.location, transform: transform)
+          return
+        case .locked: return
+        case .pan: break
+        }
+        guard !presentation.analysisRegionIsLocked,
+          let frame = presentation.displayedFrame?.frame
+        else { return }
+        let delta = CGSize(
+          width: value.translation.width - priorDragTranslation.width,
+          height: value.translation.height - priorDragTranslation.height
+        )
+        priorDragTranslation = value.translation
+        viewport.pan(
+          by: delta,
+          viewSize: viewSize,
+          frameWidth: frame.width,
+          frameHeight: frame.height
+        )
+      }
+      .onEnded { _ in
+        workingRegionDrag = nil
+        drawingDrag = nil
+        priorDragTranslation = .zero
+        if presentation.pointSelectionRequest?.purpose == .penCapAppearance, drawsCapReference {
+          if capReferenceRegion != nil {
+            drawsCapReference = false
+          } else {
+            pointSelectionRefusal = "Draw a rectangle entirely inside the camera image."
+          }
+        }
+      }
+  }
+
+  private func topControls(hasTargetPreview: Bool) -> some View {
+    let positioningReason = presentation.drawingPositioningUnavailableReason
+      ?? (presentation.drawingStudioCanvas?.frame == nil ? "Select a drawing that fits the working area." : nil)
+      ?? (!hasTargetPreview ? "Show a compatible drawing preview first." : nil)
+    return VStack(alignment: .leading, spacing: 6) {
+      workingRegionControls
+      if presentation.pointSelectionRequest?.purpose == .penCapAppearance,
+      presentation.pointSelectionRequest?.referenceMode != .sampledColorMarker {
+        HStack {
+          Button(capReferenceRegion == nil ? "Draw Reference" : "Redraw Reference") {
+            drawsCapReference = true
+            pointSelectionRefusal = nil
+            pendingPointSelection = nil
+          }
+          .disabled(drawsCapReference)
+          Button("Pan Video") {
+            drawsCapReference = false
+            pendingPointSelection = nil
+          }
+          .disabled(!drawsCapReference || presentation.analysisRegionIsLocked)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+      } else if workingRegion == nil {
+        Button(frameEditID != nil ? "Cancel Positioning" : "Position Drawing") {
+          if frameEditID != nil { cancelFrameEdit() }
+          else if let frame = presentation.displayedFrame, let beginFrameEdit {
+            let id = UUID()
+            frameEditID = id
+            frameEditProjection = presentation.drawingStudioCanvas?.draftProjection
+            Task { @MainActor in
+              guard frameEditID == id else { return }
+              let began = await beginFrameEdit(id, frame)
+              guard frameEditID == id else { endFrameEdit?(id); return }
+              if began {
+                movesDrawing = true
+                drawingPlacementRefusal = nil
+              } else {
+                cancelFrameEdit()
+                drawingPlacementRefusal = "Show a compatible drawing preview before editing its frame."
+              }
+            }
+          }
+        }
+        .disabled(frameEditID == nil && (positioningReason != nil))
+        .accessibilityIdentifier("drawing.editFrame")
+        .help("Drag the frame body to move. Drag a corner to resize about the center. Apply to update the drawing.")
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        if frameEditID == nil, let reason = positioningReason {
+          Text(reason).font(.caption).foregroundStyle(.white)
+            .padding(6).background(.black.opacity(0.78))
+        }
+      }
+      if movesDrawing {
+        Text("Artwork positioning · frozen video")
+          .font(.caption.bold()).foregroundStyle(.yellow)
+          .padding(6).background(.black.opacity(0.78))
+      }
+      if let sourceBadgeLabel = presentation.sourceBadgeLabel {
+        Text(sourceBadgeLabel)
+          .font(.caption.monospaced().bold())
+          .foregroundStyle(.white)
+          .padding(.horizontal, 9)
+          .padding(.vertical, 6)
+          .background(Color.blue.opacity(0.88))
+      }
+    }
+    .padding(8)
   }
 
   private func stagePointSelection(at location: CGPoint, viewSize: CGSize) {
@@ -1148,6 +1216,74 @@ struct ActionSurface: View {
     if pendingPointSelection == submission {
       pendingPointSelection = nil
     }
+  }
+
+  @ViewBuilder
+  private var workingRegionControls: some View {
+    if let workingRegion {
+      HStack {
+        if workingRegionEditID == nil {
+          Button("Edit Drawing Region") {
+            guard let frame = presentation.displayedFrame else { return }
+            let id = UUID()
+            if beginWorkingRegionEdit?(id, frame) == true {
+              workingRegionEditID = id
+              stagedWorkingRegion = workingRegion.bounds
+              workingRegionRefusal = nil
+            }
+          }
+          .disabled(workingRegion.unavailableReason != nil)
+          .accessibilityIdentifier("learning.editWorkingRegion")
+        } else {
+          Button("Default") { stagedWorkingRegion = workingRegion.context.boundary }
+          Button("Smaller") {
+            stagedWorkingRegion = try? CalibrationWorkingRegionGeometry.smaller(stagedWorkingRegion ?? workingRegion.bounds)
+          }
+          .accessibilityIdentifier("learning.smallerWorkingRegion")
+          .help("Shrink the staged region about its center, including when its corners are outside the video.")
+          Button("Apply") {
+            guard let edit = workingRegion.edit, edit.id == workingRegionEditID,
+              let bounds = stagedWorkingRegion else { return }
+            workingRegionRefusal = applyWorkingRegion?(edit, bounds)
+            if workingRegionRefusal == nil { clearWorkingRegionEdit() }
+          }.accessibilityIdentifier("learning.applyWorkingRegion")
+          Button("Cancel") { clearWorkingRegionEdit() }
+        }
+      }.buttonStyle(.bordered).controlSize(.small)
+      VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 10) {
+          Text("White: Machine Boundary").foregroundStyle(.white)
+          Text("Yellow: Drawing Region").foregroundStyle(.yellow)
+          Text("Cyan: calibration circles").foregroundStyle(.cyan)
+        }
+        Text("Approximate cap projection · unknown tip offset")
+          .foregroundStyle(.yellow)
+        if workingRegionEditID != nil {
+          Text("Frozen video · drag body or corners · 10 mm center inset / 8 mm circle clearance")
+            .foregroundStyle(.yellow)
+        }
+      }
+      .font(.caption.bold()).padding(6).background(.black.opacity(0.78))
+      if workingRegionEditID == nil, let reason = workingRegion.unavailableReason {
+        Text(reason).font(.caption).foregroundStyle(.white)
+          .padding(6).background(.black.opacity(0.78))
+      }
+      if workingRegion.isStale {
+        Text("Selection context changed. Edit and Apply the working region again before drawing.")
+          .font(.caption).foregroundStyle(.orange).padding(6).background(.black.opacity(0.78))
+      }
+      if let workingRegionRefusal {
+        Text(workingRegionRefusal).font(.caption).foregroundStyle(.orange)
+          .padding(6).background(.black.opacity(0.78))
+      }
+    }
+  }
+
+  private func clearWorkingRegionEdit() {
+    if let id = workingRegionEditID { cancelWorkingRegionEdit?(id) }
+    workingRegionEditID = nil
+    stagedWorkingRegion = nil
+    workingRegionDrag = nil
   }
 
   private func cancelFrameEdit() {

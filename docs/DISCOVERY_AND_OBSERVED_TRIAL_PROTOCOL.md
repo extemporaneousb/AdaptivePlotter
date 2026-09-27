@@ -325,15 +325,41 @@ coordinate change.
 
 ### One supervised physical batch
 
-Exercise 1.4 draws no center mark. It places four 2 mm-radius circles with every
-center exactly 10 mm inside its two adjacent accepted Boundary edges. Every
-circle footprint therefore remains 8 mm clear of those edges. Those
-four centers bound the accepted tip-map applicability and subsequent Drawing
-Border validation. Exercise 1.3 retains its separate center plus four ±24 mm positions
-and camera-holdout authority.
+Before drawing, choose **Edit Drawing Region** in the existing Exercise 1.4
+preview. It retains the displayed video frame. Drag the rectangle's body to move
+it, or a corner handle to resize its two axes while the opposite corner stays
+fixed. Both spans must be at least 25 mm and the full rectangle stays inside the
+accepted machine Boundary. **Default** stages the full Boundary. **Smaller**
+reduces each dimension by 20% about the current center, stopping each at 25 mm;
+use it to bring offscreen corner handles into view. **Apply** installs the
+selection and **Cancel** discards the edit. Place the full working rectangle
+and its circle guides on the physical sheet. The cap-map projection is
+approximate: the tip offset is still unknown, and an extrapolated
+guide is not calibrated paper proof. This edits the existing exercise's batch
+geometry; it adds no Learning step and performs no motion.
+Video Settings has independent **Machine Boundary** and **Drawing Region**
+visibility toggles under **Reference frames**, initially on. Calibration circles
+are visible for preparation and review without a third persistent inset rectangle. **Fit Machine Boundary**
+frames the machine travel envelope; **Show Full Video** restores whole-video
+framing. These explicit viewport commands respect frame/edit locks and do not
+alter the selected region, calibration or plans.
 
-1. Press **Draw Four Calibration Circles** once. One exercise attempt and one existing
-   stoppable operation own the complete batch and expose the contextual Stop.
+Exercise 1.4 draws no center mark. It places four 2 mm-radius circles with every
+center exactly 10 mm inside its two adjacent working-rectangle edges. Every
+circle footprint therefore remains 8 mm clear of those edges and inside the
+machine Boundary. The 25 mm minimum leaves at least 1 mm between adjacent circle
+outlines after both 10 mm insets and the 4 mm circle diameter. Those four centers
+bound the accepted tip-map applicability
+and subsequent Drawing Border validation. The working extent remains separate
+from this smaller observed rectangle and from independently placed artwork.
+Exercise 1.3 retains its separate center plus four ±24 mm positions and
+camera-holdout authority.
+
+1. Press **Draw Four Calibration Circles** once. The existing tip owner freezes
+   the selected plan shared by the preview and execution. One exercise attempt
+   and one existing stoppable operation own the complete batch and expose the
+   contextual Stop. Selection changes are refused during the batch or retained
+   click/proposal review; changed context cannot silently move the admitted marks.
 2. The app commands and settles Pen Up once before the first travel. No separate
    manual Pen Up is required, including after applying Saved Learning with an
    Unknown or Down current pen pose. Failed settlement prevents travel. Retain that
@@ -343,8 +369,8 @@ and camera-holdout authority.
    require fresh Idle/final MPos
    within 1 mm, capture and retain that circle's exact pre-mark frame and cap
    anchor, and retain its controller and settled-position evidence.
-3. Verify the full circle lies inside the accepted Boundary envelope. Move Pen Up
-   to its +X start point and settle.
+3. Verify the full circle lies inside both the selected working extent and accepted
+   Boundary envelope. Move Pen Up to its +X start point and settle.
 4. Lower and settle with the current Exercise 1.1 Pen Down profile. Draw one
    closed 16-chord, 2 mm-radius circle at 500 mm/min or the lower
    controller-reported axis ceiling, requiring settled chord endpoints.
@@ -422,9 +448,8 @@ physical contact or ink; attended observation owns those claims.
    creation or progression. Numerical fitting never requests paper replacement
    and never routes to **No Automatic Redraw**.
 7. The fourth valid click constructs a reviewable `TipCameraRegistration`
-   proposal. On the same frozen frame, inspect the exact markers, the separately
-   labeled projected Drawing Boundary, the cyan proposed rectangle through the four
-   selected centers, and the diagnostic fit, then choose
+   proposal. On the same frozen frame, inspect the exact calibration markers and
+   diagnostic fit, then choose
    **Accept Pen-Tip Calibration** to commit it, save the accepted Learning Path prefix,
    finish Exercise 1.4, and make Stage 2 current. **Reject Pen-Tip Calibration**, **Undo Last
    Click**, and **Clear Clicks on This Frame** keep the same frozen frame and
@@ -498,15 +523,18 @@ a proven pure coordinate translation may rebase accepted machine/camera/tip
 geometry without new marks. Unknown physical change requires rebuilding the
 affected suffix.
 
-Before tip calibration is accepted, place paper using the visible canonical
-four-circle frame, centers and paths. These calibration guides remain visible when
+Before tip calibration is accepted, place paper using the selected working extent
+and visible canonical four-circle frame, centers and paths. These calibration guides remain visible when
 artwork is hidden and never substitute for its exact preview frame or geometry.
 The machine-camera/cap-map guide explicitly
 has unknown tip offset and may extrapolate. **Accept Sheet Placement** records
 only this qualified placement assertion for the current sheet and displayed
 context. It does not complete calibration or enable calibrated Drawing. Start the
 next admissible Learning action explicitly. Once compatible tip calibration exists,
-use **Sheet Covers Target** for calibrated coverage. A disabled action explains
+use **Sheet Covers Target** for explicit coverage of the retained working extent.
+This never claims that the sheet covers the full machine Boundary. Historical
+calibrations without a selected extent retain their prior Boundary target.
+A disabled action explains
 which current frame, Boundary or compatible calibration is missing.
 
 After a new sheet on the explicitly unchanged contact plane:
@@ -566,9 +594,12 @@ exercises or approval gates:
    minimum/maximum, maximum/maximum, maximum/minimum order, then returns to the
    start. It retains the projected accepted Drawing Boundary as separate context,
    projects the immutable inset plan through the current tip registration, and
-   renders the predicted Drawing Border in cyan before any motion. The Drawing
-   Border remains exactly 10 mm inside the accepted Drawing Boundary. Planning
-   uses the accepted Drawing Boundary as its spatial envelope; the Drawing
+   renders the predicted Drawing Border in cyan before any motion. For a
+   selected-frame calibration, the Drawing Border remains exactly 10 mm inside
+   the retained working extent. The exact accepted registration supplies this
+   center rectangle; historical calibrations retain their existing versioned
+   Border derivation. Planning uses the
+   applicable working region inside the accepted machine Boundary; the Drawing
    Border is not an admission boundary. `DrawingRegionContainmentPolicy` uses
    closed accepted-Boundary bounds with only its 1e-9 mm numerical epsilon.
    Controller-pose settlement uses its separate Euclidean policy and cannot
@@ -626,23 +657,31 @@ separate facts; completion does not assert general adaptive-drawing readiness.
    post-frame. Close its canvas box with **×**, or use **Resume Live Preview** in
    Video Settings before placement. Closing retains the comparison and removes
    the box entirely; it does not leave another Review notification on the canvas.
-2. Confirm the accepted Drawing Boundary outline is visible. Place the current
-   physical sheet over it and choose **Sheet Covers Target**. The assertion
+2. Enable **Drawing Region** in Video Settings and confirm its full admitted
+   working-extent outline is visible. Place the current physical sheet over it
+   and choose **Sheet Covers Target**. New confirmation is unavailable while the
+   region is hidden, an artwork-frame edit temporarily replaces it, or reopened
+   Exercise 1.4 preparation has not finished calibration. Historical
+   calibration without a selected extent retains the Boundary outline. The assertion
    cites the current paper instance, contact plane, source, exact frame, and
    camera configuration. It does not change calibration.
-3. Review the retained portrait target and its artwork frame. **Fit to Drawing
+3. Review the retained portrait target within the paper working extent. **Fit to Drawing
    Area** recomputes uniform scale while preserving rotation and can use the full
-   learned Boundary. **Center Drawing** centers the placed frame without changing
+   current working extent. **Center Drawing** centers the placed frame without changing
    scale or rotation. The frame derives from the authored field extent, including
    intentional margins. The plan remains deterministic. Active Learning separately
    supplies sealed coverage-experiment programs.
-4. Choose **Edit Frame** on the video. The displayed exact frame is retained for
-   this edit with **Frame editing · frozen video** visible. Drag the artwork
+4. Choose **Position Drawing** on the video; its disabled reason identifies
+   missing prerequisites. The displayed exact frame is retained for this edit
+   with **Artwork positioning · frozen video** visible. The artwork frame temporarily
+   replaces the paper-extent outline. Drag the artwork
    rectangle to move it; drag any corner handle to
    resize uniformly about its center while preserving rotation. The complete
-   rectangle stays inside the learned Drawing Boundary. **Apply Drawing
-   Placement** commits the staged placement; **Cancel Frame Edit** discards it. Size and
-   Rotation controls use the same containment. Each applied edit creates an
+   rectangle stays inside the current working extent and machine Boundary. **Apply Drawing
+   Placement** commits the staged placement; cancelling discards it. Both restore
+   the full working-extent outline with the independently placed artwork strokes.
+   Size and Rotation controls use the same containment; Fit and Size retain no
+   implicit 90% margin. Each applied edit creates an
    immutable placement and content-addressed plan without moving hardware,
    changing the Boundary or repeating Learning or unchanged sheet coverage.
    **Draw frame** optionally inks this placed rectangle before the artwork in

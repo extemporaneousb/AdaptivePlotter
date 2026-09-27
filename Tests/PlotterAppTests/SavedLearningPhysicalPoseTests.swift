@@ -700,7 +700,7 @@ struct SavedLearningPhysicalPoseTests {
       $0.provenance.kind == .acceptedBoundary
     }).geometry
     let expectedBorder = try #require(app.testActionSurfacePresentation.overlays.first {
-      $0.provenance.kind == .drawingBorder
+      $0.provenance.kind == .drawingRegion
     }).geometry
     guard case .loaded(let beforeShutdown) = f.stores.checkpointStore.load() else {
       Issue.record("Rebased checkpoint unavailable before startup"); await app.shutdown(); return
@@ -735,7 +735,7 @@ struct SavedLearningPhysicalPoseTests {
     #expect(restarted.artifactResetEpisodeSnapshot.savedLearning.candidate?.checkpoint == saved)
     let overlays = restarted.testActionSurfacePresentation.overlays
     #expect(overlays.first { $0.provenance.kind == .acceptedBoundary }?.geometry == expectedBoundary)
-    #expect(overlays.first { $0.provenance.kind == .drawingBorder }?.geometry == expectedBorder)
+    #expect(overlays.first { $0.provenance.kind == .drawingRegion }?.geometry == expectedBorder)
     #expect(!overlays.contains { $0.provenance.kind == .intendedPath })
     guard case .loaded(let archive) = await f.stores.evidenceStore.load() else {
       Issue.record("Historical plan disappeared instead of being excluded from current projection")

@@ -69,6 +69,7 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
   public let environment: PlotterEnvironment
   public let placementGuide: PlotterDrawingDraftPlacementGuide?
   public let interactiveLearningIsComplete: Bool
+  public let paperCoverageOutlineIsVisible: Bool
   public let registrationRevisionID: LearningArtifactRevisionID?
   public let opticalConfiguration: CameraOpticalConfigurationIdentity?
   public let drawableRegion: DrawableMachineRegion?
@@ -101,7 +102,8 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
       paper: paper, displayedFrame: frame, runInProgress: runInProgress,
       terminalRequiresNewPlan: terminalRequiresNewPlan, coverageRecordIDs: coverageRecordIDs,
       drawingArchiveIsAvailable: drawingArchiveIsAvailable, drawingBorderBounds: drawingBorderBounds,
-      materialContextHash: materialContextHash, placementGuide: placementGuide)
+      materialContextHash: materialContextHash, placementGuide: placementGuide,
+      paperCoverageOutlineIsVisible: paperCoverageOutlineIsVisible)
   }
 
   public init(
@@ -119,11 +121,13 @@ public struct PlotterDrawingDraftExternalFactRevisions: Hashable, Sendable {
     drawingArchiveIsAvailable: Bool = true,
     drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil,
     materialContextHash: PlotterModel.Digest? = nil,
-    placementGuide: PlotterDrawingDraftPlacementGuide? = nil
+    placementGuide: PlotterDrawingDraftPlacementGuide? = nil,
+    paperCoverageOutlineIsVisible: Bool = true
   ) {
     self.environment = environment
     self.placementGuide = placementGuide
     self.interactiveLearningIsComplete = interactiveLearningIsComplete
+    self.paperCoverageOutlineIsVisible = paperCoverageOutlineIsVisible
     self.registrationRevisionID = registrationRevisionID
     self.opticalConfiguration = opticalConfiguration
     self.drawingBorderBounds = drawingBorderBounds
@@ -165,7 +169,8 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
     drawingArchiveIsAvailable: Bool = true,
     drawingBorderBounds: AxisAlignedBounds<MachineSpace>? = nil,
     materialContextHash: PlotterModel.Digest? = nil,
-    placementGuide: PlotterDrawingDraftPlacementGuide? = nil
+    placementGuide: PlotterDrawingDraftPlacementGuide? = nil,
+    paperCoverageOutlineIsVisible: Bool = true
   ) {
     let exactFrameReference = displayedFrame?.plotterExactFrameReferenceIfMaterialized
     self.displayedFrame = exactFrameReference == nil ? nil : displayedFrame
@@ -187,7 +192,8 @@ public struct PlotterDrawingDraftExternalFacts: Hashable, Sendable {
       coverageRecordIDs: coverageRecords.map(\.recordID),
       drawingArchiveIsAvailable: drawingArchiveIsAvailable,
       drawingBorderBounds: drawingBorderBounds,
-      materialContextHash: materialContextHash, placementGuide: placementGuide
+      materialContextHash: materialContextHash, placementGuide: placementGuide,
+      paperCoverageOutlineIsVisible: paperCoverageOutlineIsVisible
     )
   }
 }
@@ -198,7 +204,8 @@ extension PlotterDrawingDraftExternalFacts {
       opticalConfiguration: revisions.opticalConfiguration, registration: registration,
       drawableRegion: revisions.drawableRegion, placementGuide: revisions.placementGuide,
       paper: revisions.paper, toolAssemblyRevision: revisions.toolAssemblyRevision,
-      runInProgress: revisions.runInProgress, terminalRequiresNewPlan: revisions.terminalRequiresNewPlan)
+      runInProgress: revisions.runInProgress, terminalRequiresNewPlan: revisions.terminalRequiresNewPlan,
+      paperCoverageOutlineIsVisible: revisions.paperCoverageOutlineIsVisible)
   }
 
   /// Admission can inspect preview identity without hashing pixels. Submission
@@ -207,7 +214,9 @@ extension PlotterDrawingDraftExternalFacts {
     opticalConfiguration: CameraOpticalConfigurationIdentity?, registration: TipCameraRegistration?,
     drawableRegion: DrawableMachineRegion?, placementGuide: PlotterDrawingDraftPlacementGuide?,
     paper: PaperRevisionContext, toolAssemblyRevision: ToolAssemblyRevision,
-    runInProgress: Bool, terminalRequiresNewPlan: Bool = false) -> String? {
+    runInProgress: Bool, terminalRequiresNewPlan: Bool = false,
+    paperCoverageOutlineIsVisible: Bool = true) -> String? {
+    guard paperCoverageOutlineIsVisible else { return "Show Drawing Region before confirming sheet coverage." }
     guard !runInProgress else { return "Wait for the current drawing run and evidence capture to settle." }
     guard !terminalRequiresNewPlan else { return "Use Prepare Next Drawing to clear the retained terminal before editing a new plan." }
     guard let frame else { return "Show the current Plotter Video frame before accepting this sheet." }
@@ -586,7 +595,7 @@ public enum PlotterDrawingPlanningAdapter {
     let height = extent.width * abs(d * c + e * s) + extent.height * abs(-d * s + e * c)
     let bounds = region.effectiveBounds
     let maximum = min((bounds.maxX - bounds.minX) / width,
-      (bounds.maxY - bounds.minY) / height) * (cameraGeometry == nil ? 0.9 : 1)
+      (bounds.maxY - bounds.minY) / height)
     return min(0.02, maximum)...maximum
   }
 
@@ -1104,7 +1113,7 @@ public actor PlotterDrawingDraftRuntime {
           observedAt: RuntimeTimestamp(
             monotonicNanoseconds: max(clock.nowNanoseconds(), frame.frame.captureNanoseconds)
           ),
-          algorithmRevision: "operator-attested-drawing-boundary-diagnostic-projection-v3",
+          algorithmRevision: "operator-attested-drawable-region-diagnostic-projection-v4",
           opticalConfiguration: facts.revisions.opticalConfiguration,
           drawableRegion: facts.revisions.drawableRegion
         )

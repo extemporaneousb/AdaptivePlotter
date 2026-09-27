@@ -5,6 +5,11 @@ import PlotterRuntime
 enum UserSceneOverlay: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
   case penCap
   case armatureEnvelope
+  case machineBoundary
+  case drawingRegion
+  case simulatorDiagnostics
+
+  static var defaultEnabled: Set<Self> { Set(allCases.filter { $0 != .simulatorDiagnostics }) }
 
   var id: Self { self }
 
@@ -12,13 +17,21 @@ enum UserSceneOverlay: String, CaseIterable, Codable, Hashable, Identifiable, Se
     switch self {
     case .penCap: "Pen cap"
     case .armatureEnvelope: "Armature envelope"
+    case .machineBoundary: "Machine Boundary"
+    case .drawingRegion: "Drawing Region"
+    case .simulatorDiagnostics: "Simulator diagnostics"
     }
   }
+
+  var usesSceneAnalysis: Bool { self == .penCap || self == .armatureEnvelope }
 
   var overlayKind: CameraOverlayKind {
     switch self {
     case .penCap: .penCap
     case .armatureEnvelope: .armatureEstimate
+    case .machineBoundary: .acceptedBoundary
+    case .drawingRegion: .drawingRegion
+    case .simulatorDiagnostics: .diagnostic
     }
   }
 }
@@ -34,7 +47,7 @@ struct OverlayPreferenceState: Codable, Hashable, Sendable {
 
   static func loaded(_ enabled: Set<UserSceneOverlay>?) -> Self {
     Self(
-      enabled: enabled ?? Set(UserSceneOverlay.allCases),
+      enabled: enabled ?? UserSceneOverlay.defaultEnabled,
       lastMutationSource: .persistenceLoad
     )
   }
@@ -276,7 +289,7 @@ struct OverlayPresentationComposer {
       }
     }
 
-    for overlay in UserSceneOverlay.allCases {
+    for overlay in UserSceneOverlay.allCases where overlay.usesSceneAnalysis {
       guard preference.enabled.contains(overlay) else {
         statuses[overlay] = OverlayLayerStatus(state: .off, message: "Off", provenance: nil)
         continue

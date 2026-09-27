@@ -33,13 +33,18 @@ struct UserDefaultsObservationPreferencePort:
   }
 
   func loadOverlayPreference() -> Set<UserSceneOverlay>? {
-    defaults.stringArray(forKey: "AdaptivePlotter.userSceneOverlays").map {
-      Set($0.compactMap(UserSceneOverlay.init(rawValue:)))
+    if let values = defaults.stringArray(forKey: "AdaptivePlotter.userSceneOverlays.v2") {
+      return Set(values.compactMap(UserSceneOverlay.init(rawValue:)))
+    }
+    // Existing cap/armature choices survive; newly introduced reference frames
+    // are visible until the operator explicitly changes their own preference.
+    return defaults.stringArray(forKey: "AdaptivePlotter.userSceneOverlays").map {
+      Set($0.compactMap(UserSceneOverlay.init(rawValue:))).union([.machineBoundary, .drawingRegion])
     }
   }
 
   func persistOverlayPreference(_ values: Set<UserSceneOverlay>) throws {
-    defaults.set(values.map(\.rawValue).sorted(), forKey: "AdaptivePlotter.userSceneOverlays")
+    defaults.set(values.map(\.rawValue).sorted(), forKey: "AdaptivePlotter.userSceneOverlays.v2")
   }
 }
 

@@ -38,10 +38,13 @@ struct OverlayStateTests {
     #expect(result.diagnosticStatus(for: .penCap, displayedFrame: other) == nil)
   }
 
-  @Test("exactly two operator overlay preferences are retained without result cards")
+  @Test("reference frames are separate from the two Vision preferences")
   func exactGlobalControls() {
-    #expect(UserSceneOverlay.allCases == [.penCap, .armatureEnvelope])
-    #expect(UserSceneOverlay.allCases.map(\.title) == ["Pen cap", "Armature envelope"])
+    #expect(UserSceneOverlay.allCases.filter(\.usesSceneAnalysis) == [.penCap, .armatureEnvelope])
+    #expect(UserSceneOverlay.defaultEnabled.contains(.machineBoundary))
+    #expect(UserSceneOverlay.defaultEnabled.contains(.drawingRegion))
+    #expect(!UserSceneOverlay.defaultEnabled.contains(.simulatorDiagnostics))
+    #expect(UserSceneOverlay.allCases.filter(\.usesSceneAnalysis).map(\.title) == ["Pen cap", "Armature envelope"])
   }
 
   @Test("frozen armature language never claims independent segmentation")
@@ -63,7 +66,7 @@ struct OverlayStateTests {
     #expect(state.lastMutationSource == .persistenceLoad)
 
     state.applyOperatorSelection(.armatureEnvelope, enabled: true)
-    #expect(state.enabled == Set(UserSceneOverlay.allCases))
+    #expect(state.enabled == [.penCap, .armatureEnvelope])
     #expect(state.lastMutationSource == .operatorAction)
     #expect(SceneFeatureSet(preference: state) == [.penCap, .armatureEnvelope])
     #expect(
@@ -90,7 +93,7 @@ struct OverlayStateTests {
     #expect(workspace.overlayPreferenceState.enabled == [.penCap])
     #expect(workspace.overlayPreferenceState.lastMutationSource == .persistenceLoad)
     await submitObservationConfigurationForTest(workspace, .setOverlay(.armatureEnvelope, enabled: true))
-    #expect(preference.saved == [Set(UserSceneOverlay.allCases)])
+    #expect(preference.saved == [[.penCap, .armatureEnvelope]])
 
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
     await submitObservationConfigurationForTest(workspace, .stopLiveSource)
@@ -98,9 +101,9 @@ struct OverlayStateTests {
     await submitObservationConfigurationForTest(workspace, .selectSource(.simulated, nil))
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
-    #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
+    #expect(workspace.overlayPreferenceState.enabled == [.penCap, .armatureEnvelope])
     #expect(workspace.overlayPreferenceState.lastMutationSource == .operatorAction)
-    #expect(preference.saved == [Set(UserSceneOverlay.allCases)])
+    #expect(preference.saved == [[.penCap, .armatureEnvelope]])
     await workspace.shutdown()
   }
 

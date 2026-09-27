@@ -413,7 +413,7 @@ struct PenCapAppearanceSelectionTests {
 
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
 
-    #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
+    #expect(workspace.overlayPreferenceState.enabled == UserSceneOverlay.defaultEnabled)
     #expect(workspace.overlayStatus(for: .penCap).state == .unavailable)
     #expect(workspace.overlayStatus(for: .penCap).message.contains("click the pen cap"))
     #expect(camera.recordedPenCapColorRequests.isEmpty)
@@ -443,7 +443,7 @@ struct PenCapAppearanceSelectionTests {
       return
     }
     #expect(reason.contains("source is SIMULATED"))
-    #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
+    #expect(workspace.overlayPreferenceState.enabled == UserSceneOverlay.defaultEnabled)
     #expect(workspace.overlayStatus(for: .penCap).state == .unavailable)
     #expect(workspace.overlayStatus(for: .penCap).message == reason)
     #expect(camera.recordedPenCapColorRequests.isEmpty)
@@ -565,7 +565,7 @@ struct PenCapAppearanceSelectionTests {
       return
     }
     #expect(reason.contains("needs a new capture"))
-    #expect(workspace.overlayPreferenceState.enabled == Set(UserSceneOverlay.allCases))
+    #expect(workspace.overlayPreferenceState.enabled == UserSceneOverlay.defaultEnabled)
     #expect(workspace.overlayStatus(for: .penCap).message == reason)
     #expect(camera.recordedPenCapColorRequests.isEmpty)
     await workspace.shutdown()

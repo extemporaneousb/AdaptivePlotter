@@ -5,9 +5,11 @@ import Testing
 
 @Suite("Independent controller axis metric")
 struct ControllerAxisMetricTests {
-  @Test("Exact fractional frame spans survive round trip without a wire or ink claim")
-  func exactGeometry() throws {
-    let fixture = try AxisMetricFixture()
+  @Test("Legacy and selected-region Border spans survive round trip without a wire or ink claim", arguments: [
+    "retained-registration-drawing-border-v1", "accepted-boundary-10mm-inset-drawing-border-v2",
+    "selected-working-region-observed-center-drawing-border-v3"])
+  func exactGeometry(source: String) throws {
+    let fixture = try AxisMetricFixture(sourceIdentifier: source)
     let geometry = try LearningFrameMetricGeometry.extract(record: fixture.record)
     #expect(geometry.edges.map(\.axis) == [.y, .x, .y, .x])
     #expect(geometry.edges.map(\.signedControllerDeltaMM) == [60.125, 40.375, -60.125, -40.375])
@@ -173,7 +175,7 @@ private func decode<T: Decodable>(_ type: T.Type, _ object: [String: Any]) throw
 struct AxisMetricFixture {
   let record: DrawingRunEvidenceRecord
   let checkpoint: AcceptedLearningPathCheckpoint
-  init(invalidGeometry: String? = nil) throws {
+  init(invalidGeometry: String? = nil, sourceIdentifier: String = "accepted-boundary-10mm-inset-drawing-border-v2") throws {
     let tipFixture = try TipAuthorityFixture()
     let registration = try tipFixture.registration()
     let hash = try registration.drawingEvidenceContentHash()
@@ -187,7 +189,7 @@ struct AxisMetricFixture {
       strokes: [LogicalStroke(id: StrokeID(), path: Polyline(points: points),
         style: StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID()), semanticRole: .trainingProbe, ordering: 0)],
       source: DrawingSourceProvenance(kind: invalidGeometry == "source" ? "portrait" : "learning-path-drawing-border",
-        sourceIdentifier: "accepted-boundary-10mm-inset-drawing-border-v2"))
+        sourceIdentifier: sourceIdentifier))
     let placement = try DrawingPlacement(fieldAnchor: Point2(x: 0, y: 0), machineAnchor: Point2(x: 0, y: 0), uniformScale: 1)
     let plan = try DrawingPlanner.plan(program: program, placement: placement,
       drawableRegion: DrawableMachineRegion(bounds: AxisAlignedBounds(minX: 0, minY: 0, maxX: 100, maxY: 100)), provenance: provenance)

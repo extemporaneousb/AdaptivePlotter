@@ -4,7 +4,8 @@ enum ActionSurfaceOverlayPresentationGrammar {
   static func semanticLabel(for kind: CameraOverlayKind) -> String? {
     switch kind {
     case .calibrationGuide: nil
-    case .acceptedBoundary: LearningPathTerminology.Evidence.acceptedDrawingBoundaryOverlay
+    case .acceptedBoundary: "MACHINE BOUNDARY"
+    case .drawingRegion: "DRAWING REGION"
     case .drawingBorder: LearningPathTerminology.Evidence.drawingBorderOverlay
     case .paperCoverage: "CURRENT PAPER COVERAGE"
     case .predictedContactPoint: nil
