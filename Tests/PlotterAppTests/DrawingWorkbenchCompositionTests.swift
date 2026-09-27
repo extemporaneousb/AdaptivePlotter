@@ -224,6 +224,62 @@ struct DrawingWorkbenchCompositionTests {
     await app.shutdown()
   }
 
+  @Test("stopped artwork can prepare through paper replacement or explicit no-ink confirmation", arguments: [false, true])
+  func stoppedDrawingReplacementPaper(_ reuseUninkedSheet: Bool) async throws {
+    let f = try await DrawingWorkbenchApplicationFixture.make()
+    defer { f.stores.remove() }
+    let app = f.application
+    try await f.submit(.fitInDrawableRegion)
+    try await f.submit(.setDrawBorder(true))
+    try await f.submit(.assertPaperCoverage)
+    try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }
+    let program = app.drawingDraftSnapshot.program
+    let scale = app.drawingDraftSnapshot.uniformScale
+    let rotation = app.drawingDraftSnapshot.rotationDegrees
+    let center = app.drawingDraftSnapshot.centerCameraPixel
+    let paper = app.currentPaperRevisionContext
+    let registration = app.tipCameraRegistration
+    let start = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)))
+    let task = Task { await app.submitPlotterUIRequest(start) }
+    await f.planGate.waitUntilStarted()
+    let capability = try #require(app.drawingRunSnapshot?.stopCapabilityID)
+    let stop = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.stop(capability))))
+    _ = await app.submitPlotterUIRequest(stop)
+    await f.planGate.release(.cancelled)
+    _ = await task.value
+    let terminal = try #require(app.drawingRunSnapshot?.terminal)
+    guard case .cancelled = terminal.record.executionDisposition else {
+      Issue.record("Stop did not retain a cancelled attempt"); await app.shutdown(); return
+    }
+    if reuseUninkedSheet {
+      #expect(app.drawingStudioPresentation.noInkRetryRunID == terminal.runID)
+      let retry = try #require(app.testPlotterUIProjection().semantic.request(
+        matching: .drawingRun(.confirmNoInkAndPrepareRetry(terminal.runID))))
+      #expect(await app.submitPlotterUIRequest(retry) == .accepted(requestID: retry.id))
+      #expect(app.currentPaperRevisionContext == paper)
+      #expect(app.drawingEvidenceArchive.confirmedNoInkRunIDs.contains(terminal.runID))
+    } else {
+      let replace = try #require(app.testPlotterUIProjection().semantic.request(matching: .paper(.newSheetOnCurrentPlane)))
+      #expect(await app.submitPlotterUIRequest(replace) == .accepted(requestID: replace.id))
+      #expect(app.currentPaperRevisionContext.instance != paper.instance)
+      #expect(!app.drawingDraftSnapshot.paperCoverageIsCurrent)
+    }
+    #expect(app.currentPaperRevisionContext.contactPlane == paper.contactPlane)
+    #expect(app.tipCameraRegistration == registration)
+    #expect(app.drawingDraftSnapshot.program == program)
+    #expect(app.drawingDraftSnapshot.uniformScale == scale)
+    #expect(app.drawingDraftSnapshot.rotationDegrees == rotation)
+    #expect(app.drawingDraftSnapshot.centerCameraPixel == center)
+    #expect(app.drawingDraftSnapshot.drawBorder)
+    #expect(app.drawingRunSnapshot?.terminal == nil)
+    #expect(app.drawingRunSnapshot?.activeRunID == nil)
+    if !reuseUninkedSheet { try await f.submit(.assertPaperCoverage) }
+    try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }
+    #expect(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)) != nil)
+    #expect(app.drawingEvidenceArchive.records.contains(terminal.record))
+    await app.shutdown()
+  }
+
   @Test("quiescence baseline joins the retained nested publication while paper persistence is held")
   func quiescenceBaselineWaitsForNestedPublication() async throws {
     let loadGate = DrawingRunHoldGate()

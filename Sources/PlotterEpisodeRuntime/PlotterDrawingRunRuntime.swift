@@ -130,6 +130,7 @@ public protocol PlotterDrawingRunEvidencePort: Sendable {
   func installMedia(frame: StampedFrame, source: FrameSourceIdentity) async throws -> DrawingRunMediaReference
   func stageBaseline(runID: RunID, media: DrawingRunMediaReference) async throws -> DrawingRunEvidenceArchive
   func stageProgressFrame(runID: RunID, frame: DrawingRunProgressFrame) async throws -> DrawingRunEvidenceArchive
+  func confirmNoInk(_ confirmation: DrawingRunNoInkConfirmation) async throws -> DrawingRunEvidenceArchive
   func markInkDispatchPossible(runID: RunID) async throws -> DrawingRunEvidenceArchive
   func append(_ record: DrawingRunEvidenceRecord) async throws
     -> DrawingRunEvidenceArchive
@@ -311,6 +312,7 @@ public actor PlotterDrawingRunRuntime {
     var noRedraw = PlotterDrawingRunNoRedrawState.archiveUnavailable(
       detail: "Drawing evidence archive has not been loaded."
     )
+    var confirmingNoInk = false
     var blockedPlanHashes = Set<Digest>()
     // Immutable same-paper records back the existing no-redraw index. A known
     // coordinate rebase may change a plan hash without changing physical ink.
@@ -402,7 +404,7 @@ public actor PlotterDrawingRunRuntime {
     environment: PlotterEnvironment
   ) -> PlotterDrawingRunSnapshot {
     var state = states[environment] ?? SourceState()
-    guard state.active == nil else {
+    guard state.active == nil, !state.confirmingNoInk else {
       return snapshot(state, environment: environment)
     }
     if case .appending = state.evidencePersistence {
@@ -410,11 +412,11 @@ public actor PlotterDrawingRunRuntime {
     }
     let markedRuns = Set(archive.attempts.filter(\.inkDispatchPossible).map { $0.intent.runID })
     state.blockedPlanRecords = archive.records.filter {
-      $0.paper == paper && ($0.executionFrontiers.commandedStrokeCount > 0 || markedRuns.contains($0.runID))
+      !archive.confirmedNoInkRunIDs.contains($0.runID) && $0.paper == paper && ($0.executionFrontiers.commandedStrokeCount > 0 || markedRuns.contains($0.runID))
     }
     state.blockedPlanHashes = Set(state.blockedPlanRecords.map(\.plan.contentHash))
     state.blockedPlanIntents = archive.attempts.filter {
-      $0.intent.context.paper == paper && $0.inkDispatchPossible
+      !archive.confirmedNoInkRunIDs.contains($0.intent.runID) && $0.intent.context.paper == paper && $0.inkDispatchPossible
     }.map(\.intent)
     state.blockedPlanHashes.formUnion(state.blockedPlanIntents.map { $0.plan.contentHash })
     state.evidenceArchiveAvailability = .available(revision: archive.revision)
@@ -574,6 +576,10 @@ public actor PlotterDrawingRunRuntime {
       )
     }
 
+    guard !state.confirmingNoInk else {
+      return refuse(submission, state: state, owner: Authority.evidence,
+        reason: .evidencePublicationInProgress, remedy: .waitForEvidencePublication)
+    }
     switch submission.intent {
     case .start:
       return await start(submission, currentFacts: currentFacts, state: state)
@@ -583,6 +589,8 @@ public actor PlotterDrawingRunRuntime {
       return changeReview(submission, runID: runID, pin: true, state: state)
     case .unpinReview(let runID):
       return changeReview(submission, runID: runID, pin: false, state: state)
+    case .confirmNoInkAndPrepareRetry(let runID):
+      return await confirmNoInkAndPrepareRetry(submission, runID: runID, facts: currentFacts, state: state)
     case .beginNewRun(let runID):
       return beginNewRun(submission, runID: runID, state: state)
     case .recoverPublication(let capabilityID):
@@ -1153,11 +1161,11 @@ public actor PlotterDrawingRunRuntime {
       guard isCurrent(owner, environment: environment) else { return }
       update(owner, environment: environment) { state in
         state.blockedPlanIntents = archive.attempts.filter {
-          $0.intent.context.paper == record.paper && $0.inkDispatchPossible
+          !archive.confirmedNoInkRunIDs.contains($0.intent.runID) && $0.intent.context.paper == record.paper && $0.inkDispatchPossible
         }.map(\.intent)
         let markedRuns = Set(state.blockedPlanIntents.map(\.runID))
         state.blockedPlanRecords = archive.records.filter {
-          $0.paper == record.paper && ($0.executionFrontiers.commandedStrokeCount > 0 || markedRuns.contains($0.runID))
+          !archive.confirmedNoInkRunIDs.contains($0.runID) && $0.paper == record.paper && ($0.executionFrontiers.commandedStrokeCount > 0 || markedRuns.contains($0.runID))
         }
         state.blockedPlanHashes.formUnion(state.blockedPlanRecords.map(\.plan.contentHash))
         state.phase = .terminal
@@ -1306,6 +1314,61 @@ public actor PlotterDrawingRunRuntime {
     )
   }
 
+  private func confirmNoInkAndPrepareRetry(
+    _ submission: PlotterDrawingRunSubmission, runID: RunID,
+    facts currentFacts: PlotterDrawingRunExternalFacts, state initial: SourceState
+  ) async -> PlotterDrawingRunSubmissionResult {
+    let environment = submission.projection.environment
+    guard initial.active == nil, let terminal = initial.terminal, terminal.runID == runID,
+      terminal.record.allowsNoInkConfirmation,
+      terminal.record.paper == currentFacts.plan?.paperCoverage.paper,
+      case .persisted = initial.evidencePersistence else {
+      return refuse(submission, state: initial, owner: Authority.run,
+        reason: .runIdentityMismatch, remedy: .useExactRunIdentity)
+    }
+    var state = initial
+    state.confirmingNoInk = true
+    state.evidencePersistence = .appending(terminal.record.recordID)
+    advance(&state)
+    states[environment] = state
+    _ = publish(state, environment: environment)
+    let controller = await interpreter.snapshot()
+    state = states[environment] ?? state
+    guard !admissionClosed, state.terminal?.runID == runID,
+      Self.controllerIsReady(controller) else {
+      state.confirmingNoInk = false
+      state.evidencePersistence = initial.evidencePersistence
+      states[environment] = state
+      return refuse(submission, state: state, owner: Authority.interpreter,
+        reason: .controllerUnavailable, remedy: .restoreControllerReadiness,
+        detail: "Wait for the controller to settle Idle with Pen Up before preparing this drawing again.")
+    }
+    do {
+      let archive = try await evidence.confirmNoInk(.init(runID: runID))
+      state = states[environment] ?? state
+      state.confirmingNoInk = false
+      state.evidencePersistence = initial.evidencePersistence
+      states[environment] = state
+      // Rebuild from all retained attempts; another run at the same geometry
+      // must continue to block a retry. The original records remain immutable.
+      _ = restoreNoRedrawTruth(from: archive, paper: terminal.record.paper, environment: environment)
+      state = states[environment] ?? state
+      guard !admissionClosed, state.terminal?.runID == runID else {
+        return refuse(submission, state: state, owner: Authority.run,
+          reason: .admissionClosed, remedy: .restartApplication)
+      }
+      return beginNewRun(submission, runID: runID, state: state)
+    } catch {
+      state = states[environment] ?? state
+      state.confirmingNoInk = false
+      state.evidencePersistence = initial.evidencePersistence
+      states[environment] = state
+      return refuse(submission, state: state, owner: Authority.evidence,
+        reason: .evidenceArchiveUnavailable, remedy: .restoreEvidenceArchive,
+        detail: "The no-ink confirmation could not be saved. The original attempt is retained. Restore evidence storage and retry. \(error)")
+    }
+  }
+
   private func beginNewRun(
     _ submission: PlotterDrawingRunSubmission,
     runID: RunID,
@@ -1425,11 +1488,11 @@ public actor PlotterDrawingRunRuntime {
         )
       }
       state.blockedPlanIntents = archive.attempts.filter {
-        $0.intent.context.paper == record.paper && $0.inkDispatchPossible
+        !archive.confirmedNoInkRunIDs.contains($0.intent.runID) && $0.intent.context.paper == record.paper && $0.inkDispatchPossible
       }.map(\.intent)
       let markedRuns = Set(state.blockedPlanIntents.map(\.runID))
       state.blockedPlanRecords = archive.records.filter {
-        $0.paper == record.paper && ($0.executionFrontiers.commandedStrokeCount > 0 || markedRuns.contains($0.runID))
+        !archive.confirmedNoInkRunIDs.contains($0.runID) && $0.paper == record.paper && ($0.executionFrontiers.commandedStrokeCount > 0 || markedRuns.contains($0.runID))
       }
       state.blockedPlanHashes.formUnion(state.blockedPlanRecords.map(\.plan.contentHash))
       state.phase = .terminal
@@ -2194,7 +2257,7 @@ public actor PlotterDrawingRunRuntime {
         "This sheet has possible ink recorded under different machine geometry. Its location cannot be compared after axis calibration. Replace the marked sheet and record New Sheet before drawing; moving the target does not locate that old ink.")
     }
     if state.blockedPlanHashes.contains(plan.plan.contentHash) {
-      return unavailable(Authority.run, .planMayAlreadyContainInk, .movePlanAwayFromPossibleInk, "This plan may already contain ink. Move the target or use a new sheet for the next drawing.")
+      return unavailable(Authority.run, .planMayAlreadyContainInk, .movePlanAwayFromPossibleInk, "This plan may already contain ink. Replace the sheet and choose Replace Paper, then confirm sheet coverage and Draw.")
     }
     if let detail = Self.controllerReadinessDetail(controller, requiresPenUp: false) {
       return unavailable(Authority.interpreter, .controllerUnavailable, .restoreControllerReadiness, detail)

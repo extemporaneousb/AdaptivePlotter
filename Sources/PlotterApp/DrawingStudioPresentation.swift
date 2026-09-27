@@ -205,6 +205,8 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   let editingIsEnabled: Bool
   let runProjection: PlotterDrawingRunProjectionReference?
   let runState: DrawingStudioRunState
+  let noInkRetryRunID: RunID?
+  let noInkRetryIsEnabled: Bool
   let execution: DrawingStudioExecutionPresentation?
   let coverageExperiment: DrawingCoverageExperiment?
   let coverageAssessment: DrawingCoverageAssessment?
@@ -240,6 +242,8 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     editingIsEnabled: Bool,
     runProjection: PlotterDrawingRunProjectionReference?,
     runState: DrawingStudioRunState,
+    noInkRetryRunID: RunID? = nil,
+    noInkRetryIsEnabled: Bool = true,
     execution: DrawingStudioExecutionPresentation? = nil,
     coverageExperiment: DrawingCoverageExperiment? = nil,
     coverageAssessment: DrawingCoverageAssessment? = nil,
@@ -267,6 +271,8 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     self.drawBorder = drawBorder
     self.editingIsEnabled = editingIsEnabled
     self.runProjection = runProjection
+    self.noInkRetryRunID = noInkRetryRunID
+    self.noInkRetryIsEnabled = noInkRetryIsEnabled
     self.runState = runState
     self.execution = execution
     self.coverageExperiment = coverageExperiment
@@ -278,6 +284,15 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   }
 
   var controls: [DrawingStudioControl] {
+    let retry = noInkRetryRunID.map {
+      DrawingStudioControl(intent: .confirmNoInkAndPrepareRetry($0),
+        title: "Prepare Same Drawing", systemImage: "arrow.counterclockwise", role: .affirmative,
+        isEnabled: noInkRetryIsEnabled)
+    }
+    return standardControls + (retry.map { [$0] } ?? [])
+  }
+
+  private var standardControls: [DrawingStudioControl] {
     switch runState {
     case .unavailable, .publicationIncomplete:
       return []
@@ -403,6 +418,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
   let panel: WorkbenchPanel
   private let beforeRun: BeforeRun
   private let openReviewer: (() -> Void)?
+  @State private var confirmedNoInkRunID: RunID?
   @State private var requestRefusal: DrawingStudioRequestRefusal?
   @State private var draftFeedback = OperatorRequestFeedback()
   @State private var scaleDraft: Double?
@@ -775,7 +791,19 @@ struct DrawingStudioView<BeforeRun: View>: View {
     ForEach(presentation.controls) { control in
       let intent = PlotterUIIntent.drawingRun(control.intent)
       let request = plotterUIProjection.request(matching: intent)
-      if case .pinReview = control.intent, let openReviewer {
+      if case .confirmNoInkAndPrepareRetry(let runID) = control.intent {
+        Toggle("I confirm this stopped attempt deposited no ink", isOn: Binding(
+          get: { confirmedNoInkRunID == runID },
+          set: { confirmedNoInkRunID = $0 ? runID : nil }))
+          .accessibilityIdentifier("drawing.confirmNoInk")
+        OperatorRequestButton(title: control.title, role: control.role,
+          request: control.isEnabled && confirmedNoInkRunID == runID ? request : nil,
+          unavailableReason: !control.isEnabled ? "Wait for drawing evidence to finish saving."
+            : confirmedNoInkRunID == runID ? nil : "Confirm no ink only if reusing this sheet.",
+          sink: plotterUIIntentSink, nativeActionIdentifier: "drawing.prepareNoInkRetry")
+        Text("Keeps the same drawing and placement. Press Draw when ready.")
+          .font(.caption).foregroundStyle(.secondary)
+      } else if case .pinReview = control.intent, let openReviewer {
         Button("Review Run", action: openReviewer)
           .accessibilityIdentifier("drawing.Review Run")
       } else {

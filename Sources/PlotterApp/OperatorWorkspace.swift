@@ -2785,6 +2785,9 @@ final class PlotterApplicationRuntime:
     if archive.archiveID == drawingEvidenceArchive.archiveID {
       guard archive.revision >= drawingEvidenceArchive.revision else { return }
       do {
+        for confirmation in drawingEvidenceArchive.noInkConfirmations {
+          next = try next.confirmingNoInk(confirmation)
+        }
         for id in drawingEvidenceArchive.deletedReviewRecordIDs where !next.deletedReviewRecordIDs.contains(id) {
           next = try next.deletingReview(recordID: id)
         }
@@ -3114,6 +3117,9 @@ final class PlotterApplicationRuntime:
   }
 
   var paperManagementUnavailableReason: String? {
+    if case .appending = drawingRunSnapshot?.evidencePersistence {
+      return "Wait for Drawing evidence to finish saving before replacing paper."
+    }
     if capReidentificationAttemptID != nil {
       return "Finish or cancel Pen Cap Capture before changing paper. Existing corner marks and clicks are retained."
     }
@@ -3152,6 +3158,16 @@ final class PlotterApplicationRuntime:
       editingIsEnabled: editingIsEnabled && !drawingRunRequiresNewPlan,
       runProjection: run?.projection,
       runState: drawingStudioRunState(run),
+      noInkRetryRunID: run.flatMap { snapshot in
+        guard snapshot.activeRunID == nil,
+          let terminal = snapshot.terminal, terminal.record.allowsNoInkConfirmation,
+          terminal.record.paper == currentPaperRevisionContext else { return nil }
+        return terminal.runID
+      },
+      noInkRetryIsEnabled: run.map {
+        if case .persisted = $0.evidencePersistence { return true }
+        return false
+      } ?? false,
       execution: run.flatMap { snapshot in
         guard snapshot.activeRunID != nil || snapshot.terminal != nil else { return nil }
         return DrawingStudioExecutionPresentation(snapshot: snapshot,
@@ -3204,7 +3220,8 @@ final class PlotterApplicationRuntime:
       return .publicationIncomplete(detail: "The durable attempt remains unresolved: " + detail)
     }
     if let terminal = snapshot.terminal {
-      let detail = drawingRunTerminalDetail(terminal)
+      let detail = [drawingRunTerminalDetail(terminal),
+        snapshot.lastRefusal.map(drawingRunRefusalDetail)].compactMap { $0 }.joined(separator: " ")
       switch snapshot.review {
       case .pinned:
         return .reviewing(runID: terminal.runID, detail: detail)
@@ -3385,9 +3402,16 @@ final class PlotterApplicationRuntime:
     let result = await drawingRunRuntime.submit(submission)
     guard applicationAdmissionIsOpen else { return result }
     installDrawingRunSnapshot(result.snapshot)
-    guard case .applied = result.disposition,
-      case .beginNewRun = submission.intent
-    else { return result }
+    guard case .applied = result.disposition else { return result }
+    if case .confirmNoInkAndPrepareRetry = submission.intent {
+      // Refresh the shared archive before any later paper/index reconstruction.
+      await loadDrawingEvidenceArchive()
+      overlayResultChannels.clearWorkflow(source: frameMode, owner: .drawingStudio)
+      await synchronizeDrawingDraft()
+      await synchronizeDrawingRunProjection()
+      return result
+    }
+    guard case .beginNewRun = submission.intent else { return result }
     overlayResultChannels.clearWorkflow(source: frameMode, owner: .drawingStudio)
     let synchronized = await drawingDraftRuntime.synchronize(drawingDraftExternalFacts)
     installDrawingDraftSnapshot(synchronized)
@@ -5899,7 +5923,7 @@ final class PlotterApplicationRuntime:
 
     if case .paperReplaced = artifactResetRuntime.snapshot().activeIntent {
       switch request.intent {
-      case .drawingRun(.start), .drawingDraft, .paper, .manualMotion,
+      case .drawingRun(.start), .drawingRun(.confirmNoInkAndPrepareRetry), .drawingDraft, .paper, .manualMotion,
         .learningAction, .boundary, .pointSelection:
         return plotterUIRefusal(request, reason: .unavailableAction,
           currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
@@ -15469,13 +15493,8 @@ extension PlotterApplicationRuntime {
         overlayResultChannels.clearWorkflow(source: frameMode, owner: .sparseTipCalibration)
         await synchronizeDrawingRunProjection()
         await synchronizeDrawingDraft()
-        let newPlan = await drawingDraftRuntime.submit(
-          PlotterDrawingDraftSubmission(projection: drawingDraftSnapshot.projection, intent: .beginNewPlan),
-          facts: drawingDraftExternalFacts)
-        installDrawingDraftSnapshot(newPlan.snapshot)
-        guard case .applied = newPlan.disposition else {
-          return .failed("Paper was recorded, but the settled Drawing Run could not prepare its next plan. Review Prepare Next Drawing.")
-        }
+        // Changing sheet identity already rebuilds the plan. Preserve the
+        // authored border, scale, rotation and placement for the next Draw.
         await synchronizeDrawingRunProjection()
         learningAuthorityError = nil
         explorationError = nil

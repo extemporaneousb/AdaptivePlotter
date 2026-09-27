@@ -141,6 +141,10 @@ actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort {
     try await store.stageProgressFrame(runID: runID, frame: frame)
   }
 
+  func confirmNoInk(_ confirmation: DrawingRunNoInkConfirmation) async throws -> DrawingRunEvidenceArchive {
+    try await store.confirmNoInk(confirmation)
+  }
+
   func markInkDispatchPossible(runID: RunID) async throws -> DrawingRunEvidenceArchive {
     try await store.markInkDispatchPossible(runID: runID)
   }

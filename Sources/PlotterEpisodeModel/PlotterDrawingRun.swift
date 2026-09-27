@@ -103,6 +103,7 @@ public enum PlotterDrawingRunIntent: Hashable, Sendable {
   case pinReview(RunID)
   case unpinReview(RunID)
   case beginNewRun(RunID)
+  case confirmNoInkAndPrepareRetry(RunID)
   case recoverPublication(PlotterDrawingRunPublicationRecoveryCapabilityID)
 }
 

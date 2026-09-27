@@ -693,6 +693,15 @@ actor DrawingRunEvidenceProbe: PlotterDrawingRunEvidencePort {
     return archive
   }
 
+  private var failNoInkConfirmation = false
+  func failNextNoInkConfirmation() { failNoInkConfirmation = true }
+
+  func confirmNoInk(_ confirmation: DrawingRunNoInkConfirmation) async throws -> DrawingRunEvidenceArchive {
+    if failNoInkConfirmation { failNoInkConfirmation = false; throw DrawingRunEvidenceProbeError.stageFailed }
+    archive = try await store.confirmNoInk(confirmation)
+    return archive
+  }
+
   func markInkDispatchPossible(runID: RunID) async throws -> DrawingRunEvidenceArchive {
     await events.append("dispatch-marker")
     archive = try await store.markInkDispatchPossible(runID: runID)

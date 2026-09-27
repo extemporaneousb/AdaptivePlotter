@@ -98,7 +98,7 @@ extension SavedLearningCompletionTests {
       style: .contours, strokeStyle: app.drawingStrokeStyle)
     var records: [DrawingRunEvidenceRecord] = []
     for index in 0..<2 {
-      #expect(!app.drawingDraftSnapshot.drawBorder)
+      #expect(app.drawingDraftSnapshot.drawBorder == (index == 1 && border))
       let projection = app.plotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID,
         manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingDrawingProgram: program)
       let select = try #require(projection.semantic.request(matching: .drawingDraft(.selectProgram(program))))
@@ -205,8 +205,17 @@ extension SavedLearningCompletionTests {
           #expect(app.currentPaperRevisionContext == originalPaper)
           #expect(app.drawingDraftSnapshot.plan?.contentHash == terminal.record.plan.contentHash)
         }
+        let retainedProgram = app.drawingDraftSnapshot.program
+        let retainedScale = app.drawingDraftSnapshot.uniformScale
+        let retainedRotation = app.drawingDraftSnapshot.rotationDegrees
+        let retainedCenter = app.drawingDraftSnapshot.centerCameraPixel
         let request = try #require(app.testPlotterUIProjection().semantic.request(matching: .paper(.newSheetOnCurrentPlane)))
         #expect(await app.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+        #expect(app.drawingDraftSnapshot.program == retainedProgram)
+        #expect(app.drawingDraftSnapshot.uniformScale == retainedScale)
+        #expect(app.drawingDraftSnapshot.rotationDegrees == retainedRotation)
+        #expect(app.drawingDraftSnapshot.centerCameraPixel == retainedCenter)
+        #expect(app.drawingDraftSnapshot.drawBorder == border)
         #expect(app.currentPaperRevisionContext.instance != originalPaper.instance)
         #expect(app.currentPaperRevisionContext.contactPlane == originalPaper.contactPlane)
         #expect(app.tipCameraRegistration == originalRegistration)

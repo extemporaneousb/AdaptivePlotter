@@ -19,6 +19,8 @@ struct PlotterApplicationRuntimeView: View {
   @State private var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
   @State private var pendingPointSelection: PlotterPointSelectionSubmission?
   @State private var panelError: String?
+  @State private var replacementPaperRequest: PlotterUIRequest?
+  @State private var confirmsPaperReplacement = false
 
   private var layout: Binding<WorkbenchLayoutState> {
     Binding(get: { gateLayout ?? .restored(from: savedLayout) }, set: {
@@ -300,8 +302,12 @@ struct PlotterApplicationRuntimeView: View {
       if showsExplanation && !application.paperCoverageIsCurrent {
         StudioHelpButton("Paper coverage", text: ui.workbenchCapability.paper.detail)
       }
+      if application.drawingRunSnapshot?.terminal != nil {
+        Text("To draw again: replace the sheet, choose Replace Paper, confirm sheet coverage, then Draw. Your drawing and placement are retained.")
+          .font(.caption)
+      }
       Text(application.sheetAcceptanceDetail).font(.caption).foregroundStyle(.secondary)
-      HStack {
+      VStack(alignment: .leading, spacing: 6) {
         OperatorRequestButton(title: application.sheetAcceptanceTitle,
           request: ui.semantic.request(for: PlotterAppUIActionID.drawingDraft(.assertPaperCoverage)),
           unavailableReason: application.paperAcceptanceUnavailableReason, sink: application,
@@ -311,10 +317,28 @@ struct PlotterApplicationRuntimeView: View {
         if let reason = application.paperAcceptanceUnavailableReason {
           StudioHelpButton("Paper coverage unavailable", text: reason)
         }
-        Menu("Paper") {
-          Button("New Sheet — Same Contact Plane") {
-            Task { panelError = await submit(PlotterAppUIActionID.paperNewSheet) }
+        Button("Replace Paper…") {
+          replacementPaperRequest = ui.semantic.request(for: PlotterAppUIActionID.paperNewSheet)
+          confirmsPaperReplacement = replacementPaperRequest != nil
+        }
+        .disabled(ui.semantic.request(for: PlotterAppUIActionID.paperNewSheet) == nil)
+        .accessibilityIdentifier("drawing.replacePaper")
+        .help(ui.paperManagementUnavailableReason ?? "Replace the sheet on the same surface, then confirm. Keeps the drawing and placement.")
+        .confirmationDialog("Replace the paper on the same surface", isPresented: $confirmsPaperReplacement) {
+          Button("Paper Replaced — Keep Drawing") {
+            guard let request = replacementPaperRequest else { return }
+            replacementPaperRequest = nil
+            Task {
+              if case .refused(let refusal) = await application.submitPlotterUIRequest(request) {
+                panelError = refusal.remedy
+              }
+            }
           }
+          Button("Cancel", role: .cancel) { replacementPaperRequest = nil }
+        } message: {
+          Text("Confirm after replacing the sheet. Calibration and drawing placement are retained. Confirm sheet coverage next, then press Draw.")
+        }
+        Menu("Paper Options") {
           Button("Contact Plane Changed") {
             Task { panelError = await submit(PlotterAppUIActionID.paperContactPlane) }
           }

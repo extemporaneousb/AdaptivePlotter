@@ -2146,7 +2146,17 @@ publication. Append failure exposes exact recovery and cannot appear successful;
 possible-ink/no-redraw truth remains even when persistence fails. Exact-frame
 intended, observed, and residual geometry remains reviewable. Refusal,
 cancellation, ambiguity, possible ink, Vision rejection, or evidence-store
-failure cannot authorize resend or redraw. SIMULATED start is a typed
+failure alone cannot authorize resend or redraw. After Stop settles, **Replace
+Paper** records a new sheet on the same contact plane, retains artwork placement
+and calibration, and requires current sheet coverage before the next Draw. It
+uses the existing paper-replacement transaction without a separate terminal
+handoff action. For a cancelled ordinary drawing with no verified ink, an
+explicit operator confirmation that the attempt deposited no ink may prepare
+that same drawing on the same sheet. This confirmation is durable, RunID-bound
+operator testimony, separate from immutable execution and Vision evidence. It
+excludes only that attempt from no-redraw indexing; other attempts still block
+intersecting geometry. It requires published terminal evidence and settled
+controller readiness and never starts motion. SIMULATED start is a typed
 nonphysical refusal and invokes zero LIVE controller, camera, Vision, or archive
 effects.
 
