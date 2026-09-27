@@ -4169,11 +4169,11 @@ final class PlotterApplicationRuntime:
       if boundary.resetCapabilityID != nil {
         return "Wait for the exact Boundary reset transaction to commit or abort."
       }
-      if case .needsAttention(let detail) = boundary.phase {
+      if case .needsAttention = boundary.phase {
         switch boundary.terminal?.disposition {
         case .cancelled?, .refused?: break
         default:
-          return "Resolve the retained Boundary terminal truth before resetting Learning: \(detail)"
+          return "Boundary motion is unresolved. Check the controller before resetting Learning."
         }
       }
     }
@@ -5957,7 +5957,7 @@ final class PlotterApplicationRuntime:
           reason: .retainedOwnerRefused,
           currentUIRevision: currentPlotterUIProjection?.revision ?? currentUIRevision,
           currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(),
-          remedy: "Boundary refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
+          remedy: refusal.operatorMessage
         )
       }
       installBoundarySnapshot(await boundaryRuntime.snapshot(for: reference.environment))
@@ -6479,7 +6479,7 @@ final class PlotterApplicationRuntime:
           reason = PlotterBoundaryRuntime.admissionRefusal(
             for: boundaryExternalFacts(for: penInteractionEnvironment,
               liveSnapshot: machineSnapshot)
-          ).map { "Boundary unavailable: \($0.reason). Remedy: \($0.remedy)." }
+          ).map { PlotterBoundaryRefusal.operatorMessage(reason: $0.reason, remedy: $0.remedy) }
         case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
           reason = learningExerciseMotionUnavailableReason(requiresCamera: true)
         case .humanGuidedDiscovery(.calibratePenContactFromSparseMarks):
@@ -6654,7 +6654,7 @@ final class PlotterApplicationRuntime:
         PlotterBoundarySubmission(projection: reference, intent: intent)
       )
       if case .refused(let refusal) = disposition {
-        return "Boundary refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
+        return refusal.operatorMessage
       }
       installBoundarySnapshot(await boundaryRuntime.snapshot(for: reference.environment))
       return nil
@@ -12854,7 +12854,7 @@ final class PlotterApplicationRuntime:
         return .refused("Boundary ownership is unavailable. Refresh before preparing an attempt.")
       }
       if case .refused(let refusal) = disposition {
-        return .refused("Boundary attempt refused: \(refusal.reason). \(refusal.remedy)")
+        return .refused(refusal.operatorMessage)
       }
     case .humanGuidedDiscovery(.calibrateCameraAndVisibleCap):
       await cameraCalibrationRuntime.prepareForNewAttempt()
@@ -13961,7 +13961,7 @@ final class PlotterApplicationRuntime:
     guard case .applied = disposition else {
       if case .refused(let refusal) = disposition {
         learningAuthorityError =
-          "Boundary cancellation was refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
+          refusal.operatorMessage
       } else {
         learningAuthorityError =
           "The exact Boundary cancellation did not settle, so no Learning state was reset."
@@ -13998,7 +13998,7 @@ final class PlotterApplicationRuntime:
     else {
       if case .refused(let refusal) = disposition {
         learningAuthorityError =
-          "Boundary reset reservation was refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
+          refusal.operatorMessage
       } else {
         learningAuthorityError =
           "PlotterBoundaryRuntime did not publish an exact reset reservation. No local Boundary state was cleared."
@@ -14030,7 +14030,7 @@ final class PlotterApplicationRuntime:
     else {
       if case .refused(let refusal) = disposition {
         learningAuthorityError =
-          "Boundary reset commit was refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
+          refusal.operatorMessage
       } else {
         learningAuthorityError =
           "PlotterBoundaryRuntime did not publish an exact committed reset. No local Boundary state was cleared."
@@ -14060,7 +14060,7 @@ final class PlotterApplicationRuntime:
     else {
       if case .refused(let refusal) = disposition {
         learningAuthorityError =
-          "Durable Learning persistence failed; Boundary reset abort was refused by \(refusal.owner): \(refusal.reason). Remedy: \(refusal.remedy)."
+          "Learning could not be saved. " + refusal.operatorMessage
       }
       return
     }

@@ -763,10 +763,11 @@ extension PlotterLearningDetailedPresentationNormalizer {
       )
     case .humanGuidedDiscovery(let step):
       if step == .pairedBoundaryDiscoveryAndCentering, let boundary = snapshot.boundary.projection {
-        let detail: String? = if case .needsAttention(let reason) = boundary.phase {
-          reason
+        let detail: String? = if case .needsAttention = boundary.phase {
+          boundary.terminal?.disposition.operatorMessage
+            ?? "Boundary needs attention. Check the controller before continuing."
         } else if let refusal = boundary.lastRefusal {
-          "Boundary refused: \(refusal.reason). Remedy: \(refusal.remedy)."
+          refusal.operatorMessage
         } else { nil }
         if let detail {
           return OperatorActionPresentation(itemID: itemID,

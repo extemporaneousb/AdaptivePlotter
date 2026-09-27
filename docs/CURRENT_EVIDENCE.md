@@ -8,6 +8,42 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Boundary session mismatch and operator diagnostics, 2026-09-26
+
+A reported Y+ repeat attempted to pool a new controller session into a retained
+Boundary history from another session, at the same coordinate revision. Read-only
+capture preserved the integrity-checked four-side Saved Learning checkpoint and
+controller recordings. The recorded jog ended with Idle/final MPos; the subsequent
+history compatibility exception had been mislabeled as motion ambiguity, blocking
+Learning reset and exposing a nested internal error in the operator surface.
+
+Side admission now checks the complete retained Boundary prefix's controller
+session and coordinate revision before Pen Up or motion. A mismatch retains all
+accepted artifacts and returns an explicit reset remedy. A side result rejected
+during aggregate/checkpoint construction after verified Stop is a settled refusal;
+actual lower ambiguity, center-position uncertainty and incomplete publication
+keep their existing guards. No automatic replay, evidence relabeling or Learning
+step was added. Boundary presentation uses concise operator messages while exact
+typed refusals and terminal diagnostic details remain retained.
+
+The 55-test sequential Boundary/checkpoint/presentation selection passed, including
+normal/replacement/additional context mismatch, unchanged same-context repeat,
+invalid-geometry rejection after verified Stop, production Saved Learning to
+Reset All, and suppression of long diagnostics in instructions and button help.
+A genuine lower ambiguity still refused Reset All with concise text. Documentation
+checks passed. The first configured run caught a missing-map guidance regression;
+the corrected code retains the specific physical-position recovery instruction.
+A separate Saved Learning test passed for both Unknown and Down pen states. Nineteen
+tests that failed during a parallel run while another checkout compiled all
+passed in an isolated serialized rerun; the failed receipt remains retained.
+An exclusive parallel rerun reproduced seven of those failures, so concurrent
+compilation does not explain them by itself. Final configured validation uses
+serialized Swift tests and is retained in the task machine receipts alongside
+the failed parallel attempts.
+A stable-local signed debug app was built without launch. The running application,
+Learning files and hardware were not reset or actuated by the agent; native
+interaction and a new attended physical Boundary pass were not performed.
+
 ## Movable artwork frame within the learned Boundary, 2026-09-26
 
 Ordinary Drawing now derives an artwork frame from the program's authored field

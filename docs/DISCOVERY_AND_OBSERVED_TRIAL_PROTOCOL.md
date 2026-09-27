@@ -167,6 +167,14 @@ checks. Active effects, pending publication/reset, unknown position and sticky
 ambiguity retain their owning controls and restrictions; nothing is replayed
 merely because a prerequisite changed.
 
+A new side measurement cannot be combined with Boundary evidence from a different
+controller session or coordinate revision. The app refuses it before movement and
+preserves Saved Learning. To record new sides in that context, use the existing
+Boundary reset; using an already accepted Boundary for Drawing still follows
+normal position revalidation. A result rejected after verified Stop does not
+become a motion-ambiguity blocker for Reset All Learning. The operator message
+states the recovery action without displaying internal session IDs or error dumps.
+
 1. The operator selects any first X or Y direction. Selection is inert.
 2. **Move Toward X−/X+/Y−/Y+** starts one operator-stopped Drawing Boundary search.
 3. The controller uses finite 50 mm segments at 500 mm/min under one logical

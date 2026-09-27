@@ -1033,6 +1033,20 @@ Idle/final MPos truth. SIMULATED uses the retained EA-07 causal simulator seam,
 is explicitly nonphysical, invokes no LIVE persistence or effect, and claims no
 attended evidence.
 
+New, replacement, and additional side measurements require the entire retained
+Boundary prefix to have the current controller-session and coordinate-revision
+identity. A mismatch is refused before Pen Up or side motion; accepted historical
+geometry is not relabeled or pooled into the new session. Existing visual position
+revalidation can still make that geometry usable for Drawing. Recording new sides
+in a different numeric context requires the existing Boundary reset.
+After an exact side Stop has published verified Idle/final MPos, failure to
+construct its aggregate or checkpoint is a result refusal, not motion ambiguity.
+The prior accepted prefix and the actual final position remain retained, and the
+existing Learning reset remains reachable. Genuine lower motion ambiguity and
+pending publication retain their reset blockers. Boundary controls, instructions,
+and reset refusal text use operator messages; typed session identities and raw
+errors remain in retained diagnostic state.
+
 Accepted LIVE Boundary and center facts are saved before publication when the
 existing retained-package policy permits replacing the disk prefix. Construction
 uses the current accepted Pen/machine prefix, never

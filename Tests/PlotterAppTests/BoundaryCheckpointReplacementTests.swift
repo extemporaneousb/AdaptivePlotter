@@ -11,6 +11,61 @@ import Testing
 @Suite("Boundary checkpoint replacement production regression", .serialized)
 @MainActor
 struct BoundaryCheckpointReplacementTests {
+  @Test("saved Boundary session mismatch retains Learning and leaves Reset All reachable")
+  func retainedSessionMismatchAllowsExplicitReset() async throws {
+    let fixture = try await DrawingWorkbenchApplicationFixture.make()
+    defer { fixture.stores.remove() }
+    let app = fixture.application
+    do {
+      let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+      let before = try #require(app.currentBoundarySnapshot)
+      let facts = await app.currentBoundaryExternalFacts(for: .live)
+      #expect(before.acceptedMachineArtifacts?.controllerSessionID != facts.controllerSessionID)
+      guard case .loaded(let stored) = fixture.stores.checkpointStore.load() else {
+        Issue.record("Expected the retained checkpoint."); await app.shutdown(); return
+      }
+      let penCount = await fixture.machine.requestedPenCommands.count
+      let motionCount = await fixture.machine.requestedBoundaryRequests.count
+      // Completed Boundary exposes explicit per-side Redo controls rather
+      // than the incomplete Boundary's direction selector.
+      let redo = PlotterLearningAction.boundary(.acquire(direction: .positiveY, mode: .replacement))
+      try requireEnabledPublicAction(redo, owner: owner, workspace: app)
+      await app.performTestExerciseAction(redo, for: owner)
+      try await waitUntil {
+        if case .refused = app.currentBoundarySnapshot?.projection.phase { return true }
+        return false
+      }
+      let after = try #require(app.currentBoundarySnapshot)
+      guard case .retainedContextMismatch = after.projection.lastRefusal?.reason else {
+        Issue.record("Expected a controller-session compatibility refusal."); await app.shutdown(); return
+      }
+      #expect(after.acceptedMachineArtifacts == before.acceptedMachineArtifacts)
+      #expect(app.interactiveLearningIsComplete)
+      guard case .loaded(let retained) = fixture.stores.checkpointStore.load() else {
+        Issue.record("Expected the untouched checkpoint."); await app.shutdown(); return
+      }
+      #expect(retained == stored)
+      #expect(await fixture.machine.requestedPenCommands.count == penCount)
+      #expect(await fixture.machine.requestedBoundaryRequests.count == motionCount)
+      let text = app.selectedOperatorActionPresentation(for: owner).instructions.compactMap {
+        if case .text(let text) = $0 { return text }
+        return nil
+      }.joined(separator: " ")
+      #expect(text.contains("different controller session"))
+      #expect(!text.contains("PlotterRuntime."))
+      #expect(!text.contains(facts.controllerSessionID.uuidString))
+      let resetPlan = try #require(app.resetAllLearningPlan)
+      #expect(await app.submitResetAllLearning(resetPlan))
+      #expect(app.currentBoundarySnapshot?.acceptedMachineArtifacts == nil)
+      #expect(app.learningArtifactGraph.currentRevision(for: .penInteraction) == nil)
+      #expect(await fixture.machine.requestedBoundaryRequests.count == motionCount)
+      await app.shutdown()
+    } catch {
+      await app.shutdown()
+      throw error
+    }
+  }
+
   @Test("fresh Boundary preserves declined complete Learning and refuses a changed retained disk package", arguments: [false, true])
   func declinedCompleteLearning(diskConflict: Bool) async throws {
     let accepted = try await CompleteAcceptedLearningFixture.make()

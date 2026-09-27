@@ -1050,6 +1050,28 @@ public actor PlotterBoundaryRuntime {
       default:
         break
       }
+      // Historical Saved Learning remains usable through the existing pose
+      // revalidation path, but new measurements must not pool across controller
+      // sessions or coordinate revisions. Check the entire retained prefix
+      // before even normalizing Pen Up, including a new side of a partial set.
+      if let retained = BoundaryDirection.allCases.compactMap({
+        states[environment]!.authority.aggregates[$0]
+      }).first(where: {
+        $0.controllerSessionID != facts.controllerSessionID
+          || $0.coordinateRevision != facts.coordinateRevision
+      }) {
+        await refuseReservedAdmission(
+          submission, environment: environment, operationID: operationID,
+          reason: .retainedContextMismatch(
+            expectedSessionID: retained.controllerSessionID,
+            expectedCoordinateRevision: retained.coordinateRevision,
+            actualSessionID: facts.controllerSessionID,
+            actualCoordinateRevision: facts.coordinateRevision
+          ),
+          remedy: .resetBoundaryForCurrentSession
+        )
+        return
+      }
     } else if states[environment]!.authority.center == nil {
       await refuseReservedAdmission(
         submission,
@@ -1423,11 +1445,17 @@ public actor PlotterBoundaryRuntime {
     } catch {
       let detail = (error as? LocalizedError)?.errorDescription
         ?? String(describing: error)
+      // This branch runs only after an accepted lower terminal with verified
+      // Idle/final MPos. Rejecting a side's aggregate or checkpoint cannot turn
+      // that settled Stop into uncertain motion. Keep the exact error in the
+      // terminal diagnostics and leave all prior accepted authority untouched.
+      let disposition: PlotterBoundaryTerminalDisposition = active.activity == .sideAcquisition
+        ? .refused(detail) : .ambiguous(detail)
       await publishTerminal(
         environment,
         terminal: makeTerminal(
           active,
-          disposition: .ambiguous(detail),
+          disposition: disposition,
           finalPosition: position
         )
       )
@@ -1721,7 +1749,7 @@ public actor PlotterBoundaryRuntime {
     else { return }
     states[environment]!.active = nil
     states[environment]!.phase = terminal.disposition == .accepted ? .idle : .needsAttention(
-      String(describing: terminal.disposition)
+      terminal.disposition.operatorMessage
     )
     operationTasks[environment] = nil
     advanceRevision(environment)

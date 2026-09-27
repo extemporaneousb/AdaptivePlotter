@@ -874,7 +874,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
       ], mustRemainVisible: true)
     }
     if item.kind == .boundary, let boundary = facts.boundary,
-      case .needsAttention(let detail) = boundary.phase
+      case .needsAttention = boundary.phase
     {
       let settledRetry: Bool = switch boundary.terminal?.disposition {
       case .cancelled, .refused: true
@@ -889,7 +889,7 @@ public struct PlotterUILearningActionabilityCompiler: Sendable {
           itemID: item.ownerID,
           action: .start,
           title: "Boundary needs attention",
-          unavailableReason: "\(detail) Resolve the exact Boundary terminal truth; no acquisition or center motion will be resent automatically."
+          unavailableReason: boundary.terminal?.disposition.operatorMessage ?? "Boundary needs attention. Check the controller before continuing."
         )], mustRemainVisible: true)
       }
       // The owner may also retain a center-only retry after a settled position

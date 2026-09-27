@@ -134,6 +134,10 @@ public enum PlotterBoundaryRefusalReason: Hashable, Sendable {
   case operationInFlight
   case directionNotAllowed(PlotterBoundaryDirection)
   case acceptedDirectionRequired(PlotterBoundaryDirection)
+  case retainedContextMismatch(
+    expectedSessionID: UUID, expectedCoordinateRevision: UInt64,
+    actualSessionID: UUID, actualCoordinateRevision: UInt64
+  )
   case controllerUnavailable(String)
   case motionAuthorizationRequired
   case physicalPositionUnverified(String)
@@ -173,6 +177,7 @@ public enum PlotterBoundaryRemedy: Hashable, Sendable {
   case reserveResetTransaction
   case useExactResetCapability
   case restartApplication
+  case resetBoundaryForCurrentSession
 }
 
 public struct PlotterBoundaryRefusal: Hashable, Sendable {
@@ -181,6 +186,59 @@ public struct PlotterBoundaryRefusal: Hashable, Sendable {
   public let owner: String
   public let remedy: PlotterBoundaryRemedy
   public let currentProjection: PlotterBoundaryProjectionReference
+
+  /// Operator text is deliberately separate from the complete typed reason.
+  /// Session identities and lower-layer details remain in diagnostic state.
+  public var operatorMessage: String {
+    Self.operatorMessage(reason: reason, remedy: remedy)
+  }
+
+  public static func operatorMessage(
+    reason: PlotterBoundaryRefusalReason, remedy: PlotterBoundaryRemedy
+  ) -> String {
+    switch reason {
+    case .physicalPositionUnverified(let instruction):
+      // External facts provide curated recovery instructions here, including
+      // the missing-map case where camera position recovery is unavailable.
+      return instruction
+    case .retainedContextMismatch:
+      return "Saved Boundary belongs to a different controller session or coordinate frame. Reset Boundary before recording new sides."
+    case .directionNotAllowed(let direction):
+      return "\(direction.displayName) is not the next Boundary side. Choose an available direction."
+    case .acceptedDirectionRequired(let direction):
+      return "Record \(direction.displayName) before repeating or replacing it."
+    case .lowerRefused:
+      return "The controller refused the Boundary request. Check controller status before retrying."
+    case .persistenceFailed:
+      return "Boundary could not be saved. Retry Save; motion will not repeat."
+    default: break
+    }
+    switch remedy {
+    case .useCurrentProjection, .refreshCurrentFacts:
+      return "Boundary state changed. Retry from the current controls."
+    case .enableLearning: return "Enable Learning before recording Boundary."
+    case .waitForActiveOwner: return "Wait for the current operation to finish."
+    case .choosePublishedDirection: return "Choose an available Boundary direction."
+    case .recordRequiredDirection: return "Record the required Boundary side first."
+    case .connectAndProbeController: return "Connect the controller and refresh its position."
+    case .authorizeMotion: return "Enable Motion before recording Boundary."
+    case .restorePhysicalPosition: return "Re-establish Position from Camera before using saved Boundary."
+    case .resolveAmbiguityWithoutAutomaticResend:
+      return "Boundary motion could not be verified. Check the controller before continuing."
+    case .useExactCancellationCapability:
+      return "Use the current Boundary Stop control."
+    case .completeAllFourSides: return "Record all four Boundary sides before moving to center."
+    case .continueAfterAcceptedCenter: return "Center arrival is already accepted. Continue to the next exercise."
+    case .usePublishedCenterRetry: return "Use the current Move to Center control."
+    case .retryExactPublication: return "Boundary could not be saved. Retry Save; motion will not repeat."
+    case .waitForResetTransaction: return "Wait for the current Boundary reset to finish."
+    case .reserveResetTransaction, .useExactResetCapability:
+      return "Reopen the current Learning reset confirmation."
+    case .restartApplication: return "Boundary is closed. Restart the app before continuing."
+    case .resetBoundaryForCurrentSession:
+      return "Reset Boundary before recording sides in this controller session."
+    }
+  }
 
   public init(
     requestID: PlotterBoundaryRequestID,
@@ -257,6 +315,17 @@ public enum PlotterBoundaryTerminalDisposition: Hashable, Sendable {
   case refused(String)
   case ambiguous(String)
   case publicationIncomplete(String)
+
+  public var operatorMessage: String {
+    switch self {
+    case .accepted: "Boundary accepted."
+    case .cancelled: "Boundary attempt cancelled. Accepted Boundary is unchanged."
+    case .shutdown: "Boundary stopped during shutdown. Restart the app before continuing."
+    case .refused: "Boundary result was not accepted. Accepted Boundary is unchanged."
+    case .ambiguous: "Boundary motion could not be verified. Check the controller before continuing."
+    case .publicationIncomplete: "Boundary could not be saved. Retry Save; motion will not repeat."
+    }
+  }
 }
 
 public struct PlotterBoundaryTerminal: Hashable, Sendable {

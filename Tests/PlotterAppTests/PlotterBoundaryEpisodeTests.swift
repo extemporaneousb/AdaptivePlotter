@@ -1057,6 +1057,125 @@ struct PlotterBoundaryEpisodeTests {
     )
   }
 
+  @Test("retained Boundary rejects mixed numeric contexts before every side mode",
+    arguments: [false, true],
+    [PlotterBoundaryAttemptMode.normal, .replacement, .additional])
+  func incompatibleRetainedSideContext(changesSession: Bool, mode: PlotterBoundaryAttemptMode) async throws {
+    let fixture = try makeBoundaryEpisodeFixture()
+    let direction: PlotterBoundaryDirection
+    if mode == .normal {
+      _ = try await acceptSide(fixture, direction: .positiveX, mode: .normal,
+        finalPosition: MachinePosition(x: 100, y: 0))
+      direction = .negativeX
+    } else {
+      try await fixture.runtime.restore(acceptedBoundaryTestCheckpoint(
+        controllerSessionID: boundaryEpisodeControllerSessionID), environment: .live)
+      direction = .positiveY
+    }
+    let session = changesSession ? UUID() : boundaryEpisodeControllerSessionID
+    let coordinate: UInt64 = changesSession ? 1 : 2
+    await fixture.facts.setControllerContext(session: session, coordinate: coordinate)
+    let before = await fixture.runtime.snapshot(for: .live)
+    let preparationCount = await fixture.effects.preparationCount
+    let sideCount = await fixture.effects.sideAdmissionCount
+    let saveCount = await fixture.persistence.candidateCount
+    guard case .applied = await fixture.runtime.submit(submission(before,
+      .acquire(direction: direction, mode: mode))) else {
+      Issue.record("Expected the exact pre-fact reservation."); return
+    }
+    _ = await fixture.recorder.waitForTerminalCount(before.attemptTerminals.count + 1,
+      environment: .live)
+    try await waitUntilAsync {
+      (await fixture.runtime.snapshot(for: .live)).projection.reference.operationID == nil
+    }
+    let after = await fixture.runtime.snapshot(for: .live)
+    let expected = PlotterBoundaryRefusalReason.retainedContextMismatch(
+      expectedSessionID: boundaryEpisodeControllerSessionID, expectedCoordinateRevision: 1,
+      actualSessionID: session, actualCoordinateRevision: coordinate)
+    #expect(after.projection.lastRefusal?.reason == expected)
+    #expect(after.projection.lastRefusal?.remedy == .resetBoundaryForCurrentSession)
+    #expect(after.projection.terminal?.disposition == .refused(String(describing: expected)))
+    #expect(after.acceptedMachineArtifacts == before.acceptedMachineArtifacts)
+    #expect(after.acceptedEvidence == before.acceptedEvidence)
+    #expect(after.acceptedAggregates == before.acceptedAggregates)
+    #expect(await fixture.effects.preparationCount == preparationCount)
+    #expect(await fixture.effects.sideAdmissionCount == sideCount)
+    #expect(await fixture.persistence.candidateCount == saveCount)
+    #expect(after.projection.lastRefusal?.operatorMessage.contains(session.uuidString) == false)
+
+    // A pre-effect compatibility refusal must not trap the existing reset owner.
+    guard case .applied(let reserved) = await fixture.runtime.submit(
+      submission(after, .reserveReset)) else {
+      Issue.record("Expected reset after a settled compatibility refusal."); return
+    }
+    let capability = try #require(reserved.resetCapabilityID)
+    guard case .applied = await fixture.runtime.submit(PlotterBoundarySubmission(
+      projection: reserved.reference, intent: .commitReset(capability))) else {
+      Issue.record("Expected exact reset commit."); return
+    }
+    #expect((await fixture.runtime.snapshot(for: .live)).acceptedAggregates.isEmpty)
+  }
+
+  @Test("a settled side with invalid derived geometry is refused without inventing motion ambiguity")
+  func settledSideValidationFailureRemainsResettable() async throws {
+    let fixture = try makeBoundaryEpisodeFixture()
+    try await fixture.runtime.restore(acceptedBoundaryTestCheckpoint(
+      controllerSessionID: boundaryEpisodeControllerSessionID), environment: .live)
+    let before = await fixture.runtime.snapshot(for: .live)
+    let final = try MachinePosition(x: 0, y: -60)
+    let after = try await acceptSide(fixture, direction: .positiveY, mode: .replacement,
+      finalPosition: final, expectedAcceptedCount: 4)
+    guard case .refused(let diagnostic) = after.projection.terminal?.disposition else {
+      Issue.record("Invalid geometry after verified Stop must be a value refusal."); return
+    }
+    #expect(diagnostic.contains("invalidSpans"))
+    #expect(after.projection.terminal?.finalPosition == .init(xMM: 0, yMM: -60))
+    #expect(after.acceptedMachineArtifacts == before.acceptedMachineArtifacts)
+    #expect(after.acceptedEvidence == before.acceptedEvidence)
+    #expect(after.projection.phase == .needsAttention(
+      "Boundary result was not accepted. Accepted Boundary is unchanged."))
+    #expect(await fixture.persistence.candidateCount == 0)
+    guard case .applied = await fixture.runtime.submit(submission(after, .reserveReset)) else {
+      Issue.record("Settled result rejection must leave exact reset available."); return
+    }
+  }
+
+  @Test("actual motion ambiguity still blocks Learning reset without spilling diagnostics")
+  func ambiguousResetUsesConciseOperatorText() async throws {
+    let diagnostic = String(repeating:
+      "unresolved-owner-76F0EE52-5137-4052-B8A4-A0C933C3EB76 ", count: 30)
+    let fixture = try makeBoundaryEpisodeFixture()
+    await fixture.effects.setNextAdmission(.ambiguous(diagnostic))
+    guard case .applied = await fixture.runtime.submit(submission(
+      await fixture.runtime.snapshot(for: .live),
+      .acquire(direction: .positiveX, mode: .normal))) else {
+      Issue.record("Expected reservation before the lower ambiguity."); return
+    }
+    _ = await fixture.recorder.waitForTerminalCount(1, environment: .live)
+    try await waitUntilAsync {
+      (await fixture.runtime.snapshot(for: .live)).projection.reference.operationID == nil
+    }
+    let terminal = await fixture.runtime.snapshot(for: .live)
+    #expect(terminal.projection.terminal?.disposition == .ambiguous(diagnostic))
+    let applicationFixture = try await DrawingWorkbenchApplicationFixture.make()
+    defer { applicationFixture.stores.remove() }
+    let app = applicationFixture.application
+    do {
+      // Feed the real lower-ambiguity projection to the production reset gate.
+      app.installBoundarySnapshot(terminal)
+      let plan = try #require(app.resetAllLearningPlan)
+      #expect(!(await app.submitResetAllLearning(plan)))
+      #expect(app.learningAuthorityError ==
+        "Boundary motion is unresolved. Check the controller before resetting Learning.")
+      #expect(app.currentBoundarySnapshot?.projection.terminal?.disposition == .ambiguous(diagnostic))
+      #expect(await applicationFixture.machine.requestedBoundaryRequests.isEmpty)
+      await app.shutdown()
+    } catch {
+      await app.shutdown()
+      throw error
+    }
+  }
+
   @Test("retained Boundary cannot raise or travel until current physical alignment is established")
   func centerRequiresCurrentPhysicalPosition() async throws {
     let fixture = try makeBoundaryEpisodeFixture(machinePosition: try MachinePosition(x: 100, y: 50))
@@ -1577,6 +1696,8 @@ private actor BoundaryEpisodeFactSource: PlotterBoundaryFactSource {
   private var machinePosition: MachinePosition
   private var learningEnabled = true
   private var physicalPositionUnavailableReason: String?
+  private var controllerSessionID = boundaryEpisodeControllerSessionID
+  private var coordinateRevision: UInt64 = 1
   private(set) var requestCount = 0
   private let passiveProbe: PassiveProbeResult
   private let semanticIdentity: LearningPathSemanticIdentity
@@ -1599,6 +1720,11 @@ private actor BoundaryEpisodeFactSource: PlotterBoundaryFactSource {
     learningEnabled = enabled
   }
 
+  func setControllerContext(session: UUID, coordinate: UInt64) {
+    controllerSessionID = session
+    coordinateRevision = coordinate
+  }
+
   func currentBoundaryFacts(for environment: PlotterEnvironment) -> PlotterBoundaryExternalFacts {
     requestCount += 1
     return PlotterBoundaryExternalFacts(
@@ -1608,8 +1734,8 @@ private actor BoundaryEpisodeFactSource: PlotterBoundaryFactSource {
       motionAuthorized: true,
       foreignLowerOperationInFlight: false,
       stickyAmbiguity: nil,
-      controllerSessionID: boundaryEpisodeControllerSessionID,
-      coordinateRevision: 1,
+      controllerSessionID: controllerSessionID,
+      coordinateRevision: coordinateRevision,
       machinePosition: machinePosition,
       interpreterIsIdle: true,
       passiveProbe: environment == .live ? passiveProbe : nil,

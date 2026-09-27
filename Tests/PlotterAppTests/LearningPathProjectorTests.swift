@@ -86,7 +86,7 @@ struct PlotterLearningPresentationCompilerTests {
       let action = try #require(projected.selectedExerciseActions?.actions.first)
       #expect(action.action == .boundary(.acquire(direction: .positiveX, mode: .normal)))
       #expect(action.unavailableReason == blocker)
-      #expect(projected.selectedAction.instructions.accessibilityText.contains("Previous Boundary attempt: Previous attempt stopped"))
+      #expect(projected.selectedAction.instructions.accessibilityText.contains("Previous Boundary attempt: " + disposition.operatorMessage))
     }
   }
 
@@ -103,6 +103,29 @@ struct PlotterLearningPresentationCompilerTests {
       #expect(action.unavailableReason != nil)
       #expect(projected.selectedExerciseActions?.mustRemainVisible == true)
     }
+  }
+
+  @Test("raw Boundary terminal diagnostics never become operator instructions or button help")
+  func boundaryDiagnosticsRemainOutOfOperatorText() throws {
+    let diagnostic = String(repeating:
+      "incompatibleAttempt(PlotterRuntime.AttemptCompatibility boundary-side-positiveY-76F0EE52-5137-4052-B8A4-A0C933C3EB76-2) ", count: 30)
+    let owner = LearningPathItemID.humanGuidedDiscovery(.pairedBoundaryDiscoveryAndCentering)
+    let boundary = boundaryProjection(disposition: .ambiguous(diagnostic))
+    let projected = project(PlotterLearningPresentationFacts(penInteractionCompleted: true,
+      boundary: .init(projection: boundary)), selectedItemID: owner)
+    let instructions = projected.selectedAction.instructions.accessibilityText
+    let action = try #require(projected.selectedExerciseActions?.actions.first)
+    let help = try #require(action.unavailableReason)
+    #expect(instructions.contains("Boundary motion could not be verified"))
+    #expect(instructions.count < 500)
+    #expect(help.count < 150)
+    for text in [instructions, help] {
+      #expect(!text.contains("incompatibleAttempt"))
+      #expect(!text.contains("PlotterRuntime."))
+      #expect(!text.contains("76F0EE52"))
+    }
+    #expect(boundary.terminal?.disposition == .ambiguous(diagnostic))
+    #expect(action.title == "Boundary needs attention")
   }
 
   @Test("owner-issued center retry preserves current admission and never reopens shutdown")
@@ -145,7 +168,7 @@ struct PlotterLearningPresentationCompilerTests {
   private func boundaryProjection(disposition: PlotterBoundaryTerminalDisposition,
     activity: PlotterBoundaryActivityKind = .sideAcquisition, retryCenter: Bool = false) -> PlotterBoundaryProjection {
     .init(reference: .init(environment: .live, revision: .init(rawValue: 1), operationID: nil),
-      phase: .needsAttention("Previous attempt stopped"), selectedDirection: .positiveX,
+      phase: .needsAttention(String(describing: disposition)), selectedDirection: .positiveX,
       allowedDirections: [.positiveX], acceptedAggregates: [:], estimatedCenter: nil,
       centerArrival: nil, centerArrivalRetryRequired: retryCenter, cancellationCapabilityID: nil,
       publicationRecoveryCapabilityID: nil, lastRefusal: nil,
