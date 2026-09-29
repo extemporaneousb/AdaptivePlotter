@@ -79,23 +79,11 @@ struct WorkbenchCameraCanvas: View {
         case .plotter:
           PreviewingActionSurface(application: application, preview: application.actionSurfacePreview,
             viewport: $viewport, plotterUIProjection: semantic, plotterUIIntentSink: application,
-            pendingDrawingPlacement: $pendingDrawingPlacement, pendingPointSelection: $pendingPointSelection)
+            pendingDrawingPlacement: $pendingDrawingPlacement, pendingPointSelection: $pendingPointSelection,
+            frameStatus: canvas.plotterFrameStatus,
+            calibrationGuideQualification: canvas.showsSparseTipGuide
+              ? displayed.flatMap { application.sparseTipGuideDetail(on: $0) } : nil)
             .accessibilityIdentifier("workbench.canvas.plotter")
-            .overlay(alignment: .topTrailing) {
-              if let frameStatus = canvas.plotterFrameStatus {
-                Text(frameStatus).font(.caption).foregroundStyle(.white)
-                  .padding(6).background(.black.opacity(0.75)).padding(8)
-                  .accessibilityIdentifier("workbench.canvas.frameStatus")
-              }
-            }
-            .overlay(alignment: .topLeading) {
-              if canvas.showsSparseTipGuide,
-                let displayed, let detail = application.sparseTipGuideDetail(on: displayed) {
-                Text(detail).font(.caption).foregroundStyle(.white)
-                  .padding(6).background(.black.opacity(0.75)).padding(8)
-                  .accessibilityIdentifier("workbench.calibrationGuideQualification")
-              }
-            }
         case .portraitVideo:
           PortraitCameraPreview(model: portrait.preview, zoom: viewport.zoom)
         case .portraitPhoto:

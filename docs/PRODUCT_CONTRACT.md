@@ -1593,6 +1593,8 @@ placement edit: drag the artwork body to move, corners to resize, then Apply or
 Cancel. Region controls do not suppress the movement affordance; existing admission
 reasons disable it during calibration, active drawing, or incompatible preview state.
 Hiding retains placement and leaves Show Drawing accessible on the canvas.
+Calibration qualifications and held-camera status sit below the canvas controls in
+the same layout; they must not cover or intercept movement or visibility controls.
 
 Ordinary drawings expose **Draw frame**, defaulting off for each new drawing.
 Edits retain the current drawing's explicit choice; **New Drawing** or a new-sheet

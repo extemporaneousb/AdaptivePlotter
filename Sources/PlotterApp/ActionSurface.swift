@@ -691,11 +691,16 @@ struct PreviewingActionSurface: View {
   @Binding var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
   @Binding var pendingPointSelection: PlotterPointSelectionSubmission?
 
+  var frameStatus: String? = nil
+  var calibrationGuideQualification: String? = nil
+
   var body: some View {
     let _ = preview.presentationRevision
     ActionSurface(
       presentation: application.actionSurfacePresentation.resolvingAmbientPreviewFrame(application.calibrationWorkingRegionFrame ?? application.drawingFrameEditSession?.frame ?? preview.displayedFrame, forceRetainedFrame: application.calibrationWorkingRegionFrame != nil || application.drawingFrameEditSession != nil),
       renderDiagnostics: preview,
+      frameStatus: frameStatus,
+      calibrationGuideQualification: calibrationGuideQualification,
       viewport: $viewport,
       plotterUIProjection: plotterUIProjection,
       plotterUIIntentSink: plotterUIIntentSink,
@@ -793,12 +798,16 @@ struct ActionSurface: View {
   @State private var pointSelectionRefusal: String?
   @State private var priorDragTranslation: CGSize = .zero
   @State private var drawingPlacementRefusal: String?
+  private let frameStatus: String?
+  private let calibrationGuideQualification: String?
   private let plotterUIProjection: PlotterUIProjection
   private let plotterUIIntentSink: any PlotterUIIntentSink
 
   init(
     presentation: ActionSurfacePresentation,
     renderDiagnostics: ActionSurfacePreviewModel? = nil,
+    frameStatus: String? = nil,
+    calibrationGuideQualification: String? = nil,
     viewport: Binding<ActionSurfaceViewportState> = .constant(ActionSurfaceViewportState()),
     plotterUIProjection: PlotterUIProjection,
     plotterUIIntentSink: any PlotterUIIntentSink,
@@ -813,6 +822,8 @@ struct ActionSurface: View {
   ) {
     self.presentation = presentation
     self.renderDiagnostics = renderDiagnostics
+    self.frameStatus = frameStatus
+    self.calibrationGuideQualification = calibrationGuideQualification
     _viewport = viewport
     self.plotterUIProjection = plotterUIProjection
     self.plotterUIIntentSink = plotterUIIntentSink
@@ -827,6 +838,27 @@ struct ActionSurface: View {
   }
 
   var body: some View {
+    VStack(spacing: 0) {
+      VStack(alignment: .leading, spacing: 6) {
+        HStack(alignment: .top, spacing: 12) {
+          topControls(hasTargetPreview: presentation.drawingStudioCanvas?.targetPreview(for: presentation.displayedFrame) != nil)
+          Spacer(minLength: 0)
+          drawingVisibilityControl
+        }
+        if let frameStatus {
+          canvasCaption(frameStatus, identifier: "workbench.canvas.frameStatus")
+        }
+        if let calibrationGuideQualification {
+          canvasCaption(calibrationGuideQualification, identifier: "workbench.calibrationGuideQualification")
+        }
+      }
+      .padding(8)
+      .background(.black)
+      cameraSurface
+    }
+  }
+
+  private var cameraSurface: some View {
     let frameImage = presentation.displayedFrame.flatMap {
       imageCache.image(from: $0.frame)
     }
@@ -842,7 +874,7 @@ struct ActionSurface: View {
     let drawingPlacementRequest = pendingDrawingPlacement.flatMap { placement in
       plotterUIProjection.request(matching: .drawingDraft(.placeAtCameraPoint(placement)))
     }
-    GeometryReader { proxy in
+    return GeometryReader { proxy in
       let transform = presentation.displayedFrame.flatMap { displayed in
         CameraPixelToViewTransform(
           frameWidth: displayed.frame.width,
@@ -890,7 +922,6 @@ struct ActionSurface: View {
         }
       }
       let content = canvas
-      .overlay(alignment: .topLeading) { topControls(hasTargetPreview: overlayContent.targetPreview != nil) }
       .overlay(alignment: .bottomLeading) {
         VStack(alignment: .leading, spacing: 6) {
           if let prompt = presentation.tipPresentation.interactionPrompt {
@@ -921,19 +952,6 @@ struct ActionSurface: View {
         }
         .padding(8)
         .allowsHitTesting(false)
-      }
-      .overlay(alignment: .topTrailing) {
-        let isVisible = presentation.drawingStudioCanvas != nil
-        OperatorRequestButton(
-          title: isVisible ? "Hide Drawing" : "Show Drawing",
-          request: plotterUIProjection.request(matching: .drawingDraft(isVisible ? .hideTarget : .showTarget)),
-          unavailableReason: nil,
-          sink: plotterUIIntentSink,
-          nativeActionIdentifier: isVisible ? "drawing.hideTarget" : "drawing.showTarget"
-        )
-        .help("Show or hide the drawing preview. Its placement is retained.")
-        .accessibilityIdentifier(isVisible ? "drawing.hideTarget" : "drawing.showTarget")
-        .padding(8)
       }
       .overlay(alignment: .bottomTrailing) {
         if presentation.completedComparisonReview.isPresentedOnCanvas {
@@ -1105,6 +1123,28 @@ struct ActionSurface: View {
       }
   }
 
+  private var drawingVisibilityControl: some View {
+    let isVisible = presentation.drawingStudioCanvas != nil
+    return OperatorRequestButton(
+      title: isVisible ? "Hide Drawing" : "Show Drawing",
+      request: plotterUIProjection.request(matching: .drawingDraft(isVisible ? .hideTarget : .showTarget)),
+      unavailableReason: nil,
+      sink: plotterUIIntentSink,
+      nativeActionIdentifier: isVisible ? "drawing.hideTarget" : "drawing.showTarget"
+    )
+    .help("Show or hide the drawing preview. Its placement is retained.")
+    .accessibilityIdentifier(isVisible ? "drawing.hideTarget" : "drawing.showTarget")
+    .fixedSize(horizontal: true, vertical: false)
+  }
+
+  private func canvasCaption(_ text: String, identifier: String) -> some View {
+    Text(text).font(.caption).foregroundStyle(.white)
+      .fixedSize(horizontal: false, vertical: true)
+      .padding(6).background(.black.opacity(0.75))
+      .accessibilityIdentifier(identifier)
+      .allowsHitTesting(false)
+  }
+
   private func topControls(hasTargetPreview: Bool) -> some View {
     let positioningReason = presentation.drawingPositioningUnavailableReason
       ?? (presentation.drawingStudioCanvas?.frame == nil ? "Select a drawing that fits the working area." : nil)
@@ -1154,9 +1194,10 @@ struct ActionSurface: View {
         }
         .disabled(frameEditID == nil && (positioningReason != nil || beginFrameEdit == nil))
         .accessibilityIdentifier("drawing.editFrame")
+        .accessibilityLabel(frameEditID != nil ? "Cancel Moving" : "Move Drawing")
         .help("Drag the frame body to move. Drag a corner to resize about the center. Apply to update the drawing.")
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.borderedProminent)
+        .controlSize(.regular)
         if frameEditID == nil, let reason = positioningReason {
           Text(reason).font(.caption).foregroundStyle(.white)
             .padding(6).background(.black.opacity(0.78))
@@ -1176,7 +1217,6 @@ struct ActionSurface: View {
           .background(Color.blue.opacity(0.88))
       }
     }
-    .padding(8)
   }
 
   private func stagePointSelection(at location: CGPoint, viewSize: CGSize) {
