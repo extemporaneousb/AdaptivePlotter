@@ -1587,6 +1587,13 @@ paper extent, or change accepted Learning. The calibration Drawing Border remain
 the fixed target through the accepted circle centers. Historical calibrations
 without a selected working extent retain their previous Boundary-based region.
 
+The video canvas exposes **Move Drawing** with a hand icon and a reversible
+**Show Drawing / Hide Drawing** control. Movement enters the existing retained-frame
+placement edit: drag the artwork body to move, corners to resize, then Apply or
+Cancel. Region controls do not suppress the movement affordance; existing admission
+reasons disable it during calibration, active drawing, or incompatible preview state.
+Hiding retains placement and leaves Show Drawing accessible on the canvas.
+
 Ordinary drawings expose **Draw frame**, defaulting off for each new drawing.
 Edits retain the current drawing's explicit choice; **New Drawing** or a new-sheet
 plan handoff resets it off. The choice adds the current artwork rectangle before

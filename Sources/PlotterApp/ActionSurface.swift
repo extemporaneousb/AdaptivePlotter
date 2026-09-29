@@ -923,18 +923,17 @@ struct ActionSurface: View {
         .allowsHitTesting(false)
       }
       .overlay(alignment: .topTrailing) {
-        if overlayContent.targetPreview != nil {
-          OperatorRequestButton(
-            title: "Hide Drawing",
-            request: plotterUIProjection.request(matching: .drawingDraft(.hideTarget)),
-            unavailableReason: nil,
-            sink: plotterUIIntentSink,
-            nativeActionIdentifier: "drawing.hideTarget"
-          )
-          .help("Clear the drawing preview from the video. Keep its placement for Show Drawing.")
-          .accessibilityIdentifier("drawing.hideTarget")
-          .padding(8)
-        }
+        let isVisible = presentation.drawingStudioCanvas != nil
+        OperatorRequestButton(
+          title: isVisible ? "Hide Drawing" : "Show Drawing",
+          request: plotterUIProjection.request(matching: .drawingDraft(isVisible ? .hideTarget : .showTarget)),
+          unavailableReason: nil,
+          sink: plotterUIIntentSink,
+          nativeActionIdentifier: isVisible ? "drawing.hideTarget" : "drawing.showTarget"
+        )
+        .help("Show or hide the drawing preview. Its placement is retained.")
+        .accessibilityIdentifier(isVisible ? "drawing.hideTarget" : "drawing.showTarget")
+        .padding(8)
       }
       .overlay(alignment: .bottomTrailing) {
         if presentation.completedComparisonReview.isPresentedOnCanvas {
@@ -1129,8 +1128,8 @@ struct ActionSurface: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
-      } else if workingRegion == nil {
-        Button(frameEditID != nil ? "Cancel Positioning" : "Position Drawing") {
+      } else {
+        Button {
           if frameEditID != nil { cancelFrameEdit() }
           else if let frame = presentation.displayedFrame, let beginFrameEdit {
             let id = UUID()
@@ -1149,8 +1148,11 @@ struct ActionSurface: View {
               }
             }
           }
+        } label: {
+          Label(frameEditID != nil ? "Cancel Moving" : "Move Drawing",
+            systemImage: frameEditID != nil ? "xmark" : "hand.draw")
         }
-        .disabled(frameEditID == nil && (positioningReason != nil))
+        .disabled(frameEditID == nil && (positioningReason != nil || beginFrameEdit == nil))
         .accessibilityIdentifier("drawing.editFrame")
         .help("Drag the frame body to move. Drag a corner to resize about the center. Apply to update the drawing.")
         .buttonStyle(.bordered)
@@ -1161,7 +1163,7 @@ struct ActionSurface: View {
         }
       }
       if movesDrawing {
-        Text("Artwork positioning · frozen video")
+        Text("Drag drawing to move · corners to resize · Apply to keep")
           .font(.caption.bold()).foregroundStyle(.yellow)
           .padding(6).background(.black.opacity(0.78))
       }
