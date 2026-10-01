@@ -109,6 +109,8 @@ struct PortraitCandidateStoreTests {
     let assetDirectory = directory.appendingPathComponent("assets")
     let actualBytes = try Data(contentsOf: directory.appendingPathComponent("index-v1.json")).count
       + assets.reduce(0) { try $0 + Data(contentsOf: assetDirectory.appendingPathComponent($1)).count }
+      + FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent("records"),
+          includingPropertiesForKeys: nil).reduce(0) { try $0 + Data(contentsOf: $1).count }
     #expect(collection.retainedBytes == actualBytes)
     #expect(try PortraitCandidateStore.retainedByteCount(snapshot: collection.archive) == actualBytes)
     let restored = await PortraitCandidateStore(directoryURL: directory).load()

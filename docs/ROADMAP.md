@@ -28,20 +28,65 @@ interfaces are not future obligations. Remaining work is:
 - Extend shared source evidence only when controlled comparisons establish a need;
   current supports cover landmarks, estimated face skin and observed jaw. Hair/clothing,
   registered multi-frame evidence, depth and learned abstraction remain research.
-- Keep saved recipes cheap to load as attempt history grows. Assess moving full
-  programs out of the archive index into the existing store's content-addressed
-  assets, with exact IDs, checksums, migration and recovery preserved. Avoid a
-  second store or automatic history deletion. Recipe learning should consume
-  compact context/parameter/feedback metadata rather than full geometry.
-- Use deliberately selected saved recipes as starting points for bounded Next
-  variations at matched source, size, pen and path budgets. A saved style is a weak
-  recipe-level preference, not a source-conditioned likeness or physical-quality label.
-  Preserve original recipes and record explicit promising/rejected or pairwise choices
-  with source, pose, renderer, material and recipe lineage before fitting a small
-  context-conditioned ranker. Separate source/session/ancestry groups in holdouts;
-  evaluate useful-choice yield against the current sampler. No renderer-wide rejection
-  or automatic recipe/model replacement is justified. Broader fitting remains conditional
-  on useful baselines and enough attributable feedback.
+- Verify cold-start behavior on the user's actual archive and native saved-style chooser.
+  The committed compact manifest and early legacy catalog read are implemented. A first
+  legacy read still pays the large JSON/checksum cost; the next normal save upgrades it.
+  Do not migrate the operator's archive merely for a benchmark. Moving each candidate
+  program into content-addressed assets and lazy history materialization remain possible
+  later reductions of bulk load/save cost under the same archive owner.
+- Evaluate the experimental shared-parameter preference policy against baseline Next on
+  attributable real-photo feedback. The implemented model gates use on independent
+  source/session/ancestry groups and frozen renderer/material/pose/region context, and
+  preserves baseline exploration. Synthetic fitting proves mechanics only. Thirteen saved
+  recipes are seeds, not paired drawing targets or invented preference votes. Record
+  explicit comparisons across photos before claiming learned drawing quality.
+
+### Research decision: trainable portrait representation, 2026-10-01
+
+One trainable drawing system does not require one line-extraction algorithm. The current
+system has shared source evidence, parameters and landmark-based regional processing;
+Contour is tonal marching squares, Flow Edge combines structure and tonal streamlines,
+and Sketch uses DoG/thinning. Flow samples at 320 pixels, other kernels at 160. They output
+immutable fixed-pen polylines through the same Drawing pipeline. The new binary policy
+learns preferences over their shared coordinates in a fixed context. It cannot learn a
+new stroke vocabulary or an artist's style from thirteen parameter recipes.
+
+| Direction / primary evidence | Relevance and strongest limitation here |
+| --- | --- |
+| [APDrawingGAN](https://cg.cs.tsinghua.edu.cn/people/~Yongjin/Yi_APDrawingGAN_Generating_Artistic_Portrait_Drawings_From_Face_Photos_With_Hierarchical_CVPR_2019_paper.pdf) | Global/local portrait networks support treating identity-bearing features separately. This is hierarchical region specialization, not evidence that a generic learned router over our two kernels will help. Its output is raster and its paired artist drawings differ fundamentally from saved parameter recipes. |
+| [Chan et al., geometry and semantics](https://carolineec.github.io/informative_drawings/) | Geometry and semantic objectives provide a better training target than geometric novelty alone. Raster output still needs a tested fixed-pen vector representation; semantic recognizability alone does not establish this subject's identity or age. |
+| [DiffVG](https://people.csail.mit.edu/tzumao/diffvg/) and [CLIPasso](https://clipasso.github.io/clipasso/) | Differentiable curves provide one optimizable stroke representation and explicit abstraction by stroke count. Per-image optimization and generic CLIP semantics need portrait-specific geometry/likeness checks; they are not a ready native low-latency replacement. |
+| [PortraVec v2](https://arxiv.org/html/2410.04182v2) | Most relevant first vector benchmark: facial initialization, second-pass contour refinement, region freezing and fixed-width black cubic curves. The authors report about five minutes for image-guided optimization and evaluate sampled CelebA-HQ portraits; neither interactive performance, child likeness nor physical pen quality transfers automatically. |
+| [SwiftSketch](https://swiftsketch.github.io/) | Amortized image-conditioned vector generation addresses eventual interactive speed. Its project describes 35,000 synthetic image/vector pairs across 100 categories and training on 15 categories. That is not our sparse feedback archive, and object-level generalization is not individual portrait identity evidence. |
+| [Single-Line Drawing, 2026](https://arxiv.org/abs/2606.01910) | Continuous vector-path optimization is relevant to pen-lift economy. Connectivity is a stylistic constraint, not established portrait fidelity or mechanical benefit in this application; compare it only after a useful sparse multi-stroke baseline. |
+
+Selected direction: retain one parameter representation and two explicit deterministic
+baselines while measuring the small preference policy. Next, evaluate one budgeted set of
+fixed-width cubic curves with separate facial structure and tone objectives, landmark
+initialization, and frozen unrelated regions. A bounded image-guided PortraVec/DiffVG
+prototype is the first comparison; no prompt-driven identity/expression deformation is
+selected. Compile accepted curves into the existing `DrawingProgram` with material,
+spacing, clipping and point/path budgets. Only after useful accepted targets exist should
+we consider distilling into an image-conditioned vector model for interactive inference.
+
+The strongest objection to the selected near-term policy is its limited representation:
+it can prefer existing parameter settings but cannot recover information discarded by
+analysis or create a new grammar. A single collapsed kernel would lose useful baselines;
+a learned mixture/router currently lacks attributable expert-quality labels and adds
+routing/coverage failure modes. Region experts can be reconsidered if independent
+comparisons show systematic gains over the shared curve model.
+
+Acceptance for the vector experiment: compare current kernels and learned/optimized
+curves on the same held-out real portraits at matched physical size, pen width and
+30/60/120 stroke budgets; record identity and actual age, feature topology, tone, clutter,
+operator preference, failure rate and generation/choice latency. Include profiles,
+occlusions and the user's intended subjects, with source/session/ancestry separation.
+The online policy's grouped holdout is per fit, not a permanent subject-level benchmark;
+curated experiments need subject identity grouping beyond source/session/ancestry links.
+Use attended final-scale plotting later to establish line separation and ink quality.
+Fewer strokes, CLIP similarity, synthetic holdout success or a paper's benchmark cannot
+substitute for those observations. No research model, dataset or cloud upload is installed
+or invoked by the current implementation.
 
 These are acceptance gaps and conditional research, not authorization to restore
 parallel sampling interfaces or add new generation systems. Historical scope remains

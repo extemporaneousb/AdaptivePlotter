@@ -23,7 +23,7 @@ struct PortraitRenderControls: View {
       .accessibilityIdentifier("portrait.style")
       .disabled(model.isCapturing)
       HStack {
-        savedStyles
+        PortraitSavedStylesView(model: model, strokeStyle: strokeStyle)
         Spacer(minLength: 0)
         Button("Save Style") {
           styleName = model.selectedCandidate?.recipe.title ?? "My style"
@@ -96,6 +96,10 @@ struct PortraitRenderControls: View {
             .accessibilityIdentifier("portrait.resetParameters")
         }
       }
+      Text(model.parameterPreferenceReport?.summary
+        ?? "Promising/rejected feedback can tune Next once independent photo comparisons support it.")
+        .font(.caption).foregroundStyle(.secondary)
+        .accessibilityIdentifier("portrait.parameterLearning")
       Divider()
       HStack {
         Text("Framing").font(.headline)
@@ -137,27 +141,6 @@ struct PortraitRenderControls: View {
     .disabled(model.isCapturing)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("portrait.adjustments")
-  }
-
-  private var savedStyles: some View {
-    Menu("Saved styles") {
-      if model.sketches.savedStyles.isEmpty {
-        Text(model.sketches.persistenceState == .loading ? "Loading saved styles…" : "No saved styles")
-      }
-      ForEach(model.sketches.savedStyles) { saved in
-        Button(saved.name) { model.applySavedStyle(saved, strokeStyle: strokeStyle) }
-          .disabled(model.isCapturing)
-      }
-      if !model.sketches.savedStyles.isEmpty {
-        Divider()
-        Menu("Delete saved style") {
-          ForEach(model.sketches.savedStyles) { saved in
-            Button(saved.name, role: .destructive) { model.sketches.removeStyle(saved.id) }
-          }
-        }
-      }
-    }
-    .accessibilityIdentifier("portrait.savedStyles")
   }
 
   private func drawingBinding(_ keyPath: WritableKeyPath<PortraitDrawingParameters, Double>,

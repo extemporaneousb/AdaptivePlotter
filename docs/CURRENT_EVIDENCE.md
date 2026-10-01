@@ -9,6 +9,68 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Portrait archive cold loading and trainable parameter policy, 2026-10-01
+
+Task `task-f2fdf01ec6224ffd8be9ceff2822b998` addresses the first-open saved-style
+failure beyond the earlier layout fix. The serialized archive owner publishes a verified
+recipe catalog before bulk candidate materialization. The native menu is replaced by an
+observable chooser with loaded count, loading/failure states and retry. Version-two index
+manifests hold recipes plus the checksum of immutable bulk records under the same store;
+normal successful saves upgrade legacy embedded indexes. Reads never migrate them.
+Missing bulk geometry preserves committed recipe access and still blocks destructive
+archive replacement. Source/raster reads are deduplicated and startup byte accounting
+uses actual committed payload sizes rather than re-encoding all candidate geometry.
+
+`PortraitParameterPreference` implements a bounded regularized binary model over shared
+Detail/Tone/Smoothness/Minimum line coordinates. Only latest explicit promising/rejected
+feedback supplies labels; an explicit unknown revision withdraws a duplicate proposal's
+older vote. Renderer/producer, pose, pen/size/material, analysis and regional/advanced
+context remain fixed. Flow evidence must carry the current sealed renderer revision.
+Connected source/session/ancestry groups are separated for evaluation; class coverage,
+minimum data and improvement over a prevalence baseline gate use. Parameter proposals
+stay inside training-coordinate support and one in four requests retains baseline
+exploration. The existing serial Next worker and two-render/novelty/material/cancellation
+contracts remain authoritative. Successful learned attempts retain model/evaluation and
+feedback/candidate identity receipts. This is parameter preference learning within
+existing kernels, not a new stroke generator, physical-quality model or aesthetic proof.
+
+A read-only inspection of the user's archive verified its checksum and found 2,278
+candidates across 72 source groups, 13 styles, no rating labels and only one promising
+attempt (2,277 unknown, no rejected attempts). The index is 812,057,076 bytes, about
+774 MiB. The opt-in cold catalog test retrieved all thirteen recipes in 5.922 seconds;
+size and modification time stayed unchanged. That legacy first-read cost remains until
+an ordinary save commits the compact format. The actual archive was not migrated,
+pruned or rewritten for this task. Its current feedback cannot activate the learner.
+
+The expanded focused run passed 66 tests in 99.565 seconds, including existing archive,
+exploration, legacy dataset/ordinal/checkpoint and hosted layout contracts. After the
+withdrawal and renderer-revision guards, the final policy run passed five tests in
+7.718 seconds, including actual Studio Next/worker integration and real vector paths in
+both kernels. Tests cover independent holdout success/failure, sparse/related-source
+fallback, observed-coordinate support, immutable recipe inputs, catalog access without
+bulk records, corrupt-manifest retry and byte-exact legacy reads/upgrades. Offscreen
+1000/1280-pixel workspace snapshots were inspected; their synthetic raster is layout
+verification only. The initial configured validation passed docs and failed the default
+parallel quick-test without retaining its output; that failed receipt remains recorded.
+The first complete sequential selection caught one actual archive regression: absent
+saved styles became an empty list. The manifest now preserves that optional encoding;
+the corrected archive/policy/campaign selection passed 39 tests in 20.472 seconds.
+The final configured command selection, using the supported `SWIFT_FLAGS=--no-parallel`
+override, passed docs, quick-test and diff checks. Its 1,690-test selection passed in
+677.311 seconds with twenty opt-in skips. Both failures and the final passing receipt
+are retained; the default parallel gate is not reported as passing. The subsequent
+evidence-only documentation edit was checked with docs-check and diff-check again.
+
+Primary research was refreshed from APDrawingGAN, Chan et al., DiffVG, CLIPasso,
+PortraVec v2, SwiftSketch and 2026 single-line optimization. The canonical Roadmap owns
+the comparison and selected fixed-width curve experiment, including data, latency,
+identity/age and material limitations. No research weights/datasets or external photo
+upload were used. A stable-local signed debug test bundle is staged at
+`.build/StudioTestApps/AdaptivePlotter-portrait-learning-f2fd.app`. It was not launched;
+user-native interaction, real-photo aesthetic acceptance and physical plotting remain
+unverified. Application sessions, camera, calibration, Learning and Drawing authority
+were not reset or replaced.
+
 ## Portrait Studio parameter consolidation and saved-style cancellation, 2026-09-30
 
 Task `task-8f1b66277d0946a99c83d337816cbb2e` keeps one portrait canvas with

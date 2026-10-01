@@ -37,6 +37,7 @@ final class PortraitSketchCollection {
       let entry = entries.first(where: { $0.id == selectedID && !$0.reasons.isEmpty }) else { return nil }
     return PortraitSavedSketch(candidate: entry.candidate)
   }
+  private(set) var savedStylesState: PortraitPersistenceState = .saved
   private(set) var persistenceState: PortraitPersistenceState = .saved
   private(set) var retainedBytes = 0
   private(set) var unresolvedMutations = 0
@@ -51,7 +52,7 @@ final class PortraitSketchCollection {
   init(store: PortraitCandidateStore? = nil) {
     self.store = store
     hasLoaded = store == nil
-    if store != nil { persistenceState = .loading }
+    if store != nil { persistenceState = .loading; savedStylesState = .loading }
   }
 
   func load() async {
@@ -226,6 +227,13 @@ final class PortraitSketchCollection {
     defer { worker = nil }
     if !hasLoaded, let store {
       persistenceState = .loading
+      savedStylesState = .loading
+      do {
+        let styles = try await store.loadSavedStyles()
+        archive.savedStyles = styles
+        for mutation in pending { mutation.apply(to: &archive) }
+        savedStylesState = .saved
+      } catch { savedStylesState = .failed(error.localizedDescription) }
       let loaded = await store.load()
       persistenceIssues = loaded.issues
       pendingCleanupCount = loaded.pendingCleanupCount
@@ -235,7 +243,8 @@ final class PortraitSketchCollection {
         archive = loaded.archive
         for mutation in pending { mutation.apply(to: &archive) }
         hasLoaded = true
-        await updateRetainedBytes()
+        if let bytes = loaded.retainedBytes { retainedBytes = bytes }
+        else { await updateRetainedBytes() }
       } else {
         // Healthy recovered records remain accessible without discarding any
         // new authoring candidate or failed mutation already held in memory.
@@ -255,7 +264,8 @@ final class PortraitSketchCollection {
         }
         for mutation in pending { mutation.apply(to: &recovered) }
         archive = recovered
-        await updateRetainedBytes()
+        if let bytes = loaded.retainedBytes { retainedBytes = bytes }
+        else { await updateRetainedBytes() }
         persistenceState = .failed(loaded.issues.joined(separator: " "))
         return
       }
@@ -267,6 +277,7 @@ final class PortraitSketchCollection {
       do {
         if let store {
           retainedBytes = try await store.save(snapshot: snapshot)
+          savedStylesState = .saved
           // A successful save has also completed any previously pending cleanup.
           pendingCleanupCount = 0
           pendingCleanupBytes = 0

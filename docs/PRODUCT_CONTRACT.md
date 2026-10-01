@@ -1775,7 +1775,12 @@ Portrait Studio has one drawing canvas with two control sets: a persistent Param
 panel owns drawing style, saved styles, feature selection, drawing/feature parameters
 and framing; a separate navigation row owns Previous, Next, Cancel and Photos/History
 popovers. Saved styles remain reachable with an empty/loading library and while Next
-is canceled. Cancel stops the request without modifying saved recipes or selection.
+is canceled. Their observable popover updates while open and distinguishes loading,
+empty and failed reads with retry. The serialized archive owner loads recipe metadata
+before candidate verification. New saves commit a small checksummed manifest referring
+to immutable bulk records; legacy embedded indexes stay unchanged on read and upgrade
+only on a successful normal save. Recipe availability never permits overwriting a
+corrupt bulk archive. Cancel stops the request without modifying saved recipes or selection.
 Drawing-style selection preserves shared drawing parameters, feature edits, framing
 and material. Reset restores canonical drawing/feature parameters for the selected
 renderer while preserving framing and material. The kernels remain distinct.
@@ -1808,8 +1813,21 @@ There are no background style comparisons, grid rounds or automatic follow-on jo
 Completed authoring and useful Next results retain source, raster, recipe, geometry,
 thumbnail and ancestry. Unsuccessful probes are transient. History offers current-photo,
 all-photo and kept filters. Plus/minus feedback marks an exact attempt; rejection
-suppresses its source/pose/recipe/material proposal, not a whole style. No cross-photo
-preference model is fitted. Saved recipes and historical renderer families remain
+suppresses its source/pose/recipe/material proposal, not a whole style. Explicit feedback
+can fit an experimental regularized binary preference model over the four shared
+parameters for one fixed renderer/context. Saved recipes, browsing and unlabelled attempts
+supply no training label. Source, capture session and ancestry links form connected groups;
+training and holdout groups are disjoint. At least 16 votes/four groups, class coverage,
+held-out loss improvement and within-source ordering are required before use. Numerical
+work caps at 256 latest exact-proposal votes and 240 optimizer iterations. A passing model
+ranks twelve cheap parameter proposals before the existing bounded render request; it
+stays within training-coordinate ranges and preserves all other inputs. One in four
+requests uses baseline exploration. Regional Next, legacy recipes, sparse/unsupported
+feedback and failed holdouts retain existing behavior. Accepted learned attempts archive
+weights, feedback/candidate IDs, context and evaluation receipts; models are recomputed
+on explicit Next, never automatically installed as a renderer. This learns parameter
+preferences within the existing stroke vocabulary, not a new vector generator or physical
+quality model. Saved recipes and historical renderer families remain
 usable; new sessions default to tonal contours. Historical three/nine-slot receipts
 remain readable, but current authoring produces no offered-set trace.
 

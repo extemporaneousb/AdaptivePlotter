@@ -20,6 +20,7 @@ struct PortraitAttemptRecord: Codable, Sendable {
   let proposalIdentity: String
   let changeCue: String
   var burdenSummary: String? = nil
+  var parameterPreference: PortraitParameterPreference.Model? = nil
   var feedbackRevisions: [PortraitAttemptFeedbackRevision] = []
   var feedback: PortraitAttemptFeedback { feedbackRevisions.last?.value ?? .unknown }
 

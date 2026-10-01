@@ -35,6 +35,7 @@ final class PortraitStudioModel {
   var canGoForwardPortrait: Bool { forwardPortraits.contains { !isDeletedAttempt($0.candidate) } }
   var options = PortraitAnalysisOptions()
   var vectorOptions = PortraitVectorOptions(drawingParameters: .init())
+  private(set) var parameterPreferenceReport: PortraitParameterPreference.Report?
   let sketches: PortraitSketchCollection
   private(set) var completedCandidate: PortraitCandidate?
   @ObservationIgnored private var pendingRenders: [PendingRender] = []
@@ -132,6 +133,7 @@ final class PortraitStudioModel {
     var explorationID: UUID? = nil
     var explorationCenter: DrawingProgram? = nil
     var explorationRegion: PortraitTreatmentRegion? = nil
+    var parameterPreference: PortraitParameterPreference.Model? = nil
   }
   private struct PreparedRender: Sendable {
     let result: PortraitRenderResult
@@ -158,7 +160,8 @@ final class PortraitStudioModel {
       return PortraitExplorationPolicy.VisibleGeometry(candidate.program)
         .isMeaningfullyDifferent(from: PortraitExplorationPolicy.VisibleGeometry($0), mask: mask)
     } ?? true
-    let attempt = try PortraitAttemptRecord.prepare(candidate: candidate, pen: pending.key.strokeStyle)
+    var attempt = try PortraitAttemptRecord.prepare(candidate: candidate, pen: pending.key.strokeStyle)
+    attempt.parameterPreference = pending.parameterPreference
     return PreparedRender(result: result, candidate: candidate, isDifferent: isDifferent, attempt: attempt,
       preparationSeconds: ProcessInfo.processInfo.systemUptime - started)
   }
@@ -633,6 +636,8 @@ final class PortraitStudioModel {
       singlePortraitStatus = "Feature edits need reliable facial landmarks. Choose Whole portrait or another photo."
       return
     }
+    parameterPreferenceReport = explorationRegion == nil
+      ? PortraitParameterPreference.report(around: current, archive: sketches.archive) : nil
     let seed = nextExplorationSeed
     nextExplorationSeed &+= 1
     singlePortraitStatus = nil
@@ -699,10 +704,15 @@ final class PortraitStudioModel {
       return
     }
     let recipe: PortraitStyleRecipe
+    var preference: PortraitParameterPreference.Model?
     if let recipeOverride { recipe = recipeOverride }
     else if let region = job.region {
       recipe = PortraitExplorationPolicy.regionalRecipe(around: job.center, region: region,
         seed: job.seed, attempt: job.attempt)
+    } else if job.attempt == 0, let model = parameterPreferenceReport?.model,
+      let learned = model.recipe(around: job.center, seed: job.seed) {
+      recipe = learned
+      preference = model
     } else {
       recipe = PortraitExplorationPolicy.recipe(around: job.center, seed: job.seed)
     }
@@ -731,7 +741,7 @@ final class PortraitStudioModel {
       lineage: .init(parentID: job.center.id, parentProgramHash: job.center.program.contentHash.description,
         parentRecipe: job.center.recipe, ancestryGroupID: job.center.lineage.ancestryGroupID),
       ownsSource: retainedEditSource?.id == job.photo.id, explorationID: job.id,
-      explorationCenter: job.center.program, explorationRegion: job.region))
+      explorationCenter: job.center.program, explorationRegion: job.region, parameterPreference: preference))
   }
 
   private func retryExploration(_ recipe: PortraitStyleRecipe, rejection: PortraitExplorationPolicy.Rejection,
@@ -792,6 +802,7 @@ final class PortraitStudioModel {
   }
 
   private func invalidateExploration() {
+    parameterPreferenceReport = nil
     forwardPortraits = []
     singlePortraitStatus = nil
     cancelExplorationWork()
@@ -1025,6 +1036,7 @@ final class PortraitStudioModel {
 
   func toggleFeedback(_ value: PortraitAttemptFeedback, candidate: PortraitCandidate) {
     sketches.setFeedback(feedback(for: candidate) == value ? .unknown : value, for: candidate.id)
+    parameterPreferenceReport = nil
   }
 
   /// Install the retained payload directly. No portrait render or source analysis

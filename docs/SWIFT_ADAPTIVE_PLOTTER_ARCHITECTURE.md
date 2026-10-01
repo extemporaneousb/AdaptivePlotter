@@ -2409,7 +2409,22 @@ sample. Edits
 abandon forward history. Source/revision/request identity and cancellation settlement
 gate publication. Only useful completed results enter durable history; footprint
 comparison runs only for Next. No comparison jobs, grid rounds, fallback pool or
-fitted preference state remain.
+grid preference state remain. `PortraitParameterPreference` is a pure shared-parameter
+policy called only by explicit whole-portrait Next. It fits nine coefficients (intercept,
+four normalized axes, four quadratic terms), separately for a fixed renderer/producer,
+pose, analysis, material/pen/height and regional/advanced configuration. Inactive legacy
+kernel fields are excluded from that context digest. Flow feedback must carry the
+current renderer revision sealed in the program source; older Flow evidence is refused. Latest explicit promising/rejected
+feedback per exact proposal supplies at most 256 labels; unknown/withdrawn votes,
+saved-style events and browsing do not. Connected source/session/ancestry groups are
+split before fitting, with equal group weighting and a fixed independent holdout.
+Minimum group/class counts, improved holdout log loss against training prevalence and
+held-out within-source ordering gate use. Proposal ranking clamps to training ranges,
+refuses unsupported current coordinates and preserves the frozen recipe. Every fourth
+seed keeps baseline exploration. Existing material, novelty, cancellation and two-render
+gates still apply. Prepared attempts carry the exact evaluated model receipt; fitting
+creates no camera, planning, execution or persistent model owner. Legacy ordinal schemas
+and checkpoint interpretation stay separate and unchanged.
 
 `PortraitExplorationPolicy` samples the existing recipe coordinates. Global requests
 vary the shared authoring coordinates for new recipes, retaining legacy applicable-axis
@@ -2495,7 +2510,19 @@ materialized content hash; exact evidence requests still require sealed pixels.
 renders retain exact source, raster, recipe, program, ancestry and an off-main-actor
 thumbnail in `PortraitAttemptRecord`; feedback revisions bind an exact proposal.
 Only explicit save or successful projection qualifies a saved-library entry.
-`PortraitSavedStyle` retains reusable recipes in the same archive. History installs
+`PortraitSavedStyle` retains reusable recipes in the same archive. The owner first loads
+its catalog and publishes an independent saved-style read state before bulk verification.
+`PortraitSavedStylesView` uses an observable popover rather than a native menu snapshot.
+Version-two index envelopes checksum a compact manifest containing the recipes and a
+content hash of the bulk stored archive in `records/`. The same `PortraitCandidateStore`
+installs/synchronizes records before atomically committing that manifest, then retires
+only superseded bulk-index metadata; candidate assets/history remain tombstone-owned.
+Legacy version-one embedded payloads are read without rewriting, with catalog decoding
+skipping candidate materialization. Only a normal successful save upgrades their index.
+Missing/corrupt bulk records block mutation but leave independently committed recipes
+accessible. Full loads reuse unique source/raster blobs and obtain retained-byte counts
+from actual disk payload sizes rather than re-encoding all geometry on startup.
+History installs
 payloads without rendering. Source deletion prunes digest-equivalent aliases,
 navigation and worker capabilities; tombstones block late resurrection. Historical
 labels, checkpoints and exploration receipts remain readable without driving
