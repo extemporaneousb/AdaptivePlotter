@@ -8,7 +8,7 @@ import Testing
 @Suite("Portrait Studio bounded workspace", .serialized)
 @MainActor
 struct PortraitStudioWorkspaceLayoutTests {
-  @Test("one portrait fits with shared navigation and optional Advanced controls",
+  @Test("one portrait fits with a persistent parameter panel and navigation",
     arguments: [PortraitStyle.contours, .flowEdges], [false, true])
   func controlsFit(style: PortraitStyle, detailsExpanded: Bool) async throws {
     _ = NSApplication.shared
@@ -18,6 +18,7 @@ struct PortraitStudioWorkspaceLayoutTests {
     model.setPhoto(try portraitTestImage(), for: .right, strokeStyle: stroke)
     model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: stroke)
     await model.awaitRendering()
+    model.saveStyle(name: "Saved layout recipe")
     #expect(model.browsablePhotos.count >= 3)
     #expect(!model.isExploring)
     model.explorationRegion = detailsExpanded ? .eyes : nil
@@ -59,7 +60,7 @@ struct PortraitStudioWorkspaceLayoutTests {
         }
         for scroll in scrolls {
           let document = try #require(scroll.documentView)
-          let isInspector = detailsExpanded && inspectorScrolls.contains(scroll)
+          let isInspector = inspectorScrolls.contains(scroll)
           #expect(isInspector || document.bounds.height <= scroll.contentView.bounds.height + 2,
             "Only detailed adjustments may scroll vertically in \(style.rawValue) at \(size): \(document.bounds) / \(scroll.contentView.bounds).")
         }
@@ -69,7 +70,7 @@ struct PortraitStudioWorkspaceLayoutTests {
         try #require(!controls.isEmpty)
         for control in controls {
           let rect = control.convert(control.bounds, to: host.view)
-          let isInspector = detailsExpanded && inspectorScrolls.contains { control.isDescendant(of: $0) }
+          let isInspector = inspectorScrolls.contains { control.isDescendant(of: $0) }
           #expect(rect.minX >= -2 && rect.maxX <= host.view.bounds.maxX + 2)
           #expect(isInspector || host.view.bounds.insetBy(dx: -2, dy: -2).contains(rect),
             "\(style.rawValue) control exceeds \(size): \(String(reflecting: type(of: control))) \(rect).")

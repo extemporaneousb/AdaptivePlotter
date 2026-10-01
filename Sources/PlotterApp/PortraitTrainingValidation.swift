@@ -4,7 +4,8 @@ enum PortraitTrainingValidation {
   static func scope(_ definition: PortraitTrainingScopeDefinition) throws {
     let scope = definition.scope
     let active = Set(scope.activeParameters), frozen = Set(scope.frozenParameters.map(\.parameter))
-    guard definition.schemaRevision == PortraitTrainingScopeDefinition.currentRevision,
+    guard definition.referenceRecipe.vectorOptions.drawingParameters == nil,
+      definition.schemaRevision == PortraitTrainingScopeDefinition.currentRevision,
       !scope.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, scope.revision > 0,
       !scope.allowedFamilies.isEmpty, Set(scope.allowedFamilies).count == scope.allowedFamilies.count,
       !active.isEmpty, active.count == scope.activeParameters.count, frozen.count == scope.frozenParameters.count,

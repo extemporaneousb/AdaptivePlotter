@@ -47,3 +47,26 @@ enum PortraitPreviewPresentation {
       prompt: "Rate likeness and drawing quality as displayed")
   }
 }
+
+// Exact pre-shared-parameter baselines used by archive compatibility fixtures.
+extension PortraitVectorOptions {
+  static var flowDefaults: Self {
+    Self(minimumContourLength: 6, simplificationTolerance: 0.25,
+      hatchSpacing: 8, tonalStrength: 1, smoothing: 1.5, sketchThreshold: 0.012)
+  }
+}
+
+extension PortraitVectorPreset {
+  func options(for style: PortraitStyle) -> PortraitVectorOptions {
+    guard style == .flowEdges else { return options }
+    switch self {
+    case .fine:
+      return PortraitVectorOptions(minimumContourLength: 4, simplificationTolerance: 0.2,
+        hatchSpacing: 6, tonalStrength: 1, smoothing: 1, sketchThreshold: 0.008)
+    case .balanced: return .flowDefaults
+    case .broadMarker:
+      return PortraitVectorOptions(minimumContourLength: 10, simplificationTolerance: 0.3,
+        hatchSpacing: 12, tonalStrength: 0.8, smoothing: 2, sketchThreshold: 0.018)
+    }
+  }
+}

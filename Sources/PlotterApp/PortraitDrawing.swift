@@ -17,6 +17,7 @@ enum PortraitStyle: String, CaseIterable, Identifiable, Codable, Sendable {
 /// Spatial values refer to analyzed-raster pixels, independently of paper
 /// placement. They alter authored geometry only, never plotting authority.
 struct PortraitVectorOptions: Codable, Hashable, Sendable {
+  var drawingParameters: PortraitDrawingParameters? = nil
   var contourLevels = 6
   var minimumContourLength = 3.0
   var simplificationTolerance = 0.35
@@ -41,6 +42,7 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
 
   var bounded: Self {
     var result = self
+    result.drawingParameters = drawingParameters?.bounded
     result.contourLevels = min(12, max(1, contourLevels))
     result.minimumContourLength = Self.clamp(minimumContourLength, to: 0...40, fallback: 3)
     result.simplificationTolerance = Self.clamp(simplificationTolerance, to: 0...3, fallback: 0.35)
@@ -80,6 +82,9 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
     if let regional = value.regionalTreatment { result += "|regional=" + regional.provenance }
     if let overlays = value.regionalAdjustments { result += "|regionalOverlays=" + overlays.map(\.provenance).joined(separator: ";") }
     if let eyes = value.eyeExaggeration { result += "|eyeExaggeration=\(eyes.revision),\(eyes.amount)" }
+    if let shared = value.drawingParameters {
+      result += "|drawingParameters=v1,\(shared.detail),\(shared.tone),\(shared.smoothness),\(shared.minimumLine)"
+    }
     return result
   }
 
@@ -272,7 +277,7 @@ enum PortraitVectorizer {
     else { throw PortraitDrawingError.unreadableImage }
     var configuration = vectorOptions
     if let levels { configuration.contourLevels = levels }
-    var options = configuration.bounded
+    var options = configuration.resolved(rasterHeight: raster.height)
     if let material = options.materialContext { options = try material.adapting(options, raster: raster) }
     // Flow keeps structural evidence independent of its tone/coherence controls.
     // Legacy styles retain their exact preprocessing and archived identities.

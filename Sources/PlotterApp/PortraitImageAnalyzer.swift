@@ -152,7 +152,7 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       var flowLayers: PortraitFlowRenderer.Layers?
       if request.style == .flowEdges {
         var prepared = request.flowWorkspace ?? .init()
-        var effective = request.vectorOptions.bounded
+        var effective = request.vectorOptions.resolved(rasterHeight: raster.height)
         if let material = effective.materialContext { effective = try material.adapting(effective, raster: raster) }
         flowLayers = try PortraitFlowRenderer.layers(from: raster, options: effective, workspace: &prepared)
         workspace = prepared

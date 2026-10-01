@@ -28,8 +28,20 @@ interfaces are not future obligations. Remaining work is:
 - Extend shared source evidence only when controlled comparisons establish a need;
   current supports cover landmarks, estimated face skin and observed jaw. Hair/clothing,
   registered multi-frame evidence, depth and learned abstraction remain research.
-- Consider broader sampling or preference fitting only after useful style baselines
-  and attributable feedback exist. A rejection must not condemn a renderer or pose.
+- Keep saved recipes cheap to load as attempt history grows. Assess moving full
+  programs out of the archive index into the existing store's content-addressed
+  assets, with exact IDs, checksums, migration and recovery preserved. Avoid a
+  second store or automatic history deletion. Recipe learning should consume
+  compact context/parameter/feedback metadata rather than full geometry.
+- Use deliberately selected saved recipes as starting points for bounded Next
+  variations at matched source, size, pen and path budgets. A saved style is a weak
+  recipe-level preference, not a source-conditioned likeness or physical-quality label.
+  Preserve original recipes and record explicit promising/rejected or pairwise choices
+  with source, pose, renderer, material and recipe lineage before fitting a small
+  context-conditioned ranker. Separate source/session/ancestry groups in holdouts;
+  evaluate useful-choice yield against the current sampler. No renderer-wide rejection
+  or automatic recipe/model replacement is justified. Broader fitting remains conditional
+  on useful baselines and enough attributable feedback.
 
 These are acceptance gaps and conditional research, not authorization to restore
 parallel sampling interfaces or add new generation systems. Historical scope remains

@@ -1,30 +1,62 @@
+import PlotterModel
 import SwiftUI
 
 /// Framing and algorithm tuning share the drawing's visible editing surface.
 struct PortraitRenderControls: View {
   @Bindable var model: PortraitStudioModel
 
+  let strokeStyle: PlotterModel.StrokeStyle
+  @Binding var showsAdvanced: Bool
+  @State private var savingStyle = false
+  @State private var styleName = ""
+
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
+      Text("Parameters").font(.headline)
+      Picker("Drawing style", selection: Binding(get: { model.style },
+        set: { model.selectStyle($0, strokeStyle: strokeStyle) })) {
+        ForEach(PortraitStyle.authoringCases) { Text($0.rawValue).tag($0) }
+        if !PortraitStyle.authoringCases.contains(model.style) {
+          Text(model.style.rawValue).tag(model.style)
+        }
+      }
+      .accessibilityIdentifier("portrait.style")
+      .disabled(model.isCapturing)
       HStack {
-        Text("Framing").font(.headline)
-        Spacer()
-        StudioHelpButton("Framing", text: "Crop and background removal apply to this photo in every style. Head margin controls how much hair and shoulder area surrounds the face.")
+        savedStyles
+        Spacer(minLength: 0)
+        Button("Save Style") {
+          styleName = model.selectedCandidate?.recipe.title ?? "My style"
+          savingStyle = true
+        }
+        .disabled(model.selectedCandidate == nil || model.isProcessing || model.isCapturing || model.isExploring)
+        .accessibilityIdentifier("portrait.saveStyle")
+        .popover(isPresented: $savingStyle) {
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Save reusable recipe").font(.headline)
+            TextField("Style name", text: $styleName)
+            HStack {
+              Button("Cancel") { savingStyle = false }
+                .accessibilityIdentifier("portrait.cancelSaveStyle")
+              Spacer()
+              Button("Save Style") { model.saveStyle(name: styleName); savingStyle = false }
+                .disabled(styleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+          }.padding(12).frame(width: 260)
+        }
       }
-      Toggle("Crop to face", isOn: $model.options.cropToFace)
-        .accessibilityIdentifier("portrait.cropToFace")
-      if model.options.cropToFace {
-        PortraitAdjustmentSlider("Head margin", value: $model.options.faceCropMargin,
-          range: 0.05...0.8, step: 0.05, unit: "×")
+      Divider()
+      Picker("Feature", selection: $model.explorationRegion) {
+        Text("Whole portrait").tag(Optional<PortraitTreatmentRegion>.none)
+        ForEach(PortraitTreatmentRegion.allCases) { Text($0.rawValue).tag(Optional($0)) }
       }
-      Toggle("Remove background", isOn: $model.options.removeBackground)
-        .accessibilityIdentifier("portrait.removeBackground")
-      Divider().padding(.vertical, 2)
+      .accessibilityIdentifier("portrait.exploration.region")
+      .disabled(model.isCapturing)
       if let region = model.explorationRegion {
         HStack {
           Text(region.rawValue).font(.headline)
           Spacer()
-          StudioHelpButton("Feature adjustments", text: "Next varies these same landmark-based controls in every style. Editing replaces earlier settings for this region. Other regions and source framing stay fixed.")
+          StudioHelpButton("Feature adjustments", text: "These landmark-based controls edit the selected feature in every drawing style. Next varies the same settings. Other features and framing stay fixed.")
         }
         PortraitAdjustmentSlider("Protection", value: regionalBinding(\.featureProtection, region: region),
           range: 0...1, step: 0.05, unit: "")
@@ -38,91 +70,103 @@ struct PortraitRenderControls: View {
           PortraitAdjustmentSlider("Skin cleanup", value: regionalBinding(\.skinSuppression, region: region),
             range: 0...1, step: 0.05, unit: "")
         }
-        Divider().padding(.vertical, 2)
+      } else {
+        HStack {
+          Text("Drawing").font(.headline)
+          Spacer()
+          StudioHelpButton("Drawing parameters", text: "Detail, tone, smoothness and minimum line length use the same recipe coordinates in every style. Each renderer translates them into its own curves. Spatial settings are relative to image height. Next varies these same parameters; selecting a style keeps them. Older saved recipes keep their original settings until edited.")
+        }
+        if model.vectorOptions.drawingParameters == nil {
+          Text("Original recipe retained until you edit drawing parameters.")
+            .font(.caption).foregroundStyle(.secondary)
+        }
+        PortraitAdjustmentSlider("Detail", value: drawingBinding(\.detail), range: 0...1, step: 0.05, unit: "")
+        PortraitAdjustmentSlider("Tone", value: drawingBinding(\.tone), range: 0.4...2, step: 0.05, unit: "×")
+        PortraitAdjustmentSlider("Smoothness", value: drawingBinding(\.smoothness), range: 0...1, step: 0.05, unit: "")
+        PortraitAdjustmentSlider("Min. line", value: drawingBinding(\.minimumLine, scale: 100),
+          range: 0...7.5, step: 0.25, unit: "%", precision: 2)
+        HStack(spacing: 5) {
+          ForEach(PortraitVectorPreset.allCases, id: \.self) { preset in
+            Button(preset == .broadMarker ? "Coarse" : preset.rawValue) { model.applyDetailPreset(preset) }
+              .accessibilityIdentifier("portrait.preset.\(preset.rawValue)")
+          }
+          Spacer(minLength: 0)
+          Button("Reset") { model.resetStyle(model.style, strokeStyle: strokeStyle) }
+            .help("Reset drawing and feature parameters, keeping photo framing and material")
+            .accessibilityIdentifier("portrait.resetParameters")
+        }
       }
+      Divider()
       HStack {
-        Text(model.style.rawValue).font(.headline)
+        Text("Framing").font(.headline)
         Spacer()
-        StudioHelpButton("Style adjustments", text: model.style == .flowEdges
-          ? "Flow Edge combines feature curves with organic or rectilinear shading. Tone support varies how much image evidence shading needs. Contour persistence varies which feature curves survive across scales. Evidence scale shifts that support from fine to broad features. Seed irregularity varies regular placement. Zero keeps the original behavior. Detail presets retain these choices and pen width."
-          : "These parameters change the selected rendering algorithm. Pixels refer to the analyzed image. Longer minimum contours and fewer tonal levels reduce detail and ink density. Presets do not change the pen width.")
+        StudioHelpButton("Framing", text: "Crop and background removal apply to this photo in every style. Head margin controls how much hair and shoulder area surrounds the face.")
       }
-      HStack(spacing: 5) {
-        Text("Detail").font(.caption).foregroundStyle(.secondary)
-        Spacer(minLength: 0)
-        ForEach(PortraitVectorPreset.allCases, id: \.self) { preset in
-          Button(preset == .broadMarker ? "Coarse" : preset.rawValue) {
-            var options = preset.options(for: model.style)
-            options.materialContext = model.vectorOptions.materialContext
-            options.regionalTreatment = model.vectorOptions.regionalTreatment
-            options.regionalAdjustments = model.vectorOptions.regionalAdjustments
-            options.semanticHead = model.vectorOptions.semanticHead
-            options.eyeExaggeration = model.vectorOptions.eyeExaggeration
-            options.flowRectilinearity = model.vectorOptions.flowRectilinearity
-            options.flowSupport = model.vectorOptions.flowSupport
-            options.flowStructureSupport = model.vectorOptions.flowStructureSupport
-            options.flowSupportScale = model.vectorOptions.flowSupportScale
-            options.flowSeedIrregularity = model.vectorOptions.flowSeedIrregularity
-            model.vectorOptions = options
-          }
-          .accessibilityIdentifier("portrait.preset.\(preset.rawValue)")
-        }
-      }.controlSize(.small)
+      Toggle("Crop to face", isOn: $model.options.cropToFace)
+        .accessibilityIdentifier("portrait.cropToFace")
+      if model.options.cropToFace {
+        PortraitAdjustmentSlider("Head margin", value: $model.options.faceCropMargin,
+          range: 0.05...0.8, step: 0.05, unit: "×")
+      }
+      Toggle("Remove background", isOn: $model.options.removeBackground)
+        .accessibilityIdentifier("portrait.removeBackground")
       if model.style == .flowEdges {
-        VStack(alignment: .leading, spacing: 4) {
-          Text("Line form").font(.caption).foregroundStyle(.secondary)
-          Picker("Line form", selection: Binding(
-            get: { FlowLineForm(value: model.vectorOptions.flowRectilinearity ?? 0) },
-            set: { model.vectorOptions.flowRectilinearity = $0.value })) {
-            ForEach(FlowLineForm.allCases, id: \.self) { form in Text(form.rawValue).tag(form) }
-          }
-          .pickerStyle(.segmented)
-          .labelsHidden()
-          .accessibilityIdentifier("portrait.flowLineForm")
+        DisclosureGroup("Flow Edge options", isExpanded: $showsAdvanced) {
+          VStack(alignment: .leading, spacing: 4) {
+            Picker("Line form", selection: Binding(
+              get: { FlowLineForm(value: model.vectorOptions.flowRectilinearity ?? 0) },
+              set: { model.vectorOptions.flowRectilinearity = $0.value })) {
+              ForEach(FlowLineForm.allCases, id: \.self) { form in Text(form.rawValue).tag(form) }
+            }
+            .accessibilityIdentifier("portrait.flowLineForm")
+            PortraitAdjustmentSlider("Tone support", value: flowBinding(\.flowSupport),
+              range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSupport")
+            PortraitAdjustmentSlider("Persistence", value: flowBinding(\.flowStructureSupport),
+              range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowStructureSupport")
+            PortraitAdjustmentSlider("Evidence scale", value: flowBinding(\.flowSupportScale),
+              range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSupportScale")
+              .disabled((model.vectorOptions.flowSupport ?? 0) == 0 && (model.vectorOptions.flowStructureSupport ?? 0) == 0)
+            PortraitAdjustmentSlider("Irregularity", value: flowBinding(\.flowSeedIrregularity),
+              range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSeedIrregularity")
+          }.padding(.top, 4)
         }
-      }
-      if model.style != .hatch && model.style != .crosshatch {
-        PortraitAdjustmentSlider(model.style == .flowEdges ? "Min. line" : "Min. contour", value: $model.vectorOptions.minimumContourLength,
-          range: 0...40, step: 0.5, unit: "px", precision: 1)
-        if model.style != .flowEdges {
-          PortraitAdjustmentSlider("Simplification", value: $model.vectorOptions.simplificationTolerance,
-            range: 0...3, step: 0.05, unit: "px")
-        }
-      }
-      PortraitAdjustmentSlider(model.style == .flowEdges ? "Coherence" : "Smoothing", value: $model.vectorOptions.smoothing,
-        range: 0...4, step: 0.1, unit: model.style == .flowEdges ? "" : "px", precision: 1)
-      if model.style == .contours {
-        Stepper("Tonal levels: \(model.vectorOptions.contourLevels)",
-          value: $model.vectorOptions.contourLevels, in: 1...12)
-          .font(.caption)
-      }
-      if model.style == .flowEdges {
-        Stepper("Flow spacing: \(model.vectorOptions.hatchSpacing) px",
-          value: $model.vectorOptions.hatchSpacing, in: 3...16)
-          .font(.caption)
-      }
-      PortraitAdjustmentSlider(model.style == .flowEdges ? "Tone density" : "Tonal strength", value: $model.vectorOptions.tonalStrength,
-        range: 0.4...2, step: 0.05, unit: "×")
-      if model.style == .flowEdges || model.style == .sketch || model.style == .sketchHatch {
-        PortraitAdjustmentSlider("Edge threshold", value: $model.vectorOptions.sketchThreshold,
-          range: 0.002...0.08, step: 0.002, unit: "", precision: 3)
-      }
-      if model.style == .flowEdges {
-        Divider().padding(.vertical, 2)
-        PortraitAdjustmentSlider("Tone support", value: flowBinding(\.flowSupport),
-          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSupport")
-        PortraitAdjustmentSlider("Contour persistence", value: flowBinding(\.flowStructureSupport),
-          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowStructureSupport")
-        PortraitAdjustmentSlider("Evidence scale", value: flowBinding(\.flowSupportScale),
-          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSupportScale")
-          .disabled((model.vectorOptions.flowSupport ?? 0) == 0 && (model.vectorOptions.flowStructureSupport ?? 0) == 0)
-        PortraitAdjustmentSlider("Seed irregularity", value: flowBinding(\.flowSeedIrregularity),
-          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSeedIrregularity")
+        .accessibilityIdentifier("portrait.adjustmentsDisclosure")
       }
     }
     .controlSize(.small)
+    .disabled(model.isCapturing)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("portrait.adjustments")
+  }
+
+  private var savedStyles: some View {
+    Menu("Saved styles") {
+      if model.sketches.savedStyles.isEmpty {
+        Text(model.sketches.persistenceState == .loading ? "Loading saved styles…" : "No saved styles")
+      }
+      ForEach(model.sketches.savedStyles) { saved in
+        Button(saved.name) { model.applySavedStyle(saved, strokeStyle: strokeStyle) }
+          .disabled(model.isCapturing)
+      }
+      if !model.sketches.savedStyles.isEmpty {
+        Divider()
+        Menu("Delete saved style") {
+          ForEach(model.sketches.savedStyles) { saved in
+            Button(saved.name, role: .destructive) { model.sketches.removeStyle(saved.id) }
+          }
+        }
+      }
+    }
+    .accessibilityIdentifier("portrait.savedStyles")
+  }
+
+  private func drawingBinding(_ keyPath: WritableKeyPath<PortraitDrawingParameters, Double>,
+    scale: Double = 1) -> Binding<Double> {
+    Binding(get: { model.drawingParameters[keyPath: keyPath] * scale }, set: { value in
+      var parameters = model.drawingParameters
+      parameters[keyPath: keyPath] = value / scale
+      model.drawingParameters = parameters
+    })
   }
 
   private func regionalBinding(_ keyPath: WritableKeyPath<PortraitRegionalParameters, Double>,

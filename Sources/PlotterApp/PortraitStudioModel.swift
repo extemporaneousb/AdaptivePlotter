@@ -34,7 +34,7 @@ final class PortraitStudioModel {
   private var forwardPortraits: [(candidate: PortraitCandidate, pen: StrokeStyle)] = []
   var canGoForwardPortrait: Bool { forwardPortraits.contains { !isDeletedAttempt($0.candidate) } }
   var options = PortraitAnalysisOptions()
-  var vectorOptions = PortraitVectorOptions()
+  var vectorOptions = PortraitVectorOptions(drawingParameters: .init())
   let sketches: PortraitSketchCollection
   private(set) var completedCandidate: PortraitCandidate?
   @ObservationIgnored private var pendingRenders: [PendingRender] = []
@@ -574,12 +574,35 @@ final class PortraitStudioModel {
     var configurations: Set<PortraitVectorOptions>
   }
 
+  var drawingParameters: PortraitDrawingParameters {
+    get { vectorOptions.drawingParameters(for: style,
+      rasterHeight: selectedCandidate?.raster.height ?? completedCandidate?.raster.height
+        ?? PortraitImageAnalyzer.analysisMaximumDimension(for: style)) }
+    set { vectorOptions.drawingParameters = newValue.bounded }
+  }
+
+  /// Switching kernels preserves shared authoring intent, framing and feature edits.
+  func selectStyle(_ selected: PortraitStyle, strokeStyle: StrokeStyle) {
+    guard !isShutdown, !isCapturing, selected != style,
+      PortraitStyle.authoringCases.contains(selected) else { return }
+    let parameters = drawingParameters
+    cancelPortraitStep()
+    vectorOptions.drawingParameters = parameters
+    style = selected
+    recipeTitle = nil
+    renderIfConfigurationChanged(strokeStyle: strokeStyle)
+  }
+
+  func applyDetailPreset(_ preset: PortraitVectorPreset) {
+    drawingParameters = .preset(preset)
+  }
+
   /// Named starting points in the recipe space, not interaction modes.
   func resetStyle(_ preset: PortraitStyle, strokeStyle: StrokeStyle) {
     guard !isShutdown, !isCapturing, PortraitStyle.authoringCases.contains(preset) else { return }
     cancelPortraitStep()
     forwardPortraits = []
-    var vectors = preset == .flowEdges ? PortraitVectorOptions.flowDefaults : PortraitVectorOptions()
+    var vectors = PortraitVectorOptions(drawingParameters: .init())
     vectors.materialContext = vectorOptions.materialContext
     style = preset
     vectorOptions = vectors

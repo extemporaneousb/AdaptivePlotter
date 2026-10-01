@@ -12,8 +12,6 @@ struct PortraitStudioView: View {
   var selectCamera: () async -> String? = { nil }
   var openReviewer: () -> Void = {}
 
-  @State private var savingStyle = false
-  @State private var styleName = ""
   @State private var importing = false
   @State private var cameraSettings = false
   @State private var showsSource = false
@@ -67,21 +65,18 @@ struct PortraitStudioView: View {
             }
           }
         }
-        if showsAdjustments {
-          VStack(alignment: .leading, spacing: 12) {
-            ScrollView {
-              PortraitRenderControls(model: model)
-                .disabled(model.selectedPhoto == nil || model.isCapturing)
-                .padding(.trailing, 4)
-            }
-            .accessibilityIdentifier("portrait.adjustmentScroll")
-            Divider()
-            penAndMaterial(preview)
+        VStack(alignment: .leading, spacing: 12) {
+          ScrollView {
+            PortraitRenderControls(model: model, strokeStyle: strokeStyle, showsAdvanced: $showsAdjustments)
+              .padding(.trailing, 4)
           }
-          .frame(width: 284)
-          .frame(maxHeight: .infinity, alignment: .top)
-          .accessibilityIdentifier("portrait.adjustmentInspector")
+          .accessibilityIdentifier("portrait.adjustmentScroll")
+          Divider()
+          penAndMaterial(preview)
         }
+        .frame(width: 284)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .accessibilityIdentifier("portrait.adjustmentInspector")
       }
       if let candidate, let treatment = PortraitRegionalTreatment.summary(raster: candidate.raster, options: candidate.recipe.vectorOptions) {
         Text(treatment).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
@@ -167,7 +162,7 @@ struct PortraitStudioView: View {
         .accessibilityLabel("Camera settings")
         .help("Camera settings")
         .popover(isPresented: $cameraSettings, arrowEdge: .bottom) { cameraSettingsPanel }
-      StudioHelpButton("Portrait Studio", text: "Capture or import a photo, then work with one portrait. Contour opens direct controls. Explorer varies the current drawing one step at a time; Next requests a new result only when no forward result is retained. Back and Forward restore exact results without rendering. History lists attempts for the current photo. Plus keeps an attempt promising; minus rejects that exact treatment. Save Imagination retains the result in Drawing Reviewer. Send to Drawing places it in Drawing; Draw there starts execution.")
+      StudioHelpButton("Portrait Studio", text: "Capture or import a photo, then work with one portrait. The Parameters panel controls style, framing and the selected facial feature. Previous and Next vary the current drawing one step at a time; Next requests a new result only when no forward result is retained. Retained Previous and Next results restore without rendering. History lists attempts for the current photo. Plus keeps an attempt promising; minus rejects that exact treatment. Save Imagination retains the result in Drawing Reviewer. Send to Drawing places it in Drawing; Draw there starts execution.")
       if model.isCapturing {
         Text("Keep still").font(.caption).foregroundStyle(.secondary)
         ProgressView(value: model.captureProgress).frame(width: 60)
@@ -197,20 +192,6 @@ struct PortraitStudioView: View {
       .disabled(candidate == nil || model.isProcessing || model.isCapturing || isStartingCapture || isSubmitting)
       .accessibilityIdentifier("portrait.showOnPlotter")
       Divider().frame(height: 20)
-      Button("Save Style") {
-        styleName = candidate?.recipe.title ?? "My style"
-        savingStyle = true
-      }
-      .disabled(candidate == nil || model.isProcessing || model.isCapturing)
-      .accessibilityIdentifier("portrait.saveStyle")
-      .popover(isPresented: $savingStyle) {
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Save reusable recipe").font(.headline)
-          TextField("Style name", text: $styleName)
-          Button("Save Style") { model.saveStyle(name: styleName); savingStyle = false }
-            .disabled(styleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }.padding(12).frame(width: 260)
-      }
       Button("Save Imagination") {
         submissionErrorTitle = "Imagination save failed"
         submissionError = model.keepSelection()
@@ -242,24 +223,9 @@ struct PortraitStudioView: View {
       .disabled(candidate == nil || model.isExploring || model.isCapturing || model.isProcessing)
       .keyboardShortcut(.rightArrow, modifiers: [.command])
       .accessibilityIdentifier("portrait.exploration.next")
-      if model.isExploring {
-        Button("Cancel") { model.cancelPortraitStep() }
-          .accessibilityIdentifier("portrait.exploration.cancel")
-      }
-      Picker("Explore region", selection: $model.explorationRegion) {
-        Text("Whole portrait").tag(Optional<PortraitTreatmentRegion>.none)
-        ForEach(PortraitTreatmentRegion.allCases) { Text($0.rawValue).tag(Optional($0)) }
-      }.labelsHidden().frame(maxWidth: 150)
-        .disabled(model.isExploring)
-        .accessibilityIdentifier("portrait.exploration.region")
-      HStack(spacing: 5) {
-        Text("Reset to").font(.caption).foregroundStyle(.secondary)
-        ForEach([PortraitStyle.contours, .flowEdges]) { preset in
-          Button(preset.rawValue) { model.resetStyle(preset, strokeStyle: strokeStyle) }
-            .help("Reset drawing parameters to the canonical \(preset.rawValue) preset, keeping photo framing and pen settings")
-            .accessibilityIdentifier("portrait.reset.\(preset.rawValue)")
-        }
-      }.disabled(model.isCapturing)
+      Button("Cancel") { model.cancelPortraitStep() }
+        .disabled(!model.isExploring)
+        .accessibilityIdentifier("portrait.exploration.cancel")
       Spacer(minLength: 0)
       Button("Photos", systemImage: "photo") { showsSource.toggle() }
         .accessibilityIdentifier("portrait.sourceToggle")
@@ -275,19 +241,6 @@ struct PortraitStudioView: View {
           PortraitHistoryView(model: model, strokeStyle: strokeStyle) { showsHistory = false }
             .padding(12).frame(width: 380, height: 400)
         }
-      if !model.sketches.savedStyles.isEmpty {
-        Menu("Saved styles") {
-          ForEach(model.sketches.savedStyles) { saved in
-            Button(saved.name) { model.applySavedStyle(saved, strokeStyle: strokeStyle) }
-          }
-          Divider()
-          Menu("Delete saved style") {
-            ForEach(model.sketches.savedStyles) { saved in
-              Button(saved.name, role: .destructive) { model.sketches.removeStyle(saved.id) }
-            }
-          }
-        }
-      }
     }.controlSize(.small)
       .accessibilityIdentifier("portrait.browserControls")
   }
@@ -321,13 +274,6 @@ struct PortraitStudioView: View {
       HStack {
         Text("Portrait").font(.headline)
         Spacer()
-        Toggle(isOn: $showsAdjustments) {
-          Label("Advanced", systemImage: "slider.horizontal.3")
-        }
-        .toggleStyle(.button)
-        .controlSize(.small)
-        .accessibilityIdentifier("portrait.adjustmentsDisclosure")
-        .help(showsAdjustments ? "Hide framing and algorithm adjustments" : "Show framing and algorithm adjustments")
         Text(model.isProcessing ? "Updating" : preview.evidence?.mode == .planned ? "Placed" : "Reference")
           .font(.caption).foregroundStyle(.secondary)
         StudioHelpButton("Drawing preview", text: preview.statusText + "\n\n" + preview.dimensionsText + "\n\n" + model.browserTimingSummary)

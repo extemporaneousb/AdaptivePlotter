@@ -30,7 +30,7 @@ struct PortraitStudioNativeLayoutTests {
     try await runPanelChecks(requiresAX: true)
   }
 
-  @Test("production Portrait routing hosts exploration with detailed adjustments collapsed")
+  @Test("production Portrait routing hosts persistent parameter and navigation panels")
   func productionPortraitWorkspace() async throws {
     _ = NSApplication.shared
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
@@ -68,7 +68,8 @@ struct PortraitStudioNativeLayoutTests {
         #expect(!window.isKeyWindow)
         for scroll in views(host.view).compactMap({ $0 as? NSScrollView }) {
           let document = try #require(scroll.documentView)
-          #expect(document.bounds.height <= scroll.contentView.bounds.height + 2,
+          let isInspector = scroll.convert(scroll.bounds, to: host.view).minX >= host.view.bounds.maxX - 320
+          #expect(isInspector || document.bounds.height <= scroll.contentView.bounds.height + 2,
             "Production Portrait route introduced vertical scrolling: \(document.bounds), \(scroll.contentView.bounds)")
         }
         let controls = views(host.view).compactMap { $0 as? NSControl }.filter {
@@ -77,7 +78,8 @@ struct PortraitStudioNativeLayoutTests {
         #expect(!controls.isEmpty)
         for control in controls {
           let rect = control.convert(control.bounds, to: host.view)
-          #expect(host.view.bounds.insetBy(dx: -2, dy: -2).contains(rect),
+          let isInspector = control.enclosingScrollView.map { $0.convert($0.bounds, to: host.view).minX >= host.view.bounds.maxX - 320 } ?? false
+          #expect(isInspector || host.view.bounds.insetBy(dx: -2, dy: -2).contains(rect),
             "Production Portrait control was clipped: \(rect) in \(host.view.bounds)")
         }
         try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: "workspace-\(style.rawValue)")
@@ -138,8 +140,9 @@ struct PortraitStudioNativeLayoutTests {
       await settle(host.view)
       #expect(model.selectedCandidate?.id == choice.id)
       #expect(model.renderDiagnostics.startedWorkerCount == calls)
-      #expect(try requiredElement("portrait.adjustmentsDisclosure", in: window).accessibilityPerformPress())
-      await settle(host.view)
+      _ = try requiredElement("portrait.style", in: window)
+      _ = try requiredElement("portrait.savedStyles", in: window)
+      _ = try requiredElement("portrait.exploration.region", in: window)
       _ = try requiredElement("portrait.adjustmentInspector", in: window)
       _ = try requiredElement("portrait.sourceToggle", in: window)
       _ = try requiredElement("portrait.showOnPlotter", in: window)

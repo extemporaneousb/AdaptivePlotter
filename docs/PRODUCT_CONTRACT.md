@@ -1771,19 +1771,30 @@ Opening and closing it preserves those dock placements. The shared Drawing panel
 owns placement, pen/material setup, paper coverage, Draw, Stop and result review.
 Studio authoring remains available with an imported photo while disconnected.
 
-Portrait Studio has one drawing canvas, optional Advanced controls and Photos/History
-popovers. Previous/Next and feature selection work with every authoring renderer.
-Reset to Contour or Flow Edge restores canonical drawing parameters, including when
-already using that renderer; photo framing and material remain selected. These are
-recipe presets, not interaction modes. The kernels remain distinct and are not
-continuously interpolated.
+Portrait Studio has one drawing canvas with two control sets: a persistent Parameters
+panel owns drawing style, saved styles, feature selection, drawing/feature parameters
+and framing; a separate navigation row owns Previous, Next, Cancel and Photos/History
+popovers. Saved styles remain reachable with an empty/loading library and while Next
+is canceled. Cancel stops the request without modifying saved recipes or selection.
+Drawing-style selection preserves shared drawing parameters, feature edits, framing
+and material. Reset restores canonical drawing/feature parameters for the selected
+renderer while preserving framing and material. The kernels remain distinct.
+
+New recipes carry shared Detail, Tone, Smoothness and minimum-line coordinates.
+Detail maps to tonal levels or Flow spacing/edge threshold; spatial settings scale
+with actual raster height before existing material floors apply. Both Flow's cached
+layers and direct vectorization resolve the same coordinates. Next varies those
+same coordinates. Renderer-specific Flow options remain explicit. Saved recipes
+without shared parameters keep their original bytes and interpretation; direct
+editing or style switching explicitly projects them into the shared coordinates.
+That projection cannot invert every independent legacy algorithm control.
 
 Next requests different parameters with at most two renders, preserves the current
 candidate during work and stops after one useful result. Retained navigation
 installs exact candidates without rendering; either end can request another sample. Edits abandon forward history;
 source changes, cancellation, reset and Previous invalidate late publication.
 Whole-portrait proposals vary applicable axes and reflect at bounds. Regional proposals
-resample the same controls available in Advanced, replace the selected region's state
+resample the same controls available in Parameters, replace the selected region's state
 and compare visible change within its landmark support. Repeated requests have fresh
 seeds and no accumulated-edit stopping count. Historical stacked recipes retain their
 interpretation until that region is edited. Missing reliable landmarks give an explicit
@@ -1811,8 +1822,8 @@ and orientation fields have separate bounded retention. Final render entries do
 not retain evicted preparation buffers. The serial render worker constructs each candidate and history thumbnail off the main actor;
 only explicit Next requests compute a comparison footprint. Navigation and feedback reuse
 retained results; cancellation and source/revision checks still gate publication.
-Crop to face, head margin and background removal belong to Framing; line/tone
-controls and detail presets belong to Style.
+Crop to face, head margin and background removal share the Parameters panel with
+drawing/feature controls and detail presets.
 
 Capture Photo stays in the toolbar. With a configured device, one click asks
 the existing observation owner to activate that portrait camera, awaits readiness,

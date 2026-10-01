@@ -2395,9 +2395,15 @@ physical holdout evaluation remain unfinished product work.
 
 `PortraitStudioModel` owns capture/import, selected sources, bounded caches and one
 serial acquisition/render drain. The one-canvas `PortraitStudioView` exposes shared
-Previous/Next and region controls with optional Advanced editing. Contour and Flow Edge
-buttons reset the existing recipe to canonical parameters, preserving framing and
-material. There is no interaction-mode state. Next submits one seeded proposal with
+Previous/Next/Cancel separately from a persistent Parameters inspector. That inspector
+owns renderer and saved-recipe selection, feature scope, framing and tuning. Shared
+`PortraitDrawingParameters` live additively in `PortraitVectorOptions`; one resolver
+maps them to kernel options using the actual raster height, before material floors.
+Both direct vectorization and the cached Flow layer path use that resolver. Style
+selection preserves the shared coordinates and regional state; Reset restores defaults.
+Legacy options remain exact until explicitly edited. The retained legacy training schema
+refuses shared-parameter recipes rather than treating inactive kernel fields as features.
+There is no interaction-mode state. Next submits one seeded proposal with
 at most one retry. Navigation installs exact candidates from bounded stacks; either end can request a new
 sample. Edits
 abandon forward history. Source/revision/request identity and cancellation settlement
@@ -2406,8 +2412,9 @@ comparison runs only for Next. No comparison jobs, grid rounds, fallback pool or
 fitted preference state remain.
 
 `PortraitExplorationPolicy` samples the existing recipe coordinates. Global requests
-vary applicable renderer axes with material floors and reflection at bounds. Regional
-requests freeze their scope and resample `PortraitRegionalParameters`; Advanced edits
+vary the shared authoring coordinates for new recipes, retaining legacy applicable-axis
+sampling for older recipes, with material floors and reflection at bounds. Regional
+requests freeze their scope and resample `PortraitRegionalParameters`; Parameters edits
 the same fields. `PortraitVectorOptions.setTreatment` replaces prior entries for that
 scope, leaving other scopes intact. Existing stacked recipes are not rewritten on load.
 The renderer permits the historical eight overlays plus at most four previously absent

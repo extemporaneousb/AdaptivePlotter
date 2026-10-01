@@ -8,28 +8,6 @@ extension PortraitStyle {
   static let legacyCases: [Self] = [.contours, .hatch, .crosshatch, .sketch, .sketchHatch]
 }
 
-extension PortraitVectorOptions {
-  static var flowDefaults: Self {
-    Self(minimumContourLength: 6, simplificationTolerance: 0.25,
-      hatchSpacing: 8, tonalStrength: 1, smoothing: 1.5, sketchThreshold: 0.012)
-  }
-}
-
-extension PortraitVectorPreset {
-  func options(for style: PortraitStyle) -> PortraitVectorOptions {
-    guard style == .flowEdges else { return options }
-    switch self {
-    case .fine:
-      return PortraitVectorOptions(minimumContourLength: 4, simplificationTolerance: 0.2,
-        hatchSpacing: 6, tonalStrength: 1, smoothing: 1, sketchThreshold: 0.008)
-    case .balanced: return .flowDefaults
-    case .broadMarker:
-      return PortraitVectorOptions(minimumContourLength: 10, simplificationTolerance: 0.3,
-        hatchSpacing: 12, tonalStrength: 0.8, smoothing: 2, sketchThreshold: 0.018)
-    }
-  }
-}
-
 /// Immutable renderer parameters, including backward-compatible archive provenance.
 struct PortraitStyleRecipe: Identifiable, Codable, Hashable, Sendable {
   let id: String
@@ -45,6 +23,7 @@ struct PortraitStyleRecipe: Identifiable, Codable, Hashable, Sendable {
 // saved recipe exports readable as the deterministic renderer gains controls.
 extension PortraitVectorOptions {
   enum CodingKeys: String, CodingKey {
+    case drawingParameters
     case contourLevels, minimumContourLength, simplificationTolerance, hatchSpacing
     case tonalStrength, smoothing, sketchThreshold, hatchAngleDegrees, headScale, semanticHead, materialContext
     case flowRectilinearity
@@ -54,6 +33,7 @@ extension PortraitVectorOptions {
   init(from decoder: Decoder) throws {
     self.init()
     let values = try decoder.container(keyedBy: CodingKeys.self)
+    drawingParameters = try values.decodeIfPresent(PortraitDrawingParameters.self, forKey: .drawingParameters)?.bounded
     contourLevels = try values.decodeIfPresent(Int.self, forKey: .contourLevels) ?? contourLevels
     minimumContourLength = try values.decodeIfPresent(Double.self, forKey: .minimumContourLength) ?? minimumContourLength
     simplificationTolerance = try values.decodeIfPresent(Double.self, forKey: .simplificationTolerance) ?? simplificationTolerance
@@ -77,6 +57,7 @@ extension PortraitVectorOptions {
 
   func encode(to encoder: Encoder) throws {
     var values = encoder.container(keyedBy: CodingKeys.self)
+    try values.encodeIfPresent(drawingParameters?.bounded, forKey: .drawingParameters)
     try values.encode(contourLevels, forKey: .contourLevels)
     try values.encode(minimumContourLength, forKey: .minimumContourLength)
     try values.encode(simplificationTolerance, forKey: .simplificationTolerance)

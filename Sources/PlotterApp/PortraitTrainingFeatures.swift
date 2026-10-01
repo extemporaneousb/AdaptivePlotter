@@ -88,6 +88,9 @@ enum PortraitTrainingFeatures {
       throw PortraitTrainingError.incompatible("Candidate family differs from the named scope.")
     }
     let options = candidate.recipe.vectorOptions
+    guard options.drawingParameters == nil else {
+      throw PortraitTrainingError.incompatible("Shared drawing parameters require a new feature schema; legacy parameter fields are inactive.")
+    }
     for parameter in PortraitTrainableParameter.allCases {
       let actual = value(parameter, in: options)
       guard actual.isFinite, bounds(parameter).contains(actual) else { throw PortraitTrainingError.invalid("Candidate parameter outside renderer bounds.") }

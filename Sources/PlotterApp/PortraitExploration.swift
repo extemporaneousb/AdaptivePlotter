@@ -98,7 +98,11 @@ enum PortraitExplorationPolicy {
   }
 
   static func effectiveOptions(_ options: PortraitVectorOptions, center: PortraitCandidate) -> PortraitVectorOptions {
-    let canonical = canonicalOptions(options, style: center.recipe.style)
+    var canonical = canonicalOptions(options, style: center.recipe.style)
+      .resolved(rasterHeight: center.raster.height)
+    // Compare effective kernel values, including material floors, rather than
+    // treating two authoring values that produce the same geometry as distinct.
+    canonical.drawingParameters = nil
     var effective = (try? canonical.materialContext?.adapting(canonical, raster: center.raster)) ?? canonical
     // Remember a disabled scale in the authored recipe, but do not spend render
     // attempts on it until either support layer can make it visible.
@@ -110,9 +114,10 @@ enum PortraitExplorationPolicy {
 
   static func coordinates(_ options: PortraitVectorOptions) -> [Double] {
     let value = options.bounded
-    return [(value.tonalStrength - 0.4) / 1.6, value.smoothing / 4,
-      value.minimumContourLength / 40, value.simplificationTolerance / 3,
-      Double(value.contourLevels - 1) / 11, Double(value.hatchSpacing - 1) / 15,
+    let shared = value.drawingParameters
+    return [((shared?.tone ?? value.tonalStrength) - 0.4) / 1.6, shared?.smoothness ?? value.smoothing / 4,
+      shared.map { $0.minimumLine / 0.075 } ?? value.minimumContourLength / 40, value.simplificationTolerance / 3,
+      shared?.detail ?? Double(value.contourLevels - 1) / 11, Double(value.hatchSpacing - 1) / 15,
       (value.hatchAngleDegrees + 90) / 180, (value.sketchThreshold - 0.002) / 0.078,
       value.flowRectilinearity ?? 0, value.flowSupport ?? 0,
       value.flowStructureSupport ?? 0, hasFlowSupport(value) ? value.flowSupportScale ?? 0 : 0,
@@ -124,6 +129,18 @@ enum PortraitExplorationPolicy {
   }
 
   private static func dimensions(for center: PortraitCandidate) -> [Dimension] {
+    if center.recipe.vectorOptions.drawingParameters != nil {
+      var shared: [Dimension] = [.tone, .smoothing, .minimumLength, .levels]
+      var floorOptions = center.recipe.vectorOptions
+      floorOptions.drawingParameters?.minimumLine = 0
+      if effectiveOptions(floorOptions, center: center).minimumContourLength
+        >= Double(center.raster.height) * 0.075 { shared.removeAll { $0 == .minimumLength } }
+      if center.recipe.style == .flowEdges {
+        shared += [.rectilinearity, .support, .structureSupport, .seedIrregularity]
+        if hasFlowSupport(center.recipe.vectorOptions) { shared += [.supportScale] }
+      }
+      return shared
+    }
     var dimensions: [Dimension] = [.tone, .smoothing]
     if center.recipe.style != .hatch && center.recipe.style != .crosshatch {
       dimensions += [.minimumLength]
@@ -203,6 +220,10 @@ enum PortraitExplorationPolicy {
   private static func move(_ axis: Dimension, vectors: inout PortraitVectorOptions,
     delta: Double, center: PortraitCandidate) {
     guard delta != 0 else { return }
+    if vectors.drawingParameters != nil, [.tone, .smoothing, .minimumLength, .levels].contains(axis) {
+      axis.move(&vectors, delta: delta)
+      return
+    }
     let effective = effectiveOptions(vectors, center: center)
     let sign = delta < 0 ? -1.0 : 1.0
     if axis == .spacing {
@@ -260,8 +281,14 @@ enum PortraitExplorationPolicy {
     if rejection == .noLines {
       // Recover toward more source evidence, never weaken the material floor.
       let reduction = 0.82 - amount * 0.3
-      vectors.minimumContourLength *= reduction
-      vectors.sketchThreshold = max(0.002, vectors.sketchThreshold * reduction)
+      if var parameters = vectors.drawingParameters {
+        parameters.minimumLine *= reduction
+        parameters.detail = min(1, parameters.detail + 0.2)
+        vectors.drawingParameters = parameters.bounded
+      } else {
+        vectors.minimumContourLength *= reduction
+        vectors.sketchThreshold = max(0.002, vectors.sketchThreshold * reduction)
+      }
       if center.recipe.style == .contours { move(.levels, vectors: &vectors, delta: sign * radius, center: center) }
     }
     if let axis = axes.first { move(axis, vectors: &vectors, delta: sign * radius, center: center) }
@@ -405,6 +432,17 @@ enum PortraitExplorationPolicy {
     case tone, smoothing, minimumLength, simplification, levels, spacing, angle, threshold, rectilinearity
     case support, structureSupport, supportScale, seedIrregularity
     func move(_ value: inout PortraitVectorOptions, delta: Double) {
+      if var parameters = value.drawingParameters {
+        switch self {
+        case .tone: parameters.tone = reflect(parameters.tone + delta * 0.8, 0.4...2)
+        case .smoothing: parameters.smoothness = reflect(parameters.smoothness + delta * 0.5, 0...1)
+        case .minimumLength: parameters.minimumLine = reflect(parameters.minimumLine + delta * 0.025, 0...0.075)
+        case .levels: parameters.detail = reflect(parameters.detail + delta * 0.6, 0...1)
+        default: break
+        }
+        value.drawingParameters = parameters.bounded
+        if [.tone, .smoothing, .minimumLength, .levels].contains(self) { return }
+      }
       switch self {
       case .tone: value.tonalStrength = reflect(value.tonalStrength + delta * 0.8, 0.4...2)
       case .smoothing: value.smoothing = reflect(value.smoothing + delta * 2, 0...4)

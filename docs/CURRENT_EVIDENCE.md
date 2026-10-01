@@ -8,6 +8,58 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+
+## Portrait Studio parameter consolidation and saved-style cancellation, 2026-09-30
+
+Task `task-8f1b66277d0946a99c83d337816cbb2e` keeps one portrait canvas with
+separate parameter and navigation control sets. The persistent Parameters inspector
+owns renderer selection, Saved styles/Save Style, facial feature scope, framing and
+tuning. Saved styles have an explicit empty/loading state. Cancel keeps a fixed place
+in navigation, and canceling a Next request or dismissing Save Style does not remove
+saved recipes. The crowded, dynamically reflowing style/navigation row is removed.
+
+New recipes carry versioned shared Detail, Tone, Smoothness and minimum-line values.
+One resolver maps those values into both kernels using actual raster height before
+material floors; cached Flow layers and direct vectorization use the same resolver.
+Style switching retains common coordinates and regional edits. Next varies the same
+coordinates; regional Next freezes global intent. Historical recipes retain exact
+bytes and interpretation until explicitly edited. Retained legacy training rejects
+shared recipes rather than reading inactive low-level fields. Obsolete per-renderer
+preset helpers now live only in legacy test fixtures. The native performance probe
+uses shared Detail/presets rather than the removed inspector toggle.
+
+The final serial focused selection passed 61 tests in 91.895 seconds. It covers
+actual path changes in both kernels, cached/direct Flow equality, resolution scaling,
+recipe round trips, cancellation with held/late completion, retained navigation,
+regional sampling and legacy training/checkpoint behavior. Production and isolated
+hosted layouts passed at 1000×550 and 1280×650; small-window snapshots with saved
+styles and whole/feature controls were visually inspected. These are offscreen test
+hosts, not attended pointer/keyboard or signed-app interaction evidence. The exact
+configured quick selection passed sequentially: 1,681 tests in 668.705 seconds,
+with 19 opt-in skips. The recorded configured run failed at the parallel quick gate;
+a retained parallel rerun completed the same 1,681 tests with 14 issues in seven
+untouched recording, speech, telemetry and Drawing-recovery tests. One eight-second
+watchdog took 44.572 seconds. All seven then passed together in parallel in 1.540
+seconds without the full workload, and also passed in the complete sequential run.
+No deadlines or those subsystems were changed. The full parallel gate remains a
+contention-sensitive validation limitation; it is not reported as passing. The
+Blackdog receipt and retained logs record that distinction.
+
+Read-only inspection of the default archive verified its envelope checksum and found
+13 saved styles (8 Contour, 5 Flow Edge), 1,851 attempts across 69 source groups,
+no rating labels and one promising attempt. Its index occupies roughly 642 MiB.
+Those are recipe seeds and mostly unlabeled examples, not a validated preference
+dataset. The Roadmap records matched-budget recipe comparisons, attributable choices,
+source-grouped evaluation and compact metadata/asset-index work as conditional future
+work. Existing archive files were not migrated, pruned or rewritten.
+
+The final debug executable was packaged with the local development identity, its
+bundle validated, and its staged copy passed strict signature verification at
+`.build/StudioTestApps/AdaptivePlotter-portrait-controls-8f1b.app` in the primary
+checkout. No live app launch/restart, camera/controller interaction or physical
+drawing was performed. Real-photo likeness, actual age/expression, pen separation,
+native click-to-paint performance and physical quality remain unverified.
+
 ## Selected paper working region and visible placement controls, 2026-09-26
 
 **Edit Drawing Region** in the existing Exercise 1.4 preview stages a paper

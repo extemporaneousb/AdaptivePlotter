@@ -175,7 +175,7 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
   }
 
   static let requiredPortraitControls = ["workbench.camera.portrait", "workbench.camera.plotter",
-    "portrait.adjustmentsDisclosure", "portrait.showOnPlotter", "drawing.scale", "drawing.rotation", "drawing.fit",
+    "portrait.adjustment.Detail", "portrait.showOnPlotter", "drawing.scale", "drawing.rotation", "drawing.fit",
     "workbench.toggle.motion", "workbench.scroll", "workbench.resize", "learning.analyzeDrawings"]
       + [PortraitVectorPreset.fine, .balanced].map { "portrait.preset.\($0.rawValue)" }
 }
@@ -578,13 +578,15 @@ enum RunningAppPreviewPerformanceGate {
     if role == .portrait {
       let model = application.portraitStudio
       revealPanel(.portraitStudio)
-      if RunningAppNativeInputProbe.controlFrame("portrait.adjustmentScroll") == nil {
-        samples.append(try await probe.click("portrait.adjustmentsDisclosure") {
-          RunningAppNativeInputProbe.controlFrame("portrait.adjustmentScroll") != nil
-        })
+      guard RunningAppNativeInputProbe.controlFrame("portrait.adjustmentScroll") != nil,
+        model.explorationRegion == nil else {
+        throw WorkbenchNativeInputError.unavailable("Choose Whole portrait in Parameters before measuring drawing controls.")
       }
-      let preset: PortraitVectorPreset = model.vectorOptions.minimumContourLength == PortraitVectorPreset.fine.options(for: model.style).minimumContourLength
-        ? .balanced : .fine
+      let detail = model.drawingParameters.detail
+      samples.append(try await probe.click("portrait.adjustment.Detail", fractionX: detail < 0.5 ? 0.8 : 0.2) {
+        model.drawingParameters.detail != detail
+      })
+      let preset: PortraitVectorPreset = model.drawingParameters == .preset(.fine) ? .balanced : .fine
       let before = model.renderConfiguration
       samples.append(try await probe.click("portrait.preset.\(preset.rawValue)") {
         model.renderConfiguration != before
