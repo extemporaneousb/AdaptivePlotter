@@ -1948,6 +1948,53 @@ it rotates contact-plane identity only when support, stock, or contact height
 changed. Numerical model construction cannot request paper replacement or a
 no-redraw recovery route.
 
+## Durable data organization
+
+`AdaptivePlotterStoragePaths` is the single production path authority. It resolves
+`~/Library/Application Support/AdaptivePlotter` without creating a second store or
+redirecting failed persistence into temporary files. Explicit test/investigation
+stores inject private locations. Domain stores continue to own schema validation,
+atomic publication, content addressing and retention; the path value admits no
+hardware operation or Learning application. Existing directory and canonical file
+names are retained, so this consolidation performs no data relocation.
+
+| Relative location under the application-data root | Writer and retained content | Lifecycle |
+| --- | --- | --- |
+| `AcceptedArtifacts/accepted-learning-path-v1.json` | `AcceptedLearningPathCheckpointStore`; the current accepted LIVE dependency prefix, semantic identities, cap appearance and one bounded optical reference | Each accepted prefix is durable; load presents Saved Learning for operator decision. |
+| `AcceptedArtifacts/History/<envelope SHA-256>.json` | The same checkpoint store; exact previous envelope bytes, including rejected bytes retained for diagnosis | Verified and synchronized before replacement/clear; failure prevents canonical mutation. No automatic load, application or pruning. |
+| `AcceptedArtifacts/accepted-machine-artifacts-v1.json` and `accepted-tip-calibration-v1.json` | Existing legacy migration adapter inputs | Converted only through validated canonical publication; the adapter removes legacy inputs only after successful migration. |
+| `PortraitCandidates/index-v1.json` | `PortraitCandidateStore` via `PortraitSketchCollection`; checksummed manifest and saved recipes | One serialized publisher; archive load errors block destructive replacement. |
+| `PortraitCandidates/records/<record SHA-256>` | Same portrait owner; source-photo metadata, immutable candidate programs, recipes, attempts, labels, lineage and deletion tombstones | Bulk record schema 2 retains independent acquired sources; schema 1 remains readable. Older readers reject the new bulk schema instead of dropping photo metadata. Only superseded bulk metadata is retired after manifest publication. |
+| `PortraitCandidates/assets/<asset SHA-256>` | Same portrait owner; original acquired image bytes and exact analyzed rasters shared by records | Acquired selected sources are retained before successful generation. Deletion follows committed explicit tombstones and preserves every referenced blob. Unassociated/corrupt assets remain diagnostic evidence. |
+| `DrawingEvidence/drawing-run-evidence-v1.json` | `DrawingRunEvidenceStore`; prepared intents, accepted plan geometry/placement, attempts, progress, terminal outcomes, evaluations and media references | Publication and possible-ink/no-redraw truth remain with the Drawing owner. Paper/Learning reset does not erase this history. |
+| `DrawingEvidence/drawing-run-evidence-v1.json.media/<frame SHA-256>.pixels` | Same Drawing store; exact stamped baseline/progress/result camera pixels | Media references retain source/configuration/time/hash provenance and never become portrait-input authority. |
+| `DrawingMaterials` | `DrawingMaterialStore`; identified pen/paper/material library | Independent versioned library; no Learning application or archive deletion. |
+| `EpisodeRecordings/<recording UUID>` | `EpisodeRecordingStore` selected by observation and point-selection compositions | Exact frames and typed episode records have their declared per-recording bounds; recording failure is not substitute evidence. |
+| `EpisodeArtifacts/<episode UUID>/controller-recording` and its journal | Existing Manual Motion composition and journal/recording owners | Durable operation provenance and writer exclusion retain their existing authority. |
+| `MachineSessions/session-<UUID>.sqlite` plus WAL/SHM | `RunLedger` / controller-session composition | Bounded diagnostic session groups; deleting old diagnostic groups cannot erase accepted Learning or original portrait sources. |
+
+Logs use the same path authority at `~/Library/Logs/AdaptivePlotter/Diagnostics`
+and `TrackingAcquisitions`. They are bounded diagnostic outputs rather than inputs
+to operational admission. UserDefaults owns stable machine/tool/paper/camera
+revision selectors and UI settings under the app's existing preference domain;
+accepted artifact values, original photos and drawings belong to the stores above.
+Portable backup/recovery must preserve both that semantic context and the artifact
+root. A checkpoint cannot be applied merely because its filename exists.
+
+The user's existing `CameraSamples`, `LearningAuthority`, `PassiveRuns`,
+`PortraitTraining` and `SafetyHistory` directories have no current production
+writer in the audited checkout. They remain historical data, not alternate
+current Learning slots. This audit does not move, prune or reinterpret them.
+Build/test receipts under repository `.build` and external recovery exports are
+investigation outputs, never production persistence fallbacks.
+
+Source-photo UUID/session/frame/selection metadata and source-byte hashes bind a
+portrait source to generated program/recipe/label/lineage records. Drawing handoff
+carries the immutable program identity into the Drawing owner's placed execution
+and physical evidence; reviewed physical media retains its own record identity.
+Guided Learning calibrations, portrait preference feedback and retrospective ink
+analysis retain those distinct authorities while sharing this organized root.
+
 ## Learning Path checkpoint and semantic identity
 
 `AcceptedLearningPathCheckpoint` is the single atomic production envelope for

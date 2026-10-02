@@ -13792,7 +13792,7 @@ final class PlotterApplicationRuntime:
         clearTip: clearTip, clearStageFour: clearStageFour,
         penCapAppearance: penCapAppearance
       )
-      if try shouldPreserveRetainedLearning(checkpoint, using: actions) { return true }
+      try validateRetainedLearningPredecessor(using: actions)
       try actions.saveAcceptedLearningPathCheckpoint(checkpoint)
       artifactResetRuntime.installSavedLearningFact(.applied(
         checkpoint,
@@ -13818,13 +13818,17 @@ final class PlotterApplicationRuntime:
     }
     if case .retainedForLater = savedLearningState {
       // The shared policy below verifies the exact retained disk package before
-      // either preserving it or allowing its completed replacement.
+      // allowing a newly accepted prefix to replace it durably.
     } else {
       switch actions.loadAcceptedLearningPathCheckpoint() {
-      case .absent: break
+      case .absent:
+        guard savedLearningState.appliedCheckpoint == nil else {
+          throw LearningPathOperationError.requiredState("Saved Learning disappeared before Boundary persistence.")
+        }
       case .loaded(let existing):
-        guard existing.semanticIdentity == candidate.semanticIdentity else {
-          throw LearningPathOperationError.requiredState("Saved Learning identity changed before Boundary persistence.")
+        guard existing.semanticIdentity == candidate.semanticIdentity,
+          savedLearningState.appliedCheckpoint == nil || savedLearningState.appliedCheckpoint == existing else {
+          throw LearningPathOperationError.requiredState("Saved Learning changed before Boundary persistence.")
         }
       case .rejected(let detail):
         throw LearningPathOperationError.requiredState("Boundary checkpoint is unavailable: \(detail)")
@@ -13836,7 +13840,7 @@ final class PlotterApplicationRuntime:
     } ?? false
     let checkpoint = try makeAcceptedLearningPathCheckpoint(
       machineArtifacts: candidate.machineArtifacts, retainingMachineDescendants: preservesDescendants)
-    if try shouldPreserveRetainedLearning(checkpoint, using: actions) { return }
+    try validateRetainedLearningPredecessor(using: actions)
     try actions.saveAcceptedLearningPathCheckpoint(checkpoint)
   }
 
@@ -13864,15 +13868,15 @@ final class PlotterApplicationRuntime:
       referenceFrame: currentAcceptedLearningReferenceFrame() ?? acceptedLearningPathCheckpoint?.referenceFrame)
   }
 
-  private func shouldPreserveRetainedLearning(_ replacement: AcceptedLearningPathCheckpoint,
-    using actions: any PlotterApplicationStatePersistencePort) throws -> Bool {
-    guard case .retainedForLater(let retained) = savedLearningState else { return false }
+  private func validateRetainedLearningPredecessor(
+    using actions: any PlotterApplicationStatePersistencePort
+  ) throws {
+    guard case .retainedForLater(let retained) = savedLearningState else { return }
     guard case .loaded(let stored) = actions.loadAcceptedLearningPathCheckpoint(), stored == retained else {
       throw LearningPathOperationError.requiredState("The retained Saved Learning package changed or is unavailable on disk.")
     }
-    // Existing single-package policy: incomplete replacement progress remains
-    // session-only while the previously complete package is retained durably.
-    return !replacementCheckpoint(replacement, hasReachedCompletenessOf: retained)
+    // The store preserves the previous envelope in History before publishing
+    // this newly accepted prefix. Incomplete retraining is no longer volatile.
   }
 
   private func reconcilePublishedBoundaryCheckpoint(_ snapshot: PlotterBoundaryRuntimeSnapshot) {
@@ -13887,17 +13891,6 @@ final class PlotterApplicationRuntime:
       opticalComparison: "Saved from the current accepted Learning prefix."))
     activeMachineCameraCheckpoint = stored.machineCamera
     activeStageFourCheckpoint = stored.stageFour
-  }
-
-  private func replacementCheckpoint(
-    _ replacement: AcceptedLearningPathCheckpoint,
-    hasReachedCompletenessOf retained: AcceptedLearningPathCheckpoint
-  ) -> Bool {
-    (retained.penInteraction == nil || replacement.penInteraction != nil)
-      && (retained.machineArtifacts == nil || replacement.machineArtifacts != nil)
-      && (retained.machineCamera == nil || replacement.machineCamera != nil)
-      && (retained.tipCalibration == nil || replacement.tipCalibration != nil)
-      && (retained.stageFour == nil || replacement.stageFour != nil)
   }
 
   private func currentAcceptedLearningReferenceFrame()

@@ -63,8 +63,7 @@ actor DrawingMaterialStore {
   }
 
   nonisolated static func defaultStore() -> DrawingMaterialStore {
-    let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    return .init(directoryURL: base.appendingPathComponent("AdaptivePlotter/DrawingMaterials", isDirectory: true))
+    return .init(directoryURL: AdaptivePlotterStoragePaths.production.drawingMaterialsDirectory)
   }
 
   private var indexURL: URL { directoryURL.appendingPathComponent("index-v1.json") }

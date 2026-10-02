@@ -18,6 +18,7 @@ final class PortraitSketchCollection {
   private(set) var archive = PortraitCandidateArchive()
   var selectedID: String?
   var entries: [PortraitRetainedCandidate] { archive.entries }
+  var sourcePhotos: [PortraitPhoto] { archive.sourcePhotos ?? [] }
   var labels: [PortraitLabelRevision] { archive.labels }
   var tombstones: [PortraitArchiveTombstone] { archive.tombstones }
   var sketches: [PortraitSavedSketch] { entries.filter { !$0.reasons.isEmpty }.map { .init(candidate: $0.candidate) } }
@@ -58,6 +59,10 @@ final class PortraitSketchCollection {
   func load() async {
     startWorker()
     await worker?.value
+  }
+
+  func retainSourcePhoto(_ photo: PortraitPhoto) {
+    enqueue(.sourcePhoto(photo))
   }
 
   @discardableResult
@@ -124,7 +129,9 @@ final class PortraitSketchCollection {
 
   func deleteSource(_ sourceSHA256: String) {
     let affected = entries.filter { $0.candidate.sourceSHA256 == sourceSHA256 }
-    guard !affected.isEmpty else { return }
+    guard !affected.isEmpty || sourcePhotos.contains(where: {
+      PortraitCandidateCoding.digest($0.data) == sourceSHA256
+    }) else { return }
     enqueue(.delete(.init(id: UUID(), kind: .source, identity: sourceSHA256,
       affectedCandidateIDs: affected.map(\.id),
       assetSHA256s: [sourceSHA256] + affected.map { $0.candidate.rasterSHA256 }, createdAt: Date())))
@@ -158,9 +165,19 @@ final class PortraitSketchCollection {
     case feedback(String, PortraitAttemptFeedbackRevision)
     case style(PortraitSavedStyle)
     case removeStyle(UUID)
+    case sourcePhoto(PortraitPhoto)
 
     func apply(to archive: inout PortraitCandidateArchive) {
       switch self {
+      case .sourcePhoto(let photo):
+        let hash = PortraitCandidateCoding.digest(photo.data)
+        guard !archive.tombstones.contains(where: {
+          $0.kind == .source && $0.identity == hash && photo.capturedAt <= $0.createdAt
+        }) else { return }
+        if archive.sourcePhotos == nil { archive.sourcePhotos = [] }
+        if archive.sourcePhotos?.contains(where: { $0.id == photo.id }) == false {
+          archive.sourcePhotos?.append(photo)
+        }
       case .attempt(let candidate, let record):
         guard !archive.tombstones.contains(where: { $0.kind != .label && candidate.createdAt <= $0.createdAt
         && ($0.affectedCandidateIDs.contains(candidate.id)
@@ -196,6 +213,11 @@ final class PortraitSketchCollection {
         } else { archive.tombstones.append(tombstone) }
         if tombstone.kind != .label {
           archive.entries.removeAll { tombstone.affectedCandidateIDs.contains($0.id) }
+        }
+        if tombstone.kind == .source {
+          archive.sourcePhotos?.removeAll {
+            PortraitCandidateCoding.digest($0.data) == tombstone.identity
+          }
         }
       }
     }
@@ -249,6 +271,10 @@ final class PortraitSketchCollection {
         // Healthy recovered records remain accessible without discarding any
         // new authoring candidate or failed mutation already held in memory.
         var recovered = loaded.archive
+        for photo in sourcePhotos where recovered.sourcePhotos?.contains(where: { $0.id == photo.id }) != true {
+          if recovered.sourcePhotos == nil { recovered.sourcePhotos = [] }
+          recovered.sourcePhotos?.append(photo)
+        }
         for entry in archive.entries where !recovered.entries.contains(where: { $0.id == entry.id }) {
           recovered.entries.append(entry)
         }

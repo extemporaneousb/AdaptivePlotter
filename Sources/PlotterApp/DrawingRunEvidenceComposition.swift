@@ -73,20 +73,7 @@ struct PlotterDrawingRunComposition: Sendable {
 
 enum DrawingRunEvidenceComposition {
   private static let store: DrawingRunEvidenceStore = {
-    let fileManager = FileManager.default
-    let base =
-      (try? fileManager.url(
-        for: .applicationSupportDirectory,
-        in: .userDomainMask,
-        appropriateFor: nil,
-        create: true
-      )) ?? fileManager.temporaryDirectory
-    let url =
-      base
-      .appendingPathComponent("AdaptivePlotter", isDirectory: true)
-      .appendingPathComponent("DrawingEvidence", isDirectory: true)
-      .appendingPathComponent("drawing-run-evidence-v1.json")
-    return DrawingRunEvidenceStore(fileURL: url)
+    DrawingRunEvidenceStore(fileURL: AdaptivePlotterStoragePaths.production.drawingEvidenceArchive)
   }()
 
   static let port = DrawingRunEvidencePort(store: store)

@@ -3,25 +3,15 @@ import PlotterRuntime
 
 enum AcceptedArtifactCheckpointComposition {
   static let statePersistencePort: any PlotterApplicationStatePersistencePort = {
-    let fileManager = FileManager.default
-    let base =
-      (try? fileManager.url(
-        for: .applicationSupportDirectory,
-        in: .userDomainMask,
-        appropriateFor: nil,
-        create: true
-      )) ?? fileManager.temporaryDirectory
-    let directory =
-      base
-      .appendingPathComponent("AdaptivePlotter", isDirectory: true)
-      .appendingPathComponent("AcceptedArtifacts", isDirectory: true)
+    let paths = AdaptivePlotterStoragePaths.production
     let store = AcceptedLearningPathCheckpointStore(
-      fileURL: directory.appendingPathComponent("accepted-learning-path-v1.json")
+      fileURL: paths.acceptedLearningCheckpoint,
+      historyDirectoryURL: paths.acceptedLearningHistoryDirectory
     )
     let migration = AcceptedLearningPathLegacyMigrationAdapter(
       canonicalStore: store,
-      machineURL: directory.appendingPathComponent("accepted-machine-artifacts-v1.json"),
-      tipURL: directory.appendingPathComponent("accepted-tip-calibration-v1.json"),
+      machineURL: paths.legacyMachineCheckpoint,
+      tipURL: paths.legacyTipCheckpoint,
       semanticIdentity: TipCalibrationSemanticIdentityComposition.state.learningPathIdentity
     )
     return AcceptedArtifactCheckpointStatePersistenceAdapter(

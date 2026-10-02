@@ -90,22 +90,15 @@ enum PlotterManualMotionComposition {
 
   private static func makeProduction(
     applicationSupportDirectory: () throws -> URL = {
-      try FileManager.default.url(
-        for: .applicationSupportDirectory,
-        in: .userDomainMask,
-        appropriateFor: nil,
-        create: true
-      )
+      AdaptivePlotterStoragePaths.production.rootDirectory.deletingLastPathComponent()
     }
   ) -> PlotterManualMotionRuntimeComposition {
     let simulatedRuntime = SimulatedLearningRuntime()
     let pacing = SimulatedLearningInteractivePacing()
     let artifactDirectory: URL
     do {
-      artifactDirectory = try applicationSupportDirectory()
-        .appendingPathComponent("AdaptivePlotter", isDirectory: true)
-        .appendingPathComponent("EpisodeArtifacts", isDirectory: true)
-        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+      artifactDirectory = AdaptivePlotterStoragePaths(applicationSupportDirectory: try applicationSupportDirectory())
+        .episodeArtifactDirectory(UUID())
       try FileManager.default.createDirectory(
         at: artifactDirectory,
         withIntermediateDirectories: true

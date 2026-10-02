@@ -735,6 +735,42 @@ calibration. Simulation may exercise catalog placement and exact plan preview;
 it cannot run the physical Drawing Studio operation or produce physical run
 evidence.
 
+## Durable Learning sequence
+
+The production checkpoint is
+`~/Library/Application Support/AdaptivePlotter/AcceptedArtifacts/accepted-learning-path-v1.json`.
+The [architecture storage map](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md#durable-data-organization)
+owns every other artifact path. Guided Learning, its reset transaction and paper
+replacement use the same checkpoint port and store.
+
+1. Startup validates the canonical envelope checksum, schema, semantic context
+   and accepted evidence. It offers Use Saved Learning or Start New Learning;
+   neither startup nor History restores motion, pose or an operation owner.
+2. Start New Learning retains the old canonical package until a new accepted
+   prefix is ready. Each subsequent accepted prefix is persisted; before canonical
+   replacement the store retains the predecessor's exact bytes in `History`.
+   Retraining progress is therefore recoverable after restart even before the
+   curriculum is complete, and the earlier complete package remains archived.
+3. Persist the accepted candidate before publishing its runtime authority.
+   Persistence failure retains the accepted predecessor and exposes the owner's
+   existing retry/recovery; it cannot report successful acceptance or replay motion.
+4. A selected-step reset first preserves the current envelope, writes the retained
+   prefix (or removes the canonical reference for Pen/Reset All), then commits
+   in-memory invalidation. History preserves the retired evidence; it is not an
+   applicable calibration or an automatic fallback. A failed history write refuses
+   the replacement/clear through the existing transaction.
+5. Paper replacement rotates paper identity through that same port. Pending and
+   declined packages remain inactive; same-plane changes retain compatible
+   components and changed planes remove only the tip/Border suffix. Historical
+   drawing media and possible-ink records stay bound to their original sheet.
+
+Portrait source acquisition uses its existing archive queue independently of the
+renderer. Inspect its Saved/Pending/Failed state: rendering success or `Photo
+captured` does not substitute for a completed durable save. Recent-photo memory
+limits do not authorize deleting committed sources; explicit source deletion is
+recorded with a tombstone. Machine-session/log retention is diagnostic-only and
+cannot delete the Learning checkpoint, source photos or Drawing evidence.
+
 ## Dependency and recovery contract
 
 ```text

@@ -2,7 +2,7 @@ import Foundation
 import PlotterModel
 import PlotterRuntime
 
-struct PortraitPhoto: Identifiable, Sendable {
+struct PortraitPhoto: Identifiable, Codable, Sendable {
   let id: UUID
   let data: Data
   let label: String

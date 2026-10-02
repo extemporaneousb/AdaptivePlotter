@@ -66,11 +66,9 @@ struct BoundaryCheckpointReplacementTests {
     }
   }
 
-  @Test("fresh Boundary preserves declined complete Learning and refuses a changed retained disk package", arguments: [false, true])
-  func declinedCompleteLearning(diskConflict: Bool) async throws {
+  @Test("retraining persists fresh prefixes, archives complete predecessors and refuses disk conflicts", arguments: [0, 1, 2])
+  func declinedCompleteLearning(diskConflict: Int) async throws {
     let accepted = try await CompleteAcceptedLearningFixture.make()
-    // Historical coordinate provenance must actually differ from the fresh
-    // controller session. Rebase every dependent payload with supported APIs.
     let historical = try rebasedCompleteCheckpoint(accepted.checkpoint, to:
       try #require(accepted.checkpoint.machineArtifacts).coordinateRevision + 1)
     let persistence = try BoundaryReplacementPersistence(checkpoint: historical)
@@ -81,40 +79,33 @@ struct BoundaryCheckpointReplacementTests {
     let app = fixture.application
     do {
       try await fixture.submitLearning(.startNewLearning, owner: app.testCurrentLearningPathItemID)
+      #expect(try Data(contentsOf: persistence.fileURL) == originalBytes)
       try await fixture.completePenInteraction()
       let freshPen = try #require(app.learningArtifactGraph.currentRevision(for: .penInteraction))
-      #expect(freshPen.id != historical.penInteraction?.revision.id)
-      #expect(try Data(contentsOf: persistence.fileURL) == originalBytes)
-      if diskConflict {
-        let foreign = try AcceptedLearningPathCheckpoint(
-          semanticIdentity: historical.semanticIdentity,
-          penInteraction: historical.penInteraction, machineArtifacts: historical.machineArtifacts,
-          machineCamera: historical.machineCamera, tipCalibration: historical.tipCalibration,
-          stageFour: historical.stageFour, penCapAppearance: historical.penCapAppearance,
-          referenceFrame: historical.referenceFrame)
-        #expect(foreign.checkpointID != historical.checkpointID)
-        try persistence.saveAcceptedLearningPathCheckpoint(foreign)
-        let foreignBytes = try Data(contentsOf: persistence.fileURL)
+      let penPrefix = try persistence.loaded()
+      #expect(penPrefix.penInteraction?.revision.id == freshPen.id)
+      #expect(penPrefix.machineCamera == nil)
+      #expect(penPrefix.tipCalibration == nil)
+      let historyDirectory = AcceptedLearningPathCheckpointStore(fileURL: persistence.fileURL).historyDirectoryURL
+      let history = try FileManager.default.contentsOfDirectory(at: historyDirectory, includingPropertiesForKeys: nil)
+      #expect(try history.contains { try Data(contentsOf: $0) == originalBytes })
+      if diskConflict != 0 {
+        if diskConflict == 1 { try persistence.saveAcceptedLearningPathCheckpoint(historical) }
+        else { try persistence.clearAcceptedLearningPathCheckpoint() }
+        let foreignBytes = try? Data(contentsOf: persistence.fileURL)
         try await fixture.acquireAndStop()
         let recovery = try #require(app.currentBoundarySnapshot?.projection.publicationRecoveryCapabilityID)
         #expect(app.currentBoundarySnapshot?.acceptedMachineArtifacts == nil)
         #expect(app.testAcceptedBoundaryEvidence.isEmpty)
-        #expect(try Data(contentsOf: persistence.fileURL) == foreignBytes)
-        guard case .retainedForLater(let retained) = app.artifactResetEpisodeSnapshot.savedLearning else {
-          Issue.record("A disk conflict must not replace the retained Saved Learning fact.")
-          await app.shutdown(); return
-        }
-        #expect(retained == historical)
+        #expect((try? Data(contentsOf: persistence.fileURL)) == foreignBytes)
+        #expect(app.artifactResetEpisodeSnapshot.savedLearning.appliedCheckpoint == penPrefix)
         let motionCount = await fixture.machine.requestedBoundaryRequests.count
         let cancelCount = await fixture.machine.cancelCount
-        try persistence.saveAcceptedLearningPathCheckpoint(historical)
+        try persistence.saveAcceptedLearningPathCheckpoint(penPrefix)
         try await fixture.submitLearning(.boundary(.recoverPublication(recovery)), owner: fixture.boundaryOwner)
         #expect(await fixture.machine.requestedBoundaryRequests.count == motionCount)
         #expect(await fixture.machine.cancelCount == cancelCount)
-      } else {
-        try await fixture.acquireAndStop()
-      }
-
+      } else { try await fixture.acquireAndStop() }
       let boundary = try #require(app.currentBoundarySnapshot)
       #expect(boundary.projection.terminal?.disposition == .accepted)
       #expect(boundary.projection.publicationRecoveryCapabilityID == nil)
@@ -124,36 +115,24 @@ struct BoundaryCheckpointReplacementTests {
       #expect(app.machineCameraRegistration == nil)
       #expect(app.tipCameraRegistration == nil)
       #expect(app.learningArtifactGraph.currentRevision(for: .machineCameraRegistration) == nil)
-      #expect(app.learningArtifactGraph.currentRevision(for: .penInteraction)?.id == freshPen.id)
       #expect(await fixture.machine.cancelIntents == [.operatorStop])
       #expect(await fixture.machine.requestedBoundaryRequests.count == 1)
-      // The replacement prefix is accepted for this session. The single saved
-      // slot still owns the complete inactive package, not the new partial prefix.
-      #expect(try Data(contentsOf: persistence.fileURL) == originalBytes)
-      guard case .retainedForLater(let retained) = app.artifactResetEpisodeSnapshot.savedLearning else {
-        Issue.record("Fresh Boundary must not activate or replace retained Saved Learning.")
-        await app.shutdown(); return
-      }
-      #expect(retained == historical)
+      let prefix = try persistence.loaded()
+      #expect(prefix.penInteraction?.revision.id == freshPen.id)
+      #expect(prefix.machineArtifacts == machine)
+      #expect(prefix.machineCamera == nil && prefix.tipCalibration == nil && prefix.stageFour == nil)
+      #expect(app.artifactResetEpisodeSnapshot.savedLearning.appliedCheckpoint == prefix)
       await app.shutdown()
-      #expect(try Data(contentsOf: persistence.fileURL) == originalBytes)
-
-      let reloaded = AcceptedLearningPathCheckpointStore(fileURL: persistence.fileURL).load()
-      guard case .loaded(let saved) = reloaded else {
-        Issue.record("The original complete package must reload after shutdown."); return
-      }
-      #expect(saved == historical)
+      let saved = try persistence.loaded()
+      #expect(saved.penInteraction == prefix.penInteraction && saved.machineArtifacts == machine)
       let restarted = try await BoundaryReplacementFixture.make(
         persistence: persistence, identities: accepted.identities)
       #expect(restarted.application.learningArtifactGraph.revisions.isEmpty)
       #expect(restarted.application.machineCameraRegistration == nil)
       #expect(restarted.application.tipCameraRegistration == nil)
-      #expect(restarted.application.artifactResetEpisodeSnapshot.savedLearning.candidate?.checkpoint == historical)
+      #expect(restarted.application.artifactResetEpisodeSnapshot.savedLearning.candidate?.checkpoint == saved)
       await restarted.application.shutdown()
-    } catch {
-      await app.shutdown()
-      throw error
-    }
+    } catch { await app.shutdown(); throw error }
   }
 
   @Test("Boundary persists the active Pen prefix and exact retry settles before reset", arguments: [false, true])

@@ -1348,6 +1348,17 @@ different planes.
 
 ## Applicability and durable checkpoints
 
+Portrait acquisition queues the selected original source into the existing
+portrait archive independently of render success. Recent-photo/cache eviction,
+render failure/cancellation and deleting a digital candidate do not delete a
+committed standalone source. Explicit source deletion commits a source tombstone
+and removes dependent candidate/label associations before unreferenced asset
+cleanup. Failed persistence remains pending with a visible retry; a capture
+status alone does not prove durable save. Legacy sources remain associated with
+their retained candidates and are not rewritten merely by reading them.
+
+
+
 Tip applicability separates:
 
 - ephemeral `CameraCaptureSessionID`;
@@ -1415,6 +1426,16 @@ bounded reference frame, and an Exercise 2.1 evidence-record reference. Producti
 the former machine-only and tip-only files into this envelope and deletes the
 legacy files after successful save.
 
+All production artifact paths come from `AdaptivePlotterStoragePaths` under
+`~/Library/Application Support/AdaptivePlotter`. Storage failure is visible;
+accepted Learning and Drawing evidence never substitute temporary storage.
+The canonical layout and writer/retention ownership are defined in
+[Swift Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md#durable-data-organization).
+Checkpoint History must be verified before canonical replacement or removal; a
+failed history write refuses that mutation. Reset retires current applicability,
+while History preserves accepted or rejected predecessor bytes for diagnosis.
+History has no automatic pruning or operational restoration.
+
 Loading creates one presentation-only Saved Learning candidate. It cannot restore Motion authorization,
 current Pen pose, workflow state, operation ownership, a Stop capability, a
 pending command, a current camera frame, or a continuation. Before any choice,
@@ -1431,10 +1452,12 @@ The startup candidate exposes exactly **Use Saved Learning** and **Start New
 Learning**. Use Saved Learning atomically rebuilds the process-local dependency
 index with the exact stored revisions and installs the accepted values without
 motion, Pen-pose restoration, or command replay. Start New Learning applies no
-saved value and retains the last complete package until a newer dependency-
-complete package can replace it atomically. The operator owns this decision.
-Incomplete replacement progress remains session-only during this preservation;
-the one saved slot does not retain both packages across restart. Fresh Boundary
+saved value. The operator owns this decision. Each newly accepted retraining
+prefix becomes the canonical durable checkpoint; before replacing or clearing
+that checkpoint, the same store preserves its exact preceding envelope in
+content-addressed History. The previous complete package remains recoverable
+there without becoming live authority. Restart presents the current accepted
+prefix for an explicit decision; it never automatically selects History. Fresh Boundary
 acceptance cannot implicitly apply the inactive package's camera or tip calibration.
 Binary/process restoration and controller continuity loss cannot prove current
 physical carriage position. The unpowered armature can move under gravity while

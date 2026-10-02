@@ -101,16 +101,7 @@ enum CameraComposition {
   static let recordingStore: EpisodeRecordingStore? = {
     let id = EpisodeRecordingID(rawValue: UUID())
     do {
-      let base = try FileManager.default.url(
-        for: .applicationSupportDirectory,
-        in: .userDomainMask,
-        appropriateFor: nil,
-        create: true
-      )
-      let directory = base
-        .appendingPathComponent("AdaptivePlotter", isDirectory: true)
-        .appendingPathComponent("EpisodeRecordings", isDirectory: true)
-        .appendingPathComponent(id.rawValue.uuidString, isDirectory: true)
+      let directory = AdaptivePlotterStoragePaths.production.episodeRecordingDirectory(id.rawValue)
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       return try EpisodeRecordingStore.open(
         directoryURL: directory,

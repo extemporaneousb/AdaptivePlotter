@@ -1,4 +1,5 @@
 import Foundation
+import PlotterRuntime
 import PlotterModel
 
 struct PortraitRetainedCandidate: Identifiable, Codable, Sendable {
@@ -24,6 +25,7 @@ struct PortraitCandidateArchive: Codable, Sendable {
   var labels: [PortraitLabelRevision] = []
   var tombstones: [PortraitArchiveTombstone] = []
   var savedStyles: [PortraitSavedStyle]? = nil
+  var sourcePhotos: [PortraitPhoto]? = nil
 
   var withdrawnLabelIDs: Set<String> {
     let explicit = Set(tombstones.filter { $0.kind == .label }.map(\.identity))
@@ -112,8 +114,7 @@ actor PortraitCandidateStore {
 
   nonisolated static func defaultStore() -> PortraitCandidateStore {
     // Never silently substitute temporary storage for durable application data.
-    let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    return PortraitCandidateStore(directoryURL: base.appendingPathComponent("AdaptivePlotter/PortraitCandidates", isDirectory: true))
+    return PortraitCandidateStore(directoryURL: AdaptivePlotterStoragePaths.production.portraitCandidatesDirectory)
   }
 
   private var indexURL: URL { directoryURL.appendingPathComponent("index-v1.json") }
@@ -197,7 +198,12 @@ actor PortraitCandidateStore {
         savedStyles = nil
       }
       let stored = try JSONDecoder().decode(StoredArchive.self, from: payload)
-      guard stored.schemaVersion == 1 else { throw PortraitCandidateStoreError.unsupportedVersion(stored.schemaVersion) }
+      guard [1, 2].contains(stored.schemaVersion) else { throw PortraitCandidateStoreError.unsupportedVersion(stored.schemaVersion) }
+      let sourceRecords = stored.sourcePhotos ?? []
+      guard Set(sourceRecords.map(\.id)).count == sourceRecords.count else {
+        throw PortraitCandidateStoreError.invalidIndex("duplicate source photo identity")
+      }
+      let sourcesByID = Dictionary(uniqueKeysWithValues: sourceRecords.map { ($0.id, $0.sourceSHA256) })
       var entries: [PortraitRetainedCandidate] = []
       var referenced = Set<String>()
       var missing = false
@@ -206,10 +212,22 @@ actor PortraitCandidateStore {
         if let data = assets[hash] { return data }
         let data = try readAsset(hash); assets[hash] = data; return data
       }
+      var photos: [PortraitPhoto] = []
+      for photo in sourceRecords {
+        referenced.insert(photo.sourceSHA256)
+        do { photos.append(try photo.materialize(source: asset(photo.sourceSHA256))) }
+        catch {
+          missing = true
+          issues.append("Source photo \(photo.id) is unavailable: \(error.localizedDescription)")
+        }
+      }
       for entry in stored.entries {
         referenced.insert(entry.candidate.sourceSHA256)
         referenced.insert(entry.candidate.rasterSHA256)
         do {
+          if let source = sourcesByID[entry.candidate.photoID], source != entry.candidate.sourceSHA256 {
+            throw PortraitCandidateStoreError.invalidIndex("candidate/source association changed")
+          }
           let candidate = try entry.candidate.materialize(
             source: asset(entry.candidate.sourceSHA256),
             raster: asset(entry.candidate.rasterSHA256))
@@ -238,7 +256,8 @@ actor PortraitCandidateStore {
       if missing { blockers.append("Repair missing/corrupt portrait assets before saving this archive; the original index is preserved.") }
       if cleanup.count > 0 { blockers.append("Explicit asset deletion is unfinished; retry archive save to finish cleanup.") }
       writeBlock = blockers.isEmpty ? nil : blockers.joined(separator: " ")
-      return .init(archive: .init(entries: entries, labels: stored.labels, tombstones: stored.tombstones, savedStyles: envelope.schemaVersion == 2 ? savedStyles : stored.savedStyles),
+      return .init(archive: .init(entries: entries, labels: stored.labels, tombstones: stored.tombstones, savedStyles: envelope.schemaVersion == 2 ? savedStyles : stored.savedStyles,
+        sourcePhotos: stored.sourcePhotos == nil ? nil : photos),
         issues: issues, canWrite: writeBlock == nil,
         pendingCleanupCount: cleanup.count, pendingCleanupBytes: cleanup.bytes,
         retainedBytes: (try Data(contentsOf: indexURL).count) + (loadedRecordHash == nil ? 0 : payload.count)
@@ -262,10 +281,25 @@ actor PortraitCandidateStore {
     try manager.createDirectory(at: blobDirectory, withIntermediateDirectories: true)
     let encoder = PortraitCandidateCoding.encoder()
     var assetBytes: [String: Int] = [:]
+    let photos = snapshot.sourcePhotos ?? []
+    guard Set(photos.map(\.id)).count == photos.count else {
+      throw PortraitCandidateStoreError.invalidIndex("duplicate source photo identity")
+    }
+    let sourcesByID = Dictionary(uniqueKeysWithValues: photos.map { ($0.id, PortraitCandidateCoding.digest($0.data)) })
+    for photo in photos {
+      let hash = sourcesByID[photo.id]!
+      if assetBytes[hash] == nil {
+        try install(photo.data, hash: hash)
+        assetBytes[hash] = photo.data.count
+      }
+    }
     for entry in snapshot.entries {
       try entry.candidate.validateIntegrity()
       try PortraitExplorationRecord.validate(entry.exploration, for: entry.candidate)
       let candidate = entry.candidate
+      if let source = sourcesByID[candidate.photoID], source != candidate.sourceSHA256 {
+        throw PortraitCandidateStoreError.invalidIndex("candidate/source association changed")
+      }
       // Every candidate is validated above, but shared blobs need installation
       // and disk verification only once within this save.
       if assetBytes[candidate.sourceSHA256] == nil {
@@ -343,6 +377,7 @@ actor PortraitCandidateStore {
   nonisolated static func retainedByteCount(snapshot: PortraitCandidateArchive) throws -> Int {
     let encoder = PortraitCandidateCoding.encoder()
     var assets: [String: Int] = [:]
+    for photo in snapshot.sourcePhotos ?? [] { assets[PortraitCandidateCoding.digest(photo.data)] = photo.data.count }
     for entry in snapshot.entries {
       assets[entry.candidate.sourceSHA256] = entry.candidate.sourceData.count
       if assets[entry.candidate.rasterSHA256] == nil {
@@ -434,12 +469,48 @@ private struct StoredArchive: Codable {
   let labels: [PortraitLabelRevision]
   let tombstones: [PortraitArchiveTombstone]
   let savedStyles: [PortraitSavedStyle]?
+  let sourcePhotos: [StoredSourcePhoto]?
   init(_ archive: PortraitCandidateArchive, includeSavedStyles: Bool = true) {
-    schemaVersion = 1
+    // Older readers reject this bulk schema instead of silently dropping photos.
+    schemaVersion = 2
     entries = archive.entries.map { StoredEntry(candidate: StoredCandidate($0.candidate), reasons: $0.reasons, exploration: $0.exploration, attempt: $0.attempt) }
     labels = archive.labels
     tombstones = archive.tombstones
     savedStyles = includeSavedStyles ? archive.savedStyles : nil
+    sourcePhotos = archive.sourcePhotos?.map(StoredSourcePhoto.init)
+  }
+}
+
+/// Source metadata is committed independently of a successful render. Pixels
+/// share the existing asset owner with candidates, never another photo store.
+private struct StoredSourcePhoto: Codable {
+  let id: UUID
+  let sourceSHA256: String
+  let label: String
+  let capturedAt: Date
+  let frameID: FrameID?
+  let captureNanoseconds: UInt64?
+  let pose: PortraitPose
+  let sourcePixelExtent: PortraitSourceCropExtent?
+  let captureSessionID: UUID
+  let selectionProvenance: PortraitCaptureSelectionProvenance?
+
+  init(_ photo: PortraitPhoto) {
+    id = photo.id; sourceSHA256 = PortraitCandidateCoding.digest(photo.data)
+    label = photo.label; capturedAt = photo.capturedAt; frameID = photo.frameID
+    captureNanoseconds = photo.captureNanoseconds; pose = photo.pose
+    sourcePixelExtent = photo.sourcePixelExtent; captureSessionID = photo.captureSessionID
+    selectionProvenance = photo.selectionProvenance
+  }
+
+  func materialize(source: Data) throws -> PortraitPhoto {
+    guard PortraitCandidateCoding.digest(source) == sourceSHA256 else {
+      throw PortraitCandidateStoreError.invalidAsset(sourceSHA256)
+    }
+    return PortraitPhoto(id: id, data: source, label: label, capturedAt: capturedAt,
+      frameID: frameID, captureNanoseconds: captureNanoseconds, pose: pose,
+      sourcePixelExtent: sourcePixelExtent, captureSessionID: captureSessionID,
+      selectionProvenance: selectionProvenance)
   }
 }
 

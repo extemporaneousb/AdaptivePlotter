@@ -116,22 +116,14 @@ enum PointSelectionComposition {
 
   static func makeRuntime(
     applicationSupportDirectory: () throws -> URL = {
-      try FileManager.default.url(
-        for: .applicationSupportDirectory,
-        in: .userDomainMask,
-        appropriateFor: nil,
-        create: true
-      )
+      AdaptivePlotterStoragePaths.production.rootDirectory.deletingLastPathComponent()
     }
   ) -> PointSelectionRuntimeComposition {
     let recordingID = EpisodeRecordingID(rawValue: UUID())
     let manager = FileManager.default
     do {
-      let applicationSupport = try applicationSupportDirectory()
-      let directory = applicationSupport
-        .appendingPathComponent("AdaptivePlotter", isDirectory: true)
-        .appendingPathComponent("EpisodeRecordings", isDirectory: true)
-        .appendingPathComponent(recordingID.rawValue.uuidString, isDirectory: true)
+      let paths = AdaptivePlotterStoragePaths(applicationSupportDirectory: try applicationSupportDirectory())
+      let directory = paths.episodeRecordingDirectory(recordingID.rawValue)
       try manager.createDirectory(at: directory, withIntermediateDirectories: true)
       let recordingStore = try EpisodeRecordingStore.open(
         directoryURL: directory,

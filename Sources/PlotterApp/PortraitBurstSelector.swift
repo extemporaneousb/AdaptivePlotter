@@ -4,8 +4,8 @@ import ImageIO
 
 /// Describes selection of an original camera frame, not a reconstructed image
 /// or evidence of a camera focus adjustment.
-struct PortraitCaptureSelectionProvenance: Sendable, Equatable {
-  enum Method: String, Sendable {
+struct PortraitCaptureSelectionProvenance: Codable, Sendable, Equatable {
+  enum Method: String, Codable, Sendable {
     case sharpnessAndExposure
     case latestAvailable
   }

@@ -387,20 +387,7 @@ actor PersistentMachineSession: PlotterMachineSession {
     clock: any RuntimeClock
   ) async -> (ledger: RunLedger?, runID: LedgerRunID?) {
     let fileManager = FileManager.default
-    guard
-      let applicationSupport = try? fileManager.url(
-        for: .applicationSupportDirectory,
-        in: .userDomainMask,
-        appropriateFor: nil,
-        create: true
-      )
-    else {
-      return (nil, nil)
-    }
-    let sessionDirectory =
-      applicationSupport
-      .appendingPathComponent("AdaptivePlotter", isDirectory: true)
-      .appendingPathComponent("MachineSessions", isDirectory: true)
+    let sessionDirectory = AdaptivePlotterStoragePaths.production.machineSessionsDirectory
     let ledgerURL =
       sessionDirectory
       .appendingPathComponent("session-\(UUID().uuidString.lowercased())")

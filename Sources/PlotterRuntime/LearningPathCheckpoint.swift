@@ -576,9 +576,12 @@ public struct AcceptedLearningPathCheckpointStore: Sendable {
   }
 
   public let fileURL: URL
+  public let historyDirectoryURL: URL
 
-  public init(fileURL: URL) {
+  public init(fileURL: URL, historyDirectoryURL: URL? = nil) {
     self.fileURL = fileURL
+    self.historyDirectoryURL = historyDirectoryURL
+      ?? fileURL.deletingLastPathComponent().appendingPathComponent("History", isDirectory: true)
   }
 
   public func load() -> AcceptedLearningPathCheckpointLoadResult {
@@ -621,12 +624,38 @@ public struct AcceptedLearningPathCheckpointStore: Sendable {
       at: fileURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
     )
-    try encoder.encode(envelope).write(to: fileURL, options: [.atomic])
+    let bytes = try encoder.encode(envelope)
+    try preserveCurrentCheckpoint()
+    try bytes.write(to: fileURL, options: [.atomic])
   }
 
   public func clear() throws {
     guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+    try preserveCurrentCheckpoint()
     try FileManager.default.removeItem(at: fileURL)
+  }
+
+  /// History is recovery evidence, never an automatic load/application source.
+  /// Preserve rejected bytes too: an explicit reset must not destroy diagnosis.
+  private func preserveCurrentCheckpoint() throws {
+    let manager = FileManager.default
+    guard manager.fileExists(atPath: fileURL.path) else { return }
+    let bytes = try Data(contentsOf: fileURL)
+    try manager.createDirectory(at: historyDirectoryURL, withIntermediateDirectories: true)
+    let archived = historyDirectoryURL.appendingPathComponent(Self.sha256(bytes) + ".json")
+    if manager.fileExists(atPath: archived.path) {
+      guard try Data(contentsOf: archived) == bytes else {
+        throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: archived.path])
+      }
+    } else {
+      try bytes.write(to: archived, options: [.atomic])
+    }
+    let handle = try FileHandle(forWritingTo: archived)
+    defer { try? handle.close() }
+    try handle.synchronize()
+    guard try Data(contentsOf: archived) == bytes else {
+      throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: archived.path])
+    }
   }
 
   private static func sha256(_ data: Data) -> String {

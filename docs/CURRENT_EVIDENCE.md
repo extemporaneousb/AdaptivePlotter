@@ -9,6 +9,67 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Guided Learning and durable storage audit, 2026-10-01
+
+Task `task-ce79e71f7e614cdf8005ff02b080a163` audited production Guided Learning
+load/accept/retry/reset/paper/shutdown persistence, source acquisition and archive
+publication, Drawing evidence/media ownership, and production path construction.
+`AdaptivePlotterStoragePaths` now supplies the canonical existing paths to every
+production composition/default store and diagnostic output. Accepted Learning and
+Drawing evidence no longer silently substitute temporary storage. Current paths,
+writer ownership, provenance, retention and historical directories are documented
+in the canonical Swift Architecture storage map; this is no data relocation or
+new competing persistence owner.
+
+The existing checkpoint store now verifies and synchronizes content-addressed
+copies of previous envelope bytes in `AcceptedArtifacts/History` before canonical
+replacement or clear. History failure prevents the mutation; rejected bytes are
+preserved for diagnosis too. History never supplies automatic live authority or
+startup fallback. After Start New Learning, newly accepted prefixes are durable
+instead of remaining session-only behind the old completeness threshold. The
+former complete package remains archived. Boundary publication detects changed
+or missing expected canonical predecessors and uses its existing recovery without
+new motion. Inactive camera/tip descendants are not applied to the new session.
+
+The existing portrait archive now independently commits each selected acquired
+source with UUID/session/frame/time/selection metadata and verified source bytes,
+even when rendering fails or is cancelled. It shares the existing asset namespace
+with generated candidates; cache eviction and digital-candidate deletion preserve
+committed standalone sources. Explicit source tombstones remove the dependent
+associations before unreferenced cleanup, including aliases and late callbacks.
+Missing standalone assets block destructive archive replacement. Bulk record
+schema 2 prevents older readers from silently discarding this added metadata;
+legacy bulk schema 1 remains readable. No operator archive was migrated by this
+agent or by the staged application.
+
+The initial focused selection passed 59 tests in 49.654 seconds. After the final
+history/predecessor guards, 11 checkpoint/Boundary tests passed in 8.744 seconds,
+including unchanged, foreign and missing canonical files. The final 34 photo/
+archive tests passed in 5.844 seconds, including held-render cancellation,
+provenance round trip, restart/cache eviction, source deletion and missing-media
+write blocking. The configured docs, sequential quick-test and diff checks all
+passed; quick-test took 714.293 seconds with `SWIFT_FLAGS=--no-parallel`. The
+Blackdog command receipt did not retain output, so no full-suite count is claimed.
+The subsequent evidence-only edit was checked again with docs-check/diff-check.
+
+A read-only audit of the operator's current manifest verified its checksum and
+687,920,028-byte referenced bulk record, 13 styles, and all 290 content-addressed
+assets including 75 PNG sources. The current manifest is 14,120 bytes, schema 2.
+The checkpoint, manifest, Drawing evidence and running executable hashes match
+the task's baseline. App PID 68893 remained running with executable SHA-256
+`e5a16843bf10f017a566cb0b21d2f6cf4494bd9456cc78888ca07fba85309aba`.
+No debugger attachment, application replacement/restart, Learning application/
+reset, machine command, controller/camera reconfiguration, archive pruning or
+remote Git action was performed.
+
+The strict-verified stable-local signed debug build is staged at
+`.build/StudioTestApps/AdaptivePlotter-storage-ce79.app` with executable SHA-256
+`543fdc5cfb43d62800c9180bb982875506020762791f00789a77471c24a57e86`.
+It was not launched; these storage changes take effect in that new build rather
+than the preserved running session. Native interaction, physical retraining,
+controller behavior, cap reacquisition and new ink remain unverified. Receipts
+are retained under `.build/StorageAudit-ce79/evidence` in the primary checkout.
+
 ## Portrait source visibility and pending Saved Learning preservation, 2026-10-01
 
 Task `task-3490c8a646c440cdb659d37ca1c3bfe9` addresses missing visible source

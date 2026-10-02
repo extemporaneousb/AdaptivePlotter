@@ -6,6 +6,54 @@ import Testing
 
 @Suite("Durable Learning Path checkpoint")
 struct LearningPathCheckpointTests {
+  @Test("replacement and clear preserve exact envelopes without automatic history restoration")
+  func versionHistory() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = AcceptedLearningPathCheckpointStore(fileURL: directory.appendingPathComponent("accepted.json"))
+    let first = try AcceptedLearningPathCheckpoint(semanticIdentity: semanticIdentity(),
+      penCapAppearance: penCapAppearance())
+    try store.save(first)
+    let before = try Data(contentsOf: store.fileURL)
+    let second = try AcceptedLearningPathCheckpoint(semanticIdentity: first.semanticIdentity)
+    try store.save(second)
+    let after = try Data(contentsOf: store.fileURL)
+    let history = try FileManager.default.contentsOfDirectory(at: store.historyDirectoryURL,
+      includingPropertiesForKeys: nil)
+    #expect(history.count == 1)
+    #expect(try Data(contentsOf: history[0]) == before)
+    guard case .loaded(let previous) = AcceptedLearningPathCheckpointStore(fileURL: history[0]).load() else {
+      Issue.record("The retained predecessor must pass the production loader"); return
+    }
+    #expect(previous == first)
+    try store.clear()
+    try store.clear()
+    guard case .absent = store.load() else {
+      Issue.record("History must not become current Learning automatically"); return
+    }
+    let retained = try FileManager.default.contentsOfDirectory(at: store.historyDirectoryURL,
+      includingPropertiesForKeys: nil).map { try Data(contentsOf: $0) }
+    #expect(retained.count == 2)
+    #expect(retained.contains(before))
+    #expect(retained.contains(after))
+  }
+
+  @Test("history write failure refuses replacement and reset before changing canonical bytes")
+  func historyFailureIsAtomic() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = AcceptedLearningPathCheckpointStore(fileURL: directory.appendingPathComponent("accepted.json"))
+    try store.save(try AcceptedLearningPathCheckpoint(semanticIdentity: semanticIdentity()))
+    let original = try Data(contentsOf: store.fileURL)
+    try Data("blocked".utf8).write(to: store.historyDirectoryURL)
+    #expect(throws: (any Error).self) {
+      try store.save(try AcceptedLearningPathCheckpoint(semanticIdentity: semanticIdentity()))
+    }
+    #expect(try Data(contentsOf: store.fileURL) == original)
+    #expect(throws: (any Error).self) { try store.clear() }
+    #expect(try Data(contentsOf: store.fileURL) == original)
+  }
+
   @Test("atomic aggregate round-trips semantic identity without operational state")
   func roundTrip() throws {
     let directory = FileManager.default.temporaryDirectory
@@ -139,6 +187,10 @@ struct LearningPathCheckpointTests {
     }
     try store.clear()
     try store.clear()
+    let history = try FileManager.default.contentsOfDirectory(at: store.historyDirectoryURL,
+      includingPropertiesForKeys: nil)
+    #expect(history.count == 1)
+    #expect(try Data(contentsOf: history[0]) == bytes)
     guard case .absent = store.load() else {
       Issue.record("Expected explicit clear to remove aggregate authority.")
       return

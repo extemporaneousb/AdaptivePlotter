@@ -152,9 +152,7 @@ extension RunningAppPreviewPerformanceGate {
     var checkpointBefore: Data?
     var checkpointURL: URL?
     do {
-      let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-        appropriateFor: nil, create: false)
-      let url = base.appendingPathComponent("AdaptivePlotter/AcceptedArtifacts/accepted-learning-path-v1.json")
+      let url = AdaptivePlotterStoragePaths.production.acceptedLearningCheckpoint
       checkpointURL = url
       if FileManager.default.fileExists(atPath: url.path) { checkpointBefore = try Data(contentsOf: url) }
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

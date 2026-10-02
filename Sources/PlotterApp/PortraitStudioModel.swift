@@ -75,11 +75,13 @@ final class PortraitStudioModel {
   private var selectedSource: PortraitPhoto? {
     recentPhotos.first(where: { $0.id == selectedPhotoID })
       ?? (retainedEditSource?.id == selectedPhotoID ? retainedEditSource : nil)
+      ?? sketches.sourcePhotos.first(where: { $0.id == selectedPhotoID })
   }
   /// Retained source frames remain discoverable after the recent-photo cache expires.
   var browsablePhotos: [PortraitPhoto] {
     var seen = Set(recentPhotos.map(\.id))
-    return recentPhotos + sketches.entries.reversed().compactMap { entry in
+    let retainedSources = sketches.sourcePhotos.reversed().filter { seen.insert($0.id).inserted }
+    return recentPhotos + retainedSources + sketches.entries.reversed().compactMap { entry in
       let candidate = entry.candidate
       guard seen.insert(candidate.photoID).inserted, let pose = candidate.renderPose else { return nil }
       return PortraitPhoto(id: candidate.photoID, data: candidate.sourceData,
@@ -465,6 +467,7 @@ final class PortraitStudioModel {
       capturedAt: Date(), frameID: sample.frameID, captureNanoseconds: sample.captureNanoseconds, pose: pose, sourcePixelExtent: sample.sourcePixelExtent, captureSessionID: sessionID,
       selectionProvenance: sample.selectionProvenance)
     recentPhotos.append(photo)
+    sketches.retainSourcePhoto(photo)
     selectedPhotoID = photo.id
     while recentPhotos.count > photoRetention.maximumCount || retainedPhotoBytes > photoRetention.maximumBytes {
       cache.remove(photoID: recentPhotos.removeFirst().id)
@@ -495,7 +498,11 @@ final class PortraitStudioModel {
 
   func deleteRetainedSource(_ photoID: UUID, strokeStyle: StrokeStyle) {
     let sources = Set(sketches.entries.filter { $0.candidate.photoID == photoID }.map { $0.candidate.sourceSHA256 })
+      .union(sketches.sourcePhotos.filter { $0.id == photoID }.map { PortraitCandidateCoding.digest($0.data) })
     var photoIDs = Set(sketches.entries.filter { sources.contains($0.candidate.sourceSHA256) }.map { $0.candidate.photoID })
+    photoIDs.formUnion(sketches.sourcePhotos.filter {
+      sources.contains(PortraitCandidateCoding.digest($0.data))
+    }.map(\.id))
     photoIDs.insert(photoID)
     // This explicit source-deletion operation includes byte-identical recent
     // aliases, even when one alias has not completed its first render.

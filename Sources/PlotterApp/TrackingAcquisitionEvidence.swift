@@ -152,8 +152,7 @@ actor TrackingAcquisitionEvidenceRecorder {
   private let maximumEntries: Int
   private let maximumBytes: Int
 
-  init(directory: URL = FileManager.default.homeDirectoryForCurrentUser
-    .appendingPathComponent("Library/Logs/AdaptivePlotter/TrackingAcquisitions", isDirectory: true),
+  init(directory: URL = AdaptivePlotterStoragePaths.production.trackingAcquisitionsDirectory,
     maximumEntries: Int = 12, maximumBytes: Int = 128 * 1_024 * 1_024) {
     self.directory = directory; self.maximumEntries = maximumEntries; self.maximumBytes = maximumBytes
   }

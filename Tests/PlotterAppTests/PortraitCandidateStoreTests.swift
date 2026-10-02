@@ -7,6 +7,52 @@ import Testing
 @Suite("Qualified portrait candidate persistence")
 @MainActor
 struct PortraitCandidateStoreTests {
+  @Test("digital candidate deletion keeps its independently retained source until explicit source deletion")
+  func sourceDeletionOwnership() async throws {
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let candidate = try portraitPersistenceCandidate()
+    let photo = PortraitPhoto(id: candidate.photoID, data: candidate.sourceData, label: "Original",
+      capturedAt: candidate.createdAt, frameID: nil, captureNanoseconds: nil, pose: .front,
+      captureSessionID: candidate.captureSessionID)
+    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    collection.retainSourcePhoto(photo)
+    #expect(collection.retain(candidate: candidate, reason: .shortlisted) == nil)
+    await collection.awaitPersistence()
+    let asset = directory.appendingPathComponent("assets").appendingPathComponent(candidate.sourceSHA256)
+    collection.remove(candidate.id)
+    await collection.awaitPersistence()
+    #expect(try Data(contentsOf: asset) == photo.data)
+    let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
+    await restored.load()
+    #expect(restored.entries.isEmpty)
+    #expect(restored.sourcePhotos.first?.data == photo.data)
+    restored.deleteSource(candidate.sourceSHA256)
+    restored.retainSourcePhoto(photo) // late capture completion cannot resurrect deleted evidence
+    await restored.awaitPersistence()
+    #expect(restored.sourcePhotos.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: asset.path))
+  }
+
+  @Test("missing standalone source blocks archive replacement and preserves committed metadata")
+  func missingStandaloneSource() async throws {
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = PortraitCandidateStore(directoryURL: directory)
+    let candidate = try portraitPersistenceCandidate()
+    let photo = PortraitPhoto(id: UUID(), data: candidate.sourceData, label: "Original",
+      capturedAt: Date(), frameID: nil, captureNanoseconds: nil, pose: .front)
+    _ = try await store.save(snapshot: .init(sourcePhotos: [photo]))
+    let index = directory.appendingPathComponent("index-v1.json")
+    let bytes = try Data(contentsOf: index)
+    try FileManager.default.removeItem(at: directory.appendingPathComponent("assets")
+      .appendingPathComponent(PortraitCandidateCoding.digest(photo.data)))
+    let loaded = await store.load()
+    #expect(!loaded.canWrite && !loaded.issues.isEmpty)
+    await #expect(throws: (any Error).self) { _ = try await store.save(snapshot: .init()) }
+    #expect(try Data(contentsOf: index) == bytes)
+  }
+
   @Test("reviewer startup loads all imaginations through the shared owner without mounting Studio")
   func directReviewerAndConcurrentStudioLoad() async throws {
     let directory = temporaryDirectory()

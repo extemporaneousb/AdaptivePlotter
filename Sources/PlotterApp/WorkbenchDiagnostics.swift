@@ -179,8 +179,7 @@ final class WorkbenchDiagnosticExporter {
   @ObservationIgnored private let directory: URL
   @ObservationIgnored private let write: @Sendable (WorkbenchDiagnosticCapture, URL) async throws -> URL
 
-  init(directory: URL = FileManager.default.homeDirectoryForCurrentUser
-    .appendingPathComponent("Library/Logs/AdaptivePlotter/Diagnostics", isDirectory: true),
+  init(directory: URL = AdaptivePlotterStoragePaths.production.diagnosticsDirectory,
     write: @escaping @Sendable (WorkbenchDiagnosticCapture, URL) async throws -> URL = { capture, directory in try await WorkbenchDiagnosticFileWriter.write(capture, directory: directory) }) {
     self.directory = directory
     self.write = write

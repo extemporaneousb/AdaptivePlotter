@@ -7,6 +7,69 @@ import Testing
 
 @Suite("Portrait photo capture and recent sources")
 struct PortraitCaptureTests {
+  @Test("source persistence settles independently of a cancelled held render")
+  @MainActor
+  func durableSourceDuringCancellation() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let renderer = try PausedBurstRenderer()
+    let model = PortraitStudioModel(renderer: renderer, photoAcquirer: BurstPhotoAcquirer(),
+      candidateStore: .init(directoryURL: directory))
+    let pen = try portraitTestStyle()
+    let importing = Task { await model.importPhoto(URL(fileURLWithPath: "/tmp/7"), strokeStyle: pen) }
+    try await renderer.waitUntilEntered()
+    let photo = try #require(model.recentPhotos.first)
+    let cancellation = Task { await model.cancelRendering() }
+    await model.sketches.awaitPersistence()
+    #expect(model.sketches.persistenceState == .saved)
+    await renderer.release()
+    await cancellation.value
+    await importing.value
+    await model.shutdown()
+    let restored = await PortraitCandidateStore(directoryURL: directory).load()
+    #expect(restored.canWrite)
+    #expect(restored.archive.entries.isEmpty)
+    #expect(restored.archive.sourcePhotos?.first?.id == photo.id)
+    #expect(restored.archive.sourcePhotos?.first?.data == photo.data)
+  }
+
+  @Test("captured and imported sources survive render failure, cache eviction and restart with provenance")
+  @MainActor
+  func durableSourcesWithoutDrawing() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = PortraitStudioModel(renderer: SourceFailureRenderer(), photoAcquirer: BurstPhotoAcquirer(),
+      frameSource: try RepeatingPortraitFrames(), captureClock: AdvancingPortraitClock(),
+      photoRetention: .init(maximumCount: 1, maximumBytes: 4),
+      candidateStore: .init(directoryURL: directory))
+    let pen = try portraitTestStyle()
+    await model.capture(strokeStyle: pen)
+    let captured = try #require(model.recentPhotos.first)
+    await model.importPhoto(URL(fileURLWithPath: "/tmp/9"), strokeStyle: pen)
+    let imported = try #require(model.recentPhotos.first)
+    #expect(captured.id != imported.id)
+    #expect(model.recentPhotos.count == 1)
+    #expect(model.program == nil && model.completedCandidate == nil)
+    await model.shutdown()
+    let restarted = PortraitStudioModel(renderer: SourceFailureRenderer(),
+      candidateStore: .init(directoryURL: directory))
+    await restarted.loadArchive()
+    #expect(restarted.recentPhotos.isEmpty)
+    #expect(restarted.sketches.entries.isEmpty)
+    #expect(restarted.browsablePhotos.count == 2)
+    let restored = try #require(restarted.browsablePhotos.first { $0.id == captured.id })
+    #expect(restored.data == captured.data && restored.frameID == captured.frameID)
+    #expect(restored.captureNanoseconds == captured.captureNanoseconds)
+    #expect(restored.captureSessionID == captured.captureSessionID)
+    #expect(restored.sourcePixelExtent == captured.sourcePixelExtent)
+    #expect(restored.selectionProvenance == captured.selectionProvenance)
+    restarted.deleteRetainedSource(imported.id, strokeStyle: pen)
+    await restarted.shutdown()
+    let reloaded = await PortraitCandidateStore(directoryURL: directory).load()
+    #expect(reloaded.canWrite)
+    #expect(reloaded.archive.sourcePhotos?.map(\.id) == [captured.id])
+  }
+
   @Test("short still capture samples unique post-settling frames and retains one original source")
   @MainActor
   func burstRetention() async throws {
@@ -253,6 +316,13 @@ private actor BurstPhotoAcquirer: PortraitPhotoAcquiring {
     }
     return PortraitAcquiredPhoto(data: Data([value, value]),
       sourcePixelExtent: try PortraitSourceCropExtent(widthPixels: 901, heightPixels: 1600))
+  }
+}
+
+private actor SourceFailureRenderer: PortraitRendering {
+  enum Failure: Error { case rejected }
+  func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
+    throw Failure.rejected
   }
 }
 
