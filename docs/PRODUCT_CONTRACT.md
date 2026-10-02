@@ -1774,7 +1774,9 @@ Studio authoring remains available with an imported photo while disconnected.
 Portrait Studio has one drawing canvas with two control sets: a persistent Parameters
 panel owns drawing style, saved styles, feature selection, drawing/feature parameters
 and framing; a separate navigation row owns Previous, Next, Cancel and Photos/History
-popovers. Saved styles remain reachable with an empty/loading library and while Next
+popovers. The original source photo and selectable source thumbnails remain visible
+above the parameter controls; Photos opens a larger inspection view. Source and drawing
+always refer to the same selected candidate. Saved styles remain reachable with an empty/loading library and while Next
 is canceled. Their observable popover updates while open and distinguishes loading,
 empty and failed reads with retry. The serialized archive owner loads recipe metadata
 before candidate verification. New saves commit a small checksummed manifest referring

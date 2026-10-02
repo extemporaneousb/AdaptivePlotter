@@ -350,9 +350,16 @@ public final class PlotterArtifactResetRuntime {
   ) {
     guard activeIntent == .paperReplaced(plan),
       case .applyingInMemoryPaperReplacement = phase else { return }
-    savedLearning = checkpoint.map {
-      .applied($0, opticalComparison: "Retained accepted Learning across paper replacement.")
-    } ?? .absent
+    guard let checkpoint else { savedLearning = .absent; return }
+    switch savedLearning {
+    case .awaitingOperatorDecision(_, let comparison):
+      savedLearning = .awaitingOperatorDecision(checkpoint, opticalComparison: comparison)
+    case .retainedForLater:
+      savedLearning = .retainedForLater(checkpoint)
+    default:
+      savedLearning = .applied(checkpoint,
+        opticalComparison: "Retained accepted Learning across paper replacement.")
+    }
   }
 
   public func admissionRefusal(

@@ -15567,10 +15567,18 @@ extension PlotterApplicationRuntime {
       }
       do {
         if learningArtifactGraph.revisions.isEmpty {
-          // An absent in-memory graph cannot support a replacement checkpoint;
-          // clear any old-paper package rather than retain stale durable
-          // authority across the committed paper identity.
-          try actions.clearAcceptedLearningPathCheckpoint()
+          // A preview-only package is still durable accepted evidence. Rotate
+          // its sheet identity without applying it or inventing live authority.
+          if let previous = plan.previousAcceptedCheckpoint {
+            guard previous.semanticIdentity == currentLearningPathSemanticIdentity,
+              case .loaded(let stored) = actions.loadAcceptedLearningPathCheckpoint(),
+              stored == previous else {
+              throw LearningPathOperationError.requiredState(
+                "Saved Learning changed or is incompatible with the current paper context. The retained package must be reconciled before replacing paper.")
+            }
+            try actions.saveAcceptedLearningPathCheckpoint(
+              try paperReplacementCheckpoint(for: transition, retaining: previous))
+          }
         } else {
           try actions.saveAcceptedLearningPathCheckpoint(
             try paperReplacementCheckpoint(for: transition)
@@ -15665,7 +15673,8 @@ extension PlotterApplicationRuntime {
   }
 
   private func paperReplacementCheckpoint(
-    for transition: PaperReplacementTransition
+    for transition: PaperReplacementTransition,
+    retaining inactiveCheckpoint: AcceptedLearningPathCheckpoint? = nil
   ) throws -> AcceptedLearningPathCheckpoint {
     let semanticIdentity = LearningPathSemanticIdentity(
       machineGeometry: machineGeometryIdentity,
@@ -15677,6 +15686,17 @@ extension PlotterApplicationRuntime {
       cameraReframingRevision: cameraReframingRevision
     )
     let changedPlane = transition.tipCalibrationApplicabilityChange != nil
+    if let inactiveCheckpoint {
+      return try AcceptedLearningPathCheckpoint(
+        semanticIdentity: semanticIdentity,
+        penInteraction: inactiveCheckpoint.penInteraction,
+        machineArtifacts: inactiveCheckpoint.machineArtifacts,
+        machineCamera: inactiveCheckpoint.machineCamera,
+        tipCalibration: changedPlane ? nil : inactiveCheckpoint.tipCalibration,
+        stageFour: changedPlane ? nil : inactiveCheckpoint.stageFour,
+        penCapAppearance: inactiveCheckpoint.penCapAppearance,
+        referenceFrame: inactiveCheckpoint.referenceFrame)
+    }
     return try AcceptedLearningPathCheckpoint(
       semanticIdentity: semanticIdentity,
       penInteraction: currentAcceptedPenInteractionCheckpoint(),

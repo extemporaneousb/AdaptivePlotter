@@ -10,6 +10,56 @@ import PlotterUI
 @Suite("Complete saved Learning restoration", .serialized)
 @MainActor
 struct SavedLearningCompletionTests {
+  @Test("paper replacement preserves unapplied and declined Saved Learning without activating it",
+    arguments: [false, true], [false, true])
+  func paperReplacementBeforeApplyingSavedLearning(declined: Bool, changedPlane: Bool) async throws {
+    let fixture = try await CompleteAcceptedLearningFixture.make()
+    let stores = CompleteAcceptedLearningStores()
+    defer { stores.remove() }
+    try await stores.save(fixture)
+    let machine = try LowerMachineSessionFixture(log: EventLog())
+    let app = plotterApplicationRuntime(machine: machine,
+      statePersistencePort: stores.persistence, drawingEvidencePort: stores.evidencePort,
+      tipCalibrationSemanticIdentities: fixture.identities, log: EventLog())
+    if declined {
+      await app.performTestExerciseAction(.startNewLearning, for: app.testCurrentLearningPathItemID)
+    }
+    let before = app.currentPaperRevisionContext
+    #expect(app.learningArtifactGraph.revisions.isEmpty)
+    if changedPlane { await app.recordPaperContactPlaneChanged() }
+    else { await app.recordNewPaperSheetOnCurrentPlane() }
+    #expect(app.currentPaperRevisionContext.instance != before.instance)
+    guard case .loaded(let saved) = stores.checkpointStore.load() else {
+      Issue.record("Paper replacement erased inactive Saved Learning")
+      await app.shutdown(); return
+    }
+    #expect(saved.semanticIdentity.paperInstance == app.currentPaperRevisionContext.instance)
+    #expect(saved.semanticIdentity.paperContactPlane == app.currentPaperRevisionContext.contactPlane)
+    #expect(saved.penInteraction == fixture.checkpoint.penInteraction)
+    #expect(saved.machineArtifacts == fixture.checkpoint.machineArtifacts)
+    #expect(saved.machineCamera == fixture.checkpoint.machineCamera)
+    #expect(saved.penCapAppearance == fixture.checkpoint.penCapAppearance)
+    #expect(saved.referenceFrame == fixture.checkpoint.referenceFrame)
+    #expect(saved.tipCalibration == (changedPlane ? nil : fixture.checkpoint.tipCalibration))
+    #expect(saved.stageFour == (changedPlane ? nil : fixture.checkpoint.stageFour))
+    #expect(app.learningArtifactGraph.revisions.isEmpty)
+    #expect(app.machineCameraRegistration == nil)
+    #expect(app.tipCameraRegistration == nil)
+    #expect(app.artifactResetEpisodeSnapshot.savedLearning.appliedCheckpoint == nil)
+    if declined {
+      guard case .retainedForLater(let retained) = app.artifactResetEpisodeSnapshot.savedLearning else {
+        Issue.record("Paper replacement activated declined Saved Learning")
+        await app.shutdown(); return
+      }
+      #expect(retained == saved)
+    } else {
+      #expect(app.artifactResetEpisodeSnapshot.savedLearning.candidate?.checkpoint == saved)
+    }
+    #expect(await machine.requestedPenCommands.isEmpty)
+    #expect(await machine.requestedFeeds.isEmpty)
+    await app.shutdown()
+  }
+
   @Test("production Apply Saved restores every accepted milestone and Border completion with Unknown or Down pen",
     arguments: [PenState.unknown, .down])
   func completeSavedPackageDoesNotReplayLearning(_ penState: PenState) async throws {

@@ -9,6 +9,67 @@ This document records what was actually verified. Product meaning belongs to
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
 
+## Portrait source visibility and pending Saved Learning preservation, 2026-10-01
+
+Task `task-3490c8a646c440cdb659d37ca1c3bfe9` addresses missing visible source
+photos and paper replacement before applying Saved Learning. The selected source
+and its thumbnail browser now stay visible in the Portrait Studio inspector;
+there is still one large drawing canvas and the existing Photos inspection popover.
+The user's original archive checksum and all 72 original source PNG checksums
+were verified. Its 2,278 candidates, 13 styles and zero tombstones remain intact;
+this task did not rewrite or prune the archive.
+
+The user confirmed replacing paper before accepting Saved Learning. The canonical
+checkpoint directory was empty. The paper transaction previously cleared the
+checkpoint whenever the live Learning graph was empty, including a valid package
+awaiting operator acceptance. It now validates the frozen predecessor against the
+persisted package and current semantic identity, rotates paper identity, and
+preserves pending or declined state without applying Learning. Same-plane paper
+retains all accepted components; a changed contact plane removes only tip and
+Border suffixes. An incompatible or concurrently changed predecessor refuses the
+transaction through the existing rollback path.
+
+A retained older package was recovered with the production checksum, schema,
+evidence and dependency-graph checks. Pen interaction, four Boundary sides and
+center, pen cap appearance and the original reference frame were retained under
+the current same-plane sheet identity. Camera registration, tip calibration and
+Border were absent from that backup and remain unrecovered. The restored package
+has seven graph revisions and is installed as pending Saved Learning, without
+application or motion. Original backup bytes remain preserved under
+`~/Library/Application Support/AdaptivePlotterRecovery/2026-10-01-photos-learning`.
+Production read-back checkpoint equality passed; unordered-set serialization makes
+the newly encoded staged and installed envelopes byte-different. This is partial
+recovery, not restoration of the deleted latest full package.
+
+The attempted LLDB memory read failed to JIT a Swift import, and the originally
+running PID 64581 exited before recovery completed. This agent disrupted that
+session; preservation of the original running session is not claimed. The exact
+latest package was not recovered from memory. Persisted-state backups were taken,
+and no motion, Learning reset or fabricated calibration was issued.
+
+The focused selection passed nine tests in 44.420 seconds, including four pending/
+declined and same-plane/changed-plane paper combinations, full saved-package
+restoration, atomic persistence failure and hosted layout coverage. The eight
+1000/1280-pixel layouts passed; a small-window source/thumbnail layout was visually
+inspected. Their synthetic photo fixture proves layout only. The configured docs,
+quick-test and diff checks passed with `SWIFT_FLAGS=--no-parallel`; quick-test took
+730.623 seconds. Blackdog retained the command result but not its output, so no
+full-suite count is asserted. The evidence-only ledger edit was checked again
+with docs-check and diff-check.
+
+The stable-local signed debug app passed strict signature and launcher bundle
+validation. The previous executable was preserved in
+`.build/PhotoLearningFix-3490/AdaptivePlotter-before-fix.app`, and the fixed app was
+installed at `.build/AdaptivePlotter.app`. Its running PID 68893 has executable
+SHA-256 `e5a16843bf10f017a566cb0b21d2f6cf4494bd9456cc78888ca07fba85309aba`.
+The initial launcher wait exceeded 30 seconds; a bounded process sample identified
+startup decoding of the 148 MB Drawing evidence archive. The app subsequently
+reported finished launching. Activation and native capture could not be verified
+because the macOS desktop was locked. The failed/blocked native receipts and
+software receipts remain in `.build/PhotoLearningFix-3490/evidence`. No Saved
+Learning acceptance, controller connection, camera reacquisition, physical motion
+or new ink was exercised by this task.
+
 ## Portrait archive cold loading and trainable parameter policy, 2026-10-01
 
 Task `task-f2fdf01ec6224ffd8be9ceff2822b998` addresses the first-open saved-style

@@ -544,6 +544,13 @@ After a new sheet on the explicitly unchanged contact plane:
    new paper instance. A failed or partially completed checkpoint save restores
    the exact predecessor. Once committed, final coverage/run handoff and
    projection settle even if shutdown begins.
+   Recording paper before applying Saved Learning preserves the durable package
+   and its pending or declined decision. It changes the sheet identity without
+   applying calibration, enabling Motion, or reconstructing live ownership.
+   A changed contact plane removes only the saved tip calibration and its
+   dependent Drawing Border validation; pen, Boundary, camera and cap appearance
+   remain retained. An incompatible or changed predecessor refuses replacement
+   and rolls back the paper transaction.
 2. Expect “New sheet recorded. Calibration retained.” Accepted pen settings,
    boundaries, camera/tip calibration and completed Learning remain current.
    Prior records retain their original sheet and calibration identities;

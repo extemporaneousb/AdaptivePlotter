@@ -66,6 +66,14 @@ struct PortraitStudioView: View {
           }
         }
         VStack(alignment: .leading, spacing: 12) {
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Source photo").font(.headline)
+            sourcePreview.frame(height: 148)
+            PortraitPhotoStrip(model: model, strokeStyle: strokeStyle)
+          }
+          .accessibilityElement(children: .contain)
+          .accessibilityIdentifier("portrait.visibleSource")
+          Divider()
           ScrollView {
             PortraitRenderControls(model: model, strokeStyle: strokeStyle, showsAdvanced: $showsAdjustments)
               .padding(.trailing, 4)
