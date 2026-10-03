@@ -46,8 +46,9 @@ zero historical geometry bytes or verified historical asset bytes. With 34 Drawi
 records and 15 attempts, a new small fixture's intent, baseline and possible-ink
 commits took 0.065 seconds, encoding 22,225 component bytes and verifying only its
 307,200-byte baseline. The marker did not hash that baseline again. These timings
-include durable file/index publication in the debug build, with the existing app
-running; they do not measure camera acquisition, travel or first physical ink.
+include durable file/index publication in the debug build. The Drawing benchmark
+ran with the existing app active; the final portrait benchmark ran after its
+recorded SIGTERM exit. Neither measures camera acquisition, travel or first physical ink.
 
 Cold verification/materialization plus legacy conversion took 513.592 seconds for
 the portrait copy and 204.870 seconds for the Drawing copy. This is a substantial
