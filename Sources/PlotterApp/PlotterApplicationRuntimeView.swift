@@ -38,6 +38,8 @@ struct PlotterApplicationRuntimeView: View {
   var body: some View {
     let ui = currentProjection()
     VStack(spacing: 0) {
+      WorkbenchNavigationControls(layout: layout.wrappedValue,
+        reviewerIsPresented: reviewerIsPresented, selectDestination: selectToolbarDestination)
       if let panelError {
         HStack {
           Text("Action needs attention").font(.caption).foregroundStyle(.orange)
@@ -66,15 +68,6 @@ struct PlotterApplicationRuntimeView: View {
         } ?? false).equatable()
       if layout.wrappedValue.isPresented(.portraitStudio) {
         VStack(spacing: 0) {
-          HStack {
-            Label("Portrait Studio", systemImage: "person.crop.rectangle").font(.headline)
-            Spacer()
-            Button("Plotter", systemImage: "video") {
-              WorkbenchRequestTelemetry.nativeActionHandled("workbench.hide.portraitStudio")
-              closePortraitStudio()
-            }
-            .accessibilityIdentifier("workbench.hide.portraitStudio")
-          }.padding(.horizontal, 12).padding(.vertical, 6)
           panelContent(.portraitStudio)
         }
         .accessibilityElement(children: .contain)
@@ -109,11 +102,14 @@ struct PlotterApplicationRuntimeView: View {
     }
     .onChange(of: ui.currentLearningPathItemID, initial: true) { _, item in selection.updateCurrent(item) }
     .toolbar {
-      WorkbenchToolbar(controllerSession: ui.controllerSession, plotterUIProjection: ui.semantic,
+      WorkbenchToolbar(savedLearningAction: ui.semantic.actions.first { action in
+          if case .learningAction(let request) = action.intent { return request.action == .applySavedLearning }
+          return false
+        }, controllerSession: ui.controllerSession, plotterUIProjection: ui.semantic,
         plotterUIIntentSink: application, diagnosticsAreExporting: diagnosticExporter.isExporting,
         exportDiagnostics: exportDiagnostics)
     }
-    .toolbarRole(.editor)
+    .toolbarRole(.automatic)
     .focusedSceneValue(\.workbenchMenu, WorkbenchMenuContext(layout: layout.wrappedValue,
       toggle: togglePanel, restore: restoreDefaultLayout))
     .task {
@@ -135,6 +131,20 @@ struct PlotterApplicationRuntimeView: View {
   private func exportDiagnostics() {
     diagnosticExporter.export(WorkbenchDiagnosticCapture(application: application,
       projection: currentProjection().semantic, viewport: actionSurfaceViewport))
+  }
+
+  private func selectToolbarDestination(_ destination: WorkbenchToolbarDestination) {
+    WorkbenchRequestTelemetry.nativeActionHandled("workbench.destination.\(destination.rawValue)")
+    switch destination {
+    case .plotter:
+      if layout.wrappedValue.isPresented(.portraitStudio) { closePortraitStudio() }
+    case .drawings: reviewerIsPresented.toggle()
+    case .portraitStudio, .drawing, .motion, .video:
+      if let panel = destination.panel {
+        if panel != .portraitStudio && layout.wrappedValue.isPresented(.portraitStudio) { reveal(panel) }
+        else { togglePanel(panel) }
+      }
+    }
   }
 
   private func togglePanel(_ panel: WorkbenchPanel) {

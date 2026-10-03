@@ -266,10 +266,19 @@ Dependency behavior is intentionally asymmetric:
 - Exact Stop or root shutdown that displaces a published Pen Confirm yields a
   superseded confirmation: no accepted Pen evidence is recorded and no
   discovery successor appears.
-- **View** exposes Show/Hide Guided Learning, Video Settings, Motion, Active
-  Learning and Portrait Studio, with Command-Option-1 through Command-Option-5.
-  The central canvas remains mounted with all controls closed. Control visibility
-  does not change physical Draw prerequisites, the active camera or Learning.
+- **View** retains Show/Hide Guided Learning, Video Settings, Motion, Active
+  Learning, Drawing and Portrait Studio, with Command-Option-1 through
+  Command-Option-6. The persistent flat application bar directly exposes Plotter, Portrait Studio,
+  Drawings, Drawing, Motion and Video; Guided and Active Learning stay in View.
+  Drawings opens Drawing Reviewer, while Drawing toggles the execution pane.
+  Plotter returns from Portrait Studio to retained docks. Revealing a plotter
+  workflow selects its existing camera role without changing Learning or physical
+  Draw prerequisites. Closing dock controls retains the central Plotter canvas.
+- Toolbar **Use Saved Learning** follows selected LIVE controller **Connect**,
+  then **Enable Motion & Raise Pen**, then canonical saved-package acceptance.
+  It remains visible with Guided Learning hidden and Learning off; its disabled
+  reason identifies the missing prerequisite. The Learning panel preserves its
+  existing nonmotion preconnection acceptance path.
 - **New Sheet — Same Contact Plane** preserves completed Learning/calibration,
   clears prior-sheet transients after persistence, and requires current exact-frame
   **Confirm sheet coverage**. **Contact Plane Changed** invalidates the dependent

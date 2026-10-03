@@ -43,6 +43,21 @@ than generating another **Start**, **Continue**, or acceptance button. The
 complete Learning Path button graph is
 [Learning Path Button Transitions](LEARNING_PATH_BUTTON_TRANSITIONS.md).
 
+The persistent flat application bar below the native session toolbar directly exposes
+Plotter, Portrait Studio, Drawings, Drawing,
+Motion and Video. Guided Learning and Active Learning retain their View-menu
+routes. Drawings opens the retained Drawing Reviewer; Drawing opens the execution
+pane. Returning to Plotter retains dock and workflow state.
+
+For toolbar restoration, select the LIVE controller, choose **Connect**, then
+**Enable Motion & Raise Pen**, then **Use Saved Learning**. The last control stays
+visible with Guided Learning hidden and Learning switched off, and identifies its
+missing prerequisite when unavailable. It reuses the canonical saved-package
+request and existing reset-owner admission. The Learning panel still permits
+nonmotion saved-package acceptance before connection. Neither acceptance path
+verifies current physical position: **Re-establish Position from Camera** still
+requires current exact-frame cap evidence and settled Pen Up before Drawing.
+
 Before Learning Path motion, **Connect** performs only the complete passive
 controller probe. A returned alarm or fault remains visible as typed current
 controller evidence while the failed link is closed. If an alarm is reported,

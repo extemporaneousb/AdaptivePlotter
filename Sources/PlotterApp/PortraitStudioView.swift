@@ -23,6 +23,33 @@ struct PortraitStudioView: View {
   @State private var isStartingCapture = false
 
   private var candidate: PortraitCandidate? { model.selectedCandidate }
+  private var canBrowsePhotos: Bool {
+    !model.isCapturing && !isStartingCapture && model.loadingPhotoID == nil
+      && !model.photoListItems.isEmpty
+  }
+  private var canBrowsePreviousDrawing: Bool {
+    candidate != nil && !model.isCapturing && !isStartingCapture && !model.isProcessing
+      && model.loadingPhotoID == nil && (!model.isExploring || model.canGoBackExploration)
+  }
+  private var canBrowseNextDrawing: Bool {
+    candidate != nil && !model.isExploring && !model.isCapturing && !isStartingCapture && !model.isProcessing
+      && model.loadingPhotoID == nil
+  }
+
+  private func handleNavigation(_ action: PortraitNavigationKey) -> Bool {
+    switch action {
+    case .previousPhoto, .nextPhoto:
+      guard canBrowsePhotos else { return false }
+      model.movePhoto(by: action == .previousPhoto ? -1 : 1, strokeStyle: strokeStyle)
+    case .previousDrawing:
+      guard canBrowsePreviousDrawing else { return false }
+      model.previousPortrait()
+    case .nextDrawing:
+      guard canBrowseNextDrawing else { return false }
+      model.nextPortrait(strokeStyle: strokeStyle)
+    }
+    return true
+  }
   private var previewCandidate: PortraitCandidate? {
     candidate ?? (model.isProcessing && model.completedCandidate?.photoID == model.selectedPhotoID
       ? model.completedCandidate : nil)
@@ -112,6 +139,10 @@ struct PortraitStudioView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("portrait.workspace")
+    .background {
+      PortraitNavigationKeyRouter(enabled: !importing && !cameraSettings && !showsHistory && !showsSource,
+        handle: handleNavigation)
+    }
     .onAppear {
       model.renderIfNeeded(strokeStyle: strokeStyle)
       model.cancelPortraitStep()
@@ -153,8 +184,14 @@ struct PortraitStudioView: View {
           }
         }
       } label: {
-        Label(model.isCapturing ? "Cancel Capture" : "Capture Photo",
-          systemImage: model.isCapturing ? "stop.fill" : "camera.fill")
+        VStack(spacing: 7) {
+          Image(systemName: model.isCapturing ? "stop.fill" : "camera.fill")
+            .font(.system(size: 26, weight: .medium))
+          Text(model.isCapturing ? "Cancel Capture" : "Capture Photo")
+            .font(.callout.weight(.semibold))
+            .fixedSize()
+        }
+        .frame(width: 104, height: 88)
       }
       .buttonStyle(.borderedProminent)
       .disabled(!model.isCapturing && (isStartingCapture || model.cameraIsStarting || model.selectedDeviceID == nil))
@@ -220,16 +257,14 @@ struct PortraitStudioView: View {
   private var browserControls: some View {
     PortraitAdaptiveRow {
       Button { model.previousPortrait() } label: { Label("Previous", systemImage: "chevron.left") }
-        .help(model.canGoBackExploration ? "Revisit the previous retained drawing" : "Try another drawing before this one")
-        .disabled(candidate == nil || model.isCapturing || model.isProcessing || (model.isExploring && !model.canGoBackExploration))
-        .keyboardShortcut(.leftArrow, modifiers: [.command])
+        .help(model.canGoBackExploration ? "Revisit the previous retained drawing (Option–Left Arrow)" : "Try another drawing before this one (Option–Left Arrow)")
+        .disabled(!canBrowsePreviousDrawing)
         .accessibilityIdentifier("portrait.exploration.back")
       Button { model.nextPortrait(strokeStyle: strokeStyle) } label: {
         Label("Next", systemImage: "chevron.right")
       }
-      .help(model.canGoForwardPortrait ? "Revisit the next retained drawing" : "Try different parameters for the selected region")
-      .disabled(candidate == nil || model.isExploring || model.isCapturing || model.isProcessing)
-      .keyboardShortcut(.rightArrow, modifiers: [.command])
+      .help(model.canGoForwardPortrait ? "Revisit the next retained drawing (Option–Right Arrow)" : "Try different parameters for the selected region (Option–Right Arrow)")
+      .disabled(!canBrowseNextDrawing)
       .accessibilityIdentifier("portrait.exploration.next")
       Button("Cancel") { model.cancelPortraitStep() }
         .disabled(!model.isExploring)
@@ -242,6 +277,12 @@ struct PortraitStudioView: View {
             sourcePreview.frame(width: 330, height: 360)
             PortraitPhotoStrip(model: model, strokeStyle: strokeStyle).frame(width: 330)
           }.padding(12).accessibilityIdentifier("portrait.sourceFrame")
+            .background {
+              PortraitNavigationKeyRouter(enabled: showsSource, handle: { action in
+                guard action == .previousPhoto || action == .nextPhoto else { return false }
+                return handleNavigation(action)
+              }, allowsParentKeyWindow: true)
+            }
         }
       Button("History", systemImage: "clock") { showsHistory.toggle() }
         .accessibilityIdentifier("portrait.historyToggle")

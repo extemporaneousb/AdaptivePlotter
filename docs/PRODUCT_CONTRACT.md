@@ -1654,22 +1654,46 @@ ink frame adds a Learning step. A replacement sheet needs new coverage, not
 another Learning border exercise.
 
 
-The workbench keeps its video/portrait/simulation canvas permanently in the main
+The Plotter workspace keeps its video/simulation canvas permanently in the main
 window. The canvas has no close control or View-menu visibility command. Five
-optional control panes are Guided Learning, Video Settings, Motion, Active
-Learning, and Portrait Studio. Native View-menu Show/Hide commands and
-Command-Option-1 through Command-Option-5 control their visibility. Opening fills
-right, left, lower-right, then lower-left. A side with one pane uses its full
-height; two panes share that side through a native draggable divider. Closing a
-pane preserves sibling slots; an empty side returns its space to the canvas.
-A fifth opening replaces the oldest visible pane while retaining its workflow
-state. Layout preferences migrate from the former dock model, and native split
-views save divider sizes. There is no full-width bottom area, position menu,
-move icon, automatic workflow reset, or closable Video panel.
+optional dock panes are Guided Learning, Video Settings, Motion, Active Learning,
+and Drawing. Portrait Studio replaces the central workspace while preserving
+all dock memberships. Native View-menu Show/Hide commands and
+Command-Option-1 through Command-Option-6 retain access to all six surfaces.
+Opening a dock pane fills right, left, lower-right, then lower-left. A side with
+one pane uses its full height; two panes share that side through a native
+draggable divider. Closing a pane preserves sibling slots; an empty side returns
+its space to the canvas. A fifth dock opening replaces the oldest visible pane
+while retaining its workflow state. Layout preferences migrate from the former
+dock model, and native split views save divider sizes. There is no full-width
+bottom area, position menu, move icon, automatic workflow reset, or closable Video
+canvas.
+
+A persistent application bar directly below the native title-bar toolbar exposes
+flat, labeled Plotter, Portrait Studio,
+Drawings, Drawing, Motion and Video controls. Plotter returns from Portrait Studio
+to the retained plotter docks. Portrait Studio is a workspace toggle; Drawing,
+Motion and Video toggle their corresponding control panes. Opening a retained
+pane from Portrait Studio reveals it rather than closing its hidden membership.
+Selection reflects visible surfaces, not retained docks beneath Portrait Studio.
+Drawings opens the existing Drawing Reviewer sheet; it is separate from the Drawing
+execution pane. Guided Learning and Active Learning remain reachable through View
+and have no application-bar toggles. Native Toggle buttons show selected surfaces
+with the system accent color and label weight. Keeping navigation in this always
+visible row leaves the native session toolbar room for readable controller,
+Motion authorization, Saved Learning, diagnostics and global Stop at minimum width. The motion-unavailable warning
+retains its complete reason in accessibility and help, with the full text in Motion.
+
+**Use Saved Learning** is directly available in the window toolbar with Guided
+Learning hidden or Learning switched off. Its toolbar availability requires LIVE,
+a selected connected controller, and Motion enabled, followed by the existing
+saved-package and reset-owner admission checks. It dispatches the same canonical
+saved-package request as the Learning panel. The panel retains its nonmotion
+preconnection acceptance path. Applying Saved Learning neither moves hardware nor
+establishes current physical position; camera position recovery remains required.
 
 The session toolbar owns controller selection, amber Connect/Disconnect and
-Enable/Disable Motion actions, the diagnostic export tool, and the far-right
-red Achtung! control. Existing typed Stop requests and Escape routing are
+Enable/Disable Motion actions, the diagnostic export tool, and the red Achtung! control. Existing typed Stop requests and Escape routing are
 preserved; passive status badges and the separate command strip are removed.
 The existing diagnostic export copies the exact displayed camera pixels, their
 source/configuration/capture identity and digest, visible camera region, selected
@@ -1890,7 +1914,15 @@ retained results; cancellation and source/revision checks still gate publication
 Crop to face, head margin and background removal share the Parameters panel with
 drawing/feature controls and detail presets.
 
-Capture Photo stays in the toolbar. With a configured device, one click asks
+Capture Photo remains in Portrait Studio's capture row as a prominent 104 by 88
+point control with a camera icon above its visible label; acquisition changes it
+to Cancel Capture. Plain Left/Right Arrow navigates source photos; Option with
+Left/Right Arrow invokes the existing Previous/Next drawing actions. One scoped
+keyboard router preserves the matching busy/availability guards. The Photos popup
+also permits plain-arrow source browsing through its own scoped photo-only router;
+text/value editing, import, history, camera settings and other windows retain their
+native arrow handling.
+With a configured device, one click asks
 the existing observation owner to activate that portrait camera, awaits readiness,
 and takes a 0.8-second still-subject burst including exposure settling. One quality-selected
 frame becomes the new source photo; the burst does not create a pose gallery.

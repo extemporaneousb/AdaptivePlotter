@@ -8,6 +8,89 @@ import Testing
 @testable import PlotterRuntime
 
 extension PlotterApplicationRuntimeTests {
+  @Test("global Saved Learning projects the existing active-settlement refusal")
+  func savedLearningGlobalDecisionWaitsForSettlement() async throws {
+    let identities = TipCalibrationSemanticIdentityState.ephemeral()
+    let checkpoint = try acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity)
+    let box = ArtifactResetCheckpointStoreFixture(checkpoint: checkpoint)
+    let gate = PenRequestGate()
+    let machine = try LowerMachineSessionFixture(log: EventLog(), penRequestGate: gate)
+    let app = plotterApplicationRuntime(machine: machine,
+      statePersistencePort: ResetStatePersistencePort(checkpointStore: box),
+      tipCalibrationSemanticIdentities: identities, log: EventLog())
+    await app.establishMachineSession(machine.descriptor)
+    await submitControllerSession(app, .requestPassiveProbe)
+    let durableBefore = box.checkpoint
+    let before = app.testPlotterUIProjection(includesLearningPath: false).semantic
+    let action = try #require(before.actions.first {
+      if case .learningAction(let request) = $0.intent { return request.action == .applySavedLearning }
+      return false
+    })
+    let penTask = Task { await app.executeLearningPenCommand(.raise) }
+    try await waitForExecutorTurnsAsync { await machine.requestedPenCommands == [.raise] }
+    let during = app.testPlotterUIProjection(includesLearningPath: false).semantic
+    let blocked = try #require(during.action(id: action.id))
+    #expect(blocked.unavailableReason == "RetainedLearningWorkflow: Active Stop-sensitive work must settle before artifact/reset mutation.")
+    #expect(during.request(for: action.id) == nil)
+    #expect(app.artifactResetEpisodeSnapshot.savedLearning.appliedCheckpoint == nil)
+    #expect(box.checkpoint == durableBefore)
+    await gate.releaseFirstRequest()
+    await penTask.value
+    let settled = app.testPlotterUIProjection(includesLearningPath: false).semantic
+    #expect(settled.request(for: action.id) != nil)
+    await app.shutdown()
+  }
+
+  @Test("Saved Learning uses the exact global decision with Learning and its pane off")
+  func savedLearningGlobalDecisionWithoutLearningPane() async throws {
+    let identities = TipCalibrationSemanticIdentityState.ephemeral()
+    let checkpoint = try acceptedPenLearningTestCheckpoint(identity: identities.learningPathIdentity)
+    let box = ArtifactResetCheckpointStoreFixture(checkpoint: checkpoint)
+    let machine = try LowerMachineSessionFixture(log: EventLog())
+    let app = plotterApplicationRuntime(machine: machine,
+      statePersistencePort: ResetStatePersistencePort(checkpointStore: box),
+      tipCalibrationSemanticIdentities: identities, log: EventLog())
+    await app.establishMachineSession(machine.descriptor)
+    await submitControllerSession(app, .requestPassiveProbe)
+    let durableBefore = box.checkpoint
+    let before = app.testPlotterUIProjection(includesLearningPath: false).semantic
+    let oldAction = try #require(before.actions.first {
+      if case .learningAction(let request) = $0.intent { return request.action == .applySavedLearning }
+      return false
+    })
+    let staleRequest = try #require(before.request(for: oldAction.id))
+    await app.submitTestPlotterUIAction(PlotterAppUIActionID.learningMode)
+    try await waitUntil { !app.testLearningIsEnabled }
+    let projection = app.testPlotterUIProjection(includesLearningPath: false)
+    #expect(projection.learningPath == nil)
+    #expect(projection.controllerSession.sessionEstablished)
+    #expect(projection.controllerSession.motionAuthorized)
+    guard case .refused(let refusal) = await app.submitPlotterUIRequest(staleRequest) else {
+      Issue.record("Saved Learning must refuse its stale projected request.")
+      await app.shutdown()
+      return
+    }
+    #expect(refusal.reason == .staleUIRevision)
+    #expect(app.artifactResetEpisodeSnapshot.savedLearning.appliedCheckpoint == nil)
+    let penCommandsBefore = await machine.requestedPenCommands
+    let poseBefore = app.controllerPoseApplicability
+    let fresh = app.testPlotterUIProjection(includesLearningPath: false).semantic
+    let request = try #require(fresh.request(for: oldAction.id))
+    guard case .accepted = await app.submitPlotterUIRequest(request) else {
+      Issue.record("The current global Saved Learning decision must apply with Learning off.")
+      await app.shutdown()
+      return
+    }
+    #expect(app.artifactResetEpisodeSnapshot.savedLearning.appliedCheckpoint?.checkpointID == checkpoint.checkpointID)
+    #expect(app.penInteractionCompleted)
+    #expect(!app.testLearningIsEnabled)
+    #expect(app.controllerPoseApplicability == poseBefore)
+    #expect(await machine.requestedPenCommands == penCommandsBefore)
+    #expect(await machine.requestedBoundaryRequests.isEmpty)
+    #expect(box.checkpoint == durableBefore)
+    await app.shutdown()
+  }
+
   @Test("first Boundary refusal remains historical while current admission enables explicit retry and scoped reset")
   func firstBoundaryRefusalRecovery() async throws {
     let identities = TipCalibrationSemanticIdentityState.ephemeral()

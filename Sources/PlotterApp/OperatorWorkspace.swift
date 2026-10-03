@@ -5396,6 +5396,23 @@ final class PlotterApplicationRuntime:
         strip.requestDecisions().map { $0.candidate() }
       })
     }
+    // Choosing an accepted package is an explicit, nonmotion artifact decision.
+    // It remains reachable when the Learning pane and Learning mode are off,
+    // through the same typed request and episode record as the panel controls.
+    if savedLearningApplicationCandidate != nil {
+      for action in [PlotterLearningAction.applySavedLearning, .startNewLearning] {
+        let decision = PlotterUILearningActionDecision(
+          itemID: plotterUILearningOwnerID(currentLearning.currentItemID),
+          action: action,
+          unavailableReason: artifactResetRuntime.admissionRefusal(
+            for: action == .applySavedLearning ? .applySavedLearning : .retainSavedLearning,
+            facts: artifactResetAdmissionFacts
+          )
+        ).candidate()
+        candidates.removeAll { $0.id == decision.id }
+        candidates.append(decision)
+      }
+    }
     if recoverableTipCalibrationCheckpoint != nil || tipCalibrationRuntime.positionRecoveryIsAvailable {
       let recovery = PlotterUILearningActionDecision(
         itemID: plotterUILearningOwnerID(.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)),
@@ -6727,7 +6744,10 @@ final class PlotterApplicationRuntime:
   ) async -> String? {
     let isCapAction = kind == .reidentifyPenCap || kind == .replacePenCapReference
       || (kind == .cancel && capReidentificationAttemptID != nil)
-    guard learningIsEnabled || isCapAction else { return "Enable Learning before retrying." }
+    let isSavedLearningDecision = kind == .applySavedLearning || kind == .startNewLearning
+    guard learningIsEnabled || isCapAction || isSavedLearningDecision else {
+      return "Enable Learning before retrying."
+    }
     guard !learningResetInProgress else { return "Wait for the Learning reset to settle." }
     guard applicationAdmissionIsOpen else {
       return "The application is shutting down; no successor Learning effect can start."
