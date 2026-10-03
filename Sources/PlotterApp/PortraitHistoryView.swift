@@ -56,7 +56,8 @@ struct PortraitHistoryView: View {
         }
       }
       .overlay {
-        if entries.isEmpty { Text("No attempts in this view").foregroundStyle(.secondary) }
+        if !model.sketches.historyLoadHasCompleted { ProgressView("Loading retained history…") }
+        else if entries.isEmpty { Text("No attempts in this view").foregroundStyle(.secondary) }
       }
     }.accessibilityIdentifier("portrait.history")
   }

@@ -8,11 +8,11 @@ struct PortraitPhotoStrip: View {
 
   var body: some View {
     ScrollView(.horizontal) {
-      HStack(spacing: 8) {
+      LazyHStack(spacing: 8) {
         Text("Photos").font(.caption).foregroundStyle(.secondary)
-        ForEach(model.browsablePhotos) { photo in
+        ForEach(model.photoListItems) { photo in
           Button { model.selectPhoto(photo.id, strokeStyle: strokeStyle) } label: {
-            PortraitPhotoThumbnail(data: photo.data, id: photo.id)
+            PortraitBrowsablePhotoThumbnail(model: model, id: photo.id)
               .frame(width: 40, height: 40)
               .background(.black.opacity(0.05))
               .overlay {
@@ -37,11 +37,62 @@ struct PortraitPhotoStrip: View {
             }
           }
         }
+        if model.sketches.photoHasMore || model.sketches.photoBrowserState == .loading {
+          Button {
+            Task { await model.sketches.loadMorePhotos() }
+          } label: {
+            if model.sketches.photoBrowserState == .loading { ProgressView().controlSize(.small) }
+            else { Label("More Photos", systemImage: "ellipsis") }
+          }
+          .buttonStyle(.plain)
+          .task(id: model.sketches.photoPageRevision) {
+            await model.sketches.loadMorePhotos()
+          }
+        }
+        if case .failed(let reason) = model.sketches.photoBrowserState {
+          Button("Retry Photos") { Task { await model.sketches.loadMorePhotos() } }
+            .help(reason)
+        }
       }.padding(.horizontal, 1)
     }
     .scrollIndicators(.hidden)
     .frame(height: 48)
     .accessibilityIdentifier("portrait.recentPhotos")
+  }
+}
+
+/// A tile owns only its small decoded thumbnail, never a cached original.
+/// LazyHStack starts this task only when the tile enters its visible region.
+private struct PortraitBrowsablePhotoThumbnail: View {
+  let model: PortraitStudioModel
+  let id: UUID
+  @State private var image: CGImage?
+  @State private var failure: String?
+  var body: some View {
+    Group {
+      if let image { Image(decorative: image, scale: 1).resizable().scaledToFit() }
+      else if failure != nil { Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary) }
+      else { Color.secondary.opacity(0.1) }
+    }
+    .help(failure ?? "")
+    .task(id: id) {
+      do {
+        let photo = try await model.photoForBrowsing(id)
+        let decoder = Task.detached(priority: .utility) {
+          guard let source = CGImageSourceCreateWithData(photo.data as CFData, nil) else { return nil as CGImage? }
+          return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 208,
+          ] as CFDictionary)
+        }
+        let decoded = await withTaskCancellationHandler { await decoder.value } onCancel: { decoder.cancel() }
+        guard !Task.isCancelled else { return }
+        image = decoded
+        if decoded == nil { failure = "The retained source image could not be decoded." }
+      } catch { if !Task.isCancelled { failure = error.localizedDescription } }
+    }
+    .onDisappear { image = nil }
   }
 }
 

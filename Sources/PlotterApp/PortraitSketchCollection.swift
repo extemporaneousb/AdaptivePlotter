@@ -43,6 +43,15 @@ final class PortraitSketchCollection {
   private(set) var retainedBytes = 0
   private(set) var unresolvedMutations = 0
   private(set) var persistenceIssues: [String] = []
+  private(set) var photoReferences: [PortraitPhotoReference] = []
+  private(set) var photoBrowserState: PortraitPersistenceState = .loading
+  private(set) var photoHasMore = false
+  private(set) var photoPageRevision: UInt64 = 0
+  private(set) var historyLoadHasCompleted: Bool
+  @ObservationIgnored private var photoCursor: PortraitPhotoPageCursor?
+  @ObservationIgnored private var photoPageTask: Task<Void, Never>?
+  @ObservationIgnored private var photoBrowserHasLoaded = false
+  @ObservationIgnored private var deletedBrowseSources: [String: Date] = [:]
   @ObservationIgnored private let store: PortraitCandidateStore?
   @ObservationIgnored private var pending: [Mutation] = []
   @ObservationIgnored private var worker: Task<Void, Never>?
@@ -53,6 +62,7 @@ final class PortraitSketchCollection {
   init(store: PortraitCandidateStore? = nil) {
     self.store = store
     hasLoaded = store == nil
+    historyLoadHasCompleted = store == nil
     if store != nil { persistenceState = .loading; savedStylesState = .loading }
   }
 
@@ -61,7 +71,101 @@ final class PortraitSketchCollection {
     await worker?.value
   }
 
+  func loadPhotoBrowser() async {
+    guard !photoBrowserHasLoaded else { return }
+    await loadMorePhotos()
+  }
+
+  func loadMorePhotos() async {
+    if let photoPageTask { await photoPageTask.value; return }
+    guard !photoBrowserHasLoaded || photoHasMore else { return }
+    photoPageTask = Task {
+      defer { photoPageTask = nil }
+      photoBrowserState = .loading
+      do {
+        if let store {
+          let cursor = photoCursor
+          let reader = Task.detached(priority: .utility) { try store.loadPhotoPage(after: cursor) }
+          let page: PortraitPhotoPage
+          do { page = try await reader.value }
+          catch PortraitPhotoBrowserError.archiveChanged {
+            // A canonical save replaced the index. Restart its advisory cursor;
+            // the full archive and pending mutations are never replaced here.
+            page = try await Task.detached(priority: .utility) { try store.loadPhotoPage() }.value
+            photoReferences = []
+          }
+          var seen = Set(photoReferences.map(\.id))
+          photoReferences += page.photos.filter {
+            !browseSourceWasDeleted($0) && seen.insert($0.id).inserted
+          }
+          photoCursor = page.next
+          photoHasMore = page.next != nil
+          // Recipes are an independent cheap catalog, not a partial archive.
+          if !historyLoadHasCompleted {
+            archive.savedStyles = page.savedStyles
+            for mutation in pending { mutation.apply(to: &archive) }
+            savedStylesState = .saved
+          }
+        } else {
+          var seen = Set<UUID>()
+          var references = sourcePhotos.map { PortraitPhotoReference($0) }
+          seen.formUnion(references.map(\.id))
+          references += entries.reversed().compactMap { entry in
+            guard entry.candidate.renderPose != nil, seen.insert(entry.candidate.photoID).inserted else { return nil }
+            return PortraitPhotoReference(candidate: entry.candidate, recordSHA256: nil)
+          }
+          references.sort { $0.capturedAt > $1.capturedAt }
+          let end = min(references.count, photoReferences.count + 100)
+          photoReferences = Array(references.prefix(end))
+          photoHasMore = end < references.count
+        }
+        photoBrowserHasLoaded = true
+        photoBrowserState = .saved
+        photoPageRevision &+= 1
+      } catch {
+        photoBrowserState = .failed(error.localizedDescription)
+        if !historyLoadHasCompleted { savedStylesState = .failed(error.localizedDescription) }
+      }
+    }
+    await photoPageTask?.value
+  }
+
+  func photoForBrowsing(_ id: UUID) async throws -> PortraitPhoto {
+    // A freshly queued source may not yet appear in the committed index.
+    if let photo = sourcePhotos.first(where: { $0.id == id }) { return photo }
+    if let candidate = entries.last(where: { $0.candidate.photoID == id })?.candidate,
+      candidate.renderPose != nil {
+      return try PortraitPhotoReference(candidate: candidate, recordSHA256: nil)
+        .materialize(source: candidate.sourceData)
+    }
+    guard let reference = photoReferences.first(where: { $0.id == id }),
+      !browseSourceWasDeleted(reference), let store else {
+      throw PortraitPhotoBrowserError.sourceUnavailable
+    }
+    let reader = Task.detached(priority: .utility) {
+      do { return try store.loadPhoto(reference) }
+      catch PortraitPhotoBrowserError.archiveChanged {
+        try Task.checkCancellation()
+        return try store.loadPhoto(reference)
+      }
+    }
+    let photo = try await withTaskCancellationHandler { try await reader.value } onCancel: { reader.cancel() }
+    guard !Task.isCancelled, !browseSourceWasDeleted(reference),
+      photoReferences.contains(where: { $0.id == reference.id && $0.sourceSHA256 == reference.sourceSHA256 }) else {
+      throw PortraitPhotoBrowserError.sourceUnavailable
+    }
+    return photo
+  }
+
+  private func browseSourceWasDeleted(_ reference: PortraitPhotoReference) -> Bool {
+    deletedBrowseSources[reference.sourceSHA256].map { reference.capturedAt <= $0 } ?? false
+  }
+
   func retainSourcePhoto(_ photo: PortraitPhoto) {
+    let reference = PortraitPhotoReference(photo)
+    if !browseSourceWasDeleted(reference), !photoReferences.contains(where: { $0.id == photo.id }) {
+      photoReferences.insert(reference, at: 0)
+    }
     enqueue(.sourcePhoto(photo))
   }
 
@@ -131,7 +235,9 @@ final class PortraitSketchCollection {
     let affected = entries.filter { $0.candidate.sourceSHA256 == sourceSHA256 }
     guard !affected.isEmpty || sourcePhotos.contains(where: {
       PortraitCandidateCoding.digest($0.data) == sourceSHA256
-    }) else { return }
+    }) || photoReferences.contains(where: { $0.sourceSHA256 == sourceSHA256 }) else { return }
+    deletedBrowseSources[sourceSHA256] = Date()
+    photoReferences.removeAll { $0.sourceSHA256 == sourceSHA256 }
     enqueue(.delete(.init(id: UUID(), kind: .source, identity: sourceSHA256,
       affectedCandidateIDs: affected.map(\.id),
       assetSHA256s: [sourceSHA256] + affected.map { $0.candidate.rasterSHA256 }, createdAt: Date())))
@@ -257,6 +363,7 @@ final class PortraitSketchCollection {
         savedStylesState = .saved
       } catch { savedStylesState = .failed(error.localizedDescription) }
       let loaded = await store.load()
+      historyLoadHasCompleted = true
       persistenceIssues = loaded.issues
       pendingCleanupCount = loaded.pendingCleanupCount
       pendingCleanupBytes = loaded.pendingCleanupBytes

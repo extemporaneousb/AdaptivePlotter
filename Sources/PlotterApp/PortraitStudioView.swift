@@ -119,7 +119,7 @@ struct PortraitStudioView: View {
     .onDisappear {
       model.cancelPortraitStep()
     }
-    .task { await model.loadArchive() }
+    .task { await model.loadPhotoBrowser() }
     .onChange(of: model.renderConfiguration) { _, _ in
       model.renderIfConfigurationChanged(strokeStyle: strokeStyle)
     }
@@ -248,6 +248,7 @@ struct PortraitStudioView: View {
         .popover(isPresented: $showsHistory, arrowEdge: .bottom) {
           PortraitHistoryView(model: model, strokeStyle: strokeStyle) { showsHistory = false }
             .padding(12).frame(width: 380, height: 400)
+            .task { await model.loadArchive() }
         }
     }.controlSize(.small)
       .accessibilityIdentifier("portrait.browserControls")

@@ -8,6 +8,73 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Bounded retained photo browsing, 2026-10-03
+
+Task `task-ddf047b7121a4772ac99765d1a458d07` removes Portrait Studio opening's
+full candidate-archive prerequisite. The operator's committed schema-3 index
+contains 3,163 candidate references and 32 independently saved source records
+in 1,105,856 bytes, without a compact photo catalog. Those source records do not
+count every legacy candidate-linked source.
+
+Studio now reads advisory source/recipe metadata through its existing store and
+collection owners. Healthy canonical saves include a deduplicated, newest-first
+photo catalog. Browsing requests at most 100 descriptors per page, reads original
+bytes only for visible lazy-row tiles or a selected photo, and advances at the
+scroll end with More Photos/Retry Photos controls. Existing schema-3 indexes
+first expose independent sources, then scan at most 100 backwards candidate
+metadata records per request. Empty duplicate-only batches still advance the
+cursor. Embedded/bulk schemas 1–2 skip program geometry but retain their existing
+checksum/JSON parsing costs. Browsing is read-only, including legacy inspection.
+
+Pages remain separate from the complete archive snapshot. Mutations still join
+full verification and merge pending changes before committing; metadata-only
+source deletion resolves currently unloaded attempts through the same tombstone
+owner. Removed/changed pixels and late selections are refused. Full History and
+physical review load exact candidates explicitly; fresh treatment steps await
+retained preference/rejection history. Neither browsing nor its independently
+scheduled readers grants Drawing or ink authority.
+
+The first test build was interrupted before fixture correction. The next build
+compiled app code but failed on a nested Swift Testing require macro in a new
+fixture; no runtime receipt is claimed for it. After correction, the broad
+selection ran 61 tests with one failure in an old four-to-one record/index size
+assumption, now outdated by the added photo metadata. All nine new browser tests
+passed, including 100/100/5 paging, zero geometry/pixel materialization, bounded
+legacy discovery, embedded/bulk provenance, full-history merge after partial
+browsing, unloaded source deletion/reimport, cancellation, corrupt pixels/index
+and canonical provenance refresh. The size fixture retains its missing-record
+recipe-load and no-replacement checks. After adapting it and making recipe-read
+errors visible, 19 focused browser/style/preference tests passed in 47.081 seconds.
+Hosted Studio layout checks in the broad selection passed; they do not prove
+native interactive performance. `make validate-app` passed debug compilation,
+stable-local signing, launcher logic/validation and bundle negative checks. The strict-verified signed bundle
+is staged unlaunched at `.build/PhotoBrowser-ddf0/AdaptivePlotter.app`, executable
+SHA-256 `ae17233fe5d6de1a51dd70fb0a89335521daa1074e1a565a3b3e1489eefc175a`.
+The final configured run `photo-browser-final-v1` passed docs-check (43.862 s),
+sequential quick-test (704.874 s with `SWIFT_FLAGS=--no-parallel`) and diff-check.
+Its retained XML contains 1,722 cases, zero failures and 24 skipped cases, including
+the earlier startup recovery/UI fixture corrections. Machine event
+`f31ce1c42d4848b8cfca50fc9feb8b3170448d5287d6d853d09fed226a16784d`
+binds the tested source tree; the subsequent ledger-only receipt update receives
+its own narrow docs/diff check. Receipts are under `.build/PhotoBrowser-ddf0/evidence`.
+
+An APFS disposable copy of the operator's current PortraitCandidates directory
+was measured read-only with the app absent and no other Swift test process.
+The opt-in benchmark's first run measured 32 source descriptors in 51.644 ms,
+zero candidate records and zero asset reads. The next page inspected exactly
+100 candidate metadata records in 482.785 ms and exposed two additional unique
+sources. One source original (1,100,063 bytes) read/checksum/provenance retrieval
+measured 48.014 ms. The copied committed index remained byte-identical. These are
+single-workload debug storage-path observations, excluding thumbnail decode,
+native painting, generation, full history verification and physical first ink.
+A second fresh-process run measured the same first 32 descriptors in 26.555 ms,
+next 100-record/two-photo batch in 221.594 ms and the same original in 25.896 ms.
+Both first pages opened zero candidate records or assets. Two samples with OS
+cache effects do not establish a general latency guarantee or a controlled
+full-archive before/after comparison.
+Production archives and the operator's primary app bundle were not changed by
+this work; no app launch/restart, camera/controller or physical operation occurred.
+
 ## Native startup archive timeout correction, 2026-10-03
 
 Task `task-49515e8b5281438cbfe6d89444986b02` follows an actual
@@ -49,6 +116,9 @@ UI-actionability fixture that still projected Learning before startup recovery.
 That fixture now awaits recovery; all 21 UI-authority tests passed in 0.298 seconds.
 The configured run itself remains failed (622.686 seconds); it is not represented
 as a full-suite pass. Final runtime source was unchanged by these fixture fixes.
+The later combined photo-browser task's sequential configured suite passed with
+1,722 cases, zero failures and 24 skips, including these adapted startup fixtures;
+see the photo-browser receipt above.
 `make docs-check` and `make validate-app` passed. These are software and bundle checks, not a native
 launch of the fix.
 

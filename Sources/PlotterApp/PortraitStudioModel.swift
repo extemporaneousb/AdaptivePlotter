@@ -72,6 +72,11 @@ final class PortraitStudioModel {
   private(set) var recentPhotos: [PortraitPhoto] = []
   private(set) var selectedPhotoID: UUID?
   @ObservationIgnored private var retainedEditSource: PortraitPhoto?
+  @ObservationIgnored private var photoSelectionTask: Task<Void, Never>?
+  @ObservationIgnored private var photoSelectionRevision: UInt64 = 0
+  private(set) var loadingPhotoID: UUID?
+  @ObservationIgnored private var historyStepTask: Task<Void, Never>?
+  @ObservationIgnored private var historyStepRevision: UInt64 = 0
   private var selectedSource: PortraitPhoto? {
     recentPhotos.first(where: { $0.id == selectedPhotoID })
       ?? (retainedEditSource?.id == selectedPhotoID ? retainedEditSource : nil)
@@ -91,6 +96,19 @@ final class PortraitStudioModel {
     }
   }
   var selectedPhoto: Data? { selectedCandidate?.sourceData ?? selectedSource?.data }
+  var photoListItems: [PortraitPhotoListItem] {
+    var seen = Set<UUID>()
+    return recentPhotos.reversed().map { PortraitPhotoListItem(id: $0.id, label: $0.label) }
+      .filter { seen.insert($0.id).inserted }
+      + sketches.photoReferences.compactMap {
+        seen.insert($0.id).inserted ? PortraitPhotoListItem(id: $0.id, label: $0.label) : nil
+      }
+  }
+
+  func photoForBrowsing(_ id: UUID) async throws -> PortraitPhoto {
+    if let photo = recentPhotos.first(where: { $0.id == id }) { return photo }
+    return try await sketches.photoForBrowsing(id)
+  }
   var retainedPhotoBytes: Int { recentPhotos.reduce(0) { $0 + $1.data.count } }
   let captureDuration: Double = 0.8
   private(set) var isCapturing = false
@@ -476,7 +494,38 @@ final class PortraitStudioModel {
   }
 
   func selectPhoto(_ id: UUID, strokeStyle: StrokeStyle) {
-    guard !isShutdown, let photo = browsablePhotos.first(where: { $0.id == id }) else { return }
+    guard !isShutdown else { return }
+    photoSelectionRevision &+= 1
+    photoSelectionTask?.cancel()
+    loadingPhotoID = nil
+    if let photo = browsablePhotos.first(where: { $0.id == id }) {
+      installPhotoSelection(photo, strokeStyle: strokeStyle)
+      return
+    }
+    guard sketches.photoReferences.contains(where: { $0.id == id }) else { return }
+    let revision = photoSelectionRevision
+    let priorSelection = selectedPhotoID
+    let priorRender = renderRevision
+    let priorAcquisition = acquisitionRevision
+    loadingPhotoID = id
+    photoSelectionTask = Task {
+      defer { if revision == photoSelectionRevision { loadingPhotoID = nil; photoSelectionTask = nil } }
+      do {
+        let photo = try await photoForBrowsing(id)
+        guard !isShutdown, !Task.isCancelled, revision == photoSelectionRevision,
+          selectedPhotoID == priorSelection, renderRevision == priorRender,
+          acquisitionRevision == priorAcquisition else { return }
+        installPhotoSelection(photo, strokeStyle: strokeStyle)
+      } catch {
+        if !Task.isCancelled, revision == photoSelectionRevision { authoringError = error.localizedDescription }
+      }
+    }
+  }
+
+  func awaitPhotoSelection() async { await photoSelectionTask?.value }
+
+  private func installPhotoSelection(_ photo: PortraitPhoto, strokeStyle: StrokeStyle) {
+    let id = photo.id
     if let entry = sketches.attempts.first(where: {
       $0.candidate.photoID == id && $0.candidate.recipe.style == style
         && $0.candidate.recipe.vectorOptions.bounded == vectorOptions.bounded
@@ -499,10 +548,16 @@ final class PortraitStudioModel {
   func deleteRetainedSource(_ photoID: UUID, strokeStyle: StrokeStyle) {
     let sources = Set(sketches.entries.filter { $0.candidate.photoID == photoID }.map { $0.candidate.sourceSHA256 })
       .union(sketches.sourcePhotos.filter { $0.id == photoID }.map { PortraitCandidateCoding.digest($0.data) })
+      .union(sketches.photoReferences.filter { $0.id == photoID }.map(\.sourceSHA256))
     var photoIDs = Set(sketches.entries.filter { sources.contains($0.candidate.sourceSHA256) }.map { $0.candidate.photoID })
     photoIDs.formUnion(sketches.sourcePhotos.filter {
       sources.contains(PortraitCandidateCoding.digest($0.data))
     }.map(\.id))
+    photoIDs.formUnion(sketches.photoReferences.filter { sources.contains($0.sourceSHA256) }.map(\.id))
+    if let loadingPhotoID, photoIDs.contains(loadingPhotoID) {
+      photoSelectionRevision &+= 1; photoSelectionTask?.cancel(); photoSelectionTask = nil
+      self.loadingPhotoID = nil
+    }
     photoIDs.insert(photoID)
     // This explicit source-deletion operation includes byte-identical recent
     // aliases, even when one alias has not completed its first render.
@@ -637,6 +692,19 @@ final class PortraitStudioModel {
   }
 
   private func requestPortraitStep(current: PortraitCandidate, pen: StrokeStyle, backwards: Bool) {
+    if !sketches.historyLoadHasCompleted {
+      guard historyStepTask == nil else { return }
+      let revision = historyStepRevision
+      singlePortraitStatus = "Loading retained preference history…"
+      historyStepTask = Task {
+        defer { if revision == historyStepRevision { historyStepTask = nil } }
+        await sketches.load()
+        guard !Task.isCancelled, !isShutdown, selectedCandidate?.id == current.id,
+          completedKey?.strokeStyle == pen else { return }
+        requestPortraitStep(current: current, pen: pen, backwards: backwards)
+      }
+      return
+    }
     guard !isExploring, PortraitStyle.authoringCases.contains(style), let photo = selectedSource,
       photo.id == current.photoID else { return }
     if explorationRegion != nil, PortraitRegionalTreatment.Field(raster: current.raster) == nil {
@@ -800,6 +868,9 @@ final class PortraitStudioModel {
   }
 
   private func cancelExplorationWork() {
+    historyStepRevision &+= 1
+    historyStepTask?.cancel()
+    historyStepTask = nil
     explorationJob = nil
     pendingRenders.removeAll { $0.explorationID != nil }
     if activeRender?.explorationID != nil {
@@ -1027,7 +1098,7 @@ final class PortraitStudioModel {
   }
 
   func movePhoto(by offset: Int, strokeStyle: StrokeStyle) {
-    let photos = browsablePhotos
+    let photos = photoListItems
     guard !photos.isEmpty else { return }
     let current = photos.firstIndex(where: { $0.id == selectedPhotoID }) ?? 0
     let index = ((current + offset) % photos.count + photos.count) % photos.count
@@ -1035,7 +1106,11 @@ final class PortraitStudioModel {
     selectPhoto(photos[index].id, strokeStyle: strokeStyle)
   }
 
-  func loadArchive() async { await sketches.load() }
+  func loadArchive() async {
+    await sketches.load()
+    await sketches.loadPhotoBrowser()
+  }
+  func loadPhotoBrowser() async { await sketches.loadPhotoBrowser() }
 
   func feedback(for candidate: PortraitCandidate) -> PortraitAttemptFeedback {
     sketches.entries.first(where: { $0.id == candidate.id })?.attempt?.feedback ?? .unknown
@@ -1137,6 +1212,8 @@ final class PortraitStudioModel {
   /// Stop expensive work without discarding captured photos or the last
   /// completed draft. Replacement work waits for the current worker to settle.
   func cancelRendering() async {
+    photoSelectionRevision &+= 1; photoSelectionTask?.cancel(); photoSelectionTask = nil
+    loadingPhotoID = nil
     cancelExplorationWork()
     acquisitionDiagnostics.cancellationCount += 1
     acquisitionRevision &+= 1
@@ -1156,12 +1233,17 @@ final class PortraitStudioModel {
     await workTask?.value
   }
 
-  func awaitRendering() async { await workTask?.value }
+  func awaitRendering() async {
+    await historyStepTask?.value
+    await workTask?.value
+  }
 
   func cameraDiagnostics() async -> CameraCaptureSnapshot { await camera.snapshot() }
 
   func shutdown() async {
     isShutdown = true
+    photoSelectionRevision &+= 1; photoSelectionTask?.cancel(); photoSelectionTask = nil
+    loadingPhotoID = nil
     await cancelRendering()
     await stopCamera()
     await sketches.awaitPersistence()

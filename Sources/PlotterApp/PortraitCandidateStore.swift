@@ -443,11 +443,13 @@ actor PortraitCandidateStore {
       verifiedLabels[label.id] = label; nextLabelRecords[label.id] = hash
       labels.append(LabelReference(id: label.id, sha256: hash))
     }
-    let indexed = IndexedArchive(schemaVersion: 3, entries: indexedEntries,
+    var indexed = IndexedArchive(schemaVersion: 3, entries: indexedEntries,
       labels: labels, tombstones: snapshot.tombstones,
       savedStyles: snapshot.savedStyles, sourcePhotos: snapshot.sourcePhotos?.map {
-        StoredSourcePhoto($0, sourceSHA256: sourcesByID[$0.id]!)
+        PortraitPhotoReference($0, sourceSHA256: sourcesByID[$0.id]!)
       })
+    indexed.photoCatalog = Self.photoCatalog(sources: indexed.sourcePhotos ?? [],
+      candidates: snapshot.entries.map(\.candidate), records: nextCandidateRecords)
     let payload = try encoder.encode(indexed)
     let bytes = try encoder.encode(IndexEnvelope(schemaVersion: 3,
       sha256: PortraitCandidateCoding.digest(payload), payload: payload))
@@ -555,9 +557,13 @@ actor PortraitCandidateStore {
       recordBytes[hash] = bytes.count
       return LabelReference(id: label.id, sha256: hash)
     }
-    let payload = try encoder.encode(IndexedArchive(schemaVersion: 3, entries: entries,
+    var indexed = IndexedArchive(schemaVersion: 3, entries: entries,
       labels: labels, tombstones: snapshot.tombstones, savedStyles: snapshot.savedStyles,
-      sourcePhotos: snapshot.sourcePhotos?.map { StoredSourcePhoto($0) }))
+      sourcePhotos: snapshot.sourcePhotos?.map { PortraitPhotoReference($0) })
+    indexed.photoCatalog = photoCatalog(sources: indexed.sourcePhotos ?? [],
+      candidates: snapshot.entries.map(\.candidate), records: Dictionary(uniqueKeysWithValues:
+        entries.map { ($0.candidateID, $0.candidateSHA256) }))
+    let payload = try encoder.encode(indexed)
     let envelope = IndexEnvelope(schemaVersion: 3, sha256: PortraitCandidateCoding.digest(payload), payload: payload)
     return try encoder.encode(envelope).count + recordBytes.values.reduce(0, +) + assets.values.reduce(0, +)
   }
@@ -620,6 +626,234 @@ actor PortraitCandidateStore {
   }
 }
 
+extension PortraitCandidateStore {
+  /// Independent read-only work deliberately bypasses the serialized installer:
+  /// a cold full archive validation must not hold the photo picker behind it.
+  /// Every result is still bound to the committed index and verified file bytes.
+  nonisolated func loadPhotoPage(after previous: PortraitPhotoPageCursor? = nil,
+    limit requestedLimit: Int = 100) throws -> PortraitPhotoPage {
+    let limit = min(100, max(1, requestedLimit))
+    let url = directoryURL.appendingPathComponent("index-v1.json")
+    guard FileManager.default.fileExists(atPath: url.path) else {
+      var isDirectory: ObjCBool = false
+      if FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), !isDirectory.boolValue {
+        throw PortraitCandidateStoreError.invalidIndex("The archive location is not a directory.")
+      }
+      return .init(photos: [], next: nil, savedStyles: [], candidateRecordsRead: 0)
+    }
+    let (envelope, state) = try Self.browseIndex(url)
+    if let previous, previous.indexState != state { throw PortraitPhotoBrowserError.archiveChanged }
+    var cursor = previous ?? .init(indexState: state)
+    let catalog = try browseCatalog(envelope)
+    var photos: [PortraitPhotoReference] = []
+    var recordsRead = 0
+    if cursor.sourceOffset < catalog.sources.count {
+      let end = min(catalog.sources.count, cursor.sourceOffset + limit)
+      for source in catalog.sources[cursor.sourceOffset..<end] {
+        if Self.isBrowsable(source, tombstones: catalog.tombstones), cursor.seen.insert(source.id).inserted {
+          photos.append(source)
+        }
+      }
+      cursor.sourceOffset = end
+    } else if !catalog.hasCompleteCatalog {
+      // Older indexes lack per-photo metadata. Scan at most one bounded batch
+      // of backwards candidate references per scroll request, skipping programs,
+      // analyzed rasters, thumbnails, labels and attempt records entirely.
+      let end = min(catalog.candidates.count, cursor.candidateOffset + limit)
+      for offset in cursor.candidateOffset..<end {
+        try Task.checkCancellation()
+        let candidate = try browseCandidate(catalog.candidates[offset])
+        recordsRead += catalog.candidates[offset].recordSHA256 == nil ? 0 : 1
+        guard candidate.pose != nil,
+          !catalog.tombstones.contains(where: { $0.kind != .label
+            && $0.affectedCandidateIDs.contains(candidate.id) && candidate.createdAt <= $0.createdAt }) else { continue }
+        let source = PortraitPhotoReference(candidate: candidate,
+          recordSHA256: catalog.candidates[offset].recordSHA256)
+        if Self.isBrowsable(source, tombstones: catalog.tombstones), cursor.seen.insert(source.id).inserted {
+          photos.append(source)
+        }
+      }
+      cursor.candidateOffset = end
+    }
+    guard try VerifiedFileState(url) == state else { throw PortraitPhotoBrowserError.archiveChanged }
+    let hasMore = cursor.sourceOffset < catalog.sources.count
+      || (!catalog.hasCompleteCatalog && cursor.candidateOffset < catalog.candidates.count)
+    return .init(photos: photos, next: hasMore ? cursor : nil,
+      savedStyles: catalog.savedStyles, candidateRecordsRead: recordsRead)
+  }
+
+  nonisolated func loadPhoto(_ reference: PortraitPhotoReference) throws -> PortraitPhoto {
+    let indexURL = directoryURL.appendingPathComponent("index-v1.json")
+    let (envelope, state) = try Self.browseIndex(indexURL)
+    let catalog = try browseCatalog(envelope)
+    // A new candidate can update legacy-derived display metadata without
+    // changing source identity. Use current committed provenance for that exact
+    // ID/hash, rather than permanently breaking an already-visible tile.
+    let currentSource = catalog.sources.first { $0.id == reference.id && $0.sourceSHA256 == reference.sourceSHA256 }
+    var isCommitted = currentSource != nil
+    if !isCommitted, !catalog.hasCompleteCatalog, let hash = reference.candidateRecordSHA256,
+      let candidate = catalog.candidates.first(where: { $0.recordSHA256 == hash }) {
+      let metadata = try browseCandidate(candidate)
+      isCommitted = metadata.pose != nil
+        && PortraitPhotoReference(candidate: metadata, recordSHA256: hash) == reference
+        && !catalog.tombstones.contains(where: { $0.kind != .label
+          && $0.affectedCandidateIDs.contains(metadata.id) && metadata.createdAt <= $0.createdAt })
+    }
+    if !isCommitted, !catalog.hasCompleteCatalog, reference.candidateRecordSHA256 == nil {
+      isCommitted = catalog.candidates.contains { candidate in
+        guard let metadata = candidate.embedded, metadata.pose != nil else { return false }
+        return PortraitPhotoReference(candidate: metadata, recordSHA256: nil) == reference
+          && !catalog.tombstones.contains(where: { $0.kind != .label
+            && $0.affectedCandidateIDs.contains(metadata.id) && metadata.createdAt <= $0.createdAt })
+      }
+    }
+    let source = currentSource ?? reference
+    guard isCommitted, Self.isBrowsable(reference, tombstones: catalog.tombstones),
+      Self.isBrowsable(source, tombstones: catalog.tombstones) else {
+      throw PortraitPhotoBrowserError.sourceUnavailable
+    }
+    try Task.checkCancellation()
+    let (bytes, _) = try VerifiedFileState.read(directoryURL.appendingPathComponent("assets")
+      .appendingPathComponent(reference.sourceSHA256))
+    let photo = try source.materialize(source: bytes)
+    guard try VerifiedFileState(indexURL) == state else { throw PortraitPhotoBrowserError.archiveChanged }
+    return photo
+  }
+
+  nonisolated private static func browseIndex(_ url: URL) throws -> (IndexEnvelope, VerifiedFileState) {
+    let (bytes, state) = try VerifiedFileState.read(url)
+    let envelope = try JSONDecoder().decode(IndexEnvelope.self, from: bytes)
+    guard [1, 2, 3].contains(envelope.schemaVersion) else {
+      throw PortraitCandidateStoreError.unsupportedVersion(envelope.schemaVersion)
+    }
+    guard PortraitCandidateCoding.digest(envelope.payload) == envelope.sha256 else {
+      throw PortraitCandidateStoreError.invalidIndex("checksum mismatch; original file preserved")
+    }
+    return (envelope, state)
+  }
+
+  nonisolated private func browseCatalog(_ envelope: IndexEnvelope) throws -> PhotoBrowseCatalog {
+    if envelope.schemaVersion == 3 {
+      let indexed = try JSONDecoder().decode(IndexedArchive.self, from: envelope.payload)
+      guard indexed.schemaVersion == 3 else { throw PortraitCandidateStoreError.unsupportedVersion(indexed.schemaVersion) }
+      let sources = indexed.photoCatalog ?? (indexed.sourcePhotos ?? []).sorted(by: Self.newestPhotoFirst)
+      guard Set(sources.map(\.id)).count == sources.count else {
+        throw PortraitCandidateStoreError.invalidIndex("duplicate source photo identity")
+      }
+      return .init(sources: sources,
+        candidates: indexed.entries.reversed().map { .init(id: $0.candidateID, recordSHA256: $0.candidateSHA256) },
+        tombstones: indexed.tombstones, savedStyles: indexed.savedStyles ?? [],
+        hasCompleteCatalog: indexed.photoCatalog != nil)
+    }
+    var bytes = envelope.payload
+    var styles: [PortraitSavedStyle] = []
+    if envelope.schemaVersion == 2 {
+      let manifest = try JSONDecoder().decode(ArchiveManifest.self, from: bytes)
+      bytes = try browseRecord(manifest.recordSHA256)
+      styles = manifest.savedStyles ?? []
+    }
+    // Embedded/bulk legacy JSON still needs checksum/parsing; its programs and
+    // assets are never decoded or admitted by this advisory reader.
+    let legacy = try JSONDecoder().decode(LegacyPhotoCatalog.self, from: bytes)
+    guard [1, 2].contains(legacy.schemaVersion) else {
+      throw PortraitCandidateStoreError.unsupportedVersion(legacy.schemaVersion)
+    }
+    return .init(sources: (legacy.sourcePhotos ?? []).sorted(by: Self.newestPhotoFirst),
+      candidates: legacy.entries.reversed().map { .init(id: $0.candidate.id, embedded: $0.candidate) },
+      tombstones: legacy.tombstones, savedStyles: legacy.savedStyles ?? styles, hasCompleteCatalog: false)
+  }
+
+  nonisolated private func browseRecord(_ hash: String) throws -> Data {
+    guard Self.browseHashIsValid(hash) else { throw PortraitCandidateStoreError.invalidIndex("invalid record identity") }
+    let (bytes, _) = try VerifiedFileState.read(directoryURL.appendingPathComponent("records").appendingPathComponent(hash))
+    guard PortraitCandidateCoding.digest(bytes) == hash else { throw PortraitCandidateStoreError.invalidIndex("record checksum mismatch") }
+    return bytes
+  }
+
+  nonisolated private func browseCandidate(_ reference: CandidatePhotoReference) throws -> CandidatePhotoMetadata {
+    if let embedded = reference.embedded { return embedded }
+    let candidate = try JSONDecoder().decode(CandidatePhotoMetadata.self,
+      from: browseRecord(reference.recordSHA256!))
+    guard candidate.id == reference.id else { throw PortraitCandidateStoreError.invalidIndex("candidate record identity mismatch") }
+    return candidate
+  }
+
+  nonisolated private static func browseHashIsValid(_ hash: String) -> Bool {
+    hash.count == 64 && hash.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+  }
+
+  nonisolated private static func isBrowsable(_ source: PortraitPhotoReference,
+    tombstones: [PortraitArchiveTombstone]) -> Bool {
+    browseHashIsValid(source.sourceSHA256) && !tombstones.contains {
+      $0.kind == .source && $0.identity == source.sourceSHA256 && source.capturedAt <= $0.createdAt
+    }
+  }
+
+  nonisolated private static func newestPhotoFirst(_ lhs: PortraitPhotoReference, _ rhs: PortraitPhotoReference) -> Bool {
+    lhs.capturedAt == rhs.capturedAt ? lhs.id.uuidString < rhs.id.uuidString : lhs.capturedAt > rhs.capturedAt
+  }
+
+  nonisolated private static func photoCatalog(sources: [PortraitPhotoReference],
+    candidates: [PortraitCandidate], records: [String: String]) -> [PortraitPhotoReference] {
+    var photos = sources
+    var seen = Set(sources.map(\.id))
+    for candidate in candidates.reversed() where candidate.renderPose != nil && seen.insert(candidate.photoID).inserted {
+      photos.append(.init(candidate: candidate, recordSHA256: records[candidate.id]))
+    }
+    return photos.sorted(by: newestPhotoFirst)
+  }
+}
+
+private struct PhotoBrowseCatalog {
+  let sources: [PortraitPhotoReference]
+  let candidates: [CandidatePhotoReference]
+  let tombstones: [PortraitArchiveTombstone]
+  let savedStyles: [PortraitSavedStyle]
+  let hasCompleteCatalog: Bool
+}
+
+private struct CandidatePhotoReference {
+  let id: String
+  var recordSHA256: String? = nil
+  var embedded: CandidatePhotoMetadata? = nil
+}
+
+fileprivate struct CandidatePhotoMetadata: Decodable {
+  private struct Program: Decodable {
+    struct Source: Decodable { let kind: String; let sourceIdentifier: String }
+    let source: Source
+  }
+  let id: String
+  let sourceSHA256: String
+  let photoID: UUID
+  let captureSessionID: UUID
+  let createdAt: Date
+  private let recordedPose: PortraitPose?
+  private let program: Program
+  let sourcePixelExtent: PortraitSourceCropExtent?
+  enum CodingKeys: String, CodingKey {
+    case id, sourceSHA256, photoID, captureSessionID, createdAt, program, sourcePixelExtent
+    case recordedPose = "pose"
+  }
+  var pose: PortraitPose? {
+    if let recordedPose { return recordedPose }
+    let source = program.source
+    guard source.kind == "portrait", source.sourceIdentifier.hasPrefix("portrait-v3|") else { return nil }
+    let tokens = source.sourceIdentifier.split(separator: "|").filter { $0.hasPrefix("pose=") }
+    guard tokens.count == 1, let token = tokens.first else { return nil }
+    return PortraitPose(rawValue: String(token.dropFirst(5)))
+  }
+}
+
+private struct LegacyPhotoCatalog: Decodable {
+  struct Entry: Decodable { let candidate: CandidatePhotoMetadata }
+  let schemaVersion: Int
+  let entries: [Entry]
+  let tombstones: [PortraitArchiveTombstone]
+  let sourcePhotos: [PortraitPhotoReference]?
+  let savedStyles: [PortraitSavedStyle]?
+}
+
 private struct IndexEnvelope: Codable {
   let schemaVersion: Int
   let sha256: String
@@ -644,7 +878,7 @@ private struct StoredArchive: Codable {
   let labels: [PortraitLabelRevision]
   let tombstones: [PortraitArchiveTombstone]
   let savedStyles: [PortraitSavedStyle]?
-  let sourcePhotos: [StoredSourcePhoto]?
+  let sourcePhotos: [PortraitPhotoReference]?
   init(entries: [StoredEntry], labels: [PortraitLabelRevision], indexed: IndexedArchive) {
     schemaVersion = 2; self.entries = entries; self.labels = labels
     tombstones = indexed.tombstones; savedStyles = indexed.savedStyles; sourcePhotos = indexed.sourcePhotos
@@ -656,13 +890,13 @@ private struct StoredArchive: Codable {
     labels = archive.labels
     tombstones = archive.tombstones
     savedStyles = includeSavedStyles ? archive.savedStyles : nil
-    sourcePhotos = archive.sourcePhotos?.map { StoredSourcePhoto($0) }
+    sourcePhotos = archive.sourcePhotos?.map { PortraitPhotoReference($0) }
   }
 }
 
 /// Source metadata is committed independently of a successful render. Pixels
 /// share the existing asset owner with candidates, never another photo store.
-private struct StoredSourcePhoto: Codable {
+struct PortraitPhotoReference: Codable, Equatable, Identifiable, Sendable {
   let id: UUID
   let sourceSHA256: String
   let label: String
@@ -673,6 +907,7 @@ private struct StoredSourcePhoto: Codable {
   let sourcePixelExtent: PortraitSourceCropExtent?
   let captureSessionID: UUID
   let selectionProvenance: PortraitCaptureSelectionProvenance?
+  var candidateRecordSHA256: String? = nil
 
   init(_ photo: PortraitPhoto, sourceSHA256: String? = nil) {
     id = photo.id; self.sourceSHA256 = sourceSHA256 ?? PortraitCandidateCoding.digest(photo.data)
@@ -680,6 +915,22 @@ private struct StoredSourcePhoto: Codable {
     captureNanoseconds = photo.captureNanoseconds; pose = photo.pose
     sourcePixelExtent = photo.sourcePixelExtent; captureSessionID = photo.captureSessionID
     selectionProvenance = photo.selectionProvenance
+  }
+
+  init(candidate: PortraitCandidate, recordSHA256: String?) {
+    id = candidate.photoID; sourceSHA256 = candidate.sourceSHA256
+    label = "Retained frame"; capturedAt = candidate.createdAt; frameID = nil
+    captureNanoseconds = nil; pose = candidate.renderPose!
+    sourcePixelExtent = candidate.sourcePixelExtent; captureSessionID = candidate.captureSessionID
+    selectionProvenance = nil; candidateRecordSHA256 = recordSHA256
+  }
+
+  fileprivate init(candidate: CandidatePhotoMetadata, recordSHA256: String?) {
+    id = candidate.photoID; sourceSHA256 = candidate.sourceSHA256
+    label = "Retained frame"; capturedAt = candidate.createdAt; frameID = nil
+    captureNanoseconds = nil; pose = candidate.pose!
+    sourcePixelExtent = candidate.sourcePixelExtent; captureSessionID = candidate.captureSessionID
+    selectionProvenance = nil; candidateRecordSHA256 = recordSHA256
   }
 
   func materialize(source: Data) throws -> PortraitPhoto {
@@ -748,7 +999,8 @@ private struct IndexedArchive: Codable {
   let labels: [LabelReference]
   let tombstones: [PortraitArchiveTombstone]
   let savedStyles: [PortraitSavedStyle]?
-  let sourcePhotos: [StoredSourcePhoto]?
+  let sourcePhotos: [PortraitPhotoReference]?
+  var photoCatalog: [PortraitPhotoReference]? = nil
 }
 
 private struct IndexedEntry: Codable {

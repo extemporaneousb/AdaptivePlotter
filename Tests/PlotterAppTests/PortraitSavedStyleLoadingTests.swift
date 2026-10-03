@@ -18,7 +18,10 @@ struct PortraitSavedStyleLoadingTests {
     let records = try FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent("records"), includingPropertiesForKeys: nil)
     #expect(records.count == 32)
     #expect(index.count < 16_384)
-    #expect(try records.reduce(0) { try $0 + Data(contentsOf: $1).count } > index.count * 4)
+    // The compact index now includes unique source metadata as well as recipes.
+    // Geometry remains outside it; the old four-to-one fixture ratio did not
+    // describe the catalog's independent loading contract.
+    #expect(try records.reduce(0) { try $0 + Data(contentsOf: $1).count } > index.count)
     try FileManager.default.removeItem(at: records[0])
     let store = PortraitCandidateStore(directoryURL: directory)
     #expect(try await store.loadSavedStyles().map(\.name) == ["Keep this"])

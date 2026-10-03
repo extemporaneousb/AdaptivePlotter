@@ -1357,6 +1357,28 @@ cleanup. Failed persistence remains pending with a visible retry; a capture
 status alone does not prove durable save. Legacy sources remain associated with
 their retained candidates and are not rewritten merely by reading them.
 
+Opening Portrait Studio reads the committed photo/recipe metadata catalog, not
+the full candidate archive. The retained photo picker shows the newest 100
+catalog sources and requests subsequent pages at the scroll end; original
+pixels are verified and decoded only for visible tiles or a selected source.
+The picker releases offscreen thumbnails. Existing indexes without a photo
+catalog expose independently retained sources first, then bounded batches of
+at most 100 backwards candidate metadata records; duplicates can produce an
+empty page while the cursor advances. Legacy program source provenance supplies
+pose only through its existing exact token format. All retained sources remain
+reachable, with explicit retry and more-photo controls.
+
+A browse page is advisory state, never an archive snapshot or Drawing evidence.
+Source deletion remains the full owner's tombstone operation and includes
+currently unloaded attempts. Pixel selection refuses removed or changed source
+bytes and stale publication after deletion. Full History and physical review
+load exact retained candidates explicitly; a fresh treatment step awaits full
+preference/rejection history rather than interpreting unloaded history as empty.
+New source/attempt mutations still join full archive verification and merge
+pending changes before the serialized writer can commit. Partial browsing cannot
+truncate retained history, and merely opening/scanning photos performs no
+legacy migration or archive write.
+
 
 
 Tip applicability separates:
