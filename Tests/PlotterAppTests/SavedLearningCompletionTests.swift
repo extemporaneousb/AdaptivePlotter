@@ -21,6 +21,7 @@ struct SavedLearningCompletionTests {
     let app = plotterApplicationRuntime(machine: machine,
       statePersistencePort: stores.persistence, drawingEvidencePort: stores.evidencePort,
       tipCalibrationSemanticIdentities: fixture.identities, log: EventLog())
+    await app.loadDrawingEvidenceArchive()
     if declined {
       await app.performTestExerciseAction(.startNewLearning, for: app.testCurrentLearningPathItemID)
     }

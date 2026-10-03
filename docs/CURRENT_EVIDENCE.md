@@ -8,6 +8,61 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Native startup archive timeout correction, 2026-10-03
+
+Task `task-49515e8b5281438cbfe6d89444986b02` follows an actual
+`make run-app` failure: the launcher reported that PID 5293 did not finish
+launching. This was a runtime timeout after compilation, not a compiler error.
+The user's debug bundle launched at 13:10:39 PDT; AppKit/UI logs resumed around
+13:14:14 and accepted Use Saved Learning at 13:14:19. Read-only inspection later
+confirmed `finishedLaunching=true` and regular activation policy. A later sample
+shows the main event loop running while the asynchronous Drawing loader still
+validates archived media coverage. The initial blocking stack was not captured;
+source inspection identifies a synchronous full `loadSnapshot()` in the main-actor
+initializer, followed by another full asynchronous startup read.
+
+Construction now performs neither Drawing-history nor Saved Learning checkpoint
+reads. The existing asynchronous load supplies verified evidence for calibration
+reconciliation and no-redraw restoration before publishing Saved Learning.
+Dependent Learning/reset, paper and Draw ingress remains unavailable during
+recovery; source-mode changes cannot race its publication. Cancellation or
+shutdown refuses late restoration. The full archive integrity checks, legacy
+upgrade, original persistence owner and controller/ink admission rules remain.
+The application evidence port no longer offers the synchronous snapshot route.
+
+The initial build was interrupted by edits during compilation and produced no
+validation receipt. The stable broad focused run compiled successfully and ran
+104 tests, with one old paper-write-failure fixture missing the newly required
+asynchronous startup phase. After adapting that setup, a narrow rerun passed
+17 tests in 12.476 seconds, including deferred construction reads, pending ingress,
+corrupt evidence, cancellation/shutdown and prepared calibration reconciliation.
+The other 103 broad checks passed, including Saved Learning, physical-position
+recovery, reset and no-redraw behavior. The first configured sequential quick-test
+failed after 664.479 seconds without retained output. A logged diagnostic selection
+ran 71 tests and found two preview-isolation timeouts in one parameterized test:
+its action fixture now loads the archive before selecting the camera, so the
+settled refusal is Learning incomplete rather than archive unavailable. That
+expectation was adapted; the other diagnostic tests passed. The final computation
+selection passed 14 tests in 2.580 seconds. The second configured sequential
+run retained an XML receipt: 1,712 test cases, with five failures all in the
+UI-actionability fixture that still projected Learning before startup recovery.
+That fixture now awaits recovery; all 21 UI-authority tests passed in 0.298 seconds.
+The configured run itself remains failed (622.686 seconds); it is not represented
+as a full-suite pass. Final runtime source was unchanged by these fixture fixes.
+`make docs-check` and `make validate-app` passed. These are software and bundle checks, not a native
+launch of the fix.
+
+The strict-verified stable-local signed debug bundle is staged at
+`.build/StartupRecovery-4951/AdaptivePlotter.app`, executable SHA-256
+`0caa13f1da2ad313b0c45b2af723970072a09c34a764cc137d0a96d9770aebf8`.
+The agent did not stop PID 5293 or replace its original bundle. Later inspection
+found that PID absent; unified logs record normal AppKit exit at 13:30:46 PDT and
+launchd termination `(0, 0, 0)`. The initiating actor is unknown, and unbroken
+session continuity is not asserted. The original executable retains SHA-256 `b91a8baf5d315fe199f78de2a450076d77e60fcce67d4493559d02f054ab83dc`.
+No agent application restart, camera/controller operation or physical motion was
+performed. Native launch timing of the corrected build remains unmeasured.
+Receipts are retained under `.build/StartupRecovery-4951/evidence`.
+
 ## Portrait Studio generation latency, 2026-10-03
 
 Task `task-2fb42698543d469fb8f07227cc919e78` removes repeated pixel-overlap

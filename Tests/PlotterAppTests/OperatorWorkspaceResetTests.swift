@@ -85,6 +85,7 @@ extension PlotterApplicationRuntimeTests {
       statePersistencePort: checkpointActions,
       log: log
     )
+    await workspace.loadDrawingEvidenceArchive()
     let paperBefore = workspace.currentPaperRevisionContext
     let graphBefore = Set(workspace.learningArtifactGraph.revisions)
     let tipBefore = workspace.tipCameraRegistration
@@ -111,6 +112,7 @@ extension PlotterApplicationRuntimeTests {
       tipCalibrationSemanticIdentities: identities
     )
     let workspace = harness.workspace
+    await workspace.loadDrawingEvidenceArchive()
     let originalPoseApplicability = workspace.controllerPoseApplicability
 
     #expect(workspace.learningArtifactGraph.revisions.isEmpty)
@@ -605,6 +607,7 @@ extension PlotterApplicationRuntimeTests {
       statePersistencePort: actions,
       tipCalibrationSemanticIdentities: identities
     )
+    await liveRestart.workspace.loadDrawingEvidenceArchive()
     #expect(liveRestart.workspace.frameMode == .live)
     #expect(liveRestart.workspace.recoverableTipCalibrationCheckpoint == nil)
     #expect(liveRestart.workspace.tipCameraRegistration == nil)

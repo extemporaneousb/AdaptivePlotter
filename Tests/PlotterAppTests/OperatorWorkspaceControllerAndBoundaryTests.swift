@@ -857,6 +857,7 @@ extension PlotterApplicationRuntimeTests {
       tipCalibrationSemanticIdentities: identities,
       log: log
     )
+    await relaunched.loadDrawingEvidenceArchive()
     #expect(relaunched.testAcceptedBoundaryAggregates.isEmpty)
     #expect(relaunched.learningArtifactGraph.revisions.isEmpty)
     #expect(relaunched.machineCameraRegistration == nil)

@@ -2112,8 +2112,11 @@ and original pixels are verified on cold recovery, then reused while their compl
 file identities remain unchanged. Modified/missing bytes refuse or reverify; a
 cached digest cannot promote unverified bytes. Healthy legacy format upgrades occur
 once during the existing asynchronous archive load, before Draw, retaining all
-history and exact identities. Catalog-only and synchronous Saved Learning inspections
-remain read-only. Interrupted component installation never manufactures committed
+history and exact identities. Catalog-only inspection remains read-only. Native startup opens the workbench
+without a synchronous Drawing-history read. The existing asynchronous archive load
+verifies calibration and no-redraw evidence before Saved Learning becomes available.
+Learning/reset, paper changes and Draw stay unavailable during recovery; a cancelled
+or shut-down startup cannot publish recovered authority. Interrupted component installation never manufactures committed
 history or authorizes replay. The lower interpreter
 remains the execution owner for Pen actuation, finite segments, Stop, and
 checkpoints. Before lower drawing execution actuates the pen, `RunInterpreter`

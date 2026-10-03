@@ -348,15 +348,15 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       await loadGate.release()
     }
     // The retained synchronization publishes Draft first, then Drawing Run.
-    // This fixture does not load the archive, so its initial canonical run
-    // readiness is unavailable until startup loads it. Include that actual
-    // second publication before measuring ambient traffic.
+    // The action fixture completes asynchronous archive recovery before selecting
+    // the camera. Drawing stays unavailable because only Pen Learning is saved.
+    // Include that settled second publication before measuring ambient traffic.
     try await waitUntil {
       guard workspace.drawingDraftSnapshot.projection.externalFacts
         == workspace.drawingDraftExternalFacts.revisions,
         let run = workspace.drawingRunSnapshot,
         case .unavailable(let issue) = run.readiness else { return false }
-      return issue.reason == .evidenceArchiveUnavailable
+      return issue.reason == .learningIncomplete
     }
 
     // Readiness can already be unavailable while a newer semantic task is

@@ -194,6 +194,7 @@ extension PlotterApplicationRuntime {
     _ kind: PlotterLearningAction,
     for owner: LearningPathItemID
   ) async {
+    if savedLearningRecoveryIsPending { await loadDrawingEvidenceArchive() }
     let projection = plotterUIProjection(
       selectedItemID: owner,
       manualDraft: ManualMotionDraft(),
@@ -1402,7 +1403,9 @@ func submitControllerSession(
   _ workspace: PlotterApplicationRuntime,
   _ intent: PlotterControllerSessionIntent
 ) async -> PlotterControllerSessionDisposition {
-  await workspace.submitControllerSessionRequest(
+  // Action fixtures complete the same startup recovery now awaited by the root view.
+  if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
+  return await workspace.submitControllerSessionRequest(
     workspace.controllerSessionProjection.request(intent)
   )
 }
@@ -1432,6 +1435,7 @@ func submitObservationConfigurationForTest(
   _ workspace: PlotterApplicationRuntime,
   _ intent: TestObservationOperatorIntent
 ) async {
+  if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
   let projection = workspace.observationConfigurationProjection
   let request: PlotterObservationOperatorIntent = switch intent {
   case .refresh: .refresh

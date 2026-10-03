@@ -438,7 +438,7 @@ struct PlotterLearningUIAuthorityTests {
   @MainActor
   @Test("production workspace accepts the exact action reached by its current projection")
   func productionWorkspaceAcceptsReachedAction() async throws {
-    let fixture = makeProductionWorkspace()
+    let fixture = await makeProductionWorkspace()
     let projected = fixture.projection()
     let request = try #require(projected.semantic.request(for: PlotterAppUIActionID.learningMode))
     let before = projected.learningIsEnabled
@@ -453,7 +453,7 @@ struct PlotterLearningUIAuthorityTests {
   @MainActor
   @Test("production workspace refuses forged and stale requests before lower dispatch")
   func productionWorkspaceRefusalMatrix() async throws {
-    let fixture = makeProductionWorkspace()
+    let fixture = await makeProductionWorkspace()
     let projected = fixture.projection()
     let initialLearning = projected.learningIsEnabled
     let initialManualRevision = runtimeRevision(
@@ -530,7 +530,7 @@ struct PlotterLearningUIAuthorityTests {
   @MainActor
   @Test("an accepted replacement makes its predecessor request stale")
   func acceptedReplacementStalesPredecessor() async throws {
-    let fixture = makeProductionWorkspace()
+    let fixture = await makeProductionWorkspace()
     let projected = fixture.projection()
     let predecessor = try #require(
       projected.semantic.request(for: PlotterAppUIActionID.learningMode)
@@ -554,7 +554,7 @@ struct PlotterLearningUIAuthorityTests {
   @MainActor
   @Test("window-local stale points are omitted while current manual and placement inputs revise UI")
   func localInputRevisionsStalePriorRequests() async throws {
-    let fixture = makeProductionWorkspace()
+    let fixture = await makeProductionWorkspace()
     let original = fixture.projection()
     let request = try #require(original.semantic.request(for: PlotterAppUIActionID.learningMode))
     let initialLearning = original.learningIsEnabled
@@ -594,7 +594,7 @@ struct PlotterLearningUIAuthorityTests {
   @MainActor
   @Test("rendered semantic controls are reached and requests derive only from the projection")
   func renderedControlsAreProjectionBound() async throws {
-    let fixture = makeProductionWorkspace()
+    let fixture = await makeProductionWorkspace()
     let pendingPoint = pointSelectionSubmission()
     let projected = fixture.projection(pendingPointSelection: pendingPoint)
     let semantic = projected.semantic
@@ -655,7 +655,7 @@ struct PlotterLearningUIAuthorityTests {
   @MainActor
   @Test("Learning current owner and visible controls come from compiler reachability")
   func learningOwnerComesFromReachability() async throws {
-    let fixture = makeProductionWorkspace()
+    let fixture = await makeProductionWorkspace()
     let projected = fixture.projection()
     let current = projected.currentLearningPathItemID
     let ownerID = "\(current.number)-\(current.title)"
@@ -689,7 +689,7 @@ struct PlotterLearningUIAuthorityTests {
   @MainActor
   @Test("window-local reducers change only their immutable UI revision")
   func localStateIsSemanticEffectFree() async {
-    let fixture = makeProductionWorkspace()
+    let fixture = await makeProductionWorkspace()
     let before = fixture.projection()
     var layout = WorkbenchLayoutState()
     layout.setPresented(.motion, true)
@@ -713,7 +713,7 @@ struct PlotterLearningUIAuthorityTests {
   @MainActor
   @Test("App disables the incident action when the exact source provider is absent")
   func appIncidentNoSourceLifecycle() async throws {
-    let fixture = makeProductionWorkspace()
+    let fixture = await makeProductionWorkspace()
     let initial = fixture.projection()
     let action = try #require(
       initial.semantic.action(id: PlotterAppUIActionID.incidentPackage)
@@ -871,7 +871,7 @@ private struct UIWorkspaceFixture {
 }
 
 @MainActor
-private func makeProductionWorkspace() -> UIWorkspaceFixture {
+private func makeProductionWorkspace() async -> UIWorkspaceFixture {
   let evidenceDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
     "ui-actionability-\(UUID().uuidString)", isDirectory: true)
   let incidentProvider = UnavailableIncidentSourceProbe()
@@ -915,6 +915,7 @@ private func makeProductionWorkspace() -> UIWorkspaceFixture {
     )
   )
   boundaryComposition.install(on: workspace)
+  await workspace.loadDrawingEvidenceArchive()
   return UIWorkspaceFixture(
     evidenceDirectory: evidenceDirectory,
     workspace: workspace,

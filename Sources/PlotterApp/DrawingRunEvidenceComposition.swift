@@ -87,8 +87,6 @@ actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort {
     self.store = store
   }
 
-  nonisolated func loadSnapshot() -> DrawingRunEvidenceStoreLoadResult { store.loadSnapshot() }
-
   func appendAxisMetricMeasurement(_ measurement: ControllerAxisMetricMeasurement) async throws -> DrawingRunEvidenceArchive {
     try await store.appendAxisMetricMeasurement(measurement)
   }

@@ -10,6 +10,92 @@ import Testing
 @Suite("PlotterEpisodeCompositionTests")
 @MainActor
 struct PlotterEpisodeCompositionTests {
+  @Test("construction defers Drawing history and checkpoint reads until asynchronous recovery")
+  func constructionDefersDurableRecovery() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let port = DrawingRunEvidencePort(store: DrawingRunEvidenceStore(fileURL: directory.appendingPathComponent("evidence.json")))
+    let reads = SynchronousCallCounter()
+    let machine = try LowerMachineSessionFixture(log: EventLog())
+    let app = plotterApplicationRuntime(machine: machine,
+      statePersistencePort: TestApplicationStatePersistencePort(loadCheckpoint: {
+        reads.increment(); return .absent
+      }), drawingEvidencePort: port, log: EventLog())
+    #expect(await port.loadCount == 0)
+    #expect(reads.value == 0)
+    #expect(app.savedLearningRecoveryIsPending)
+    #expect(app.artifactResetEpisodeSnapshot.savedLearning.candidate == nil)
+    #expect(app.learningModePresentation.actionTitle == "Loading Saved Learning")
+    #expect(app.artifactResetUnavailableReason?.contains("Verifying saved Drawing") == true)
+    #expect(!app.interactiveLearningIsComplete)
+    let projection = app.testPlotterUIProjection(includesLearningPath: true).semantic
+    let action = try #require(projection.action(id: PlotterAppUIActionID.learningMode))
+    #expect(!action.isAvailable)
+    let request = PlotterUIRequest(id: .init(rawValue: UUID()), uiRevision: projection.revision,
+      runtimeRevisions: projection.runtimeRevisions, actionID: action.id, intent: action.intent)
+    guard case .refused(let refusal) = await app.submitPlotterUIRequest(request) else {
+      Issue.record("Pending recovery admitted Learning"); await app.shutdown(); return
+    }
+    #expect(refusal.reason == .unavailableAction)
+    await app.loadDrawingEvidenceArchive()
+    #expect(await port.loadCount == 1)
+    #expect(reads.value == 1)
+    #expect(!app.savedLearningRecoveryIsPending)
+    #expect(app.axisMetricRecoveryError == nil)
+    #expect(app.drawingEvidenceError == nil)
+    #expect(await machine.requestedFeeds.isEmpty)
+    #expect(await machine.requestedPenCommands.isEmpty)
+    await app.shutdown()
+  }
+
+  @Test("rejected startup evidence cannot publish Saved Learning or drawing authority")
+  func rejectedRecoveryRemainsUnavailable() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("evidence.json")
+    let corrupt = Data("corrupt Drawing evidence".utf8)
+    try corrupt.write(to: file)
+    let reads = SynchronousCallCounter()
+    let port = DrawingRunEvidencePort(store: DrawingRunEvidenceStore(fileURL: file))
+    let machine = try LowerMachineSessionFixture(log: EventLog())
+    let app = plotterApplicationRuntime(machine: machine,
+      statePersistencePort: TestApplicationStatePersistencePort(loadCheckpoint: {
+        reads.increment(); return .absent
+      }), drawingEvidencePort: port, log: EventLog())
+    #expect(await port.loadCount == 0)
+    await app.loadDrawingEvidenceArchive()
+    #expect(!app.savedLearningRecoveryIsPending)
+    #expect(reads.value == 0)
+    #expect(app.axisMetricRecoveryError != nil)
+    #expect(app.drawingEvidenceError != nil)
+    #expect(app.artifactResetEpisodeSnapshot.savedLearning.candidate == nil)
+    guard case .archiveUnavailable = app.drawingRunSnapshot?.noRedraw else {
+      Issue.record("Corrupt history must block Drawing"); await app.shutdown(); return
+    }
+    #expect(try Data(contentsOf: file) == corrupt)
+    #expect(await machine.requestedFeeds.isEmpty)
+    await app.shutdown()
+  }
+
+  @Test("cancelled recovery and reads after shutdown cannot publish late authority")
+  func cancelledRecoveryDoesNotPublish() async throws {
+    let reads = SynchronousCallCounter()
+    let app = try PlotterApplicationFixture(statePersistencePort:
+      TestApplicationStatePersistencePort(loadCheckpoint: { reads.increment(); return .absent })).application
+    let cancelled = Task { await app.loadDrawingEvidenceArchive() }
+    cancelled.cancel()
+    await cancelled.value
+    #expect(app.savedLearningRecoveryIsPending)
+    #expect(reads.value == 0)
+    #expect(app.drawingRunSnapshot?.readiness != .ready)
+    await app.shutdown()
+    await app.loadDrawingEvidenceArchive()
+    #expect(app.savedLearningRecoveryIsPending)
+    #expect(reads.value == 0)
+    #expect(app.artifactResetEpisodeSnapshot.savedLearning.candidate == nil)
+  }
+
   @Test("production-equivalent fixture exposes one projection-bound public sink")
   func onePublicSinkAndForgedRequestRefusal() async throws {
     let fixture = try PlotterApplicationFixture()

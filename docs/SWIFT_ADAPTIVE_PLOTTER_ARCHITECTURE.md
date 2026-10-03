@@ -49,8 +49,10 @@ publication belongs to the retained session operation even during shutdown.
 through the existing Boundary reservation, persistence and local invalidation
 transaction. The existing application state port persists the machine-geometry
 identity and canonical prefix. `AxisMetricLearningTransition` reconciles a pending
-durable attempt before the initializer installs Saved Learning; it has no controller
-port. The measurement view owns only editable text and exposes explicit Save and
+durable attempt from the existing asynchronous startup archive read before Saved
+Learning becomes available; it has no controller port. Native construction never
+loads Drawing history. Learning, reset, paper changes and Draw remain unavailable
+until recovery settles; cancellation/shutdown prevents late authority publication. The measurement view owns only editable text and exposes explicit Save and
 Apply callbacks. It uses a proportional controller-coordinate diagram, not a claim
 of retained physical ink imagery. The drawing owner preserves old-geometry possible
 ink until actual paper replacement. This adds no planner, runner, camera or journal.
@@ -1966,7 +1968,7 @@ names are retained, so this consolidation performs no data relocation.
 | `PortraitCandidates/index-v1.json` | `PortraitCandidateStore` via `PortraitSketchCollection`; checksummed schema-3 index containing candidate/metadata/label references, source-photo metadata, tombstones and saved recipes | One serialized publisher; archive load errors block destructive replacement. Legacy embedded/bulk indexes upgrade once during a healthy full load, before Draw. Catalog-only inspection stays read-only. |
 | `PortraitCandidates/records/<record SHA-256>` | Same portrait owner; immutable candidate programs, recipes, lineage, source/raster identities, per-candidate retention/attempt/thumbnail snapshots and labels | Installed and synchronized before compact-index publication; unchanged geometry is never re-encoded for retention/feedback. Only superseded metadata is retired after publication; source/candidate deletion remains tombstone-owned. Legacy bulk schemas 1–2 remain readable. |
 | `PortraitCandidates/assets/<asset SHA-256>` | Same portrait owner; original acquired image bytes and exact analyzed rasters shared by records | Acquired selected sources are retained before successful generation. Deletion follows committed explicit tombstones and preserves every referenced blob. Unassociated/corrupt assets remain diagnostic evidence. |
-| `DrawingEvidence/drawing-run-evidence-v1.json` | `DrawingRunEvidenceStore`; checksummed envelope-2 manifest selecting exact attempt/terminal record hashes and archive-wide assertions | Publication and possible-ink/no-redraw truth remain with the Drawing owner. Paper/Learning reset does not erase history. Legacy envelope 1 upgrades once during asynchronous startup loading; synchronous Saved Learning inspection stays read-only. |
+| `DrawingEvidence/drawing-run-evidence-v1.json` | `DrawingRunEvidenceStore`; checksummed envelope-2 manifest selecting exact attempt/terminal record hashes and archive-wide assertions | Publication and possible-ink/no-redraw truth remain with the Drawing owner. Paper/Learning reset does not erase history. Legacy envelope 1 upgrades once during asynchronous startup loading; Saved Learning recovery reuses that verified asynchronous result. |
 | `DrawingEvidence/drawing-run-evidence-v1.json.records/<SHA-256>.json` | Same Drawing store; immutable attempt snapshots and terminal evidence | Changed components are synchronized before manifest commit. Only the manifest selects truth; interrupted/unreferenced components never authorize replay or manufacture attempts. |
 | `DrawingEvidence/drawing-run-evidence-v1.json.media/<frame SHA-256>.pixels` | Same Drawing store; exact stamped baseline/progress/result camera pixels | Media references retain source/configuration/time/hash provenance and never become portrait-input authority. |
 | `DrawingMaterials` | `DrawingMaterialStore`; identified pen/paper/material library | Independent versioned library; no Learning application or archive deletion. |

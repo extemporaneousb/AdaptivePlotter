@@ -9,6 +9,31 @@ import Testing
 struct AxisMetricLearningTransitionTests {
   enum CrashBoundary: CaseIterable { case prepared, prefixSaved, identitySaved }
 
+  @Test("application startup reconciles a prepared calibration before publishing Saved Learning")
+  func asynchronousApplicationRecovery() async throws {
+    let f = try await AxisTransitionFixture.make()
+    defer { f.stores.remove() }
+    let machine = try LowerMachineSessionFixture(log: EventLog())
+    let app = plotterApplicationRuntime(machine: machine, statePersistencePort: f.persistence,
+      drawingEvidencePort: f.stores.evidencePort, tipCalibrationSemanticIdentities: f.accepted.identities,
+      loadPenCapAppearanceSelection: { nil }, log: EventLog())
+    #expect(app.savedLearningRecoveryIsPending)
+    #expect(app.artifactResetEpisodeSnapshot.savedLearning.candidate == nil)
+    #expect(try f.savedCheckpoint() == f.source)
+    await app.loadDrawingEvidenceArchive()
+    #expect(!app.savedLearningRecoveryIsPending)
+    #expect(app.axisMetricRecoveryError == nil)
+    let restored = try #require(app.artifactResetEpisodeSnapshot.savedLearning.candidate?.checkpoint)
+    #expect(restored.semanticIdentity == f.targetIdentity)
+    #expect(restored.machineArtifacts == nil && restored.tipCalibration == nil && restored.stageFour == nil)
+    #expect(restored.penInteraction == f.source.penInteraction)
+    #expect(try f.persistence.identity() == f.targetIdentity.machineGeometry)
+    #expect(app.drawingEvidenceArchive.axisCalibrationAttempts.last?.proposal == f.proposal)
+    #expect(await machine.requestedFeeds.isEmpty)
+    #expect(await machine.requestedPenCommands.isEmpty)
+    await app.shutdown()
+  }
+
   @Test("prepared calibration reconciles every interrupted prefix/identity boundary without replay", arguments: CrashBoundary.allCases)
   func interruptedPreparation(_ boundary: CrashBoundary) async throws {
     let f = try await AxisTransitionFixture.make()

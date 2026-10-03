@@ -908,7 +908,8 @@ final class PlotterApplicationRuntime:
     }
   }
   var learningIsEnabled: Bool {
-    capRecoveryOrigin?.learningEnabled ?? pointSelectionEpisodeProjection.learningIsEnabled
+    savedLearningRecoveryUnavailableReason == nil
+      && (capRecoveryOrigin?.learningEnabled ?? pointSelectionEpisodeProjection.learningIsEnabled)
   }
   var drawingTargetIsVisible: Bool { drawingDraftSnapshot.isTargetVisible }
 
@@ -1851,6 +1852,13 @@ final class PlotterApplicationRuntime:
     didSet { if oldValue != axisCalibrationInProgress { markSemanticPresentationChanged() } }
   }
   private(set) var axisMetricRecoveryError: String?
+  private(set) var savedLearningRecoveryIsPending = false
+  @ObservationIgnored private var legacyPenCapAppearanceForMigration: PenCapAppearanceSelection?
+  private var savedLearningRecoveryUnavailableReason: String? {
+    savedLearningRecoveryIsPending
+      ? "Verifying saved Drawing and calibration evidence. Wait before changing Learning or drawing."
+      : nil
+  }
   @ObservationIgnored private var pendingAxisCalibrationTerminal: ControllerAxisCalibrationTerminal?
   private(set) var incidentPackageUIState: PlotterUIIncidentPackageState = .unavailable(
     reason: "No complete incident-package source provider is configured."
@@ -2242,72 +2250,8 @@ final class PlotterApplicationRuntime:
         persistencePort: self
       )
     }
-    if let statePersistencePort {
-      do {
-        let identity = try AxisMetricLearningTransition.reconcile(
-          archive: drawingEvidencePort.loadSnapshot(), identity: currentLearningPathSemanticIdentity,
-          persistence: statePersistencePort)
-        machineGeometryIdentity = identity.machineGeometry
-      } catch {
-        axisMetricRecoveryError = "Axis calibration evidence/identity recovery failed: \(error)"
-      }
-      if let error = axisMetricRecoveryError {
-        self.artifactResetRuntime.installSavedLearningFact(.rejected(error))
-        acceptedArtifactCheckpointStatus = .rejected(error)
-      } else {
-      switch statePersistencePort.loadAcceptedLearningPathCheckpoint() {
-      case .absent:
-        self.artifactResetRuntime.installSavedLearningFact(.absent)
-        acceptedArtifactCheckpointStatus = .unavailable
-      case .loaded(let loadedCheckpoint):
-        do {
-          let checkpoint: AcceptedLearningPathCheckpoint
-          if loadedCheckpoint.penCapAppearance == nil,
-            let legacyPenCapAppearance
-          {
-            checkpoint = try AcceptedLearningPathCheckpoint(
-              checkpointID: loadedCheckpoint.checkpointID,
-              semanticIdentity: loadedCheckpoint.semanticIdentity,
-              penInteraction: loadedCheckpoint.penInteraction,
-              machineArtifacts: loadedCheckpoint.machineArtifacts,
-              machineCamera: loadedCheckpoint.machineCamera,
-              tipCalibration: loadedCheckpoint.tipCalibration,
-              stageFour: loadedCheckpoint.stageFour,
-              penCapAppearance: legacyPenCapAppearance.acceptedCheckpoint(),
-              referenceFrame: loadedCheckpoint.referenceFrame
-            )
-            try statePersistencePort.saveAcceptedLearningPathCheckpoint(checkpoint)
-          } else {
-            checkpoint = loadedCheckpoint
-          }
-          if checkpoint.semanticIdentity == currentLearningPathSemanticIdentity {
-            self.artifactResetRuntime.installSavedLearningFact(.awaitingOperatorDecision(
-              checkpoint,
-              opticalComparison: "Waiting for a compatible current camera frame. No saved value has been applied."
-            ))
-            acceptedArtifactCheckpointStatus = .awaitingOperatorDecision(
-              sideCount: checkpoint.machineArtifacts?.acceptedBoundaryAggregates.count ?? 0,
-              hasTipCalibration: checkpoint.tipCalibration != nil
-            )
-          } else {
-            self.artifactResetRuntime.installSavedLearningFact(.rejected(
-              "Saved machine, tool, paper-plane, or camera-mount identity changed."
-            ))
-            acceptedArtifactCheckpointStatus = .incompatible(
-              "Saved machine, tool, paper-plane, or camera-mount identity changed."
-            )
-          }
-        } catch {
-          let reason = "Learning package migration failed: \(error)"
-          self.artifactResetRuntime.installSavedLearningFact(.rejected(reason))
-          acceptedArtifactCheckpointStatus = .rejected(reason)
-        }
-      case .rejected(let reason):
-        self.artifactResetRuntime.installSavedLearningFact(.rejected(reason))
-        acceptedArtifactCheckpointStatus = .rejected(reason)
-      }
-    }
-    }
+    savedLearningRecoveryIsPending = statePersistencePort != nil
+    legacyPenCapAppearanceForMigration = legacyPenCapAppearance
     drawingRunComposition.install(on: self)
     drawingRunProjectionTask = Task { [weak self, drawingRunRuntime] in
       let snapshots = await drawingRunRuntime.snapshots(environment: .live)
@@ -3015,7 +2959,7 @@ final class PlotterApplicationRuntime:
   }
 
   var interactiveLearningIsComplete: Bool {
-    axisMetricRecoveryError == nil && !axisCalibrationInProgress
+    savedLearningRecoveryUnavailableReason == nil && axisMetricRecoveryError == nil && !axisCalibrationInProgress
       && (borderValidationSnapshot.assessment != nil || retainedLearningCompletion != nil)
   }
 
@@ -4290,6 +4234,7 @@ final class PlotterApplicationRuntime:
   }
 
   private var artifactResetLowerOwnerBlocker: String? {
+    if let reason = savedLearningRecoveryUnavailableReason { return reason }
     if let boundary = currentBoundarySnapshot?.projection {
       if boundary.publicationRecoveryCapabilityID != nil {
         return "Boundary publication is incomplete. Retry its exact publication before resetting Learning."
@@ -5928,6 +5873,22 @@ final class PlotterApplicationRuntime:
         return plotterUIRefusal(request, reason: .unavailableAction,
           currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
           remedy: "Wait for the current paper replacement transaction to finish.")
+      default: break
+      }
+    }
+
+    if !isImmediateStop, let reason = savedLearningRecoveryUnavailableReason {
+      switch request.intent {
+      case .learning, .learningAction, .learningReset, .boundary, .drawingRun, .paper:
+        return plotterUIRefusal(request, reason: .unavailableAction,
+          currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
+          remedy: reason)
+      case .observation(let submission):
+        if case .selectSource = submission.intent {
+          return plotterUIRefusal(request, reason: .unavailableAction,
+            currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
+            remedy: reason)
+        }
       default: break
       }
     }
@@ -10506,6 +10467,12 @@ final class PlotterApplicationRuntime:
   }
 
   var learningModePresentation: LearningModePresentation {
+    if let reason = savedLearningRecoveryUnavailableReason {
+      return LearningModePresentation(isEnabled: false,
+        actionTitle: "Loading Saved Learning", refusalRequirement: nil,
+        refusalOwner: EpisodeAuthorityID(rawValue: "DrawingRunEvidenceStore"),
+        remedy: reason, recordingDiagnostic: pointSelectionRecordingDiagnostic)
+    }
     let availability = PlotterLearningIntentRules.modeAvailability(
       targetIsEnabled: !learningIsEnabled,
       exactPointSelection: pointSelectionEpisodeProjection.exactPointSelection,
@@ -11204,13 +11171,16 @@ final class PlotterApplicationRuntime:
     startupState = .started
   }
 
-  private func loadDrawingEvidenceArchive() async {
+  func loadDrawingEvidenceArchive() async {
     let loadResult = await drawingEvidencePort.load()
+    guard applicationAdmissionIsOpen, !Task.isCancelled else { return }
     let restored = await drawingRunRuntime.restoreNoRedrawTruth(
       from: loadResult,
       paper: currentPaperRevisionContext,
       environment: .live
     )
+    guard applicationAdmissionIsOpen, !Task.isCancelled else { return }
+    restoreSavedLearningAfterEvidenceRecovery(loadResult)
     installDrawingRunSnapshot(restored.snapshot)
     switch restored.disposition {
     case .available(let archive):
@@ -11221,6 +11191,84 @@ final class PlotterApplicationRuntime:
     case .rejected(let detail):
       drawingEvidenceError =
         "Saved drawing evidence was rejected; Drawing Run remains unavailable: \(detail)"
+    }
+  }
+
+  /// The existing asynchronous archive read supplies both calibration recovery
+  /// and no-redraw truth. Never deserialize Drawing history in the native initializer.
+  private func restoreSavedLearningAfterEvidenceRecovery(
+    _ loadResult: DrawingRunEvidenceStoreLoadResult
+  ) {
+    guard savedLearningRecoveryIsPending, let statePersistencePort else { return }
+    defer {
+      savedLearningRecoveryIsPending = false
+      legacyPenCapAppearanceForMigration = nil
+      markSemanticPresentationChanged()
+    }
+    let legacyPenCapAppearance = legacyPenCapAppearanceForMigration
+    do {
+      let identity = try AxisMetricLearningTransition.reconcile(
+        archive: loadResult, identity: currentLearningPathSemanticIdentity,
+        persistence: statePersistencePort)
+      machineGeometryIdentity = identity.machineGeometry
+    } catch {
+      axisMetricRecoveryError = "Axis calibration evidence/identity recovery failed: \(error)"
+    }
+    if let error = axisMetricRecoveryError {
+      self.artifactResetRuntime.installSavedLearningFact(.rejected(error))
+      acceptedArtifactCheckpointStatus = .rejected(error)
+    } else {
+      switch statePersistencePort.loadAcceptedLearningPathCheckpoint() {
+      case .absent:
+        self.artifactResetRuntime.installSavedLearningFact(.absent)
+        acceptedArtifactCheckpointStatus = .unavailable
+      case .loaded(let loadedCheckpoint):
+        do {
+          let checkpoint: AcceptedLearningPathCheckpoint
+          if loadedCheckpoint.penCapAppearance == nil,
+            let legacyPenCapAppearance
+          {
+            checkpoint = try AcceptedLearningPathCheckpoint(
+              checkpointID: loadedCheckpoint.checkpointID,
+              semanticIdentity: loadedCheckpoint.semanticIdentity,
+              penInteraction: loadedCheckpoint.penInteraction,
+              machineArtifacts: loadedCheckpoint.machineArtifacts,
+              machineCamera: loadedCheckpoint.machineCamera,
+              tipCalibration: loadedCheckpoint.tipCalibration,
+              stageFour: loadedCheckpoint.stageFour,
+              penCapAppearance: legacyPenCapAppearance.acceptedCheckpoint(),
+              referenceFrame: loadedCheckpoint.referenceFrame
+            )
+            try statePersistencePort.saveAcceptedLearningPathCheckpoint(checkpoint)
+          } else {
+            checkpoint = loadedCheckpoint
+          }
+          if checkpoint.semanticIdentity == currentLearningPathSemanticIdentity {
+            self.artifactResetRuntime.installSavedLearningFact(.awaitingOperatorDecision(
+              checkpoint,
+              opticalComparison: "Waiting for a compatible current camera frame. No saved value has been applied."
+            ))
+            acceptedArtifactCheckpointStatus = .awaitingOperatorDecision(
+              sideCount: checkpoint.machineArtifacts?.acceptedBoundaryAggregates.count ?? 0,
+              hasTipCalibration: checkpoint.tipCalibration != nil
+            )
+          } else {
+            self.artifactResetRuntime.installSavedLearningFact(.rejected(
+              "Saved machine, tool, paper-plane, or camera-mount identity changed."
+            ))
+            acceptedArtifactCheckpointStatus = .incompatible(
+              "Saved machine, tool, paper-plane, or camera-mount identity changed."
+            )
+          }
+        } catch {
+          let reason = "Learning package migration failed: \(error)"
+          self.artifactResetRuntime.installSavedLearningFact(.rejected(reason))
+          acceptedArtifactCheckpointStatus = .rejected(reason)
+        }
+      case .rejected(let reason):
+        self.artifactResetRuntime.installSavedLearningFact(.rejected(reason))
+        acceptedArtifactCheckpointStatus = .rejected(reason)
+      }
     }
   }
 

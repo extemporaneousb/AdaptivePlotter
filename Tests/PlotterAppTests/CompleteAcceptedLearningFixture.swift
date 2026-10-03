@@ -197,6 +197,7 @@ final class CompleteAcceptedLearningStores {
 
 @MainActor
 func applyCompleteSavedLearning(_ application: PlotterApplicationRuntime) async throws {
+  if application.savedLearningRecoveryIsPending { await application.loadDrawingEvidenceArchive() }
   let projection = application.testPlotterUIProjection(
     selectedItemID: application.testCurrentLearningPathItemID, includesLearningPath: true)
   let action = try #require(projection.semantic.actions.first {
