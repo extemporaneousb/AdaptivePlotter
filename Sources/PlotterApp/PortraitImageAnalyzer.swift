@@ -1,3 +1,4 @@
+import Accelerate
 import CoreGraphics
 import CoreVideo
 import CryptoKit
@@ -311,7 +312,12 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
     var luminance = sampled.values
     // Normalize illumination before whitening the background; the matte must
     // not bias the contrast percentiles toward white.
-    let sorted = luminance.sorted()
+    // Only percentile values are needed. The native numeric sort avoids a
+    // Swift comparison callback for every element pair in an unoptimized app.
+    var sorted = luminance
+    sorted.withUnsafeMutableBufferPointer {
+      vDSP_vsortD($0.baseAddress!, vDSP_Length($0.count), 1)
+    }
     let low = sorted[sorted.count / 50], high = sorted[sorted.count * 49 / 50]
     if high - low > 0.05 {
       luminance = luminance.map { min(1, max(0, ($0-low)/(high-low))) }
@@ -401,6 +407,10 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
   }
 
   static func grayscale(_ image: CGImage, width: Int, height: Int) throws -> [Double] {
+    try grayscaleBytes(image, width: width, height: height).map { Double($0) / 255 }
+  }
+
+  static func grayscaleBytes(_ image: CGImage, width: Int, height: Int) throws -> [UInt8] {
     try Task.checkCancellation()
     var bytes = [UInt8](repeating: 255, count: width*height)
     let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
@@ -413,7 +423,7 @@ struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring {
       return true
     }
     guard drawn else { throw PortraitDrawingError.unreadableImage }
-    return bytes.map { Double($0) / 255 }
+    return bytes
   }
 
   static func maskImage(_ buffer: CVPixelBuffer) throws -> CGImage {

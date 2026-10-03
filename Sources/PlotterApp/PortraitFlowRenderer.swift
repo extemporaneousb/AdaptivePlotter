@@ -323,17 +323,35 @@ enum PortraitFlowRenderer {
 
     init(image: [Double], width: Int, height: Int) throws {
       self.image = image; self.width = width; self.height = height
-      var gx = image, gy = image, magnitude = image
-      for y in 0..<height {
-        try Task.checkCancellation()
-        let up = max(0, y - 1), down = min(height - 1, y + 1)
-        for x in 0..<width {
-          let left = max(0, x - 1), right = min(width - 1, x + 1), i = y * width + x
-          gx[i] = (image[up * width + right] + 2 * image[y * width + right] + image[down * width + right]
-            - image[up * width + left] - 2 * image[y * width + left] - image[down * width + left]) / 8
-          gy[i] = (image[down * width + left] + 2 * image[down * width + x] + image[down * width + right]
-            - image[up * width + left] - 2 * image[up * width + x] - image[up * width + right]) / 8
-          magnitude[i] = hypot(gx[i], gy[i])
+      var gx = [Double](repeating: 0, count: image.count), gy = gx, magnitude = gx
+      try image.withUnsafeBufferPointer { source in
+        try gx.withUnsafeMutableBufferPointer { xGradient in
+          try gy.withUnsafeMutableBufferPointer { yGradient in
+            try magnitude.withUnsafeMutableBufferPointer { strengths in
+              let input = source.baseAddress!, dx = xGradient.baseAddress!
+              let dy = yGradient.baseAddress!, strength = strengths.baseAddress!
+              var y = 0
+              while y < height {
+                try Task.checkCancellation()
+                let up = (y > 0 ? y - 1 : 0) * width
+                let down = (y + 1 < height ? y + 1 : height - 1) * width
+                let row = y * width
+                var x = 0
+                while x < width {
+                  let left = x > 0 ? x - 1 : 0
+                  let right = x + 1 < width ? x + 1 : width - 1
+                  let i = row + x
+                  dx[i] = (input[up + right] + 2 * input[row + right] + input[down + right]
+                    - input[up + left] - 2 * input[row + left] - input[down + left]) / 8
+                  dy[i] = (input[down + left] + 2 * input[down + x] + input[down + right]
+                    - input[up + left] - 2 * input[up + x] - input[up + right]) / 8
+                  strength[i] = hypot(dx[i], dy[i])
+                  x += 1
+                }
+                y += 1
+              }
+            }
+          }
         }
       }
       self.gx = gx; self.gy = gy; self.magnitude = magnitude
@@ -715,12 +733,21 @@ enum PortraitFlowRenderer {
   }
 
   private struct Occupancy {
-    struct Entry { let point: CGPoint; let radius: Double; let tangent: CGPoint; let progress: Double? }
+    struct Entry {
+      let point: CGPoint
+      let radius: Double
+      let tangent: CGPoint
+      let progress: Double?
+      let next: Int
+    }
     let width: Int
     let height: Int
     let columns: Int
     let rows: Int
-    var cells: [[Entry]]
+    // A cell indexes a chain in one contiguous buffer. Clearance is an OR of
+    // independent predicates; insertion order has no geometric meaning.
+    var cells: [Int]
+    var entries: [Entry] = []
     var touchedCells: [Int] = []
     var maximumRadius = 0.0
     private let cellSize = 4.0
@@ -728,11 +755,12 @@ enum PortraitFlowRenderer {
     init(width: Int, height: Int) {
       self.width = width; self.height = height
       columns = (width + 3) / 4; rows = (height + 3) / 4
-      cells = .init(repeating: [], count: columns * rows)
+      cells = .init(repeating: -1, count: columns * rows)
     }
 
     mutating func reset() {
-      for index in touchedCells { cells[index].removeAll(keepingCapacity: true) }
+      for index in touchedCells { cells[index] = -1 }
+      entries.removeAll(keepingCapacity: true)
       touchedCells.removeAll(keepingCapacity: true)
       maximumRadius = 0
     }
@@ -745,19 +773,30 @@ enum PortraitFlowRenderer {
       let x0 = max(0, Int((point.x - reach) / cellSize)), x1 = min(columns - 1, Int((point.x + reach) / cellSize))
       let y0 = max(0, Int((point.y - reach) / cellSize)), y1 = min(rows - 1, Int((point.y + reach) / cellSize))
       guard x0 <= x1, y0 <= y1 else { return false }
-      for y in y0...y1 {
-        for x in x0...x1 {
-          for entry in cells[y * columns + x] {
-            if let direction, abs(dot(direction, entry.tangent)) < 0.8 { continue }
-            if let progress, let prior = entry.progress,
-              abs(progress - prior) <= max(radius, entry.radius) + 1.8 { continue }
-            let distance = max(radius, entry.radius) + 0.6
-            let difference = point - entry.point
-            if dot(difference, difference) < distance * distance { return true }
+      return cells.withUnsafeBufferPointer { heads in
+        entries.withUnsafeBufferPointer { stored in
+          var y = y0
+          while y <= y1 {
+            var x = x0
+            while x <= x1 {
+              var index = heads[y * columns + x]
+              while index >= 0 {
+                let entry = stored[index]
+                index = entry.next
+                if let direction, abs(dot(direction, entry.tangent)) < 0.8 { continue }
+                if let progress, let prior = entry.progress,
+                  abs(progress - prior) <= max(radius, entry.radius) + 1.8 { continue }
+                let distance = max(radius, entry.radius) + 0.6
+                let difference = point - entry.point
+                if dot(difference, difference) < distance * distance { return true }
+              }
+              x += 1
+            }
+            y += 1
           }
+          return false
         }
       }
-      return false
     }
 
     mutating func insert(_ path: [CGPoint], radius: Double) {
@@ -781,8 +820,9 @@ enum PortraitFlowRenderer {
       let x = min(columns - 1, max(0, Int(point.x / cellSize)))
       let y = min(rows - 1, max(0, Int(point.y / cellSize)))
       let index = y * columns + x
-      if cells[index].isEmpty { touchedCells.append(index) }
-      cells[index].append(.init(point: point, radius: radius, tangent: tangent, progress: progress))
+      if cells[index] < 0 { touchedCells.append(index) }
+      entries.append(.init(point: point, radius: radius, tangent: tangent, progress: progress, next: cells[index]))
+      cells[index] = entries.count - 1
       maximumRadius = max(maximumRadius, radius)
     }
   }
@@ -812,16 +852,20 @@ enum PortraitFlowRenderer {
             try addColumns.withUnsafeBufferPointer { add in
               let input = source.baseAddress!, result = target.baseAddress!
               let removed = remove.baseAddress!, added = add.baseAddress!
-              for y in 0..<height {
+              var y = 0
+              while y < height {
                 try Task.checkCancellation()
                 let row = y * width
                 var total = 0.0
                 for column in initialColumns { total += input[row + column] }
-                for x in 0..<width {
+                var x = 0
+                while x < width {
                   result[row + x] = total / divisor
                   total -= input[row + removed[x]]
                   total += input[row + added[x]]
+                  x += 1
                 }
+                y += 1
               }
             }
           }
@@ -833,15 +877,19 @@ enum PortraitFlowRenderer {
             try addRows.withUnsafeBufferPointer { add in
               let input = source.baseAddress!, result = target.baseAddress!
               let removed = remove.baseAddress!, added = add.baseAddress!
-              for x in 0..<width {
+              var x = 0
+              while x < width {
                 try Task.checkCancellation()
                 var total = 0.0
                 for row in initialRows { total += input[row + x] }
-                for y in 0..<height {
+                var y = 0
+                while y < height {
                   result[y * width + x] = total / divisor
                   total -= input[removed[y] + x]
                   total += input[added[y] + x]
+                  y += 1
                 }
+                x += 1
               }
             }
           }

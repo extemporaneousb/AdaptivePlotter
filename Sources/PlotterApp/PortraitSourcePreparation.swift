@@ -35,6 +35,31 @@ struct PortraitSourcePreparation: @unchecked Sendable {
     let luminance: [UInt8]
   }
 
+  private struct SampleSpan {
+    let first: Int
+    let offset: Int
+    let count: Int
+  }
+
+  /// Pixel overlap is separable: each column's weights are the same on every
+  /// row. Retain the exact scalar weights and summation order, including zeros.
+  private static func sampleSpans(origin: Double, extent: Double, scale: Double,
+    samples: Int, limit: Int) -> (spans: [SampleSpan], weights: [Double]) {
+    var spans: [SampleSpan] = [], weights: [Double] = []
+    spans.reserveCapacity(samples)
+    for index in 0..<samples {
+      let start = (origin + Double(index) * extent / Double(samples)) * scale
+      let end = min(Double(limit), (origin + Double(index + 1) * extent / Double(samples)) * scale)
+      let first = max(0, min(limit - 1, Int(floor(start))))
+      let last = max(first, min(limit - 1, Int(ceil(end)) - 1))
+      spans.append(.init(first: first, offset: weights.count, count: last - first + 1))
+      for pixel in first...last {
+        weights.append(max(0, min(end, Double(pixel + 1)) - max(start, Double(pixel))))
+      }
+    }
+    return (spans, weights)
+  }
+
   let key: Key
   let image: CGImage
   let sourcePixelExtent: PortraitSourceCropExtent
@@ -76,31 +101,51 @@ struct PortraitSourcePreparation: @unchecked Sendable {
     let sx = Double(level.width) / Double(image.width)
     let sy = Double(level.height) / Double(image.height)
     var values = [Double](repeating: 0, count: width * height)
-    for y in 0..<height {
-      if y.isMultiple(of: 16) { try Task.checkCancellation() }
-      let top = (crop.minY + Double(y) * crop.height / Double(height)) * sy
-      let bottom = min(Double(level.height),
-        (crop.minY + Double(y + 1) * crop.height / Double(height)) * sy)
-      let firstY = max(0, min(level.height - 1, Int(floor(top))))
-      let lastY = max(firstY, min(level.height - 1, Int(ceil(bottom)) - 1))
-      for x in 0..<width {
-        let left = (crop.minX + Double(x) * crop.width / Double(width)) * sx
-        let right = min(Double(level.width),
-          (crop.minX + Double(x + 1) * crop.width / Double(width)) * sx)
-        let firstX = max(0, min(level.width - 1, Int(floor(left))))
-        let lastX = max(firstX, min(level.width - 1, Int(ceil(right)) - 1))
-        var total = 0.0, area = 0.0
-        for row in firstY...lastY {
-          let dy = max(0, min(bottom, Double(row + 1)) - max(top, Double(row)))
-          for column in firstX...lastX {
-            let dx = max(0, min(right, Double(column + 1)) - max(left, Double(column)))
-            let weight = dx * dy
-            total += Double(level.luminance[row * level.width + column]) * weight
-            area += weight
+    let columns = Self.sampleSpans(origin: crop.minX, extent: crop.width, scale: sx,
+      samples: width, limit: level.width)
+    let rows = Self.sampleSpans(origin: crop.minY, extent: crop.height, scale: sy,
+      samples: height, limit: level.height)
+    // Span construction bounds every address to the selected level. No pointer
+    // escapes these scopes; cancellation still settles at each 16-row boundary.
+    try level.luminance.withUnsafeBufferPointer { source in
+      try values.withUnsafeMutableBufferPointer { target in
+        try columns.spans.withUnsafeBufferPointer { columnSpans in
+          try rows.spans.withUnsafeBufferPointer { rowSpans in
+            try columns.weights.withUnsafeBufferPointer { columnWeights in
+              try rows.weights.withUnsafeBufferPointer { rowWeights in
+                let input = source.baseAddress!, output = target.baseAddress!
+                let xs = columnSpans.baseAddress!, ys = rowSpans.baseAddress!
+                let dxs = columnWeights.baseAddress!, dys = rowWeights.baseAddress!
+                var y = 0
+                while y < height {
+                  if y.isMultiple(of: 16) { try Task.checkCancellation() }
+                  let row = ys[y]
+                  var x = 0
+                  while x < width {
+                    let column = xs[x]
+                    var total = 0.0, area = 0.0, ry = 0
+                    while ry < row.count {
+                      let dy = dys[row.offset + ry]
+                      let base = (row.first + ry) * level.width + column.first
+                      var cx = 0
+                      while cx < column.count {
+                        let weight = dxs[column.offset + cx] * dy
+                        total += Double(input[base + cx]) * weight
+                        area += weight
+                        cx += 1
+                      }
+                      ry += 1
+                    }
+                    guard area > 0 else { throw PortraitDrawingError.unreadableImage }
+                    output[y * width + x] = min(1, max(0, total / (area * 255)))
+                    x += 1
+                  }
+                  y += 1
+                }
+              }
+            }
           }
         }
-        guard area > 0 else { throw PortraitDrawingError.unreadableImage }
-        values[y * width + x] = min(1, max(0, total / (area * 255)))
       }
     }
     return (values, level.width, level.height)
@@ -137,7 +182,7 @@ extension PortraitImageAnalyzer {
       let scale = Double(dimension) / Double(maximum)
       let width = max(1, Int((Double(image.width) * scale).rounded()))
       let height = max(1, Int((Double(image.height) * scale).rounded()))
-      let luminance = try grayscale(image, width: width, height: height).map { UInt8(($0 * 255).rounded()) }
+      let luminance = try grayscaleBytes(image, width: width, height: height)
       levels.append(.init(width: width, height: height, luminance: luminance))
       dimension /= 2
     } while dimension >= 150

@@ -8,6 +8,52 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Portrait Studio generation latency, 2026-10-03
+
+Task `task-2fb42698543d469fb8f07227cc919e78` removes repeated pixel-overlap
+calculation, grayscale byte/floating-point round trips and Swift contrast-sort
+callbacks. Flow gradient/box-filter loops retain their arithmetic order, and
+clearance cells index one contiguous entry buffer using the same collision
+predicates. Compilation remains debug. Resolution, recipe coordinates, renderer
+revisions, material floors, cancellation and immutable Drawing handoff are unchanged.
+
+The opt-in `PortraitSavedPhotoPerformanceTests` replays one operator-retained Flow
+recipe, source and exact raster read-only. Cached-raster runs compare the entire
+program against its archived geometry; all before/after programs also retain hash
+`a7a91d036fcd0e0a73101ebba2909dcd540dfedcbdd1ef79585b91ebc0347e79`.
+Source digest is `12fe56a2329d41c6f5edfcff888c2015fb5975c57413a4188583409fdc1b076b`.
+Each version was run twice sequentially in debug with the app stopped, producing
+two cold-workspace, eight warm-workspace and six fresh-source samples. Median times:
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Fresh source analysis, crop, Flow and vectorization | 4,169.79 ms | 1,681.24 ms |
+| Retained raster, cold Flow workspace, candidate/thumbnail preparation | 2,309.22 ms | 1,067.71 ms |
+| Retained raster, warm Flow workspace, candidate/thumbnail preparation | 422.04 ms | 278.18 ms |
+| Crop preparation within fresh-source workload | 1,062.26 ms | 191.02 ms |
+| Tracing within warm-workspace workload | 205.85 ms | 62.50 ms |
+
+These small-sample measurements cover this exact digital workload, including
+actual Vision source analysis. They exclude source acquisition, archive loading,
+Next's novelty/retry policy, native painting, controller travel and physical ink.
+The original baseline included the active camera app; it was repeated after the
+app exited so the table compares the same app-presence conditions. Final focused
+validation passed 70 tests in 15.481 seconds, including scalar-exact fractional
+sampling, tiny/asymmetric Flow lattices, material separation, regional edits,
+cancellation, saved-recipe compatibility and archive integrity. A second replay
+passed after 7.793 seconds. No operator archive was rewritten or pruned.
+
+`make validate-app` passed with stable-local signing and debug configuration.
+The unlaunched bundle and benchmark receipts are retained under
+`.build/PortraitSpeed-2fb/`, with executable SHA-256
+`b5ab701021205bd3816cb85c83fbb9b0d9b11e64aa2c00cc25f14d84a774679e`.
+App PID 98652 terminated through normal AppKit exit at
+12:06:10 PDT; the initiating actor is unknown. The agent issued no stop/restart,
+replacement of the original bundle, camera/controller operation or hardware
+movement. The original executable retains SHA-256
+`3abf1df4afd5738574aebfad46b57bbd846f439df21b3153204101a3824cf548`.
+Native interaction and attended physical validation remain unmeasured.
+
 ## Draw startup persistence, 2026-10-03
 
 Task `task-fe80703bfcfc4b5ea9da58a26a443b50` removes accumulated-history JSON

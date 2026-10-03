@@ -82,6 +82,54 @@ struct PortraitSourcePreparationTests {
     #expect(source.retainedByteCount >= image.bytesPerRow * image.height + 600*600 + 300*300 + 150*150)
   }
 
+  @Test("fractional area sampling exactly matches the scalar footprint integral")
+  func scalarSamplingEquivalence() throws {
+    let image = try sourceFixtureImage(width: 600, height: 400) { x, y in UInt8((x * 37 + y * 19) % 256) }
+    let source = try sourceFixturePreparation(image: image, keyByte: 4)
+    let crops = [CGRect(x: 0, y: 0, width: 600, height: 400),
+      CGRect(x: 0.25, y: 1.5, width: 593.75, height: 397.5),
+      CGRect(x: 520.125, y: 300.75, width: 79.875, height: 99.25),
+      CGRect(x: 29.5, y: 42.25, width: 0.75, height: 1.25)]
+    for crop in crops {
+      for (width, height) in [(1, 1), (13, 27), (87, 61)] {
+        let actual = try source.sample(crop: crop, width: width, height: height)
+        // Independent scalar oracle retains the original pixel-footprint
+        // integration, including its row-major floating-point addition order.
+        let level = source.levels.last(where: {
+          crop.width * Double($0.width) / Double(image.width) >= Double(width)
+            && crop.height * Double($0.height) / Double(image.height) >= Double(height)
+        }) ?? source.levels[0]
+        let sx = Double(level.width) / Double(image.width), sy = Double(level.height) / Double(image.height)
+        var expected: [Double] = []
+        for y in 0..<height {
+          let startY = (crop.minY + Double(y) * crop.height / Double(height)) * sy
+          let endY = min(Double(level.height), (crop.minY + Double(y + 1) * crop.height / Double(height)) * sy)
+          let firstY = max(0, min(level.height - 1, Int(floor(startY))))
+          let lastY = max(firstY, min(level.height - 1, Int(ceil(endY)) - 1))
+          for x in 0..<width {
+            let startX = (crop.minX + Double(x) * crop.width / Double(width)) * sx
+            let endX = min(Double(level.width), (crop.minX + Double(x + 1) * crop.width / Double(width)) * sx)
+            let firstX = max(0, min(level.width - 1, Int(floor(startX))))
+            let lastX = max(firstX, min(level.width - 1, Int(ceil(endX)) - 1))
+            var total = 0.0, area = 0.0
+            for row in firstY...lastY {
+              let dy = max(0, min(endY, Double(row + 1)) - max(startY, Double(row)))
+              for column in firstX...lastX {
+                let dx = max(0, min(endX, Double(column + 1)) - max(startX, Double(column)))
+                let weight = dx * dy
+                total += Double(level.luminance[row * level.width + column]) * weight
+                area += weight
+              }
+            }
+            expected.append(min(1, max(0, total / (area * 255))))
+          }
+        }
+        #expect(actual.levelWidth == level.width && actual.levelHeight == level.height)
+        #expect(actual.values == expected)
+      }
+    }
+  }
+
   @Test("unavailable analyses remain explicit and are reused across background and framing changes")
   func unavailableReuse() throws {
     var faceCalls = 0, maskCalls = 0

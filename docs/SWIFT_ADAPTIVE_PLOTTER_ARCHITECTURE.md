@@ -2593,6 +2593,9 @@ reuses this evidence across crop and style changes; crop sampling integrates pix
 footprints before contrast normalization/mask whitening. `PortraitRaster` retains
 source/decoded/crop/sample geometry, actual mask and face evidence. Missing analysis
 is explicit. Older raster versions preserve their encoded identity.
+Pyramid levels retain the CGContext grayscale bytes directly. Crop integration
+precomputes separable pixel-overlap weights, retaining scalar accumulation order;
+Accelerate numeric sorting supplies the same contrast percentile values.
 
 `PortraitRenderCache` bounds prepared sources to eight/48 MiB and crop-specific Flow
 workspaces to eight/64 MiB of retained payload, separately from raster/final-result
@@ -2609,6 +2612,9 @@ junctions. `PortraitRegionalTreatment` uses retained landmarks for feature suppo
 estimated skin and observed jaw; it does not infer hair, clothing or depth. It can
 protect, simplify and construct strokes under material/point budgets. Unavailable
 or incompatible analysis leaves base paths unchanged with an explicit outcome.
+Flow gradient and box-filter kernels use scoped contiguous buffers without changing
+their arithmetic order. Its clearance cells index chains in one entry buffer;
+collision predicates, material floors and cancellation remain unchanged.
 
 Optional eye and historical head transforms retain source-coordinate evidence,
 compact support, bounded subdivision and manifests. Eye exaggeration is measured
