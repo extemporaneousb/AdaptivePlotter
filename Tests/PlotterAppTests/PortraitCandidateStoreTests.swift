@@ -360,6 +360,95 @@ struct PortraitCandidateStoreTests {
     #expect(!FileManager.default.fileExists(atPath: source.path))
   }
 
+  @Test("Warm physical retention commits metadata without encoding geometry or rereading historical assets")
+  func boundedPhysicalRetention() async throws {
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = PortraitCandidateStore(directoryURL: directory)
+    let candidates = try (1...40).map { try portraitPersistenceCandidate(seed: UInt64($0)) }
+    var archive = PortraitCandidateArchive(entries: try candidates.map {
+      .init(candidate: $0, reasons: [.init(reason: .shortlisted)],
+        attempt: try PortraitAttemptRecord.prepare(candidate: $0, pen: $0.program.strokes[0].style))
+    })
+    try await store.save(snapshot: archive)
+    let encoded = await store.recordBytesEncoded, verified = await store.assetBytesVerified
+    let metadataBytes = await store.metadataBytesEncoded
+    let recordURLs = try FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent("records"), includingPropertiesForKeys: nil).filter { url in
+      (try? JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])?["program"] != nil
+    }
+    let before = try recordURLs.map { try Data(contentsOf: $0) }
+    let runID = UUID()
+    archive.entries[20].reasons.append(.init(reason: .physicalAttempt(attemptID: runID)))
+    try await store.save(snapshot: archive)
+    #expect(await store.recordBytesEncoded == encoded)
+    #expect(await store.assetBytesVerified == verified)
+    #expect(await store.metadataBytesEncoded - metadataBytes < metadataBytes / 10)
+    #expect(try recordURLs.map { try Data(contentsOf: $0) } == before)
+    let restarted = await PortraitCandidateStore(directoryURL: directory).load()
+    #expect(restarted.canWrite && restarted.archive.entries.count == 40)
+    #expect(restarted.archive.entries[20].reasons.last?.reason == .physicalAttempt(attemptID: runID))
+    let committedIndex = try Data(contentsOf: directory.appendingPathComponent("index-v1.json"))
+    try FileManager.default.removeItem(at: directory.appendingPathComponent("assets").appendingPathComponent(candidates[20].sourceSHA256))
+    await #expect(throws: (any Error).self) { try await store.save(snapshot: archive) }
+    #expect(try Data(contentsOf: directory.appendingPathComponent("index-v1.json")) == committedIndex)
+  }
+
+  @Test("Same-size asset changes with restored mtime invalidate byte verification")
+  func sameSizeAssetCorruption() async throws {
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = PortraitCandidateStore(directoryURL: directory)
+    let candidate = try portraitPersistenceCandidate()
+    let archive = PortraitCandidateArchive(entries: [.init(candidate: candidate, reasons: [])])
+    try await store.save(snapshot: archive)
+    let asset = directory.appendingPathComponent("assets").appendingPathComponent(candidate.sourceSHA256)
+    let originalDate = try #require(FileManager.default.attributesOfItem(atPath: asset.path)[.modificationDate] as? Date)
+    try Data([4, 3, 2, 1]).write(to: asset)
+    try FileManager.default.setAttributes([.modificationDate: originalDate], ofItemAtPath: asset.path)
+    await #expect(throws: (any Error).self) { try await store.save(snapshot: archive) }
+  }
+
+  @Test("Uncommitted candidate components never manufacture history; a corrupt committed component blocks writes")
+  func componentCommitBoundary() async throws {
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let candidate = try portraitPersistenceCandidate()
+    let store = PortraitCandidateStore(directoryURL: directory)
+    try await store.save(snapshot: .init(entries: [.init(candidate: candidate, reasons: [])]))
+    let records = directory.appendingPathComponent("records")
+    let committed = try #require(FileManager.default.contentsOfDirectory(at: records, includingPropertiesForKeys: nil).first)
+    try Data("uncommitted".utf8).write(to: records.appendingPathComponent(String(repeating: "a", count: 64)))
+    let restored = await PortraitCandidateStore(directoryURL: directory).load()
+    #expect(restored.canWrite && restored.archive.entries.count == 1)
+    #expect(restored.issues.contains { $0.contains("Unassociated archive records") })
+    try Data("corrupt".utf8).write(to: committed)
+    let failed = await PortraitCandidateStore(directoryURL: directory).load()
+    #expect(!failed.canWrite)
+  }
+
+  @Test("Disposable accumulated portrait archive measures warm Draw retention", .enabled(if: ProcessInfo.processInfo.environment["DRAW_PORTRAIT_BENCHMARK_DIR"] != nil))
+  func accumulatedArchiveRetention() async throws {
+    let directory = URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["DRAW_PORTRAIT_BENCHMARK_DIR"]))
+    // The caller supplies a disposable copy, never the production archive.
+    try #require(directory.path.hasPrefix("/private/tmp/adaptiveplotter-draw-benchmark-") || directory.path.hasPrefix("/tmp/adaptiveplotter-draw-benchmark-"))
+    let store = PortraitCandidateStore(directoryURL: directory)
+    let start = ProcessInfo.processInfo.systemUptime
+    let loaded = await store.load()
+    let loadSeconds = ProcessInfo.processInfo.systemUptime - start
+    #expect(loaded.canWrite)
+    var archive = loaded.archive
+    let index = try #require(archive.entries.indices.last)
+    let beforeEncoded = await store.recordBytesEncoded, beforeVerified = await store.assetBytesVerified
+    archive.entries[index].reasons.append(.init(reason: .physicalAttempt(attemptID: UUID())))
+    let saveStart = ProcessInfo.processInfo.systemUptime
+    try await store.save(snapshot: archive)
+    let seconds = ProcessInfo.processInfo.systemUptime - saveStart
+    let encoded = await store.recordBytesEncoded - beforeEncoded
+    let verified = await store.assetBytesVerified - beforeVerified
+    #expect(encoded == 0 && verified == 0)
+    print("Draw portrait retention: candidates=\(archive.entries.count) cold_load_seconds=\(loadSeconds) warm_save_seconds=\(seconds) geometry_bytes_encoded=\(encoded) historical_asset_bytes_verified=\(verified)")
+  }
+
   private func temporaryDirectory() -> URL {
     FileManager.default.temporaryDirectory.appendingPathComponent("portrait-candidate-tests-\(UUID().uuidString)")
   }

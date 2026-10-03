@@ -15,7 +15,7 @@ struct PortraitAttemptFeedbackRevision: Codable, Hashable, Sendable {
   let createdAt: Date
 }
 
-struct PortraitAttemptRecord: Codable, Sendable {
+struct PortraitAttemptRecord: Codable, Equatable, Sendable {
   let thumbnailPNG: Data
   let proposalIdentity: String
   let changeCue: String

@@ -18,7 +18,7 @@ enum PortraitParameterPreference {
     let promising: Bool
   }
 
-  struct Model: Codable, Sendable {
+  struct Model: Codable, Equatable, Sendable {
     let revision: String
     let contextID: String
     let weights: [Double]

@@ -8,6 +8,68 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Draw startup persistence, 2026-10-03
+
+Task `task-fe80703bfcfc4b5ea9da58a26a443b50` removes accumulated-history JSON
+encoding and media hashing from warm Draw admission. `PortraitCandidateStore`
+now commits changed retention/attempt metadata and a compact checksummed index
+referencing immutable candidate geometry, thumbnails and labels. The existing
+`DrawingRunEvidenceStore` commits changed attempt/terminal/calibration components
+and its compact manifest. The retained owners, admission policy, baseline capture,
+possible-ink marker and synchronous durability requirement remain authoritative.
+Verified bytes are reused only while their device, inode, size and nanosecond
+modification/change timestamps match; changed or missing selected files are
+reverified or refused. Healthy legacy archives upgrade during their existing full
+asynchronous load. Catalog-only and synchronous Saved Learning reads remain
+read-only; orphan component files never create execution or portrait history.
+
+The final focused selection passed 70 tests in 6.843 seconds, including restart,
+legacy upgrade, exact no-redraw truth, corrupt committed components, same-size
+asset corruption with restored modification time, original-source retention,
+explicit deletion/reimport and calibration evidence. The initial configured suite
+failed; a retained diagnostic rerun found a stale verification identity after
+explicit source deletion, preventing an
+identical reimport from persisting. After compact-index commit, caches now retain
+only selected records and assets; deleted values/file identities are released,
+while missing still-selected assets continue to refuse replacement. The existing
+deletion/reimport test and new warm missing-asset assertions pass.
+The final configured docs-check, sequential quick-test and diff-check passed;
+quick-test took 631.044 seconds. Its machine receipt did not retain test output,
+so no full-suite count is asserted. The later ledger-only edit records the
+external process exit observed during final inspection; runtime sources and the
+signed executable remain identical to the validated build.
+Opt-in benchmarks passed
+against disposable APFS copies of the operator's actual archives. The final portrait
+benchmark was repeated after the cache cleanup. With 3,099
+portrait candidates, warm physical-attempt retention took 1.033 seconds and encoded
+zero historical geometry bytes or verified historical asset bytes. With 34 Drawing
+records and 15 attempts, a new small fixture's intent, baseline and possible-ink
+commits took 0.065 seconds, encoding 22,225 component bytes and verifying only its
+307,200-byte baseline. The marker did not hash that baseline again. These timings
+include durable file/index publication in the debug build, with the existing app
+running; they do not measure camera acquisition, travel or first physical ink.
+
+Cold verification/materialization plus legacy conversion took 513.592 seconds for
+the portrait copy and 204.870 seconds for the Drawing copy. This is a substantial
+first-upgrade cost and is not included in the warm timings. Cold archive integrity
+checks remain required on later launches too. The new portrait index was 1,059,464
+bytes after conversion; its immutable geometry and historical thumbnails were
+preserved in referenced components. No production archive was converted by this
+agent, and no history was pruned to obtain these measurements.
+
+The strict-verified stable-local signed debug app is staged at
+`.build/DrawStartup-fe80/AdaptivePlotter.app` with executable SHA-256
+`d6c17cc92d23bb2b059c1edc3d640c3ea3a73b2a40f0dc536e6166d37ffa5731`.
+It was not launched. The original executable still has its baseline SHA-256
+`788131edad02cae52378d7d773643d7bfa05572375ceaaade8bfdd78467489c5`.
+App PID 84511 was present during implementation but absent at final inspection.
+Unified logs record signal-15 termination at 2026-10-03 01:11:33 PDT; the initiating
+actor is unidentified. The agent issued no application stop/restart or replacement;
+unbroken live-session continuity is not claimed. The earlier disk-write resource
+diagnostic explicitly records no action taken. Native interaction, camera/controller behavior and physical
+first-stroke latency remain unverified. Receipts are retained under
+`.build/DrawStartup-fe80/evidence` in the primary checkout.
+
 
 ## Guided Learning and durable storage audit, 2026-10-01
 

@@ -144,7 +144,7 @@ struct PortraitSourceCropExtent: Codable, Hashable, Sendable {
 
 /// A bounded, top-left-origin brightness image. Image analysis owns cropping
 /// and background removal; the vectorizer knows nothing about cameras or motion.
-struct PortraitRaster: Codable, Sendable {
+struct PortraitRaster: Codable, Equatable, Sendable {
   static let schemaVersion = 3
   private var encodedSchemaVersion: Int? = Self.schemaVersion
   let width: Int

@@ -28,7 +28,7 @@ software acceptance and delivery do not assert Git landing or attended success.
 `ControllerAxisMetric` in PlotterRuntime owns validated immutable frame geometry,
 ruler observations, independent axis factors and exact setting proposals. An exact
 Stage Four checkpoint and matching registration bind the historical controller
-context. `DrawingRunEvidenceArchive` schema 4 reads schemas 1–4 and retains review deletion
+context. `DrawingRunEvidenceArchive` schema 5 reads schemas 1–5 and retains review deletion
 tombstones, metric
 measurements, prepared calibration attempts and separate terminal receipts alongside
 existing drawing records/attempts. Record revision still equals record count;
@@ -1963,10 +1963,11 @@ names are retained, so this consolidation performs no data relocation.
 | `AcceptedArtifacts/accepted-learning-path-v1.json` | `AcceptedLearningPathCheckpointStore`; the current accepted LIVE dependency prefix, semantic identities, cap appearance and one bounded optical reference | Each accepted prefix is durable; load presents Saved Learning for operator decision. |
 | `AcceptedArtifacts/History/<envelope SHA-256>.json` | The same checkpoint store; exact previous envelope bytes, including rejected bytes retained for diagnosis | Verified and synchronized before replacement/clear; failure prevents canonical mutation. No automatic load, application or pruning. |
 | `AcceptedArtifacts/accepted-machine-artifacts-v1.json` and `accepted-tip-calibration-v1.json` | Existing legacy migration adapter inputs | Converted only through validated canonical publication; the adapter removes legacy inputs only after successful migration. |
-| `PortraitCandidates/index-v1.json` | `PortraitCandidateStore` via `PortraitSketchCollection`; checksummed manifest and saved recipes | One serialized publisher; archive load errors block destructive replacement. |
-| `PortraitCandidates/records/<record SHA-256>` | Same portrait owner; source-photo metadata, immutable candidate programs, recipes, attempts, labels, lineage and deletion tombstones | Bulk record schema 2 retains independent acquired sources; schema 1 remains readable. Older readers reject the new bulk schema instead of dropping photo metadata. Only superseded bulk metadata is retired after manifest publication. |
+| `PortraitCandidates/index-v1.json` | `PortraitCandidateStore` via `PortraitSketchCollection`; checksummed schema-3 index containing candidate/metadata/label references, source-photo metadata, tombstones and saved recipes | One serialized publisher; archive load errors block destructive replacement. Legacy embedded/bulk indexes upgrade once during a healthy full load, before Draw. Catalog-only inspection stays read-only. |
+| `PortraitCandidates/records/<record SHA-256>` | Same portrait owner; immutable candidate programs, recipes, lineage, source/raster identities, per-candidate retention/attempt/thumbnail snapshots and labels | Installed and synchronized before compact-index publication; unchanged geometry is never re-encoded for retention/feedback. Only superseded metadata is retired after publication; source/candidate deletion remains tombstone-owned. Legacy bulk schemas 1–2 remain readable. |
 | `PortraitCandidates/assets/<asset SHA-256>` | Same portrait owner; original acquired image bytes and exact analyzed rasters shared by records | Acquired selected sources are retained before successful generation. Deletion follows committed explicit tombstones and preserves every referenced blob. Unassociated/corrupt assets remain diagnostic evidence. |
-| `DrawingEvidence/drawing-run-evidence-v1.json` | `DrawingRunEvidenceStore`; prepared intents, accepted plan geometry/placement, attempts, progress, terminal outcomes, evaluations and media references | Publication and possible-ink/no-redraw truth remain with the Drawing owner. Paper/Learning reset does not erase this history. |
+| `DrawingEvidence/drawing-run-evidence-v1.json` | `DrawingRunEvidenceStore`; checksummed envelope-2 manifest selecting exact attempt/terminal record hashes and archive-wide assertions | Publication and possible-ink/no-redraw truth remain with the Drawing owner. Paper/Learning reset does not erase history. Legacy envelope 1 upgrades once during asynchronous startup loading; synchronous Saved Learning inspection stays read-only. |
+| `DrawingEvidence/drawing-run-evidence-v1.json.records/<SHA-256>.json` | Same Drawing store; immutable attempt snapshots and terminal evidence | Changed components are synchronized before manifest commit. Only the manifest selects truth; interrupted/unreferenced components never authorize replay or manufacture attempts. |
 | `DrawingEvidence/drawing-run-evidence-v1.json.media/<frame SHA-256>.pixels` | Same Drawing store; exact stamped baseline/progress/result camera pixels | Media references retain source/configuration/time/hash provenance and never become portrait-input authority. |
 | `DrawingMaterials` | `DrawingMaterialStore`; identified pen/paper/material library | Independent versioned library; no Learning application or archive deletion. |
 | `EpisodeRecordings/<recording UUID>` | `EpisodeRecordingStore` selected by observation and point-selection compositions | Exact frames and typed episode records have their declared per-recording bounds; recording failure is not substitute evidence. |
@@ -2560,15 +2561,19 @@ Only explicit save or successful projection qualifies a saved-library entry.
 `PortraitSavedStyle` retains reusable recipes in the same archive. The owner first loads
 its catalog and publishes an independent saved-style read state before bulk verification.
 `PortraitSavedStylesView` uses an observable popover rather than a native menu snapshot.
-Version-two index envelopes checksum a compact manifest containing the recipes and a
-content hash of the bulk stored archive in `records/`. The same `PortraitCandidateStore`
-installs/synchronizes records before atomically committing that manifest, then retires
-only superseded bulk-index metadata; candidate assets/history remain tombstone-owned.
-Legacy version-one embedded payloads are read without rewriting, with catalog decoding
-skipping candidate materialization. Only a normal successful save upgrades their index.
-Missing/corrupt bulk records block mutation but leave independently committed recipes
-accessible. Full loads reuse unique source/raster blobs and obtain retained-byte counts
-from actual disk payload sizes rather than re-encoding all geometry on startup.
+Version-three index envelopes checksum a compact index that references each immutable
+candidate record in `records/`. Retention and feedback update metadata without
+serializing historical DrawingPrograms or reinstalling their pixels. The same
+`PortraitCandidateStore` synchronizes new records before atomically publishing the
+index and retires superseded metadata only afterward. Healthy full loads upgrade
+legacy embedded/bulk indexes once before Draw admission; saved-style-only catalog
+inspection remains read-only. Missing/corrupt records block mutation while independently
+committed recipes remain accessible. Full loads verify every referenced record and
+unique source/raster asset. Warm saves reuse validated immutable values and verified
+file digests only while device, inode, size, nanosecond mtime and ctime remain unchanged;
+a changed/missing file is reverified or refused, never silently trusted. Source-photo
+hashes and actual payload sizes are retained by the existing actor rather than
+recomputed for every metadata change.
 History installs
 payloads without rendering. Source deletion prunes digest-equivalent aliases,
 navigation and worker capabilities; tombstones block late resurrection. Historical
@@ -2734,7 +2739,16 @@ XY feed; controller-reported feed ceilings remain authoritative.
 `PlotterDrawingRunFactSource`, `PlotterDrawingRunInterpreterPort`,
 `PlotterDrawingRunCameraPort`, `PlotterDrawingRunVisionPort`, and
 `PlotterDrawingRunEvidencePort` are nominal bridges to retained owners. The
-checksummed `DrawingRunEvidenceStore` must append the exact immutable record
+checksummed `DrawingRunEvidenceStore` uses one compact manifest selecting immutable
+attempt/terminal components. Calibration payloads also live in referenced components. Warm intent, baseline and possible-ink commits validate
+and encode the changed attempt, preserving already validated historical components.
+Unchanged historical media/records reuse verification only under complete file stat
+identity; changed files trigger a strict read. Cold recovery verifies all selected
+component hashes, archive invariants, original media and derived-pixel provenance.
+Each component and then the manifest is synchronized before returning success; an
+unacknowledged commit retains possible-ink ambiguity. Orphan components are never
+replayed, and startup upgrade preserves exact RunIDs, revisions and no-redraw truth.
+The checksummed `DrawingRunEvidenceStore` must append the exact immutable record
 before successful terminal publication. A failed append leaves
 `publicationIncomplete` plus one exact recovery capability; it cannot look
 successful. Possible-ink/no-redraw truth is independent of persistence and

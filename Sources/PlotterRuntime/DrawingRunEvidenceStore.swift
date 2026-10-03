@@ -1,3 +1,4 @@
+import Darwin
 import CryptoKit
 import Foundation
 import PlotterModel
@@ -154,6 +155,18 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
     self.deletedReviewRecordIDs = deletedReviewRecordIDs
   }
 
+  fileprivate init(validated current: Self, records: [DrawingRunEvidenceRecord]? = nil,
+    attempts: [DrawingRunAttemptState]? = nil) {
+    schemaVersion = Self.schemaVersion; archiveID = current.archiveID
+    self.records = records ?? current.records; revision = UInt64(self.records.count)
+    self.attempts = attempts ?? current.attempts
+    noInkConfirmations = current.noInkConfirmations
+    deletedReviewRecordIDs = current.deletedReviewRecordIDs
+    axisMetricMeasurements = current.axisMetricMeasurements
+    axisCalibrationAttempts = current.axisCalibrationAttempts
+    axisCalibrationTerminals = current.axisCalibrationTerminals
+  }
+
   public init(archiveID: UUID = UUID()) {
     schemaVersion = Self.schemaVersion
     self.archiveID = archiveID
@@ -288,7 +301,7 @@ public enum DrawingRunEvidenceStoreError: Error, Equatable, Sendable {
 /// Support file path. It records immutable facts only: there is deliberately no
 /// readiness-promotion, model-acceptance, authorization, or motion-replay API.
 public actor DrawingRunEvidenceStore {
-  private static let envelopeSchemaVersion: UInt16 = 1
+  private static let envelopeSchemaVersion: UInt16 = 2
 
   private struct Envelope: Codable {
     let schemaVersion: UInt16
@@ -296,13 +309,64 @@ public actor DrawingRunEvidenceStore {
     let payloadSHA256: String
   }
 
+  private struct Component: Codable {
+    let id: UUID
+    let sha256: String
+  }
+
+  private struct Manifest: Codable {
+    let archiveID: UUID
+    let revision: UInt64
+    let records: [Component]
+    let attempts: [Component]
+    let noInkConfirmations: [DrawingRunNoInkConfirmation]
+    let deletedReviewRecordIDs: [DrawingEvidenceRecordID]
+    let axisMetricMeasurements: [Component]
+    let axisCalibrationAttempts: [Component]
+    let axisCalibrationTerminals: [Component]
+  }
+
+  private struct VerificationReceipt {
+    let bytes: Data
+    let manifest: Manifest?
+    let files: [URL: VerifiedFileState]
+  }
+
+  private var cachedArchive: DrawingRunEvidenceArchive?
+  private var cachedManifest: Manifest?
+  private var committedBytes: Data?
+  private var verifiedFiles: [URL: VerifiedFileState] = [:]
+  public private(set) var componentBytesEncoded = 0
+  public private(set) var mediaBytesVerified = 0
+
   public nonisolated let fileURL: URL
 
   public init(fileURL: URL) {
     self.fileURL = fileURL
   }
 
-  public func load() -> DrawingRunEvidenceStoreLoadResult { loadSnapshot() }
+  public func load() -> DrawingRunEvidenceStoreLoadResult {
+    if let cachedArchive, cachedManifest != nil, let committedBytes,
+      let read = try? VerifiedFileState.read(fileURL), read.bytes == committedBytes,
+      verifiedFiles.allSatisfy({ (try? VerifiedFileState($0.key)) == $0.value }) {
+      return .loaded(cachedArchive)
+    }
+    var receipt: VerificationReceipt?
+    let result = Self.load(from: fileURL, receipt: &receipt)
+    guard case .loaded(let archive) = result else {
+      cachedArchive = nil; cachedManifest = nil; committedBytes = nil; verifiedFiles = [:]
+      return result
+    }
+    do {
+      guard let receipt else { throw CocoaError(.fileReadUnknown) }
+      cache(archive, receipt: receipt)
+      // Pay the one-time legacy split at startup, never during Draw admission.
+      if cachedManifest == nil { try save(archive) }
+      return .loaded(archive)
+    } catch {
+      return .rejected(.invalidArchive(String(describing: error)))
+    }
+  }
 
   /// Startup reads the same atomic archive before installing Saved Learning.
   /// It never mutates the store or bypasses checksum/semantic validation.
@@ -335,6 +399,17 @@ public actor DrawingRunEvidenceStore {
     try Self.readMedia(reference, archiveURL: fileURL)
   }
 
+  private func verifyMedia(_ reference: DrawingRunMediaReference) throws {
+    try reference.validate()
+    let url = Self.mediaURL(reference, archiveURL: fileURL)
+    if let state = verifiedFiles[url], state.byteCount == Int64(reference.byteCount),
+      try VerifiedFileState(url) == state { return }
+    var state: VerifiedFileState?
+    _ = try Self.readMedia(reference, archiveURL: fileURL, state: &state)
+    mediaBytesVerified += reference.byteCount
+    verifiedFiles[url] = state
+  }
+
   @discardableResult
   public func stageIntent(_ intent: DrawingRunIntent) throws -> DrawingRunEvidenceArchive {
     let current = try currentArchive()
@@ -351,7 +426,7 @@ public actor DrawingRunEvidenceStore {
   @discardableResult
   public func stageBaseline(runID: RunID, media: DrawingRunMediaReference) throws
     -> DrawingRunEvidenceArchive {
-    _ = try readMedia(media)
+    try verifyMedia(media)
     let current = try currentArchive()
     guard let index = current.attempts.firstIndex(where: { $0.intent.runID == runID }) else {
       throw DrawingRunEvidenceStoreError.missingAttempt(runID)
@@ -372,7 +447,7 @@ public actor DrawingRunEvidenceStore {
 
   @discardableResult
   public func stageProgressFrame(runID: RunID, frame: DrawingRunProgressFrame) throws -> DrawingRunEvidenceArchive {
-    _ = try readMedia(frame.media)
+    try verifyMedia(frame.media)
     let current = try currentArchive()
     guard let index = current.attempts.firstIndex(where: { $0.intent.runID == runID }) else {
       throw DrawingRunEvidenceStoreError.missingAttempt(runID)
@@ -402,6 +477,7 @@ public actor DrawingRunEvidenceStore {
     guard !state.baselines.isEmpty else {
       throw DrawingRunEvidenceStoreError.immutableAttempt(runID)
     }
+    for baseline in state.baselines { try verifyMedia(baseline) }
     var attempts = current.attempts
     attempts[index] = DrawingRunAttemptState(intent: state.intent,
       baselines: state.baselines, inkDispatchPossible: true)
@@ -430,7 +506,15 @@ public actor DrawingRunEvidenceStore {
         axisCalibrationAttempts: current.axisCalibrationAttempts,
         axisCalibrationTerminals: current.axisCalibrationTerminals)
     }
-    let updated = try current.appending(record)
+    guard !current.records.contains(where: { $0.recordID == record.recordID }) else {
+      throw DrawingRunEvidenceArchiveError.duplicateRecordID(record.recordID)
+    }
+    guard !current.records.contains(where: { $0.runID == record.runID }) else {
+      throw DrawingRunEvidenceArchiveError.duplicateRunID(record.runID)
+    }
+    _ = try DrawingRunEvidenceArchive(revision: 1, records: [record],
+      attempts: current.attempts.filter { $0.intent.runID == record.runID })
+    let updated = DrawingRunEvidenceArchive(validated: current, records: current.records + [record])
     try save(updated)
     return updated
   }
@@ -489,68 +573,212 @@ public actor DrawingRunEvidenceStore {
   }
 
   private func currentArchive(archiveID: UUID = UUID()) throws -> DrawingRunEvidenceArchive {
-    switch Self.load(from: fileURL) {
-    case .absent: return DrawingRunEvidenceArchive(archiveID: archiveID)
-    case .loaded(let archive): return archive
+    if let cachedArchive, let committedBytes {
+      let (bytes, _) = try VerifiedFileState.read(fileURL)
+      if bytes == committedBytes,
+        verifiedFiles.allSatisfy({ (try? VerifiedFileState($0.key)) == $0.value }) {
+        return cachedArchive
+      }
+      return try readCurrentArchive(archiveID: archiveID, requiresExisting: true)
+    }
+    return try readCurrentArchive(archiveID: archiveID, requiresExisting: false)
+  }
+
+  private func readCurrentArchive(archiveID: UUID, requiresExisting: Bool) throws -> DrawingRunEvidenceArchive {
+    var receipt: VerificationReceipt?
+    switch Self.load(from: fileURL, receipt: &receipt) {
+    case .absent:
+      if requiresExisting { throw DrawingRunEvidenceStoreError.existingArchiveRejected(.invalidArchive("Committed evidence disappeared")) }
+      return DrawingRunEvidenceArchive(archiveID: archiveID)
+    case .loaded(let archive):
+      guard let receipt else { throw CocoaError(.fileReadUnknown) }
+      cache(archive, receipt: receipt)
+      return archive
     case .rejected(let rejection): throw DrawingRunEvidenceStoreError.existingArchiveRejected(rejection)
     }
   }
 
+  private func cache(_ archive: DrawingRunEvidenceArchive, receipt: VerificationReceipt) {
+    cachedArchive = archive; cachedManifest = receipt.manifest
+    committedBytes = receipt.bytes; verifiedFiles = receipt.files
+  }
+
   private func saving(_ current: DrawingRunEvidenceArchive,
     attempts: [DrawingRunAttemptState]) throws -> DrawingRunEvidenceArchive {
-    let updated = try DrawingRunEvidenceArchive(archiveID: current.archiveID,
-      revision: current.revision, records: current.records, attempts: attempts,
-      deletedReviewRecordIDs: current.deletedReviewRecordIDs, noInkConfirmations: current.noInkConfirmations,
-      axisMetricMeasurements: current.axisMetricMeasurements,
-      axisCalibrationAttempts: current.axisCalibrationAttempts,
-      axisCalibrationTerminals: current.axisCalibrationTerminals)
+    let previous = Dictionary(uniqueKeysWithValues: current.attempts.map { ($0.intent.runID, $0) })
+    let changed = attempts.filter { previous[$0.intent.runID] != $0 }
+    let changedIDs = Set(changed.map { $0.intent.runID })
+    let records = current.records.filter { changedIDs.contains($0.runID) }
+    _ = try DrawingRunEvidenceArchive(revision: UInt64(records.count), records: records, attempts: changed)
+    let updated = DrawingRunEvidenceArchive(validated: current, attempts: attempts)
     try save(updated)
     return updated
   }
 
   private func save(_ archive: DrawingRunEvidenceArchive) throws {
-    try Self.verifyMedia(in: archive, archiveURL: fileURL)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
-    let payload = try encoder.encode(archive)
-    let envelope = Envelope(
-      schemaVersion: Self.envelopeSchemaVersion,
-      payload: payload,
-      payloadSHA256: Self.sha256(payload)
-    )
-    try FileManager.default.createDirectory(
-      at: fileURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
-    )
-    try encoder.encode(envelope).write(to: fileURL, options: [.atomic])
+    let oldRecords = Dictionary(uniqueKeysWithValues: (cachedArchive?.records ?? []).map { ($0.recordID.rawValue, $0) })
+    let recordRefs = Dictionary(uniqueKeysWithValues: (cachedManifest?.records ?? []).map { ($0.id, $0) })
+    let oldAttempts = Dictionary(uniqueKeysWithValues: (cachedArchive?.attempts ?? []).map { ($0.intent.runID.rawValue, $0) })
+    let attemptRefs = Dictionary(uniqueKeysWithValues: (cachedManifest?.attempts ?? []).map { ($0.id, $0) })
+    var records: [Component] = [], attempts: [Component] = []
+    for record in archive.records {
+      if oldRecords[record.recordID.rawValue] == record, let reference = recordRefs[record.recordID.rawValue] {
+        records.append(reference)
+      } else {
+        if let attempt = record.attemptEvidence {
+          for reference in attempt.baselines + attempt.terminalFrames + attempt.progressFrames.map(\.media) { try verifyMedia(reference) }
+          if let coverage = attempt.mediaCoverage { try Self.verifyCoverage(coverage, attempt: attempt, archiveURL: fileURL) }
+        }
+        records.append(try installComponent(record, id: record.recordID.rawValue, encoder: encoder))
+      }
+    }
+    for attempt in archive.attempts {
+      if oldAttempts[attempt.intent.runID.rawValue] == attempt, let reference = attemptRefs[attempt.intent.runID.rawValue] {
+        attempts.append(reference)
+      } else {
+        for reference in attempt.baselines + attempt.progressFrames.map(\.media) { try verifyMedia(reference) }
+        attempts.append(try installComponent(attempt, id: attempt.intent.runID.rawValue, encoder: encoder))
+      }
+    }
+    let manifest = Manifest(archiveID: archive.archiveID, revision: archive.revision,
+      records: records, attempts: attempts, noInkConfirmations: archive.noInkConfirmations,
+      deletedReviewRecordIDs: archive.deletedReviewRecordIDs,
+      axisMetricMeasurements: try componentReferences(archive.axisMetricMeasurements,
+        previous: cachedArchive?.axisMetricMeasurements ?? [], references: cachedManifest?.axisMetricMeasurements ?? [],
+        id: { $0.measurementID }, encoder: encoder),
+      axisCalibrationAttempts: try componentReferences(archive.axisCalibrationAttempts,
+        previous: cachedArchive?.axisCalibrationAttempts ?? [], references: cachedManifest?.axisCalibrationAttempts ?? [],
+        id: { $0.proposal.proposalID }, encoder: encoder),
+      axisCalibrationTerminals: try componentReferences(archive.axisCalibrationTerminals,
+        previous: cachedArchive?.axisCalibrationTerminals ?? [], references: cachedManifest?.axisCalibrationTerminals ?? [],
+        id: { $0.proposalID }, encoder: encoder))
+    let payload = try encoder.encode(manifest)
+    let bytes = try encoder.encode(Envelope(schemaVersion: Self.envelopeSchemaVersion,
+      payload: payload, payloadSHA256: Self.sha256(payload)))
+    try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try bytes.write(to: fileURL, options: [.atomic])
     try Self.synchronizeFile(fileURL)
+    // Publish only after the exact index and all referenced components are durable.
+    // Superseded blobs are retained after uncertain commits; the index alone selects truth.
+    cachedArchive = archive; cachedManifest = manifest; committedBytes = bytes
+    verifiedFiles[fileURL] = try VerifiedFileState(fileURL)
+  }
+
+  private func installComponent<T: Encodable>(_ value: T, id: UUID, encoder: JSONEncoder) throws -> Component {
+    let bytes = try encoder.encode(value)
+    componentBytesEncoded += bytes.count
+    let hash = Self.sha256(bytes)
+    let url = Self.componentURL(hash, archiveURL: fileURL)
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    if FileManager.default.fileExists(atPath: url.path) {
+      let (existing, _) = try VerifiedFileState.read(url)
+      guard Self.sha256(existing) == hash else {
+        throw DrawingRunEvidenceStoreError.existingArchiveRejected(.integrityMismatch)
+      }
+    } else {
+      try bytes.write(to: url, options: [.atomic]); try Self.synchronizeFile(url)
+    }
+    let (installed, state) = try VerifiedFileState.read(url)
+    guard Self.sha256(installed) == hash else { throw DrawingRunEvidenceStoreError.existingArchiveRejected(.integrityMismatch) }
+    verifiedFiles[url] = state
+    return Component(id: id, sha256: hash)
+  }
+
+  private func componentReferences<T: Encodable & Equatable>(_ values: [T], previous: [T],
+    references: [Component], id: (T) -> UUID, encoder: JSONEncoder) throws -> [Component] {
+    let old = Dictionary(uniqueKeysWithValues: previous.map { (id($0), $0) })
+    let retained = Dictionary(uniqueKeysWithValues: references.map { ($0.id, $0) })
+    return try values.map { value in
+      if old[id(value)] == value, let reference = retained[id(value)] { return reference }
+      return try installComponent(value, id: id(value), encoder: encoder)
+    }
+  }
+
+  private nonisolated static func componentURL(_ hash: String, archiveURL: URL) -> URL {
+    archiveURL.deletingLastPathComponent().appendingPathComponent(archiveURL.lastPathComponent + ".records", isDirectory: true)
+      .appendingPathComponent(hash + ".json")
+  }
+
+  private nonisolated static func readComponent<T: Decodable>(_ reference: Component,
+    archiveURL: URL, as type: T.Type, files: inout [URL: VerifiedFileState]) throws -> T {
+    guard reference.sha256.count == 64, reference.sha256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
+      throw DrawingRunEvidenceStoreRejection.integrityMismatch
+    }
+    let url = componentURL(reference.sha256, archiveURL: archiveURL)
+    let (bytes, state) = try VerifiedFileState.read(url)
+    guard sha256(bytes) == reference.sha256 else { throw DrawingRunEvidenceStoreRejection.integrityMismatch }
+    files[url] = state
+    return try JSONDecoder().decode(type, from: bytes)
   }
 
   private nonisolated static func load(from fileURL: URL) -> DrawingRunEvidenceStoreLoadResult {
+    var receipt: VerificationReceipt?
+    return load(from: fileURL, receipt: &receipt)
+  }
+
+  private nonisolated static func load(from fileURL: URL,
+    receipt: inout VerificationReceipt?) -> DrawingRunEvidenceStoreLoadResult {
     guard FileManager.default.fileExists(atPath: fileURL.path) else { return .absent }
     let envelope: Envelope
+    let bytes: Data
+    let indexState: VerifiedFileState
     do {
-      envelope = try JSONDecoder().decode(Envelope.self, from: Data(contentsOf: fileURL))
-    } catch {
-      return .rejected(.malformedEnvelope(String(describing: error)))
+      (bytes, indexState) = try VerifiedFileState.read(fileURL)
+      envelope = try JSONDecoder().decode(Envelope.self, from: bytes)
     }
-    guard envelope.schemaVersion == envelopeSchemaVersion else {
-      return .rejected(.unsupportedEnvelopeSchema(envelope.schemaVersion))
-    }
-    guard sha256(envelope.payload) == envelope.payloadSHA256 else {
-      return .rejected(.integrityMismatch)
-    }
+    catch { return .rejected(.malformedEnvelope(String(describing: error))) }
+    guard [1, 2].contains(envelope.schemaVersion) else { return .rejected(.unsupportedEnvelopeSchema(envelope.schemaVersion)) }
+    guard sha256(envelope.payload) == envelope.payloadSHA256 else { return .rejected(.integrityMismatch) }
     do {
-      let archive = try JSONDecoder().decode(DrawingRunEvidenceArchive.self, from: envelope.payload)
-      try verifyMedia(in: archive, archiveURL: fileURL)
+      let archive: DrawingRunEvidenceArchive
+      var manifest: Manifest?
+      var files: [URL: VerifiedFileState] = [fileURL: indexState]
+      if envelope.schemaVersion == 1 {
+        archive = try JSONDecoder().decode(DrawingRunEvidenceArchive.self, from: envelope.payload)
+      } else {
+        let decodedManifest = try JSONDecoder().decode(Manifest.self, from: envelope.payload)
+        manifest = decodedManifest
+        let records = try decodedManifest.records.map { reference -> DrawingRunEvidenceRecord in
+          let record = try readComponent(reference, archiveURL: fileURL, as: DrawingRunEvidenceRecord.self, files: &files)
+          guard record.recordID.rawValue == reference.id else { throw DrawingRunEvidenceStoreRejection.integrityMismatch }
+          return record
+        }
+        let attempts = try decodedManifest.attempts.map { reference -> DrawingRunAttemptState in
+          let attempt = try readComponent(reference, archiveURL: fileURL, as: DrawingRunAttemptState.self, files: &files)
+          guard attempt.intent.runID.rawValue == reference.id else { throw DrawingRunEvidenceStoreRejection.integrityMismatch }
+          return attempt
+        }
+        archive = try DrawingRunEvidenceArchive(archiveID: decodedManifest.archiveID, revision: decodedManifest.revision,
+          records: records, attempts: attempts, deletedReviewRecordIDs: decodedManifest.deletedReviewRecordIDs,
+          noInkConfirmations: decodedManifest.noInkConfirmations,
+          axisMetricMeasurements: decodedManifest.axisMetricMeasurements.map {
+            let value = try readComponent($0, archiveURL: fileURL, as: ControllerAxisMetricMeasurement.self, files: &files)
+            guard value.measurementID == $0.id else { throw DrawingRunEvidenceStoreRejection.integrityMismatch }
+            return value
+          },
+          axisCalibrationAttempts: decodedManifest.axisCalibrationAttempts.map {
+            let value = try readComponent($0, archiveURL: fileURL, as: ControllerAxisCalibrationAttempt.self, files: &files)
+            guard value.proposal.proposalID == $0.id else { throw DrawingRunEvidenceStoreRejection.integrityMismatch }
+            return value
+          },
+          axisCalibrationTerminals: decodedManifest.axisCalibrationTerminals.map {
+            let value = try readComponent($0, archiveURL: fileURL, as: ControllerAxisCalibrationTerminal.self, files: &files)
+            guard value.proposalID == $0.id else { throw DrawingRunEvidenceStoreRejection.integrityMismatch }
+            return value
+          })
+      }
+      try verifyMedia(in: archive, archiveURL: fileURL, files: &files)
+      guard files.allSatisfy({ (try? VerifiedFileState($0.key)) == $0.value }) else {
+        throw DrawingRunEvidenceStoreRejection.invalidArchive("Evidence changed during verification; retry the read.")
+      }
+      receipt = VerificationReceipt(bytes: bytes, manifest: manifest, files: files)
       return .loaded(archive)
-    } catch DrawingRunEvidenceStoreError.invalidMedia(let reason) {
-      return .rejected(.invalidMedia(reason))
-    } catch DrawingRunEvidenceArchiveError.unsupportedSchema(let schema) {
-      return .rejected(.unsupportedArchiveSchema(schema))
-    } catch {
-      return .rejected(.invalidArchive(String(describing: error)))
-    }
+    } catch let rejection as DrawingRunEvidenceStoreRejection { return .rejected(rejection) }
+    catch DrawingRunEvidenceStoreError.invalidMedia(let reason) { return .rejected(.invalidMedia(reason)) }
+    catch DrawingRunEvidenceArchiveError.unsupportedSchema(let schema) { return .rejected(.unsupportedArchiveSchema(schema)) }
+    catch { return .rejected(.invalidArchive(String(describing: error))) }
   }
 
   private nonisolated static func mediaURL(_ reference: DrawingRunMediaReference,
@@ -562,12 +790,19 @@ public actor DrawingRunEvidenceStore {
 
   private nonisolated static func readMedia(_ reference: DrawingRunMediaReference,
     archiveURL: URL) throws -> StampedFrame {
+    var state: VerifiedFileState?
+    return try readMedia(reference, archiveURL: archiveURL, state: &state)
+  }
+
+  private nonisolated static func readMedia(_ reference: DrawingRunMediaReference,
+    archiveURL: URL, state: inout VerifiedFileState?) throws -> StampedFrame {
     do {
       try reference.validate()
-      let bytes = try Data(contentsOf: mediaURL(reference, archiveURL: archiveURL))
+      let (bytes, verifiedState) = try VerifiedFileState.read(mediaURL(reference, archiveURL: archiveURL))
       guard bytes.count == reference.byteCount, sha256(bytes) == reference.frame.frameSHA256 else {
         throw DrawingRunEvidenceStoreError.invalidMedia("Missing or corrupt original frame " + reference.frame.frameSHA256)
       }
+      state = verifiedState
       let frame = reference.frame
       return try StampedFrame(id: frame.frameID, sequence: reference.sequence,
         captureNanoseconds: frame.captureNanoseconds, cameraConfigurationID: frame.cameraConfigurationID,
@@ -578,8 +813,7 @@ public actor DrawingRunEvidenceStore {
     }
   }
 
-  private nonisolated static func verifyMedia(in archive: DrawingRunEvidenceArchive,
-    archiveURL: URL) throws {
+  private nonisolated static func mediaReferences(in archive: DrawingRunEvidenceArchive) -> Set<DrawingRunMediaReference> {
     var references: [DrawingRunMediaReference] = []
     for attempt in archive.attempts {
       references += attempt.baselines
@@ -591,7 +825,16 @@ public actor DrawingRunEvidenceStore {
       references += attempt.terminalFrames
       references += attempt.progressFrames.map(\.media)
     }
-    for reference in Set(references) { _ = try readMedia(reference, archiveURL: archiveURL) }
+    return Set(references)
+  }
+
+  private nonisolated static func verifyMedia(in archive: DrawingRunEvidenceArchive,
+    archiveURL: URL, files: inout [URL: VerifiedFileState]) throws {
+    for reference in mediaReferences(in: archive) {
+      var state: VerifiedFileState?
+      _ = try readMedia(reference, archiveURL: archiveURL, state: &state)
+      files[mediaURL(reference, archiveURL: archiveURL)] = state
+    }
     for record in archive.records {
       guard let attempt = record.attemptEvidence, let coverage = attempt.mediaCoverage else { continue }
       try verifyCoverage(coverage, attempt: attempt, archiveURL: archiveURL)
@@ -642,6 +885,11 @@ public actor DrawingRunEvidenceStore {
     let handle = try FileHandle(forWritingTo: url)
     defer { try? handle.close() }
     try handle.synchronize()
+    // Atomic rename selects the commit; synchronize that directory entry too.
+    let descriptor = url.deletingLastPathComponent().withUnsafeFileSystemRepresentation { Darwin.open($0!, O_RDONLY) }
+    guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+    defer { Darwin.close(descriptor) }
+    guard Darwin.fsync(descriptor) == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
   }
 
   private nonisolated static func sha256(_ data: Data) -> String {

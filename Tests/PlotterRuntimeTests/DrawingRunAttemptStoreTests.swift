@@ -328,11 +328,20 @@ struct DrawingRunAttemptStoreTests {
     let payload = try #require(Data(base64Encoded: payloadString))
     var archive = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
     var records = try #require(archive["records"] as? [[String: Any]])
-    var retained = try #require(records[0]["attemptEvidence"] as? [String: Any])
+    let reference = try #require(records.first)
+    let oldHash = try #require(reference["sha256"] as? String)
+    let components = url.deletingLastPathComponent().appendingPathComponent(url.lastPathComponent + ".records")
+    var recordPayload = try #require(JSONSerialization.jsonObject(with:
+      Data(contentsOf: components.appendingPathComponent(oldHash + ".json"))) as? [String: Any])
+    var retained = try #require(recordPayload["attemptEvidence"] as? [String: Any])
     var derivative = try #require(retained["mediaCoverage"] as? [String: Any])
     var pixels = coverage.resultRGBA; pixels[0] ^= 1
     derivative["resultRGBA"] = pixels.base64EncodedString()
-    retained["mediaCoverage"] = derivative; records[0]["attemptEvidence"] = retained; archive["records"] = records
+    retained["mediaCoverage"] = derivative; recordPayload["attemptEvidence"] = retained
+    let recordBytes = try JSONSerialization.data(withJSONObject: recordPayload, options: [.sortedKeys])
+    let newHash = RunLedger.sha256Hex(recordBytes)
+    try recordBytes.write(to: components.appendingPathComponent(newHash + ".json"))
+    records[0]["sha256"] = newHash; archive["records"] = records
     let changed = try JSONSerialization.data(withJSONObject: archive, options: [.sortedKeys])
     envelope["payload"] = changed.base64EncodedString()
     envelope["payloadSHA256"] = RunLedger.sha256Hex(changed)
@@ -435,6 +444,101 @@ struct DrawingRunAttemptStoreTests {
     let stale = DrawingRunMediaReference(frame: input.baseline, source: input.source,
       controllerPosition: position, captureAfterNanoseconds: input.baseline.captureNanoseconds)
     await #expect(throws: (any Error).self) { try await store.readMedia(stale) }
+  }
+
+  @Test("Warm startup stages only its own attempt and never rehashes unrelated historical pixels")
+  func boundedStartupPersistence() async throws {
+    let url = temporaryArchive()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let store = DrawingRunEvidenceStore(fileURL: url)
+    for _ in 0..<12 {
+      let input = try fixture()
+      try await store.stageIntent(input.intent)
+      let baseline = try await store.installMedia(frame: input.baseline, source: input.source)
+      try await store.stageBaseline(runID: input.intent.runID, media: baseline)
+      try await store.markInkDispatchPossible(runID: input.intent.runID)
+    }
+    let encoded = await store.componentBytesEncoded, verified = await store.mediaBytesVerified
+    let input = try fixture()
+    let intentSize = try JSONEncoder().encode(DrawingRunAttemptState(intent: input.intent)).count
+    try await store.stageIntent(input.intent)
+    #expect(await store.componentBytesEncoded - encoded == intentSize)
+    #expect(await store.mediaBytesVerified == verified)
+    let baseline = try await store.installMedia(frame: input.baseline, source: input.source)
+    try await store.stageBaseline(runID: input.intent.runID, media: baseline)
+    let beforeMarker = await store.mediaBytesVerified
+    let armed = try await store.markInkDispatchPossible(runID: input.intent.runID)
+    #expect(await store.mediaBytesVerified == beforeMarker)
+    guard case .loaded(let recovered) = await DrawingRunEvidenceStore(fileURL: url).load() else {
+      Issue.record("Incremental startup must survive restart"); return
+    }
+    #expect(recovered == armed && recovered.attempts.count == 13)
+  }
+
+  @Test("Legacy envelope upgrades before Draw and preserves exact possible-ink truth")
+  func legacyStoreUpgrade() async throws {
+    let url = temporaryArchive()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let input = try fixture()
+    let store = DrawingRunEvidenceStore(fileURL: url)
+    try await store.stageIntent(input.intent)
+    let baseline = try await store.installMedia(frame: input.baseline, source: input.source)
+    try await store.stageBaseline(runID: input.intent.runID, media: baseline)
+    let armed = try await store.markInkDispatchPossible(runID: input.intent.runID)
+    let payload = try JSONEncoder().encode(armed)
+    let legacy = try JSONSerialization.data(withJSONObject: ["schemaVersion": 1,
+      "payload": payload.base64EncodedString(), "payloadSHA256": RunLedger.sha256Hex(payload)])
+    try legacy.write(to: url, options: .atomic)
+    let restarted = DrawingRunEvidenceStore(fileURL: url)
+    guard case .loaded(let snapshot) = restarted.loadSnapshot() else { Issue.record("Legacy read failed"); return }
+    #expect(snapshot == armed)
+    #expect(try Data(contentsOf: url) == legacy) // synchronous Saved Learning read remains read-only
+    guard case .loaded(let restored) = await restarted.load() else { Issue.record("Legacy upgrade failed"); return }
+    #expect(restored == armed)
+    let envelope = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    #expect(envelope["schemaVersion"] as? Int == 2)
+    let count = await restarted.componentBytesEncoded
+    try await restarted.stageIntent(input.intent)
+    #expect(await restarted.componentBytesEncoded == count)
+  }
+
+  @Test("A corrupt committed component rejects warm mutations; orphan components are not execution truth")
+  func componentCorruption() async throws {
+    let url = temporaryArchive()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let input = try fixture()
+    let store = DrawingRunEvidenceStore(fileURL: url)
+    try await store.stageIntent(input.intent)
+    let records = url.deletingLastPathComponent().appendingPathComponent(url.lastPathComponent + ".records")
+    let component = try #require(FileManager.default.contentsOfDirectory(at: records, includingPropertiesForKeys: nil).first)
+    try Data("orphan".utf8).write(to: records.appendingPathComponent("orphan.json"))
+    guard case .loaded(let restored) = await DrawingRunEvidenceStore(fileURL: url).load() else { Issue.record("Orphans changed truth"); return }
+    #expect(restored.attempts.count == 1)
+    let original = try Data(contentsOf: url)
+    try Data("corrupt".utf8).write(to: component)
+    let next = try fixture()
+    await #expect(throws: (any Error).self) { try await store.stageIntent(next.intent) }
+    #expect(try Data(contentsOf: url) == original)
+  }
+
+  @Test("Disposable accumulated drawing archive measures warm pre-ink persistence", .enabled(if: ProcessInfo.processInfo.environment["DRAW_EVIDENCE_BENCHMARK_FILE"] != nil))
+  func accumulatedArchiveStartup() async throws {
+    let url = URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["DRAW_EVIDENCE_BENCHMARK_FILE"]))
+    try #require(url.path.hasPrefix("/private/tmp/adaptiveplotter-draw-benchmark-") || url.path.hasPrefix("/tmp/adaptiveplotter-draw-benchmark-"))
+    let store = DrawingRunEvidenceStore(fileURL: url)
+    let loadStart = ProcessInfo.processInfo.systemUptime
+    guard case .loaded(let loaded) = await store.load() else { Issue.record("Archive copy failed load"); return }
+    let loadSeconds = ProcessInfo.processInfo.systemUptime - loadStart
+    let encoded = await store.componentBytesEncoded, verified = await store.mediaBytesVerified
+    let input = try fixture()
+    let start = ProcessInfo.processInfo.systemUptime
+    try await store.stageIntent(input.intent)
+    let baseline = try await store.installMedia(frame: input.baseline, source: input.source)
+    try await store.stageBaseline(runID: input.intent.runID, media: baseline)
+    let beforeMarker = await store.mediaBytesVerified
+    try await store.markInkDispatchPossible(runID: input.intent.runID)
+    #expect(await store.mediaBytesVerified == beforeMarker)
+    print("Draw evidence startup: historical_records=\(loaded.records.count) historical_attempts=\(loaded.attempts.count) cold_load_seconds=\(loadSeconds) warm_preink_seconds=\(ProcessInfo.processInfo.systemUptime - start) component_bytes_encoded=\(await store.componentBytesEncoded - encoded) media_bytes_verified=\(await store.mediaBytesVerified - verified)")
   }
 
   private func temporaryArchive() -> URL {

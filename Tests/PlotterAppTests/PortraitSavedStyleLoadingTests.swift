@@ -16,9 +16,9 @@ struct PortraitSavedStyleLoadingTests {
     await collection.awaitPersistence()
     let index = try Data(contentsOf: directory.appendingPathComponent("index-v1.json"))
     let records = try FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent("records"), includingPropertiesForKeys: nil)
-    #expect(records.count == 1)
+    #expect(records.count == 32)
     #expect(index.count < 16_384)
-    #expect(try Data(contentsOf: records[0]).count > index.count * 4)
+    #expect(try records.reduce(0) { try $0 + Data(contentsOf: $1).count } > index.count * 4)
     try FileManager.default.removeItem(at: records[0])
     let store = PortraitCandidateStore(directoryURL: directory)
     #expect(try await store.loadSavedStyles().map(\.name) == ["Keep this"])
@@ -56,7 +56,7 @@ struct PortraitSavedStyleLoadingTests {
     #expect(try Data(contentsOf: url) == valid)
   }
 
-  @Test("Legacy embedded archive remains readable and byte-exact until an actual save")
+  @Test("Legacy catalog inspection is read-only; full load upgrades without changing retained history")
   func legacyReadOnly() async throws {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -65,19 +65,28 @@ struct PortraitSavedStyleLoadingTests {
     _ = writer.retain(candidate: candidate, reason: .shortlisted)
     writer.saveStyle(name: "Legacy", recipe: candidate.recipe)
     await writer.awaitPersistence()
-    let record = try #require(FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent("records"), includingPropertiesForKeys: nil).first)
-    var archive = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: record)) as? [String: Any])
+    let record = try #require(FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent("records"), includingPropertiesForKeys: nil).first { url in
+      (try? JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])?["program"] != nil
+    })
+    let storedCandidate = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: record)) as? [String: Any])
+    let reasons = try JSONSerialization.jsonObject(with: PortraitCandidateCoding.encoder().encode(writer.entries[0].reasons))
+    var archive: [String: Any] = ["schemaVersion": 1, "entries": [["candidate": storedCandidate, "reasons": reasons]],
+      "labels": [], "tombstones": []]
     archive["savedStyles"] = try JSONSerialization.jsonObject(with: PortraitCandidateCoding.encoder().encode(writer.savedStyles))
     let payload = try JSONSerialization.data(withJSONObject: archive, options: [.sortedKeys])
     let legacy = try JSONSerialization.data(withJSONObject: ["schemaVersion": 1,
       "sha256": PortraitCandidateCoding.digest(payload), "payload": payload.base64EncodedString()])
     let index = directory.appendingPathComponent("index-v1.json")
     try legacy.write(to: index)
-    let reader = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let legacyStore = PortraitCandidateStore(directoryURL: directory)
+    #expect(try await legacyStore.loadSavedStyles().first?.name == "Legacy")
+    #expect(try Data(contentsOf: index) == legacy)
+    let reader = PortraitSketchCollection(store: legacyStore)
     await reader.load()
     #expect(reader.entries.map(\.id) == [candidate.id])
     #expect(reader.savedStyles.first?.recipe == candidate.recipe)
-    #expect(try Data(contentsOf: index) == legacy)
+    let upgraded = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: index)) as? [String: Any])
+    #expect(upgraded["schemaVersion"] as? Int == 3)
     reader.saveStyle(name: "New", recipe: candidate.recipe)
     await reader.awaitPersistence()
     let restored = PortraitSketchCollection(store: .init(directoryURL: directory))

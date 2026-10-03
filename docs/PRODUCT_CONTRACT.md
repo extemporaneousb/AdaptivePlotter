@@ -2103,7 +2103,18 @@ current paper-coverage evidence, and the exact reviewed EA-08A plan. The runtime
 refreshes those complete facts and revalidates that exact identity around every
 physical boundary. It issues idempotent Pen Up normalization, supervised travel
 to the observation pose when required, and an exact baseline capture before
-delegating the whole immutable plan to `RunInterpreter`. The lower interpreter
+delegating the whole immutable plan to `RunInterpreter`.
+Required persistence commits before motion and ink remain mandatory. Retaining one
+physical portrait attempt updates its compact metadata index without re-encoding
+unrelated candidate geometry. Drawing intent, baseline and possible-ink commits
+persist changed checksummed components and a compact manifest; historical records
+and original pixels are verified on cold recovery, then reused while their complete
+file identities remain unchanged. Modified/missing bytes refuse or reverify; a
+cached digest cannot promote unverified bytes. Healthy legacy format upgrades occur
+once during the existing asynchronous archive load, before Draw, retaining all
+history and exact identities. Catalog-only and synchronous Saved Learning inspections
+remain read-only. Interrupted component installation never manufactures committed
+history or authorizes replay. The lower interpreter
 remains the execution owner for Pen actuation, finite segments, Stop, and
 checkpoints. Before lower drawing execution actuates the pen, `RunInterpreter`
 derives one per-stroke schedule by rounding cumulative displacement to the existing
