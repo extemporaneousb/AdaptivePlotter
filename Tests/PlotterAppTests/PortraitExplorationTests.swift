@@ -23,6 +23,36 @@ struct PortraitExplorationTests {
     await model.shutdown()
   }
 
+  @Test("import after inspecting a legacy style restores remembered Contour tuning and current material")
+  func newSourceRestoresTuning() async throws {
+    let model = PortraitStudioModel(renderer: ExplorationTestRenderer())
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    model.editNativeVectorOptions { $0.contourLevels = 11; $0.simplificationTolerance = 0.8 }
+    let contour = model.vectorOptions
+    let material = try PortraitMaterialContext(profile: .init(name: "Current material", nominalWidthMM: 0.4), drawingHeightMM: 100)
+    var vectors = PortraitVectorOptions()
+    vectors.materialContext = material
+    let raster = portraitTestRaster()
+    let recipe = PortraitStyleRecipe(id: "legacy-hatch", title: "Legacy hatch", seed: 0, style: .hatch,
+      vectorOptions: vectors, analysisOptions: .init())
+    let legacy = try PortraitCandidate(sourceData: Data([2]), sourcePixelExtent: nil, raster: raster,
+      recipe: recipe, program: PortraitVectorizer.program(from: raster, pose: .front, style: .hatch,
+        strokeStyle: pen, vectorOptions: vectors), photoID: UUID(), captureSessionID: UUID(), pose: .front)
+    model.sketches.recordAttempt(legacy, record: try .prepare(candidate: legacy, pen: pen))
+    model.inspectAttempt(legacy.id, strokeStyle: pen)
+    model.setPhoto(Data([3]), for: .front, strokeStyle: pen)
+    await model.awaitRendering()
+    var expected = contour
+    expected.materialContext = material
+    #expect(model.style == .contours)
+    #expect(model.vectorOptions == expected)
+    #expect(model.selectedCandidate?.sourceData == Data([3]))
+    #expect(model.sketches.entries.first(where: { $0.id == legacy.id })?.candidate == legacy)
+    await model.shutdown()
+  }
+
   @Test("source removal cannot be undone by a renderer that ignores cancellation")
   func removedSourceRejectsLateResult() async throws {
     let renderer = ExplorationTestRenderer()

@@ -1,7 +1,7 @@
 import PlotterModel
 import SwiftUI
 
-/// Framing and algorithm tuning share the drawing's visible editing surface.
+/// Framing is shared; each drawing style edits its native renderer parameters.
 struct PortraitRenderControls: View {
   @Bindable var model: PortraitStudioModel
 
@@ -11,7 +11,7 @@ struct PortraitRenderControls: View {
   @State private var styleName = ""
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: 6) {
       Text("Parameters").font(.headline)
       Picker("Drawing style", selection: Binding(get: { model.style },
         set: { model.selectStyle($0, strokeStyle: strokeStyle) })) {
@@ -46,60 +46,36 @@ struct PortraitRenderControls: View {
         }
       }
       Divider()
-      Picker("Feature", selection: $model.explorationRegion) {
-        Text("Whole portrait").tag(Optional<PortraitTreatmentRegion>.none)
-        ForEach(PortraitTreatmentRegion.allCases) { Text($0.rawValue).tag(Optional($0)) }
+      HStack {
+        Text(model.style.rawValue).font(.headline)
+        Spacer()
+        StudioHelpButton("Style parameters", text: styleHelp)
       }
-      .accessibilityIdentifier("portrait.exploration.region")
-      .disabled(model.isCapturing)
-      if let region = model.explorationRegion {
-        HStack {
-          Text(region.rawValue).font(.headline)
-          Spacer()
-          StudioHelpButton("Feature adjustments", text: "These landmark-based controls edit the selected feature in every drawing style. Next varies the same settings. Other features and framing stay fixed.")
-        }
-        PortraitAdjustmentSlider("Protection", value: regionalBinding(\.featureProtection, region: region),
-          range: 0...1, step: 0.05, unit: "")
-        PortraitAdjustmentSlider("Angularity", value: regionalBinding(\.angularity, region: region),
-          range: 0...1, step: 0.05, unit: "")
-        PortraitAdjustmentSlider("Shadows", value: regionalBinding(\.shadowStrength, region: region),
-          range: 0...1, step: 0.05, unit: "")
-        PortraitAdjustmentSlider("Emphasis", value: regionalBinding(\.contourEmphasis, region: region),
-          range: 0...1, step: 0.05, unit: "")
-        if region == .face || region == .skin {
-          PortraitAdjustmentSlider("Skin cleanup", value: regionalBinding(\.skinSuppression, region: region),
-            range: 0...1, step: 0.05, unit: "")
-        }
-      } else {
-        HStack {
-          Text("Drawing").font(.headline)
-          Spacer()
-          StudioHelpButton("Drawing parameters", text: "Detail, tone, smoothness and minimum line length use the same recipe coordinates in every style. Each renderer translates them into its own curves. Spatial settings are relative to image height. Next varies these same parameters; selecting a style keeps them. Older saved recipes keep their original settings until edited.")
-        }
-        if model.vectorOptions.drawingParameters == nil {
-          Text("Original recipe retained until you edit drawing parameters.")
-            .font(.caption).foregroundStyle(.secondary)
-        }
-        PortraitAdjustmentSlider("Detail", value: drawingBinding(\.detail), range: 0...1, step: 0.05, unit: "")
-        PortraitAdjustmentSlider("Tone", value: drawingBinding(\.tone), range: 0.4...2, step: 0.05, unit: "×")
-        PortraitAdjustmentSlider("Smoothness", value: drawingBinding(\.smoothness), range: 0...1, step: 0.05, unit: "")
-        PortraitAdjustmentSlider("Min. line", value: drawingBinding(\.minimumLine, scale: 100),
-          range: 0...7.5, step: 0.25, unit: "%", precision: 2)
-        HStack(spacing: 5) {
-          ForEach(PortraitVectorPreset.allCases, id: \.self) { preset in
-            Button(preset == .broadMarker ? "Coarse" : preset.rawValue) { model.applyDetailPreset(preset) }
-              .accessibilityIdentifier("portrait.preset.\(preset.rawValue)")
+      if !model.canEditNativeParameters {
+        Text("Rendering saved recipe…")
+          .font(.caption).foregroundStyle(.secondary)
+          .accessibilityIdentifier("portrait.parametersPending")
+      }
+      nativeControls
+        .disabled(!model.canEditNativeParameters)
+      HStack(spacing: 5) {
+        ForEach(PortraitVectorPreset.allCases, id: \.self) { preset in
+          Button(preset == .broadMarker ? "Coarse" : preset.rawValue) {
+            WorkbenchRequestTelemetry.nativeActionHandled("portrait.preset.\(preset.rawValue)")
+            model.applyDetailPreset(preset)
           }
-          Spacer(minLength: 0)
-          Button("Reset") { model.resetStyle(model.style, strokeStyle: strokeStyle) }
-            .help("Reset drawing and feature parameters, keeping photo framing and material")
-            .accessibilityIdentifier("portrait.resetParameters")
+          .disabled(!model.canEditNativeParameters)
+          .accessibilityIdentifier("portrait.preset.\(preset.rawValue)")
         }
+        Spacer(minLength: 0)
+        Button("Reset") { model.resetStyle(model.style, strokeStyle: strokeStyle) }
+          .help("Reset this style's parameters, keeping photo framing and material")
+          .accessibilityIdentifier("portrait.resetParameters")
       }
-      Text(model.parameterPreferenceReport?.summary
-        ?? "Promising/rejected feedback can tune Next once independent photo comparisons support it.")
-        .font(.caption).foregroundStyle(.secondary)
-        .accessibilityIdentifier("portrait.parameterLearning")
+      if model.style == .flowEdges {
+        flowAdvancedControls
+          .disabled(!model.canEditNativeParameters)
+      }
       Divider()
       HStack {
         Text("Framing").font(.headline)
@@ -114,28 +90,6 @@ struct PortraitRenderControls: View {
       }
       Toggle("Remove background", isOn: $model.options.removeBackground)
         .accessibilityIdentifier("portrait.removeBackground")
-      if model.style == .flowEdges {
-        DisclosureGroup("Flow Edge options", isExpanded: $showsAdvanced) {
-          VStack(alignment: .leading, spacing: 4) {
-            Picker("Line form", selection: Binding(
-              get: { FlowLineForm(value: model.vectorOptions.flowRectilinearity ?? 0) },
-              set: { model.vectorOptions.flowRectilinearity = $0.value })) {
-              ForEach(FlowLineForm.allCases, id: \.self) { form in Text(form.rawValue).tag(form) }
-            }
-            .accessibilityIdentifier("portrait.flowLineForm")
-            PortraitAdjustmentSlider("Tone support", value: flowBinding(\.flowSupport),
-              range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSupport")
-            PortraitAdjustmentSlider("Persistence", value: flowBinding(\.flowStructureSupport),
-              range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowStructureSupport")
-            PortraitAdjustmentSlider("Evidence scale", value: flowBinding(\.flowSupportScale),
-              range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSupportScale")
-              .disabled((model.vectorOptions.flowSupport ?? 0) == 0 && (model.vectorOptions.flowStructureSupport ?? 0) == 0)
-            PortraitAdjustmentSlider("Irregularity", value: flowBinding(\.flowSeedIrregularity),
-              range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSeedIrregularity")
-          }.padding(.top, 4)
-        }
-        .accessibilityIdentifier("portrait.adjustmentsDisclosure")
-      }
     }
     .controlSize(.small)
     .disabled(model.isCapturing)
@@ -143,27 +97,90 @@ struct PortraitRenderControls: View {
     .accessibilityIdentifier("portrait.adjustments")
   }
 
-  private func drawingBinding(_ keyPath: WritableKeyPath<PortraitDrawingParameters, Double>,
-    scale: Double = 1) -> Binding<Double> {
-    Binding(get: { model.drawingParameters[keyPath: keyPath] * scale }, set: { value in
-      var parameters = model.drawingParameters
-      parameters[keyPath: keyPath] = value / scale
-      model.drawingParameters = parameters
-    })
+  @ViewBuilder private var nativeControls: some View {
+    if model.style == .contours {
+      Stepper("Tonal levels: \(model.nativeVectorOptions.contourLevels)",
+        value: nativeBinding(\.contourLevels), in: 1...12)
+        .font(.caption)
+        .accessibilityIdentifier("portrait.contourLevels")
+    }
+    if model.style == .flowEdges {
+      Stepper("Flow spacing: \(model.nativeVectorOptions.hatchSpacing) px",
+        value: nativeBinding(\.hatchSpacing), in: 3...16)
+        .font(.caption)
+        .accessibilityIdentifier("portrait.flowSpacing")
+    }
+    if model.style != .hatch && model.style != .crosshatch {
+      PortraitAdjustmentSlider(model.style == .flowEdges ? "Min. line" : "Min. contour",
+        value: nativeBinding(\.minimumContourLength), range: 0...40, step: 0.5, unit: "px", precision: 1,
+        identifier: "portrait.minimumLine")
+      if model.style != .flowEdges {
+        PortraitAdjustmentSlider("Simplification", value: nativeBinding(\.simplificationTolerance),
+          range: 0...3, step: 0.05, unit: "px", identifier: "portrait.simplification")
+      }
+    }
+    PortraitAdjustmentSlider(model.style == .flowEdges ? "Coherence" : "Smoothing",
+      value: nativeBinding(\.smoothing), range: 0...4, step: 0.1,
+      unit: model.style == .flowEdges ? "" : "px", precision: 1,
+      identifier: model.style == .flowEdges ? "portrait.flowCoherence" : "portrait.smoothing")
+    PortraitAdjustmentSlider(model.style == .flowEdges ? "Tone density" : "Tonal strength",
+      value: nativeBinding(\.tonalStrength), range: 0.4...2, step: 0.05, unit: "×",
+      identifier: model.style == .flowEdges ? "portrait.flowToneDensity" : "portrait.tonalStrength")
+    if model.style == .flowEdges || model.style == .sketch || model.style == .sketchHatch {
+      PortraitAdjustmentSlider("Edge threshold", value: nativeBinding(\.sketchThreshold),
+        range: 0.002...0.08, step: 0.002, unit: "", precision: 3,
+        identifier: "portrait.edgeThreshold")
+    }
   }
 
-  private func regionalBinding(_ keyPath: WritableKeyPath<PortraitRegionalParameters, Double>,
-    region: PortraitTreatmentRegion) -> Binding<Double> {
-    Binding(get: { model.vectorOptions.treatment(for: region)[keyPath: keyPath] }, set: { value in
-      var treatment = model.vectorOptions.treatment(for: region)
-      treatment[keyPath: keyPath] = value
-      model.vectorOptions.setTreatment(treatment)
-    })
+  private var flowAdvancedControls: some View {
+    DisclosureGroup("Flow Edge options", isExpanded: $showsAdvanced) {
+      VStack(alignment: .leading, spacing: 4) {
+        Picker("Line form", selection: Binding(
+          get: { FlowLineForm(value: model.nativeVectorOptions.flowRectilinearity ?? 0) },
+          set: { form in model.editNativeVectorOptions { $0.flowRectilinearity = form.value } })) {
+          ForEach(FlowLineForm.allCases, id: \.self) { form in Text(form.rawValue).tag(form) }
+        }
+        .accessibilityIdentifier("portrait.flowLineForm")
+        PortraitAdjustmentSlider("Tone support", value: flowBinding(\.flowSupport),
+          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSupport")
+        PortraitAdjustmentSlider("Persistence", value: flowBinding(\.flowStructureSupport),
+          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowStructureSupport")
+        PortraitAdjustmentSlider("Evidence scale", value: flowBinding(\.flowSupportScale),
+          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSupportScale")
+          .disabled((model.nativeVectorOptions.flowSupport ?? 0) == 0
+            && (model.nativeVectorOptions.flowStructureSupport ?? 0) == 0)
+        PortraitAdjustmentSlider("Irregularity", value: flowBinding(\.flowSeedIrregularity),
+          range: 0...1, step: 0.05, unit: "", identifier: "portrait.flowSeedIrregularity")
+      }.padding(.top, 4)
+    }
+    .help("Line form changes shading direction. Support controls determine which image evidence sustains shading and feature curves. Zero retains the original behavior.")
+    .accessibilityIdentifier("portrait.adjustmentsDisclosure")
+  }
+
+  private var styleHelp: String {
+    let description: String
+    switch model.style {
+    case .flowEdges:
+      description = "Flow Edge traces feature curves and fills shadows with directed lines. Flow spacing sets the distance between shading lines; tone density changes shadow coverage; edge threshold filters feature curves; coherence aligns nearby line directions. Minimum line length removes short curves. The secondary Flow Edge options control line form and image support. Presets keep those choices."
+    case .contours:
+      description = "Contour traces tonal boundaries. Tonal levels set the number of brightness thresholds; minimum contour length removes short curves; simplification removes small turns; smoothing softens the analyzed image; tonal strength adjusts its luminance curve."
+    case .sketch, .sketchHatch:
+      description = "Sketch traces structural edges using a difference of Gaussian blurs. Edge threshold filters weak responses; minimum contour length removes short curves; simplification removes small turns; smoothing and tonal strength adjust the analyzed image. Sketch + hatch adds shadow lines."
+    case .hatch, .crosshatch:
+      description = "Hatch fills darker image areas with straight lines. Crosshatch adds lines in a second direction. Smoothing and tonal strength adjust the analyzed image used to choose shadow coverage."
+    }
+    return description + " Spatial values are in analyzed-image pixels. Material adaptation can raise minimum spacing and line length at the placed size. Presets do not change pen width."
+  }
+
+  private func nativeBinding<Value>(_ keyPath: WritableKeyPath<PortraitVectorOptions, Value>) -> Binding<Value> {
+    Binding(get: { model.nativeVectorOptions[keyPath: keyPath] },
+      set: { value in model.editNativeVectorOptions { $0[keyPath: keyPath] = value } })
   }
 
   private func flowBinding(_ keyPath: WritableKeyPath<PortraitVectorOptions, Double?>) -> Binding<Double> {
-    Binding(get: { model.vectorOptions[keyPath: keyPath] ?? 0 },
-      set: { model.vectorOptions[keyPath: keyPath] = PortraitVectorOptions.flowAmount($0) })
+    Binding(get: { model.nativeVectorOptions[keyPath: keyPath] ?? 0 },
+      set: { value in model.editNativeVectorOptions { $0[keyPath: keyPath] = PortraitVectorOptions.flowAmount(value) } })
   }
 }
 
@@ -205,10 +222,10 @@ struct PortraitAdjustmentSlider: View {
       Slider(value: Binding(get: { draft ?? value }, set: { proposed in
         let rounded = min(range.upperBound, max(range.lowerBound, (proposed/step).rounded()*step))
         draft = rounded
-        if !isEditing { value = rounded; draft = nil }
+        if !isEditing { commit(rounded); draft = nil }
       }), in: range, onEditingChanged: { editing in
         isEditing = editing
-        if !editing, let draft { value = draft; self.draft = nil }
+        if !editing, let draft { commit(draft); self.draft = nil }
       })
       .accessibilityLabel(title)
       .accessibilityIdentifier(identifier ?? "portrait.adjustment.\(title)")
@@ -218,5 +235,10 @@ struct PortraitAdjustmentSlider: View {
     }
     .font(.caption)
     .frame(minHeight: 22)
+  }
+
+  private func commit(_ value: Double) {
+    WorkbenchRequestTelemetry.nativeActionHandled(identifier ?? "portrait.adjustment.\(title)")
+    self.value = value
   }
 }

@@ -92,12 +92,15 @@ struct PortraitStudioView: View {
             }
           }
         }
-        VStack(alignment: .leading, spacing: 12) {
-          VStack(alignment: .leading, spacing: 6) {
-            Text("Source photo").font(.headline)
-            sourcePreview.frame(height: 148)
-            PortraitPhotoStrip(model: model, strokeStyle: strokeStyle)
+        VStack(alignment: .leading, spacing: 8) {
+          HStack(alignment: .center, spacing: 8) {
+            sourcePreview.frame(width: 48, height: 66)
+            VStack(alignment: .leading, spacing: 2) {
+              Text("Source photo").font(.headline)
+              PortraitPhotoStrip(model: model, strokeStyle: strokeStyle)
+            }
           }
+          .frame(height: 66)
           .accessibilityElement(children: .contain)
           .accessibilityIdentifier("portrait.visibleSource")
           Divider()
@@ -207,7 +210,7 @@ struct PortraitStudioView: View {
         .accessibilityLabel("Camera settings")
         .help("Camera settings")
         .popover(isPresented: $cameraSettings, arrowEdge: .bottom) { cameraSettingsPanel }
-      StudioHelpButton("Portrait Studio", text: "Capture or import a photo, then work with one portrait. The Parameters panel controls style, framing and the selected facial feature. Previous and Next vary the current drawing one step at a time; Next requests a new result only when no forward result is retained. Retained Previous and Next results restore without rendering. History lists attempts for the current photo. Plus keeps an attempt promising; minus rejects that exact treatment. Save Imagination retains the result in Drawing Reviewer. Send to Drawing places it in Drawing; Draw there starts execution.")
+      StudioHelpButton("Portrait Studio", text: "Capture or import a photo, then work with one portrait. The Parameters panel provides each style's native renderer controls and shared photo framing. Previous and Next vary the current drawing one step at a time; Next requests a new result only when no forward result is retained. Retained Previous and Next results restore without rendering. History lists attempts for the current photo. Plus keeps an attempt promising; minus rejects that exact treatment. Save Imagination retains the result in Drawing Reviewer. Send to Drawing places it in Drawing; Draw there starts execution.")
       if model.isCapturing {
         Text("Keep still").font(.caption).foregroundStyle(.secondary)
         ProgressView(value: model.captureProgress).frame(width: 60)
@@ -263,7 +266,7 @@ struct PortraitStudioView: View {
       Button { model.nextPortrait(strokeStyle: strokeStyle) } label: {
         Label("Next", systemImage: "chevron.right")
       }
-      .help(model.canGoForwardPortrait ? "Revisit the next retained drawing (Option–Right Arrow)" : "Try different parameters for the selected region (Option–Right Arrow)")
+      .help(model.canGoForwardPortrait ? "Revisit the next retained drawing (Option–Right Arrow)" : "Try different parameters for this drawing style (Option–Right Arrow)")
       .disabled(!canBrowseNextDrawing)
       .accessibilityIdentifier("portrait.exploration.next")
       Button("Cancel") { model.cancelPortraitStep() }

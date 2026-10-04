@@ -1,7 +1,7 @@
 import Foundation
 
-/// Renderer-independent authoring coordinates. Spatial controls are fractions of
-/// raster height, so a style's analysis resolution does not redefine their scale.
+/// Historical shared coordinates retained for saved-recipe compatibility. New
+/// authoring edits each renderer's native parameters independently.
 struct PortraitDrawingParameters: Codable, Hashable, Sendable {
   var detail = 0.5
   var tone = 1.0
@@ -57,8 +57,8 @@ extension PortraitDrawingParameters {
 }
 
 extension PortraitVectorOptions {
-  /// Resolve once at the kernel boundary, before material floors. The archived
-  /// shared coordinates remain the authority; low-level fields serve legacy recipes.
+  /// Resolve historical shared recipes at the kernel boundary, before material
+  /// floors. Stored shared coordinates retain their original interpretation.
   func resolved(rasterHeight: Int) -> Self {
     guard let parameters = drawingParameters?.bounded else { return bounded }
     var result = bounded
@@ -73,20 +73,33 @@ extension PortraitVectorOptions {
     return result.bounded
   }
 
-  /// This is an editable projection of a legacy recipe, never an archive migration.
-  /// Its original independent algorithm knobs cannot all be inverted into Detail.
-  func drawingParameters(for style: PortraitStyle, rasterHeight: Int) -> PortraitDrawingParameters {
-    if let drawingParameters { return drawingParameters.bounded }
-    let value = bounded
-    let detail: Double
-    switch style {
-    case .contours: detail = (Double(value.contourLevels) - 3) / 6
-    case .flowEdges, .hatch, .crosshatch: detail = (13 - Double(value.hatchSpacing)) / 10
-    case .sketch, .sketchHatch: detail = (0.022 - value.sketchThreshold) / 0.02
+  /// Materialize the renderer's authored values before an explicit native edit.
+  /// This leaves historical archives untouched and excludes material floors.
+  func nativeOptions(rasterHeight: Int) -> Self {
+    var result = resolved(rasterHeight: max(2, rasterHeight))
+    result.drawingParameters = nil
+    return result
+  }
+
+  static func nativeDefaults(for style: PortraitStyle) -> Self {
+    style == .flowEdges
+      ? Self(minimumContourLength: 6, simplificationTolerance: 0.25,
+          hatchSpacing: 8, tonalStrength: 1, smoothing: 1.5, sketchThreshold: 0.012)
+      : Self()
+  }
+}
+
+extension PortraitVectorPreset {
+  func nativeOptions(for style: PortraitStyle) -> PortraitVectorOptions {
+    guard style == .flowEdges else { return options }
+    switch self {
+    case .fine:
+      return PortraitVectorOptions(minimumContourLength: 4, simplificationTolerance: 0.2,
+        hatchSpacing: 6, tonalStrength: 1, smoothing: 1, sketchThreshold: 0.008)
+    case .balanced: return .nativeDefaults(for: style)
+    case .broadMarker:
+      return PortraitVectorOptions(minimumContourLength: 10, simplificationTolerance: 0.3,
+        hatchSpacing: 12, tonalStrength: 0.8, smoothing: 2, sketchThreshold: 0.018)
     }
-    let height = Double(max(2, rasterHeight))
-    return PortraitDrawingParameters(detail: detail, tone: value.tonalStrength,
-      smoothness: value.smoothing / (height * 0.005),
-      minimumLine: value.minimumContourLength / height).bounded
   }
 }

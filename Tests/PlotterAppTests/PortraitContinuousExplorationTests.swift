@@ -6,8 +6,8 @@ import Testing
 @Suite("Continuous portrait exploration", .serialized)
 @MainActor
 struct PortraitContinuousExplorationTests {
-  @Test("actual Contour and Flow Edge regional exploration stays renewable", arguments: [PortraitStyle.contours, .flowEdges], [PortraitTreatmentRegion.eyes, .face])
-  func regionalSequence(style: PortraitStyle, region: PortraitTreatmentRegion) async throws {
+  @Test("actual Contour and Flow Edge native exploration stays renewable", arguments: [PortraitStyle.contours, .flowEdges])
+  func nativeSequence(style: PortraitStyle) async throws {
     let renderer = RegionalSequenceRenderer(raster: try regionalFixture())
     let model = PortraitStudioModel(renderer: renderer, explorationSeed: 310)
     let pen = try portraitTestStyle()
@@ -15,7 +15,6 @@ struct PortraitContinuousExplorationTests {
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
     let original = try #require(model.selectedCandidate)
-    model.explorationRegion = region
     var accepted = 0, lateAccepted = 0, geometry = Set<String>()
     var times: [Double] = []
     for step in 0..<24 {
@@ -29,8 +28,10 @@ struct PortraitContinuousExplorationTests {
       #expect(await renderer.calls - calls <= 2)
       #expect(after.recipe.style == style)
       #expect(after.rasterSHA256 == original.rasterSHA256)
-      #expect((after.recipe.vectorOptions.regionalAdjustments?.count ?? 0) <= 1)
-      #expect(after.recipe.vectorOptions.tonalStrength == original.recipe.vectorOptions.tonalStrength)
+      #expect(after.recipe.vectorOptions.drawingParameters == nil)
+      #expect(after.recipe.vectorOptions.regionalTreatment == nil)
+      #expect(after.recipe.vectorOptions.regionalAdjustments == nil)
+      #expect(after.recipe.analysisOptions == original.recipe.analysisOptions)
       if before.id != after.id {
         accepted += 1
         if step >= 12 { lateAccepted += 1 }
@@ -44,7 +45,7 @@ struct PortraitContinuousExplorationTests {
         #expect(await renderer.calls == calls)
       }
     }
-    print("REGIONAL_SEQUENCE style=\(style.rawValue) region=\(region.rawValue) accepted=\(accepted)/24 late=\(lateAccepted)/12 unique=\(geometry.count) mean_ms=\(times.reduce(0,+)/Double(times.count)) rejections=\(model.explorationRejections)")
+    print("NATIVE_SEQUENCE style=\(style.rawValue) accepted=\(accepted)/24 late=\(lateAccepted)/12 unique=\(geometry.count) mean_ms=\(times.reduce(0,+)/Double(times.count)) rejections=\(model.explorationRejections)")
     #expect(accepted >= 12)
     #expect(lateAccepted >= 5)
     #expect(geometry.count >= 8)

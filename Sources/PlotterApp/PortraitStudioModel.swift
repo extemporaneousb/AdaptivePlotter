@@ -34,8 +34,8 @@ final class PortraitStudioModel {
   private var forwardPortraits: [(candidate: PortraitCandidate, pen: StrokeStyle)] = []
   var canGoForwardPortrait: Bool { forwardPortraits.contains { !isDeletedAttempt($0.candidate) } }
   var options = PortraitAnalysisOptions()
-  var vectorOptions = PortraitVectorOptions(drawingParameters: .init())
-  private(set) var parameterPreferenceReport: PortraitParameterPreference.Report?
+  var vectorOptions = PortraitVectorOptions.nativeDefaults(for: .contours)
+  @ObservationIgnored private var vectorOptionsByStyle: [PortraitStyle: PortraitVectorOptions] = [:]
   let sketches: PortraitSketchCollection
   private(set) var completedCandidate: PortraitCandidate?
   @ObservationIgnored private var pendingRenders: [PendingRender] = []
@@ -152,8 +152,6 @@ final class PortraitStudioModel {
     let ownsSource: Bool
     var explorationID: UUID? = nil
     var explorationCenter: DrawingProgram? = nil
-    var explorationRegion: PortraitTreatmentRegion? = nil
-    var parameterPreference: PortraitParameterPreference.Model? = nil
   }
   private struct PreparedRender: Sendable {
     let result: PortraitRenderResult
@@ -173,15 +171,10 @@ final class PortraitStudioModel {
       pose: pending.photo.pose, warpManifest: result.warpManifest)
     try Task.checkCancellation()
     let isDifferent = pending.explorationCenter.map {
-      let mask = pending.explorationRegion.flatMap {
-        PortraitExplorationPolicy.VisibleGeometry.regionMask($0, raster: candidate.raster,
-          program: candidate.program)
-      }
-      return PortraitExplorationPolicy.VisibleGeometry(candidate.program)
-        .isMeaningfullyDifferent(from: PortraitExplorationPolicy.VisibleGeometry($0), mask: mask)
+      PortraitExplorationPolicy.VisibleGeometry(candidate.program)
+        .isMeaningfullyDifferent(from: PortraitExplorationPolicy.VisibleGeometry($0))
     } ?? true
-    var attempt = try PortraitAttemptRecord.prepare(candidate: candidate, pen: pending.key.strokeStyle)
-    attempt.parameterPreference = pending.parameterPreference
+    let attempt = try PortraitAttemptRecord.prepare(candidate: candidate, pen: pending.key.strokeStyle)
     return PreparedRender(result: result, candidate: candidate, isDifferent: isDifferent, attempt: attempt,
       preparationSeconds: ProcessInfo.processInfo.systemUptime - started)
   }
@@ -451,8 +444,9 @@ final class PortraitStudioModel {
   private func prepareStyleForNewSource() {
     guard !PortraitStyle.authoringCases.contains(style) else { return }
     let material = vectorOptions.materialContext
+    vectorOptionsByStyle[style] = vectorOptions
     style = .contours
-    vectorOptions = PortraitVectorOptions()
+    vectorOptions = vectorOptionsByStyle[style] ?? .nativeDefaults(for: style)
     vectorOptions.materialContext = material
   }
 
@@ -611,14 +605,6 @@ final class PortraitStudioModel {
 
   private(set) var firstAlternativeSeconds: Double?
   private(set) var lastHistoryNavigationSeconds: Double?
-  var explorationRegion: PortraitTreatmentRegion? = nil {
-    didSet {
-      if explorationRegion != oldValue {
-        forwardPortraits = []
-        cancelPortraitStep()
-      }
-    }
-  }
   var isExploring: Bool { explorationJob != nil }
   var canGoBackExploration: Bool { explorationHistory.contains { !isDeletedAttempt($0.candidate) } }
   @ObservationIgnored private var nextExplorationSeed: UInt64
@@ -632,45 +618,88 @@ final class PortraitStudioModel {
     let center: PortraitCandidate
     let photo: PortraitPhoto
     let pen: StrokeStyle
-    let region: PortraitTreatmentRegion?
     let backwards: Bool
     let startedAt = ProcessInfo.processInfo.systemUptime
     var attempt = 0
     var configurations: Set<PortraitVectorOptions>
   }
 
-  var drawingParameters: PortraitDrawingParameters {
-    get { vectorOptions.drawingParameters(for: style,
-      rasterHeight: selectedCandidate?.raster.height ?? completedCandidate?.raster.height
-        ?? PortraitImageAnalyzer.analysisMaximumDimension(for: style)) }
-    set { vectorOptions.drawingParameters = newValue.bounded }
+  /// Historical shared recipes display their effective authored values without
+  /// rewriting their stored coordinates or applying material spacing floors.
+  var nativeVectorOptions: PortraitVectorOptions {
+    vectorOptions.nativeOptions(rasterHeight: nativeRasterHeight)
   }
 
-  /// Switching kernels preserves shared authoring intent, framing and feature edits.
+  var canEditNativeParameters: Bool {
+    vectorOptions.drawingParameters == nil || applicableNativeRaster != nil
+  }
+
+  private var applicableNativeRaster: PortraitRaster? {
+    for candidate in [selectedCandidate, completedCandidate].compactMap({ $0 }) {
+      if candidate.recipe.style == style, candidate.photoID == selectedPhotoID,
+        candidate.recipe.analysisOptions == options {
+        return candidate.raster
+      }
+    }
+    return nil
+  }
+
+  private var nativeRasterHeight: Int {
+    applicableNativeRaster?.height ?? PortraitImageAnalyzer.analysisMaximumDimension(for: style)
+  }
+
+  func editNativeVectorOptions(_ edit: (inout PortraitVectorOptions) -> Void) {
+    guard !isShutdown, !isCapturing, canEditNativeParameters else { return }
+    var edited = nativeVectorOptions
+    edit(&edited)
+    edited.drawingParameters = nil
+    cancelPortraitStep()
+    forwardPortraits = []
+    vectorOptions = edited.bounded
+    vectorOptionsByStyle[style] = vectorOptions
+    recipeTitle = nil
+  }
+
+  /// Each kernel restores its own tuning. Source framing and physical material
+  /// remain shared; no Contour control is projected into Flow Edge parameters.
   func selectStyle(_ selected: PortraitStyle, strokeStyle: StrokeStyle) {
     guard !isShutdown, !isCapturing, selected != style,
       PortraitStyle.authoringCases.contains(selected) else { return }
-    let parameters = drawingParameters
+    vectorOptionsByStyle[style] = vectorOptions
+    var restored = vectorOptionsByStyle[selected] ?? .nativeDefaults(for: selected)
+    restored.materialContext = vectorOptions.materialContext
     cancelPortraitStep()
-    vectorOptions.drawingParameters = parameters
+    forwardPortraits = []
     style = selected
+    vectorOptions = restored
     recipeTitle = nil
     renderIfConfigurationChanged(strokeStyle: strokeStyle)
   }
 
   func applyDetailPreset(_ preset: PortraitVectorPreset) {
-    drawingParameters = .preset(preset)
+    let tuning = preset.nativeOptions(for: style)
+    editNativeVectorOptions {
+      $0.contourLevels = tuning.contourLevels
+      $0.minimumContourLength = tuning.minimumContourLength
+      $0.simplificationTolerance = tuning.simplificationTolerance
+      $0.hatchSpacing = tuning.hatchSpacing
+      $0.tonalStrength = tuning.tonalStrength
+      $0.smoothing = tuning.smoothing
+      $0.sketchThreshold = tuning.sketchThreshold
+    }
   }
 
-  /// Named starting points in the recipe space, not interaction modes.
+  /// Named starting points in each renderer's recipe space.
   func resetStyle(_ preset: PortraitStyle, strokeStyle: StrokeStyle) {
     guard !isShutdown, !isCapturing, PortraitStyle.authoringCases.contains(preset) else { return }
+    vectorOptionsByStyle[style] = vectorOptions
     cancelPortraitStep()
     forwardPortraits = []
-    var vectors = PortraitVectorOptions(drawingParameters: .init())
+    var vectors = PortraitVectorOptions.nativeDefaults(for: preset)
     vectors.materialContext = vectorOptions.materialContext
     style = preset
     vectorOptions = vectors
+    vectorOptionsByStyle[preset] = vectors
     recipeTitle = nil
     renderIfConfigurationChanged(strokeStyle: strokeStyle)
   }
@@ -707,18 +736,12 @@ final class PortraitStudioModel {
     }
     guard !isExploring, PortraitStyle.authoringCases.contains(style), let photo = selectedSource,
       photo.id == current.photoID else { return }
-    if explorationRegion != nil, PortraitRegionalTreatment.Field(raster: current.raster) == nil {
-      singlePortraitStatus = "Feature edits need reliable facial landmarks. Choose Whole portrait or another photo."
-      return
-    }
-    parameterPreferenceReport = explorationRegion == nil
-      ? PortraitParameterPreference.report(around: current, archive: sketches.archive) : nil
     let seed = nextExplorationSeed
     nextExplorationSeed &+= 1
     singlePortraitStatus = nil
     firstAlternativeSeconds = nil
     explorationJob = .init(seed: seed, center: current, photo: photo, pen: pen,
-      region: explorationRegion, backwards: backwards,
+      backwards: backwards,
       configurations: [PortraitExplorationPolicy.effectiveOptions(current.recipe.vectorOptions, center: current)])
     queueExplorationJob()
     startWorkIfNeeded()
@@ -779,18 +802,8 @@ final class PortraitStudioModel {
       return
     }
     let recipe: PortraitStyleRecipe
-    var preference: PortraitParameterPreference.Model?
     if let recipeOverride { recipe = recipeOverride }
-    else if let region = job.region {
-      recipe = PortraitExplorationPolicy.regionalRecipe(around: job.center, region: region,
-        seed: job.seed, attempt: job.attempt)
-    } else if job.attempt == 0, let model = parameterPreferenceReport?.model,
-      let learned = model.recipe(around: job.center, seed: job.seed) {
-      recipe = learned
-      preference = model
-    } else {
-      recipe = PortraitExplorationPolicy.recipe(around: job.center, seed: job.seed)
-    }
+    else { recipe = PortraitExplorationPolicy.nativeRecipe(around: job.center, seed: job.seed) }
     let identity = try? PortraitAttemptRecord.proposalIdentity(
       sourceSHA256: job.center.sourceSHA256, sourcePixelExtent: job.photo.sourcePixelExtent,
       pose: job.photo.pose, recipe: recipe, pen: job.pen)
@@ -816,7 +829,7 @@ final class PortraitStudioModel {
       lineage: .init(parentID: job.center.id, parentProgramHash: job.center.program.contentHash.description,
         parentRecipe: job.center.recipe, ancestryGroupID: job.center.lineage.ancestryGroupID),
       ownsSource: retainedEditSource?.id == job.photo.id, explorationID: job.id,
-      explorationCenter: job.center.program, explorationRegion: job.region, parameterPreference: preference))
+      explorationCenter: job.center.program))
   }
 
   private func retryExploration(_ recipe: PortraitStyleRecipe, rejection: PortraitExplorationPolicy.Rejection,
@@ -825,8 +838,8 @@ final class PortraitStudioModel {
     explorationRejections[rejection.rawValue, default: 0] += 1
     job.attempt += 1
     explorationJob = job
-    let recovery = job.region == nil && job.attempt < PortraitExplorationPolicy.maximumAttemptsPerSlot
-      ? PortraitExplorationPolicy.recoveryRecipe(around: job.center, failed: recipe,
+    let recovery = job.attempt < PortraitExplorationPolicy.maximumAttemptsPerSlot
+      ? PortraitExplorationPolicy.nativeRecoveryRecipe(around: job.center, failed: recipe,
           rejection: rejection, neighbor: Int(job.seed % 2), seed: job.seed, variation: 0.35,
           excluding: job.configurations) : nil
     queueExplorationJob(recipeOverride: recovery, failure: failure)
@@ -880,7 +893,6 @@ final class PortraitStudioModel {
   }
 
   private func invalidateExploration() {
-    parameterPreferenceReport = nil
     forwardPortraits = []
     singlePortraitStatus = nil
     cancelExplorationWork()
@@ -1054,9 +1066,11 @@ final class PortraitStudioModel {
   }
 
   private func installRecipe(_ recipe: PortraitStyleRecipe) {
+    vectorOptionsByStyle[style] = vectorOptions
     recipeTitle = recipe.title
     style = recipe.style
     vectorOptions = recipe.vectorOptions
+    vectorOptionsByStyle[style] = vectorOptions
     options = recipe.analysisOptions
     sketches.selectedID = nil
   }
@@ -1118,7 +1132,6 @@ final class PortraitStudioModel {
 
   func toggleFeedback(_ value: PortraitAttemptFeedback, candidate: PortraitCandidate) {
     sketches.setFeedback(feedback(for: candidate) == value ? .unknown : value, for: candidate.id)
-    parameterPreferenceReport = nil
   }
 
   /// Install the retained payload directly. No portrait render or source analysis

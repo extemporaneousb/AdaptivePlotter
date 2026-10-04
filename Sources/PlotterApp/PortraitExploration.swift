@@ -128,16 +128,17 @@ enum PortraitExplorationPolicy {
     (options.flowSupport ?? 0) > 0 || (options.flowStructureSupport ?? 0) > 0
   }
 
-  private static func dimensions(for center: PortraitCandidate) -> [Dimension] {
-    if center.recipe.vectorOptions.drawingParameters != nil {
+  private static func dimensions(for center: PortraitCandidate, options: PortraitVectorOptions? = nil) -> [Dimension] {
+    let options = options ?? center.recipe.vectorOptions
+    if options.drawingParameters != nil {
       var shared: [Dimension] = [.tone, .smoothing, .minimumLength, .levels]
-      var floorOptions = center.recipe.vectorOptions
+      var floorOptions = options
       floorOptions.drawingParameters?.minimumLine = 0
       if effectiveOptions(floorOptions, center: center).minimumContourLength
         >= Double(center.raster.height) * 0.075 { shared.removeAll { $0 == .minimumLength } }
       if center.recipe.style == .flowEdges {
         shared += [.rectilinearity, .support, .structureSupport, .seedIrregularity]
-        if hasFlowSupport(center.recipe.vectorOptions) { shared += [.supportScale] }
+        if hasFlowSupport(options) { shared += [.supportScale] }
       }
       return shared
     }
@@ -149,7 +150,7 @@ enum PortraitExplorationPolicy {
     if center.recipe.style == .contours { dimensions += [.levels] }
     if center.recipe.style == .flowEdges {
       dimensions += [.rectilinearity, .support, .structureSupport, .seedIrregularity]
-      if hasFlowSupport(center.recipe.vectorOptions.bounded) { dimensions += [.supportScale] }
+      if hasFlowSupport(options.bounded) { dimensions += [.supportScale] }
     }
     if [.hatch, .crosshatch, .sketchHatch, .flowEdges].contains(center.recipe.style) {
       dimensions += [.spacing]
@@ -158,7 +159,7 @@ enum PortraitExplorationPolicy {
     if [.sketch, .sketchHatch, .flowEdges].contains(center.recipe.style) { dimensions += [.threshold] }
     // An authored upper bound is reversible. Exclude an axis only when the
     // physical material floor itself occupies its entire usable range.
-    var floorOptions = center.recipe.vectorOptions
+    var floorOptions = options
     floorOptions.minimumContourLength = 0
     floorOptions.hatchSpacing = 1
     let effective = effectiveOptions(floorOptions, center: center)
@@ -167,11 +168,22 @@ enum PortraitExplorationPolicy {
     return dimensions
   }
 
-  /// One deterministic request. Failure recovery has its own bounded second attempt.
-  static func recipe(around center: PortraitCandidate, seed: UInt64) -> PortraitStyleRecipe {
-    let base = canonicalOptions(center.recipe.vectorOptions, style: center.recipe.style)
+  /// Studio Next samples native controls, including when its retained center
+  /// uses historical shared coordinates. The center and archive remain exact.
+  static func nativeRecipe(around center: PortraitCandidate, seed: UInt64) -> PortraitStyleRecipe {
+    recipe(around: center, seed: seed, nativeParameters: true)
+  }
+
+  /// Historical shared-policy callers retain their original parameter space.
+  /// Failure recovery has its own bounded second attempt.
+  static func recipe(around center: PortraitCandidate, seed: UInt64,
+    nativeParameters: Bool = false) -> PortraitStyleRecipe {
+    let options = nativeParameters
+      ? center.recipe.vectorOptions.nativeOptions(rasterHeight: center.raster.height)
+      : center.recipe.vectorOptions
+    let base = canonicalOptions(options, style: center.recipe.style)
     var random = Generator(state: seed)
-    let axes = dimensions(for: center)
+    let axes = dimensions(for: center, options: base)
     let forms: [Dimension] = [.rectilinearity, .support, .structureSupport, .seedIrregularity]
     let axis = center.recipe.style == .flowEdges && seed.isMultiple(of: 3)
       ? forms[Int((seed / 3) % UInt64(forms.count))] : axes[Int(random.next() % UInt64(axes.count))]
@@ -258,16 +270,26 @@ enum PortraitExplorationPolicy {
     }
   }
 
-  static func recoveryRecipe(around center: PortraitCandidate, failed: PortraitStyleRecipe,
+  static func nativeRecoveryRecipe(around center: PortraitCandidate, failed: PortraitStyleRecipe,
     rejection: Rejection, neighbor: Int, seed: UInt64, variation: Double,
     excluding: Set<PortraitVectorOptions> = []) -> PortraitStyleRecipe {
-    let base = canonicalOptions(center.recipe.vectorOptions, style: center.recipe.style)
+    recoveryRecipe(around: center, failed: failed, rejection: rejection, neighbor: neighbor,
+      seed: seed, variation: variation, excluding: excluding, nativeParameters: true)
+  }
+
+  static func recoveryRecipe(around center: PortraitCandidate, failed: PortraitStyleRecipe,
+    rejection: Rejection, neighbor: Int, seed: UInt64, variation: Double,
+    excluding: Set<PortraitVectorOptions> = [], nativeParameters: Bool = false) -> PortraitStyleRecipe {
+    let options = nativeParameters
+      ? center.recipe.vectorOptions.nativeOptions(rasterHeight: center.raster.height)
+      : center.recipe.vectorOptions
+    let base = canonicalOptions(options, style: center.recipe.style)
     let current = coordinates(base), failedCoordinates = coordinates(failed.vectorOptions)
     var state = seed ^ (UInt64(max(0, neighbor)) &* 0x9e3779b97f4a7c15)
     for coordinate in failedCoordinates { state = (state ^ coordinate.bitPattern) &* 1_099_511_628_211 }
     for byte in rejection.rawValue.utf8 { state = (state ^ UInt64(byte)) &* 1_099_511_628_211 }
     var random = Generator(state: state)
-    let shuffled = Self.shuffled(dimensions(for: center), random: &random)
+    let shuffled = Self.shuffled(dimensions(for: center, options: base), random: &random)
     // A failed axis gets lower priority than a different source of geometry.
     let unchanged = shuffled.filter { abs(current[$0.rawValue] - failedCoordinates[$0.rawValue]) < 1e-8 }
     let changed = shuffled.filter { abs(current[$0.rawValue] - failedCoordinates[$0.rawValue]) >= 1e-8 }
@@ -287,7 +309,9 @@ enum PortraitExplorationPolicy {
         vectors.drawingParameters = parameters.bounded
       } else {
         vectors.minimumContourLength *= reduction
-        vectors.sketchThreshold = max(0.002, vectors.sketchThreshold * reduction)
+        if !nativeParameters || [.flowEdges, .sketch, .sketchHatch].contains(center.recipe.style) {
+          vectors.sketchThreshold = max(0.002, vectors.sketchThreshold * reduction)
+        }
       }
       if center.recipe.style == .contours { move(.levels, vectors: &vectors, delta: sign * radius, center: center) }
     }

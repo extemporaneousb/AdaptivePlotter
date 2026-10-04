@@ -8,6 +8,45 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Renderer-native Portrait Studio controls, 2026-10-03
+
+Task `task-f36ddbf03c9946d592b6453444b0f4bb` restores native authoring coordinates.
+Contour exposes tonal levels, minimum contour length, simplification, smoothing
+and tonal strength. Flow Edge exposes spacing, minimum line length, coherence,
+tone density and edge threshold, with its secondary line-form/support controls
+retained. Feature selection and regional Studio Next ingress are removed. There
+is no native semantic face-prior control to expose; historical regional, eye and
+semantic recipe interpretation remains compatible.
+
+Style switching restores independent tuning. Fresh recipes, presets and Next use
+native fields. Historical shared recipes retain their resolver and immutable
+artwork until explicit editing; conversion uses an applicable source/style/crop
+raster and excludes physical material floors. Premature edits of an unresolved
+shared recipe wait for its raster. Native Next bypasses the incompatible shared
+preference schema; its historical policy and archive receipts remain readable.
+No archive migration, source rewrite or Drawing authority change was performed.
+
+The focused serial runtime selection passed 93 tests in 91.760 seconds, covering
+actual paths, cached/direct rendering, native proposal/recovery axes, exact legacy
+conversion, held source/crop rendering, independent style tuning, historical
+learner isolation, saved-style cancellation and bounded serial navigation. Visual
+inspection then found the old 148-point source block left primary parameters
+outside the visible inspector. The compact 66-point source row and spacing now
+show all five core controls, presets and Reset at 1000×550. The final hosted layout
+selection passed five tests in 23.600 seconds; its native slider/stepper frames are
+checked against the actual initial scroll viewport at 1000×550 and 1280×650,
+with Flow options collapsed and expanded. The regenerated small-window layouts
+were independently inspected. These synthetic source fixtures prove layout and
+geometry contracts, not likeness or aesthetic acceptance. The required configured
+checks are recorded in the Blackdog task validation receipts.
+
+The final stable-local signed debug review bundle is staged at
+`.build/StudioTestApps/AdaptivePlotter-native-controls-f36d.app` in the primary
+checkout and passed bundle validation and strict signature verification. It was
+not launched. The existing app session was preserved. Opt-in live AX interaction,
+camera capture, real-photo aesthetic acceptance, controller/pen/paper/ink and
+attended physical plotting were not exercised.
+
 ## Bounded retained photo browsing, 2026-10-03
 
 Task `task-ddf047b7121a4772ac99765d1a458d07` removes Portrait Studio opening's

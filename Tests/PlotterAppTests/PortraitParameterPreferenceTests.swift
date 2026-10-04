@@ -85,12 +85,13 @@ struct PortraitParameterPreferenceTests {
     #expect(PortraitParameterPreference.report(around: center, archive: archive).labelCount == 0)
   }
 
-  @Test("Studio Next uses the evaluated model in its existing serial worker and archives the receipt")
+  @Test("Studio Next samples native controls even when historical shared feedback supports a fitted model")
   @MainActor
   func studioIntegration() async throws {
     let renderer = ExplorationTestRenderer()
     let studio = PortraitStudioModel(renderer: renderer, explorationSeed: 7)
     let pen = try portraitTestStyle()
+    studio.vectorOptions.drawingParameters = .init()
     studio.setPhoto(Data([7]), for: .front, strokeStyle: pen)
     await studio.awaitRendering()
     let center = try #require(studio.selectedCandidate)
@@ -113,16 +114,18 @@ struct PortraitParameterPreferenceTests {
     }
     let report = PortraitParameterPreference.report(around: center, archive: studio.sketches.archive)
     let model = try #require(report.model)
-    let expected = try #require(model.recipe(around: center, seed: 7))
+    #expect(model.recipe(around: center, seed: 7) != nil)
+    let expected = PortraitExplorationPolicy.nativeRecipe(around: center, seed: 7)
+    #expect(expected.vectorOptions.drawingParameters == nil)
     let count = await renderer.requests.count
     studio.nextPortrait(strokeStyle: pen)
-    #expect(studio.parameterPreferenceReport?.model?.id == model.id)
     await studio.awaitRendering()
     let requests = await renderer.requests
     #expect(requests[count].vectorOptions == expected.vectorOptions)
+    #expect(requests.dropFirst(count).allSatisfy { $0.vectorOptions.drawingParameters == nil })
     #expect(requests.count <= count + PortraitExplorationPolicy.maximumAttemptsPerSlot)
-    let receipts = studio.sketches.attempts.compactMap { $0.attempt?.parameterPreference }
-    if studio.selectedCandidate?.recipe == expected { #expect(receipts.contains { $0.id == model.id }) }
+    #expect(studio.sketches.attempts.allSatisfy { $0.attempt?.parameterPreference == nil })
+    #expect(studio.sketches.entries.first(where: { $0.id == center.id })?.candidate == center)
     await studio.shutdown()
   }
 

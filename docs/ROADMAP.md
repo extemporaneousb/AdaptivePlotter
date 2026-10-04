@@ -20,8 +20,8 @@ interfaces are not future obligations. Remaining work is:
   Next roughly 0.5 seconds; software fixture timings do not prove click-to-paint.
 - Compare independently tuned Flow Edge, tonal contours and Sketch on retained real
   photos at matched drawing size and path/ink budgets. Judge identity, actual age,
-  expression, structure and tone independently of waiting time. Regional/eye recipes
-  require the same evaluation before claims of usefulness.
+  expression, structure and tone independently of waiting time. Historical regional/eye
+  recipes require the same evaluation before claims of usefulness.
 - Validate capture/exposure and actual line separation with the chosen camera, pen,
   paper and size through the existing attended Drawing flow. No screenshot or
   nominal spacing proves physical quality.
@@ -34,22 +34,22 @@ interfaces are not future obligations. Remaining work is:
   Do not migrate the operator's archive merely for a benchmark. Moving each candidate
   program into content-addressed assets and lazy history materialization remain possible
   later reductions of bulk load/save cost under the same archive owner.
-- Evaluate the experimental shared-parameter preference policy against baseline Next on
-  attributable real-photo feedback. The implemented model gates use on independent
-  source/session/ancestry groups and frozen renderer/material/pose/region context, and
-  preserves baseline exploration. Synthetic fitting proves mechanics only. Thirteen saved
-  recipes are seeds, not paired drawing targets or invented preference votes. Record
+- Define renderer-specific feature schemas before activating native parameter preference
+  learning. Studio Next no longer uses the retained shared-coordinate policy. Its historical
+  independent source/session/ancestry and frozen-context gates remain useful evaluation
+  constraints, not evidence for a native model. Synthetic fitting proves mechanics only.
+  Saved recipes are seeds, not paired drawing targets or invented preference votes. Record
   explicit comparisons across photos before claiming learned drawing quality.
 
 ### Research decision: trainable portrait representation, 2026-10-01
 
 One trainable drawing system does not require one line-extraction algorithm. The current
-system has shared source evidence, parameters and landmark-based regional processing;
+system shares source evidence and Drawing output while using renderer-native parameters;
 Contour is tonal marching squares, Flow Edge combines structure and tonal streamlines,
 and Sketch uses DoG/thinning. Flow samples at 320 pixels, other kernels at 160. They output
-immutable fixed-pen polylines through the same Drawing pipeline. The new binary policy
-learns preferences over their shared coordinates in a fixed context. It cannot learn a
-new stroke vocabulary or an artist's style from thirteen parameter recipes.
+immutable fixed-pen polylines through the same Drawing pipeline. The historical binary
+policy covers shared coordinates and is inactive in native Studio authoring. It cannot
+learn a new stroke vocabulary or an artist's style from saved parameter recipes.
 
 | Direction / primary evidence | Relevance and strongest limitation here |
 | --- | --- |
@@ -60,8 +60,9 @@ new stroke vocabulary or an artist's style from thirteen parameter recipes.
 | [SwiftSketch](https://swiftsketch.github.io/) | Amortized image-conditioned vector generation addresses eventual interactive speed. Its project describes 35,000 synthetic image/vector pairs across 100 categories and training on 15 categories. That is not our sparse feedback archive, and object-level generalization is not individual portrait identity evidence. |
 | [Single-Line Drawing, 2026](https://arxiv.org/abs/2606.01910) | Continuous vector-path optimization is relevant to pen-lift economy. Connectivity is a stylistic constraint, not established portrait fidelity or mechanical benefit in this application; compare it only after a useful sparse multi-stroke baseline. |
 
-Selected direction: retain one parameter representation and two explicit deterministic
-baselines while measuring the small preference policy. Next, evaluate one budgeted set of
+Selected direction: retain independently tuned native renderer baselines. Preference
+learning needs corresponding renderer-specific features before evaluation. Separately,
+evaluate one budgeted set of
 fixed-width cubic curves with separate facial structure and tone objectives, landmark
 initialization, and frozen unrelated regions. A bounded image-guided PortraVec/DiffVG
 prototype is the first comparison; no prompt-driven identity/expression deformation is
@@ -69,7 +70,7 @@ selected. Compile accepted curves into the existing `DrawingProgram` with materi
 spacing, clipping and point/path budgets. Only after useful accepted targets exist should
 we consider distilling into an image-conditioned vector model for interactive inference.
 
-The strongest objection to the selected near-term policy is its limited representation:
+A parameter preference policy is limited by its representation:
 it can prefer existing parameter settings but cannot recover information discarded by
 analysis or create a new grammar. A single collapsed kernel would lose useful baselines;
 a learned mixture/router currently lacks attributable expert-quality labels and adds
@@ -81,7 +82,7 @@ curves on the same held-out real portraits at matched physical size, pen width a
 30/60/120 stroke budgets; record identity and actual age, feature topology, tone, clutter,
 operator preference, failure rate and generation/choice latency. Include profiles,
 occlusions and the user's intended subjects, with source/session/ancestry separation.
-The online policy's grouped holdout is per fit, not a permanent subject-level benchmark;
+The historical policy's grouped holdout is per fit, not a permanent subject-level benchmark;
 curated experiments need subject identity grouping beyond source/session/ancestry links.
 Use attended final-scale plotting later to establish line separation and ink quality.
 Fewer strokes, CLIP similarity, synthetic holdout success or a paper's benchmark cannot

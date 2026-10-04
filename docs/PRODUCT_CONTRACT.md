@@ -1841,8 +1841,7 @@ owns placement, pen/material setup, paper coverage, Draw, Stop and result review
 Studio authoring remains available with an imported photo while disconnected.
 
 Portrait Studio has one drawing canvas with two control sets: a persistent Parameters
-panel owns drawing style, saved styles, feature selection, drawing/feature parameters
-and framing; a separate navigation row owns Previous, Next, Cancel and Photos/History
+panel owns drawing style, saved styles, renderer-native parameters and framing; a separate navigation row owns Previous, Next, Cancel and Photos/History
 popovers. The original source photo and selectable source thumbnails remain visible
 above the parameter controls; Photos opens a larger inspection view. Source and drawing
 always refer to the same selected candidate. Saved styles remain reachable with an empty/loading library and while Next
@@ -1852,29 +1851,38 @@ before candidate verification. New saves commit a small checksummed manifest ref
 to immutable bulk records; legacy embedded indexes stay unchanged on read and upgrade
 only on a successful normal save. Recipe availability never permits overwriting a
 corrupt bulk archive. Cancel stops the request without modifying saved recipes or selection.
-Drawing-style selection preserves shared drawing parameters, feature edits, framing
-and material. Reset restores canonical drawing/feature parameters for the selected
-renderer while preserving framing and material. The kernels remain distinct.
+Drawing-style selection restores independent tuning for each renderer, using its native
+defaults on first selection. Framing and material remain fixed. Reset restores the selected
+renderer's canonical parameters while preserving framing and material. The Feature
+selector and regional authoring controls are absent.
 
-New recipes carry shared Detail, Tone, Smoothness and minimum-line coordinates.
-Detail maps to tonal levels or Flow spacing/edge threshold; spatial settings scale
-with actual raster height before existing material floors apply. Both Flow's cached
-layers and direct vectorization resolve the same coordinates. Next varies those
-same coordinates. Renderer-specific Flow options remain explicit. Saved recipes
-without shared parameters keep their original bytes and interpretation; direct
-editing or style switching explicitly projects them into the shared coordinates.
-That projection cannot invert every independent legacy algorithm control.
+Contour exposes tonal levels, tonal strength, smoothing, minimum contour length and
+simplification. Flow Edge exposes flow spacing, tone density, edge threshold, coherence
+and minimum line length, with line form and evidence-support options available separately.
+Tonal levels do not also change edge threshold or flow spacing. Contour smoothing filters
+luminance; Flow coherence controls orientation and heading persistence. Spatial native
+settings use analyzed-raster pixels, before existing material floors. Presets and Next use
+the selected renderer's applicable native parameters.
+
+Saved recipes and immutable candidates retain their original interpretation, including
+historical shared Detail/Tone/Smoothness/minimum-line coordinates and regional modifiers.
+Loading, navigation and saving do not migrate artwork. An explicit native parameter edit
+first resolves historical shared coordinates at the actual raster height and then clears
+the shared override on the editable copy. If that source/style/crop has no applicable
+raster yet, native edits and presets wait for it; Reset can select fresh native defaults.
+Both cached Flow layers and direct vectorization
+retain the historical resolver. There is no face-prior boost control: current facial
+support is landmark-based postprocessing, not a native semantic face prior.
 
 Next requests different parameters with at most two renders, preserves the current
 candidate during work and stops after one useful result. Retained navigation
 installs exact candidates without rendering; either end can request another sample. Edits abandon forward history;
 source changes, cancellation, reset and Previous invalidate late publication.
-Whole-portrait proposals vary applicable axes and reflect at bounds. Regional proposals
-resample the same controls available in Parameters, replace the selected region's state
-and compare visible change within its landmark support. Repeated requests have fresh
-seeds and no accumulated-edit stopping count. Historical stacked recipes retain their
-interpretation until that region is edited. Missing reliable landmarks give an explicit
-unavailable result; they do not silently retarget another region.
+Whole-portrait proposals vary applicable native axes and reflect at bounds. Historical
+shared recipes are resolved on the new proposal copy before native variation. Next has no
+feature scope and does not add regional modifiers. Repeated requests have fresh seeds and
+no accumulated-edit stopping count. Historical stacked modifiers remain readable and keep
+their original rendering semantics.
 
 Material floors, detail budgets and visible-distance checks still bound proposals.
 A finite-resolution drawing cannot guarantee a distinct useful result on every click;
@@ -1885,21 +1893,12 @@ Completed authoring and useful Next results retain source, raster, recipe, geome
 thumbnail and ancestry. Unsuccessful probes are transient. History offers current-photo,
 all-photo and kept filters. Plus/minus feedback marks an exact attempt; rejection
 suppresses its source/pose/recipe/material proposal, not a whole style. Explicit feedback
-can fit an experimental regularized binary preference model over the four shared
-parameters for one fixed renderer/context. Saved recipes, browsing and unlabelled attempts
-supply no training label. Source, capture session and ancestry links form connected groups;
-training and holdout groups are disjoint. At least 16 votes/four groups, class coverage,
-held-out loss improvement and within-source ordering are required before use. Numerical
-work caps at 256 latest exact-proposal votes and 240 optimizer iterations. A passing model
-ranks twelve cheap parameter proposals before the existing bounded render request; it
-stays within training-coordinate ranges and preserves all other inputs. One in four
-requests uses baseline exploration. Regional Next, legacy recipes, sparse/unsupported
-feedback and failed holdouts retain existing behavior. Accepted learned attempts archive
-weights, feedback/candidate IDs, context and evaluation receipts; models are recomputed
-on explicit Next, never automatically installed as a renderer. This learns parameter
-preferences within the existing stroke vocabulary, not a new vector generator or physical
-quality model. Saved recipes and historical renderer families remain
-usable; new sessions default to tonal contours. Historical three/nine-slot receipts
+remains attached to exact attempts. Saved recipes and browsing supply no training label.
+The retained shared-coordinate preference policy and its archived receipts remain
+interpretable, but Studio does not route native proposals through that policy. Native
+parameter preference fitting requires a matching feature schema and validation before
+activation. Saved recipes and historical renderer families remain usable; new sessions
+default to tonal contours. Historical three/nine-slot receipts
 remain readable, but current authoring produces no offered-set trace.
 
 Source preparation retains one oriented decoded image, source-coordinate landmarks,
@@ -1912,7 +1911,7 @@ not retain evicted preparation buffers. The serial render worker constructs each
 only explicit Next requests compute a comparison footprint. Navigation and feedback reuse
 retained results; cancellation and source/revision checks still gate publication.
 Crop to face, head margin and background removal share the Parameters panel with
-drawing/feature controls and detail presets.
+renderer-native controls and detail presets.
 
 Capture Photo remains in Portrait Studio's capture row as a prominent 104 by 88
 point control with a camera icon above its visible label; acquisition changes it
@@ -1954,7 +1953,7 @@ Reviewer lists saved Imaginations, while inspecting an attempt in Studio changes
 the Studio selection. Source photos and vectors shown together come from the same
 candidate, including retained candidates.
 
-Regional treatment changes generated strokes. Soft overlapping source-coordinate
+Historical regional treatment changes generated strokes. Soft overlapping source-coordinate
 supports protect measured facial features, simplify estimated skin regions, adjust
 angularity and construct additional ordered shadow/contour strokes for a fixed-width
 pen. Skin is a face-area estimate; silhouette means the observed jaw, not inferred

@@ -2446,48 +2446,38 @@ physical holdout evaluation remain unfinished product work.
 `PortraitStudioModel` owns capture/import, selected sources, bounded caches and one
 serial acquisition/render drain. The one-canvas `PortraitStudioView` exposes shared
 Previous/Next/Cancel separately from a persistent Parameters inspector. That inspector
-owns renderer and saved-recipe selection, feature scope, framing and tuning. Shared
-`PortraitDrawingParameters` live additively in `PortraitVectorOptions`; one resolver
-maps them to kernel options using the actual raster height, before material floors.
-Both direct vectorization and the cached Flow layer path use that resolver. Style
-selection preserves the shared coordinates and regional state; Reset restores defaults.
-Legacy options remain exact until explicitly edited. The retained legacy training schema
-refuses shared-parameter recipes rather than treating inactive kernel fields as features.
-There is no interaction-mode state. Next submits one seeded proposal with
-at most one retry. Navigation installs exact candidates from bounded stacks; either end can request a new
-sample. Edits
-abandon forward history. Source/revision/request identity and cancellation settlement
+owns renderer and saved-recipe selection, framing and renderer-native tuning. Native
+`PortraitVectorOptions` are the authoring coordinates; Contour and Flow Edge expose
+independent applicable fields and maintain separate tuning across style selection.
+`PortraitDrawingParameters` and the raster-height resolver remain for historical shared
+recipes. Native edits resolve those fields before clearing the shared override on a copy;
+loading and retained navigation preserve exact recipes. Shared recipes require an applicable
+source/style/analysis raster before editing; native recipes remain editable during rendering.
+Cached Flow and direct vectorization
+keep the same compatibility resolver before material floors. Reset and presets use native
+renderer defaults. Feature selection and regional Studio Next ingress are removed, while
+historical regional/eye/semantic schema and renderer interpretation remain supported.
+The retained legacy training schema still refuses shared-parameter recipes rather than
+reading inactive kernel fields. There is no interaction-mode state. Next submits one
+seeded proposal with at most one retry. Navigation installs exact candidates from bounded
+stacks; either end can request a new sample. Edits abandon forward history. Source/revision/request identity and cancellation settlement
 gate publication. Only useful completed results enter durable history; footprint
 comparison runs only for Next. No comparison jobs, grid rounds, fallback pool or
-grid preference state remain. `PortraitParameterPreference` is a pure shared-parameter
-policy called only by explicit whole-portrait Next. It fits nine coefficients (intercept,
-four normalized axes, four quadratic terms), separately for a fixed renderer/producer,
-pose, analysis, material/pen/height and regional/advanced configuration. Inactive legacy
-kernel fields are excluded from that context digest. Flow feedback must carry the
-current renderer revision sealed in the program source; older Flow evidence is refused. Latest explicit promising/rejected
-feedback per exact proposal supplies at most 256 labels; unknown/withdrawn votes,
-saved-style events and browsing do not. Connected source/session/ancestry groups are
-split before fitting, with equal group weighting and a fixed independent holdout.
-Minimum group/class counts, improved holdout log loss against training prevalence and
-held-out within-source ordering gate use. Proposal ranking clamps to training ranges,
-refuses unsupported current coordinates and preserves the frozen recipe. Every fourth
-seed keeps baseline exploration. Existing material, novelty, cancellation and two-render
-gates still apply. Prepared attempts carry the exact evaluated model receipt; fitting
-creates no camera, planning, execution or persistent model owner. Legacy ordinal schemas
-and checkpoint interpretation stay separate and unchanged.
+grid preference state remain. `PortraitParameterPreference` retains its pure
+shared-coordinate policy and historical model receipts. It is no longer called by Studio Next: its four coordinates and forced
+shared-parameter accesses are incompatible with native renderer proposals. Feedback still
+labels exact attempts; no native preference model is inferred from the old schema.
 
-`PortraitExplorationPolicy` samples the existing recipe coordinates. Global requests
-vary the shared authoring coordinates for new recipes, retaining legacy applicable-axis
-sampling for older recipes, with material floors and reflection at bounds. Regional
-requests freeze their scope and resample `PortraitRegionalParameters`; Parameters edits
-the same fields. `PortraitVectorOptions.setTreatment` replaces prior entries for that
-scope, leaving other scopes intact. Existing stacked recipes are not rewritten on load.
-The renderer permits the historical eight overlays plus at most four previously absent
-regions; new recipes need at most one entry per region. Point/path/material budgets
-remain enforced. Landmark-supported masks restrict occupancy-distance checks to the
-requested feature. Novelty is a visible-distance floor, not a portrait-quality score.
-Source preparation and the regional postprocessor are shared across kernels; renderer
-selection is still discrete and does not imply continuous style interpolation.
+`PortraitExplorationPolicy.nativeRecipe` and `nativeRecoveryRecipe` resolve historical
+shared coordinates on the proposal copy and sample native applicable recipe fields for
+the selected renderer, with material floors and reflection at bounds. Historical
+`recipe`/`recoveryRecipe` callers retain shared-coordinate compatibility. The serial Next
+worker has no feature scope. Historical regional proposal and postprocessing helpers remain for compatibility and their existing
+geometry contracts; normal Studio authoring does not call them. Existing stacked recipes
+are not rewritten on load. Point/path/material budgets and whole-portrait novelty checks
+remain enforced. Novelty is a visible-distance floor, not a portrait-quality score. Source
+preparation and regional postprocessing of retained recipes remain shared across kernels;
+renderer selection is discrete and does not imply continuous style interpolation.
 
 `PortraitExplorationRecord` only validates historical three/nine-slot archive receipts;
 current authoring does not produce or merge them. Studio remains separate from

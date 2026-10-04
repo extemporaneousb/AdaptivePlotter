@@ -21,7 +21,6 @@ struct PortraitStudioWorkspaceLayoutTests {
     model.saveStyle(name: "Saved layout recipe")
     #expect(model.browsablePhotos.count >= 3)
     #expect(!model.isExploring)
-    model.explorationRegion = detailsExpanded ? .eyes : nil
     for size in [CGSize(width: 1000, height: 550), CGSize(width: 1280, height: 650)] {
       do {
         model.resetStyle(style, strokeStyle: stroke)
@@ -64,6 +63,10 @@ struct PortraitStudioWorkspaceLayoutTests {
           #expect(isInspector || document.bounds.height <= scroll.contentView.bounds.height + 2,
             "Only detailed adjustments may scroll vertically in \(style.rawValue) at \(size): \(document.bounds) / \(scroll.contentView.bounds).")
         }
+        let parameterScroll = try #require(inspectorScrolls.first { scroll in
+          descendants(scroll).contains { $0 is NSSlider }
+        }, "The native parameter controls must have their own inspector viewport.")
+        try assertCoreParametersVisible(in: parameterScroll, style: style, size: size)
         let controls = views.compactMap { $0 as? NSControl }.filter {
           !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
         }
@@ -88,6 +91,38 @@ struct PortraitStudioWorkspaceLayoutTests {
       }
     }
     await model.shutdown()
+  }
+
+  private func assertCoreParametersVisible(in scroll: NSScrollView, style: PortraitStyle, size: CGSize) throws {
+    let document = try #require(scroll.documentView)
+    let clip = scroll.contentView
+    // Four sliders plus the integer level/spacing stepper are the five native
+    // core rows. The sliders follow that stepper before optional Flow controls
+    // and framing; ordering the real native controls gives a host-independent
+    // viewport assertion without requiring SwiftPM accessibility support.
+    let sliders = descendants(document).compactMap { $0 as? NSSlider }.filter {
+      !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
+    }.sorted { first, second in
+      let a = first.convert(first.bounds, to: document)
+      let b = second.convert(second.bounds, to: document)
+      return document.isFlipped ? a.minY < b.minY : a.maxY > b.maxY
+    }
+    try #require(sliders.count >= 4, "\(style.rawValue) must host its four native core sliders.")
+    #expect(clip.bounds.height >= 230,
+      "Parameters need room for all five core rows at \(size); viewport is \(clip.bounds).")
+    for control in sliders.prefix(4) {
+      let rect = control.convert(control.bounds, to: clip)
+      #expect(clip.bounds.insetBy(dx: -2, dy: -2).contains(rect),
+        "\(style.rawValue) core parameter is hidden at the initial scroll position in \(size): \(rect) / \(clip.bounds).")
+    }
+    let steppers = descendants(document).compactMap { $0 as? NSStepper }.filter {
+      !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
+    }
+    for control in steppers {
+      let rect = control.convert(control.bounds, to: clip)
+      #expect(clip.bounds.insetBy(dx: -2, dy: -2).contains(rect),
+        "\(style.rawValue) level/spacing stepper is hidden at the initial scroll position in \(size).")
+    }
   }
 
   private func settle(_ view: NSView) async throws {

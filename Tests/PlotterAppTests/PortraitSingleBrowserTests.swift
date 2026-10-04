@@ -62,8 +62,8 @@ struct PortraitSingleBrowserTests {
     await model.shutdown()
   }
 
-  @Test("no-lines recovery is bounded and changing region cancels rather than retargeting a request")
-  func recoveryAndFrozenRegion() async throws {
+  @Test("no-lines recovery is bounded and a native edit cancels rather than retargeting a request")
+  func recoveryAndFrozenParameters() async throws {
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
     let pen = try portraitTestStyle()
@@ -81,10 +81,13 @@ struct PortraitSingleBrowserTests {
     await renderer.holdNext()
     model.nextPortrait(strokeStyle: pen)
     try await renderer.waitUntilHeld()
-    model.explorationRegion = .eyes
+    model.editNativeVectorOptions { $0.tonalStrength = 1.6 }
+    #expect(!model.isExploring)
+    model.renderIfConfigurationChanged(strokeStyle: pen)
     await renderer.release()
     await model.awaitRendering()
-    #expect(model.selectedCandidate?.id == first.id)
+    #expect(model.selectedCandidate?.recipe.vectorOptions.tonalStrength == 1.6)
+    #expect(model.sketches.entries.first(where: { $0.id == first.id })?.candidate == first)
     #expect(!model.isExploring)
     #expect(model.singlePortraitStatus == nil)
     await model.shutdown()
@@ -98,7 +101,7 @@ struct PortraitSingleBrowserTests {
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
     let center = try #require(model.selectedCandidate)
-    let recipe = PortraitExplorationPolicy.recipe(around: center, seed: 918)
+    let recipe = PortraitExplorationPolicy.nativeRecipe(around: center, seed: 918)
     let program = try PortraitVectorizer.program(from: center.raster, pose: .front,
       style: recipe.style, strokeStyle: pen, vectorOptions: recipe.vectorOptions)
     let rejected = try PortraitCandidate(sourceData: center.sourceData, sourcePixelExtent: center.sourcePixelExtent, raster: center.raster,

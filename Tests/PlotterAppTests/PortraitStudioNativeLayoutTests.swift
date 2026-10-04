@@ -92,15 +92,17 @@ struct PortraitStudioNativeLayoutTests {
     }
   }
 
-  @Test("native single-canvas Next, Back and Forward preserve exact results",
-    .enabled(if: ProcessInfo.processInfo.environment["PORTRAIT_NATIVE_AX_CHECK"] == "1"))
-  func explorationAXInteraction() async throws {
+  @Test("native style controls and single-canvas navigation preserve exact results",
+    .enabled(if: ProcessInfo.processInfo.environment["PORTRAIT_NATIVE_AX_CHECK"] == "1"),
+    arguments: [PortraitStyle.contours, .flowEdges])
+  func explorationAXInteraction(style: PortraitStyle) async throws {
     await diagnoseKnownSwiftUIControl()
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
     let application = fixture.application
     let model = application.portraitStudio
     let stroke = application.drawingStrokeStyle
+    model.resetStyle(style, strokeStyle: stroke)
     model.options = .init(cropToFace: false, removeBackground: false)
     model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: stroke)
     await model.awaitRendering()
@@ -123,7 +125,8 @@ struct PortraitStudioNativeLayoutTests {
       await settle(host.view)
       let original = try #require(model.selectedCandidate)
       #expect(!window.isKeyWindow)
-      #expect(!descendants(window).contains { $0.accessibilityIdentifier() == "portrait.adjustmentInspector" })
+      _ = try requiredElement("portrait.adjustmentInspector", in: window)
+      try assertNativePortraitParameters(style: model.style, in: window)
       #expect(descendants(window).filter { $0.accessibilityIdentifier() == "portrait.drawingFrame" }.count == 1)
       #expect(!descendants(window).contains { ($0.accessibilityIdentifier() ?? "").hasPrefix("portrait.exploration.slot.") })
       await settle(host.view)
@@ -142,7 +145,7 @@ struct PortraitStudioNativeLayoutTests {
       #expect(model.renderDiagnostics.startedWorkerCount == calls)
       _ = try requiredElement("portrait.style", in: window)
       _ = try requiredElement("portrait.savedStyles", in: window)
-      _ = try requiredElement("portrait.exploration.region", in: window)
+      try assertNativePortraitParameters(style: model.style, in: window)
       _ = try requiredElement("portrait.adjustmentInspector", in: window)
       _ = try requiredElement("portrait.sourceToggle", in: window)
       _ = try requiredElement("portrait.showOnPlotter", in: window)
@@ -152,6 +155,29 @@ struct PortraitStudioNativeLayoutTests {
     } catch {
       await application.shutdown()
       throw error
+    }
+  }
+
+  private func assertNativePortraitParameters(style: PortraitStyle, in window: NSWindow) throws {
+    let identifiers = Set(descendants(window).compactMap { $0.accessibilityIdentifier() })
+    #expect(!identifiers.contains("portrait.exploration.region"), "Feature selection must not appear in native style parameters.")
+    #expect(!identifiers.contains("portrait.parameterLearning"), "The removed shared-coordinate learning caption must not appear.")
+    #expect(!identifiers.contains("portrait.adjustment.Detail"))
+    #expect(!identifiers.contains("portrait.adjustment.Protection"))
+    _ = try requiredElement("portrait.minimumLine", in: window)
+    if style == .flowEdges {
+      for identifier in ["portrait.flowSpacing", "portrait.flowCoherence", "portrait.flowToneDensity", "portrait.edgeThreshold", "portrait.adjustmentsDisclosure"] {
+        _ = try requiredElement(identifier, in: window)
+      }
+      #expect(!identifiers.contains("portrait.contourLevels"))
+      #expect(!identifiers.contains("portrait.simplification"))
+    } else if style == .contours {
+      for identifier in ["portrait.contourLevels", "portrait.simplification", "portrait.smoothing", "portrait.tonalStrength"] {
+        _ = try requiredElement(identifier, in: window)
+      }
+      #expect(!identifiers.contains("portrait.flowSpacing"))
+      #expect(!identifiers.contains("portrait.edgeThreshold"))
+      #expect(!identifiers.contains("portrait.adjustmentsDisclosure"))
     }
   }
 
