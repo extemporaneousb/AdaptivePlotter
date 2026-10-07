@@ -8,6 +8,52 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Shared saved drawings and contextual review, 2026-10-06
+
+Task `task-36a83528aba84d32896e470a77b55ae5` replaces the portrait-only saved
+wrapper with `SavedDrawing`: one immutable program with optional exact portrait
+provenance. The shared archive index advances to schema 4, preserves legacy
+schema 1–3 reads and existing portrait identities/record bytes, and stores generic
+programs through the same serialized publisher. Save Drawing in Studio and Drawing,
+successful Send to Drawing, and pre-motion authored-source retention use that owner.
+The canonical Draft snapshot exposes its original authored program separately from
+optional border/camera composition; saving never substitutes execution geometry. Compact drawing summaries and selected
+record reads avoid full geometry/pixel loading during list browsing. Schema-3
+scoped queries advance bounded metadata batches until a match or exhaustion;
+schema-4 catalog queries skip candidate records. Mutations still require complete
+verification.
+
+The shared reviewer groups source photos, variants and linked runs, exposes stage
+photos, and persists drawing/run/media notes as annotations. Review dismissal uses
+logical schema-6 evidence tombstones, including unfinished runs, while retaining raw
+execution, possible-ink/no-redraw records and media. The checksummed outer manifest
+uses envelope 3 so older writers refuse it rather than discard notes or resurrect
+dismissed reviews; current readers retain envelope 1–2 compatibility. Notes do not create Learning,
+measurement or physical completion evidence. The Imagination presentation and its
+portrait-only saved wrapper, separate History view and redundant Photos popover
+are removed; the inline source strip remains. Historical ledger entries below describe
+the earlier implementation.
+
+The one-time operator cleanup reverified the committed index checksum, all 160
+photo-catalog references and all 158 distinct source assets immediately before
+removal. All 17 PNGs in `~/Pictures/AdaptivePlotter/Photos` were byte-identical to
+canonical retained assets; none was tombstoned. With no app process running, only
+that redundant folder (17,909,034 bytes) and the exact `NSOSPLastRootDirectory`
+bookmark resolving to it were removed. The canonical index checksum and every
+retained source asset were unchanged after removal; no live archive was rewritten.
+The durable cleanup receipt is
+`.build/saved-drawing-36a83528-evidence/redundant-photos-cleanup.json` in the primary
+checkout.
+
+Validation covers source-free/legacy persistence, save/handoff and deletion races,
+scoped metadata reads, original authored geometry, review notes/dismissal and
+selected media, plus the changed campaign journey and hosted review layout.
+Machine receipts belong to the Blackdog task; logs and the staged bundle are
+retained under `.build/saved-drawing-36a83528-evidence` in the primary checkout.
+Software checks and a signed app build do not establish native interaction, camera,
+controller, pen, paper or ink evidence. No app launch or attended plotting is part
+of this task.
+
 ## Renderer-native Portrait Studio controls, 2026-10-03
 
 Task `task-f36ddbf03c9946d592b6453444b0f4bb` restores native authoring coordinates.

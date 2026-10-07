@@ -128,6 +128,50 @@ struct DrawingRunAttemptStoreTests {
     }
   }
 
+  @Test("Dismissing an unfinished review and editing scoped notes preserves raw possible-ink evidence")
+  func unfinishedReviewAndNotes() async throws {
+    let input = try fixture()
+    let url = temporaryArchive()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let store = DrawingRunEvidenceStore(fileURL: url)
+    try await store.stageIntent(input.intent)
+    let baseline = try await store.installMedia(frame: input.baseline, source: input.source)
+    try await store.stageBaseline(runID: input.intent.runID, media: baseline)
+    let armed = try await store.markInkDispatchPossible(runID: input.intent.runID)
+    #expect(armed.reviewIncompleteAttempts.count == 1)
+    let scope = DrawingReviewNoteScope.run(input.intent.runID)
+    try await store.annotateReview(DrawingReviewNote(scope: scope, text: "Stopped after possible dispatch"))
+    try await store.annotateReview(DrawingReviewNote(scope: .drawing("drawing-source"), text: "Preferred variant"))
+    let cleared = try await store.annotateReview(DrawingReviewNote(scope: scope, text: ""))
+    #expect(cleared.reviewNote(for: scope).isEmpty)
+    #expect(cleared.reviewNote(for: .drawing("drawing-source")) == "Preferred variant")
+    let dismissed = try await store.dismissAttemptReview(runID: input.intent.runID)
+    #expect(dismissed.reviewIncompleteAttempts.isEmpty)
+    #expect(dismissed.incompleteAttempts == armed.incompleteAttempts)
+    #expect(dismissed.attempts == armed.attempts)
+    #expect(dismissed.records == armed.records)
+    #expect(dismissed.revision == armed.revision)
+    #expect(dismissed.reviewNotes == cleared.reviewNotes)
+    #expect(try await store.dismissAttemptReview(runID: input.intent.runID) == dismissed)
+    let restarted = DrawingRunEvidenceStore(fileURL: url)
+    guard case .loaded(let restored) = await restarted.load() else {
+      Issue.record("Review state must survive restart"); return
+    }
+    #expect(restored == dismissed)
+    #expect(try await restarted.readMedia(baseline) == input.baseline)
+    let terminal = try await restarted.installMedia(frame: input.terminal, source: input.source)
+    let record = try terminalRecord(input.intent, baseline: baseline, terminal: terminal)
+    let sealed = try await restarted.append(record)
+    #expect(sealed.dismissedReviewRunIDs == dismissed.dismissedReviewRunIDs)
+    #expect(sealed.reviewNotes == dismissed.reviewNotes)
+    #expect(sealed.reviewRecords.isEmpty)
+    #expect(sealed.records == [record])
+    #expect(sealed.reviewNote(for: scope).isEmpty)
+    await #expect(throws: DrawingRunEvidenceArchiveError.invalidReviewAnnotation) {
+      try await restarted.annotateReview(DrawingReviewNote(scope: scope, text: String(repeating: "x", count: 8193)))
+    }
+  }
+
   @Test("Commanded terminal cannot bypass the durable dispatch marker")
   func noInventedDispatch() async throws {
     let fixture = try fixture()
@@ -279,6 +323,11 @@ struct DrawingRunAttemptStoreTests {
     #expect(try !reference.matches(composed(cameraMarker: false)))
     #expect(try !reference.matches(composed(cameraMarker: true, reflected: true)))
     #expect(try !reference.matches(composed(cameraMarker: true, distorted: true)))
+    let generic = DrawingRunCandidateReference(candidateID: "drawing-" + program.contentHash.description,
+      contentHash: program.contentHash, sourceProgram: program)
+    #expect(try generic.matches(composed(cameraMarker: true)))
+    #expect(try !generic.matches(composed(cameraMarker: true, reflected: true)))
+    #expect(try !generic.matches(composed(cameraMarker: true, distorted: true)))
   }
 
   @Test("Checksummed composite pixels must equal their retained raw provenance on restart")
@@ -496,10 +545,72 @@ struct DrawingRunAttemptStoreTests {
     guard case .loaded(let restored) = await restarted.load() else { Issue.record("Legacy upgrade failed"); return }
     #expect(restored == armed)
     let envelope = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-    #expect(envelope["schemaVersion"] as? Int == 2)
+    #expect(envelope["schemaVersion"] as? Int == 3)
     let count = await restarted.componentBytesEncoded
     try await restarted.stageIntent(input.intent)
     #expect(await restarted.componentBytesEncoded == count)
+  }
+
+  @Test("Schema-two indexed evidence migrates without allowing old writers to erase supplemental review facts")
+  func indexedEnvelopeWriterCompatibility() async throws {
+    let url = temporaryArchive()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let input = try fixture()
+    let original = DrawingRunEvidenceStore(fileURL: url)
+    try await original.stageIntent(input.intent)
+    let baseline = try await original.installMedia(frame: input.baseline, source: input.source)
+    try await original.stageBaseline(runID: input.intent.runID, media: baseline)
+    let armed = try await original.markInkDispatchPossible(runID: input.intent.runID)
+
+    // Reconstruct the historical indexed format, retaining its real components
+    // and checksum. These fields were absent in the schema-two manifest.
+    var envelope = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    let encodedPayload = try #require(envelope["payload"] as? String)
+    let payload = try #require(Data(base64Encoded: encodedPayload))
+    var manifest = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+    manifest.removeValue(forKey: "dismissedReviewRunIDs")
+    manifest.removeValue(forKey: "reviewNotes")
+    let oldPayload = try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
+    envelope["schemaVersion"] = 2
+    envelope["payload"] = oldPayload.base64EncodedString()
+    envelope["payloadSHA256"] = RunLedger.sha256Hex(oldPayload)
+    let legacy = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
+    try legacy.write(to: url, options: .atomic)
+    #expect(try schemaTwoReaderEnvelopeVersion(legacy) == 2)
+
+    let current = DrawingRunEvidenceStore(fileURL: url)
+    guard case .loaded(let restored) = await current.load() else {
+      Issue.record("Historical indexed evidence must remain readable"); return
+    }
+    #expect(restored == armed)
+    let scope = DrawingReviewNoteScope.run(input.intent.runID)
+    try await current.annotateReview(DrawingReviewNote(scope: scope, text: "Possible dispatch; inspection retained"))
+    let annotated = try await current.dismissAttemptReview(runID: input.intent.runID)
+    let protectedBytes = try Data(contentsOf: url)
+    #expect(throws: DrawingRunEvidenceStoreRejection.unsupportedEnvelopeSchema(3)) {
+      try schemaTwoReaderEnvelopeVersion(protectedBytes)
+    }
+    let restarted = DrawingRunEvidenceStore(fileURL: url)
+    guard case .loaded(let protected) = await restarted.load() else {
+      Issue.record("Current reader must load the protected outer format"); return
+    }
+    #expect(protected == annotated)
+    #expect(protected.reviewNote(for: scope) == "Possible dispatch; inspection retained")
+    #expect(protected.reviewIncompleteAttempts.isEmpty)
+    #expect(protected.incompleteAttempts == armed.incompleteAttempts)
+    #expect(protected.attempts == armed.attempts && protected.records == armed.records)
+    #expect(try await restarted.readMedia(baseline) == input.baseline)
+  }
+
+  /// Frozen admission gate from the shipped schema-two reader. It refuses the
+  /// new outer format before unknown indexed fields can be silently ignored.
+  private func schemaTwoReaderEnvelopeVersion(_ bytes: Data) throws -> UInt16 {
+    struct HistoricalEnvelope: Decodable { let schemaVersion: UInt16 }
+    let version = try JSONDecoder().decode(HistoricalEnvelope.self, from: bytes).schemaVersion
+    guard [1, 2].contains(version) else {
+      throw DrawingRunEvidenceStoreRejection.unsupportedEnvelopeSchema(version)
+    }
+    return version
   }
 
   @Test("A corrupt committed component rejects warm mutations; orphan components are not execution truth")

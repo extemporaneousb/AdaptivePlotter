@@ -1,5 +1,6 @@
 import Foundation
 import PlotterModel
+import PlotterRuntime
 import Testing
 @testable import PlotterApp
 
@@ -41,6 +42,28 @@ struct DrawingReviewPresentationTests {
     #expect(reference.preview.geometry(in: CGSize(width: 400, height: 300)) != nil)
     #expect(DrawingReviewGeometry.resolve(plan: nil, sourceProgram: nil) == nil)
     #expect(DrawingReviewGeometry.unavailableExplanation.contains("neither an execution plan nor its source program"))
+  }
+
+  @Test("new publications follow latest until the operator selects a historical drawing")
+  func selectionAuthority() {
+    let old = DrawingReviewSelection.drawing("older")
+    let latest = DrawingReviewSelection.drawing("latest")
+    #expect(DrawingReviewSelectionPolicy.reconcile(current: old, available: [latest, old], explicitlySelected: false) == latest)
+    #expect(DrawingReviewSelectionPolicy.reconcile(current: old, available: [latest, old], explicitlySelected: true) == old)
+    #expect(DrawingReviewSelectionPolicy.reconcile(current: old, available: [latest], explicitlySelected: true) == latest)
+    #expect(DrawingReviewSelectionPolicy.reconcile(current: old, available: [], explicitlySelected: true) == nil)
+  }
+
+  @Test("generic source identity accepts canonical saved drawing hash and rejects altered source identity")
+  func genericDrawingIdentity() throws {
+    let program = try DrawingProgramCatalog.program(for: .rectangle,
+      style: StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID()))
+    let reference = DrawingRunCandidateReference(candidateID: "drawing-" + program.contentHash.description,
+      contentHash: program.contentHash, sourceProgram: program)
+    #expect(reference.matches(program))
+    let invalid = DrawingRunCandidateReference(candidateID: "other-" + program.contentHash.description,
+      contentHash: program.contentHash, sourceProgram: program)
+    #expect(!invalid.matches(program))
   }
 
   @Test("missing historical media and unreadable retained media have distinct explanations")

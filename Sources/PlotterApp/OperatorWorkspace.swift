@@ -2723,6 +2723,21 @@ final class PlotterApplicationRuntime:
     commitSemanticPresentationChange(invalidatesActionSurface: false)
   }
 
+  func dismissDrawingAttemptReview(runID: RunID) async throws {
+    drawingEvidenceReloadTask?.cancel()
+    await drawingEvidenceReloadTask?.value
+    installDrawingEvidenceArchive(try await drawingEvidencePort.dismissAttemptReview(runID: runID))
+    commitSemanticPresentationChange(invalidatesActionSurface: false)
+  }
+
+  func saveDrawingReviewNote(scope: DrawingReviewNoteScope, text: String) async throws {
+    drawingEvidenceReloadTask?.cancel()
+    await drawingEvidenceReloadTask?.value
+    installDrawingEvidenceArchive(try await drawingEvidencePort.annotateReview(
+      DrawingReviewNote(scope: scope, text: text)))
+    commitSemanticPresentationChange(invalidatesActionSurface: false)
+  }
+
   /// Delayed archive reads cannot resurrect a deleted review or an older record set.
   func installDrawingEvidenceArchive(_ archive: DrawingRunEvidenceArchive) {
     var next = archive
@@ -2734,6 +2749,13 @@ final class PlotterApplicationRuntime:
         }
         for id in drawingEvidenceArchive.deletedReviewRecordIDs where !next.deletedReviewRecordIDs.contains(id) {
           next = try next.deletingReview(recordID: id)
+        }
+        for id in drawingEvidenceArchive.dismissedReviewRunIDs where !next.dismissedReviewRunIDs.contains(id) {
+          next = try next.dismissingAttemptReview(runID: id)
+        }
+        // An older reader may omit durable supplemental state at the same record revision.
+        for note in drawingEvidenceArchive.reviewNotes where !next.reviewNotes.contains(where: { $0.id == note.id }) {
+          next = try next.annotatingReview(note)
         }
       } catch {
         drawingEvidenceError = "Drawing review state could not be reconciled: \(error)"
@@ -3312,7 +3334,7 @@ final class PlotterApplicationRuntime:
         evidenceRole: draft.evidenceRole,
         paperCoverage: paperCoverage,
         registration: registration,
-        candidate: portraitStudio.projectedReference(for: program),
+        candidate: savedDrawingReference(for: program),
         materialProfile: drawingMaterials.activeRecord?.profile,
         materialApplicability: drawingMaterials.activeRecord?.applicability,
         paperStock: materialPaperStock.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : materialPaperStock

@@ -153,6 +153,8 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(bordered.evidenceRole == .ordinaryDrawing)
     #expect(plan.revisionID != original.revisionID)
     #expect(bordered.program?.contentHash != opened.program?.contentHash)
+    #expect(bordered.authoredProgram == opened.authoredProgram)
+    #expect(bordered.authoredProgram == opened.program)
     #expect(plan.sourceProgramContentHash == bordered.program?.contentHash)
     #expect(plan.strokes.count == original.strokes.count + 1)
     #expect(plan.checkpoints.count == plan.strokes.count)
@@ -1692,7 +1694,7 @@ extension PlotterDrawingDraftEpisodeTests {
       drawBorder: true,
       materialContextHash: material)
     let program = try #require(bordered.program)
-    let reference = try #require(model.projectedReference(for: program))
+    let reference = try #require(model.projectedDrawing?.executionReference(for: program))
     #expect(reference.sourceProgram == candidate.program)
     #expect(reference.matches(program))
     #expect(program.contentHash != candidate.program.contentHash)

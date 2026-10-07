@@ -371,6 +371,9 @@ public struct PlotterDrawingDraftSnapshot: Hashable, Sendable {
   public let residualRecords: [DrawingResidualRecordSummary]
   public let residualAnalysis: DrawingRetrospectiveResidualAnalysis?
   public var frame: PlotterDrawingDraftFrame? = nil
+  /// Exact reusable source before placement and optional border composition.
+  /// Published by this draft owner; presentation must not reconstruct it.
+  public var authoredProgram: DrawingProgram? = nil
 
   public static func initial(
     environment: PlotterEnvironment,
@@ -1559,7 +1562,8 @@ public actor PlotterDrawingDraftRuntime {
         DrawingResidualRecordSummary(record: $0, isSelected: state.selectedResidualRecordIDs.contains($0.recordID))
       },
       residualAnalysis: state.residualAnalysis,
-      frame: makeFrame(state: state, facts: facts)
+      frame: makeFrame(state: state, facts: facts),
+      authoredProgram: authoredProgram(state: state, facts: facts)
     )
   }
 

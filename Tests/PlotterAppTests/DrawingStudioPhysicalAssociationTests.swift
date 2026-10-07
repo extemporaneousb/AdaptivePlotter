@@ -19,11 +19,11 @@ struct DrawingStudioPhysicalAssociationTests {
     #expect(await model.acceptProjection(first, perform: { nil }) == nil)
     #expect(model.sketches.retain(candidate: sibling, reason: .shortlisted) == nil)
     #expect(model.selectedCandidate?.id == sibling.id)
-    #expect(model.projectedReference(for: first.program)?.candidateID == first.id)
+    #expect(model.projectedDrawing?.executionReference(for: first.program)?.candidateID == first.id)
     #expect(await model.acceptProjection(sibling, perform: { "projection failed" }) == "projection failed")
-    #expect(model.projectedReference(for: first.program)?.candidateID == first.id)
+    #expect(model.projectedDrawing?.executionReference(for: first.program)?.candidateID == first.id)
     #expect(await model.acceptProjection(sibling, perform: { nil }) == nil)
-    #expect(model.projectedReference(for: first.program)?.candidateID == sibling.id)
+    #expect(model.projectedDrawing?.executionReference(for: first.program)?.candidateID == sibling.id)
     await model.shutdown()
   }
 

@@ -11,6 +11,8 @@ public enum DrawingRunEvidenceArchiveError: Error, Equatable, Sendable {
   case invalidAttempt(RunID)
   case invalidAxisCalibrationEvidence(String)
   case invalidReviewDeletion(DrawingEvidenceRecordID)
+  case invalidReviewAnnotation
+  case invalidAttemptReviewDeletion(RunID)
 }
 
 /// An explicit operator assertion; it does not rewrite execution or Vision facts.
@@ -32,10 +34,27 @@ extension DrawingRunEvidenceRecord {
   }
 }
 
+/// Plain operator notes are testimony, never execution or observed-ink evidence.
+public enum DrawingReviewNoteScope: Codable, Hashable, Sendable {
+  case drawing(String)
+  case run(RunID)
+  case media(String)
+}
+
+public struct DrawingReviewNote: Codable, Hashable, Sendable {
+  public let id: UUID
+  public let scope: DrawingReviewNoteScope
+  public let text: String
+  public let recordedAt: Date
+  public init(id: UUID = UUID(), scope: DrawingReviewNoteScope, text: String, recordedAt: Date = Date()) {
+    self.id = id; self.scope = scope; self.text = text; self.recordedAt = recordedAt
+  }
+}
+
 /// Immutable execution facts, operator assertions and review deletions.
 /// Deleting a review never removes no-redraw facts or shared media ownership.
 public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
-  public static let schemaVersion: UInt16 = 5
+  public static let schemaVersion: UInt16 = 6
 
   public let schemaVersion: UInt16
   public let archiveID: UUID
@@ -46,9 +65,19 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
   public var confirmedNoInkRunIDs: Set<RunID> { Set(noInkConfirmations.map(\.runID)) }
   /// Review tombstones do not change no-redraw eligibility.
   public let deletedReviewRecordIDs: [DrawingEvidenceRecordID]
+  public let dismissedReviewRunIDs: [RunID]
+  public let reviewNotes: [DrawingReviewNote]
+  public func reviewNote(for scope: DrawingReviewNoteScope) -> String {
+    reviewNotes.last { $0.scope == scope }?.text ?? ""
+  }
+  public var reviewIncompleteAttempts: [DrawingRunAttemptState] {
+    let dismissed = Set(dismissedReviewRunIDs)
+    return incompleteAttempts.filter { !dismissed.contains($0.intent.runID) }
+  }
   public var reviewRecords: [DrawingRunEvidenceRecord] {
     let deleted = Set(deletedReviewRecordIDs)
-    return records.filter { !deleted.contains($0.recordID) }
+    let dismissed = Set(dismissedReviewRunIDs)
+    return records.filter { !deleted.contains($0.recordID) && !dismissed.contains($0.runID) }
   }
   public let axisMetricMeasurements: [ControllerAxisMetricMeasurement]
   public let axisCalibrationAttempts: [ControllerAxisCalibrationAttempt]
@@ -64,6 +93,7 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
     records: [DrawingRunEvidenceRecord],
     attempts: [DrawingRunAttemptState] = [],
     deletedReviewRecordIDs: [DrawingEvidenceRecordID] = [],
+    dismissedReviewRunIDs: [RunID] = [], reviewNotes: [DrawingReviewNote] = [],
     noInkConfirmations: [DrawingRunNoInkConfirmation] = [],
     axisMetricMeasurements: [ControllerAxisMetricMeasurement] = [],
     axisCalibrationAttempts: [ControllerAxisCalibrationAttempt] = [],
@@ -142,6 +172,16 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
         throw DrawingRunEvidenceArchiveError.invalidAttempt(record.runID)
       }
     }
+    guard Set(dismissedReviewRunIDs).count == dismissedReviewRunIDs.count,
+      dismissedReviewRunIDs.allSatisfy({ intentIDs.contains($0) }) else {
+      throw DrawingRunEvidenceArchiveError.invalidReviewAnnotation
+    }
+    guard Set(reviewNotes.map(\.id)).count == reviewNotes.count,
+      reviewNotes.allSatisfy({ $0.text.utf8.count <= 8192 && $0.recordedAt.timeIntervalSinceReferenceDate.isFinite }) else {
+      throw DrawingRunEvidenceArchiveError.invalidReviewAnnotation
+    }
+    self.dismissedReviewRunIDs = dismissedReviewRunIDs
+    self.reviewNotes = reviewNotes
     try Self.validateAxisEvidence(measurements: axisMetricMeasurements,
       attempts: axisCalibrationAttempts, terminals: axisCalibrationTerminals, records: records)
     self.axisMetricMeasurements = axisMetricMeasurements
@@ -162,6 +202,7 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
     self.attempts = attempts ?? current.attempts
     noInkConfirmations = current.noInkConfirmations
     deletedReviewRecordIDs = current.deletedReviewRecordIDs
+    dismissedReviewRunIDs = current.dismissedReviewRunIDs; reviewNotes = current.reviewNotes
     axisMetricMeasurements = current.axisMetricMeasurements
     axisCalibrationAttempts = current.axisCalibrationAttempts
     axisCalibrationTerminals = current.axisCalibrationTerminals
@@ -174,6 +215,7 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
     records = []
     attempts = []
     deletedReviewRecordIDs = []
+    dismissedReviewRunIDs = []; reviewNotes = []
     noInkConfirmations = []
     axisMetricMeasurements = []
     axisCalibrationAttempts = []
@@ -185,7 +227,7 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
       archiveID: archiveID,
       revision: revision + 1,
       records: records + [record],
-      attempts: attempts, deletedReviewRecordIDs: deletedReviewRecordIDs, noInkConfirmations: noInkConfirmations,
+      attempts: attempts, deletedReviewRecordIDs: deletedReviewRecordIDs, dismissedReviewRunIDs: dismissedReviewRunIDs, reviewNotes: reviewNotes, noInkConfirmations: noInkConfirmations,
       axisMetricMeasurements: axisMetricMeasurements,
       axisCalibrationAttempts: axisCalibrationAttempts, axisCalibrationTerminals: axisCalibrationTerminals
     )
@@ -194,7 +236,7 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
   public func confirmingNoInk(_ confirmation: DrawingRunNoInkConfirmation) throws -> Self {
     if confirmedNoInkRunIDs.contains(confirmation.runID) { return self }
     return try Self(archiveID: archiveID, revision: revision, records: records,
-      attempts: attempts, deletedReviewRecordIDs: deletedReviewRecordIDs,
+      attempts: attempts, deletedReviewRecordIDs: deletedReviewRecordIDs, dismissedReviewRunIDs: dismissedReviewRunIDs, reviewNotes: reviewNotes,
       noInkConfirmations: noInkConfirmations + [confirmation],
       axisMetricMeasurements: axisMetricMeasurements,
       axisCalibrationAttempts: axisCalibrationAttempts, axisCalibrationTerminals: axisCalibrationTerminals)
@@ -203,9 +245,30 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
   public func deletingReview(recordID: DrawingEvidenceRecordID) throws -> Self {
     if deletedReviewRecordIDs.contains(recordID) { return self }
     return try Self(archiveID: archiveID, revision: revision, records: records,
-      attempts: attempts, deletedReviewRecordIDs: deletedReviewRecordIDs + [recordID], noInkConfirmations: noInkConfirmations,
+      attempts: attempts, deletedReviewRecordIDs: deletedReviewRecordIDs + [recordID], dismissedReviewRunIDs: dismissedReviewRunIDs, reviewNotes: reviewNotes, noInkConfirmations: noInkConfirmations,
       axisMetricMeasurements: axisMetricMeasurements,
       axisCalibrationAttempts: axisCalibrationAttempts, axisCalibrationTerminals: axisCalibrationTerminals)
+  }
+
+  public func dismissingAttemptReview(runID: RunID) throws -> Self {
+    guard attempts.contains(where: { $0.intent.runID == runID }) else {
+      throw DrawingRunEvidenceArchiveError.invalidAttemptReviewDeletion(runID)
+    }
+    if dismissedReviewRunIDs.contains(runID) { return self }
+    return try Self(archiveID: archiveID, revision: revision, records: records, attempts: attempts,
+      deletedReviewRecordIDs: deletedReviewRecordIDs, dismissedReviewRunIDs: dismissedReviewRunIDs + [runID],
+      reviewNotes: reviewNotes, noInkConfirmations: noInkConfirmations,
+      axisMetricMeasurements: axisMetricMeasurements, axisCalibrationAttempts: axisCalibrationAttempts,
+      axisCalibrationTerminals: axisCalibrationTerminals)
+  }
+
+  public func annotatingReview(_ note: DrawingReviewNote) throws -> Self {
+    if reviewNotes.contains(note) { return self }
+    return try Self(archiveID: archiveID, revision: revision, records: records, attempts: attempts,
+      deletedReviewRecordIDs: deletedReviewRecordIDs, dismissedReviewRunIDs: dismissedReviewRunIDs,
+      reviewNotes: reviewNotes + [note], noInkConfirmations: noInkConfirmations,
+      axisMetricMeasurements: axisMetricMeasurements, axisCalibrationAttempts: axisCalibrationAttempts,
+      axisCalibrationTerminals: axisCalibrationTerminals)
   }
 
   private static func validateAxisEvidence(measurements: [ControllerAxisMetricMeasurement],
@@ -253,7 +316,7 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
     }
   }
 
-  private enum CodingKeys: String, CodingKey { case schemaVersion, archiveID, revision, records, attempts, deletedReviewRecordIDs, noInkConfirmations, axisMetricMeasurements, axisCalibrationAttempts, axisCalibrationTerminals }
+  private enum CodingKeys: String, CodingKey { case schemaVersion, archiveID, revision, records, attempts, deletedReviewRecordIDs, dismissedReviewRunIDs, reviewNotes, noInkConfirmations, axisMetricMeasurements, axisCalibrationAttempts, axisCalibrationTerminals }
 
   public init(from decoder: any Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -267,6 +330,8 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
       records: values.decode([DrawingRunEvidenceRecord].self, forKey: .records),
       attempts: values.decodeIfPresent([DrawingRunAttemptState].self, forKey: .attempts) ?? [],
       deletedReviewRecordIDs: values.decodeIfPresent([DrawingEvidenceRecordID].self, forKey: .deletedReviewRecordIDs) ?? [],
+      dismissedReviewRunIDs: values.decodeIfPresent([RunID].self, forKey: .dismissedReviewRunIDs) ?? [],
+      reviewNotes: values.decodeIfPresent([DrawingReviewNote].self, forKey: .reviewNotes) ?? [],
       noInkConfirmations: values.decodeIfPresent([DrawingRunNoInkConfirmation].self, forKey: .noInkConfirmations) ?? [],
       axisMetricMeasurements: values.decodeIfPresent([ControllerAxisMetricMeasurement].self, forKey: .axisMetricMeasurements) ?? [],
       axisCalibrationAttempts: values.decodeIfPresent([ControllerAxisCalibrationAttempt].self, forKey: .axisCalibrationAttempts) ?? [],
@@ -301,7 +366,9 @@ public enum DrawingRunEvidenceStoreError: Error, Equatable, Sendable {
 /// Support file path. It records immutable facts only: there is deliberately no
 /// readiness-promotion, model-acceptance, authorization, or motion-replay API.
 public actor DrawingRunEvidenceStore {
-  private static let envelopeSchemaVersion: UInt16 = 2
+  // Fence out schema-two writers: their indexed manifests would silently drop
+  // the new supplemental review facts when republished.
+  private static let envelopeSchemaVersion: UInt16 = 3
 
   private struct Envelope: Codable {
     let schemaVersion: UInt16
@@ -321,6 +388,8 @@ public actor DrawingRunEvidenceStore {
     let attempts: [Component]
     let noInkConfirmations: [DrawingRunNoInkConfirmation]
     let deletedReviewRecordIDs: [DrawingEvidenceRecordID]
+    let dismissedReviewRunIDs: [RunID]?
+    let reviewNotes: [DrawingReviewNote]?
     let axisMetricMeasurements: [Component]
     let axisCalibrationAttempts: [Component]
     let axisCalibrationTerminals: [Component]
@@ -501,7 +570,7 @@ public actor DrawingRunEvidenceStore {
         revision: current.revision, records: current.records,
         attempts: current.attempts + [DrawingRunAttemptState(intent: evidence.intent,
           baselines: evidence.baselines)],
-        deletedReviewRecordIDs: current.deletedReviewRecordIDs, noInkConfirmations: current.noInkConfirmations,
+        deletedReviewRecordIDs: current.deletedReviewRecordIDs, dismissedReviewRunIDs: current.dismissedReviewRunIDs, reviewNotes: current.reviewNotes, noInkConfirmations: current.noInkConfirmations,
         axisMetricMeasurements: current.axisMetricMeasurements,
         axisCalibrationAttempts: current.axisCalibrationAttempts,
         axisCalibrationTerminals: current.axisCalibrationTerminals)
@@ -537,6 +606,22 @@ public actor DrawingRunEvidenceStore {
   }
 
   @discardableResult
+  public func dismissAttemptReview(runID: RunID) throws -> DrawingRunEvidenceArchive {
+    let current = try currentArchive()
+    let updated = try current.dismissingAttemptReview(runID: runID)
+    if updated != current { try save(updated) }
+    return updated
+  }
+
+  @discardableResult
+  public func annotateReview(_ note: DrawingReviewNote) throws -> DrawingRunEvidenceArchive {
+    let current = try currentArchive()
+    let updated = try current.annotatingReview(note)
+    if updated != current { try save(updated) }
+    return updated
+  }
+
+  @discardableResult
   public func appendAxisMetricMeasurement(_ measurement: ControllerAxisMetricMeasurement) throws -> DrawingRunEvidenceArchive {
     let current = try currentArchive()
     if current.axisMetricMeasurements.contains(measurement) { return current }
@@ -565,7 +650,7 @@ public actor DrawingRunEvidenceStore {
     terminals: [ControllerAxisCalibrationTerminal]) throws -> DrawingRunEvidenceArchive {
     let updated = try DrawingRunEvidenceArchive(archiveID: current.archiveID,
       revision: current.revision, records: current.records, attempts: current.attempts,
-      deletedReviewRecordIDs: current.deletedReviewRecordIDs, noInkConfirmations: current.noInkConfirmations,
+      deletedReviewRecordIDs: current.deletedReviewRecordIDs, dismissedReviewRunIDs: current.dismissedReviewRunIDs, reviewNotes: current.reviewNotes, noInkConfirmations: current.noInkConfirmations,
       axisMetricMeasurements: measurements, axisCalibrationAttempts: attempts,
       axisCalibrationTerminals: terminals)
     try save(updated)
@@ -644,7 +729,7 @@ public actor DrawingRunEvidenceStore {
     }
     let manifest = Manifest(archiveID: archive.archiveID, revision: archive.revision,
       records: records, attempts: attempts, noInkConfirmations: archive.noInkConfirmations,
-      deletedReviewRecordIDs: archive.deletedReviewRecordIDs,
+      deletedReviewRecordIDs: archive.deletedReviewRecordIDs, dismissedReviewRunIDs: archive.dismissedReviewRunIDs, reviewNotes: archive.reviewNotes,
       axisMetricMeasurements: try componentReferences(archive.axisMetricMeasurements,
         previous: cachedArchive?.axisMetricMeasurements ?? [], references: cachedManifest?.axisMetricMeasurements ?? [],
         id: { $0.measurementID }, encoder: encoder),
@@ -729,7 +814,7 @@ public actor DrawingRunEvidenceStore {
       envelope = try JSONDecoder().decode(Envelope.self, from: bytes)
     }
     catch { return .rejected(.malformedEnvelope(String(describing: error))) }
-    guard [1, 2].contains(envelope.schemaVersion) else { return .rejected(.unsupportedEnvelopeSchema(envelope.schemaVersion)) }
+    guard [1, 2, 3].contains(envelope.schemaVersion) else { return .rejected(.unsupportedEnvelopeSchema(envelope.schemaVersion)) }
     guard sha256(envelope.payload) == envelope.payloadSHA256 else { return .rejected(.integrityMismatch) }
     do {
       let archive: DrawingRunEvidenceArchive
@@ -752,6 +837,7 @@ public actor DrawingRunEvidenceStore {
         }
         archive = try DrawingRunEvidenceArchive(archiveID: decodedManifest.archiveID, revision: decodedManifest.revision,
           records: records, attempts: attempts, deletedReviewRecordIDs: decodedManifest.deletedReviewRecordIDs,
+          dismissedReviewRunIDs: decodedManifest.dismissedReviewRunIDs ?? [], reviewNotes: decodedManifest.reviewNotes ?? [],
           noInkConfirmations: decodedManifest.noInkConfirmations,
           axisMetricMeasurements: decodedManifest.axisMetricMeasurements.map {
             let value = try readComponent($0, archiveURL: fileURL, as: ControllerAxisMetricMeasurement.self, files: &files)

@@ -13,6 +13,8 @@ struct PlotterApplicationRuntimeView: View {
   @State private var selection = LearningPathSelectionState(current: .humanGuidedDiscovery(.penInteraction))
   @State private var actionSurfaceViewport = ActionSurfaceViewportState()
   @State private var reviewerIsPresented = false
+  @State private var reviewerPhotoID: UUID?
+  @State private var isSavingDrawing = false
   @State private var materialSettingsPresented = false
   @State private var manualMotionDraft = ManualMotionDraft()
   @State private var diagnosticExporter = WorkbenchDiagnosticExporter()
@@ -98,7 +100,7 @@ struct PlotterApplicationRuntimeView: View {
     }
     .sheet(isPresented: $reviewerIsPresented) {
       DrawingReviewerView(application: application, close: { reviewerIsPresented = false },
-        showOnPlotter: usePortraitProgram)
+        showOnPlotter: useSavedDrawingProgram, initialPhotoID: reviewerPhotoID, inspectInStudio: inspectSavedDrawingInStudio)
     }
     .onChange(of: ui.currentLearningPathItemID, initial: true) { _, item in selection.updateCurrent(item) }
     .toolbar {
@@ -138,7 +140,9 @@ struct PlotterApplicationRuntimeView: View {
     switch destination {
     case .plotter:
       if layout.wrappedValue.isPresented(.portraitStudio) { closePortraitStudio() }
-    case .drawings: reviewerIsPresented.toggle()
+    case .drawings:
+      reviewerPhotoID = nil
+      reviewerIsPresented.toggle()
     case .portraitStudio, .drawing, .motion, .video:
       if let panel = destination.panel {
         if panel != .portraitStudio && layout.wrappedValue.isPresented(.portraitStudio) { reveal(panel) }
@@ -223,14 +227,22 @@ struct PlotterApplicationRuntimeView: View {
           ScrollView {
             VStack(alignment: .leading, spacing: 12) {
               HStack {
-                Button("Drawings", systemImage: "square.grid.2x2") { reviewerIsPresented = true }
+                Button("Save Drawing", systemImage: "square.and.arrow.down") {
+                  isSavingDrawing = true
+                  Task {
+                    panelError = await application.saveCurrentDrawing()
+                    isSavingDrawing = false
+                  }
+                }.accessibilityIdentifier("drawing.saveDrawing")
+                  .disabled(application.drawingDraftSnapshot.program == nil || isSavingDrawing)
+                Button("Drawings", systemImage: "square.grid.2x2") { reviewerPhotoID = nil; reviewerIsPresented = true }
                   .accessibilityIdentifier("drawing.openReviewer")
                 Spacer()
                 Button("Portrait Studio", systemImage: "person.crop.rectangle") { reveal(.portraitStudio) }
               }
               DrawingStudioView(presentation: ui.drawingStudio, plotterUIProjection: ui.semantic,
                 plotterUIIntentSink: application, panel: .drawing,
-                openReviewer: { reviewerIsPresented = true }) {
+                openReviewer: { reviewerPhotoID = nil; reviewerIsPresented = true }) {
                   studioMaterialControls
                   paperControls(ui, showsExplanation: false)
                 }
@@ -242,7 +254,7 @@ struct PlotterApplicationRuntimeView: View {
       PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
         previewSource: application.portraitPlanePreviewSource,
         showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) },
-        openReviewer: { reviewerIsPresented = true })
+        openReviewer: { photoID in reviewerPhotoID = photoID; reviewerIsPresented = true })
         .padding(12)
         .task(id: application.observationConfigurationProjection.selectedCameraID) {
           await application.portraitStudio.discover(excluding: application.observationConfigurationProjection.selectedCameraID)
@@ -380,6 +392,22 @@ struct PlotterApplicationRuntimeView: View {
 
   private func selectCamera(_ role: WorkbenchCameraRole) async -> String? {
     return await submit(PlotterAppUIActionID.observationCameraRole(role))
+  }
+
+  private func inspectSavedDrawingInStudio(_ id: String) async -> String? {
+    let error = await application.portraitStudio.inspectDrawing(id, strokeStyle: application.drawingStrokeStyle)
+    guard !Task.isCancelled else { return "Drawing inspection was cancelled." }
+    if error == nil { layout.wrappedValue.setPresented(.portraitStudio, true) }
+    return error
+  }
+
+  private func useSavedDrawingProgram(_ drawing: SavedDrawing) async -> String? {
+    let error = await application.projectSavedDrawing(drawing)
+    if error == nil {
+      layout.wrappedValue.setPresented(.portraitStudio, false)
+      layout.wrappedValue.setPresented(.drawing, true)
+    }
+    return error
   }
 
   private func usePortraitProgram(_ candidate: PortraitCandidate) async -> String? {

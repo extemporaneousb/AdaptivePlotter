@@ -111,7 +111,8 @@ struct PortraitAttemptHistoryTests {
     #expect(!model.isProcessing && !model.isExploring)
     await model.shutdown()
     let restored = PortraitStudioModel(renderer: renderer, candidateStore: .init(directoryURL: directory))
-    await restored.loadArchive()
+    await restored.sketches.load()
+    await restored.loadPhotoBrowser()
     restored.inspectAttempt(branch.id, strokeStyle: pen)
     #expect(restored.selectedCandidate?.id == branch.id)
     #expect(restored.selectedCandidate?.program == branch.program)
@@ -149,7 +150,7 @@ struct PortraitAttemptHistoryTests {
     await model.shutdown()
   }
 
-  @Test("legacy saved Imaginations expose their retained source before any attempt-history migration")
+  @Test("legacy saved portraits expose their retained source before any attempt-history migration")
   func legacySourceDiscovery() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-legacy-sources-\(UUID())")
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -159,7 +160,8 @@ struct PortraitAttemptHistoryTests {
     await collection.awaitPersistence()
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer, candidateStore: .init(directoryURL: directory))
-    await model.loadArchive()
+    await model.sketches.load()
+    await model.loadPhotoBrowser()
     #expect(model.sketches.attempts.isEmpty)
     #expect(model.browsablePhotos.map(\.id) == [legacy.photoID])
     #expect(await renderer.requests.isEmpty)
@@ -190,7 +192,7 @@ struct PortraitAttemptHistoryTests {
     #expect(regenerated.createdAt > original.createdAt)
     #expect(model.currentProgram == original.program)
     #expect(model.sketches.attempts.contains { $0.id == original.id && $0.candidate.createdAt == regenerated.createdAt })
-    #expect(model.keepSelection() == nil)
+    #expect(await model.saveSelectedDrawing() == nil)
     var staleHandoffCalled = false
     #expect(await model.acceptProjection(original, perform: { staleHandoffCalled = true; return nil }) != nil)
     #expect(!staleHandoffCalled)
@@ -204,7 +206,8 @@ struct PortraitAttemptHistoryTests {
     await model.shutdown()
     #expect(model.sketches.persistenceState == .saved)
     let restored = PortraitStudioModel(renderer: renderer, candidateStore: .init(directoryURL: directory))
-    await restored.loadArchive()
+    await restored.sketches.load()
+    await restored.loadPhotoBrowser()
     #expect(restored.sketches.persistenceState == .saved)
     restored.inspectAttempt(reimported.id, strokeStyle: pen)
     #expect(restored.selectedCandidate?.createdAt == reimported.createdAt)

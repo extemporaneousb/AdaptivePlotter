@@ -79,14 +79,39 @@ struct PortraitPreferenceCollectionTests {
       if deleteSource { archive.deleteSource(candidate.sourceSHA256) }
       else { archive.remove(candidate.id) }
       await archive.awaitPersistence()
-      _ = archive.retain(candidate: candidate, reason: .shortlisted)
+      #expect(archive.retain(candidate: candidate, reason: .shortlisted) != nil)
+      #expect(archive.rate(candidate: candidate, rating: 2, scope: .screenSketch, presentation: try .init()) != nil)
       await archive.awaitPersistence()
       #expect(preferences.examples.isEmpty)
-      #expect(archive.labels == [deletedLabel])
-      _ = archive.rate(candidate: candidate, rating: 2, scope: .screenSketch, presentation: try .init())
+      #expect(archive.entries.isEmpty && archive.labels == [deletedLabel])
+      // Cold pending replay must discover committed deletion before it can add
+      // a label, even when that deletion was not yet published to this owner.
+      let coldDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-cold-deletion-\(UUID().uuidString)")
+      defer { try? FileManager.default.removeItem(at: coldDirectory) }
+      try FileManager.default.copyItem(at: directory, to: coldDirectory)
+      let cold = PortraitSketchCollection(store: .init(directoryURL: coldDirectory))
+      _ = cold.rate(candidate: candidate, rating: 2, scope: .screenSketch, presentation: try .init())
+      await cold.awaitPersistence()
+      #expect(cold.entries.isEmpty && cold.labels == [deletedLabel])
+      #expect(cold.persistenceState == .saved && cold.unresolvedMutations == 0)
+      // Explicit authoring can reproduce identical content. Creation provenance
+      // must be fresh; content identity and the old label remain unchanged.
+      let fresh = try PortraitCandidate(sourceData: candidate.sourceData, sourcePixelExtent: candidate.sourcePixelExtent,
+        raster: candidate.raster, recipe: candidate.recipe, program: candidate.program,
+        photoID: candidate.photoID, captureSessionID: candidate.captureSessionID, createdAt: Date(),
+        lineage: candidate.lineage, checkpointID: candidate.checkpointID, pose: candidate.pose,
+        proposal: candidate.proposal, warpManifest: candidate.warpManifest)
+      let deletion = try #require(archive.tombstones.last)
+      #expect(fresh.id == candidate.id && fresh.createdAt > deletion.createdAt)
+      #expect(archive.retain(candidate: fresh, reason: .shortlisted) == nil)
+      await archive.awaitPersistence()
+      #expect(preferences.examples.isEmpty)
+      #expect(archive.rate(candidate: fresh, rating: 2, scope: .screenSketch, presentation: try .init()) == nil)
       await archive.awaitPersistence()
       #expect(preferences.examples.count == 1)
-      #expect(preferences.examples[0].id != deletedLabel.id)
+      let newExample = try #require(preferences.examples.first)
+      #expect(newExample.id != deletedLabel.id && newExample.candidate.createdAt == fresh.createdAt)
+      #expect(archive.archive.withdrawnLabelIDs.contains(deletedLabel.id.uuidString))
       let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
       await restored.load()
       #expect(LegacyPortraitPreferenceExportFixture(collection: restored).examples.count == 1)

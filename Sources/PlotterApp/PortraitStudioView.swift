@@ -3,19 +3,17 @@ import PlotterRuntime
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// One portrait canvas, with secondary source and history browsers.
+/// One portrait canvas, an inline source strip and the shared drawing-history browser.
 struct PortraitStudioView: View {
   @Bindable var model: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
   var previewSource = PortraitPlanePreviewSource()
   let showOnPlotter: (PortraitCandidate) async -> String?
   var selectCamera: () async -> String? = { nil }
-  var openReviewer: () -> Void = {}
+  var openReviewer: (UUID?) -> Void = { _ in }
 
   @State private var importing = false
   @State private var cameraSettings = false
-  @State private var showsSource = false
-  @State private var showsHistory = false
   @State var showsAdjustments = false
   @State private var submissionError: String?
   @State private var submissionErrorTitle = "Studio action failed"
@@ -143,7 +141,7 @@ struct PortraitStudioView: View {
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("portrait.workspace")
     .background {
-      PortraitNavigationKeyRouter(enabled: !importing && !cameraSettings && !showsHistory && !showsSource,
+      PortraitNavigationKeyRouter(enabled: !importing && !cameraSettings,
         handle: handleNavigation)
     }
     .onAppear {
@@ -202,15 +200,17 @@ struct PortraitStudioView: View {
       .accessibilityLabel(model.isCapturing ? "Cancel Capture" : "Capture Photo")
       .accessibilityIdentifier(model.isCapturing ? "portrait.cancelCapture" : "portrait.capture")
       .help(model.isCapturing ? "Cancel Capture" : "Keep still while a photo is selected from a short capture")
-      Button { importing = true } label: { Image(systemName: "photo.badge.plus") }
-        .accessibilityLabel("Choose Photo")
+      Button("From File", systemImage: "photo.badge.plus") { importing = true }
+        .accessibilityLabel("From File")
         .accessibilityIdentifier("portrait.choosePhoto")
-        .help("Choose Photo")
+        .help("From File")
+      Button("History", systemImage: "clock") { openReviewer(model.selectedPhotoID) }
+        .accessibilityIdentifier("portrait.historyToggle")
       Button { cameraSettings.toggle() } label: { Image(systemName: "slider.horizontal.3") }
         .accessibilityLabel("Camera settings")
         .help("Camera settings")
         .popover(isPresented: $cameraSettings, arrowEdge: .bottom) { cameraSettingsPanel }
-      StudioHelpButton("Portrait Studio", text: "Capture or import a photo, then work with one portrait. The Parameters panel provides each style's native renderer controls and shared photo framing. Previous and Next vary the current drawing one step at a time; Next requests a new result only when no forward result is retained. Retained Previous and Next results restore without rendering. History lists attempts for the current photo. Plus keeps an attempt promising; minus rejects that exact treatment. Save Imagination retains the result in Drawing Reviewer. Send to Drawing places it in Drawing; Draw there starts execution.")
+      StudioHelpButton("Portrait Studio", text: "Capture or import a photo, then work with one portrait. The Parameters panel provides each style's native renderer controls and shared photo framing. Previous and Next vary the current drawing one step at a time; Next requests a new result only when no forward result is retained. Retained Previous and Next results restore without rendering. History opens the shared Drawings browser for the current photo. Plus keeps an attempt promising; minus rejects that exact treatment. Save Drawing retains the result in Drawings. Send to Drawing places it in Drawing; Draw there starts execution.")
       if model.isCapturing {
         Text("Keep still").font(.caption).foregroundStyle(.secondary)
         ProgressView(value: model.captureProgress).frame(width: 60)
@@ -240,16 +240,18 @@ struct PortraitStudioView: View {
       .disabled(candidate == nil || model.isProcessing || model.isCapturing || isStartingCapture || isSubmitting)
       .accessibilityIdentifier("portrait.showOnPlotter")
       Divider().frame(height: 20)
-      Button("Save Imagination") {
-        submissionErrorTitle = "Imagination save failed"
-        submissionError = model.keepSelection()
+      Button("Save Drawing") {
+        submissionErrorTitle = "Drawing save failed"
+        submissionError = nil
+        isSubmitting = true
+        Task {
+          submissionError = await model.saveSelectedDrawing()
+          isSubmitting = false
+        }
       }
-        .disabled(candidate == nil || model.isProcessing || model.isCapturing || isStartingCapture)
+        .disabled(candidate == nil || model.isProcessing || model.isCapturing || isStartingCapture || isSubmitting)
         .accessibilityIdentifier("portrait.keepSketch")
-      Button(action: openReviewer) { Image(systemName: "square.grid.2x2") }
-        .accessibilityLabel("Drawing Reviewer")
-        .accessibilityIdentifier("portrait.openReviewer")
-        .help("Drawing Reviewer")
+
     }
     .controlSize(.regular)
     .frame(minHeight: 32)
@@ -273,27 +275,6 @@ struct PortraitStudioView: View {
         .disabled(!model.isExploring)
         .accessibilityIdentifier("portrait.exploration.cancel")
       Spacer(minLength: 0)
-      Button("Photos", systemImage: "photo") { showsSource.toggle() }
-        .accessibilityIdentifier("portrait.sourceToggle")
-        .popover(isPresented: $showsSource, arrowEdge: .bottom) {
-          VStack(alignment: .leading, spacing: 8) {
-            sourcePreview.frame(width: 330, height: 360)
-            PortraitPhotoStrip(model: model, strokeStyle: strokeStyle).frame(width: 330)
-          }.padding(12).accessibilityIdentifier("portrait.sourceFrame")
-            .background {
-              PortraitNavigationKeyRouter(enabled: showsSource, handle: { action in
-                guard action == .previousPhoto || action == .nextPhoto else { return false }
-                return handleNavigation(action)
-              }, allowsParentKeyWindow: true)
-            }
-        }
-      Button("History", systemImage: "clock") { showsHistory.toggle() }
-        .accessibilityIdentifier("portrait.historyToggle")
-        .popover(isPresented: $showsHistory, arrowEdge: .bottom) {
-          PortraitHistoryView(model: model, strokeStyle: strokeStyle) { showsHistory = false }
-            .padding(12).frame(width: 380, height: 400)
-            .task { await model.loadArchive() }
-        }
     }.controlSize(.small)
       .accessibilityIdentifier("portrait.browserControls")
   }

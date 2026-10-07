@@ -19,7 +19,10 @@ public struct DrawingRunCandidateReference: Codable, Hashable, Sendable {
   /// every point with the same orientation-preserving transform. Legacy border
   /// programs require a similarity; camera-corrected compositions require affine.
   public func matches(_ executionProgram: DrawingProgram) -> Bool {
-    guard candidateID == contentHash.description,
+    let portraitIdentity = candidateID == contentHash.description
+    let drawingIdentity = candidateID == "drawing-" + contentHash.description
+      && contentHash == programContentHash
+    guard portraitIdentity || drawingIdentity,
       sourceProgram.contentHash == programContentHash else { return false }
     if executionProgram == sourceProgram { return true }
     let suffix = "|draw-border-v1|artwork=\(programContentHash)"

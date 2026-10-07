@@ -1841,15 +1841,16 @@ owns placement, pen/material setup, paper coverage, Draw, Stop and result review
 Studio authoring remains available with an imported photo while disconnected.
 
 Portrait Studio has one drawing canvas with two control sets: a persistent Parameters
-panel owns drawing style, saved styles, renderer-native parameters and framing; a separate navigation row owns Previous, Next, Cancel and Photos/History
-popovers. The original source photo and selectable source thumbnails remain visible
-above the parameter controls; Photos opens a larger inspection view. Source and drawing
+panel owns drawing style, saved styles, renderer-native parameters and framing; a
+separate navigation row owns Previous, Next and Cancel. History opens the shared
+Drawings browser. The original source photo and selectable source thumbnails remain visible
+above the parameter controls; History opens the shared source/drawing browser. Source and drawing
 always refer to the same selected candidate. Saved styles remain reachable with an empty/loading library and while Next
 is canceled. Their observable popover updates while open and distinguishes loading,
 empty and failed reads with retry. The serialized archive owner loads recipe metadata
-before candidate verification. New saves commit a small checksummed manifest referring
-to immutable bulk records; legacy embedded indexes stay unchanged on read and upgrade
-only on a successful normal save. Recipe availability never permits overwriting a
+before candidate verification. New saves commit a compact checksummed index referring
+to immutable records. Metadata browsing preserves legacy indexes; healthy full
+loads upgrade embedded/bulk formats through the existing publisher. Recipe availability never permits overwriting a
 corrupt bulk archive. Cancel stops the request without modifying saved recipes or selection.
 Drawing-style selection restores independent tuning for each renderer, using its native
 defaults on first selection. Framing and material remain fixed. Reset restores the selected
@@ -1939,8 +1940,9 @@ prototype recipes remain interpretable without restoring their button row or the
 rating/training workflow. Historical candidate formats and required source, raster, label and
 checkpoint interpretation remain compatible. Existing fitted checkpoints are not
 loaded or consulted by normal Studio generation.
-Save Style captures a named reusable recipe. Save Imagination qualifies the exact
-candidate and its source for the saved library; automatic attempt history and plus do not implicitly save an Imagination.
+Save Style captures a named reusable recipe. Save Drawing retains the exact immutable
+program and, for a portrait, its source and recipe provenance. Automatic render-attempt history and plus do not implicitly save
+a drawing.
 Session Back remains bounded and does not promise restart-persistent undo. Durable
 history can be revisited after loading the archive. Its explicit cleanup retains
 the current attempt plus promising and saved discoveries; individual deletion
@@ -1948,10 +1950,10 @@ remains available. Removing a recent photo preserves independently retained atte
 Delete Source and All Attempts explicitly removes the archived source and its attempts.
 Deletion invalidates old history and navigation capabilities. A later
 explicit authoring action may create a fresh attempt from a reintroduced source;
-late work and previously deleted retained objects cannot revive themselves. Drawing
-Reviewer lists saved Imaginations, while inspecting an attempt in Studio changes
-the Studio selection. Source photos and vectors shown together come from the same
-candidate, including retained candidates.
+late work and previously deleted retained objects cannot revive themselves.
+Drawings groups saved and attempted drawings with their execution history,
+while inspecting an attempt in Studio changes the Studio selection. Source photos
+and vectors shown together come from the same candidate, including retained candidates.
 
 Historical regional treatment changes generated strokes. Soft overlapping source-coordinate
 supports protect measured facial features, simplify estimated skin regions, adjust
@@ -2014,7 +2016,7 @@ renderer is no longer a production UI path. **Send to Drawing** explicitly insta
 a selected immutable program through the existing draft intent sink and initially
 fits it. Re-showing the same admitted program preserves its current placement.
 A successful handoff saves the exact candidate and reveals shared Drawing controls;
-**Save Imagination** is optional library storage, not a prerequisite. The workflow is
+**Save Drawing** is optional library storage, not a prerequisite. The workflow is
 Studio → Send to Drawing → placement/material/paper setup → Draw. Sending invokes
 no motion. Later Studio edits do not mutate the placed program until another
 explicit handoff. The existing Drawing panel keeps the exact admitted plan visible above its
@@ -2022,14 +2024,28 @@ scrolling controls in its region frame, including rotation and the optional artw
 or terminal is retained it uses that sealed run plan; it never substitutes a later
 Studio candidate. Without an admitted plan, an authored preview is labeled reference.
 
-Drawing Reviewer lists every valid saved digital candidate as **Imaginations** and
-ordinary/portrait physical executions as **Drawing results**. Opening the reviewer
-loads the existing shared saved-library owner even if Portrait Studio has never
-mounted. Loading and persistence failures are visible and retryable; concurrent
-Studio/reviewer loads join the same owner. There is no gallery retention limit.
-**Delete Imagination** changes library retention, not physical execution history.
-Identifiers, hashes, recipes, programs, assets and execution links keep their
-existing persisted formats.
+Drawings is one source-independent library for saved and attempted drawings.
+Each drawing groups its linked runs, stage photos and notes. Programs can be saved
+from Drawing regardless of producer; execution retains its exact authored source
+before motion through the existing attempt owner. Portrait source images, recipes
+and attempt feedback are optional provenance. Kept only shows explicitly saved
+drawings and promising attempts. Other attempted drawings remain available in history.
+
+Opening the reviewer reads bounded summary pages through the existing shared store
+owner. Selecting an item reads its exact immutable program and selected media;
+list browsing does not verify or decode the complete candidate archive. Loading and
+persistence failures are visible and retryable. Mutations still join complete
+verification before committing. There is no library retention limit.
+**Delete Drawing** changes saved-library retention. **Delete Run Review** hides an
+execution from review and residual selection. **Dismiss Unfinished Run** hides an
+unfinished run with retained stage photos, including any later terminal record,
+while preserving execution and possible-ink records.
+Drawing, run and photo notes are annotations, not measurements, ratings or accepted
+Learning evidence. The evidence writer advances its outer envelope version so
+older writers cannot drop this new review metadata; current readers retain older
+archive compatibility. Existing portrait candidate identifiers, record bytes, hashes,
+recipes, programs, assets and execution links remain compatible; the new index
+schema refuses writers that cannot preserve generic drawings.
 
 Historical Drawing results prefer their retained execution-plan geometry, including
 placement, clipping and optional border. If only the source program remains, it is
@@ -2039,13 +2055,14 @@ references say so; missing stage photographs and unreadable retained photographs
 have distinct explanations. No substitute photograph or current plan is invented.
 
 The reviewer uses the existing evidence archive. It provides Fit/100% images, Close, explicit program
-handoff and deletion without ratings. Delete Result stores a durable tombstone in
+handoff and deletion without ratings. Delete Run Review stores a durable tombstone in
 that archive, removes the result from review and future residual fitting, and
 rejects normal image/rating access to it. Required immutable execution provenance,
 possible-ink/no-redraw facts and shared raw media remain retained. It does not mark
 the sheet clear or erase material evidence. Deleted review identities cannot be
-resurrected by a delayed archive load. Candidate/source deletion continues to use
-the qualified portrait archive's existing tombstones.
+resurrected by a delayed archive load. Portrait candidate/source deletion continues to use
+the qualified archive's existing tombstones; generic drawings use the same shared
+library deletion owner.
 
 Fit retains the authored rotation and selects a valid uniform scale and center.
 The same frame geometry supplies scale limits; rotating ordinary artwork retains

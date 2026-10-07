@@ -89,7 +89,7 @@ struct PortraitAuthoringTests {
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     await model.awaitRendering()
     let candidate = try #require(model.selectedCandidate)
-    #expect(model.keepSelection() == nil)
+    #expect(await model.saveSelectedDrawing() == nil)
     #expect(model.sketches.selectedID == nil)
     #expect(model.selectedCandidate?.id == candidate.id)
     #expect(await model.acceptProjection(candidate) { nil } == nil)

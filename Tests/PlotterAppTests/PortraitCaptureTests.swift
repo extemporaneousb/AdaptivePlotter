@@ -53,7 +53,8 @@ struct PortraitCaptureTests {
     await model.shutdown()
     let restarted = PortraitStudioModel(renderer: SourceFailureRenderer(),
       candidateStore: .init(directoryURL: directory))
-    await restarted.loadArchive()
+    await restarted.sketches.load()
+    await restarted.loadPhotoBrowser()
     #expect(restarted.recentPhotos.isEmpty)
     #expect(restarted.sketches.entries.isEmpty)
     #expect(restarted.browsablePhotos.count == 2)
@@ -116,13 +117,13 @@ struct PortraitCaptureTests {
     let burst = try #require(model.recentPhotos.last?.captureSessionID)
     #expect(model.recentPhotos.filter { $0.captureSessionID == burst }.count == 1)
     let retained = try #require(model.selectedCandidate)
-    #expect(model.keepSelection() == nil)
+    #expect(await model.saveSelectedDrawing() == nil)
     model.removePhoto(try #require(model.selectedPhotoID), strokeStyle: pen)
     await model.awaitRendering()
     #expect(model.recentPhotos.map(\.id) == [imported.id])
     #expect(model.selectedPhotoID == imported.id)
     #expect(model.sketches.sketches.map(\.id) == [retained.id])
-    #expect(model.sketches.sketches.first?.candidate.sourceData == retained.sourceData)
+    #expect(model.sketches.sketches.first?.portraitCandidate?.sourceData == retained.sourceData)
     await model.shutdown()
   }
 

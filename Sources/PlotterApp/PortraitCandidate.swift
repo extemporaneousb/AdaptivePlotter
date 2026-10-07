@@ -139,7 +139,7 @@ enum PortraitCandidateCoding {
 }
 
 /// Immutable render payload shared by automatic attempt history and explicitly
-/// saved Imaginations. Feedback and retention status live in the archive entry;
+/// saved drawings. Feedback and retention status live in the archive entry;
 /// browsing never changes the source, recipe, or generated program.
 struct PortraitCandidate: Identifiable, Codable, Equatable, Sendable {
   static let schemaVersion = 1

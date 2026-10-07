@@ -159,7 +159,7 @@ struct PortraitSingleBrowserTests {
     }
     print("Single portrait retained navigation: mean=\(navigationMS.reduce(0, +) / Double(navigationMS.count)) ms, max-pair-per-step=\(navigationMS.max() ?? 0) ms; excludes paint")
     #expect(await renderer.requests.count == completedCalls)
-    #expect(model.keepSelection() == nil)
+    #expect(await model.saveSelectedDrawing() == nil)
     await model.shutdown()
   }
 

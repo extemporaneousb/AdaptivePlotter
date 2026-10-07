@@ -1,28 +1,20 @@
-import CryptoKit
 import Foundation
 import PlotterModel
 import PlotterRuntime
 
-extension PortraitStudioModel {
-  /// Gallery selection and subsequent authoring never retarget this link.
-  func projectedReference(for executionProgram: DrawingProgram) -> DrawingRunCandidateReference? {
-    guard let candidate = projectedCandidate,
-      executionProgram.contentHash == candidate.program.contentHash
-        || executionProgram.source.sourceIdentifier.hasSuffix("|draw-border-v1|artwork=\(candidate.program.contentHash)")
-    else { return nil }
-    let characters = Array(candidate.id)
-    guard characters.count == 64 else { return nil }
-    let bytes = stride(from: 0, to: 64, by: 2).compactMap {
-      UInt8(String(characters[$0...($0 + 1)]), radix: 16)
-    }
-    guard let digest = try? PlotterModel.Digest(bytes: bytes) else { return nil }
-    let reference = DrawingRunCandidateReference(candidateID: candidate.id, contentHash: digest,
-      sourceProgram: candidate.program)
+extension SavedDrawing {
+  /// Reference construction validates the known compositor against the exact authored payload.
+  func executionReference(for executionProgram: DrawingProgram) -> DrawingRunCandidateReference? {
+    guard let reference = runCandidateReference else { return nil }
     return reference.matches(executionProgram) ? reference : nil
   }
 }
 
 extension PlotterApplicationRuntime {
+  func savedDrawingReference(for executionProgram: DrawingProgram) -> DrawingRunCandidateReference? {
+    authoredDrawing(for: executionProgram)?.executionReference(for: executionProgram)
+  }
+
   var currentDrawingMaterialContextHash: PlotterModel.Digest? {
     guard let record = drawingMaterials.activeRecord else { return nil }
     if drawingMaterialHashCache?.key == record.profile.key { return drawingMaterialHashCache?.digest }
@@ -36,21 +28,35 @@ extension PlotterApplicationRuntime {
   /// can begin motion; a failed write is an explicit attempt failure.
   func retainDrawingCandidateForAttempt(_ intent: DrawingRunIntent) async throws {
     guard let reference = intent.context.candidate else { return }
-    guard let candidate = portraitStudio.projectedCandidate,
-      candidate.id == reference.candidateID,
-      candidate.program == reference.sourceProgram else {
+    guard drawingDraftSnapshot.program == intent.context.program,
+      drawingDraftSnapshot.plan == intent.plan else {
       throw DrawingRunEvidenceError.invalidAttemptContext
     }
-    let selection = portraitStudio.sketches.selectedID
-    let failure = portraitStudio.sketches.retain(candidate: candidate,
-      reason: .physicalAttempt(attemptID: intent.runID.rawValue))
-    portraitStudio.sketches.selectedID = selection
-    if let failure {
+    guard let drawing = authoredDrawing(for: intent.context.program),
+      drawing.id == reference.candidateID,
+      drawing.program == reference.sourceProgram else {
+      throw DrawingRunEvidenceError.invalidAttemptContext
+    }
+    if let failure = await portraitStudio.sketches.saveDrawing(drawing) {
       throw PlotterModelError.invalidValue(failure)
     }
-    await portraitStudio.sketches.awaitPersistence()
-    guard case .saved = portraitStudio.sketches.persistenceState else {
-      throw PlotterModelError.invalidValue("The attempted candidate could not be durably retained.")
+    if let candidate = drawing.portraitCandidate {
+      let selection = portraitStudio.sketches.selectedID
+      let failure = portraitStudio.sketches.retain(candidate: candidate,
+        reason: .physicalAttempt(attemptID: intent.runID.rawValue))
+      portraitStudio.sketches.selectedID = selection
+      if let failure { throw PlotterModelError.invalidValue(failure) }
+      await portraitStudio.sketches.awaitPersistence()
+      guard case .saved = portraitStudio.sketches.persistenceState else {
+        throw PlotterModelError.invalidValue("The attempted drawing could not be durably retained.")
+      }
+    }
+    guard !Task.isCancelled, !portraitStudio.sketches.drawingWasDeleted(drawing),
+      drawingDraftSnapshot.program == intent.context.program,
+      drawingDraftSnapshot.plan == intent.plan,
+      let current = authoredDrawing(for: intent.context.program),
+      current.id == reference.candidateID, current.program == reference.sourceProgram else {
+      throw DrawingRunEvidenceError.invalidAttemptContext
     }
   }
 
@@ -75,37 +81,29 @@ extension PlotterApplicationRuntime {
   }
 
   var drawingReviewIncompleteAttempts: [DrawingRunAttemptState] {
-    drawingEvidenceArchive.incompleteAttempts.filter {
-      $0.intent.role == .ordinaryDrawing && !$0.progressFrames.isEmpty
+    drawingEvidenceArchive.reviewIncompleteAttempts.filter {
+      $0.intent.role == .ordinaryDrawing
     }
   }
 
-  func physicalAttemptImages(_ attempt: DrawingRunAttemptState) async throws -> [DisplayedFrame] {
-    guard drawingReviewIncompleteAttempts.contains(attempt) else {
-      throw DrawingRunEvidenceError.invalidAttemptContext
+  /// Reads only the currently selected retained photograph. Navigation never acquires live camera authority.
+  func drawingReviewImage(_ reference: DrawingRunMediaReference, runID: RunID) async throws -> DisplayedFrame {
+    func retained() -> Bool {
+      if let record = drawingReviewRecords.first(where: { $0.runID == runID }), let attempt = record.attemptEvidence {
+        return (attempt.baselines + attempt.progressFrames.map(\.media) + attempt.terminalFrames).contains(reference)
+      }
+      if let attempt = drawingReviewIncompleteAttempts.first(where: { $0.intent.runID == runID }) {
+        return (attempt.baselines + attempt.progressFrames.map(\.media)).contains(reference)
+      }
+      return false
     }
-    var images: [DisplayedFrame] = []
-    for reference in attempt.baselines + attempt.progressFrames.map(\.media) {
-      let frame = try await drawingEvidencePort.readMedia(reference)
-      images.append(DisplayedFrame(source: reference.source, frame: frame))
-    }
-    return images
+    guard retained() else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    let frame = try await drawingEvidencePort.readMedia(reference)
+    try Task.checkCancellation()
+    guard retained() else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    return DisplayedFrame(source: reference.source, frame: frame)
   }
 
-  func physicalAttempts(candidateID: String) -> [DrawingRunEvidenceRecord] {
-    drawingEvidenceArchive.reviewRecords.filter { $0.attemptEvidence?.intent.context.candidate?.candidateID == candidateID }
-  }
 
-  func physicalAttemptImages(_ record: DrawingRunEvidenceRecord) async throws -> [DisplayedFrame] {
-    guard drawingEvidenceArchive.reviewRecords.contains(record), let attempt = record.attemptEvidence else {
-      throw DrawingRunEvidenceError.invalidAttemptContext
-    }
-    var images: [DisplayedFrame] = []
-    for reference in attempt.baselines + attempt.progressFrames.map(\.media) + attempt.terminalFrames {
-      let frame = try await drawingEvidencePort.readMedia(reference)
-      images.append(DisplayedFrame(source: reference.source, frame: frame))
-    }
-    return images
-  }
 
 }

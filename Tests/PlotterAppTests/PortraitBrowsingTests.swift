@@ -44,15 +44,15 @@ struct PortraitBrowsingTests {
     model.vectorOptions.hatchSpacing += 1
     #expect(model.currentProgram == nil)
     #expect(model.selectedCandidate == nil)
-    #expect(model.keepSelection() != nil)
+    #expect(await model.saveSelectedDrawing() != nil)
     #expect(model.sketches.sketches.isEmpty)
     model.renderIfNeeded(strokeStyle: pen)
     #expect(model.completedCandidate?.id == previous.id)
     #expect(model.selectedCandidate == nil)
     await model.awaitRendering()
-    #expect(model.keepSelection() == nil)
+    #expect(await model.saveSelectedDrawing() == nil)
     #expect(model.sketches.sketches.count == 1)
-    #expect(model.sketches.sketches.first?.candidate.recipe.vectorOptions.hatchSpacing
+    #expect(model.sketches.sketches.first?.portraitCandidate?.recipe.vectorOptions.hatchSpacing
       != previous.recipe.vectorOptions.hatchSpacing)
     await model.shutdown()
   }

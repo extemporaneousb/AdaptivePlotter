@@ -5,8 +5,12 @@ extension PlotterApplicationRuntime {
   /// Qualify the immutable candidate only after camera selection, exact program
   /// admission and Fit succeed through the ordinary production intent path.
   func projectPortrait(_ candidate: PortraitCandidate) async -> String? {
-    await portraitStudio.acceptProjection(candidate) {
-      let program = candidate.program
+    await projectSavedDrawing(SavedDrawing(candidate: candidate))
+  }
+
+  func projectSavedDrawing(_ drawing: SavedDrawing) async -> String? {
+    await portraitStudio.acceptDrawingProjection(drawing) {
+      let program = drawing.program
       if let error = await submitPortraitDrawingAction(PlotterAppUIActionID.observationCameraRole(.plotter)) {
         return error
       }
@@ -17,6 +21,26 @@ extension PlotterApplicationRuntime {
         PlotterAppUIActionID.drawingDraft(.selectProgram(program)), program: program
       ) { return error }
       return await submitPortraitDrawingAction(PlotterAppUIActionID.drawingDraft(.fitInDrawableRegion))
+    }
+  }
+
+  /// Use the draft owner's exact authored source and prove the known execution
+  /// composition, rather than saving placement/border geometry as new artwork.
+  func authoredDrawing(for executionProgram: DrawingProgram) -> SavedDrawing? {
+    guard let program = drawingDraftSnapshot.authoredProgram else { return nil }
+    return SavedDrawing.authored(program: program, projectedDrawing: portraitStudio.projectedDrawing,
+      executionProgram: executionProgram)
+  }
+
+  func saveCurrentDrawing() async -> String? {
+    let snapshot = drawingDraftSnapshot
+    guard let executionProgram = snapshot.program,
+      let drawing = authoredDrawing(for: executionProgram) else {
+      return "Select an authored drawing before Save Drawing."
+    }
+    return await portraitStudio.saveAuthoredDrawing(drawing) {
+      drawingDraftSnapshot.projection.draftRevision == snapshot.projection.draftRevision
+        && drawingDraftSnapshot.authoredProgram == snapshot.authoredProgram
     }
   }
 

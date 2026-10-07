@@ -298,15 +298,18 @@ Open **Portrait Studio** through **View** to capture a burst or import a photo.
 The workspace displays one portrait. **Contour** provides direct adjustments;
 **Explorer** steps through variations of the current style using **Back** and **Next**.
 New variations are requested one at a time. Back/Forward restore retained results
-without rendering. **Photos** opens source access and **History** lists attempts for
-the current photo, with optional all-photo and kept-only filters.
+without rendering. The inline source strip selects photos; **History** opens the shared Drawings
+browser for the current photo, with optional all-photo and kept-only filters.
 **Send to Drawing** saves and hands the immutable drawing to the
 shared **Drawing** panel; an unchanged drawing retains its existing placement.
-**Save Imagination** is optional library storage for the source-independent **Drawing
-Reviewer**. To execute: Send to Drawing, adjust placement and confirm paper, then
+**Save Drawing** stores the immutable program in the shared drawing library.
+**Drawings** groups saved drawings and attempted drawings with their runs,
+stage photos and notes; portrait source and recipe information is optional
+provenance. To execute: Send to Drawing, adjust placement and confirm paper, then
 press **Draw**. Sending and saving do not move hardware.
-The reviewer can browse and delete saved drawings and physical results. Deleting a
-physical result hides it from review and residual selection while retaining the
+Review lists load bounded summaries and materialize exact geometry and images only
+when selected. Notes are annotations. The reviewer can delete saved drawings and
+physical results. Deleting a physical result hides it from review and residual selection while retaining the
 execution records needed for possible-ink and no-redraw safety.
 
 Drawing also accepts the 11 deterministic catalog producers: line, polyline,

@@ -19,7 +19,7 @@ struct PortraitMaterialIntegrationTests {
     await model.awaitRendering()
     let parent = try #require(model.selectedCandidate)
     #expect(parent.recipe.style == .hatch)
-    #expect(model.keepSelection() == nil)
+    #expect(await model.saveSelectedDrawing() == nil)
     let savedParent = try #require(model.sketches.entries.first { $0.id == parent.id })
     let priorSavedParent = try PortraitCandidateCoding.encoder().encode(savedParent)
     let priorIDs = Set(model.sketches.entries.map(\.id))

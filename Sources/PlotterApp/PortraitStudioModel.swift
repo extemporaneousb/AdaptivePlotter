@@ -43,9 +43,10 @@ final class PortraitStudioModel {
   @ObservationIgnored private var activeRenderWasCancelled = false
   /// Exact last successful projection; gallery browsing cannot replace this association.
   private(set) var projectedCandidate: PortraitCandidate?
+  private(set) var projectedDrawing: SavedDrawing?
   private var recipeTitle: String?
   var selectedCandidate: PortraitCandidate? {
-    if let candidate = sketches.selected?.candidate {
+    if let candidate = sketches.selected?.portraitCandidate {
       return isDeletedAttempt(candidate) ? nil : candidate
     }
     // currentProgram already checks configuration and deletion applicability.
@@ -505,6 +506,14 @@ final class PortraitStudioModel {
     photoSelectionTask = Task {
       defer { if revision == photoSelectionRevision { loadingPhotoID = nil; photoSelectionTask = nil } }
       do {
+        if let candidate = try await sketches.matchingCandidateForBrowsing(photoID: id,
+          configuration: renderConfiguration, strokeStyle: strokeStyle), let pose = candidate.renderPose {
+          guard !isShutdown, !Task.isCancelled, revision == photoSelectionRevision,
+            selectedPhotoID == priorSelection, renderRevision == priorRender,
+            acquisitionRevision == priorAcquisition else { return }
+          installInspectedCandidate(candidate, pose: pose, strokeStyle: strokeStyle)
+          return
+        }
         let photo = try await photoForBrowsing(id)
         guard !isShutdown, !Task.isCancelled, revision == photoSelectionRevision,
           selectedPhotoID == priorSelection, renderRevision == priorRender,
@@ -673,7 +682,24 @@ final class PortraitStudioModel {
     style = selected
     vectorOptions = restored
     recipeTitle = nil
-    renderIfConfigurationChanged(strokeStyle: strokeStyle)
+    if !sketches.historyLoadHasCompleted, let photoID = selectedPhotoID {
+      photoSelectionRevision &+= 1; photoSelectionTask?.cancel()
+      let revision = photoSelectionRevision, configuration = renderConfiguration
+      photoSelectionTask = Task {
+        defer { if revision == photoSelectionRevision { photoSelectionTask = nil } }
+        do {
+          let candidate = try await sketches.matchingCandidateForBrowsing(photoID: photoID,
+            configuration: configuration, strokeStyle: strokeStyle)
+          guard !isShutdown, !Task.isCancelled, revision == photoSelectionRevision,
+            selectedPhotoID == photoID, renderConfiguration == configuration else { return }
+          if let candidate, let pose = candidate.renderPose {
+            installInspectedCandidate(candidate, pose: pose, strokeStyle: strokeStyle)
+          } else { renderIfConfigurationChanged(strokeStyle: strokeStyle) }
+        } catch {
+          if !Task.isCancelled, revision == photoSelectionRevision { authoringError = error.localizedDescription }
+        }
+      }
+    } else { renderIfConfigurationChanged(strokeStyle: strokeStyle) }
   }
 
   func applyDetailPreset(_ preset: PortraitVectorPreset) {
@@ -1120,10 +1146,6 @@ final class PortraitStudioModel {
     selectPhoto(photos[index].id, strokeStyle: strokeStyle)
   }
 
-  func loadArchive() async {
-    await sketches.load()
-    await sketches.loadPhotoBrowser()
-  }
   func loadPhotoBrowser() async { await sketches.loadPhotoBrowser() }
 
   func feedback(for candidate: PortraitCandidate) -> PortraitAttemptFeedback {
@@ -1139,6 +1161,21 @@ final class PortraitStudioModel {
   func inspectAttempt(_ id: String, strokeStyle: StrokeStyle) {
     guard !isShutdown, let candidate = sketches.entries.first(where: { $0.id == id })?.candidate,
       let pose = candidate.renderPose else { return }
+    installInspectedCandidate(candidate, pose: pose, strokeStyle: strokeStyle)
+  }
+
+  func inspectDrawing(_ id: String, strokeStyle: StrokeStyle) async -> String? {
+    do {
+      let candidate = try await sketches.candidateForBrowsing(id)
+      guard !isShutdown, !Task.isCancelled, !isDeletedAttempt(candidate), let pose = candidate.renderPose else {
+        return SavedDrawingBrowserError.drawingUnavailable.localizedDescription
+      }
+      installInspectedCandidate(candidate, pose: pose, strokeStyle: strokeStyle)
+      return nil
+    } catch { return error.localizedDescription }
+  }
+
+  private func installInspectedCandidate(_ candidate: PortraitCandidate, pose: PortraitPose, strokeStyle: StrokeStyle) {
     forwardPortraits = []
     singlePortraitStatus = nil
     let started = ProcessInfo.processInfo.systemUptime
@@ -1202,24 +1239,50 @@ final class PortraitStudioModel {
     render(strokeStyle: strokeStyle, parent: parent)
   }
 
-  func keepSelection() -> String? {
-    guard let candidate = selectedCandidate else { return "Wait for the selected drawing to finish rendering." }
-    let selection = sketches.selectedID
-    defer { sketches.selectedID = selection }
-    return sketches.retain(candidate: candidate, reason: .shortlisted)
+  func saveAuthoredDrawing(_ drawing: SavedDrawing, isStillCurrent: () -> Bool) async -> String? {
+    if let error = await sketches.saveDrawing(drawing) { return error }
+    guard !Task.isCancelled, isStillCurrent(), !sketches.drawingWasDeleted(drawing) else {
+      return "The drawing changed while Save Drawing was pending. The captured drawing was saved; review the current drawing."
+    }
+    projectedDrawing = drawing; projectedCandidate = drawing.portraitCandidate
+    return nil
   }
 
-  /// Capture the immutable candidate before crossing an asynchronous acceptance
-  /// boundary. A failed camera/program/Fit action cannot qualify the drawing.
+  func saveSelectedDrawing() async -> String? {
+    guard let candidate = selectedCandidate else { return "Wait for the selected drawing to finish rendering." }
+    return await sketches.saveDrawing(SavedDrawing(candidate: candidate))
+  }
+
+  /// Save the captured immutable snapshot before handing it to Drawing. Selection
+  /// changes during persistence cannot substitute another drawing for this one.
+  func acceptDrawingProjection(_ drawing: SavedDrawing,
+    perform: () async -> String?) async -> String? {
+    if let error = await sketches.saveDrawing(drawing) { return error }
+    guard !Task.isCancelled, !sketches.drawingWasDeleted(drawing) else {
+      return "The drawing was deleted while handoff was pending."
+    }
+    if let error = await perform() { return error }
+    guard !Task.isCancelled, !sketches.drawingWasDeleted(drawing) else {
+      return "The drawing was deleted while handoff was pending."
+    }
+    if let candidate = drawing.portraitCandidate {
+      let selection = sketches.selectedID
+      let error = sketches.retain(candidate: candidate, reason: .projectionAccepted(acceptanceID: UUID()))
+      sketches.selectedID = selection
+      if let error { return error }
+      await sketches.awaitPersistence()
+      guard sketches.persistenceState == .saved, !sketches.drawingWasDeleted(drawing), !Task.isCancelled else {
+        if case .failed(let error) = sketches.persistenceState { return error }
+        return "The drawing handoff has not finished saving. Retry Send to Drawing."
+      }
+    }
+    projectedDrawing = drawing; projectedCandidate = drawing.portraitCandidate
+    return nil
+  }
+
   func acceptProjection(_ candidate: PortraitCandidate,
     perform: () async -> String?) async -> String? {
-    guard !isDeletedAttempt(candidate) else { return "This attempt was deleted. Select a retained attempt before handoff." }
-    if let error = await perform() { return error }
-    guard !isDeletedAttempt(candidate) else { return "The accepted attempt was deleted while handoff was pending." }
-    projectedCandidate = candidate
-    let selection = sketches.selectedID
-    defer { sketches.selectedID = selection }
-    return sketches.retain(candidate: candidate, reason: .projectionAccepted(acceptanceID: UUID()))
+    await acceptDrawingProjection(SavedDrawing(candidate: candidate), perform: perform)
   }
 
   /// Stop expensive work without discarding captured photos or the last
@@ -1247,6 +1310,7 @@ final class PortraitStudioModel {
   }
 
   func awaitRendering() async {
+    await photoSelectionTask?.value
     await historyStepTask?.value
     await workTask?.value
   }

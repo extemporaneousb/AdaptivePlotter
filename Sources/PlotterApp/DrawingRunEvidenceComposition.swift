@@ -106,6 +106,14 @@ actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort {
     try await store.deleteReview(recordID: recordID)
   }
 
+  func dismissAttemptReview(runID: RunID) async throws -> DrawingRunEvidenceArchive {
+    try await store.dismissAttemptReview(runID: runID)
+  }
+
+  func annotateReview(_ note: DrawingReviewNote) async throws -> DrawingRunEvidenceArchive {
+    try await store.annotateReview(note)
+  }
+
   func stageIntent(_ intent: DrawingRunIntent) async throws -> DrawingRunEvidenceArchive {
     try await store.stageIntent(intent)
   }

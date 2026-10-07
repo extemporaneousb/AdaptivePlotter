@@ -17,10 +17,17 @@ struct PortraitSavedStyleLoadingTests {
     let index = try Data(contentsOf: directory.appendingPathComponent("index-v1.json"))
     let records = try FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent("records"), includingPropertiesForKeys: nil)
     #expect(records.count == 32)
-    #expect(index.count < 16_384)
-    // The compact index now includes unique source metadata as well as recipes.
-    // Geometry remains outside it; the old four-to-one fixture ratio did not
-    // describe the catalog's independent loading contract.
+    let envelope = try #require(JSONSerialization.jsonObject(with: index) as? [String: Any])
+    let payload = try #require(Data(base64Encoded: envelope["payload"] as? String ?? ""))
+    let indexed = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+    let catalog = try #require(indexed["drawingCatalog"] as? [[String: Any]])
+    let references = try #require(indexed["entries"] as? [[String: Any]])
+    #expect(catalog.count == 16 && references.count == 16)
+    #expect((catalog + references).allSatisfy {
+      $0["program"] == nil && $0["strokes"] == nil && $0["raster"] == nil && $0["sourceData"] == nil
+    })
+    // Recipe, source and drawing summaries grow with the metadata population;
+    // geometry and original pixels remain outside this independently readable index.
     #expect(try records.reduce(0) { try $0 + Data(contentsOf: $1).count } > index.count)
     try FileManager.default.removeItem(at: records[0])
     let store = PortraitCandidateStore(directoryURL: directory)
@@ -89,7 +96,7 @@ struct PortraitSavedStyleLoadingTests {
     #expect(reader.entries.map(\.id) == [candidate.id])
     #expect(reader.savedStyles.first?.recipe == candidate.recipe)
     let upgraded = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: index)) as? [String: Any])
-    #expect(upgraded["schemaVersion"] as? Int == 3)
+    #expect(upgraded["schemaVersion"] as? Int == 4)
     reader.saveStyle(name: "New", recipe: candidate.recipe)
     await reader.awaitPersistence()
     let restored = PortraitSketchCollection(store: .init(directoryURL: directory))

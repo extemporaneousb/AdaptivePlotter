@@ -2,16 +2,7 @@ import Foundation
 import Observation
 import PlotterModel
 
-struct PortraitSavedSketch: Identifiable, Sendable {
-  let candidate: PortraitCandidate
-  var id: String { candidate.id }
-  var program: DrawingProgram { candidate.program }
-  var title: String { "\(candidate.recipe.title) · \(candidate.program.strokes.count) strokes" }
-  var photoID: UUID { candidate.photoID }
-  var recipe: PortraitStyleRecipe { candidate.recipe }
-}
-
-/// The only observable archive owner. Attempt history, saved Imaginations and
+/// The only observable archive owner. Attempt history, saved drawings and
 /// labels have explicit deletion; recent capture/cache budgets are unrelated.
 @Observable @MainActor
 final class PortraitSketchCollection {
@@ -21,7 +12,7 @@ final class PortraitSketchCollection {
   var sourcePhotos: [PortraitPhoto] { archive.sourcePhotos ?? [] }
   var labels: [PortraitLabelRevision] { archive.labels }
   var tombstones: [PortraitArchiveTombstone] { archive.tombstones }
-  var sketches: [PortraitSavedSketch] { entries.filter { !$0.reasons.isEmpty }.map { .init(candidate: $0.candidate) } }
+  var sketches: [SavedDrawing] { PortraitCandidateStore.savedDrawings(in: archive) }
   var attempts: [PortraitRetainedCandidate] { entries.filter { $0.attempt != nil }.reversed() }
   var savedStyles: [PortraitSavedStyle] { archive.savedStyles ?? [] }
   var rejectedProposalIdentities: Set<String> {
@@ -33,11 +24,22 @@ final class PortraitSketchCollection {
     }
     return Set(latest.filter { $0.value.value == .rejected }.map(\.key))
   }
-  var selected: PortraitSavedSketch? {
-    guard let selectedID,
-      let entry = entries.first(where: { $0.id == selectedID && !$0.reasons.isEmpty }) else { return nil }
-    return PortraitSavedSketch(candidate: entry.candidate)
+  var selected: SavedDrawing? {
+    guard let selectedID else { return nil }
+    let drawing = sketches.first { $0.id == selectedID } ?? selectedDrawings[selectedID]
+    guard let drawing, !drawingWasDeleted(drawing) else { return nil }
+    return drawing
   }
+  private(set) var drawingSummaries: [SavedDrawingSummary] = []
+  private(set) var drawingBrowserState: PortraitPersistenceState = .loading
+  private(set) var drawingHasMore = false
+  private(set) var drawingPageRevision: UInt64 = 0
+  @ObservationIgnored private var drawingBrowserPhotoID: UUID?
+  @ObservationIgnored private var drawingBrowserStyle: PortraitStyle?
+  @ObservationIgnored private var drawingCursor: SavedDrawingPageCursor?
+  @ObservationIgnored private var drawingPageTask: Task<Void, Never>?
+  @ObservationIgnored private var drawingBrowserHasLoaded = false
+  @ObservationIgnored private var selectedDrawings: [String: SavedDrawing] = [:]
   private(set) var savedStylesState: PortraitPersistenceState = .saved
   private(set) var persistenceState: PortraitPersistenceState = .saved
   private(set) var retainedBytes = 0
@@ -69,6 +71,161 @@ final class PortraitSketchCollection {
   func load() async {
     startWorker()
     await worker?.value
+  }
+
+  /// The one explicit Save path, shared by manual Save and Drawing handoff.
+  func saveDrawing(_ drawing: SavedDrawing) async -> String? {
+    guard !Task.isCancelled, !drawingWasDeleted(drawing) else { return SavedDrawingBrowserError.drawingUnavailable.localizedDescription }
+    do { try drawing.validateIntegrity() } catch { return error.localizedDescription }
+    if !sketches.contains(where: { $0.id == drawing.id }) { enqueue(.saveDrawing(drawing)) }
+    else { startWorker() }
+    await awaitPersistence()
+    guard !Task.isCancelled, !drawingWasDeleted(drawing), sketches.contains(where: { $0.id == drawing.id }) else {
+      return SavedDrawingBrowserError.drawingUnavailable.localizedDescription
+    }
+    guard persistenceState == .saved, unresolvedMutations == 0 else {
+      if case .failed(let error) = persistenceState { return error }
+      return "The drawing has not finished saving. Retry Save Drawing."
+    }
+    return nil
+  }
+
+  func drawingWasDeleted(_ drawing: SavedDrawing) -> Bool {
+    summaryWasDeleted(SavedDrawingSummary(drawing))
+  }
+
+  private func summaryWasDeleted(_ drawing: SavedDrawingSummary) -> Bool {
+    if let source = drawing.sourceSHA256,
+      let date = deletedBrowseSources[source], drawing.createdAt <= date { return true }
+    return tombstones.contains { $0.kind != .label && drawing.createdAt <= $0.createdAt
+      && ($0.affectedCandidateIDs.contains(drawing.id) || ($0.kind == .source && $0.identity == drawing.sourceSHA256)) }
+  }
+
+  func loadDrawingBrowser(photoID: UUID? = nil, style: PortraitStyle? = nil) async {
+    if let drawingPageTask { await drawingPageTask.value }
+    if photoID != drawingBrowserPhotoID || style != drawingBrowserStyle {
+      drawingBrowserPhotoID = photoID; drawingBrowserStyle = style
+      drawingCursor = nil; drawingSummaries = []; drawingHasMore = false; drawingBrowserHasLoaded = false
+    }
+    guard !drawingBrowserHasLoaded else { return }
+    await loadMoreDrawings()
+  }
+
+  func loadMoreDrawings() async {
+    if let drawingPageTask { await drawingPageTask.value; return }
+    guard !drawingBrowserHasLoaded || drawingHasMore else { return }
+    drawingPageTask = Task {
+      defer { drawingPageTask = nil }
+      drawingBrowserState = .loading
+      do {
+        if let store {
+          let cursor = drawingCursor, photoID = drawingBrowserPhotoID, style = drawingBrowserStyle
+          let readPage: @Sendable (SavedDrawingPageCursor?) throws -> SavedDrawingPage = { initial in
+            var cursor = initial
+            while true {
+              try Task.checkCancellation()
+              let page = try store.loadDrawingPage(after: cursor, photoID: photoID, style: style)
+              // Legacy v3 has no photo/style drawing catalog. Advance empty
+              // bounded metadata batches so old-photo history opens usefully.
+              guard page.drawings.isEmpty, page.next != nil, photoID != nil || style != nil else { return page }
+              cursor = page.next
+            }
+          }
+          let reader = Task.detached(priority: .utility) { try readPage(cursor) }
+          let page: SavedDrawingPage
+          do { page = try await reader.value }
+          catch SavedDrawingBrowserError.archiveChanged {
+            page = try await Task.detached(priority: .utility) { try readPage(nil) }.value
+            drawingSummaries = []
+          }
+          var seen = Set(drawingSummaries.map(\.id))
+          drawingSummaries += page.drawings.filter { !summaryWasDeleted($0) && seen.insert($0.id).inserted }
+          drawingCursor = page.next; drawingHasMore = page.next != nil
+        } else {
+          refreshDrawingSummaries()
+          drawingHasMore = false
+        }
+        drawingBrowserHasLoaded = true; drawingBrowserState = .saved
+        drawingPageRevision &+= 1
+      } catch { drawingBrowserState = .failed(error.localizedDescription) }
+    }
+    await drawingPageTask?.value
+  }
+
+  func drawingForBrowsing(_ id: String) async throws -> SavedDrawing {
+    if let drawing = sketches.first(where: { $0.id == id }), !drawingWasDeleted(drawing) { return drawing }
+    if let candidate = entries.first(where: { $0.id == id })?.candidate {
+      let drawing = SavedDrawing(candidate: candidate)
+      guard !drawingWasDeleted(drawing) else { throw SavedDrawingBrowserError.drawingUnavailable }
+      return drawing
+    }
+    guard let store else { throw SavedDrawingBrowserError.drawingUnavailable }
+    let reader = Task.detached(priority: .utility) {
+      do { return try store.loadDrawing(id) }
+      catch SavedDrawingBrowserError.archiveChanged { try Task.checkCancellation(); return try store.loadDrawing(id) }
+    }
+    let drawing = try await withTaskCancellationHandler { try await reader.value } onCancel: { reader.cancel() }
+    guard !Task.isCancelled, !drawingWasDeleted(drawing) else { throw SavedDrawingBrowserError.drawingUnavailable }
+    selectedDrawings[id] = drawing
+    if selectedDrawings.count > 8 {
+      selectedDrawings = selectedDrawings.filter { $0.key == id || $0.key == selectedID }
+    }
+    return drawing
+  }
+
+  func matchingCandidateForBrowsing(photoID: UUID, configuration: PortraitRenderConfiguration,
+    strokeStyle: StrokeStyle) async throws -> PortraitCandidate? {
+    if let candidate = entries.reversed().first(where: {
+      $0.candidate.photoID == photoID && $0.candidate.recipe.style == configuration.style
+        && $0.candidate.recipe.vectorOptions.bounded == configuration.vectors.bounded
+        && $0.candidate.recipe.analysisOptions == configuration.analysis
+        && $0.candidate.program.strokes.first?.style == strokeStyle
+    })?.candidate { return candidate }
+    guard let store else { return nil }
+    let reader = Task.detached(priority: .utility) {
+      var cursor: SavedDrawingPageCursor?
+      repeat {
+        try Task.checkCancellation()
+        let page = try store.loadDrawingPage(after: cursor, photoID: photoID, style: configuration.style)
+        if let summary = page.drawings.first(where: {
+          $0.recipe?.vectorOptions.bounded == configuration.vectors.bounded
+            && $0.recipe?.analysisOptions == configuration.analysis && $0.strokeStyle == strokeStyle
+        }) { return try store.loadDrawing(summary.id).portraitCandidate }
+        cursor = page.next
+      } while cursor != nil
+      return nil
+    }
+    let candidate = try await withTaskCancellationHandler { try await reader.value } onCancel: { reader.cancel() }
+    try Task.checkCancellation()
+    if let candidate, !drawingWasDeleted(SavedDrawing(candidate: candidate)) { return candidate }
+    return nil
+  }
+
+  func candidateForBrowsing(_ id: String) async throws -> PortraitCandidate {
+    guard let candidate = try await drawingForBrowsing(id).portraitCandidate else { throw SavedDrawingBrowserError.notPortrait }
+    return candidate
+  }
+
+  private func refreshDrawingSummaries(including changedID: String? = nil) {
+    // The canonical owner may have fully verified a large archive for writing.
+    // Publishing a mutation must not silently expand a bounded browser page.
+    var visibleIDs = Set(drawingSummaries.map(\.id))
+    if let changedID { visibleIDs.insert(changedID) }
+    let savedIDs = Set((archive.savedDrawings ?? []).map(\.id))
+      .union(entries.filter { !$0.reasons.isEmpty }.map(\.id))
+    let known = entries.filter { store == nil || visibleIDs.contains($0.id) }.map {
+      SavedDrawingSummary(SavedDrawing(candidate: $0.candidate),
+        isSaved: savedIDs.contains($0.id), feedback: $0.attempt?.feedback)
+    } + (archive.savedDrawings ?? []).filter {
+      $0.portraitCandidate == nil && (store == nil || visibleIDs.contains($0.id))
+    }.map { SavedDrawingSummary($0) }
+    let byID = Dictionary(uniqueKeysWithValues: known.map { ($0.id, $0) })
+    drawingSummaries = (drawingSummaries.filter { byID[$0.id] == nil && !summaryWasDeleted($0) } + known).filter {
+      (drawingBrowserPhotoID == nil || $0.photoID == drawingBrowserPhotoID)
+        && (drawingBrowserStyle == nil || $0.style == drawingBrowserStyle)
+    }
+    drawingSummaries.sort { $0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt > $1.createdAt }
+    drawingPageRevision &+= 1
   }
 
   func loadPhotoBrowser() async {
@@ -171,6 +328,9 @@ final class PortraitSketchCollection {
 
   @discardableResult
   func retain(candidate: PortraitCandidate, reason: PortraitRetentionReason) -> String? {
+    guard !drawingWasDeleted(SavedDrawing(candidate: candidate)) else {
+      return SavedDrawingBrowserError.drawingUnavailable.localizedDescription
+    }
     do {
       try candidate.validateIntegrity()
       enqueue(.retain(candidate, .init(reason: reason)))
@@ -190,7 +350,8 @@ final class PortraitSketchCollection {
   }
 
   func setFeedback(_ value: PortraitAttemptFeedback, for id: String) {
-    guard let entry = entries.first(where: { $0.id == id }), entry.attempt != nil else { return }
+    guard entries.first(where: { $0.id == id })?.attempt != nil
+      || drawingSummaries.first(where: { $0.id == id })?.feedback != nil else { return }
     enqueue(.feedback(id, .init(id: UUID(), value: value, createdAt: Date())))
   }
 
@@ -211,6 +372,9 @@ final class PortraitSketchCollection {
   @discardableResult
   func rate(candidate: PortraitCandidate, rating: Int, scope: PortraitStyleScope,
     presentation: PortraitPresentationContext) -> String? {
+    guard !drawingWasDeleted(SavedDrawing(candidate: candidate)) else {
+      return SavedDrawingBrowserError.drawingUnavailable.localizedDescription
+    }
     do {
       try candidate.validateIntegrity()
       let previous = labels.last { $0.candidateID == candidate.id && $0.scope.id == scope.id
@@ -225,9 +389,13 @@ final class PortraitSketchCollection {
   }
 
   func remove(_ id: String) {
-    guard let candidate = entries.first(where: { $0.id == id })?.candidate else { return }
+    let candidate = entries.first(where: { $0.id == id })?.candidate
+    guard candidate != nil || sketches.contains(where: { $0.id == id })
+      || drawingSummaries.contains(where: { $0.id == id }) else { return }
     enqueue(.delete(.init(id: UUID(), kind: .candidate, identity: id,
-      affectedCandidateIDs: [id], assetSHA256s: [candidate.sourceSHA256, candidate.rasterSHA256], createdAt: Date())))
+      affectedCandidateIDs: [id], assetSHA256s: candidate.map { [$0.sourceSHA256, $0.rasterSHA256] } ?? [], createdAt: Date())))
+    selectedDrawings[id] = nil
+    drawingSummaries.removeAll { $0.id == id }
     if selectedID == id { selectedID = nil }
   }
 
@@ -264,6 +432,7 @@ final class PortraitSketchCollection {
   }
 
   private enum Mutation {
+    case saveDrawing(SavedDrawing)
     case retain(PortraitCandidate, PortraitRetentionEvent)
     case rate(PortraitCandidate, PortraitLabelRevision, PortraitRetentionEvent)
     case delete(PortraitArchiveTombstone)
@@ -273,8 +442,25 @@ final class PortraitSketchCollection {
     case removeStyle(UUID)
     case sourcePhoto(PortraitPhoto)
 
+    var drawingID: String? {
+      switch self {
+      case .saveDrawing(let drawing): drawing.id
+      case .retain(let candidate, _), .rate(let candidate, _, _), .attempt(let candidate, _): candidate.id
+      case .feedback(let id, _): id
+      default: nil
+      }
+    }
+
     func apply(to archive: inout PortraitCandidateArchive) {
       switch self {
+      case .saveDrawing(let drawing):
+        guard !archive.tombstones.contains(where: { $0.kind != .label && drawing.createdAt <= $0.createdAt
+          && ($0.affectedCandidateIDs.contains(drawing.id)
+            || ($0.kind == .source && $0.identity == drawing.portraitCandidate?.sourceSHA256)) }) else { return }
+        if let candidate = drawing.portraitCandidate { Self.retain(candidate, event: .init(reason: .shortlisted), in: &archive) }
+        if archive.savedDrawings == nil { archive.savedDrawings = [] }
+        if archive.savedDrawings?.contains(where: { $0.id == drawing.id }) == false { archive.savedDrawings?.append(drawing) }
+
       case .sourcePhoto(let photo):
         let hash = PortraitCandidateCoding.digest(photo.data)
         guard !archive.tombstones.contains(where: {
@@ -303,6 +489,9 @@ final class PortraitSketchCollection {
       case .retain(let candidate, let event):
         Self.retain(candidate, event: event, in: &archive)
       case .rate(let candidate, let label, let event):
+        guard !archive.tombstones.contains(where: { $0.kind != .label && candidate.createdAt <= $0.createdAt
+          && ($0.affectedCandidateIDs.contains(candidate.id)
+            || ($0.kind == .source && $0.identity == candidate.sourceSHA256)) }) else { return }
         Self.retain(candidate, event: event, in: &archive)
         if !archive.labels.contains(where: { $0.id == label.id }) { archive.labels.append(label) }
       case .delete(let requested):
@@ -319,6 +508,8 @@ final class PortraitSketchCollection {
         } else { archive.tombstones.append(tombstone) }
         if tombstone.kind != .label {
           archive.entries.removeAll { tombstone.affectedCandidateIDs.contains($0.id) }
+          archive.savedDrawings?.removeAll { tombstone.affectedCandidateIDs.contains($0.id)
+            || (tombstone.kind == .source && $0.portraitCandidate?.sourceSHA256 == tombstone.identity) }
         }
         if tombstone.kind == .source {
           archive.sourcePhotos?.removeAll {
@@ -330,6 +521,13 @@ final class PortraitSketchCollection {
 
     private static func retain(_ candidate: PortraitCandidate, event: PortraitRetentionEvent,
       in archive: inout PortraitCandidateArchive) {
+      guard !archive.tombstones.contains(where: { $0.kind != .label && candidate.createdAt <= $0.createdAt
+        && ($0.affectedCandidateIDs.contains(candidate.id)
+          || ($0.kind == .source && $0.identity == candidate.sourceSHA256)) }) else { return }
+      if archive.savedDrawings == nil { archive.savedDrawings = [] }
+      if archive.savedDrawings?.contains(where: { $0.id == candidate.id }) == false {
+        archive.savedDrawings?.append(SavedDrawing(candidate: candidate))
+      }
       if let index = archive.entries.firstIndex(where: { $0.id == candidate.id }) {
         if !archive.entries[index].reasons.contains(where: { $0.reason == event.reason }) {
           archive.entries[index].reasons.append(event)
@@ -340,6 +538,7 @@ final class PortraitSketchCollection {
 
   private func enqueue(_ mutation: Mutation) {
     mutation.apply(to: &archive)
+    refreshDrawingSummaries(including: mutation.drawingID)
     pending.append(mutation)
     unresolvedMutations = pending.count + pendingCleanupCount
     persistenceState = .pending
@@ -385,6 +584,10 @@ final class PortraitSketchCollection {
         for entry in archive.entries where !recovered.entries.contains(where: { $0.id == entry.id }) {
           recovered.entries.append(entry)
         }
+        for drawing in archive.savedDrawings ?? [] where recovered.savedDrawings?.contains(where: { $0.id == drawing.id }) != true {
+          if recovered.savedDrawings == nil { recovered.savedDrawings = [] }
+          recovered.savedDrawings?.append(drawing)
+        }
         for label in archive.labels where !recovered.labels.contains(where: { $0.id == label.id }) {
           recovered.labels.append(label)
         }
@@ -424,6 +627,7 @@ final class PortraitSketchCollection {
         return
       }
     }
+    refreshDrawingSummaries()
     persistenceState = .saved
   }
 

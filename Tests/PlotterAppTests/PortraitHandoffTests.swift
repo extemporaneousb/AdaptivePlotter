@@ -29,7 +29,7 @@ struct PortraitHandoffTests {
       #expect(app.drawingDraftSnapshot.artworkPlan?.contentHash == plan)
       #expect(app.drawingDraftSnapshot.plan?.contentHash == executionPlan)
       #expect(app.drawingDraftSnapshot.drawBorder == drawBorder)
-      #expect(app.portraitStudio.projectedReference(for: candidate.program)?.candidateID == candidate.id)
+      #expect(app.portraitStudio.projectedDrawing?.executionReference(for: candidate.program)?.candidateID == candidate.id)
       await app.shutdown()
     } catch { await app.shutdown(); throw error }
   }

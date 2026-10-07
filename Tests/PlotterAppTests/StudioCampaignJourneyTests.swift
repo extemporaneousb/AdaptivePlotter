@@ -60,17 +60,19 @@ struct StudioCampaignJourneyTests {
     let candidatesURL = directory.appendingPathComponent("candidates")
     let materialsURL = directory.appendingPathComponent("materials")
     let firstModel = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL))
-    await firstModel.loadArchive()
+    await firstModel.sketches.load()
+    await firstModel.loadPhotoBrowser()
     firstModel.options = .init(cropToFace: false, removeBackground: false)
     firstModel.setPhoto(try portraitTestImage(), for: .front, strokeStyle: try portraitTestStyle())
     await firstModel.awaitRendering()
     let authored = try #require(firstModel.selectedCandidate)
-    #expect(firstModel.keepSelection() == nil)
+    #expect(await firstModel.saveSelectedDrawing() == nil)
     await firstModel.sketches.awaitPersistence()
     let beforeReload = firstModel.sketches.archive
     await firstModel.shutdown()
     let model = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL))
-    await model.loadArchive()
+    await model.sketches.load()
+    await model.loadPhotoBrowser()
     #expect(try studioJourneyBytes(model.sketches.archive) == studioJourneyBytes(beforeReload))
     model.sketches.selectedID = authored.id
     try assertStudioCandidate(model.selectedCandidate, equals: authored)
@@ -143,16 +145,21 @@ struct StudioCampaignJourneyTests {
       #expect(zip(coverage.uncoveredMask, coverage.perPixelSource).allSatisfy { unknown, source in
         unknown == (source == nil)
       })
-      try await waitUntil { app.physicalAttempts(candidateID: adapted.id).contains(terminal.record) }
-      let images = try await app.physicalAttemptImages(terminal.record)
-      #expect(images.count == attempt.baselines.count + attempt.terminalFrames.count)
+      try await waitUntil { app.drawingReviewRecords.contains(terminal.record) }
+      #expect(DrawingReviewLinkage.matches(record: terminal.record, drawingID: adapted.id,
+        programContentHash: adapted.program.contentHash.description))
+      for reference in attempt.baselines + attempt.terminalFrames {
+        let frame = try await app.drawingReviewImage(reference, runID: terminal.record.runID)
+        #expect(ExactFrameProvenance(frame: frame.frame) == reference.frame)
+      }
       await model.sketches.awaitPersistence()
       #expect(model.sketches.labels == labelsBeforeDraw)
       try assertStudioCandidate(model.sketches.entries.first { $0.id == authored.id }?.candidate, equals: authored)
       await app.shutdown()
 
       let restored = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL))
-      await restored.loadArchive()
+      await restored.sketches.load()
+      await restored.loadPhotoBrowser()
       try assertStudioCandidate(restored.sketches.entries.first { $0.id == adapted.id }?.candidate, equals: adapted)
       try assertStudioCandidate(restored.sketches.entries.first { $0.id == authored.id }?.candidate, equals: authored)
       #expect(restored.sketches.labels == labelsBeforeDraw)

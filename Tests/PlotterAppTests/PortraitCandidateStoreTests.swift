@@ -53,7 +53,7 @@ struct PortraitCandidateStoreTests {
     #expect(try Data(contentsOf: index) == bytes)
   }
 
-  @Test("reviewer startup loads all imaginations through the shared owner without mounting Studio")
+  @Test("reviewer startup loads all saved drawings through the shared owner without mounting Studio")
   func directReviewerAndConcurrentStudioLoad() async throws {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -69,8 +69,8 @@ struct PortraitCandidateStoreTests {
     #expect(studio.sketches.persistenceState == .loading)
     // Both UI entry points call this existing owner; concurrent open/load must
     // join its drain, retain every entry, and never rewrite archive identities.
-    async let reviewerLoad: Void = studio.loadArchive()
-    async let studioLoad: Void = studio.loadArchive()
+    async let reviewerLoad: Void = studio.sketches.load()
+    async let studioLoad: Void = studio.sketches.load()
     _ = await (reviewerLoad, studioLoad)
     #expect(studio.sketches.persistenceState == .saved)
     #expect(studio.sketches.sketches.count == 16)
