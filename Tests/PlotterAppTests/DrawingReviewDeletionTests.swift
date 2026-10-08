@@ -26,9 +26,9 @@ struct DrawingReviewDeletionTests {
       try await waitUntil { app.drawingReviewRecords.contains(record) }
       #expect(record.attemptEvidence?.intent.context.candidate?.candidateID.hasPrefix("drawing-") == true)
       let attempt = try #require(record.attemptEvidence)
-      let authoredHash = attempt.intent.context.program.contentHash.description
-      #expect(DrawingReviewLinkage.matches(record: record, drawingID: "drawing-" + authoredHash, programContentHash: authoredHash))
-      #expect(!DrawingReviewLinkage.matches(record: record, drawingID: "unrelated-portrait", programContentHash: authoredHash))
+      let reference = try #require(attempt.intent.context.candidate)
+      #expect(reference.candidateID == "drawing-" + reference.sourceProgram.contentHash.description)
+      #expect(reference.matches(attempt.intent.context.program))
       let paper = app.currentPaperRevisionContext
       let noRedraw = app.drawingRunSnapshot?.noRedraw
       if case .planMayContainInk = noRedraw {} else {
@@ -38,9 +38,9 @@ struct DrawingReviewDeletionTests {
       let coverage = app.drawingDraftSnapshot.paperCoverageObservation
       let feeds = await f.machine.requestedFeeds
       let penCommands = await f.machine.requestedPenCommands
-      let reference = try #require(attempt.baselines.first ?? attempt.terminalFrames.first)
-      let original = try await app.drawingReviewImage(reference, runID: record.runID)
-      #expect(original.frame.id == reference.frame.frameID)
+      let mediaReference = try #require(attempt.baselines.first ?? attempt.terminalFrames.first)
+      let original = try await app.drawingReviewImage(mediaReference, runID: record.runID)
+      #expect(original.frame.id == mediaReference.frame.frameID)
 
       let scope = DrawingReviewNoteScope.run(record.runID)
       try await app.saveDrawingReviewNote(scope: scope, text: "Initial inspection")
@@ -60,7 +60,7 @@ struct DrawingReviewDeletionTests {
       #expect(await f.machine.requestedFeeds == feeds)
       #expect(await f.machine.requestedPenCommands == penCommands)
       await #expect(throws: DrawingRunEvidenceError.invalidAttemptContext) {
-        try await app.drawingReviewImage(reference, runID: record.runID)
+        try await app.drawingReviewImage(mediaReference, runID: record.runID)
       }
       guard case .loaded(let archive) = await f.stores.evidenceStore.load() else {
         Issue.record("Review deletion must preserve a readable archive")

@@ -78,9 +78,13 @@ struct PortraitAttemptHistoryTests {
     #expect(Set(collection.entries.map(\.id)) == Set(candidates.prefix(3).map(\.id)))
     collection.recordAttempt(candidates[3], record: try .prepare(candidate: candidates[3], pen: portraitTestStyle()))
     #expect(!collection.entries.contains { $0.id == candidates[3].id })
-    collection.deleteSource(candidates[0].sourceSHA256)
+    collection.deleteSource(photoID: candidates[0].photoID)
+    collection.recordAttempt(candidates[0], record: try .prepare(candidate: candidates[0], pen: portraitTestStyle()))
     collection.recordAttempt(candidates[4], record: try .prepare(candidate: candidates[4], pen: portraitTestStyle()))
-    #expect(collection.entries.isEmpty)
+    #expect(Set(collection.entries.map(\.id)) == Set(candidates[1...2].map(\.id)))
+    #expect(collection.tombstones.contains {
+      $0.kind == .photo && $0.identity == candidates[0].photoID.uuidString.lowercased()
+    })
     await collection.awaitPersistence()
   }
 

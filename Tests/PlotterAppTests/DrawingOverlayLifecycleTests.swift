@@ -45,23 +45,44 @@ struct DrawingOverlayLifecycleTests {
 
   @Test("hide and show clear only the target and retain placement, paper and ink protection while disconnected")
   func hideRetainsDrawingAuthority() async throws {
-    let f = try await DrawingWorkbenchApplicationFixture.make()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let studio = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
+    let f = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: studio)
     defer { f.stores.remove() }
     let app = f.application
     do {
-      let program = try PortraitVectorizer.program(from: portraitTestRaster(), pose: .front,
+      let raster = portraitTestRaster()
+      let program = try PortraitVectorizer.program(from: raster, pose: .front,
         style: .contours, strokeStyle: app.drawingStrokeStyle)
+      let candidate = try PortraitCandidate(sourceData: portraitTestImage(),
+        sourcePixelExtent: .init(widthPixels: 60, heightPixels: 80), raster: raster,
+        recipe: .init(id: "overlay-contours", title: "Overlay fixture", seed: 0, style: .contours,
+          vectorOptions: .init(), analysisOptions: .init()),
+        program: program, photoID: UUID(), captureSessionID: UUID(), pose: .front)
+      studio.sketches.retainSourcePhoto(.init(id: candidate.photoID, data: candidate.sourceData,
+        label: "Overlay fixture source", capturedAt: candidate.createdAt, frameID: nil,
+        captureNanoseconds: nil, pose: .front, sourcePixelExtent: candidate.sourcePixelExtent,
+        captureSessionID: candidate.captureSessionID))
       let projection = app.plotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID,
         manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingDrawingProgram: program)
       let select = try #require(projection.semantic.request(matching: .drawingDraft(.selectProgram(program))))
       #expect(await app.submitPlotterUIRequest(select) == .accepted(requestID: select.id))
+      let handoffFailure = await app.projectPortrait(candidate)
+      try #require(handoffFailure == nil)
+      #expect(studio.projectedDrawing?.sourcePhotoID == candidate.photoID)
+      #expect(app.drawingDraftSnapshot.authoredProgram == program)
       try await f.submit(.fitInDrawableRegion)
       try await f.submit(.assertPaperCoverage)
       try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }
       await f.planGate.release(.possibleInk)
       let draw = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)))
       #expect(await app.submitPlotterUIRequest(draw) == .accepted(requestID: draw.id))
-      let record = try #require(app.drawingRunSnapshot?.terminal?.record)
+      _ = try #require(await f.planGate.request)
+      let terminal = try #require(app.drawingRunSnapshot?.terminal)
+      try #require(terminal.disposition == .possibleInk)
+      let record = terminal.record
+      try #require(record.executionFrontiers.commandedStrokeCount > 0)
       await submitControllerSession(app, .toggleConnection)
       await app.drawingDraftSynchronizationTask?.value
       let before = app.drawingDraftSnapshot

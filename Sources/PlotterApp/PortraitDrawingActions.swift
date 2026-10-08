@@ -14,7 +14,17 @@ extension PlotterApplicationRuntime {
       if let error = await submitPortraitDrawingAction(PlotterAppUIActionID.observationCameraRole(.plotter)) {
         return error
       }
-      if drawingDraftSnapshot.artworkPlan?.sourceProgramContentHash == program.contentHash {
+      let selection = PlotterAppUIActionID.drawingDraft(.selectProgram(program))
+      let admission = plotterUIProjection(selectedItemID: currentLearningPathItemID,
+        manualDraft: ManualMotionDraft(), includesLearningPath: true,
+        pendingDrawingProgram: program).semantic
+      guard admission.request(for: selection) != nil else {
+        return admission.action(id: selection)?.unavailableReason
+          ?? "The current Drawing owner does not admit a portrait handoff."
+      }
+      if drawingDraftSnapshot.authoredProgram == program,
+        drawingDraftSnapshot.artworkPlan?.sourceProgramContentHash == program.contentHash {
+        if drawingDraftSnapshot.isTargetVisible { return nil }
         return await submitPortraitDrawingAction(PlotterAppUIActionID.drawingDraft(.showTarget))
       }
       if let error = await submitPortraitDrawingAction(

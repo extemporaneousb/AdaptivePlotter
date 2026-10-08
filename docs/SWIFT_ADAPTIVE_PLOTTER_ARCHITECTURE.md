@@ -1957,17 +1957,19 @@ no-redraw recovery route.
 redirecting failed persistence into temporary files. Explicit test/investigation
 stores inject private locations. Domain stores continue to own schema validation,
 atomic publication, content addressing and retention; the path value admits no
-hardware operation or Learning application. Existing directory and canonical file
-names are retained, so this consolidation performs no data relocation.
+hardware operation or Learning application. Existing safety-store paths remain unchanged. Portrait metadata uses the additive
+`PortraitLibrary` path; `PortraitCandidates` remains a read-only importer input.
 
 | Relative location under the application-data root | Writer and retained content | Lifecycle |
 | --- | --- | --- |
 | `AcceptedArtifacts/accepted-learning-path-v1.json` | `AcceptedLearningPathCheckpointStore`; the current accepted LIVE dependency prefix, semantic identities, cap appearance and one bounded optical reference | Each accepted prefix is durable; load presents Saved Learning for operator decision. |
 | `AcceptedArtifacts/History/<envelope SHA-256>.json` | The same checkpoint store; exact previous envelope bytes, including rejected bytes retained for diagnosis | Verified and synchronized before replacement/clear; failure prevents canonical mutation. No automatic load, application or pruning. |
 | `AcceptedArtifacts/accepted-machine-artifacts-v1.json` and `accepted-tip-calibration-v1.json` | Existing legacy migration adapter inputs | Converted only through validated canonical publication; the adapter removes legacy inputs only after successful migration. |
-| `PortraitCandidates/index-v1.json` | `PortraitCandidateStore` via `PortraitSketchCollection`; checksummed schema-4 index containing candidate/metadata/label references, generic saved-program references, bounded drawing summaries, source-photo metadata, optional compact photo catalog, tombstones and saved recipes | One serialized publisher; archive load errors block destructive replacement. Legacy embedded/bulk indexes upgrade once during a healthy full load, before Draw. Catalog-only inspection stays read-only. Photo pages and per-visible-source reads run outside the installer actor, bound to the checksummed committed index and stable file identities; they neither materialize DrawingPrograms nor mutate verification caches. Browser pages remain separate from the complete archive snapshot. |
-| `PortraitCandidates/records/<record SHA-256>` | Same portrait owner; immutable candidate programs, recipes, lineage, source/raster identities, per-candidate retention/attempt/thumbnail snapshots and labels | Installed and synchronized before compact-index publication; unchanged geometry is never re-encoded for retention/feedback. Only superseded metadata is retired after publication; source/candidate deletion remains tombstone-owned. Legacy bulk schemas 1–2 remain readable. |
-| `PortraitCandidates/assets/<asset SHA-256>` | Same portrait owner; original acquired image bytes and exact analyzed rasters shared by records | Acquired selected sources are retained before successful generation. Deletion follows committed explicit tombstones and preserves every referenced blob. Unassociated/corrupt assets remain diagnostic evidence. |
+| `PortraitLibrary/library-v1.sqlite` | `PortraitCandidateStore` actor behind `PortraitSketchCollection`; capture, drawing occurrence, work/media projection, lineage receipt, run binding, tombstone, style and generic drawing metadata | Mandatory ancestry foreign keys are enabled and checked on each normal connection. DELETE journal and FULL synchronization retain file-generation cursor compatibility. Whole graph changes commit transactionally; a schema without the committed portrait-graph marker is not a selected library. |
+| `PortraitLibrary/records/<SHA-256>` and `PortraitLibrary/assets/<SHA-256>` | Same library owner; immutable candidate/program, source/raster, metadata and historical lineage payloads | Checksummed and synchronized before SQLite references become visible. Existing verified payloads are reused. Capture identity is independent of shared asset hash; deletion remains tombstone owned. |
+| `PortraitLibrary/ImportSnapshots/<legacy manifest SHA-256>` | `PortraitLegacySnapshot`; exact selected legacy manifest, records, assets and verification receipt | Original hashes are checked before copy and independently verified after synchronization. Startup import and old-writer delta recovery read this retained immutable snapshot. |
+| `PortraitCandidates/index-v1.json`, `records/` and `assets/` | Legacy read-only importer inputs | Verified legacy generations import into the new library without rewriting or retiring original files. No alternate JSON publisher remains. |
+| `PortraitQuarantine/<run ID>` | Portrait reconciliation; unresolved lineage with reason, original selected bytes and checksum manifests | Excluded from normal portrait browsing. Independently retained before migration publication; no change to raw execution or possible-ink facts. |
 | `DrawingEvidence/drawing-run-evidence-v1.json` | `DrawingRunEvidenceStore`; checksummed envelope-3 manifest selecting exact attempt/terminal record hashes, logical schema-6 review notes/dismissal, and archive-wide assertions | Publication and possible-ink/no-redraw truth remain with the Drawing owner. Paper/Learning reset does not erase history. Legacy envelopes 1–2 remain readable; envelope 1 upgrades through asynchronous startup loading. Older writers reject envelope 3 before they can discard new review metadata; Saved Learning recovery reuses that verified asynchronous result. |
 | `DrawingEvidence/drawing-run-evidence-v1.json.records/<SHA-256>.json` | Same Drawing store; immutable attempt snapshots and terminal evidence | Changed components are synchronized before manifest commit. Only the manifest selects truth; interrupted/unreferenced components never authorize replay or manufacture attempts. |
 | `DrawingEvidence/drawing-run-evidence-v1.json.media/<frame SHA-256>.pixels` | Same Drawing store; exact stamped baseline/progress/result camera pixels | Media references retain source/configuration/time/hash provenance and never become portrait-input authority. |
@@ -2501,23 +2503,48 @@ requests regardless of drawing producer. Its plan preview selects the sealed
 otherwise the admitted Draft plan. That value is derived from existing owner/record
 geometry, never a second mutable plan. The global status retains terminal outcomes
 and exact reason until the existing RunID-bound new-run handoff. Material setup and paper coverage remain
-before Draw. `DrawingReviewerView` is source-independent and selects archive items
-locally; browsing never replaces the Studio candidate or runtime selection. Its
-Delete Result operation writes record or run tombstones into schema-6
-`DrawingRunEvidenceArchive`. Review projections exclude those identities for browsing
-and subsequent Draft residual analysis, while raw `records`, attempts and media retain
-execution and possible-ink truth. `DrawingReviewNote` stores drawing/run/media
-annotations through the same evidence publisher without granting evidence authority. App archive installation preserves known deletion
-tombstones against delayed loads and does not restore/reset runtime during deletion.
+before Draw. `DrawingReviewerView` consumes typed `PortraitLibrarySnapshot` and
+`PortraitLibrarySelection` projections for All Photos, Photos with Plotted Works,
+Photos without Plotted Works, and direct Plotted Works. The service owns ancestry;
+the view performs no program-hash join. Capture UUID and renderer candidate ID
+form `PortraitDrawingIdentity`, preserving separate equal-content captures.
+Selecting a photo defaults to its latest executed/possible-ink work and exact
+drawing when available. The selected capture exposes all its compact drawing
+metadata, while programs and original pixels load on demand. Browsing does not
+replace Studio or runtime selection.
 
-The shared reviewer groups `SavedDrawingSummary` pages and evidence projections by
-program content hash. `SavedDrawing` owns one immutable `DrawingProgram` with
-optional exact `PortraitCandidate` provenance; it replaces the portrait-only saved
-wrapper. `PortraitSketchCollection` remains the serialized library mutation owner.
-List pages read compact summaries; selected reads validate one record and required
-assets without installing a partial writable snapshot. Full archive verification
-remains required for mutation. Automatic attempts retain their separate Studio
-history semantics. Errors and retry state are visible.
+`SavedDrawing` permits source-free generic vector programs but requires exact
+`PortraitCandidate` provenance for portrait programs. The existing App-owned
+retention callback validates durable candidate bytes and commits a run-to-capture
+binding after raw intent staging and before motion. `DrawingRunEvidencePort`
+retains the exact successful typed stage publication for `loadForPortraitBinding`;
+it does not invoke full raw archive recovery again for this callback.
+`PortraitEvidenceSource.proveStagedAttempt` checks the selected manifest checksum,
+archive identity/revision, unique attempt references and the current attempt's
+checksummed bytes against that publication. The proof rechecks manifest and
+component bytes inside the SQL binding transaction. Historical records, media and
+calibration components are outside this bounded proof; full raw recovery and
+reconciliation retain their structural verification.
+
+Raw publication marks the library stale and coalesces projection updates. A
+known newly inserted portrait stage defers its projection by the exact run ID
+until `finishPortraitBinding` settles success or refusal. This hold belongs to
+the live stage event, not prepared history decoded during recovery. Unknown
+pre-stage state follows ordinary publication; subsequent raw publication releases
+an abandoned stage hold. Browsing remains stale until reconciliation completes.
+A projection failure cannot turn a successful raw safety commit into a hardware
+retry. `reconcileAbsentEvidence` admits a genuinely absent raw archive only with
+no previously selected raw generation or downstream lineage; a vanished selected
+archive remains a failure. DrawingEvidence remains sole execution, possible-ink
+and no-redraw owner.
+
+Review deletion still uses record/run tombstones in `DrawingRunEvidenceArchive`;
+its immutable records and original media remain retained. `DrawingReviewNote`
+stores drawing/run/media annotations through that owner. The library reflects
+those tombstones without restoring/resetting runtime or changing paper facts.
+Prepared requests remain available in exact drawing history, but only valid
+lineage with possible ink or positive stroke execution enters plotted-work
+filters. Missing result pixels affect availability, not valid run admission.
 
 `DrawingReviewGeometry` only projects retained evidence: exact record execution plan
 first, explicit source-program reference second, unavailable reason otherwise.
@@ -2539,8 +2566,8 @@ terminal record exists; `DrawingRunAttemptEvidence.progressFrames` seals the sam
 sequence. Legacy absence decodes to an empty sequence. Archive validation checks
 plan/request identity, committed stroke/checkpoint prefix, pose, stream, freshness,
 chronology, and the three-frame bound; original bytes are verified on reopen.
-The existing four-panel reviewer selects progress or terminal frames by labeled
-stage; unfinished attempts with saved stages remain browseable after restart.
+The portrait reviewer selects progress or terminal frames by labeled stage;
+valid-lineage unfinished attempts remain browseable after restart.
 No stage photo is promoted into matched-pose coverage, a Vision result, or an
 accepted Learning model.
 
@@ -2549,34 +2576,53 @@ publication recovery retains the same original bytes. Draft paper applicability
 uses preview source/configuration plus optical metadata without requiring a
 materialized content hash; exact evidence requests still require sealed pixels.
 
-`PortraitSketchCollection` is the serial archive/persistence owner. Applicable
-renders retain exact source, raster, recipe, program, ancestry and an off-main-actor
-thumbnail in `PortraitAttemptRecord`; feedback revisions bind an exact proposal.
-Only explicit save or successful projection qualifies a saved-library entry.
-`PortraitSavedStyle` retains reusable recipes in the same archive. The owner first loads
-its catalog and publishes an independent saved-style read state before bulk verification.
-`PortraitSavedStylesView` uses an observable popover rather than a native menu snapshot.
-Version-four index envelopes checksum a compact index that references immutable
-portrait candidate and generic drawing records in `records/`, with summary metadata
-for bounded browsing. Schema 1–3 indexes remain readable; portrait record bytes and
-identities are unchanged. Older readers refuse the new schema instead of dropping
-generic drawings. Retention and feedback update metadata without
-serializing historical DrawingPrograms or reinstalling their pixels. The same
-`PortraitCandidateStore` synchronizes new records before atomically publishing the
-index and retires superseded metadata only afterward. Healthy full loads upgrade
-legacy embedded/bulk indexes once before Draw admission; saved-style-only catalog
-inspection remains read-only. Missing/corrupt records block mutation while independently
-committed recipes remain accessible. Full loads verify every referenced record and
-unique source/raster asset. Warm saves reuse validated immutable values and verified
-file digests only while device, inode, size, nanosecond mtime and ctime remain unchanged;
-a changed/missing file is reverified or refused, never silently trusted. Source-photo
-hashes and actual payload sizes are retained by the existing actor rather than
-recomputed for every metadata change.
-History installs
-payloads without rendering. Source deletion prunes digest-equivalent aliases,
-navigation and worker capabilities; tombstones block late resurrection. Historical
-labels, checkpoints and exploration receipts remain readable without driving
-current generation. Failed persistence remains visible and retryable.
+`PortraitSketchCollection` remains the observable cache and serialized mutation
+owner; `PortraitCandidateStore` is the actor facade for SQLite and immutable
+payload installation. `PortraitLibraryDatabase` confines transactional metadata
+writes to that actor, checks foreign-key enforcement on opening and validates
+integrity before publication. The SQL graph uses mandatory photo-to-drawing,
+drawing-to-work and work-to-media ancestry. `PortraitLibraryQueries` supplies
+bounded metadata pages, exact occurrence selections and generation checks.
+`PortraitLibraryReconciliation` projects raw evidence and retains exact historical
+lineage receipts across subsequent raw generations. A missing historical
+candidate preserves its original ID and program with unknown recipe/raster;
+it is not materialized as a new renderer candidate.
+
+`PortraitEvidenceSource` reads immutable raw manifests and selected components
+without initializing App, camera or machine composition. The storage-only
+`PortraitLibraryReconciler` snapshots sources into independent backup storage,
+verifies selected components, builds a staged catalog, preserves unresolved
+originals in quarantine, then selects the new database only against matching
+input generations. Repeated migration retains existing occurrence bindings and
+tombstones. Legacy schema 1–4 portrait indexes remain importer inputs; the new
+writer does not update or retire their records or assets. `installValidatedGeneration`
+accepts an absent destination and an independently accepted database SHA-256.
+Its source actor produces a SQLite backup, verifies required payload and quarantine
+inventories plus unchanged original input generations, and selects the staged
+library by atomic directory publication. It does not launch an App or initialize
+machine composition.
+
+Applicable renders retain exact source, raster, recipe, program, ancestry and
+thumbnail in `PortraitAttemptRecord`; feedback binds the exact proposal.
+`PortraitSavedStyle` remains in the same library. `loadMutationState` reads compact
+metadata, immutable labels, tombstones, styles and time provenance without
+materializing historical candidate/raster assets. `mutationDelta` commits preserve
+omitted photos, drawings, labels and generic programs; explicit tombstones remain
+the deletion authority. The collection retains every queued capture occurrence,
+including exact feedback and label ancestry, through one transactional save.
+Full History remains an explicit request joined by the same worker. Only successful
+full verification marks history complete; Retry preserves that request and pending
+mutations. The actor retains an explicit full-history write block across compact
+metadata loads until a successful full verification clears it. List browsing remains a separate compact projection. Warm saves
+reuse immutable values and file digests only while device, inode, size,
+nanosecond mtime and ctime agree; changed or missing files are reverified or
+refused. Source acquisition persists independently of rendering. Explicit photo
+deletion uses capture UUID; drawing deletion uses the capture/candidate pair. Both
+preserve equal-content sibling occurrences and block late publication. The legacy
+one-candidate cache elects a surviving occurrence after deletion; this adapter
+choice never changes historical run bindings. Historical labels/checkpoints remain evidence rather than
+current generation instructions. Failed persistence and reconciliation remain
+visible and retryable.
 
 The observation runtime selects one active camera role. Studio capture uses a
 0.8-second burst including 0.25 seconds of settling, then keeps one frame chosen

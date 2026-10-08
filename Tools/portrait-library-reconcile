@@ -1,0 +1,17 @@
+#!/bin/zsh
+set -eu
+if (( $# < 4 || $# > 5 )); then
+  print -u2 'Usage: Tools/portrait-library-reconcile LEGACY_DIRECTORY EVIDENCE_MANIFEST NEW_LIBRARY_DIRECTORY EXTERNAL_BACKUP_DIRECTORY [AUDIT_JSON]'
+  exit 64
+fi
+export PORTRAIT_RECONCILE_LEGACY="$1"
+export PORTRAIT_RECONCILE_EVIDENCE="$2"
+export PORTRAIT_RECONCILE_DESTINATION="$3"
+export PORTRAIT_RECONCILE_BACKUP="$4"
+if (( $# == 5 )); then export PORTRAIT_RECONCILE_AUDIT="$5"; fi
+# Build the test executable from the reviewed source tree before invoking this
+# command. Importing PlotterApp in the test harness never invokes App.main.
+# Optional PORTRAIT_RECONCILE_PROMOTE_SOURCE selects an already validated
+# immutable library; BACKUP then names its existing verified external snapshot.
+# PORTRAIT_RECONCILE_PROMOTE_DB_SHA256 binds its independently accepted DB bytes.
+exec swift test --skip-build --no-parallel --filter PortraitLibraryMigrationCommandTests

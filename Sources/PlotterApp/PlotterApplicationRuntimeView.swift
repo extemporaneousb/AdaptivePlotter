@@ -394,7 +394,7 @@ struct PlotterApplicationRuntimeView: View {
     return await submit(PlotterAppUIActionID.observationCameraRole(role))
   }
 
-  private func inspectSavedDrawingInStudio(_ id: String) async -> String? {
+  private func inspectSavedDrawingInStudio(_ id: PortraitDrawingIdentity) async -> String? {
     let error = await application.portraitStudio.inspectDrawing(id, strokeStyle: application.drawingStrokeStyle)
     guard !Task.isCancelled else { return "Drawing inspection was cancelled." }
     if error == nil { layout.wrappedValue.setPresented(.portraitStudio, true) }

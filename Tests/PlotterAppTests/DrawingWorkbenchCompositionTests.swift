@@ -17,16 +17,13 @@ struct DrawingWorkbenchCompositionTests {
     let app = f.application
     let program = try PortraitVectorizer.program(from: portraitTestRaster(), pose: .front,
       style: .contours, strokeStyle: app.drawingStrokeStyle)
-    let selectProjection = app.plotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID,
-      manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingDrawingProgram: program)
-    let show = try #require(selectProjection.semantic.request(matching: .drawingDraft(.selectProgram(program))))
-    let showOutcome = await app.submitPlotterUIRequest(show)
-    if case .refused(let refusal) = showOutcome {
-      Issue.record("Show on Plotter refused: \(refusal); draft refusal: \(String(describing: app.drawingDraftSnapshot.lastSubmissionRefusal))")
-      await app.shutdown()
-      return
-    }
-    #expect(showOutcome == .accepted(requestID: show.id))
+    let recipe = PortraitStyleRecipe(id: "workbench-exact-portrait", title: "Exact portrait",
+      seed: 410, style: .contours, vectorOptions: .nativeDefaults(for: .contours), analysisOptions: .init())
+    let candidate = try PortraitCandidate(sourceData: Data([4, 1, 0]),
+      sourcePixelExtent: portraitTestRaster().sourceCropExtent,
+      raster: portraitTestRaster(), recipe: recipe, program: program,
+      photoID: UUID(), captureSessionID: UUID(), pose: .front)
+    #expect(await app.projectPortrait(candidate) == nil)
     try await f.submit(.fitInDrawableRegion)
     #expect(app.drawingTargetIsVisible)
     let target = try #require(app.testPlotterUIProjection().actionSurface.drawingStudioCanvas?.targetPreview)

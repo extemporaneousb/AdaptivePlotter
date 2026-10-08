@@ -34,13 +34,30 @@ struct WorkbenchStopCompositionTests {
 
   @Test("typed Stop acknowledges a held Drawing Run before lower settlement and preserves exact ownership")
   func heldDrawingStopAcknowledgesBeforeSettlement() async throws {
-    let fixture = try await DrawingWorkbenchApplicationFixture.make(releasePlanOnStop: false)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let studio = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
+    let fixture = try await DrawingWorkbenchApplicationFixture.make(releasePlanOnStop: false, portraitStudio: studio)
     defer { fixture.stores.remove() }
     let application = fixture.application
     var run: Task<PlotterUIRequestDisposition, Never>?
     do {
-      let program = try PortraitVectorizer.program(from: portraitTestRaster(), pose: .front,
+      let raster = portraitTestRaster()
+      let program = try PortraitVectorizer.program(from: raster, pose: .front,
         style: .contours, strokeStyle: application.drawingStrokeStyle)
+      let candidate = try PortraitCandidate(sourceData: portraitTestImage(),
+        sourcePixelExtent: .init(widthPixels: 60, heightPixels: 80), raster: raster,
+        recipe: .init(id: "stop-contours", title: "Stop fixture", seed: 0, style: .contours,
+          vectorOptions: .init(), analysisOptions: .init()),
+        program: program, photoID: UUID(), captureSessionID: UUID(), pose: .front)
+      studio.sketches.retainSourcePhoto(.init(id: candidate.photoID, data: candidate.sourceData,
+        label: "Stop fixture source", capturedAt: candidate.createdAt, frameID: nil,
+        captureNanoseconds: nil, pose: .front, sourcePixelExtent: candidate.sourcePixelExtent,
+        captureSessionID: candidate.captureSessionID))
+      let handoffFailure = await application.projectPortrait(candidate)
+      try #require(handoffFailure == nil)
+      #expect(studio.projectedDrawing?.sourcePhotoID == candidate.photoID)
+      #expect(application.drawingDraftSnapshot.authoredProgram == program)
       let showProjection = application.plotterUIProjection(
         selectedItemID: application.testCurrentLearningPathItemID, manualDraft: ManualMotionDraft(),
         includesLearningPath: true, pendingDrawingProgram: program)

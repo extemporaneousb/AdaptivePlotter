@@ -135,7 +135,10 @@ struct SavedLearningCompletionTests {
 extension SavedLearningCompletionTests {
   @Test("two ordinary drawings retain Learning and exact coverage across replacement paper", arguments: [false, true])
   func consecutiveDrawingsAcrossReplacementSheet(_ border: Bool) async throws {
-    let f = try await DrawingWorkbenchApplicationFixture.make()
+    let portraitDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: portraitDirectory) }
+    let portrait = PortraitStudioModel(candidateStore: .init(directoryURL: portraitDirectory))
+    let f = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: portrait)
     defer { f.stores.remove() }
     let app = f.application
     let originalPaper = app.currentPaperRevisionContext
@@ -147,6 +150,13 @@ extension SavedLearningCompletionTests {
     #expect(originalOutlines.count == 2)
     let program = try PortraitVectorizer.program(from: portraitTestRaster(), pose: .front,
       style: .contours, strokeStyle: app.drawingStrokeStyle)
+    let recipe = PortraitStyleRecipe(id: "replacement-sheet-exact-portrait", title: "Exact portrait",
+      seed: 138, style: .contours, vectorOptions: .nativeDefaults(for: .contours), analysisOptions: .init())
+    let candidate = try PortraitCandidate(sourceData: Data([1, 3, 8]),
+      sourcePixelExtent: portraitTestRaster().sourceCropExtent, raster: portraitTestRaster(),
+      recipe: recipe, program: program, photoID: UUID(), captureSessionID: UUID(), pose: .front)
+    let handoffFailure = await app.projectPortrait(candidate)
+    try #require(handoffFailure == nil, "\(handoffFailure ?? "")")
     var records: [DrawingRunEvidenceRecord] = []
     for index in 0..<2 {
       #expect(app.drawingDraftSnapshot.drawBorder == (index == 1 && border))

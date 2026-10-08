@@ -8,6 +8,164 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Portrait lineage reconciliation and production library, 2026-10-08
+
+Task `task-2bf48b790f124d5387a3b520f914de62` completed disposable reconciliation,
+independent relational and byte-inventory inspection, typed restart/drift
+acceptance, affected software tests, a signed unlaunched candidate, and additive
+production promotion. The new library is installed at
+`/Users/bullard/Library/Application Support/AdaptivePlotter/PortraitLibrary`.
+The original live app, PID 88462, was left running; the candidate was not launched
+and the live bundle was not replaced. This is storage/software acceptance, not
+operator interaction or physical plotting evidence.
+
+The accepted database contains 160 distinct photo captures backed by 158 source
+assets, 4,359 drawing occurrences, and 30 linked work-history records. Of those
+works, 23 have executed or possible-ink evidence and seven are retained no-ink
+history. The shared plotted-work criterion therefore yields 19 photos with
+plotted works and 141 without. Three different capture UUIDs sharing one source
+SHA remain distinct. SQLite integrity inspection returned `ok` and no foreign-key
+violations. The earlier audit's 15 completed works with result pixels is a separate
+media-completeness count, not the plotted-work membership rule or proof of visible
+physical ink.
+
+The drawing total includes the original 4,358 candidate occurrences and the
+historical identity
+`993711a19ff668fc1238eeba09b6743e750236998eb60805430d592f6af321cb`,
+retained under photo `45fc74ad-f43e-4b79-9c91-25e6509396d6` with its original
+program. Its missing recipe/raster remains unknown; it is not a renderable
+replacement candidate. Exact recovery comprises 21 validated explicit references,
+that one historical program, five unique compositor-provenance matches and three
+unique full-program matches. Four unresolved oldest runs remain quarantined.
+Independent inspection verified their original raw record and selected manifest
+bytes against the quarantine checksums; no raw safety records were rewritten.
+
+Durable evidence resides under
+`/Users/bullard/Library/Application Support/AdaptivePlotterMigrationEvidence/portrait-lineage-20261008T092309Z-544771f1`.
+Its `AcceptanceReceipts/preservation-manifest.json` binds the preserved
+`initial-receipt.json`, `initial-migration.log`,
+`independent-relational-acceptance.json`,
+`independent-snapshot-verification.json`, `inputs-before.json`, `audit.json`,
+`portrait-root-disposable-verification-6xd168_x.json`, and import profiles.
+The external backup inspection verified 9,677 files totaling 3,052,907,005 bytes
+with zero mismatches and unchanged original manifests. The separate canonical
+payload inspection verified 8,717 records and 759 assets: 9,476 files totaling
+1,997,660,989 bytes, also with zero mismatches. These inventories cover different
+roots and must not be conflated.
+
+The receipt binds these SHA-256 fingerprints:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Import source-code fingerprint | `5008b7aaeb5ba6ed51862166c3174a7b5474347f93849f2724a4c95fb6f5f58c` |
+| Original portrait index | `85e8090011d811d90a811deb719a6065f9e315e63d8454e02322ea0e4a56f5f3` |
+| Original DrawingEvidence manifest | `c653f7dbceaa8edd6a8c9370e30692572602c7d2b8315c878c0968bd8ca9387b` |
+| Final read-only lineage audit | `a563bb2373fc4e92c4697ba529815faffe9ba9098ecc31412ee819cb26e183be` |
+| External snapshot manifest | `d05aaad34eed0532e9ca40ce61600c179acf31f976878271a0af13c2cd37fc9b` |
+| Accepted disposable database | `0864361e92fbecb956a7273e63f63b368637c65f4a07961f4c66620d10363d95` |
+| Promoted production database | `6c5f7cdd508ee76fb2e3391f3c06f1215eccbc68b948c70888ae8dce130921eb` |
+
+The subsequent storage-only typed acceptance built in 15.98 seconds and passed
+one enabled test in 573.054 seconds; the explicit migration-command test was
+disabled. Its 521-file source fingerprint was
+`93c42924c2a18336bde14d953898e5b16bbeb2198f3b29297b54817b9c396a4e`.
+Same-generation reconciliation preserved both database bytes and revision.
+The four compact queries returned 160 all photos, 19 with plotted works, 141
+without, and 23 plotted works in 0.3883 seconds. Selected run
+`1e3c9f46-1ca2-4c94-a392-8a0e70a44d05` and record
+`4148d2af-4e11-4530-b6b6-091a49ba97cc` each resolved through its exact
+photo/drawing/program chain to six available stage-media references. The
+historical `993711…` program remained inspectable and nonrenderable.
+
+Compact mutation bootstrap returned writable metadata with no historical
+candidate entries and zero historical asset bytes verified by that path. An
+isolated clone rejected stale browsing after raw-generation drift, then retained
+all eight recovered lineage receipts, 30 histories, 23 plotted works and four
+quarantine rows after reconciliation. A fresh store reopened the clone and
+returned 19 photos with plotted works. The original accepted database, legacy
+portrait index and raw manifest retained their fingerprints above. The roughly
+nine-minute acceptance includes full raw structural verification and clone
+reconciliation; it is not a browse or pre-motion latency measurement.
+
+These results are retained in
+`AcceptanceReceipts/typed-restart-drift-receipt.json`,
+`typed-acceptance-fingerprints-after.json` and
+`portrait-storage-typed-acceptance-2.log` under the durable evidence root above.
+Their `typed-acceptance-preservation-manifest.json` SHA-256 is
+`d89072d782130950d589fbeaff130fa6c2b2a6c4f9a77ab3fee497dc0fbace8e`.
+This typed receipt predates the bounded current-stage pre-motion proof; the
+subsequent affected-suite receipt covers those later changes.
+
+The final serial affected selection reported 369 tests passing in 363.890 seconds,
+with ten opt-in tests skipped. It covered portrait persistence, renderer and label
+compatibility, exact capture handoff and pre-motion binding, raw-commit projection,
+generic Saved Drawing support, review, and the Studio campaign journey. The
+populated hosted reviewer uses a temporary persistent library and synthetic
+camera/controller fixtures. It verifies the exact source/drawing/work/media chain,
+default work selection, actual rendered rows and detail actions, generic-run
+exclusion, and control reachability through real scroll containers at 1000×700.
+The initial and scrolled bitmaps were independently inspected. These are offscreen
+hosting and programmatic scrolling checks; native AX interaction remained opt-in.
+
+The first configured final quick-test failed. Its retained-output diagnostic
+reported 1,800 tests with 13 issues across five tests in 680.814 seconds. Fixture
+setup omitted exact capture bindings for training labels or selected source-free
+portrait programs, which the new pre-motion guard correctly refused. Five test
+files were corrected to retain explicit label/capture ancestry and hand off the
+same portrait programs through a persistent library. All existing safety,
+placement, paper, Stop, publication-order and archive assertions remain. The six
+focused suites then passed 36 tests in 73.286 seconds, including an added exact
+label-byte/revision/SQL-binding round trip. These use synthetic fixture provenance,
+not physical photographs. Production, runtime and build inputs were unchanged.
+`AcceptanceReceipts/software-final/quick-test-diagnostic-receipt.json` preserves
+the failed diagnostic and original machine event;
+`five-fixture-repair-receipt.json` records the correction's software acceptance.
+The final configured gate and lifecycle receipts remain separately recorded below.
+
+`make validate-app` passed signed-bundle, launcher and negative-validation checks.
+The stable-local signed debug candidate is preserved outside the task worktree at
+`CandidateApps/AdaptivePlotter-portrait-lineage-2bf48b-88bb0ad1.app` under the durable
+root above. Its binary SHA-256 is
+`5172e19b2c0eee4faf12b139248bed5aabf1dc854c66309490f85805cc919df6`.
+The external copy matched every task-bundle file and passed strict signature
+verification. `AcceptanceReceipts/software-final/software-acceptance-receipt.json`
+and `source-freeze-final.json` bind the test/build results to the unchanged
+521-file fingerprint
+`88bb0ad1885db76be8b0b526d9a30a1ea8b0308ffc1505d8632a0eef6dbd0b6a`.
+The software preservation manifest is
+`63eb6575454b313989a0c6ea7affe405995248bf33e040147ce7fba02ab99c86`;
+its `hosted-layout` directory retains the initial and scrolled reviewer images.
+
+Production promotion ran the one enabled storage-only command successfully in
+111.495 seconds. An owned SQLite backup selected the previously absent destination;
+its physical database hash differs from the accepted source, while independent
+comparison found every SQL table equal. The installed graph retained the counts,
+eight recovery receipts, both six-media chains and unknown historical recipe/raster
+state above. Integrity returned `ok`, with zero foreign-key violations. All 9,476
+canonical payload files were copied and checksummed, totaling 1,997,660,989 bytes;
+the four quarantine directories contain 16 preserved files. The original portrait
+index, raw manifest, accepted disposable database, backup manifest and live binary
+were unchanged after promotion. PID 88462 retained its October 7 21:39:50 start.
+
+`AcceptanceReceipts/production-promotion-receipt.json`,
+`production-promotion-inputs-after.json`, `production-promotion-copy-inventory.json`
+and `production-promotion.log` record that operation. The corrected independent
+`root-production-owner-verification.json` confirms 8,717 canonical records and
+759 assets, plus all 98 physical frames at their actual `DrawingEvidence` owner
+(812,851,200 bytes). It also verifies four selected quarantine manifests and eight
+original files (938,390 bytes hashed). This explicitly supersedes
+`root-production-verification.json`, whose initial ownership assumption incorrectly
+looked for raw physical frames in the portrait-owned asset directory. No selected
+payload was missing.
+
+Compact query and mutation-bootstrap measurements do not establish native Draw
+latency or eliminate full raw structural recovery costs. The new pre-motion proof
+checks only the current staged attempt and stable manifest; full raw recovery and
+reconciliation retain their existing duties. No real camera acquisition, app
+restart, machine command, physical likeness, unobstructed final-photo, or paper/ink
+quality claim is made by these receipts. Final configured validation and actual
+landing/cleanup identities belong to the task's external lifecycle evidence.
+
 ## Shared saved drawings and contextual review, 2026-10-06
 
 Task `task-36a83528aba84d32896e470a77b55ae5` replaces the portrait-only saved

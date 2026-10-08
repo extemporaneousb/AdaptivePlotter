@@ -1348,38 +1348,61 @@ different planes.
 
 ## Applicability and durable checkpoints
 
-Portrait acquisition queues the selected original source into the existing
-portrait archive independently of render success. Recent-photo/cache eviction,
-render failure/cancellation and deleting a digital candidate do not delete a
-committed standalone source. Explicit source deletion commits a source tombstone
-and removes dependent candidate/label associations before unreferenced asset
-cleanup. Failed persistence remains pending with a visible retry; a capture
-status alone does not prove durable save. Legacy sources remain associated with
-their retained candidates and are not rewritten merely by reading them.
+Portrait acquisition queues the selected original photograph independently of
+render success. Render failure/cancellation, recent-cache eviction and digital
+drawing deletion do not delete a committed photograph. Capture UUID is the root
+identity: equal image bytes do not merge captures. Portrait drawing occurrences
+pair that UUID with the immutable renderer candidate ID. Explicit photo deletion
+tombstones that capture and its descendants; imported legacy tombstones retain
+their recorded meaning. Delayed render, read and mutation publication must not
+resurrect deleted identities. Failed persistence remains visible and retryable;
+capture status alone does not establish durable save.
 
-Opening Portrait Studio reads the committed photo/recipe metadata catalog, not
-the full candidate archive. The retained photo picker shows the newest 100
-catalog sources and requests subsequent pages at the scroll end; original
-pixels are verified and decoded only for visible tiles or a selected source.
-The picker releases offscreen thumbnails. Existing indexes without a photo
-catalog expose independently retained sources first, then bounded batches of
-at most 100 backwards candidate metadata records; duplicates can produce an
-empty page while the cursor advances. Legacy program source provenance supplies
-pose only through its existing exact token format. All retained sources remain
-reachable, with explicit retry and more-photo controls.
+The portrait library stores metadata in SQLite and immutable source, raster and
+record bytes in content-addressed files. Mandatory foreign keys bind each drawing
+to its photograph, each work to its drawing, and each media row to its work.
+Payloads are synchronized before their transactional metadata references become
+selected. The existing library facade owns publication; a browse page is an
+advisory projection, never a writable partial archive. The legacy portrait index
+is an importer input, with no writable fallback. Current browsing requires the
+selected portrait and DrawingEvidence generations; changed or failed source
+reconciliation must be presented as stale or unavailable. A genuinely absent raw
+evidence archive permits photos with no plotted work only when no previous raw
+generation, run binding or downstream work was selected. Disappearance of a
+previously selected archive is a failure, never an empty-history result.
 
-A browse page is advisory state, never an archive snapshot or Drawing evidence.
-Source deletion remains the full owner's tombstone operation and includes
-currently unloaded attempts. Pixel selection refuses removed or changed source
-bytes and stale publication after deletion. Full History and physical review
-load exact retained candidates explicitly; a fresh treatment step awaits full
-preference/rejection history rather than interpreting unloaded history as empty.
-New source/attempt mutations still join full archive verification and merge
-pending changes before the serialized writer can commit. Partial browsing cannot
-truncate retained history, and merely opening/scanning photos performs no
-legacy migration or archive write.
+Ordinary source/save mutations bootstrap the compact mutation metadata and append
+exact occurrence changes without loading every historical raster. Omitted rows in
+that mode remain retained. Operations requiring complete preference/history state
+explicitly join full history loading through the same mutation worker. Failed full
+loading never marks history complete; Retry revalidates the requested full history
+before applying its pending work. A compact reload cannot clear an observed
+full-history corruption block; successful full verification must clear it. Labels preserve immutable predecessor and exact
+capture associations even after withdrawal; queued feedback binds the capture
+occurrence at submission.
 
+Historical association requires validated explicit references or unique exact
+program, source and capture evidence. Labels, timestamps and visual resemblance
+do not establish lineage. A retained historical program keeps its original
+identity; absent recipe, raster or capture time remains unknown. Unresolved work
+is excluded from normal portrait browsing and preserved separately with original
+bytes, checksum manifest and reason. Migration requires an independently verified
+backup before selecting the new graph. An accepted disposable generation may be
+promoted to an absent destination through its owning SQLite backup operation,
+with the exact accepted database hash and fresh verification of input generations,
+required payload inventory and quarantined originals. Raw DrawingEvidence remains in place with
+its existing execution, possible-ink and no-redraw authority.
 
+The library offers All Photos, Photos with Plotted Works, Photos without Plotted
+Works, and Plotted Works. A plotted work has valid upstream photo/drawing lineage
+and either an ink-dispatch-possible marker or a positive commanded/completed
+stroke frontier. Stopped and failed work qualifies when that condition holds;
+prepared or refused requests with no such marker remain drawing history.
+Controller completion, result-photo completeness, media availability and observed
+ink are independent facts. A missing final photograph never removes otherwise
+valid plotted-work ancestry. Photo lists are bounded metadata pages; selected
+photos, drawings and runs resolve through the same service projection. Original
+pixels are verified when read, and selection refuses stale/deleted identities.
 
 Tip applicability separates:
 
@@ -1847,11 +1870,13 @@ Drawings browser. The original source photo and selectable source thumbnails rem
 above the parameter controls; History opens the shared source/drawing browser. Source and drawing
 always refer to the same selected candidate. Saved styles remain reachable with an empty/loading library and while Next
 is canceled. Their observable popover updates while open and distinguishes loading,
-empty and failed reads with retry. The serialized archive owner loads recipe metadata
-before candidate verification. New saves commit a compact checksummed index referring
-to immutable records. Metadata browsing preserves legacy indexes; healthy full
-loads upgrade embedded/bulk formats through the existing publisher. Recipe availability never permits overwriting a
-corrupt bulk archive. Cancel stops the request without modifying saved recipes or selection.
+empty and failed reads with retry. The serialized library owner loads recipe metadata
+before complete candidate verification. New saves commit SQLite metadata referring
+to synchronized immutable records. Legacy embedded, bulk and indexed archives are
+read-only import inputs; successful reconciliation publishes their retained styles
+and drawings into the canonical library. Recipe availability never permits
+overwriting a corrupt source archive. Cancel stops the request without modifying
+saved recipes or selection.
 Drawing-style selection restores independent tuning for each renderer, using its native
 defaults on first selection. Framing and material remain fixed. Reset restores the selected
 renderer's canonical parameters while preserving framing and material. The Feature
@@ -2024,45 +2049,47 @@ scrolling controls in its region frame, including rotation and the optional artw
 or terminal is retained it uses that sealed run plan; it never substitutes a later
 Studio candidate. Without an admitted plan, an authored preview is labeled reference.
 
-Drawings is one source-independent library for saved and attempted drawings.
-Each drawing groups its linked runs, stage photos and notes. Programs can be saved
-from Drawing regardless of producer; execution retains its exact authored source
-before motion through the existing attempt owner. Portrait source images, recipes
-and attempt feedback are optional provenance. Kept only shows explicitly saved
-drawings and promising attempts. Other attempted drawings remain available in history.
+The Portrait Library presents retained capture occurrences, their exact drawings,
+linked run history, stage photographs and notes. Generic vector drawings remain
+saveable and executable through Drawing, but source-free generic work is not a
+portrait-library item. A portrait program requires its exact durable source and
+candidate provenance at save, explicit handoff and the existing pre-motion
+retention callback. Missing portrait ancestry refuses the attempt before motion;
+no additional planner, runner or motion authority is introduced.
+That callback reuses only the raw owner's successful typed publication for the
+exact current stage. It verifies the selected current-attempt bytes and a stable
+raw manifest when committing the durable capture binding, without reloading
+historical runs or media. A newly inserted portrait stage marks browsing stale
+and defers its advisory projection until that binding settles; recovered prepared
+history does not create a hold. Later raw publication releases an abandoned stage
+hold. Full raw structural recovery and library reconciliation retain their
+existing verification responsibilities.
 
-Opening the reviewer reads bounded summary pages through the existing shared store
-owner. Selecting an item reads its exact immutable program and selected media;
-list browsing does not verify or decode the complete candidate archive. Loading and
-persistence failures are visible and retryable. Mutations still join complete
-verification before committing. There is no library retention limit.
-**Delete Drawing** changes saved-library retention. **Delete Run Review** hides an
+Opening the reviewer reads bounded summary pages through the shared store.
+Selecting any photo, drawing or work presents the same source-to-drawing-to-run
+chain. Historical exact programs with unknown recipe/raster can be inspected as
+references but cannot be reconstructed as renderer candidates. The reviewer
+labels source and stage photographs, run status, capture identity and known dates;
+unknown dates remain explicit. It offers Fit/100% image viewing and explicit
+Portrait Studio inspection or Drawing handoff for renderable retained candidates.
+Browsing never replaces the active Studio candidate or runtime selection.
+
+**Delete Photo and Its Drawings** removes one capture and its library descendants.
+**Delete Drawing** removes the selected capture/drawing occurrence without deleting
+an equal-content drawing belonging to another capture. **Delete Run Review** hides an
 execution from review and residual selection. **Dismiss Unfinished Run** hides an
-unfinished run with retained stage photos, including any later terminal record,
-while preserving execution and possible-ink records.
-Drawing, run and photo notes are annotations, not measurements, ratings or accepted
-Learning evidence. The evidence writer advances its outer envelope version so
-older writers cannot drop this new review metadata; current readers retain older
-archive compatibility. Existing portrait candidate identifiers, record bytes, hashes,
-recipes, programs, assets and execution links remain compatible; the new index
-schema refuses writers that cannot preserve generic drawings.
+unfinished run and any later terminal review. Run and media deletion retain raw
+execution, possible-ink/no-redraw facts and shared original media; they never mark
+paper clear. Drawing, run and media notes remain annotations in DrawingEvidence,
+not measurements, ratings or accepted Learning evidence. Deletion tombstones
+survive delayed reads and restart.
 
-Historical Drawing results prefer their retained execution-plan geometry, including
-placement, clipping and optional border. If only the source program remains, it is
-explicitly a source reference; absent geometry is explained. Retained paths do not
-prove observed ink or controller completion. Historical records without photograph
-references say so; missing stage photographs and unreadable retained photographs
-have distinct explanations. No substitute photograph or current plan is invented.
-
-The reviewer uses the existing evidence archive. It provides Fit/100% images, Close, explicit program
-handoff and deletion without ratings. Delete Run Review stores a durable tombstone in
-that archive, removes the result from review and future residual fitting, and
-rejects normal image/rating access to it. Required immutable execution provenance,
-possible-ink/no-redraw facts and shared raw media remain retained. It does not mark
-the sheet clear or erase material evidence. Deleted review identities cannot be
-resurrected by a delayed archive load. Portrait candidate/source deletion continues to use
-the qualified archive's existing tombstones; generic drawings use the same shared
-library deletion owner.
+Retained source-program previews are references, not evidence of physical ink or
+controller completion. Missing stage references and unreadable referenced pixels
+have distinct explanations; the browser never substitutes a current plan or
+another photograph. Valid run ancestry is retained even without result pixels.
+The raw evidence owner still retains exact admitted execution geometry and owns
+possible-ink/no-redraw recovery independently of portrait browsing.
 
 Fit retains the authored rotation and selects a valid uniform scale and center.
 The same frame geometry supplies scale limits; rotating ordinary artwork retains

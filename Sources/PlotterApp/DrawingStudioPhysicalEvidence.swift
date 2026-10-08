@@ -27,7 +27,22 @@ extension PlotterApplicationRuntime {
   /// The staged intent supplies identity. Retention must settle before the runtime
   /// can begin motion; a failed write is an explicit attempt failure.
   func retainDrawingCandidateForAttempt(_ intent: DrawingRunIntent) async throws {
-    guard let reference = intent.context.candidate else { return }
+    do {
+      try await retainStagedDrawingCandidateForAttempt(intent)
+    } catch {
+      await drawingEvidencePort.finishPortraitBinding(intent)
+      throw error
+    }
+    await drawingEvidencePort.finishPortraitBinding(intent)
+  }
+
+  private func retainStagedDrawingCandidateForAttempt(_ intent: DrawingRunIntent) async throws {
+    guard let reference = intent.context.candidate else {
+      if intent.role == .ordinaryDrawing, intent.context.program.source.kind == "portrait" {
+        throw SavedDrawingBrowserError.portraitProvenanceRequired
+      }
+      return
+    }
     guard drawingDraftSnapshot.program == intent.context.program,
       drawingDraftSnapshot.plan == intent.plan else {
       throw DrawingRunEvidenceError.invalidAttemptContext
@@ -50,6 +65,11 @@ extension PlotterApplicationRuntime {
       guard case .saved = portraitStudio.sketches.persistenceState else {
         throw PlotterModelError.invalidValue("The attempted drawing could not be durably retained.")
       }
+      guard case .loaded(let stagedArchive) = await drawingEvidencePort.loadForPortraitBinding(intent) else {
+        throw DrawingRunEvidenceError.invalidAttemptContext
+      }
+      try await portraitStudio.sketches.bindPortraitAttempt(intent, candidate: candidate,
+        evidence: stagedArchive, sourceURL: drawingEvidencePort.archiveURL)
     }
     guard !Task.isCancelled, !portraitStudio.sketches.drawingWasDeleted(drawing),
       drawingDraftSnapshot.program == intent.context.program,

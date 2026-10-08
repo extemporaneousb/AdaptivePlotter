@@ -40,7 +40,7 @@ let package = Package(
       name: "PlotterApp",
       dependencies: [
         "EpisodeCore", "EpisodeRuntime", "PlotterEpisodeModel", "PlotterEpisodeRuntime", "PlotterModel",
-        "PlotterRuntime", "PlotterUI",
+        "PlotterRuntime", "PlotterUI", "CSQLite",
       ]
     ),
     .target(

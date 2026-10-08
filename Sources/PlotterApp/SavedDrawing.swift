@@ -2,8 +2,9 @@ import Foundation
 import PlotterModel
 import PlotterRuntime
 
-/// The reusable authored drawing. Image provenance is optional; execution and
-/// physical media remain owned by the drawing evidence archive and link by hash.
+/// The reusable authored drawing. Portrait programs require their exact source
+/// provenance; generic vector programs remain source-free. Physical execution
+/// truth belongs to DrawingEvidence, independently of this library payload.
 struct SavedDrawing: Identifiable, Codable, Equatable, Sendable {
   let id: String
   let program: DrawingProgram
@@ -49,7 +50,11 @@ struct SavedDrawing: Identifiable, Codable, Equatable, Sendable {
     executionProgram: DrawingProgram) -> SavedDrawing? {
     let drawing: SavedDrawing
     if let projectedDrawing, projectedDrawing.program == program { drawing = projectedDrawing }
-    else { drawing = SavedDrawing(program: program) }
+    else {
+      guard program.source.kind != "portrait" else { return nil }
+      drawing = SavedDrawing(program: program)
+    }
+    guard program.source.kind != "portrait" || drawing.portraitCandidate != nil else { return nil }
     guard drawing.runCandidateReference?.matches(executionProgram) == true else { return nil }
     return drawing
   }
@@ -60,8 +65,9 @@ struct SavedDrawing: Identifiable, Codable, Equatable, Sendable {
       guard id == candidate.id, program == candidate.program, createdAt == candidate.createdAt else {
         throw PortraitCandidateError.integrityMismatch
       }
-    } else if id != "drawing-" + program.contentHash.description {
-      throw PortraitCandidateError.integrityMismatch
+    } else {
+      guard program.source.kind != "portrait" else { throw SavedDrawingBrowserError.portraitProvenanceRequired }
+      if id != "drawing-" + program.contentHash.description { throw PortraitCandidateError.integrityMismatch }
     }
   }
 }
@@ -116,12 +122,13 @@ struct SavedDrawingPageCursor: Sendable {
 }
 
 enum SavedDrawingBrowserError: Error, LocalizedError {
-  case archiveChanged, drawingUnavailable, notPortrait
+  case archiveChanged, drawingUnavailable, notPortrait, portraitProvenanceRequired
   var errorDescription: String? {
     switch self {
     case .archiveChanged: "Drawing history changed. Reload the drawing list."
     case .drawingUnavailable: "This drawing was deleted or is unavailable."
     case .notPortrait: "This drawing has no portrait image provenance."
+    case .portraitProvenanceRequired: "This portrait is missing its exact retained source photograph and drawing provenance. Send the retained portrait to Drawing before saving or executing it."
     }
   }
 }

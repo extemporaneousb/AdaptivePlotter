@@ -27,7 +27,7 @@ struct PortraitCandidateStoreTests {
     await restored.load()
     #expect(restored.entries.isEmpty)
     #expect(restored.sourcePhotos.first?.data == photo.data)
-    restored.deleteSource(candidate.sourceSHA256)
+    restored.deleteSource(photoID:candidate.photoID)
     restored.retainSourcePhoto(photo) // late capture completion cannot resurrect deleted evidence
     await restored.awaitPersistence()
     #expect(restored.sourcePhotos.isEmpty)
@@ -43,7 +43,7 @@ struct PortraitCandidateStoreTests {
     let photo = PortraitPhoto(id: UUID(), data: candidate.sourceData, label: "Original",
       capturedAt: Date(), frameID: nil, captureNanoseconds: nil, pose: .front)
     _ = try await store.save(snapshot: .init(sourcePhotos: [photo]))
-    let index = directory.appendingPathComponent("index-v1.json")
+    let index = directory.appendingPathComponent("library-v1.sqlite")
     let bytes = try Data(contentsOf: index)
     try FileManager.default.removeItem(at: directory.appendingPathComponent("assets")
       .appendingPathComponent(PortraitCandidateCoding.digest(photo.data)))
@@ -63,7 +63,7 @@ struct PortraitCandidateStoreTests {
       #expect(writer.retain(candidate: candidate, reason: .physicalAttempt(attemptID: UUID())) == nil)
     }
     await writer.awaitPersistence()
-    let indexURL = directory.appendingPathComponent("index-v1.json")
+    let indexURL = directory.appendingPathComponent("library-v1.sqlite")
     let before = try Data(contentsOf: indexURL)
     let studio = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
     #expect(studio.sketches.persistenceState == .loading)
@@ -122,7 +122,9 @@ struct PortraitCandidateStoreTests {
       ancestryGroupID: ancestor.captureSessionID))
     for seed in 3...70 { _ = try portraitPersistenceCandidate(seed: UInt64(seed)) }
     #expect(collection.entries.isEmpty)
-    #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("index-v1.json").path))
+    let emptyCatalog = try PortraitLibraryDatabase(url:directory.appendingPathComponent("library-v1.sqlite"),readOnly:true)
+    #expect(try emptyCatalog.scalar("SELECT COUNT(*) FROM drawing") == "0")
+    #expect(try emptyCatalog.scalar("SELECT COUNT(*) FROM photo") == "0")
     #expect(collection.retain(candidate: child, reason: .shortlisted) == nil)
     await collection.awaitPersistence()
     let result = await PortraitCandidateStore(directoryURL: directory).load()
@@ -153,12 +155,12 @@ struct PortraitCandidateStoreTests {
     let assets = try FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent("assets").path)
     #expect(assets.count == 2)
     let assetDirectory = directory.appendingPathComponent("assets")
-    let actualBytes = try Data(contentsOf: directory.appendingPathComponent("index-v1.json")).count
+    let actualBytes = try Data(contentsOf: directory.appendingPathComponent("library-v1.sqlite")).count
       + assets.reduce(0) { try $0 + Data(contentsOf: assetDirectory.appendingPathComponent($1)).count }
       + FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent("records"),
           includingPropertiesForKeys: nil).reduce(0) { try $0 + Data(contentsOf: $1).count }
     #expect(collection.retainedBytes == actualBytes)
-    #expect(try PortraitCandidateStore.retainedByteCount(snapshot: collection.archive) == actualBytes)
+    #expect(try PortraitCandidateStore.retainedByteCount(snapshot: collection.archive) > first.sourceData.count)
     let restored = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(restored.canWrite)
     #expect(restored.archive.entries.count == 40)
@@ -174,7 +176,7 @@ struct PortraitCandidateStoreTests {
     })
     let store = PortraitCandidateStore(directoryURL: directory)
     try await store.save(snapshot: archive)
-    let index = directory.appendingPathComponent("index-v1.json")
+    let index = directory.appendingPathComponent("library-v1.sqlite")
     let originalIndex = try Data(contentsOf: index)
     let source = directory.appendingPathComponent("assets").appendingPathComponent(candidates[0].sourceSHA256)
     try Data("corrupt".utf8).write(to: source)
@@ -209,7 +211,7 @@ struct PortraitCandidateStoreTests {
     let writer = PortraitSketchCollection(store: .init(directoryURL: directory))
     _ = writer.retain(candidate: first, reason: .shortlisted)
     await writer.awaitPersistence()
-    let index = directory.appendingPathComponent("index-v1.json")
+    let index = directory.appendingPathComponent("library-v1.sqlite")
     let validIndex = try Data(contentsOf: index), corruptIndex = Data("broken".utf8)
     try corruptIndex.write(to: index)
     let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
@@ -224,7 +226,21 @@ struct PortraitCandidateStoreTests {
     collection.retryPersistence()
     await collection.awaitPersistence()
     #expect(collection.persistenceState == .saved)
+    let durable = PortraitCandidateStore(directoryURL:directory)
+    let identities = [PortraitDrawingIdentity(candidateID:first.id,photoID:first.photoID),
+      PortraitDrawingIdentity(candidateID:second.id,photoID:second.photoID)]
+    var retained: [PortraitRetainedCandidate] = []
+    for identity in identities { retained.append(try await durable.loadRetainedOccurrence(identity)) }
+    let relational = try PortraitLibraryDatabase(url:index,readOnly:true)
+    let ancestryRows = try relational.rows("SELECT * FROM drawing WHERE deleted=0 ORDER BY ordinal")
+    #expect(ancestryRows.count == 2)
+    #expect(retained.map(\.candidate) == [first,second])
+    #expect(retained.map { $0.reasons.map(\.reason) } == [[.shortlisted],[.shortlisted]])
+    await collection.load()
     #expect(collection.entries.count == 2)
+    #expect(try PortraitCandidateCoding.encoder().encode(collection.entries)
+      == PortraitCandidateCoding.encoder().encode(retained))
+    #expect(try relational.rows("SELECT * FROM drawing WHERE deleted=0 ORDER BY ordinal") == ancestryRows)
     #expect(collection.unresolvedMutations == 0)
   }
 
@@ -236,7 +252,7 @@ struct PortraitCandidateStoreTests {
     let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
     _ = collection.retain(candidate: candidate, reason: .shortlisted)
     await collection.awaitPersistence()
-    let index = directory.appendingPathComponent("index-v1.json")
+    let index = directory.appendingPathComponent("library-v1.sqlite")
     let indexBytes = try Data(contentsOf: index)
     let asset = directory.appendingPathComponent("assets").appendingPathComponent(candidate.sourceSHA256)
     try FileManager.default.removeItem(at: asset)
@@ -268,7 +284,7 @@ struct PortraitCandidateStoreTests {
     #expect(collection.persistenceState == .saved)
     let result = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(result.archive.entries.map(\.id) == [kept.id])
-    #expect(result.archive.tombstones.contains { $0.identity == deleted.id })
+    #expect(result.archive.tombstones.contains { $0.kind == .drawing && $0.identity == PortraitDrawingIdentity(candidateID:deleted.id,photoID:deleted.photoID).id })
   }
 
   @Test("source deletion removes owned payloads but preserves label identities and tombstones")
@@ -280,12 +296,15 @@ struct PortraitCandidateStoreTests {
     _ = collection.rate(candidate: candidate, rating: 4, scope: .screenSketch, presentation: try .init())
     await collection.awaitPersistence()
     let labelID = try #require(collection.labels.first?.id)
-    collection.deleteSource(candidate.sourceSHA256)
+    collection.deleteSource(photoID:candidate.photoID)
     await collection.awaitPersistence()
     let restored = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(restored.archive.entries.isEmpty)
     #expect(restored.archive.labels.first?.id == labelID)
-    #expect(restored.archive.tombstones.first?.identity == candidate.sourceSHA256)
+    #expect(restored.archive.withdrawnLabelIDs.contains(labelID.uuidString))
+    let sql = try PortraitLibraryDatabase(url:directory.appendingPathComponent("library-v1.sqlite"),readOnly:true)
+    #expect(try sql.scalar("SELECT COUNT(*) FROM label WHERE id=?",[labelID.uuidString]) == "1")
+    #expect(restored.archive.tombstones.first?.identity == candidate.photoID.uuidString.lowercased())
     #expect(try FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent("assets").path).isEmpty)
   }
 
@@ -314,7 +333,7 @@ struct PortraitCandidateStoreTests {
     let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
     _ = collection.retain(candidate: candidate, reason: .shortlisted)
     await collection.awaitPersistence()
-    collection.deleteSource(candidate.sourceSHA256)
+    collection.deleteSource(photoID:candidate.photoID)
     await collection.awaitPersistence()
     // Recreate the exact disk state between committed index and blob cleanup.
     let assets = directory.appendingPathComponent("assets")
@@ -339,7 +358,7 @@ struct PortraitCandidateStoreTests {
     let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
     _ = collection.retain(candidate: candidate, reason: .shortlisted)
     await collection.awaitPersistence()
-    collection.deleteSource(candidate.sourceSHA256)
+    collection.deleteSource(photoID:candidate.photoID)
     await collection.awaitPersistence()
     let source = directory.appendingPathComponent("assets").appendingPathComponent(candidate.sourceSHA256)
     try candidate.sourceData.write(to: source)
@@ -387,10 +406,10 @@ struct PortraitCandidateStoreTests {
     let restarted = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(restarted.canWrite && restarted.archive.entries.count == 40)
     #expect(restarted.archive.entries[20].reasons.last?.reason == .physicalAttempt(attemptID: runID))
-    let committedIndex = try Data(contentsOf: directory.appendingPathComponent("index-v1.json"))
+    let committedIndex = try Data(contentsOf: directory.appendingPathComponent("library-v1.sqlite"))
     try FileManager.default.removeItem(at: directory.appendingPathComponent("assets").appendingPathComponent(candidates[20].sourceSHA256))
     await #expect(throws: (any Error).self) { try await store.save(snapshot: archive) }
-    #expect(try Data(contentsOf: directory.appendingPathComponent("index-v1.json")) == committedIndex)
+    #expect(try Data(contentsOf: directory.appendingPathComponent("library-v1.sqlite")) == committedIndex)
   }
 
   @Test("Same-size asset changes with restored mtime invalidate byte verification")

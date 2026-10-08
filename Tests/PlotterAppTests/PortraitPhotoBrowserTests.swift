@@ -13,8 +13,8 @@ struct PortraitPhotoBrowserTests {
     let photos = (0..<205).map { photo(index: $0) }
     let store = PortraitCandidateStore(directoryURL: directory)
     try await store.save(snapshot: .init(sourcePhotos: photos))
-    let index = directory.appendingPathComponent("index-v1.json")
-    let committed = try Data(contentsOf: index)
+    let committed = try await store.librarySnapshot().generation
+    #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("index-v1.json").path))
     let reader = PortraitCandidateStore(directoryURL: directory)
     let collection = PortraitSketchCollection(store: reader)
     await collection.loadPhotoBrowser()
@@ -27,7 +27,7 @@ struct PortraitPhotoBrowserTests {
     await collection.loadMorePhotos()
     #expect(collection.photoReferences.count == 205 && !collection.photoHasMore)
     #expect(collection.photoReferences.map(\.id) == photos.reversed().map(\.id))
-    #expect(try Data(contentsOf: index) == committed)
+    #expect(try await reader.librarySnapshot().generation == committed)
     let selected = try await collection.photoForBrowsing(photos[7].id)
     #expect(selected == photos[7])
   }
@@ -56,9 +56,8 @@ struct PortraitPhotoBrowserTests {
     defer { try? FileManager.default.removeItem(at: directory) }
     let candidates = try (0..<205).map { try portraitPersistenceCandidate(seed: UInt64($0)) }
     let original = photo(index: 300)
-    try await PortraitCandidateStore(directoryURL: directory).save(snapshot: .init(
-      entries: candidates.map { .init(candidate: $0, reasons: []) }, sourcePhotos: [original]))
-    try removePhotoCatalog(directory)
+    try writeLegacyFixture(.init(entries: candidates.map { .init(candidate: $0, reasons: []) },
+      sourcePhotos: [original]), to: directory)
     let index = directory.appendingPathComponent("index-v1.json")
     let before = try Data(contentsOf: index)
     let reader = PortraitCandidateStore(directoryURL: directory)
@@ -95,9 +94,9 @@ struct PortraitPhotoBrowserTests {
     collection.retainSourcePhoto(added)
     await collection.awaitPersistence()
     let restored = await PortraitCandidateStore(directoryURL: directory).load()
-    #expect(restored.canWrite && restored.archive.sourcePhotos?.count == 206)
+    #expect(restored.canWrite && restored.archive.sourcePhotos?.count == 207)
     #expect(restored.archive.entries.map(\.id) == [candidate.id])
-    #expect(Set(restored.archive.sourcePhotos?.map(\.id) ?? []) == Set(photos.map(\.id) + [added.id]))
+    #expect(Set(restored.archive.sourcePhotos?.map(\.id) ?? []) == Set(photos.map(\.id) + [candidate.photoID, added.id]))
     // The old cursor cannot mix snapshots after that canonical commit.
     await collection.loadMorePhotos()
     #expect(collection.photoReferences.count == 100)
@@ -109,8 +108,7 @@ struct PortraitPhotoBrowserTests {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let candidate = try portraitPersistenceCandidate()
-    try await PortraitCandidateStore(directoryURL: directory).save(snapshot: .init(
-      entries: [.init(candidate: candidate, reasons: [])]))
+    try writeLegacyFixture(.init(entries: [.init(candidate: candidate, reasons: [])]), to: directory)
     let records = directory.appendingPathComponent("records")
     let file = try #require(FileManager.default.contentsOfDirectory(at: records, includingPropertiesForKeys: nil)
       .first { (try? JSONSerialization.jsonObject(with: Data(contentsOf: $0)) as? [String: Any])?["program"] != nil })
@@ -178,7 +176,9 @@ struct PortraitPhotoBrowserTests {
     #expect(throws: (any Error).self) { try reader.loadPhoto(reference) }
     let deleted = await reader.load()
     #expect(deleted.canWrite && deleted.archive.entries.isEmpty && deleted.archive.sourcePhotos?.isEmpty == true)
-    #expect(deleted.archive.tombstones.first?.affectedCandidateIDs == [candidate.id])
+    #expect(deleted.archive.tombstones.first?.kind == .photo)
+    #expect(deleted.archive.tombstones.first?.identity == original.id.uuidString.lowercased())
+    #expect(deleted.archive.tombstones.first?.affectedCandidateIDs.isEmpty == true)
     let reimport = PortraitPhoto(id: UUID(), data: original.data, label: "Imported again",
       capturedAt: Date(), frameID: nil, captureNanoseconds: nil, pose: .front)
     collection.retainSourcePhoto(reimport)
@@ -267,16 +267,35 @@ struct PortraitPhotoBrowserTests {
       pose: .front, sourcePixelExtent: try? .init(widthPixels: 40, heightPixels: 40))
   }
 
-  private func removePhotoCatalog(_ directory: URL) throws {
-    let url = directory.appendingPathComponent("index-v1.json")
-    var envelope = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-    let encoded = try #require(envelope["payload"] as? String)
-    let payload = try #require(Data(base64Encoded: encoded))
-    var index = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
-    index.removeValue(forKey: "photoCatalog")
-    let revised = try JSONSerialization.data(withJSONObject: index, options: [.sortedKeys])
-    envelope["payload"] = revised.base64EncodedString()
-    envelope["sha256"] = PortraitCandidateCoding.digest(revised)
-    try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys]).write(to: url, options: .atomic)
+  /// Manufacture the real read-only v3 archive contract. Canonical SQLite
+  /// saves intentionally do not publish a legacy flat index.
+  private func writeLegacyFixture(_ archive: PortraitCandidateArchive, to directory: URL) throws {
+    let records = directory.appendingPathComponent("records")
+    let assets = directory.appendingPathComponent("assets")
+    try FileManager.default.createDirectory(at: records, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+    let encoder = PortraitCandidateCoding.encoder()
+    var entries: [IndexedEntry] = []
+    for entry in archive.entries {
+      let candidate = entry.candidate
+      let candidateBytes = try encoder.encode(StoredCandidate(candidate))
+      let candidateHash = PortraitCandidateCoding.digest(candidateBytes)
+      try candidateBytes.write(to: records.appendingPathComponent(candidateHash))
+      let metadata = try encoder.encode(EntryMetadata(candidateID: candidate.id, reasons: entry.reasons,
+        exploration: entry.exploration, attempt: entry.attempt))
+      let metadataHash = PortraitCandidateCoding.digest(metadata)
+      try metadata.write(to: records.appendingPathComponent(metadataHash))
+      try candidate.sourceData.write(to: assets.appendingPathComponent(candidate.sourceSHA256))
+      try encoder.encode(candidate.raster).write(to: assets.appendingPathComponent(candidate.rasterSHA256))
+      entries.append(.init(candidateID: candidate.id, candidateSHA256: candidateHash, metadataSHA256: metadataHash))
+    }
+    for photo in archive.sourcePhotos ?? [] {
+      try photo.data.write(to: assets.appendingPathComponent(PortraitCandidateCoding.digest(photo.data)))
+    }
+    let indexed = IndexedArchive(schemaVersion: 3, entries: entries, labels: [], tombstones: archive.tombstones,
+      savedStyles: archive.savedStyles, sourcePhotos: archive.sourcePhotos?.map { PortraitPhotoReference($0) })
+    let payload = try encoder.encode(indexed)
+    try encoder.encode(IndexEnvelope(schemaVersion: 3, sha256: PortraitCandidateCoding.digest(payload), payload: payload))
+      .write(to: directory.appendingPathComponent("index-v1.json"))
   }
 }

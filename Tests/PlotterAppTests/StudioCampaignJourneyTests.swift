@@ -73,7 +73,12 @@ struct StudioCampaignJourneyTests {
     let model = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL))
     await model.sketches.load()
     await model.loadPhotoBrowser()
-    #expect(try studioJourneyBytes(model.sketches.archive) == studioJourneyBytes(beforeReload))
+    let reloadedBytes = try studioJourneyBytes(model.sketches.archive)
+    let retainedBytes = try studioJourneyBytes(beforeReload)
+    if reloadedBytes != retainedBytes {
+      print("Campaign archive changed fields: " + (try studioJourneyChangedFields(retainedBytes, reloadedBytes)).joined(separator: "; "))
+    }
+    #expect(reloadedBytes == retainedBytes)
     model.sketches.selectedID = authored.id
     try assertStudioCandidate(model.selectedCandidate, equals: authored)
     let labelsBeforeDraw = model.sketches.labels
@@ -146,8 +151,10 @@ struct StudioCampaignJourneyTests {
         unknown == (source == nil)
       })
       try await waitUntil { app.drawingReviewRecords.contains(terminal.record) }
-      #expect(DrawingReviewLinkage.matches(record: terminal.record, drawingID: adapted.id,
-        programContentHash: adapted.program.contentHash.description))
+      let retainedReference = try #require(attempt.intent.context.candidate)
+      #expect(retainedReference.candidateID == adapted.id)
+      #expect(retainedReference.sourceProgram == adapted.program)
+      #expect(retainedReference.matches(attempt.intent.context.program))
       for reference in attempt.baselines + attempt.terminalFrames {
         let frame = try await app.drawingReviewImage(reference, runID: terminal.record.runID)
         #expect(ExactFrameProvenance(frame: frame.frame) == reference.frame)
@@ -207,6 +214,28 @@ private enum StudioJourneyFailure: Error { case missingArchive }
 private func studioJourneyBytes<T: Encodable>(_ value: T) throws -> Data {
   let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
   return try encoder.encode(value)
+}
+
+private func studioJourneyChangedFields(_ expected: Data, _ actual: Data) throws -> [String] {
+  var changes: [String] = []
+  func compare(_ left: Any?, _ right: Any?, path: String) {
+    guard changes.count < 32 else { return }
+    if let left = left as? [String: Any], let right = right as? [String: Any] {
+      for key in Set(left.keys).union(right.keys).sorted() { compare(left[key], right[key], path: path + "." + key) }
+    } else if let left = left as? [Any], let right = right as? [Any] {
+      if left.count != right.count { changes.append("\(path).count: \(left.count) -> \(right.count)") }
+      for index in 0..<min(left.count, right.count) { compare(left[index], right[index], path: "\(path)[\(index)]") }
+    } else if (left as? NSObject)?.isEqual(right) != true {
+      func description(_ value: Any?) -> String {
+        guard let value else { return "absent" }
+        if let text = value as? String, text.count > 80 { return "string(\(text.count) characters)" }
+        return String(describing: value).prefix(120).description
+      }
+      changes.append("\(path): \(description(left)) -> \(description(right))")
+    }
+  }
+  compare(try JSONSerialization.jsonObject(with: expected), try JSONSerialization.jsonObject(with: actual), path: "archive")
+  return changes
 }
 
 private func assertStudioProportions(program: DrawingProgram, plan: ExecutionPlanRevision) throws {

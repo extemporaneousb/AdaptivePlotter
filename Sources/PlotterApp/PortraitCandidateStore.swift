@@ -12,7 +12,7 @@ struct PortraitRetainedCandidate: Identifiable, Codable, Sendable {
 }
 
 struct PortraitArchiveTombstone: Identifiable, Codable, Hashable, Sendable {
-  enum Kind: String, Codable, Sendable { case candidate, source, label }
+  enum Kind: String, Codable, Sendable { case candidate, drawing, source, photo, label }
   let id: UUID
   let kind: Kind
   let identity: String
@@ -28,12 +28,22 @@ struct PortraitCandidateArchive: Codable, Sendable {
   var savedStyles: [PortraitSavedStyle]? = nil
   var sourcePhotos: [PortraitPhoto]? = nil
   var savedDrawings: [SavedDrawing]? = nil
+  var labelPhotoIDs: [String:UUID]? = nil
+  var photoCaptureTimeUnknownIDs: [UUID]? = nil
 
   var withdrawnLabelIDs: Set<String> {
     let explicit = Set(tombstones.filter { $0.kind == .label }.map(\.identity))
     let deleted = labels.filter { label in
-      tombstones.contains { $0.kind != .label && $0.affectedCandidateIDs.contains(label.candidateID)
-        && label.createdAt <= $0.createdAt }
+      tombstones.contains { tombstone in
+        let photo = labelPhotoIDs?[label.id.uuidString.lowercased()]
+        if tombstone.kind == .photo { return photo == UUID(uuidString:tombstone.identity) }
+        if tombstone.kind == .drawing,let photo {
+          return tombstone.identity.lowercased() == PortraitDrawingIdentity(candidateID:label.candidateID,photoID:photo).id
+            && label.createdAt <= tombstone.createdAt
+        }
+        return tombstone.kind != .label && tombstone.affectedCandidateIDs.contains(label.candidateID)
+          && label.createdAt <= tombstone.createdAt
+      }
     }.map { $0.id.uuidString }
     return explicit.union(deleted)
   }
@@ -41,6 +51,10 @@ struct PortraitCandidateArchive: Codable, Sendable {
 
 enum PortraitPersistenceState: Equatable, Sendable {
   case loading, pending, saved, failed(String)
+}
+
+enum PortraitCandidateSaveMode: Sendable {
+  case fullArchive, mutationDelta
 }
 
 struct PortraitCandidateStoreLoadResult: Sendable {
@@ -103,7 +117,21 @@ enum PortraitArchiveValidation {
 /// A committed index never refers to an asset that this installer has not verified.
 actor PortraitCandidateStore {
   nonisolated let directoryURL: URL
+  private(set) var evidenceArchiveURL: URL?
+  nonisolated let legacyDirectoryURL: URL
+  private var installingCanonical = false
+  private var database: PortraitLibraryDatabase?
+  private var committedGeneration: PortraitLibraryGeneration?
+  var evidenceRecordHashes: [UUID:(DrawingRunEvidenceRecord,String)] = [:]
+  var evidenceAttemptHashes: [UUID:(DrawingRunAttemptState,String)] = [:]
+  var durableCandidateCache: [String:PortraitCandidate] = [:]
+  var durableCandidateFiles: [String:[URL:VerifiedFileState]] = [:]
+  var projectionMediaFiles: [URL:VerifiedFileState] = [:]
+  private var legacyReadOnly = false
+  private var legacyReadRootOverride: URL?
+  private var verifiedLegacyImportSHA256: String?
   private var writeBlock: String?
+  private var fullHistoryWriteBlock: String?
   private var hasInspected = false
   private var loadedRecordHash: String?
   private var drawingRecords: [String: String] = [:]
@@ -124,25 +152,39 @@ actor PortraitCandidateStore {
   private(set) var assetBytesVerified = 0
   private let removeAsset: @Sendable (URL) throws -> Void
 
-  init(directoryURL: URL,
+  init(directoryURL: URL, legacyDirectoryURL: URL? = nil, evidenceArchiveURL: URL? = nil,
     removeAsset: @escaping @Sendable (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }) {
     self.directoryURL = directoryURL
+    self.evidenceArchiveURL = evidenceArchiveURL
+    self.legacyDirectoryURL = legacyDirectoryURL ?? directoryURL
     self.removeAsset = removeAsset
   }
 
   nonisolated static func defaultStore() -> PortraitCandidateStore {
     // Never silently substitute temporary storage for durable application data.
-    return PortraitCandidateStore(directoryURL: AdaptivePlotterStoragePaths.production.portraitCandidatesDirectory)
+    return PortraitCandidateStore(directoryURL: AdaptivePlotterStoragePaths.production.portraitLibraryDirectory,
+      legacyDirectoryURL: AdaptivePlotterStoragePaths.production.portraitCandidatesDirectory,
+      evidenceArchiveURL: AdaptivePlotterStoragePaths.production.drawingEvidenceArchive)
   }
 
-  private var indexURL: URL { directoryURL.appendingPathComponent("index-v1.json") }
-  private var blobDirectory: URL { directoryURL.appendingPathComponent("assets", isDirectory: true) }
+  nonisolated var databaseURL: URL { directoryURL.appendingPathComponent("library-v1.sqlite") }
+  nonisolated private var legacySourceIndexURL: URL { legacyDirectoryURL.appendingPathComponent("index-v1.json") }
+  private var legacyIndexURL: URL { (legacyReadRootOverride ?? legacyDirectoryURL).appendingPathComponent("index-v1.json") }
+  nonisolated var canonicalLibraryCommitted: Bool { (try? PortraitLibraryDatabase.hasCommittedGeneration(at:databaseURL)) == true }
+  private var indexURL: URL { !legacyReadOnly && canonicalLibraryCommitted ? databaseURL : legacyIndexURL }
+  func libraryDatabase() throws -> PortraitLibraryDatabase {
+    if let database { return database }
+    let opened = try PortraitLibraryDatabase(url: databaseURL); database = opened; return opened
+  }
+  private var payloadRoot: URL { !installingCanonical && indexURL != databaseURL ? (legacyReadRootOverride ?? legacyDirectoryURL) : directoryURL }
+  private var blobDirectory: URL { payloadRoot.appendingPathComponent("assets", isDirectory: true) }
 
-  private var recordDirectory: URL { directoryURL.appendingPathComponent("records", isDirectory: true) }
+  private var recordDirectory: URL { payloadRoot.appendingPathComponent("records", isDirectory: true) }
 
   /// The committed recipe catalog needs neither candidate geometry nor assets.
   /// Legacy indexes still pay their JSON/checksum cost, but skip materialization.
   func loadSavedStyles() throws -> [PortraitSavedStyle] {
+    if FileManager.default.fileExists(atPath:databaseURL.path) { _ = try libraryDatabase().generation }
     guard FileManager.default.fileExists(atPath: indexURL.path) else {
       var isDirectory: ObjCBool = false
       if FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), !isDirectory.boolValue {
@@ -165,6 +207,12 @@ actor PortraitCandidateStore {
   }
 
   private func readIndex() throws -> IndexEnvelope {
+    if !legacyReadOnly, indexURL == databaseURL {
+      let db = try libraryDatabase(); try db.integrityCheck()
+      let payload = try PortraitCandidateCoding.encoder().encode(db.index())
+      lastReadIndexState = try VerifiedFileState(databaseURL); committedGeneration = try db.generation
+      return IndexEnvelope(schemaVersion: 4, sha256: PortraitCandidateCoding.digest(payload), payload: payload)
+    }
     let (bytes, state) = try VerifiedFileState.read(indexURL)
     let envelope = try JSONDecoder().decode(IndexEnvelope.self, from: bytes)
     lastReadIndexState = state
@@ -177,7 +225,7 @@ actor PortraitCandidateStore {
     return envelope
   }
 
-  private func readRecords(_ hash: String) throws -> Data {
+  func readRecords(_ hash: String) throws -> Data {
     guard validHash(hash) else { throw PortraitCandidateStoreError.invalidIndex("invalid record identity") }
     let (data, state) = try VerifiedFileState.read(recordDirectory.appendingPathComponent(hash))
     guard PortraitCandidateCoding.digest(data) == hash else {
@@ -188,24 +236,28 @@ actor PortraitCandidateStore {
     return data
   }
 
-  func load() -> PortraitCandidateStoreLoadResult {
+  private func loadArchive() -> PortraitCandidateStoreLoadResult {
     hasInspected = true
+    if FileManager.default.fileExists(atPath:databaseURL.path) {
+      do { _ = try libraryDatabase().generation } catch { return failedLoad(error.localizedDescription) }
+    }
     verifiedFiles = [:]; fileByteCounts = [:]
     drawingRecords = [:]; verifiedDrawings = [:]
     verifiedCandidates = [:]; verifiedPhotos = [:]; candidateRecords = [:]
     metadataRecords = [:]; verifiedMetadata = [:]; labelRecords = [:]; verifiedLabels = [:]
     committedIndexState = nil; loadedRecordHash = nil
     let manager = FileManager.default
-    guard manager.fileExists(atPath: directoryURL.path) else {
+    guard manager.fileExists(atPath: directoryURL.path) || manager.fileExists(atPath: legacyDirectoryURL.path) else {
       writeBlock = nil
       return .init(archive: .init(), issues: [], canWrite: true)
     }
     var isDirectory: ObjCBool = false
-    guard manager.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+    let readingRoot = canonicalLibraryCommitted && !legacyReadOnly ? directoryURL : (legacyReadRootOverride ?? legacyDirectoryURL)
+    guard manager.fileExists(atPath: readingRoot.path, isDirectory: &isDirectory), isDirectory.boolValue else {
       return failedLoad("The archive location is not a directory.")
     }
     do {
-      let children = try manager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil)
+      let children = try manager.contentsOfDirectory(at: readingRoot, includingPropertiesForKeys: nil)
       var issues = children.filter { $0.lastPathComponent.hasPrefix("staging-") }
         .map { "Interrupted save retained at \($0.lastPathComponent)." }
       guard manager.fileExists(atPath: indexURL.path) else {
@@ -337,7 +389,11 @@ actor PortraitCandidateStore {
       // The committed tombstone is deletion authority after a crash too. Finish
       // payload cleanup before reporting the archive saved, preserving every
       // blob still referenced even by an unavailable candidate.
-      let cleanup = try cleanupDeletedAssets(stored.tombstones, referenced: referenced)
+      let selectedSQLAssets = indexURL == databaseURL
+        ? Set(try libraryDatabase().rows("SELECT source_hash FROM photo WHERE deleted=0 UNION SELECT raster_hash FROM drawing WHERE deleted=0 AND raster_hash IS NOT NULL").compactMap{$0[0]}) : Set<String>()
+      let cleanup = indexURL == databaseURL && !legacyReadOnly
+        ? try cleanupDeletedAssets(stored.tombstones,referenced:referenced.union(selectedSQLAssets))
+        : (count:0,bytes:0,issues:[String]())
       issues += cleanup.issues
       issues += try assetNames().filter { !referenced.contains($0) }
         .map { "Unassociated asset \($0) retained for recovery." }
@@ -346,8 +402,10 @@ actor PortraitCandidateStore {
       if cleanup.count > 0 { blockers.append("Explicit asset deletion is unfinished; retry archive save to finish cleanup.") }
       writeBlock = blockers.isEmpty ? nil : blockers.joined(separator: " ")
       let archive = PortraitCandidateArchive(entries: entries, labels: stored.labels,
-        tombstones: stored.tombstones, savedStyles: envelope.schemaVersion >= 2 ? savedStyles : stored.savedStyles,
-        sourcePhotos: stored.sourcePhotos == nil ? nil : photos, savedDrawings: drawings)
+        tombstones: stored.tombstones, savedStyles: envelope.schemaVersion >= 2
+          ? (stored.savedStyles == nil && (savedStyles?.isEmpty ?? true) ? nil : savedStyles) : stored.savedStyles,
+        sourcePhotos: stored.sourcePhotos == nil ? nil : photos, savedDrawings: drawings,labelPhotoIDs:stored.labelPhotoIDs,
+        photoCaptureTimeUnknownIDs:stored.photoCaptureTimeUnknownIDs)
       let selectedRecords = Set(Array(candidateRecords.values) + Array(metadataRecords.values) + Array(labelRecords.values) + Array(drawingRecords.values))
       let recordBytes = selectedRecords.reduce(0) { total, hash in
         total + (fileByteCounts[recordDirectory.appendingPathComponent(hash)] ?? 0)
@@ -361,13 +419,144 @@ actor PortraitCandidateStore {
         (try? VerifiedFileState(indexURL)) == committedIndexState else {
         throw PortraitCandidateStoreError.invalidIndex("Archive changed during verification; reload before retrying.")
       }
-      if envelope.schemaVersion < 3, writeBlock == nil {
+      if indexURL != databaseURL, !legacyReadOnly, writeBlock == nil {
+        try preserveVerifiedLegacyPayloads()
         retained = try save(snapshot: archive)
       }
       return .init(archive: archive, issues: issues, canWrite: writeBlock == nil,
         pendingCleanupCount: cleanup.count, pendingCleanupBytes: cleanup.bytes, retainedBytes: retained)
     } catch {
       return failedLoad(error.localizedDescription)
+    }
+  }
+
+  func ensureLibraryGraph() throws {
+    guard !canonicalLibraryCommitted else { return }
+    let loaded = load()
+    guard loaded.canWrite,canonicalLibraryCommitted else { throw PortraitLibraryError.database(loaded.issues.joined(separator:" ")) }
+  }
+
+  /// Mutation ownership needs immutable label ancestry and metadata, not every
+  /// historical renderer input. Initial or changed legacy graphs still pass
+  /// through the verified importer before this compact state can be selected.
+  func loadMutationState() -> PortraitCandidateStoreLoadResult {
+    do {
+      if let fullHistoryWriteBlock { return failedLoad(fullHistoryWriteBlock) }
+      let legacyExists = FileManager.default.fileExists(atPath:legacySourceIndexURL.path)
+      let legacyHash = legacyExists ? PortraitCandidateCoding.digest(try Data(contentsOf:legacySourceIndexURL)) : nil
+      var importRequired = !canonicalLibraryCommitted
+      if !importRequired { importRequired = try libraryDatabase().generation.legacyPortraitSHA256 != legacyHash }
+      if importRequired {
+        let imported = loadVerifiedHistory()
+        guard imported.canWrite,canonicalLibraryCommitted else { return imported }
+      }
+      let db = try libraryDatabase()
+      try assertCurrentInputs(db,checkEvidence:false)
+      try db.integrityCheck()
+      let before = try VerifiedFileState(databaseURL),generation = try db.generation
+      let index = try db.index()
+      let labels = try index.labels.map { reference -> PortraitLabelRevision in
+        let label = try JSONDecoder().decode(PortraitLabelRevision.self,from:readRecords(reference.sha256))
+        guard label.id == reference.id else { throw PortraitCandidateStoreError.invalidIndex("label record identity mismatch") }
+        labelRecords[label.id] = reference.sha256;verifiedLabels[label.id] = label
+        return label
+      }
+      try validateLabels(labels,entries:[])
+      let unknownPhotos = (index.sourcePhotos ?? []).filter {
+        !($0.captureTimeKnown ?? ($0.candidateRecordSHA256 == nil))
+      }.map(\.id)
+      try assertCurrentInputs(db,checkEvidence:false)
+      guard try VerifiedFileState(databaseURL) == before,try db.generation == generation,
+        verifiedFiles.allSatisfy({(try? VerifiedFileState($0.key)) == $0.value}) else { throw PortraitLibraryError.staleGeneration }
+      committedIndexState = before;committedGeneration = generation;hasInspected = true;writeBlock = nil
+      return .init(archive:.init(labels:labels,tombstones:index.tombstones,savedStyles:index.savedStyles,
+        labelPhotoIDs:index.labelPhotoIDs,photoCaptureTimeUnknownIDs:unknownPhotos.isEmpty ? nil : unknownPhotos),
+        issues:[],canWrite:true,retainedBytes:try ownedPayloadByteCount())
+    } catch { return failedLoad(error.localizedDescription) }
+  }
+
+  private func ownedPayloadByteCount() throws -> Int {
+    var total = ((try FileManager.default.attributesOfItem(atPath:databaseURL.path)[.size]) as? NSNumber)?.intValue ?? 0
+    for folder in [blobDirectory,recordDirectory] where FileManager.default.fileExists(atPath:folder.path) {
+      for file in try FileManager.default.contentsOfDirectory(at:folder,includingPropertiesForKeys:[.fileSizeKey]) {
+        total += try file.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? 0
+      }
+    }
+    return total
+  }
+
+  func refreshCommittedLibraryGeneration() {
+    committedGeneration = try? libraryDatabase().generation
+    committedIndexState = try? VerifiedFileState(databaseURL)
+  }
+
+  func configureEvidenceArchiveURL(_ url: URL) throws {
+    if let evidenceArchiveURL, evidenceArchiveURL.standardizedFileURL != url.standardizedFileURL {
+      throw PortraitLibraryError.database("evidence archive owner cannot change")
+    }
+    evidenceArchiveURL = url
+  }
+
+  func load() -> PortraitCandidateStoreLoadResult {
+    let result = loadVerifiedHistory()
+    // A compact metadata read cannot reverse observed full-history corruption.
+    // Only another successful verified history read releases this write block.
+    fullHistoryWriteBlock = result.canWrite ? nil : (writeBlock ?? result.issues.joined(separator:" "))
+    return result
+  }
+
+  private func loadVerifiedHistory() -> PortraitCandidateStoreLoadResult {
+    do {
+      let originalIndex = legacySourceIndexURL
+      let exists = FileManager.default.fileExists(atPath:originalIndex.path)
+      let currentHash = exists ? PortraitCandidateCoding.digest(try Data(contentsOf:originalIndex)) : nil
+      let knownHash = canonicalLibraryCommitted ? try libraryDatabase().generation.legacyPortraitSHA256 : nil
+      if exists, !canonicalLibraryCommitted || currentHash != knownHash {
+        if canonicalLibraryCommitted,try libraryDatabase().scalar("SELECT value FROM state WHERE key='canonical_library_dirty'") == "1" {
+          throw PortraitLibraryError.database("Legacy and canonical libraries both changed; the prior canonical generation is retained for reviewed reconciliation.")
+        }
+        let colocatedLegacy = legacyDirectoryURL.standardizedFileURL == directoryURL.standardizedFileURL
+        let snapshots = colocatedLegacy
+          ? directoryURL.deletingLastPathComponent().appendingPathComponent("PortraitImportSnapshots").appendingPathComponent(PortraitCandidateCoding.digest(Data(directoryURL.path.utf8)))
+          : directoryURL.appendingPathComponent("ImportSnapshots")
+        let snapshot = try PortraitLegacySnapshot.capture(from:legacyDirectoryURL,into:snapshots)
+        legacyReadRootOverride = snapshot.directory
+        verifiedLegacyImportSHA256 = snapshot.manifestSHA256
+        if canonicalLibraryCommitted {
+          legacyReadOnly = true
+          let imported = loadArchive()
+          legacyReadOnly = false
+          guard imported.canWrite else { legacyReadRootOverride=nil;verifiedLegacyImportSHA256=nil;return imported }
+          try preserveVerifiedLegacyPayloads()
+          committedIndexState = try VerifiedFileState(databaseURL)
+          committedGeneration = try libraryDatabase().generation
+          _ = try save(snapshot:imported.archive)
+        }
+      }
+      let result = loadArchive()
+      legacyReadRootOverride = nil;verifiedLegacyImportSHA256 = nil
+      guard result.canWrite else { return result }
+      if !canonicalLibraryCommitted { _ = try save(snapshot:result.archive) }
+      if let evidenceArchiveURL,FileManager.default.fileExists(atPath:evidenceArchiveURL.path) {
+        let source = try PortraitEvidenceSource.read(evidenceArchiveURL)
+        try reconcileEvidence(archive:source.archive,generation:source.sha256)
+      }
+      return result
+    } catch { legacyReadOnly=false;legacyReadRootOverride=nil;verifiedLegacyImportSHA256=nil;return failedLoad(error.localizedDescription) }
+  }
+
+  private func preserveVerifiedLegacyPayloads() throws {
+    guard (legacyReadRootOverride ?? legacyDirectoryURL) != directoryURL else { return }
+    for (source,state) in verifiedFiles where source != legacyIndexURL {
+      guard try VerifiedFileState(source) == state else { throw PortraitLibraryError.staleGeneration }
+      let bytes = try Data(contentsOf:source)
+      let hash = source.lastPathComponent
+      guard PortraitCandidateCoding.digest(bytes) == hash else { throw PortraitCandidateStoreError.invalidAsset(hash) }
+      let target = directoryURL.appendingPathComponent(source.deletingLastPathComponent().lastPathComponent).appendingPathComponent(hash)
+      try FileManager.default.createDirectory(at:target.deletingLastPathComponent(),withIntermediateDirectories:true)
+      if FileManager.default.fileExists(atPath:target.path) {
+        guard PortraitCandidateCoding.digest(try Data(contentsOf:target)) == hash else { throw PortraitCandidateStoreError.invalidAsset(hash) }
+      } else { try bytes.write(to:target,options:.atomic);try synchronize(target) }
     }
   }
 
@@ -379,8 +568,13 @@ actor PortraitCandidateStore {
   /// Immutable candidate geometry is installed once; retention, feedback and
   /// deletion commit only the compact index. Verified unchanged bytes are reused.
   @discardableResult
-  func save(snapshot: PortraitCandidateArchive) throws -> Int {
-    if !hasInspected { _ = load() }
+  func save(snapshot: PortraitCandidateArchive, occurrences: [PortraitRetainedCandidate] = [],
+    mode: PortraitCandidateSaveMode = .fullArchive) throws -> Int {
+    if legacyReadOnly { throw PortraitLibraryError.database("legacy importer is read-only") }
+    if !hasInspected {
+      if case .mutationDelta = mode { _ = loadMutationState() }
+      else { _ = load() }
+    }
     if let writeBlock { throw PortraitCandidateStoreError.invalidIndex(writeBlock) }
     if let committedIndexState {
       guard try VerifiedFileState(indexURL) == committedIndexState else {
@@ -389,12 +583,41 @@ actor PortraitCandidateStore {
     } else if FileManager.default.fileExists(atPath: indexURL.path) {
       throw PortraitCandidateStoreError.invalidIndex("An archive appeared; reload before retrying.")
     }
+    installingCanonical = true
+    var didCommit = false
+    defer {
+      installingCanonical = false
+      if !didCommit { verifiedCandidates.removeAll();verifiedMetadata.removeAll() }
+    }
     let manager = FileManager.default
     try manager.createDirectory(at: blobDirectory, withIntermediateDirectories: true)
     try manager.createDirectory(at: recordDirectory, withIntermediateDirectories: true)
     let encoder = PortraitCandidateCoding.encoder()
+    let db = try libraryDatabase()
+    let previousTombstones = try db.decode([PortraitArchiveTombstone].self,db.scalar("SELECT value FROM state WHERE key='tombstones'") ?? "[]")
+    let authoredTombstones = previousTombstones + snapshot.tombstones
+    var occurrenceOrder: [PortraitDrawingIdentity] = []
+    var occurrenceEntries: [PortraitDrawingIdentity:PortraitRetainedCandidate] = [:]
+    for entry in occurrences + snapshot.entries {
+      let identity = PortraitDrawingIdentity(candidateID:entry.id,photoID:entry.candidate.photoID)
+      if let previous = occurrenceEntries[identity] {
+        let metadata = try Self.mergeMetadata(.init(candidateID:previous.id,reasons:previous.reasons,
+          exploration:previous.exploration,attempt:previous.attempt),with:entry)
+        occurrenceEntries[identity] = .init(candidate:entry.candidate,reasons:metadata.reasons,
+          exploration:metadata.exploration,attempt:metadata.attempt)
+      } else { occurrenceOrder.append(identity);occurrenceEntries[identity] = entry }
+    }
+    let canonicalOccurrences = Set(snapshot.entries.map { PortraitDrawingIdentity(candidateID:$0.id,photoID:$0.candidate.photoID) })
+    var preparedOccurrences: [PreparedPortraitOccurrence] = []
     var assetBytes: [String: Int] = [:]
-    let photos = snapshot.sourcePhotos ?? []
+    var photos = snapshot.sourcePhotos ?? []
+    var photoIDs = Set(photos.map(\.id))
+    for entry in occurrenceOrder.compactMap({occurrenceEntries[$0]}) where photoIDs.insert(entry.candidate.photoID).inserted {
+      let c = entry.candidate
+      guard let pose = c.renderPose else { throw PortraitLibraryError.missingPhoto }
+      photos.append(PortraitPhoto(id:c.photoID,data:c.sourceData,label:"Retained source",capturedAt:c.createdAt,
+        frameID:nil,captureNanoseconds:nil,pose:pose,sourcePixelExtent:c.sourcePixelExtent,captureSessionID:c.captureSessionID))
+    }
     guard Set(photos.map(\.id)).count == photos.count else {
       throw PortraitCandidateStoreError.invalidIndex("duplicate source photo identity")
     }
@@ -414,7 +637,16 @@ actor PortraitCandidateStore {
     var nextCandidateRecords: [String: String] = [:]
     var nextMetadataRecords: [String: String] = [:]
     var nextLabelRecords: [UUID: String] = [:]
-    for entry in snapshot.entries {
+    for identity in occurrenceOrder {
+      guard var entry = occurrenceEntries[identity] else { throw PortraitLibraryError.missingDrawing }
+      let occurrenceRecord = try db.scalar("SELECT candidate_record FROM drawing WHERE id=?",[identity.id])
+      let cacheMatches = verifiedCandidates[entry.id] == entry.candidate && candidateRecords[entry.id] == occurrenceRecord
+      let previousCandidate: StoredCandidate? = try cacheMatches ? nil : occurrenceRecord.map { try JSONDecoder().decode(StoredCandidate.self,from:readRecords($0)) }
+      let isReplacement = previousCandidate.map { Self.permitsPostDeletionReplacement($0,with:entry.candidate,tombstones:authoredTombstones) } ?? false
+      if !isReplacement,let previous = try db.scalar("SELECT metadata_record FROM drawing WHERE id=?",[identity.id]) {
+        let metadata = try Self.mergeMetadata(JSONDecoder().decode(EntryMetadata.self,from:readRecords(previous)),with:entry)
+        entry.reasons = metadata.reasons;entry.exploration = metadata.exploration;entry.attempt = metadata.attempt
+      }
       let candidate = entry.candidate
       let unchanged = verifiedCandidates[candidate.id] == candidate
       if !unchanged { try candidate.validateIntegrity() }
@@ -438,19 +670,23 @@ actor PortraitCandidateStore {
         }
       }
       let recordHash: String
-      if unchanged, let previous = candidateRecords[candidate.id] {
+      if let previous = occurrenceRecord,!(unchanged && candidateRecords[candidate.id] == previous) {
+        guard let retained = previousCandidate else { throw PortraitLibraryError.missingDrawing }
+        if retained == StoredCandidate(candidate) { recordHash = previous }
+        else {
+          guard Self.permitsPostDeletionReplacement(retained,with:candidate,tombstones:authoredTombstones) else {
+            throw PortraitLibraryError.unresolvedLineage("immutable drawing occurrence changed")
+          }
+          recordHash = try installCandidatePayload(candidate,encoder:encoder)
+        }
+      } else if unchanged, let previous = candidateRecords[candidate.id] {
         try verifyUnchangedFile(recordDirectory.appendingPathComponent(previous), hash: previous, isAsset: false)
         recordHash = previous
       } else {
-        let bytes = try encoder.encode(StoredCandidate(candidate))
-        recordBytesEncoded += bytes.count
-        recordHash = PortraitCandidateCoding.digest(bytes)
-        let url = recordDirectory.appendingPathComponent(recordHash)
-        if manager.fileExists(atPath: url.path) { _ = try readRecords(recordHash) }
-        else { try bytes.write(to: url, options: .atomic); try synchronize(url); _ = try readRecords(recordHash) }
+        recordHash = try installCandidatePayload(candidate,encoder:encoder)
       }
-      nextCandidateRecords[candidate.id] = recordHash
-      verifiedCandidates[candidate.id] = candidate
+      if canonicalOccurrences.contains(identity) { nextCandidateRecords[candidate.id] = recordHash }
+      if canonicalOccurrences.contains(identity) { verifiedCandidates[candidate.id] = candidate }
       let metadata = EntryMetadata(candidateID: candidate.id, reasons: entry.reasons,
         exploration: entry.exploration, attempt: entry.attempt)
       let metadataHash: String
@@ -458,11 +694,17 @@ actor PortraitCandidateStore {
         try verifyUnchangedFile(recordDirectory.appendingPathComponent(previous), hash: previous, isAsset: false)
         metadataHash = previous
       } else { metadataHash = try installMetadata(metadata, encoder: encoder) }
-      nextMetadataRecords[candidate.id] = metadataHash
-      verifiedMetadata[candidate.id] = metadata
-      indexedEntries.append(IndexedEntry(candidateID: candidate.id, candidateSHA256: recordHash,
-        metadataSHA256: metadataHash))
+      if canonicalOccurrences.contains(identity) { nextMetadataRecords[candidate.id] = metadataHash }
+      if canonicalOccurrences.contains(identity) { verifiedMetadata[candidate.id] = metadata }
+      let reference = IndexedEntry(candidateID:candidate.id,candidateSHA256:recordHash,metadataSHA256:metadataHash)
+      if canonicalOccurrences.contains(identity) { indexedEntries.append(reference) }
+      let explicitlySaved = (snapshot.savedDrawings ?? []).contains { $0.id == candidate.id && $0.sourcePhotoID == candidate.photoID }
+      let saved = !entry.reasons.isEmpty || explicitlySaved
+      preparedOccurrences.append(.init(candidate:StoredCandidate(candidate),reference:reference,
+        summary:SavedDrawingSummary(SavedDrawing(candidate:candidate),isSaved:saved,feedback:entry.attempt?.feedback),saved:saved))
     }
+    let snapshotOrdinals = Dictionary(uniqueKeysWithValues:snapshot.entries.enumerated().map { ($0.element.id,$0.offset) })
+    indexedEntries.sort { snapshotOrdinals[$0.candidateID]! < snapshotOrdinals[$1.candidateID]! }
     let entries = snapshot.entries.map {
       StoredEntry(candidate: StoredCandidate($0.candidate), reasons: $0.reasons, exploration: $0.exploration, attempt: $0.attempt)
     }
@@ -481,7 +723,9 @@ actor PortraitCandidateStore {
     guard Set(drawings.map(\.id)).count == drawings.count else {
       throw PortraitCandidateStoreError.invalidIndex("duplicate saved drawing identity")
     }
-    let candidatesByID = Dictionary(uniqueKeysWithValues: snapshot.entries.map { ($0.id, $0.candidate) })
+    let preparedByIdentity = Dictionary(uniqueKeysWithValues:preparedOccurrences.map {
+      (PortraitDrawingIdentity(candidateID:$0.candidate.id,photoID:$0.candidate.photoID),$0.candidate)
+    })
     var nextDrawingRecords: [String: String] = [:]
     var drawingReferences: [SavedDrawingRecordReference] = []
     for drawing in drawings {
@@ -489,8 +733,21 @@ actor PortraitCandidateStore {
         // The candidate installer above already verified this immutable payload.
         // Do not rehash every historical raster for a retention-only commit.
         guard drawing.id == candidate.id, drawing.program == candidate.program,
-          drawing.createdAt == candidate.createdAt, candidatesByID[candidate.id] == candidate else {
+          drawing.createdAt == candidate.createdAt else {
           throw PortraitCandidateStoreError.invalidIndex("saved drawing provenance is unavailable")
+        }
+        let identity = PortraitDrawingIdentity(candidateID:candidate.id,photoID:candidate.photoID)
+        if let prepared = preparedByIdentity[identity] {
+          guard prepared == StoredCandidate(candidate) else { throw PortraitCandidateStoreError.invalidIndex("saved drawing provenance is unavailable") }
+        } else {
+          _ = try db.checkedDrawing(identity.id)
+          guard let hash = try db.scalar("SELECT candidate_record FROM drawing WHERE id=? AND deleted=0",[identity.id]) else {
+            throw PortraitCandidateStoreError.invalidIndex("saved drawing provenance is unavailable")
+          }
+          if verifiedCandidates[candidate.id] != candidate || candidateRecords[candidate.id] != hash {
+            let existing = try JSONDecoder().decode(StoredCandidate.self,from:readRecords(hash))
+            guard existing == StoredCandidate(candidate) else { throw PortraitCandidateStoreError.invalidIndex("saved drawing provenance is unavailable") }
+          } else { try verifyUnchangedFile(recordDirectory.appendingPathComponent(hash),hash:hash,isAsset:false) }
         }
         drawingReferences.append(.init(id: drawing.id, candidateID: candidate.id, recordSHA256: nil))
       } else {
@@ -506,28 +763,42 @@ actor PortraitCandidateStore {
     }
     var indexed = IndexedArchive(schemaVersion: 4, entries: indexedEntries,
       labels: labels, tombstones: snapshot.tombstones,
-      savedStyles: snapshot.savedStyles, sourcePhotos: snapshot.sourcePhotos?.map {
-        PortraitPhotoReference($0, sourceSHA256: sourcesByID[$0.id]!)
+      savedStyles: snapshot.savedStyles, sourcePhotos: photos.map {
+        var reference = PortraitPhotoReference($0, sourceSHA256:sourcesByID[$0.id]!)
+        if snapshot.photoCaptureTimeUnknownIDs?.contains($0.id) == true { reference.captureTimeKnown = false }
+        return reference
       })
     indexed.savedDrawings = drawingReferences
     indexed.drawingCatalog = Self.drawingCatalog(snapshot)
+    if snapshot.sourcePhotos == nil || photos.count != snapshot.sourcePhotos?.count {
+      let explicit = Set((snapshot.sourcePhotos ?? []).map(\.id))
+      indexed = IndexedArchive(schemaVersion:4,entries:indexed.entries,labels:indexed.labels,tombstones:indexed.tombstones,
+        savedStyles:indexed.savedStyles,sourcePhotos:(indexed.sourcePhotos ?? []).map { photo in
+          var ref = photo
+          if !explicit.contains(ref.id) {
+            ref.candidateRecordSHA256 = preparedOccurrences.first(where:{$0.candidate.photoID == ref.id})?.reference.candidateSHA256
+            ref.captureTimeKnown = false
+          }
+          return ref
+        },savedDrawings:drawingReferences,drawingCatalog:Self.drawingCatalog(snapshot))
+    }
     indexed.photoCatalog = Self.photoCatalog(sources: indexed.sourcePhotos ?? [],
       candidates: snapshot.entries.map(\.candidate), records: nextCandidateRecords)
-    let payload = try encoder.encode(indexed)
-    let bytes = try encoder.encode(IndexEnvelope(schemaVersion: 4,
-      sha256: PortraitCandidateCoding.digest(payload), payload: payload))
-    let staging = directoryURL.appendingPathComponent("staging-\(UUID().uuidString).json")
-    try bytes.write(to: staging, options: .atomic)
-    try synchronize(staging)
-    try bytes.write(to: indexURL, options: .atomic)
-    try synchronize(indexURL)
-    committedIndexState = try VerifiedFileState(indexURL)
-    try? manager.removeItem(at: staging)
-    // Retire only superseded metadata, after the index that no longer refers to it.
-    let previousRecords = Set(Array(candidateRecords.values) + Array(metadataRecords.values) + Array(labelRecords.values) + Array(drawingRecords.values))
+    indexed.labelPhotoIDs = snapshot.labelPhotoIDs
+    let liveLegacyHash = FileManager.default.fileExists(atPath:legacySourceIndexURL.path)
+      ? PortraitCandidateCoding.digest(try Data(contentsOf:legacySourceIndexURL)) : nil
+    let expectedLegacyHash = verifiedLegacyImportSHA256 ?? committedGeneration?.legacyPortraitSHA256
+    guard liveLegacyHash == expectedLegacyHash else { throw PortraitLibraryError.staleGeneration }
+    let legacyHash = verifiedLegacyImportSHA256
+    try db.commit(index:indexed,candidates:Dictionary(uniqueKeysWithValues:snapshot.entries.map { ($0.id,StoredCandidate($0.candidate)) }),
+      occurrences:preparedOccurrences,legacyHash:legacyHash,expected:committedGeneration,mode:mode)
+    committedGeneration = try db.generation
+    didCommit = true
+    verifiedLegacyImportSHA256 = nil
+    committedIndexState = try VerifiedFileState(databaseURL)
+    // Legacy records are immutable importer inputs. No publisher, retirement or
+    // writable JSON fallback remains after SQL publication.
     let selectedRecords = Set(Array(nextCandidateRecords.values) + Array(nextMetadataRecords.values) + Array(nextLabelRecords.values) + Array(nextDrawingRecords.values))
-    let obsolete = previousRecords.subtracting(selectedRecords).union(loadedRecordHash.map { [$0] } ?? [])
-    for hash in obsolete { try? manager.removeItem(at: recordDirectory.appendingPathComponent(hash)) }
     drawingRecords = nextDrawingRecords
     verifiedDrawings = verifiedDrawings.filter { nextDrawingRecords[$0.key] != nil }
     candidateRecords = nextCandidateRecords; metadataRecords = nextMetadataRecords
@@ -543,14 +814,16 @@ actor PortraitCandidateStore {
       + assetBytes.keys.map { blobDirectory.appendingPathComponent($0) })
     verifiedFiles = verifiedFiles.filter { selectedFiles.contains($0.key) }
     fileByteCounts = fileByteCounts.filter { selectedFiles.contains($0.key) }
-    let cleanup = try cleanupDeletedAssets(snapshot.tombstones, referenced: Set(assetBytes.keys))
+    let durableAssets = Set(try db.rows("SELECT source_hash FROM photo WHERE deleted=0 UNION SELECT raster_hash FROM drawing WHERE deleted=0 AND raster_hash IS NOT NULL").compactMap{$0[0]})
+    let cleanup = try cleanupDeletedAssets(snapshot.tombstones, referenced: Set(assetBytes.keys).union(durableAssets))
     if cleanup.count > 0 { throw PortraitCandidateStoreError.invalidIndex(cleanup.issues.joined(separator: " ")) }
-    return bytes.count + selectedRecords.reduce(0) {
+    if case .mutationDelta = mode { return try ownedPayloadByteCount() }
+    return (try Data(contentsOf:databaseURL).count) + selectedRecords.reduce(0) {
       $0 + (fileByteCounts[recordDirectory.appendingPathComponent($1)] ?? 0)
     } + assetBytes.values.reduce(0, +)
   }
 
-  private func installMetadata<T: Encodable>(_ value: T, encoder: JSONEncoder) throws -> String {
+  func installMetadata<T: Encodable>(_ value: T, encoder: JSONEncoder) throws -> String {
     let bytes = try encoder.encode(value)
     metadataBytesEncoded += bytes.count
     let hash = PortraitCandidateCoding.digest(bytes)
@@ -560,7 +833,63 @@ actor PortraitCandidateStore {
     return hash
   }
 
-  private func synchronize(_ url: URL) throws {
+  private func installCandidatePayload(_ candidate: PortraitCandidate, encoder: JSONEncoder) throws -> String {
+    let bytes = try encoder.encode(StoredCandidate(candidate))
+    recordBytesEncoded += bytes.count
+    let hash = PortraitCandidateCoding.digest(bytes),url = recordDirectory.appendingPathComponent(hash)
+    if FileManager.default.fileExists(atPath:url.path) { _ = try readRecords(hash) }
+    else { try bytes.write(to:url,options:.atomic);try synchronize(url);_ = try readRecords(hash) }
+    return hash
+  }
+
+  static func permitsPostDeletionReplacement(_ old: StoredCandidate, with candidate: PortraitCandidate,
+    tombstones: [PortraitArchiveTombstone]) -> Bool {
+    guard old.id == candidate.id,old.photoID == candidate.photoID,old.captureSessionID == candidate.captureSessionID,
+      old.sourceSHA256 == candidate.sourceSHA256,old.program == candidate.program,
+      old.rasterSHA256 == candidate.rasterSHA256,old.recipeSHA256 == candidate.recipeSHA256 else { return false }
+    let identity = PortraitDrawingIdentity(candidateID:candidate.id,photoID:candidate.photoID)
+    return tombstones.contains { tombstone in
+      let matches = tombstone.kind == .drawing ? tombstone.identity.lowercased() == identity.id
+        : tombstone.kind == .candidate && (tombstone.identity == candidate.id || tombstone.affectedCandidateIDs.contains(candidate.id))
+      return matches && old.createdAt <= tombstone.createdAt && candidate.createdAt > tombstone.createdAt
+    }
+  }
+
+  private static func mergeMetadata(_ previous: EntryMetadata, with incoming: PortraitRetainedCandidate) throws -> EntryMetadata {
+    guard previous.candidateID == incoming.id else { throw PortraitLibraryError.database("occurrence metadata candidate changed") }
+    func merged<T: Equatable>(_ old: [T], _ new: [T], key: (T) -> String) throws -> [T] {
+      var result = old
+      for value in new {
+        if let existing = result.first(where:{key($0) == key(value)}) {
+          guard existing == value else { throw PortraitLibraryError.database("immutable occurrence revision changed") }
+        } else { result.append(value) }
+      }
+      return result
+    }
+    let reasons = try merged(previous.reasons,incoming.reasons,key:{$0.id.uuidString})
+    let previousExploration: [PortraitExplorationRecord] = previous.exploration ?? []
+    let incomingExploration: [PortraitExplorationRecord] = incoming.exploration ?? []
+    let explorationKey: (PortraitExplorationRecord) -> String = { record in
+      record.traceSessionID.uuidString + ":" + String(record.sequence)
+    }
+    let mergedExploration: [PortraitExplorationRecord] = try merged(previousExploration,incomingExploration,key:explorationKey)
+    let explorationOrder: (PortraitExplorationRecord,PortraitExplorationRecord) -> Bool = { left,right in
+      if left.traceSessionID == right.traceSessionID { return left.sequence < right.sequence }
+      return left.traceSessionID.uuidString < right.traceSessionID.uuidString
+    }
+    let exploration: [PortraitExplorationRecord] = mergedExploration.sorted(by:explorationOrder)
+    var attempt = incoming.attempt ?? previous.attempt
+    if let old = previous.attempt,let new = incoming.attempt {
+      guard old.proposalIdentity == new.proposalIdentity,old.thumbnailPNG == new.thumbnailPNG,
+        old.changeCue == new.changeCue else { throw PortraitLibraryError.database("immutable attempt identity changed") }
+      attempt?.burdenSummary = new.burdenSummary ?? old.burdenSummary
+      attempt?.parameterPreference = new.parameterPreference ?? old.parameterPreference
+      attempt?.feedbackRevisions = try merged(old.feedbackRevisions,new.feedbackRevisions,key:{$0.id.uuidString})
+    }
+    return .init(candidateID:incoming.id,reasons:reasons,exploration:exploration.isEmpty ? nil : exploration,attempt:attempt)
+  }
+
+  func synchronize(_ url: URL) throws {
     let handle = try FileHandle(forWritingTo: url)
     defer { try? handle.close() }
     try handle.synchronize()
@@ -677,7 +1006,7 @@ actor PortraitCandidateStore {
     hash.count == 64 && hash.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
   }
 
-  private func readAsset(_ hash: String) throws -> Data {
+  func readAsset(_ hash: String) throws -> Data {
     guard validHash(hash) else { throw PortraitCandidateStoreError.invalidAsset(hash) }
     let (data, state) = try VerifiedFileState.read(blobDirectory.appendingPathComponent(hash))
     assetBytesVerified += data.count
@@ -709,7 +1038,7 @@ extension PortraitCandidateStore {
   nonisolated func loadPhotoPage(after previous: PortraitPhotoPageCursor? = nil,
     limit requestedLimit: Int = 100) throws -> PortraitPhotoPage {
     let limit = min(100, max(1, requestedLimit))
-    let url = directoryURL.appendingPathComponent("index-v1.json")
+    let url = browseCommitURL
     guard FileManager.default.fileExists(atPath: url.path) else {
       var isDirectory: ObjCBool = false
       if FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), !isDirectory.boolValue {
@@ -759,7 +1088,7 @@ extension PortraitCandidateStore {
   }
 
   nonisolated func loadPhoto(_ reference: PortraitPhotoReference) throws -> PortraitPhoto {
-    let indexURL = directoryURL.appendingPathComponent("index-v1.json")
+    let indexURL = browseCommitURL
     let (envelope, state) = try Self.browseIndex(indexURL)
     let catalog = try browseCatalog(envelope)
     // A new candidate can update legacy-derived display metadata without
@@ -789,14 +1118,24 @@ extension PortraitCandidateStore {
       throw PortraitPhotoBrowserError.sourceUnavailable
     }
     try Task.checkCancellation()
-    let (bytes, _) = try VerifiedFileState.read(directoryURL.appendingPathComponent("assets")
+    let (bytes, _) = try VerifiedFileState.read(browsePayloadRoot.appendingPathComponent("assets")
       .appendingPathComponent(reference.sourceSHA256))
     let photo = try source.materialize(source: bytes)
     guard try VerifiedFileState(indexURL) == state else { throw PortraitPhotoBrowserError.archiveChanged }
     return photo
   }
 
+  nonisolated var browsePayloadRoot: URL { canonicalLibraryCommitted ? directoryURL : legacyDirectoryURL }
+  nonisolated var browseCommitURL: URL { canonicalLibraryCommitted ? databaseURL : legacySourceIndexURL }
+
   nonisolated private static func browseIndex(_ url: URL) throws -> (IndexEnvelope, VerifiedFileState) {
+    if url.pathExtension == "sqlite" {
+      let db = try PortraitLibraryDatabase(url:url,readOnly:true)
+      let state = try VerifiedFileState(url)
+      let payload = try PortraitCandidateCoding.encoder().encode(db.index())
+      guard try VerifiedFileState(url) == state else { throw PortraitLibraryError.staleGeneration }
+      return (.init(schemaVersion:4,sha256:PortraitCandidateCoding.digest(payload),payload:payload),state)
+    }
     let (bytes, state) = try VerifiedFileState.read(url)
     let envelope = try JSONDecoder().decode(IndexEnvelope.self, from: bytes)
     guard [1, 2, 3, 4].contains(envelope.schemaVersion) else {
@@ -841,7 +1180,7 @@ extension PortraitCandidateStore {
 
   nonisolated private func browseRecord(_ hash: String) throws -> Data {
     guard Self.browseHashIsValid(hash) else { throw PortraitCandidateStoreError.invalidIndex("invalid record identity") }
-    let (bytes, _) = try VerifiedFileState.read(directoryURL.appendingPathComponent("records").appendingPathComponent(hash))
+    let (bytes, _) = try VerifiedFileState.read(browsePayloadRoot.appendingPathComponent("records").appendingPathComponent(hash))
     guard PortraitCandidateCoding.digest(bytes) == hash else { throw PortraitCandidateStoreError.invalidIndex("record checksum mismatch") }
     return bytes
   }
@@ -860,7 +1199,8 @@ extension PortraitCandidateStore {
 
   nonisolated private static func isBrowsable(_ source: PortraitPhotoReference,
     tombstones: [PortraitArchiveTombstone]) -> Bool {
-    browseHashIsValid(source.sourceSHA256) && !tombstones.contains {
+    if tombstones.contains(where:{$0.kind == .photo && $0.identity.lowercased() == source.id.uuidString.lowercased()}) { return false }
+    return browseHashIsValid(source.sourceSHA256) && !tombstones.contains {
       $0.kind == .source && $0.identity == source.sourceSHA256 && source.capturedAt <= $0.createdAt
     }
   }
@@ -930,7 +1270,7 @@ private struct LegacyPhotoCatalog: Decodable {
   let savedStyles: [PortraitSavedStyle]?
 }
 
-private struct IndexEnvelope: Codable {
+struct IndexEnvelope: Codable {
   let schemaVersion: Int
   let sha256: String
   let payload: Data
@@ -955,9 +1295,14 @@ private struct StoredArchive: Codable {
   let tombstones: [PortraitArchiveTombstone]
   let savedStyles: [PortraitSavedStyle]?
   let sourcePhotos: [PortraitPhotoReference]?
+  var labelPhotoIDs: [String:UUID]? = nil
+  var photoCaptureTimeUnknownIDs: [UUID]? = nil
   init(entries: [StoredEntry], labels: [PortraitLabelRevision], indexed: IndexedArchive) {
     schemaVersion = 2; self.entries = entries; self.labels = labels
     tombstones = indexed.tombstones; savedStyles = indexed.savedStyles; sourcePhotos = indexed.sourcePhotos
+    labelPhotoIDs = indexed.labelPhotoIDs
+    let unknown = (indexed.sourcePhotos ?? []).filter { !($0.captureTimeKnown ?? ($0.candidateRecordSHA256 == nil)) }.map(\.id)
+    photoCaptureTimeUnknownIDs = unknown.isEmpty ? nil : unknown.sorted { $0.uuidString < $1.uuidString }
   }
   init(_ archive: PortraitCandidateArchive, includeSavedStyles: Bool = true) {
     // Older readers reject this bulk schema instead of silently dropping photos.
@@ -967,6 +1312,8 @@ private struct StoredArchive: Codable {
     tombstones = archive.tombstones
     savedStyles = includeSavedStyles ? archive.savedStyles : nil
     sourcePhotos = archive.sourcePhotos?.map { PortraitPhotoReference($0) }
+    labelPhotoIDs = archive.labelPhotoIDs
+    photoCaptureTimeUnknownIDs = archive.photoCaptureTimeUnknownIDs
   }
 }
 
@@ -984,6 +1331,7 @@ struct PortraitPhotoReference: Codable, Equatable, Identifiable, Sendable {
   let captureSessionID: UUID
   let selectionProvenance: PortraitCaptureSelectionProvenance?
   var candidateRecordSHA256: String? = nil
+  var captureTimeKnown: Bool? = nil
 
   init(_ photo: PortraitPhoto, sourceSHA256: String? = nil) {
     id = photo.id; self.sourceSHA256 = sourceSHA256 ?? PortraitCandidateCoding.digest(photo.data)
@@ -991,6 +1339,7 @@ struct PortraitPhotoReference: Codable, Equatable, Identifiable, Sendable {
     captureNanoseconds = photo.captureNanoseconds; pose = photo.pose
     sourcePixelExtent = photo.sourcePixelExtent; captureSessionID = photo.captureSessionID
     selectionProvenance = photo.selectionProvenance
+    captureTimeKnown = true
   }
 
   init(candidate: PortraitCandidate, recordSHA256: String?) {
@@ -999,6 +1348,7 @@ struct PortraitPhotoReference: Codable, Equatable, Identifiable, Sendable {
     captureNanoseconds = nil; pose = candidate.renderPose!
     sourcePixelExtent = candidate.sourcePixelExtent; captureSessionID = candidate.captureSessionID
     selectionProvenance = nil; candidateRecordSHA256 = recordSHA256
+    captureTimeKnown = false
   }
 
   fileprivate init(candidate: CandidatePhotoMetadata, recordSHA256: String?) {
@@ -1007,6 +1357,7 @@ struct PortraitPhotoReference: Codable, Equatable, Identifiable, Sendable {
     captureNanoseconds = nil; pose = candidate.pose!
     sourcePixelExtent = candidate.sourcePixelExtent; captureSessionID = candidate.captureSessionID
     selectionProvenance = nil; candidateRecordSHA256 = recordSHA256
+    captureTimeKnown = false
   }
 
   func materialize(source: Data) throws -> PortraitPhoto {
@@ -1029,7 +1380,7 @@ private struct StoredEntry: Codable {
 
 /// Payload metadata only; source bytes and exact analyzed raster each have one
 /// content-addressed blob, independent of candidate/label count.
-private struct StoredCandidate: Codable {
+struct StoredCandidate: Codable, Equatable {
   let id: String
   let sourceSHA256: String
   let rasterSHA256: String
@@ -1069,7 +1420,7 @@ private struct StoredCandidate: Codable {
 
 /// One compact commit references immutable candidate records and shared assets.
 /// Retention/feedback metadata never copies the candidate's DrawingProgram.
-private struct IndexedArchive: Codable {
+struct IndexedArchive: Codable {
   let schemaVersion: Int
   let entries: [IndexedEntry]
   let labels: [LabelReference]
@@ -1079,33 +1430,34 @@ private struct IndexedArchive: Codable {
   var photoCatalog: [PortraitPhotoReference]? = nil
   var savedDrawings: [SavedDrawingRecordReference]? = nil
   var drawingCatalog: [SavedDrawingSummary]? = nil
+  var labelPhotoIDs: [String:UUID]? = nil
 }
 
-private struct IndexedEntry: Codable {
+struct IndexedEntry: Codable {
   let candidateID: String
   let candidateSHA256: String
   let metadataSHA256: String
 }
 
-private struct EntryMetadata: Codable, Equatable {
+struct EntryMetadata: Codable, Equatable {
   let candidateID: String
   let reasons: [PortraitRetentionEvent]
   let exploration: [PortraitExplorationRecord]?
   let attempt: PortraitAttemptRecord?
 }
 
-private struct LabelReference: Codable {
+struct LabelReference: Codable {
   let id: UUID
   let sha256: String
 }
 
-private struct SavedDrawingRecordReference: Codable {
+struct SavedDrawingRecordReference: Codable {
   let id: String
   let candidateID: String?
   let recordSHA256: String?
 }
 
-private struct StoredDrawing: Codable {
+struct StoredDrawing: Codable {
   let id: String
   let program: DrawingProgram
   let createdAt: Date
@@ -1143,13 +1495,31 @@ extension PortraitCandidateStore {
   /// selected drawing reads decode vectors, analyzed raster and source pixels.
   nonisolated func loadDrawingPage(after previous: SavedDrawingPageCursor? = nil,
     limit requestedLimit: Int = 100, photoID: UUID? = nil, style: PortraitStyle? = nil) throws -> SavedDrawingPage {
-    let url = directoryURL.appendingPathComponent("index-v1.json")
+    let url = browseCommitURL
     guard FileManager.default.fileExists(atPath: url.path) else {
       var isDirectory: ObjCBool = false
       if FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), !isDirectory.boolValue {
         throw PortraitCandidateStoreError.invalidIndex("The archive location is not a directory.")
       }
       return .init(drawings: [], next: nil, candidateRecordsRead: 0)
+    }
+    if url == databaseURL,let photoID {
+      let state = try VerifiedFileState(url)
+      if let previous,previous.indexState != state { throw SavedDrawingBrowserError.archiveChanged }
+      let db = try PortraitLibraryDatabase(url:url,readOnly:true)
+      try db.execute("BEGIN")
+      defer { try? db.execute("ROLLBACK") }
+      let limit = min(100,max(1,requestedLimit)),offset = previous?.offset ?? 0
+      var predicate = "photo_id=? AND deleted=0"
+      var values: [String?] = [photoID.uuidString.lowercased()]
+      if let style { predicate += " AND json_extract(summary,'$.recipe.style')=?";values.append(style.rawValue) }
+      values += [String(limit+1),String(offset)]
+      let rows = try db.rows("SELECT id FROM drawing WHERE "+predicate+" ORDER BY created_at DESC,id LIMIT ? OFFSET ?",values)
+      let selected = Array(rows.prefix(limit))
+      let summaries = try selected.map { try db.checkedDrawing($0[0]!).summary }
+      guard try VerifiedFileState(url) == state else { throw SavedDrawingBrowserError.archiveChanged }
+      let next: SavedDrawingPageCursor? = rows.count > limit ? .init(indexState:state,offset:offset+selected.count) : nil
+      return .init(drawings:summaries,next:next,candidateRecordsRead:0)
     }
     let (envelope, state) = try Self.browseIndex(url)
     if let previous, previous.indexState != state { throw SavedDrawingBrowserError.archiveChanged }
@@ -1213,7 +1583,7 @@ extension PortraitCandidateStore {
   }
 
   nonisolated func loadDrawing(_ id: String) throws -> SavedDrawing {
-    let url = directoryURL.appendingPathComponent("index-v1.json")
+    let url = browseCommitURL
     let (envelope, state) = try Self.browseIndex(url)
     let drawing: SavedDrawing
     let tombstones: [PortraitArchiveTombstone]
@@ -1255,7 +1625,7 @@ extension PortraitCandidateStore {
 
   nonisolated private func browseAsset(_ hash: String) throws -> Data {
     guard Self.browseHashIsValid(hash) else { throw PortraitCandidateStoreError.invalidAsset(hash) }
-    let (bytes, _) = try VerifiedFileState.read(directoryURL.appendingPathComponent("assets").appendingPathComponent(hash))
+    let (bytes, _) = try VerifiedFileState.read(browsePayloadRoot.appendingPathComponent("assets").appendingPathComponent(hash))
     guard PortraitCandidateCoding.digest(bytes) == hash else { throw PortraitCandidateStoreError.invalidAsset(hash) }
     return bytes
   }

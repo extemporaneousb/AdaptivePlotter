@@ -6,11 +6,16 @@ struct PortraitPhotoStrip: View {
   let model: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
 
+  @State private var photos: [PortraitLibraryPhoto] = []
+  @State private var cursor: PortraitLibraryCursor?
+  @State private var loading = false
+  @State private var failure: String?
+
   var body: some View {
     ScrollView(.horizontal) {
       LazyHStack(spacing: 8) {
         Text("Photos").font(.caption).foregroundStyle(.secondary)
-        ForEach(model.photoListItems) { photo in
+        ForEach(photos) { photo in
           Button { model.selectPhoto(photo.id, strokeStyle: strokeStyle) } label: {
             PortraitBrowsablePhotoThumbnail(model: model, id: photo.id)
               .frame(width: 40, height: 40)
@@ -18,52 +23,53 @@ struct PortraitPhotoStrip: View {
               .overlay {
                 RoundedRectangle(cornerRadius: 3)
                   .stroke(model.selectedPhotoID == photo.id ? Color.accentColor : .clear, lineWidth: 2)
-              }
-              .contentShape(Rectangle())
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("Select \(photo.label)")
-          .help(photo.label)
-          .contextMenu {
-            if model.recentPhotos.contains(where: { $0.id == photo.id }) {
-              Button("Remove Recent Photo", role: .destructive) {
-                model.removePhoto(photo.id, strokeStyle: strokeStyle)
-              }
-              Text("Retained attempts keep their source")
-            } else {
-              Button("Delete Source and All Attempts", role: .destructive) {
+              }.contentShape(Rectangle())
+          }.buttonStyle(.plain)
+            .accessibilityLabel("Select \(photo.reference.label)")
+            .help("\(photo.reference.label) · \(PortraitLibraryBrowsePresentation.captureDescription(photo)) · \(photo.drawingCount) drawings · \(photo.plottedWorkCount) plotted works · \(photo.id)")
+            .contextMenu {
+              Button("Delete Photo and Its Drawings", role: .destructive) {
                 model.deleteRetainedSource(photo.id, strokeStyle: strokeStyle)
+                Task { await model.sketches.awaitPersistence(); await load(reset: true) }
               }
             }
-          }
         }
-        if model.sketches.photoHasMore || model.sketches.photoBrowserState == .loading {
-          Button {
-            Task { await model.sketches.loadMorePhotos() }
-          } label: {
-            if model.sketches.photoBrowserState == .loading { ProgressView().controlSize(.small) }
-            else { Label("More Photos", systemImage: "ellipsis") }
-          }
-          .buttonStyle(.plain)
-          .task(id: model.sketches.photoPageRevision) {
-            await model.sketches.loadMorePhotos()
-          }
+        if cursor != nil {
+          Button("More Photos", systemImage: "ellipsis") { Task { await load(reset: false) } }
+            .buttonStyle(.plain).disabled(loading)
+            .task(id: cursor?.offset) { await load(reset: false) }
         }
-        if case .failed(let reason) = model.sketches.photoBrowserState {
-          Button("Retry Photos") { Task { await model.sketches.loadMorePhotos() } }
-            .help(reason)
+        if loading { ProgressView().controlSize(.small) }
+        if let failure {
+          Button("Retry Photos") { Task { await load(reset: true) } }.help(failure)
         }
       }.padding(.horizontal, 1)
-    }
-    .scrollIndicators(.hidden)
-    .frame(height: 48)
-    .accessibilityIdentifier("portrait.recentPhotos")
+    }.scrollIndicators(.hidden).frame(height: 48)
+      .task { await model.loadPhotoBrowser(); await model.sketches.awaitLibrarySynchronization(); await load(reset: true) }
+      .onChange(of: model.sketches.libraryState) { _, state in
+        if state == .loading { photos = []; cursor = nil }
+        if state == .saved { Task { await load(reset: true) } }
+      }
+      .onChange(of: model.sketches.photoPageRevision) { Task { await load(reset: true) } }
+      .accessibilityIdentifier("portrait.recentPhotos")
+  }
+
+  @MainActor private func load(reset: Bool) async {
+    guard !loading, reset || cursor != nil else { return }
+    loading = true; failure = nil
+    defer { loading = false }
+    do {
+      let page = try await model.sketches.librarySnapshot(filter: .allPhotos, after: reset ? nil : cursor, limit: 100)
+      try Task.checkCancellation()
+      if reset { photos = page.photos } else { photos += page.photos }
+      cursor = page.next
+    } catch { if !Task.isCancelled { failure = error.localizedDescription } }
   }
 }
 
 /// A tile owns only its small decoded thumbnail, never a cached original.
 /// LazyHStack starts this task only when the tile enters its visible region.
-private struct PortraitBrowsablePhotoThumbnail: View {
+struct PortraitBrowsablePhotoThumbnail: View {
   let model: PortraitStudioModel
   let id: UUID
   @State private var image: CGImage?

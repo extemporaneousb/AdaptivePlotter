@@ -20,6 +20,8 @@ func portraitTrainingFixture(sourceCount: Int = 5, samplesPerSource: Int = 8) th
         id: PortraitVectorizer.stableID("training-label-\(source)-\(sample)"), createdAt: Date(timeIntervalSince1970: 100))
       archive.entries.append(.init(candidate: candidate, reasons: [.init(reason: .rated(labelRevisionID: label.id))]))
       archive.labels.append(label)
+      if archive.labelPhotoIDs == nil { archive.labelPhotoIDs = [:] }
+      archive.labelPhotoIDs?[label.id.uuidString.lowercased()] = candidate.photoID
     }
   }
   return (definition, archive)
@@ -45,6 +47,39 @@ func portraitTrainingCandidate(definition: PortraitTrainingScopeDefinition, sour
 
 @Suite("Frozen preference datasets")
 struct PortraitPreferenceDatasetTests {
+  @Test("modern training fixture preserves exact label bytes, revision ancestry and paired capture foreign keys")
+  @MainActor
+  func modernFixtureLabelCaptureRoundTrip() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (scope, fixture) = try portraitTrainingFixture(sourceCount: 2, samplesPerSource: 2)
+    var archive = fixture
+    let candidate = try #require(archive.entries.first?.candidate)
+    let predecessor = try #require(archive.labels.first { $0.candidateID == candidate.id })
+    let revision = try PortraitLabelRevision(candidate: candidate, rating: 5, scope: scope.scope,
+      presentation: .init(), previousRevisionID: predecessor.id, createdAt: Date(timeIntervalSince1970: 101))
+    archive.labels.append(revision)
+    archive.labelPhotoIDs?[revision.id.uuidString.lowercased()] = candidate.photoID
+    _ = try await PortraitCandidateStore(directoryURL: directory).save(snapshot: archive)
+    let restored = await PortraitCandidateStore(directoryURL: directory).load()
+    try #require(restored.canWrite, "\(restored.issues)")
+    #expect(restored.archive.labels == archive.labels)
+    #expect(restored.archive.labelPhotoIDs == archive.labelPhotoIDs)
+    #expect(restored.archive.labels.first { $0.id == revision.id }?.previousRevisionID == predecessor.id)
+    let db = try PortraitLibraryDatabase(url: directory.appendingPathComponent("library-v1.sqlite"), readOnly: true)
+    for label in archive.labels {
+      let paired = try #require(archive.entries.first { $0.id == label.candidateID }?.candidate)
+      let row = try #require(db.rows("SELECT d.photo_id,d.candidate_id,d.program_hash,l.record_hash FROM label l JOIN drawing d ON d.id=l.drawing_id WHERE lower(l.id)=?",
+        [label.id.uuidString.lowercased()]).first)
+      #expect(row[0] == paired.photoID.uuidString.lowercased())
+      #expect(row[1] == paired.id && row[2] == paired.program.contentHash.description)
+      let hash = try #require(row[3])
+      let bytes = try Data(contentsOf: directory.appendingPathComponent("records").appendingPathComponent(hash))
+      let expectedBytes = try PortraitCandidateCoding.encoder().encode(label)
+      #expect(bytes == expectedBytes)
+    }
+  }
+
   @Test("grouped deterministic split never separates shared sources or unlabeled bridges")
   func grouping() throws {
     let fixture = try portraitTrainingFixture()

@@ -7,6 +7,83 @@ import Testing
 
 @Suite("Portrait photo capture and recent sources")
 struct PortraitCaptureTests {
+  @Test("cold Capture and Save preserve historical metadata, then concurrent explicit loads join pending source publication")
+  @MainActor
+  func coldCaptureSaveThenJoinedHistoryLoad() async throws {
+    let history = try await PortraitColdMutationHistoryFixture.make()
+    defer { history.remove() }
+    let store = PortraitCandidateStore(directoryURL: history.directory)
+    let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: BurstPhotoAcquirer(),
+      frameSource: try RepeatingPortraitFrames(), captureClock: AdvancingPortraitClock(), candidateStore: store)
+    let pen = try portraitTestStyle()
+    await model.capture(strokeStyle: pen)
+    let candidate = try #require(model.selectedCandidate)
+    #expect(await model.saveSelectedDrawing() == nil)
+    #expect(model.sketches.persistenceState == .saved && !model.sketches.historyLoadHasCompleted)
+    #expect(model.sketches.entries.map(\.id) == [candidate.id])
+    let authoredBytes = try PortraitCandidateCoding.encoder().encode(StoredCandidate(candidate)).count
+    #expect(await store.recordBytesEncoded == authoredBytes)
+    try history.expectPreserved()
+    let late = PortraitPhoto(id: UUID(), data: Data([55, 56]), label: "Queued during explicit history open",
+      capturedAt: Date(), frameID: nil, captureNanoseconds: nil, pose: .front)
+    async let reviewerLoad: Void = model.sketches.load()
+    async let studioLoad: Void = model.sketches.load()
+    model.sketches.retainSourcePhoto(late)
+    _ = await (reviewerLoad, studioLoad)
+    await model.sketches.awaitPersistence()
+    #expect(model.sketches.historyLoadHasCompleted && model.sketches.persistenceState == .saved)
+    #expect(Set(model.sketches.entries.map(\.id)) == Set([history.kept.id, history.unkept.id, candidate.id]))
+    #expect(model.sketches.labels == [history.label])
+    #expect(model.sketches.archive.withdrawnLabelIDs.contains(history.label.id.uuidString))
+    #expect(model.sketches.savedStyles.map(\.name) == ["Historical style"])
+    #expect(model.sketches.sketches.contains(history.generic))
+    #expect(model.sketches.sourcePhotos.contains { $0.id == late.id && $0.data == late.data })
+    try history.expectPreserved()
+    await model.shutdown()
+    let reopened = await PortraitCandidateStore(directoryURL: history.directory).load()
+    #expect(reopened.canWrite)
+    #expect(reopened.archive.sourcePhotos?.contains { $0.id == late.id && $0.data == late.data } == true)
+    #expect(Set(reopened.archive.entries.map(\.id)) == Set([history.kept.id, history.unkept.id, candidate.id]))
+  }
+
+  @Test("an acquired original survives an authoring cache too small to hold it")
+  @MainActor
+  func originalSurvivesCacheAdmissionFailure() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = PortraitStudioModel(renderer: SourceFailureRenderer(), photoAcquirer: BurstPhotoAcquirer(),
+      photoRetention: .init(maximumCount: 0, maximumBytes: 0), candidateStore: .init(directoryURL: directory))
+    await model.importPhoto(URL(fileURLWithPath: "/tmp/9"), strokeStyle: try portraitTestStyle())
+    #expect(model.recentPhotos.isEmpty && model.program == nil)
+    await model.shutdown()
+    let reloaded = await PortraitCandidateStore(directoryURL: directory).load()
+    #expect(reloaded.canWrite && reloaded.archive.entries.isEmpty)
+    #expect(reloaded.archive.sourcePhotos?.count == 1)
+    #expect(reloaded.archive.sourcePhotos?.first?.data == Data([9, 9]))
+  }
+
+  @Test("capture deletion during an uninterruptible render remains deleted after persistence and reopen")
+  @MainActor
+  func durableDeleteDuringRender() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let renderer = try PausedBurstRenderer()
+    let model = PortraitStudioModel(renderer: renderer, candidateStore: .init(directoryURL: directory))
+    let pen = try portraitTestStyle()
+    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
+    try await renderer.waitUntilEntered()
+    let photoID = try #require(model.selectedPhotoID)
+    model.deleteRetainedSource(photoID, strokeStyle: pen)
+    await renderer.release()
+    await model.awaitRendering()
+    await model.shutdown()
+    #expect(model.program == nil && model.selectedPhotoID == nil)
+    let reloaded = await PortraitCandidateStore(directoryURL: directory).load()
+    #expect(reloaded.canWrite && reloaded.archive.entries.isEmpty)
+    #expect(reloaded.archive.sourcePhotos?.isEmpty == true)
+    #expect(reloaded.archive.tombstones.contains { $0.kind == .photo && $0.identity == photoID.uuidString.lowercased() })
+  }
+
   @Test("source persistence settles independently of a cancelled held render")
   @MainActor
   func durableSourceDuringCancellation() async throws {

@@ -530,10 +530,13 @@ struct SavedLearningPhysicalPoseTests {
   @Test("successive translated recoveries preserve possible ink for both border choices but allow a moved target",
     arguments: [false, true])
   func translatedPlanCannotReplayPossibleInk(_ border: Bool) async throws {
-    let f = try await DrawingWorkbenchApplicationFixture.make()
+    let portraitDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: portraitDirectory) }
+    let portrait = PortraitStudioModel(candidateStore: .init(directoryURL: portraitDirectory))
+    let f = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: portrait)
     defer { f.stores.remove() }
     let app = f.application
-    try await selectPhysicalPosePortrait(f)
+    try await selectPhysicalPosePortrait(f, retainingSource: true)
     // Leave real placement room, so the final moved-target assertion cannot
     // pass/fail merely because Fit filled the entire drawable region.
     let drawingScale = floor(app.drawingDraftSnapshot.uniformScale * 80) / 100
@@ -831,10 +834,19 @@ private func reloadedPoseApplication(_ fixture: DrawingWorkbenchApplicationFixtu
 }
 
 @MainActor
-private func selectPhysicalPosePortrait(_ f: DrawingWorkbenchApplicationFixture) async throws {
+private func selectPhysicalPosePortrait(_ f: DrawingWorkbenchApplicationFixture, retainingSource: Bool = false) async throws {
   let app = f.application
   let program = try PortraitVectorizer.program(from: portraitTestRaster(), pose: .front,
     style: .contours, strokeStyle: app.drawingStrokeStyle)
+  if retainingSource {
+    let recipe = PortraitStyleRecipe(id: "physical-pose-exact-portrait", title: "Exact portrait",
+      seed: 834, style: .contours, vectorOptions: .nativeDefaults(for: .contours), analysisOptions: .init())
+    let candidate = try PortraitCandidate(sourceData: Data([8, 3, 4]),
+      sourcePixelExtent: portraitTestRaster().sourceCropExtent, raster: portraitTestRaster(),
+      recipe: recipe, program: program, photoID: UUID(), captureSessionID: UUID(), pose: .front)
+    let handoffFailure = await app.projectPortrait(candidate)
+    try #require(handoffFailure == nil, "\(handoffFailure ?? "")")
+  }
   let projection = app.plotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID,
     manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingDrawingProgram: program)
   let request = try #require(projection.semantic.request(matching: .drawingDraft(.selectProgram(program))))

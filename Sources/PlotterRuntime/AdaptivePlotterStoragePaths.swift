@@ -32,6 +32,9 @@ public struct AdaptivePlotterStoragePaths: Sendable {
     acceptedArtifactsDirectory.appendingPathComponent("accepted-tip-calibration-v1.json")
   }
   public var portraitCandidatesDirectory: URL { directory("PortraitCandidates") }
+  public var portraitLibraryDirectory: URL { directory("PortraitLibrary") }
+  public var portraitLibraryDatabase: URL { portraitLibraryDirectory.appendingPathComponent("library-v1.sqlite") }
+  public var portraitQuarantineDirectory: URL { directory("PortraitQuarantine") }
   public var drawingMaterialsDirectory: URL { directory("DrawingMaterials") }
   public var drawingEvidenceDirectory: URL { directory("DrawingEvidence") }
   public var drawingEvidenceArchive: URL {
@@ -53,4 +56,3 @@ public struct AdaptivePlotterStoragePaths: Sendable {
   }
   private func directory(_ name: String) -> URL { rootDirectory.appendingPathComponent(name, isDirectory: true) }
 }
-

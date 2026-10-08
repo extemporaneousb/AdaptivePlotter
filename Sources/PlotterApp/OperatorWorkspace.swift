@@ -2170,6 +2170,7 @@ final class PlotterApplicationRuntime:
     self.machineSession = machineSession
     let resolvedPortraitStudio = portraitStudio ?? PortraitStudioModel()
     self.portraitStudio = resolvedPortraitStudio
+    resolvedPortraitStudio.sketches.requireEvidenceSynchronization()
     self.drawingMaterials = drawingMaterials ?? DrawingMaterialLibrary()
     if let observationSession {
       observationRuntime = PlotterObservationConfigurationRuntime(
@@ -11214,6 +11215,7 @@ final class PlotterApplicationRuntime:
   }
 
   func loadDrawingEvidenceArchive() async {
+    await drawingEvidencePort.installPortraitLibrary(portraitStudio.sketches)
     let loadResult = await drawingEvidencePort.load()
     guard applicationAdmissionIsOpen, !Task.isCancelled else { return }
     let restored = await drawingRunRuntime.restoreNoRedrawTruth(

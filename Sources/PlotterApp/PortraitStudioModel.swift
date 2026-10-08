@@ -471,16 +471,17 @@ final class PortraitStudioModel {
 
   @discardableResult
   private func appendPhoto(_ sample: PortraitBurstSample, pose: PortraitPose, sessionID: UUID = UUID()) -> Bool {
+    let photo = PortraitPhoto(id: UUID(), data: sample.data, label: sample.label,
+      capturedAt: Date(), frameID: sample.frameID, captureNanoseconds: sample.captureNanoseconds,
+      pose: pose, sourcePixelExtent: sample.sourcePixelExtent, captureSessionID: sessionID,
+      selectionProvenance: sample.selectionProvenance)
+    sketches.retainSourcePhoto(photo)
     guard photoRetention.maximumCount > 0, sample.data.count <= photoRetention.maximumBytes else {
-      summary = "This photo exceeds the studio's recent-photo memory limit."
+      summary = "The original photo is retained in Photos; it exceeds the recent-photo memory limit."
       authoringError = summary
       return false
     }
-    let photo = PortraitPhoto(id: UUID(), data: sample.data, label: sample.label,
-      capturedAt: Date(), frameID: sample.frameID, captureNanoseconds: sample.captureNanoseconds, pose: pose, sourcePixelExtent: sample.sourcePixelExtent, captureSessionID: sessionID,
-      selectionProvenance: sample.selectionProvenance)
     recentPhotos.append(photo)
-    sketches.retainSourcePhoto(photo)
     selectedPhotoID = photo.id
     while recentPhotos.count > photoRetention.maximumCount || retainedPhotoBytes > photoRetention.maximumBytes {
       cache.remove(photoID: recentPhotos.removeFirst().id)
@@ -549,39 +550,27 @@ final class PortraitStudioModel {
   var canRemoveSelectedRecentPhoto: Bool { recentPhotos.contains { $0.id == selectedPhotoID } }
 
   func deleteRetainedSource(_ photoID: UUID, strokeStyle: StrokeStyle) {
-    let sources = Set(sketches.entries.filter { $0.candidate.photoID == photoID }.map { $0.candidate.sourceSHA256 })
-      .union(sketches.sourcePhotos.filter { $0.id == photoID }.map { PortraitCandidateCoding.digest($0.data) })
-      .union(sketches.photoReferences.filter { $0.id == photoID }.map(\.sourceSHA256))
-    var photoIDs = Set(sketches.entries.filter { sources.contains($0.candidate.sourceSHA256) }.map { $0.candidate.photoID })
-    photoIDs.formUnion(sketches.sourcePhotos.filter {
-      sources.contains(PortraitCandidateCoding.digest($0.data))
-    }.map(\.id))
-    photoIDs.formUnion(sketches.photoReferences.filter { sources.contains($0.sourceSHA256) }.map(\.id))
-    if let loadingPhotoID, photoIDs.contains(loadingPhotoID) {
+    if loadingPhotoID == photoID {
       photoSelectionRevision &+= 1; photoSelectionTask?.cancel(); photoSelectionTask = nil
-      self.loadingPhotoID = nil
+      loadingPhotoID = nil
     }
-    photoIDs.insert(photoID)
-    // This explicit source-deletion operation includes byte-identical recent
-    // aliases, even when one alias has not completed its first render.
-    for photo in recentPhotos where sources.contains(PortraitCandidateCoding.digest(photo.data)) { photoIDs.insert(photo.id) }
-    if let retainedEditSource, sources.contains(PortraitCandidateCoding.digest(retainedEditSource.data)) {
-      photoIDs.insert(retainedEditSource.id)
-    }
-    for source in sources { sketches.deleteSource(source) }
-    recentPhotos.removeAll { photoIDs.contains($0.id) }
-    for id in photoIDs { cache.remove(photoID: id) }
-    explorationHistory.removeAll { sources.contains($0.candidate.sourceSHA256) }
-    forwardPortraits.removeAll { sources.contains($0.candidate.sourceSHA256) }
-    pendingRenders.removeAll { photoIDs.contains($0.photo.id) }
-    if let activeRender, photoIDs.contains(activeRender.photo.id) {
+    sketches.deleteSource(photoID: photoID)
+    recentPhotos.removeAll { $0.id == photoID }
+    cache.remove(photoID: photoID)
+    explorationHistory.removeAll { $0.candidate.photoID == photoID }
+    forwardPortraits.removeAll { $0.candidate.photoID == photoID }
+    pendingRenders.removeAll { $0.photo.id == photoID }
+    if let activeRender, activeRender.photo.id == photoID {
       activeRenderWasCancelled = true; renderWorker?.cancel()
     }
-    if let selectedPhotoID, photoIDs.contains(selectedPhotoID) {
+    if projectedDrawing?.sourcePhotoID == photoID {
+      projectedDrawing = nil; projectedCandidate = nil
+    }
+    if selectedPhotoID == photoID {
       cancelExplorationWork()
       renderRevision &+= 1; pendingRenders = []; activeRenderWasCancelled = true; renderWorker?.cancel()
       completedCandidate = nil; completedKey = nil; requestedKey = nil; program = nil
-      retainedEditSource = nil; self.selectedPhotoID = nil; isProcessing = false
+      retainedEditSource = nil; selectedPhotoID = nil; isProcessing = false
     }
   }
 
@@ -897,13 +886,7 @@ final class PortraitStudioModel {
   }
 
   private func isDeletedAttempt(_ candidate: PortraitCandidate) -> Bool {
-    let deletions = sketches.tombstones.lazy.filter { $0.kind != .label && candidate.createdAt <= $0.createdAt
-      && ($0.affectedCandidateIDs.contains(candidate.id) || ($0.kind == .source && $0.identity == candidate.sourceSHA256)) }
-    guard let latest = deletions.map(\.createdAt).max() else { return false }
-    // The legacy archive API permits an explicit re-retention after deletion.
-    // Automatic completed-attempt history does not create such a qualifying event.
-    return sketches.entries.first(where: { $0.id == candidate.id && $0.candidate.createdAt == candidate.createdAt })?
-      .reasons.contains { $0.createdAt > latest } != true
+    sketches.drawingWasDeleted(SavedDrawing(candidate: candidate))
   }
 
   private func cancelExplorationWork() {
@@ -1149,11 +1132,13 @@ final class PortraitStudioModel {
   func loadPhotoBrowser() async { await sketches.loadPhotoBrowser() }
 
   func feedback(for candidate: PortraitCandidate) -> PortraitAttemptFeedback {
-    sketches.entries.first(where: { $0.id == candidate.id })?.attempt?.feedback ?? .unknown
+    sketches.feedback(for: .init(candidateID: candidate.id, photoID: candidate.photoID))
   }
 
   func toggleFeedback(_ value: PortraitAttemptFeedback, candidate: PortraitCandidate) {
-    sketches.setFeedback(feedback(for: candidate) == value ? .unknown : value, for: candidate.id)
+    guard !sketches.drawingWasDeleted(SavedDrawing(candidate: candidate)) else { return }
+    sketches.setFeedback(feedback(for: candidate) == value ? .unknown : value,
+      for: .init(candidateID: candidate.id, photoID: candidate.photoID))
   }
 
   /// Install the retained payload directly. No portrait render or source analysis
@@ -1168,6 +1153,20 @@ final class PortraitStudioModel {
     do {
       let candidate = try await sketches.candidateForBrowsing(id)
       guard !isShutdown, !Task.isCancelled, !isDeletedAttempt(candidate), let pose = candidate.renderPose else {
+        return SavedDrawingBrowserError.drawingUnavailable.localizedDescription
+      }
+      installInspectedCandidate(candidate, pose: pose, strokeStyle: strokeStyle)
+      return nil
+    } catch { return error.localizedDescription }
+  }
+
+  func inspectDrawing(_ identity: PortraitDrawingIdentity, strokeStyle: StrokeStyle) async -> String? {
+    do {
+      guard let candidate = try await sketches.drawingForBrowsing(identity).portraitCandidate else {
+        return SavedDrawingBrowserError.notPortrait.localizedDescription
+      }
+      guard candidate.photoID == identity.photoID, !isShutdown, !Task.isCancelled,
+        !isDeletedAttempt(candidate), let pose = candidate.renderPose else {
         return SavedDrawingBrowserError.drawingUnavailable.localizedDescription
       }
       installInspectedCandidate(candidate, pose: pose, strokeStyle: strokeStyle)
@@ -1203,23 +1202,33 @@ final class PortraitStudioModel {
     forwardPortraits = []
     cancelExplorationWork()
     explorationHistory = []
-    let displayedID = selectedCandidate?.id
-      ?? (completedCandidate?.photoID == selectedPhotoID ? completedCandidate?.id : nil)
-    sketches.clearUnkeptHistory(preserving: displayedID)
+    let displayed = selectedCandidate
+      ?? (completedCandidate?.photoID == selectedPhotoID ? completedCandidate : nil)
+    if let displayed {
+      sketches.clearUnkeptHistory(preserving: .init(candidateID: displayed.id, photoID: displayed.photoID))
+    } else { sketches.clearUnkeptHistory() }
   }
 
   func deleteAttempt(_ id: String) {
-    forwardPortraits.removeAll { $0.candidate.id == id }
-    explorationHistory.removeAll { $0.candidate.id == id }
-    if completedCandidate?.id == id {
+    let candidate = (selectedCandidate?.id == id ? selectedCandidate : nil)
+      ?? sketches.entries.first(where: { $0.id == id })?.candidate
+      ?? (completedCandidate?.id == id ? completedCandidate : nil)
+    guard let candidate else { sketches.remove(id); return }
+    deleteAttempt(.init(candidateID: id, photoID: candidate.photoID))
+  }
+
+  func deleteAttempt(_ identity: PortraitDrawingIdentity) {
+    forwardPortraits.removeAll { $0.candidate.id == identity.candidateID && $0.candidate.photoID == identity.photoID }
+    explorationHistory.removeAll { $0.candidate.id == identity.candidateID && $0.candidate.photoID == identity.photoID }
+    if completedCandidate?.id == identity.candidateID && completedCandidate?.photoID == identity.photoID {
       cancelExplorationWork()
       completedCandidate = nil; completedKey = nil; requestedKey = nil; program = nil
     }
-    sketches.remove(id)
+    sketches.deleteDrawing(identity)
   }
 
   func burdenSummary(for candidate: PortraitCandidate) -> String {
-    sketches.entries.first(where: { $0.id == candidate.id })?.attempt?.burdenSummary
+    sketches.entries.first(where: { $0.id == candidate.id && $0.candidate.photoID == candidate.photoID })?.attempt?.burdenSummary
       ?? "\(candidate.program.strokes.count) strokes"
   }
 
@@ -1324,5 +1333,6 @@ final class PortraitStudioModel {
     await cancelRendering()
     await stopCamera()
     await sketches.awaitPersistence()
+    await sketches.awaitLibrarySynchronization()
   }
 }
