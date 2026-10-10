@@ -8,6 +8,22 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Flow Edge zero-tone density, 2026-10-10
+
+Task `task-70fdc6cb3eb740e2afe89a78d7404e12` extends native Flow Edge tone
+density to zero. The 57 focused Flow renderer/cache/support, vector-option,
+drawing-parameter, exploration-proposal and style-recipe tests passed with
+`swift test --no-parallel`. New assertions cover zero after JSON roundtrip and
+native option resolution, empty tonal layers with unchanged structural curves,
+equal cached/direct programs, restored positive-tone cache behavior, sparse
+positive values below the former floor, and retained non-Flow and historical
+shared-parameter lower bounds.
+
+This is software evidence. No live app was restarted or replaced, no hardware
+was operated, and neither better likeness nor native slider interaction was
+validated. Removing tonal streamlines does not make image-gradient structural
+curves anatomical boundaries; the proposed portrait model remains unimplemented.
+
 ## Portrait lineage reconciliation and production library, 2026-10-08
 
 Task `task-2bf48b790f124d5387a3b520f914de62` completed disposable reconciliation,

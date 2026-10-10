@@ -1885,6 +1885,10 @@ selector and regional authoring controls are absent.
 Contour exposes tonal levels, tonal strength, smoothing, minimum contour length and
 simplification. Flow Edge exposes flow spacing, tone density, edge threshold, coherence
 and minimum line length, with line form and evidence-support options available separately.
+Flow Edge tone density ranges from zero to two. Zero omits all tonal streamlines
+without changing structural curves; positive values below 0.4 allow sparser shading.
+Other renderers retain their 0.4 minimum luminance-gamma strength. Historical shared
+parameter recipes retain their original bounds.
 Tonal levels do not also change edge threshold or flow spacing. Contour smoothing filters
 luminance; Flow coherence controls orientation and heading persistence. Spatial native
 settings use analyzed-raster pixels, before existing material floors. Presets and Next use

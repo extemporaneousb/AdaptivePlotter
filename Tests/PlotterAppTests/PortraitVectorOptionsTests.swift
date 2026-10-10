@@ -81,6 +81,17 @@ struct PortraitVectorOptionsTests {
       == draw(portraitTestRaster(), .contours, effective))
   }
 
+  @Test("Zero Flow density does not change legacy gamma semantics", arguments: PortraitStyle.legacyCases)
+  func legacyToneFloor(style: PortraitStyle) throws {
+    let raster = portraitTestRaster()
+    let zero = PortraitVectorOptions(tonalStrength: 0)
+    let floor = PortraitVectorOptions(tonalStrength: 0.4)
+    #expect(try draw(raster, style, zero) == draw(raster, style, floor))
+    #expect(PortraitExplorationPolicy.canonicalOptions(zero, style: style).tonalStrength == 0.4)
+    let shared = PortraitVectorOptions(drawingParameters: .init(tone: 0))
+    #expect(shared.resolved(rasterHeight: raster.height).tonalStrength == 0.4)
+  }
+
   @Test("invalid rasters fail without indexing their storage")
   func invalidRaster() throws {
     let invalid = PortraitRaster(width: 100, height: 100, luminance: [],

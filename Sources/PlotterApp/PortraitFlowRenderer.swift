@@ -577,6 +577,8 @@ enum PortraitFlowRenderer {
     let width = field.width, height = field.height
     let cos2 = orientation.cos2, sin2 = orientation.sin2
     let bounded = options.bounded
+    let strength = bounded.tonalStrength
+    guard strength > 0 else { return [] }
     let supportAmount = bounded.flowSupport ?? 0, supportScale = bounded.flowSupportScale ?? 0
     let irregularity = bounded.flowSeedIrregularity ?? 0
     func evidence(_ point: CGPoint) -> SupportSample? {
@@ -601,7 +603,6 @@ enum PortraitFlowRenderer {
       return vector
     }
     let nominal = max(3, Double(options.hatchSpacing))
-    let strength = min(2, max(0.4, options.tonalStrength))
     let strengthScale = sqrt(strength)
     let headingBlend = 0.35 + min(4, max(0, options.smoothing)) * 0.1
     let minimumLength = max(12, options.minimumContourLength * 2)

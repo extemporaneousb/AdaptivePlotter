@@ -124,7 +124,7 @@ struct PortraitRenderControls: View {
       unit: model.style == .flowEdges ? "" : "px", precision: 1,
       identifier: model.style == .flowEdges ? "portrait.flowCoherence" : "portrait.smoothing")
     PortraitAdjustmentSlider(model.style == .flowEdges ? "Tone density" : "Tonal strength",
-      value: nativeBinding(\.tonalStrength), range: 0.4...2, step: 0.05, unit: "×",
+      value: nativeBinding(\.tonalStrength), range: model.style.tonalStrengthRange, step: 0.05, unit: "×",
       identifier: model.style == .flowEdges ? "portrait.flowToneDensity" : "portrait.tonalStrength")
     if model.style == .flowEdges || model.style == .sketch || model.style == .sketchHatch {
       PortraitAdjustmentSlider("Edge threshold", value: nativeBinding(\.sketchThreshold),
@@ -162,7 +162,7 @@ struct PortraitRenderControls: View {
     let description: String
     switch model.style {
     case .flowEdges:
-      description = "Flow Edge traces feature curves and fills shadows with directed lines. Flow spacing sets the distance between shading lines; tone density changes shadow coverage; edge threshold filters feature curves; coherence aligns nearby line directions. Minimum line length removes short curves. The secondary Flow Edge options control line form and image support. Presets keep those choices."
+      description = "Flow Edge traces feature curves and fills shadows with directed lines. Flow spacing sets the distance between shading lines; tone density changes shadow coverage, with zero removing all shading lines while preserving feature curves; edge threshold filters feature curves; coherence aligns nearby line directions. Minimum line length removes short curves. The secondary Flow Edge options control line form and image support. Presets keep those choices."
     case .contours:
       description = "Contour traces tonal boundaries. Tonal levels set the number of brightness thresholds; minimum contour length removes short curves; simplification removes small turns; smoothing softens the analyzed image; tonal strength adjusts its luminance curve."
     case .sketch, .sketchHatch:

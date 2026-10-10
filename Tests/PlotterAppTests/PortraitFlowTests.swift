@@ -50,6 +50,50 @@ struct PortraitFlowTests {
     #expect(a.tone != b.tone)
   }
 
+  @Test("Zero tone survives recipe resolution and cache reuse without removing structural strokes")
+  func zeroTone() throws {
+    let raster = flowFace()
+    var workspace = PortraitFlowRenderer.Workspace()
+    let baseline = try PortraitFlowRenderer.layers(from: raster, options: .flowDefaults, workspace: &workspace)
+    #expect(!baseline.structure.isEmpty && !baseline.tone.isEmpty)
+    var options = PortraitVectorOptions.flowDefaults
+    options.tonalStrength = 0
+    let restored = try JSONDecoder().decode(PortraitVectorOptions.self, from: JSONEncoder().encode(options))
+      .nativeOptions(rasterHeight: raster.height)
+    #expect(restored.tonalStrength == 0)
+    let cached = try PortraitFlowRenderer.layers(from: raster, options: restored, workspace: &workspace)
+    let direct = try PortraitFlowRenderer.layers(from: raster, options: restored)
+    #expect(cached.tone.isEmpty && direct.tone.isEmpty)
+    #expect(cached.structure == baseline.structure && direct.structure == baseline.structure)
+    #expect(workspace.diagnostics.structureCacheHit)
+    let pen = try portraitTestStyle()
+    let a = try PortraitVectorizer.program(from: raster, pose: .front, style: .flowEdges,
+      strokeStyle: pen, vectorOptions: restored, flowLayers: cached)
+    let b = try PortraitVectorizer.program(from: raster, pose: .front, style: .flowEdges,
+      strokeStyle: pen, vectorOptions: restored)
+    #expect(a == b)
+    #expect(a.strokes.count == baseline.structure.count)
+    #expect(a.source.sourceIdentifier.contains("|tone=0.0|"))
+    options.tonalStrength = -1
+    #expect(try PortraitFlowRenderer.layers(from: raster, options: options).tone.isEmpty)
+    let resumed = try PortraitFlowRenderer.layers(from: raster, options: .flowDefaults, workspace: &workspace)
+    #expect(resumed.structure == baseline.structure && resumed.tone == baseline.tone)
+  }
+
+  @Test("Flow densities below the old floor produce sparser shading")
+  func sparseTone() throws {
+    let raster = flowRaster(width: 96, height: 96) { _, _ in 0.3 }
+    var options = PortraitVectorOptions.flowDefaults
+    options.tonalStrength = 0.4
+    let previousFloor = try PortraitFlowRenderer.layers(from: raster, options: options)
+    options.tonalStrength = 0.1
+    let sparse = try PortraitFlowRenderer.layers(from: raster, options: options)
+    #expect(!sparse.tone.isEmpty)
+    #expect(sparse.tone.reduce(0) { $0 + flowLength($1) }
+      < previousFloor.tone.reduce(0) { $0 + flowLength($1) })
+    #expect(sparse.structure == previousFloor.structure)
+  }
+
   @Test("A detailed smooth boundary is retained within a subpixel evidence tube")
   func smoothDetail() throws {
     let width = 96, height = 144

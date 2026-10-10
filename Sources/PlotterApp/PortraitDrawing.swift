@@ -12,6 +12,7 @@ enum PortraitStyle: String, CaseIterable, Identifiable, Codable, Sendable {
   case contours = "Contour", hatch = "Hatch", crosshatch = "Crosshatch"
   case sketch = "Sketch", sketchHatch = "Sketch + hatch"
   var id: Self { self }
+  var tonalStrengthRange: ClosedRange<Double> { self == .flowEdges ? 0...2 : 0.4...2 }
 }
 
 /// Spatial values refer to analyzed-raster pixels, independently of paper
@@ -47,7 +48,8 @@ struct PortraitVectorOptions: Codable, Hashable, Sendable {
     result.minimumContourLength = Self.clamp(minimumContourLength, to: 0...40, fallback: 3)
     result.simplificationTolerance = Self.clamp(simplificationTolerance, to: 0...3, fallback: 0.35)
     result.hatchSpacing = min(16, max(1, hatchSpacing))
-    result.tonalStrength = Self.clamp(tonalStrength, to: 0.4...2, fallback: 1)
+    // Flow density can be zero; legacy luminance gamma is bounded at the style boundary.
+    result.tonalStrength = Self.clamp(tonalStrength, to: 0...2, fallback: 1)
     result.smoothing = Self.clamp(smoothing, to: 0...4, fallback: 0)
     result.sketchThreshold = Self.clamp(sketchThreshold, to: 0.002...0.08, fallback: 0.012)
     result.hatchAngleDegrees = Self.clamp(hatchAngleDegrees, to: -90...90, fallback: 0)
@@ -278,6 +280,7 @@ enum PortraitVectorizer {
     var configuration = vectorOptions
     if let levels { configuration.contourLevels = levels }
     var options = configuration.resolved(rasterHeight: raster.height)
+    options.tonalStrength = max(style.tonalStrengthRange.lowerBound, options.tonalStrength)
     if let material = options.materialContext { options = try material.adapting(options, raster: raster) }
     // Flow keeps structural evidence independent of its tone/coherence controls.
     // Legacy styles retain their exact preprocessing and archived identities.

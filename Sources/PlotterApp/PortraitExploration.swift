@@ -90,6 +90,7 @@ enum PortraitExplorationPolicy {
 
   static func canonicalOptions(_ options: PortraitVectorOptions, style: PortraitStyle) -> PortraitVectorOptions {
     var result = options.bounded
+    result.tonalStrength = max(style.tonalStrengthRange.lowerBound, result.tonalStrength)
     if style == .flowEdges {
       result.hatchSpacing = max(3, result.hatchSpacing)
       if (result.flowRectilinearity ?? 0) <= 0 { result.flowRectilinearity = nil }
@@ -112,10 +113,11 @@ enum PortraitExplorationPolicy {
 
   enum Rejection: String, Sendable { case duplicateConfiguration, similarGeometry, noLines, detailBudget, renderFailure, rejectedAttempt }
 
-  static func coordinates(_ options: PortraitVectorOptions) -> [Double] {
+  static func coordinates(_ options: PortraitVectorOptions, style: PortraitStyle) -> [Double] {
     let value = options.bounded
     let shared = value.drawingParameters
-    return [((shared?.tone ?? value.tonalStrength) - 0.4) / 1.6, shared?.smoothness ?? value.smoothing / 4,
+    let toneRange = shared == nil ? style.tonalStrengthRange : 0.4...2
+    return [((shared?.tone ?? value.tonalStrength) - toneRange.lowerBound) / (2 - toneRange.lowerBound), shared?.smoothness ?? value.smoothing / 4,
       shared.map { $0.minimumLine / 0.075 } ?? value.minimumContourLength / 40, value.simplificationTolerance / 3,
       shared?.detail ?? Double(value.contourLevels - 1) / 11, Double(value.hatchSpacing - 1) / 15,
       (value.hatchAngleDegrees + 90) / 180, (value.sketchThreshold - 0.002) / 0.078,
@@ -266,7 +268,7 @@ enum PortraitExplorationPolicy {
     } else {
       // Minimum perceptible probes remain independent of the hidden trust step.
       let floor = axis == .smoothing ? 0.34 : axis == .tone ? 0.25 : 0.12
-      axis.move(&vectors, delta: sign * max(abs(delta), floor))
+      axis.move(&vectors, delta: sign * max(abs(delta), floor), toneRange: center.recipe.style.tonalStrengthRange)
     }
   }
 
@@ -284,7 +286,8 @@ enum PortraitExplorationPolicy {
       ? center.recipe.vectorOptions.nativeOptions(rasterHeight: center.raster.height)
       : center.recipe.vectorOptions
     let base = canonicalOptions(options, style: center.recipe.style)
-    let current = coordinates(base), failedCoordinates = coordinates(failed.vectorOptions)
+    let current = coordinates(base, style: center.recipe.style)
+    let failedCoordinates = coordinates(failed.vectorOptions, style: center.recipe.style)
     var state = seed ^ (UInt64(max(0, neighbor)) &* 0x9e3779b97f4a7c15)
     for coordinate in failedCoordinates { state = (state ^ coordinate.bitPattern) &* 1_099_511_628_211 }
     for byte in rejection.rawValue.utf8 { state = (state ^ UInt64(byte)) &* 1_099_511_628_211 }
@@ -455,7 +458,7 @@ enum PortraitExplorationPolicy {
   private enum Dimension: Int, CaseIterable {
     case tone, smoothing, minimumLength, simplification, levels, spacing, angle, threshold, rectilinearity
     case support, structureSupport, supportScale, seedIrregularity
-    func move(_ value: inout PortraitVectorOptions, delta: Double) {
+    func move(_ value: inout PortraitVectorOptions, delta: Double, toneRange: ClosedRange<Double> = 0.4...2) {
       if var parameters = value.drawingParameters {
         switch self {
         case .tone: parameters.tone = reflect(parameters.tone + delta * 0.8, 0.4...2)
@@ -468,7 +471,7 @@ enum PortraitExplorationPolicy {
         if [.tone, .smoothing, .minimumLength, .levels].contains(self) { return }
       }
       switch self {
-      case .tone: value.tonalStrength = reflect(value.tonalStrength + delta * 0.8, 0.4...2)
+      case .tone: value.tonalStrength = reflect(value.tonalStrength + delta * 0.8, toneRange)
       case .smoothing: value.smoothing = reflect(value.smoothing + delta * 2, 0...4)
       case .minimumLength: value.minimumContourLength = reflect(value.minimumContourLength + delta * 8, 0...40)
       case .simplification: value.simplificationTolerance = reflect(value.simplificationTolerance + delta * 1.5, 0...3)
