@@ -1,3 +1,4 @@
+@testable import PortraitArtists
 import CryptoKit
 import Foundation
 import PlotterModel

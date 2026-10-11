@@ -362,6 +362,41 @@ public enum DrawingRunEvidenceStoreError: Error, Equatable, Sendable {
   case invalidMedia(String)
 }
 
+/// Exact bytes selected by the raw archive, exported without importing or
+/// manufacturing attempt facts. Originals retain their unencoded pixel buffers.
+public struct DrawingRunTerminalExport: Sendable {
+  public let archiveID: UUID
+  public let record: DrawingRunEvidenceRecord
+  public let recordJSON: Data
+  public let originalMedia: [String: Data]
+}
+
+extension DrawingRunEvidenceRecord {
+  public func validateOriginalMedia(_ media: [String: Data]) throws {
+    try validateAttemptEvidence()
+    guard let attempt = attemptEvidence else {
+      guard media.isEmpty else {
+        throw DrawingRunEvidenceStoreError.invalidMedia("Legacy record declares no original media.")
+      }
+      return
+    }
+    let references = attempt.baselines + attempt.progressFrames.map(\.media) + attempt.terminalFrames
+    guard Set(references.map { $0.frame.frameSHA256 }) == Set(media.keys) else {
+      throw DrawingRunEvidenceStoreError.invalidMedia("Attachment must retain every declared original and no undeclared media.")
+    }
+    func read(_ reference: DrawingRunMediaReference) throws -> StampedFrame {
+      guard let bytes = media[reference.frame.frameSHA256] else {
+        throw DrawingRunEvidenceStoreError.invalidMedia("Missing declared original media.")
+      }
+      return try DrawingRunMediaValidation.frame(reference: reference, bytes: bytes)
+    }
+    for reference in references { _ = try read(reference) }
+    if let coverage = attempt.mediaCoverage {
+      try DrawingRunEvidenceStore.verifyCoverage(coverage, attempt: attempt, read: read)
+    }
+  }
+}
+
 /// Atomic, integrity-checked persistence intended for an injected Application
 /// Support file path. It records immutable facts only: there is deliberately no
 /// readiness-promotion, model-acceptance, authorization, or motion-replay API.
@@ -441,6 +476,37 @@ public actor DrawingRunEvidenceStore {
   /// It never mutates the store or bypasses checksum/semantic validation.
   public nonisolated func loadSnapshot() -> DrawingRunEvidenceStoreLoadResult {
     Self.load(from: fileURL)
+  }
+
+  public func exportTerminalRecord(runID: RunID) throws -> DrawingRunTerminalExport {
+    var receipt: VerificationReceipt?
+    guard case .loaded(let archive) = Self.load(from: fileURL, receipt: &receipt),
+      let receipt, let manifest = receipt.manifest,
+      let record = archive.records.first(where: { $0.runID == runID }),
+      !archive.deletedReviewRecordIDs.contains(record.recordID),
+      !archive.dismissedReviewRunIDs.contains(runID),
+      let component = manifest.records.first(where: { $0.id == record.recordID.rawValue }) else {
+      throw DrawingRunEvidenceStoreError.invalidMedia("The retained terminal record is unavailable for export.")
+    }
+    let (bytes, _) = try VerifiedFileState.read(Self.componentURL(component.sha256, archiveURL: fileURL))
+    guard Self.sha256(bytes) == component.sha256,
+      try JSONDecoder().decode(DrawingRunEvidenceRecord.self, from: bytes) == record else {
+      throw DrawingRunEvidenceStoreError.existingArchiveRejected(.integrityMismatch)
+    }
+    var originals: [String: Data] = [:]
+    if let attempt = record.attemptEvidence {
+      for reference in attempt.baselines + attempt.progressFrames.map(\.media) + attempt.terminalFrames {
+        let (pixels, _) = try VerifiedFileState.read(Self.mediaURL(reference, archiveURL: fileURL))
+        _ = try DrawingRunMediaValidation.frame(reference: reference, bytes: pixels)
+        originals[reference.frame.frameSHA256] = pixels
+      }
+    }
+    try record.validateOriginalMedia(originals)
+    guard receipt.files.allSatisfy({ (try? VerifiedFileState($0.key)) == $0.value }) else {
+      throw DrawingRunEvidenceStoreError.invalidMedia("Raw evidence changed during export.")
+    }
+    return DrawingRunTerminalExport(archiveID: archive.archiveID, record: record,
+      recordJSON: bytes, originalMedia: originals)
   }
 
   public func installMedia(frame: StampedFrame, source: FrameSourceIdentity) throws
@@ -885,15 +951,8 @@ public actor DrawingRunEvidenceStore {
     do {
       try reference.validate()
       let (bytes, verifiedState) = try VerifiedFileState.read(mediaURL(reference, archiveURL: archiveURL))
-      guard bytes.count == reference.byteCount, sha256(bytes) == reference.frame.frameSHA256 else {
-        throw DrawingRunEvidenceStoreError.invalidMedia("Missing or corrupt original frame " + reference.frame.frameSHA256)
-      }
       state = verifiedState
-      let frame = reference.frame
-      return try StampedFrame(id: frame.frameID, sequence: reference.sequence,
-        captureNanoseconds: frame.captureNanoseconds, cameraConfigurationID: frame.cameraConfigurationID,
-        width: frame.width, height: frame.height, rowBytes: frame.rowBytes,
-        pixelFormat: frame.pixelFormat, bytes: OwnedFrameBytes(copying: bytes))
+      return try DrawingRunMediaValidation.frame(reference: reference, bytes: bytes)
     } catch {
       throw DrawingRunEvidenceStoreError.invalidMedia(String(describing: error))
     }
@@ -931,6 +990,11 @@ public actor DrawingRunEvidenceStore {
   /// A valid checksum alone cannot turn a fabricated composite into evidence.
   private nonisolated static func verifyCoverage(_ coverage: DrawingRunMediaCoverage,
     attempt: DrawingRunAttemptEvidence, archiveURL: URL) throws {
+    try verifyCoverage(coverage, attempt: attempt, read: { try readMedia($0, archiveURL: archiveURL) })
+  }
+
+  fileprivate nonisolated static func verifyCoverage(_ coverage: DrawingRunMediaCoverage,
+    attempt: DrawingRunAttemptEvidence, read: (DrawingRunMediaReference) throws -> StampedFrame) throws {
     try coverage.validate()
     var originals: [(baseline: StampedFrame, result: StampedFrame)] = []
     for view in coverage.views {
@@ -939,8 +1003,7 @@ public actor DrawingRunEvidenceStore {
       }), let after = attempt.terminalFrames.first(where: {
         $0.source == view.frames.source && $0.frame == view.frames.post
       }) else { throw DrawingRunEvidenceStoreError.invalidMedia("Composite lacks its exact original frames") }
-      originals.append((try readMedia(before, archiveURL: archiveURL),
-        try readMedia(after, archiveURL: archiveURL)))
+      originals.append((try read(before), try read(after)))
     }
     func equalsPixel(_ frame: StampedFrame, x: Int, y: Int, output: Data, offset: Int) -> Bool {
       let input = y * frame.rowBytes + x * frame.pixelFormat.bytesPerPixel

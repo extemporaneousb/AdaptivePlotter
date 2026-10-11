@@ -1,0 +1,81 @@
+import Foundation
+
+/// A straight tonal mark aligned with one image-derived cardinal direction.
+/// The caller owns shared structural/tonal occupancy and the material floor.
+/// Interior samples are reserved there; only the two endpoints become drawing
+/// vertices. Choosing the axis once prevents per-sample snapping staircases.
+package enum PortraitRectilinearFlowTracer {
+  package struct Result: Equatable {
+    package let sampledPath: [CGPoint]
+    package let radii: [Double]
+    package let endpoints: [CGPoint]
+
+    package init(sampledPath: [CGPoint], radii: [Double], endpoints: [CGPoint]) {
+      self.sampledPath = sampledPath
+      self.radii = radii
+      self.endpoints = endpoints
+    }
+  }
+
+  package static func trace(seed: CGPoint, tangent: CGPoint, width: Int, height: Int,
+    minimumLength: Double, spacing: (CGPoint) -> Double,
+    luminance: (CGPoint) -> Double, intersects: (CGPoint, Double) -> Bool,
+    support: ((CGPoint) -> Double)? = nil, minimumSupport: Double = 0,
+    maximumUnsupportedLength: Double = 0
+  ) throws -> Result? {
+    try Task.checkCancellation()
+    guard width >= 4, height >= 4, width <= 512, height <= 512,
+      seed.x.isFinite, seed.y.isFinite, tangent.x.isFinite, tangent.y.isFinite,
+      minimumLength.isFinite, minimumLength >= 0,
+      minimumSupport.isFinite, minimumSupport >= 0,
+      maximumUnsupportedLength.isFinite, maximumUnsupportedLength >= 0 else { return nil }
+    // A line field has no sign. Opposite tangents produce identical geometry;
+    // the exact diagonal tie uses the horizontal axis deterministically.
+    let horizontal = abs(tangent.x) >= abs(tangent.y)
+    let step = 0.9
+    let maximumSteps = Int(ceil(Double(horizontal ? width : height) / step))
+    func acceptedRadius(at point: CGPoint) -> Double? {
+      guard point.x >= 1, point.y >= 1,
+        point.x < Double(width - 2), point.y < Double(height - 2) else { return nil }
+      let value = luminance(point), radius = spacing(point)
+      guard value.isFinite, value < 0.95, radius.isFinite, radius > 0,
+        !intersects(point, radius) else { return nil }
+      return radius
+    }
+    guard let seedRadius = acceptedRadius(at: seed) else { return nil }
+    if let support, support(seed) < minimumSupport { return nil }
+    func extend(sign: Double) throws -> (points: [CGPoint], radii: [Double]) {
+      var points: [CGPoint] = [], radii: [Double] = []
+      var unsupportedLength = 0.0, supportedCount = 0
+      for index in 1...maximumSteps {
+        if index.isMultiple(of: 32) { try Task.checkCancellation() }
+        let offset = sign * Double(index) * step
+        let point = CGPoint(x: seed.x + (horizontal ? offset : 0),
+          y: seed.y + (horizontal ? 0 : offset))
+        guard let radius = acceptedRadius(at: point) else { break }
+        if let support {
+          let confidence = support(point)
+          guard confidence.isFinite else { break }
+          if confidence >= minimumSupport { unsupportedLength = 0; supportedCount = points.count + 1 }
+          else { unsupportedLength += step }
+          if unsupportedLength > maximumUnsupportedLength { break }
+        }
+        points.append(point); radii.append(radius)
+      }
+      // Brief weak gaps may bridge supported portions. A weak tail cannot
+      // become an extrapolated line into empty space.
+      if support != nil, supportedCount < points.count {
+        points.removeSubrange(supportedCount...); radii.removeSubrange(supportedCount...)
+      }
+      return (points, radii)
+    }
+    let backward = try extend(sign: -1), forward = try extend(sign: 1)
+    try Task.checkCancellation()
+    let first = backward.points.last ?? seed, last = forward.points.last ?? seed
+    let length = hypot(last.x - first.x, last.y - first.y)
+    guard length > 0, length >= minimumLength else { return nil }
+    return Result(sampledPath: Array(backward.points.reversed()) + [seed] + forward.points,
+      radii: Array(backward.radii.reversed()) + [seedRadius] + forward.radii,
+      endpoints: [first, last])
+  }
+}

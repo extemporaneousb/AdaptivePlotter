@@ -11,6 +11,7 @@ let package = Package(
     .library(name: "PlotterModel", targets: ["PlotterModel"]),
     .library(name: "PlotterRuntime", targets: ["PlotterRuntime"]),
     .executable(name: "AdaptivePlotter", targets: ["PlotterApp"]),
+    .executable(name: "PortraitStudio", targets: ["PortraitStudio"]),
   ],
   targets: [
     .target(name: "EpisodeCore"),
@@ -19,6 +20,25 @@ let package = Package(
       dependencies: ["EpisodeCore"]
     ),
     .target(name: "PlotterModel"),
+    .target(name: "PortraitCore", dependencies: ["PlotterModel"]),
+    .target(
+      name: "PortraitArtists",
+      dependencies: ["PortraitCore", "PlotterModel", "PlotterRuntime"]
+    ),
+    .target(
+      name: "PortraitLibrary",
+      dependencies: ["PortraitCore", "PortraitArtists", "PlotterModel", "PlotterRuntime", "CSQLite"]
+    ),
+    .target(
+      name: "PortraitStudioUI",
+      dependencies: ["PortraitCore", "PortraitArtists", "PortraitLibrary", "PlotterModel", "PlotterRuntime"]
+    ),
+    .executableTarget(
+      name: "PortraitStudio",
+      dependencies: [
+        "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI", "PlotterModel", "PlotterRuntime",
+      ]
+    ),
     .target(
       name: "PlotterEpisodeModel",
       dependencies: ["EpisodeCore", "PlotterModel"]
@@ -41,6 +61,7 @@ let package = Package(
       dependencies: [
         "EpisodeCore", "EpisodeRuntime", "PlotterEpisodeModel", "PlotterEpisodeRuntime", "PlotterModel",
         "PlotterRuntime", "PlotterUI", "CSQLite",
+        "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI",
       ]
     ),
     .target(
@@ -79,10 +100,15 @@ let package = Package(
       dependencies: ["PlotterRuntime", "PlotterTestSupport"]
     ),
     .testTarget(
+      name: "PortraitStudioTests",
+      dependencies: ["PortraitStudio", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI", "PlotterModel", "PlotterRuntime"]
+    ),
+    .testTarget(
       name: "PlotterAppTests",
       dependencies: [
         "EpisodeCore", "PlotterApp", "PlotterEpisodeModel", "PlotterEpisodeRuntime",
         "PlotterRuntime", "PlotterTestSupport",
+        "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI",
       ]
     ),
     .testTarget(

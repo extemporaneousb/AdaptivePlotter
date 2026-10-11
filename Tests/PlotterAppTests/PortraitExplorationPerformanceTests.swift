@@ -1,3 +1,5 @@
+@testable import PortraitArtists
+@testable import PortraitStudioUI
 import CoreGraphics
 import Foundation
 import PlotterModel

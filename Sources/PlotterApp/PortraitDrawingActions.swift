@@ -1,3 +1,5 @@
+import PortraitArtists
+import PortraitLibrary
 import PlotterModel
 import PlotterUI
 
@@ -8,12 +10,14 @@ extension PlotterApplicationRuntime {
     await projectSavedDrawing(SavedDrawing(candidate: candidate))
   }
 
-  func projectSavedDrawing(_ drawing: SavedDrawing) async -> String? {
+  func projectSavedDrawing(_ drawing: SavedDrawing, isStillCurrent: () -> Bool = { true }) async -> String? {
     await portraitStudio.acceptDrawingProjection(drawing) {
+      guard !Task.isCancelled, isStillCurrent() else { return "Drawing handoff was cancelled." }
       let program = drawing.program
       if let error = await submitPortraitDrawingAction(PlotterAppUIActionID.observationCameraRole(.plotter)) {
         return error
       }
+      guard !Task.isCancelled, isStillCurrent() else { return "Drawing handoff was cancelled." }
       let selection = PlotterAppUIActionID.drawingDraft(.selectProgram(program))
       let admission = plotterUIProjection(selectedItemID: currentLearningPathItemID,
         manualDraft: ManualMotionDraft(), includesLearningPath: true,
@@ -30,6 +34,7 @@ extension PlotterApplicationRuntime {
       if let error = await submitPortraitDrawingAction(
         PlotterAppUIActionID.drawingDraft(.selectProgram(program)), program: program
       ) { return error }
+      guard !Task.isCancelled, isStillCurrent() else { return "Drawing handoff was cancelled." }
       return await submitPortraitDrawingAction(PlotterAppUIActionID.drawingDraft(.fitInDrawableRegion))
     }
   }
@@ -38,8 +43,9 @@ extension PlotterApplicationRuntime {
   /// composition, rather than saving placement/border geometry as new artwork.
   func authoredDrawing(for executionProgram: DrawingProgram) -> SavedDrawing? {
     guard let program = drawingDraftSnapshot.authoredProgram else { return nil }
-    return SavedDrawing.authored(program: program, projectedDrawing: portraitStudio.projectedDrawing,
-      executionProgram: executionProgram)
+    guard let drawing = SavedDrawing.authored(program: program, projectedDrawing: portraitStudio.projectedDrawing,
+      executionProgram: executionProgram), !portraitStudio.sketches.drawingWasDeleted(drawing) else { return nil }
+    return drawing
   }
 
   func saveCurrentDrawing() async -> String? {

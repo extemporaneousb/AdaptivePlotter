@@ -1,3 +1,4 @@
+@testable import PortraitArtists
 import AppKit
 import PlotterUI
 import SwiftUI

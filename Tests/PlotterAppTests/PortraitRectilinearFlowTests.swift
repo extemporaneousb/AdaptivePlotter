@@ -1,3 +1,5 @@
+@testable import PortraitArtists
+@testable import PortraitLibrary
 import CoreGraphics
 import CoreText
 import Foundation

@@ -1856,9 +1856,51 @@ plan. Size and rotation use continuous native sliders with rounded values and
 submit at release (or on keyboard/accessibility edits), without hundreds of
 native tick marks or planning every pointer movement.
 
+### Independent Portrait Studio and immutable exchange
+
+The independent Portrait Studio app and embedded workspace share the existing
+Flow Edge, Contour and Sketch code, native controls and exact authored programs.
+Standalone Studio owns a fresh private library under Application Support/PortraitStudio.
+It never opens the AdaptivePlotter default store or composes its machine runtime.
+Startup discovers cameras; capture requires an explicit operator action. Quit
+cancels work, stops the camera and awaits durable library writes. There is no
+production-library migration or shared writable SQLite connection between apps.
+
+Standalone **Export Drawing** serializes a version-one `DrawingPackage`. Its exact
+`DrawingProgram`, source bytes, artist input/settings, preview and native record
+retain hash-bound origin library, capture occurrence and result identity. The
+retained source is the existing authoring image, which may be a scaled/reencoded
+PNG from a JPEG import. Import preserves that identity and exact program; it does
+not rerender, invent ancestry or make a transferred result an editable native
+candidate. A supported imported drawing remains a canonical `SavedDrawing` and can
+be explicitly admitted through the receiving app's existing Drawing path. Duplicate
+imports are idempotent; conflicts fail. Deliberate file import may explicitly restore
+an exact transferred-drawing deletion; delayed/background imports cannot silently
+revive it, and broader source tombstones remain authoritative.
+Version one requires the exported program's source kind to be `portrait`, including
+external artists. Import does not relabel programs or weaken portrait-provenance
+admission to make a package executable.
+
+An optional `PlotAttachment` returns a retained attempt record and its referenced
+original media. It links only by exact origin and program identity, may arrive
+before its drawing, and remains inspection evidence. It grants no controller,
+Learning, paper-clearance, resume or redraw authority. Completion and photographs
+retain their separate meanings. Studio displays the record status and available
+before/progress/after frames without claiming that controller settlement proves
+visible ink. Unknown artists remain read-only inspectable and their exact valid
+programs remain transferable; native editing requires supported native provenance.
+The [Studio guide](PORTRAIT_STUDIO.md) owns the current file and operator details.
+
+Promising/rejected feedback still addresses exact native attempts. Generalized
+A/B/tie/neither/skip comparisons, SwiftSketch workers, new job/curve schemas and
+training exports remain future scope; package versioning is an extension seam,
+not a claim that those facilities already exist.
+
+### Embedded Studio and Drawing
+
 The built-in catalog and Portrait Studio produce immutable `DrawingProgram`
 values through the existing draft, placement, planner and drawing runtime.
-Portrait Studio is a full workspace, independent of the plotter control docks.
+Within AdaptivePlotter, Portrait Studio is a full workspace, independent of the plotter control docks.
 Opening and closing it preserves those dock placements. The shared Drawing panel
 owns placement, pen/material setup, paper coverage, Draw, Stop and result review.
 Studio authoring remains available with an imported photo while disconnected.
@@ -1951,7 +1993,7 @@ keyboard router preserves the matching busy/availability guards. The Photos popu
 also permits plain-arrow source browsing through its own scoped photo-only router;
 text/value editing, import, history, camera settings and other windows retain their
 native arrow handling.
-With a configured device, one click asks
+In the embedded workspace, with a configured device, one click asks
 the existing observation owner to activate that portrait camera, awaits readiness,
 and takes a 0.8-second still-subject burst including exposure settling. One quality-selected
 frame becomes the new source photo; the burst does not create a pose gallery.

@@ -17,6 +17,7 @@ to the task.
 | [Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md) | Sole target architecture, migration order, non-negotiable observability, structural/deletion gates, and landed-work ledger. |
 | [Current Evidence](CURRENT_EVIDENCE.md) | Canonical ledger of what was actually implemented and verified. Current package-gate evidence appears first; clearly dated historical sections preserve evidence history without claiming strict date order or current design authority. Software, simulator, controller, and attended physical claims remain separate. |
 | [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md) | Human-attended physical validation procedure and evidence-record requirements. |
+| [Portrait Studio](PORTRAIT_STUDIO.md) | Current standalone Studio operator guide, private-library ownership, and immutable drawing/plot exchange format. It owns no future implementation sequence or physical authority. |
 | [Roadmap](ROADMAP.md) | Unfinished product and experimental work only. It points to the execution plan for architecture migration and cannot redefine its sequence. |
 | [`AGENTS.md`](../AGENTS.md) | Repository/Blackdog lifecycle contract. It governs how work begins, lands, and is validated; it does not own product design. |
 | [AdaptivePlotter skill](../.codex/skills/adaptiveplotter/SKILL.md) | Generated Blackdog lifecycle and selectively loaded engineering guidance; repository episode refinements are routed from `AGENTS.md`. |
@@ -37,6 +38,7 @@ to the task.
   model/UI authority consolidation, Learning episode identity, or diagnostic export or future incident archive work.
 - Read Episode Architecture Vocabulary whenever target names, type boundaries,
   observation/evidence semantics, or forbidden synonyms matter.
+- Read Portrait Studio for standalone authoring, file exchange, private storage, and bundle commands.
 - Read Current Evidence before any status or validation claim.
 - Read the Attended Hardware Runbook before explicitly authorized physical work.
 - A focused task normally needs the directly owning document, not every file.

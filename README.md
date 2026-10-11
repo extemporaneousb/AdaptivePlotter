@@ -14,6 +14,30 @@ The application is deliberately local:
 - no automatic resend, resume, retap, or redraw after an uncertain physical
   outcome.
 
+## Independent Portrait Studio
+
+`PortraitStudio` is a second native app for authoring with the same Flow Edge,
+Contour and Sketch implementations and shared Studio controls. It has its own
+fresh library at `~/Library/Application Support/PortraitStudio/PortraitLibrary`;
+it does not clone or open AdaptivePlotter's live database. Export an immutable
+Drawing Package, import it in AdaptivePlotter, then use the existing placement,
+material and Draw workflow. An optional Plot Attachment returns retained attempt
+records and original frames for inspection. Studio composes no machine runtime.
+
+```sh
+make portrait-studio-app
+make validate-portrait-studio-app
+```
+
+The output is `.build/PortraitStudio.app` (`com.bullard.PortraitStudio`, version
+0.1.0). These commands build and verify the bundle without launching it. Launch
+that bundle explicitly when ready to use Studio; the raw SwiftPM executable does
+not carry its camera permission description. See the
+[Studio operator and format guide](docs/PORTRAIT_STUDIO.md) for capture, imports,
+private storage, exact identity preservation, and returned evidence limits.
+The [frozen development baseline](#portrait-studio-development-baseline) below
+remains the output comparison reference.
+
 ## Operator journey
 
 The persistent **Learning Path** is an ergonomic navigator, not a motion
@@ -446,13 +470,16 @@ Evidence claims remain separate:
 `portrait-studio-baseline-2026-10-11` is the local annotated reference for the
 embedded Studio before separation. Its production source and package topology
 are unchanged from `ffd0c6c5a46d24c8e557535fae750ab84c7bf0ef`; the baseline
-adds documentation and comparison tests. The tag is created after review and
-validation, without publishing it or replacing the running app. The tagged commit
+adds documentation and comparison tests. The tag was created after review and
+validation at `035e922c7171abff540865c2261e7cad613f318a`, without publishing it or replacing the running app. The tagged commit
 is a reproducible software reference, not physical or native-interaction acceptance.
 
-Flow Edge, Contour and Sketch are the current artists. Studio, its renderer
-contracts and the portrait library still live in `PlotterApp`. The accepted
-separation direction remains [Roadmap work](docs/ROADMAP.md#portrait-studio-separation-and-artist-contracts-accepted-direction-2026-10-11).
+Flow Edge, Contour and Sketch remain the current artists. In the tagged historical
+state, Studio, its renderer contracts and portrait library lived in `PlotterApp`.
+The current shared modules and independent application are described in the
+[package topology](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md#package-topology)
+and [Studio guide](docs/PORTRAIT_STUDIO.md). Further artist and training extensions
+remain [Roadmap work](docs/ROADMAP.md#portrait-studio-extensions-after-separation).
 
 Run the frozen renderer comparison in the checkout under test:
 

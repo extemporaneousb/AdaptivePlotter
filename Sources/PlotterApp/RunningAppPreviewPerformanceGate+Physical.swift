@@ -1,3 +1,5 @@
+import PortraitArtists
+import PortraitLibrary
 import AppKit
 import CryptoKit
 import Foundation

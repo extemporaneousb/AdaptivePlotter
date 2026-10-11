@@ -1,3 +1,5 @@
+@testable import PortraitArtists
+@testable import PortraitStudioUI
 import Foundation
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime

@@ -1,3 +1,4 @@
+@testable import PortraitStudioUI
 import Foundation
 import Observation
 import PlotterEpisodeModel

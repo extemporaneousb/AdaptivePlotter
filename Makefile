@@ -1,4 +1,4 @@
-.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher preview-performance-gate docs-check wave-capsule-test responsiveness-test portrait-baseline-check quick-test journey-test test check strict-check
+.PHONY: help build app portrait-studio-app validate-portrait-studio-app launcher run-app run-app-simulated validate-app validate-launcher preview-performance-gate docs-check wave-capsule-test responsiveness-test portrait-baseline-check quick-test journey-test test check strict-check
 
 .DEFAULT_GOAL := help
 
@@ -15,6 +15,8 @@ help:
 		'  help               Show this help.' \
 		'  build              Compile the Swift package.' \
 		'  app                Build the signed debug app (APP_CONFIGURATION=release enables optimization).' \
+		'  portrait-studio-app Build the independent signed Portrait Studio app.' \
+		'  validate-portrait-studio-app Validate the independent Studio bundle without launching.' \
 		'  launcher           Build the single-instance application launcher.' \
 		'  run-app            Build and launch the supported local application.' \
 		'  run-app-simulated  Launch signed causal simulation without camera startup.' \
@@ -37,6 +39,13 @@ build:
 app:
 	swift build $(SWIFT_FLAGS) -c "$(APP_CONFIGURATION)"
 	@sh Scripts/build_local_app.sh "$(APP_CONFIGURATION)"
+
+portrait-studio-app:
+	swift build $(SWIFT_FLAGS) -c "$(APP_CONFIGURATION)" --product PortraitStudio
+	@sh Scripts/build_portrait_studio_app.sh "$(APP_CONFIGURATION)"
+
+validate-portrait-studio-app: portrait-studio-app
+	@sh Scripts/validate_portrait_studio_app_bundle.sh .build/PortraitStudio.app
 
 launcher:
 	@sh Scripts/build_local_app_launcher.sh

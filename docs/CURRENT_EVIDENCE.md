@@ -8,6 +8,79 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Independent Portrait Studio and immutable exchange, 2026-10-11
+
+Task `task-3d339e5ba3b341589f6e78612e222ad1` extracts the existing artists,
+canonical library and shared Studio model/views into `PortraitCore`,
+`PortraitArtists`, `PortraitLibrary` and `PortraitStudioUI`. The new
+`PortraitStudio` executable composes its own private store, camera lifecycle,
+file panels and bounded library browser. The embedded AdaptivePlotter workspace
+uses the same authoring code and keeps its existing Drawing handoff. No renderer
+algorithm change or generalized training/worker pipeline is included.
+
+Version-one Drawing Packages preserve exact authoring source/input/preview bytes,
+programs, artist/native records, origin library and capture occurrence. The existing
+source may be a reencoded PNG rather than the original imported JPEG. Imported
+drawings remain read-only canonical `SavedDrawing` records; external artists must
+supply `program.source.kind == "portrait"`, without import relabeling. Optional
+Plot Attachments retain exact terminal record bytes and referenced originals, link
+only by exact origin/program, and grant no execution or paper authority. Each app
+retains its own writable library; no production-library clone is implemented.
+
+The focused sequential run passed **25 Swift Testing tests in 11.668 seconds**:
+
+```sh
+PORTRAIT_BASELINE_OUTPUT=/tmp/portrait-studio-delivery-task-3d339e5b/baseline \
+  swift test --no-parallel --filter \
+  'DrawingPackageTests|DrawingTransferLibraryTests|DrawingRunTransferTests|DrawingTransferAdmissionTests|PortraitStudioCompositionTests|PortraitStudioFileTests|PortraitBaselineTests'
+```
+
+That run covers exact package/reopen round trips, immutable origin conflicts and
+tamper/size/image limits, explicit restoration versus delayed deletion, bounded
+metadata paging without media reads, terminal-original verification and read-only
+export, and the actual pre-motion retention hook's source/provenance refusal. A
+synthetic photo exercises native render/save/export/reopen/import between disposable
+private stores. A same-candidate/different-capture regression verifies row identity,
+selected source, edit selection and exported origin. Fake-camera tests verify device
+reselection and shutdown; file tests verify path isolation, bounded reads and exact
+atomic replacement bytes. These tests do not use the production library or hardware.
+
+The frozen Flow Edge, Contour and Sketch tests retain all three exact program
+hashes and stroke/point counts from the
+[baseline table](../README.md#portrait-studio-development-baseline), unchanged.
+Observed baseline exports and focused log `portrait-extraction-focused2.log` are
+retained under `/tmp/portrait-studio-delivery-task-3d339e5b`. The post-await
+admission guards were inspected and replacement/deletion cases passed, but the
+final-await deletion interleaving was not deterministically scheduled by a test.
+
+Task-local `make app` and `swift build --product PortraitStudio` passed. Both app
+bundles passed strict stable-local signature and Info.plist validation. The existing
+AdaptivePlotter negative bundle checks passed; disposable Studio copies with no
+signature, a changed plist version, or a microphone permission were refused.
+`Scripts/build_portrait_studio_app.sh debug /tmp/portrait-studio-delivery-task-3d339e5b/PortraitStudio.app`
+retains the verified standalone bundle outside task cleanup. Its executable SHA-256
+is `290cf25c877daaf9b09d02034c235a63e59454f474fb929d35ccad540c6dbf82`.
+The adjacent `bundle-receipt.json` records all file hashes, commands and negative
+checks, with matching compilation-input manifests before and after the builds.
+It truthfully identifies baseline commit `035e922c7171abff540865c2261e7cad613f318a`
+plus dirty candidate sources at build time, rather than claiming a later landed
+commit was already built. Final source/landing linkage and unchanged bundle-copy
+receipts belong to the delivery evidence.
+
+The user-owned PID 88462 and canonical AdaptivePlotter bundle were preserved. No
+application was launched or restarted, no production library was migrated, and
+no camera/controller or physical operation was performed. The standalone bundle
+has its own identifier and camera usage description, with no speech or microphone
+permission. Packaging receipts are software evidence only.
+
+Configured final acceptance remains `make docs-check`, `make quick-test` with
+`SWIFT_FLAGS=--no-parallel`, and `git diff --check`; the task's Blackdog records own
+those final machine receipts and landing status. This section does not claim that
+gate completed from the earlier focused run. Native launch/capture, interaction
+latency, real-photo likeness and attended physical transfer continuity remain
+unverified. Software/bundle evidence cannot establish camera availability, ink
+quality, physical dimensions or an unobstructed final photograph.
+
 ## Portrait Studio software baseline, 2026-10-11
 
 Task `task-9ef164c3c8e543e79c42b586f38beedc` establishes the local annotated

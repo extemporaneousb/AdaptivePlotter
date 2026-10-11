@@ -1,3 +1,4 @@
+@testable import PortraitStudioUI
 import PlotterModel
 import PlotterRuntime
 import Testing

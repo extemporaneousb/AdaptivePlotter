@@ -1,3 +1,5 @@
+@testable import PortraitArtists
+@testable import PortraitStudioUI
 // Historical fixture-only rendering. Production uses PortraitPlaneProgramPreview.
 import PlotterModel
 import SwiftUI

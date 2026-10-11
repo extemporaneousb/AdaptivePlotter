@@ -41,38 +41,20 @@ interfaces are not future obligations. Remaining work is:
   Saved recipes are seeds, not paired drawing targets or invented preference votes. Record
   explicit comparisons across photos before claiming learned drawing quality.
 
-### Portrait Studio separation and artist contracts: accepted direction, 2026-10-11
+### Portrait Studio extensions after separation
 
-Freeze the current embedded implementation as the
-[reproducible software baseline](../README.md#portrait-studio-development-baseline)
-before changing module boundaries. Preserve Flow Edge, Contour and Sketch, their
-native settings and exact authored outputs. The next direction is infrastructure
-first: reusable source/artist/data contracts, an independently owned Studio library,
-and a standalone Studio. These are accepted future scope, not shipped targets.
+The shared modules, independent app and version-one immutable drawing/plot exchange
+are current implementation; their owners are documented in
+[Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md#package-topology) and their
+operator/file contract in [Portrait Studio](PORTRAIT_STUDIO.md). The
+[pre-extraction baseline](../README.md#portrait-studio-development-baseline)
+continues to freeze Flow Edge, Contour and Sketch output. The first separation
+uses a fresh private library, imports photos and packages, and retains the embedded
+Studio through the same code. Bulk production-library cloning or migration is not
+part of this release. Native launch/capture, interaction latency and attended
+physical transfer continuity still need distinct acceptance evidence.
 
-The accepted extraction cut is `PortraitCore` for generic artist/transfer value
-contracts, `PortraitArtists` for the existing interlocked renderer/candidate/recipe
-code, `PortraitLibrary` for `SavedDrawing`, archives and evidence read/projection,
-and `PortraitStudioUI` for the shared model/views, plus a new `PortraitStudio`
-executable. `PlotterApp` retains machine/run composition. Shared modules may
-retain existing Runtime camera/frame and immutable evidence DTO dependencies
-at this stage; no runtime safety ownership moves with them.
-
-The first extraction preserves the existing embedded Studio through the shared
-code and gives the standalone app a fresh private library for imported photos and
-drawing packages. It does not migrate or clone the production library. Studio owns
-authoring; AdaptivePlotter retains placement, calibration, motion and physical
-evidence. The version-one bridge carries the exact existing `DrawingProgram` in an
-immutable `DrawingPackage`, with an optional `PlotAttachment`, using stable source/result/run
-identities, capture occurrence and exact program hashes (including IDs, provenance,
-styles and order as well as geometry). Transfer retains the
-exact current authoring source bytes: file import currently reencodes/scales,
-so these are not necessarily the original JPEG. Software round trips and attended
-physical continuity require distinct evidence. Keep one writer per application's library,
-durable transfer payloads, old record IDs and all source history; never share one
-live writable SQLite file or infer missing ancestry during extraction.
-
-After the existing artists and exchange boundary are preserved, add a version-pinned
+Future extensions can add a version-pinned
 SwiftSketch worker through the same contracts, explicit A/B/tie/neither/skip review,
 and grouped training exports. Generalized jobs, a Python worker, native Bézier
 records and training infrastructure are later extensions, not extraction deliverables.

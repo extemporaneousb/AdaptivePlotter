@@ -1,3 +1,5 @@
+@testable import PortraitArtists
+@testable import PortraitLibrary
 import AppKit
 import Foundation
 import SwiftUI

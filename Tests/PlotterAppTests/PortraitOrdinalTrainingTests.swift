@@ -1,3 +1,4 @@
+@testable import PortraitArtists
 import Foundation
 import Testing
 @testable import PlotterApp

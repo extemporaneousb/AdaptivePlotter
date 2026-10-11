@@ -1,3 +1,4 @@
+import PortraitArtists
 import AppKit
 import Foundation
 import PlotterEpisodeModel

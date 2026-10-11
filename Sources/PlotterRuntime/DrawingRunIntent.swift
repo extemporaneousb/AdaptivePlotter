@@ -8,11 +8,15 @@ public struct DrawingRunCandidateReference: Codable, Hashable, Sendable {
   public let contentHash: PlotterModel.Digest
   public let programContentHash: PlotterModel.Digest
   public let sourceProgram: DrawingProgram
-  public init(candidateID: String, contentHash: PlotterModel.Digest, sourceProgram: DrawingProgram) {
+  /// Absent on legacy/native references; synthesized optional encoding omits nil.
+  public let origin: DrawingOriginReference?
+  public init(candidateID: String, contentHash: PlotterModel.Digest, sourceProgram: DrawingProgram,
+    origin: DrawingOriginReference? = nil) {
     self.candidateID = candidateID
     self.contentHash = contentHash
     self.programContentHash = sourceProgram.contentHash
     self.sourceProgram = sourceProgram
+    self.origin = origin
   }
 
   /// The one known compositor preserves all artwork stroke identities and maps
@@ -22,7 +26,13 @@ public struct DrawingRunCandidateReference: Codable, Hashable, Sendable {
     let portraitIdentity = candidateID == contentHash.description
     let drawingIdentity = candidateID == "drawing-" + contentHash.description
       && contentHash == programContentHash
-    guard portraitIdentity || drawingIdentity,
+    let identityMatches: Bool
+    if let origin {
+      identityMatches = (try? origin.validate()) != nil
+        && candidateID == origin.drawingID && contentHash == origin.identityHash
+        && origin.programHash == programContentHash
+    } else { identityMatches = portraitIdentity || drawingIdentity }
+    guard identityMatches,
       sourceProgram.contentHash == programContentHash else { return false }
     if executionProgram == sourceProgram { return true }
     let suffix = "|draw-border-v1|artwork=\(programContentHash)"

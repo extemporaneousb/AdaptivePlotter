@@ -1,3 +1,4 @@
+import PortraitLibrary
 import Foundation
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
@@ -215,6 +216,10 @@ actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort {
 
   func readMedia(_ reference: DrawingRunMediaReference) async throws -> StampedFrame {
     try await store.readMedia(reference)
+  }
+
+  func exportTerminalRecord(runID: RunID) async throws -> DrawingRunTerminalExport {
+    try await store.exportTerminalRecord(runID: runID)
   }
 
   func stageBaseline(runID: RunID, media: DrawingRunMediaReference) async throws -> DrawingRunEvidenceArchive {

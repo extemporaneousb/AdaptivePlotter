@@ -1,3 +1,6 @@
+@testable import PortraitArtists
+@testable import PortraitLibrary
+@testable import PortraitStudioUI
 import AppKit
 import Foundation
 import ImageIO

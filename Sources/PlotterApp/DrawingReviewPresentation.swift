@@ -1,3 +1,5 @@
+import PortraitLibrary
+import PortraitStudioUI
 import Foundation
 import PlotterModel
 import PlotterRuntime
@@ -77,7 +79,7 @@ enum PortraitLibraryBrowseItem: Hashable {
   case photo(UUID), drawing(PortraitDrawingIdentity), work(String)
 }
 
-enum PortraitLibraryBrowsePresentation {
+extension PortraitLibraryBrowsePresentation {
   static func filterTitle(_ filter: PortraitLibraryFilter) -> String {
     switch filter {
     case .allPhotos: "All photos"
@@ -86,10 +88,7 @@ enum PortraitLibraryBrowsePresentation {
     case .plottedWorks: "Plotted works"
     }
   }
-  static func captureDescription(_ photo: PortraitLibraryPhoto) -> String {
-    photo.actualCapturedAt.map { $0.formatted(date: .abbreviated, time: .shortened) }
-      ?? "Capture time unknown"
-  }
+
   static func photoTitle(_ photo: PortraitLibraryPhoto) -> String {
     "Photo · " + captureDescription(photo)
   }

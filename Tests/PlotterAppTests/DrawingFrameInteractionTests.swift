@@ -1,3 +1,4 @@
+@testable import PortraitStudioUI
 import AppKit
 import SwiftUI
 import CoreGraphics

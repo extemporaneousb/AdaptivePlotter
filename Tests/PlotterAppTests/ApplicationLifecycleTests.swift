@@ -1,3 +1,4 @@
+@testable import PortraitLibrary
 import AppKit
 import Foundation
 import PlotterEpisodeRuntime

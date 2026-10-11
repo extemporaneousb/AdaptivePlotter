@@ -65,17 +65,38 @@ protocol facts do not establish the identity or physical behavior of the live fi
 
 ## Package topology
 
-At the [Portrait Studio baseline](../README.md#portrait-studio-development-baseline),
-the package remains a single `AdaptivePlotter` executable with portrait authoring
-inside `PlotterApp`. `PortraitSourcePreparation` and `PortraitRendering` separate
-some responsibilities internally, but render requests/results still depend on
-the existing style/options/raster types. `PortraitCandidate` retains the exact
-renderer recipe and analysis. `SavedDrawing` owns authored geometry, while
-`PlotterApplicationRuntime` admits the selected Studio drawing through the existing
-Drawing path. Physical evidence publication also updates the portrait library.
-SQLite and immutable payloads are already implemented; standalone Studio targets,
-general artist contracts and cross-application drawing/plot exchange are future
-[Roadmap scope](ROADMAP.md#portrait-studio-separation-and-artist-contracts-accepted-direction-2026-10-11).
+The [Portrait Studio baseline](../README.md#portrait-studio-development-baseline)
+records the pre-extraction `PlotterApp` implementation and exact outputs. The current
+package has two executable compositions: `AdaptivePlotter` retains machine/run
+ownership, while `PortraitStudio` owns an independent authoring library. Both use
+the same `PortraitStudioModel` and `PortraitStudioView`. The standalone composition
+constructs its store explicitly under Application Support/PortraitStudio; it never
+uses the AdaptivePlotter default store, production evidence archive, or machine
+runtime. Its quit path cancels and joins file/browser work, stops capture/rendering,
+and awaits library persistence and synchronization before termination.
+
+`PortraitCore` contains versioned artist and immutable exchange values/codecs;
+`PortraitArtists` retains the existing coupled rendering, candidate, raster and
+recipe code; `PortraitLibrary` owns `SavedDrawing`, SQLite metadata, immutable
+payloads, transfer retention and evidence inspection; `PortraitStudioUI` owns the
+shared authoring model/views and reference previews. Existing camera/frame and
+immutable evidence types remain dependencies in `PlotterRuntime`. Moving shared
+code does not move its controller, run admission or safety ownership. The shared
+UI receives the handoff action/wording and optional telemetry from its composition:
+embedded **Send to Drawing** retains its existing behavior, standalone **Export
+Drawing** writes a portable file. Imported package drawings remain canonical
+`SavedDrawing` values with a read-only transferred package, not fabricated native
+renderer candidates.
+
+Each application remains the sole writer of its own SQLite library. Drawing
+exchange carries exact programs, authoring source bytes, artist inputs/settings,
+capture occurrence and stable origin identity; optional plot exchange carries
+retained record bytes and their original referenced frames. Import verifies hashes,
+identities, bounded geometry/images/media and conflicts before publication. Returned
+evidence is inspection-only; it cannot admit motion, accept Learning, clear paper,
+or replace the raw physical evidence owner. See [the current format and operator
+guide](PORTRAIT_STUDIO.md). SwiftSketch, generalized jobs and training remain
+[Roadmap scope](ROADMAP.md#portrait-studio-extensions-after-separation).
 
 ```text
 EpisodeCore
@@ -164,6 +185,23 @@ PlotterApp -> EpisodeRuntime + PlotterEpisodeRuntime + PlotterUI + retained appl
   pane/window/viewport and unsubmitted manual text retained as UI-local state
   SwiftUI Guided Learning, Video, Motion, Active Learning and Drawing docks, plus the Portrait Studio workspace
   production checkpoint/evidence stores and semantic identity composition
+
+PortraitCore -> PlotterModel
+  versioned artist descriptors, DrawingPackage and PlotAttachment values/codecs
+  exact origin/program identity, byte hashes, admission bounds
+
+PortraitArtists -> PortraitCore + PlotterModel + PlotterRuntime
+  existing Flow Edge, Contour and Sketch renderers, source preparation, recipes and candidates
+
+PortraitLibrary -> PortraitCore + PortraitArtists + PlotterModel + PlotterRuntime + CSQLite
+  canonical SavedDrawing, private database owner, immutable payloads and transfer inspection
+
+PortraitStudioUI -> PortraitCore + PortraitArtists + PortraitLibrary + PlotterModel + PlotterRuntime
+  shared Studio model, controls, camera lifecycle and reference preview
+
+PortraitStudio -> PortraitCore + PortraitArtists + PortraitLibrary + PortraitStudioUI + PlotterModel + PlotterRuntime
+  independent native authoring composition, private store, file panels and thin library browser
+  camera discovery only at startup; no PlotterApplicationRuntime or controller composition
 
 PlotterTestSupport
   deterministic machine links, clocks, transcripts, and paper scenes

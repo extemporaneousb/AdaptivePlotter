@@ -1,3 +1,5 @@
+import PortraitLibrary
+import PortraitStudioUI
 import AppKit
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime

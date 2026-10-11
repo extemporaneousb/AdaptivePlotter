@@ -1,3 +1,6 @@
+import PortraitArtists
+import PortraitLibrary
+import PortraitStudioUI
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
@@ -13,6 +16,7 @@ struct PlotterApplicationRuntimeView: View {
   @State private var selection = LearningPathSelectionState(current: .humanGuidedDiscovery(.penInteraction))
   @State private var actionSurfaceViewport = ActionSurfaceViewportState()
   @State private var reviewerIsPresented = false
+  @State private var transferIsPresented = false
   @State private var reviewerPhotoID: UUID?
   @State private var isSavingDrawing = false
   @State private var materialSettingsPresented = false
@@ -40,8 +44,17 @@ struct PlotterApplicationRuntimeView: View {
   var body: some View {
     let ui = currentProjection()
     VStack(spacing: 0) {
-      WorkbenchNavigationControls(layout: layout.wrappedValue,
-        reviewerIsPresented: reviewerIsPresented, selectDestination: selectToolbarDestination)
+      HStack(spacing: 8) {
+        WorkbenchNavigationControls(layout: layout.wrappedValue,
+          reviewerIsPresented: reviewerIsPresented, selectDestination: selectToolbarDestination)
+        Button("Drawing Exchange", systemImage: "arrow.up.arrow.down.square") {
+          transferIsPresented = true
+        }
+        .controlSize(.small)
+        .accessibilityIdentifier("drawing.openExchange")
+        .help("Import authored drawings and export drawings or retained plot results")
+        .padding(.trailing, 10)
+      }
       if let panelError {
         HStack {
           Text("Action needs attention").font(.caption).foregroundStyle(.orange)
@@ -101,6 +114,9 @@ struct PlotterApplicationRuntimeView: View {
     .sheet(isPresented: $reviewerIsPresented) {
       DrawingReviewerView(application: application, close: { reviewerIsPresented = false },
         showOnPlotter: useSavedDrawingProgram, initialPhotoID: reviewerPhotoID, inspectInStudio: inspectSavedDrawingInStudio)
+    }
+    .sheet(isPresented: $transferIsPresented) {
+      DrawingTransferView(application: application, close: { transferIsPresented = false })
     }
     .onChange(of: ui.currentLearningPathItemID, initial: true) { _, item in selection.updateCurrent(item) }
     .toolbar {
@@ -255,6 +271,7 @@ struct PlotterApplicationRuntimeView: View {
         previewSource: application.portraitPlanePreviewSource,
         showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) },
         openReviewer: { photoID in reviewerPhotoID = photoID; reviewerIsPresented = true })
+        .environment(\.portraitActionTelemetry, WorkbenchRequestTelemetry.nativeActionHandled)
         .padding(12)
         .task(id: application.observationConfigurationProjection.selectedCameraID) {
           await application.portraitStudio.discover(excluding: application.observationConfigurationProjection.selectedCameraID)

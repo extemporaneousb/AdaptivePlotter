@@ -1,3 +1,4 @@
+import PortraitStudioUI
 import CoreGraphics
 import Foundation
 import PlotterEpisodeModel
@@ -7,10 +8,6 @@ import PlotterRuntime
 import PlotterUI
 import Observation
 import SwiftUI
-
-enum ActionSurfaceScalePolicy: String, Sendable {
-  case aspectFit
-}
 
 /// The high-rate, presentation-only frame owner. The application retains this
 /// reference outside its semantic observation graph so camera preview changes
@@ -79,75 +76,6 @@ final class ActionSurfacePreviewModel {
     case (.none, .some), (.some, .none):
       false
     }
-  }
-}
-
-/// Presentation-only projection from top-left-origin camera pixels into the
-/// aspect-fitted image rectangle. Camera +Y remains view +Y.
-struct CameraPixelToViewTransform: Equatable, Sendable {
-  let frameWidth: Double
-  let frameHeight: Double
-  let viewWidth: Double
-  let viewHeight: Double
-  let scale: Double
-  let originX: Double
-  let originY: Double
-  let visibleCameraRect: CGRect
-
-  init?(
-    frameWidth: Int,
-    frameHeight: Int,
-    viewWidth: Double,
-    viewHeight: Double,
-    focusRegion: PixelRect? = nil,
-    policy: ActionSurfaceScalePolicy = .aspectFit
-  ) {
-    guard frameWidth > 0, frameHeight > 0, viewWidth > 0, viewHeight > 0 else { return nil }
-    let requestedRect =
-      focusRegion.map {
-        CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
-      } ?? CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
-    let frameRect = CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
-    let clippedRect = requestedRect.intersection(frameRect)
-    guard !clippedRect.isNull, clippedRect.width > 0, clippedRect.height > 0 else { return nil }
-    visibleCameraRect = clippedRect
-    let horizontalScale = viewWidth / clippedRect.width
-    let verticalScale = viewHeight / clippedRect.height
-    switch policy {
-    case .aspectFit:
-      scale = min(horizontalScale, verticalScale)
-    }
-    self.frameWidth = Double(frameWidth)
-    self.frameHeight = Double(frameHeight)
-    self.viewWidth = viewWidth
-    self.viewHeight = viewHeight
-    originX = (viewWidth - clippedRect.width * scale) / 2 - clippedRect.minX * scale
-    originY = (viewHeight - clippedRect.height * scale) / 2 - clippedRect.minY * scale
-  }
-
-  var imageRect: CGRect {
-    CGRect(
-      x: originX,
-      y: originY,
-      width: frameWidth * scale,
-      height: frameHeight * scale
-    )
-  }
-
-  func point(_ cameraPoint: Point2<CameraPixelSpace>) -> CGPoint {
-    CGPoint(
-      x: originX + cameraPoint.x * scale,
-      y: originY + cameraPoint.y * scale
-    )
-  }
-
-  func cameraPoint(_ viewPoint: CGPoint) -> Point2<CameraPixelSpace>? {
-    let x = (viewPoint.x - originX) / scale
-    let y = (viewPoint.y - originY) / scale
-    guard visibleCameraRect.contains(CGPoint(x: x, y: y)),
-      x >= 0, x < frameWidth, y >= 0, y < frameHeight
-    else { return nil }
-    return try? Point2(x: x, y: y)
   }
 }
 
@@ -1376,7 +1304,6 @@ struct ActionSurface: View {
     }
   }
 
-
 }
 
 private extension DisplayedFrame {
@@ -1421,79 +1348,6 @@ private extension FrameSourceIdentity {
   }
 }
 
-struct FramePresentationIdentity: Hashable, Sendable {
-  let frameID: FrameID
-  let cameraConfigurationID: CameraConfigurationID
-
-  init(_ frame: StampedFrame) {
-    frameID = frame.id
-    cameraConfigurationID = frame.cameraConfigurationID
-  }
-}
-
 /// A one-entry presentation cache. Frame identity is the evidence boundary:
 /// the same frame/configuration pair denotes the same immutable canonical
 /// bytes. Keeping only the current image bounds memory as live frames advance.
-@MainActor
-final class FramePresentationImageCache: ObservableObject {
-  private var cachedIdentity: FramePresentationIdentity?
-  private var cachedImage: CGImage?
-  private(set) var conversionCount = 0
-
-  var cachedEntryCount: Int { cachedIdentity == nil ? 0 : 1 }
-
-  func image(from frame: StampedFrame) -> CGImage? {
-    let identity = FramePresentationIdentity(frame)
-    if identity == cachedIdentity {
-      return cachedImage
-    }
-
-    let image = FrameImageFactory.image(from: frame)
-    cachedIdentity = identity
-    cachedImage = image
-    conversionCount += 1
-    return image
-  }
-}
-
-enum FrameImageFactory {
-  static func image(from frame: StampedFrame) -> CGImage? {
-    guard let provider = CGDataProvider(data: frame.bytes.data as CFData) else {
-      return nil
-    }
-
-    let colorSpace: CGColorSpace
-    let bitsPerPixel: Int
-    let bitmapInfo: CGBitmapInfo
-    switch frame.pixelFormat {
-    case .gray8:
-      colorSpace = CGColorSpaceCreateDeviceGray()
-      bitsPerPixel = 8
-      bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue)
-    case .rgba8:
-      colorSpace = CGColorSpaceCreateDeviceRGB()
-      bitsPerPixel = 32
-      bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue)
-        .union(.byteOrder32Big)
-    case .bgra8:
-      colorSpace = CGColorSpaceCreateDeviceRGB()
-      bitsPerPixel = 32
-      bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue)
-        .union(.byteOrder32Little)
-    }
-
-    return CGImage(
-      width: frame.width,
-      height: frame.height,
-      bitsPerComponent: 8,
-      bitsPerPixel: bitsPerPixel,
-      bytesPerRow: frame.rowBytes,
-      space: colorSpace,
-      bitmapInfo: bitmapInfo,
-      provider: provider,
-      decode: nil,
-      shouldInterpolate: true,
-      intent: .defaultIntent
-    )
-  }
-}

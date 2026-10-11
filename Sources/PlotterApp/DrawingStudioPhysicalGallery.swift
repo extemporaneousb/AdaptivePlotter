@@ -1,3 +1,6 @@
+import PortraitArtists
+import PortraitLibrary
+import PortraitStudioUI
 import ImageIO
 import PlotterModel
 import PlotterRuntime

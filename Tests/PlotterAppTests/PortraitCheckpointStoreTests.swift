@@ -1,3 +1,5 @@
+@testable import PortraitArtists
+@testable import PortraitLibrary
 import Darwin
 import Foundation
 import PlotterModel
