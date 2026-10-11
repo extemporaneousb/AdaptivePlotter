@@ -29,11 +29,11 @@ interfaces are not future obligations. Remaining work is:
   current supports cover landmarks, estimated face skin and observed jaw. Hair/clothing,
   registered multi-frame evidence, depth and learned abstraction remain research.
 - Verify cold-start behavior on the user's actual archive and native saved-style chooser.
-  The committed compact manifest and early legacy catalog read are implemented. A first
-  legacy read still pays the large JSON/checksum cost; the next normal save upgrades it.
-  Do not migrate the operator's archive merely for a benchmark. Moving each candidate
-  program into content-addressed assets and lazy history materialization remain possible
-  later reductions of bulk load/save cost under the same archive owner.
+  SQLite metadata and immutable payloads are implemented, with compact browse queries
+  and selected-payload loading. Legacy archives are read-only reconciliation inputs;
+  normal saving does not upgrade them in place. The accepted storage receipts do not
+  establish native cold-start latency. Do not migrate the operator's archive merely
+  for a benchmark.
 - Define renderer-specific feature schemas before activating native parameter preference
   learning. Studio Next no longer uses the retained shared-coordinate policy. Its historical
   independent source/session/ancestry and frozen-context gates remain useful evaluation
@@ -41,7 +41,48 @@ interfaces are not future obligations. Remaining work is:
   Saved recipes are seeds, not paired drawing targets or invented preference votes. Record
   explicit comparisons across photos before claiming learned drawing quality.
 
-### Research decision: trainable portrait representation, 2026-10-01
+### Portrait Studio separation and artist contracts: accepted direction, 2026-10-11
+
+Freeze the current embedded implementation as the
+[reproducible software baseline](../README.md#portrait-studio-development-baseline)
+before changing module boundaries. Preserve Flow Edge, Contour and Sketch, their
+native settings and exact authored outputs. The next direction is infrastructure
+first: reusable source/artist/data contracts, an independently owned Studio library,
+and a standalone Studio. These are accepted future scope, not shipped targets.
+
+The accepted extraction cut is `PortraitCore` for generic artist/transfer value
+contracts, `PortraitArtists` for the existing interlocked renderer/candidate/recipe
+code, `PortraitLibrary` for `SavedDrawing`, archives and evidence read/projection,
+and `PortraitStudioUI` for the shared model/views, plus a new `PortraitStudio`
+executable. `PlotterApp` retains machine/run composition. Shared modules may
+retain existing Runtime camera/frame and immutable evidence DTO dependencies
+at this stage; no runtime safety ownership moves with them.
+
+The first extraction preserves the existing embedded Studio through the shared
+code and gives the standalone app a fresh private library for imported photos and
+drawing packages. It does not migrate or clone the production library. Studio owns
+authoring; AdaptivePlotter retains placement, calibration, motion and physical
+evidence. The version-one bridge carries the exact existing `DrawingProgram` in an
+immutable `DrawingPackage`, with an optional `PlotAttachment`, using stable source/result/run
+identities, capture occurrence and exact program hashes (including IDs, provenance,
+styles and order as well as geometry). Transfer retains the
+exact current authoring source bytes: file import currently reencodes/scales,
+so these are not necessarily the original JPEG. Software round trips and attended
+physical continuity require distinct evidence. Keep one writer per application's library,
+durable transfer payloads, old record IDs and all source history; never share one
+live writable SQLite file or infer missing ancestry during extraction.
+
+After the existing artists and exchange boundary are preserved, add a version-pinned
+SwiftSketch worker through the same contracts, explicit A/B/tie/neither/skip review,
+and grouped training exports. Generalized jobs, a Python worker, native Bézier
+records and training infrastructure are later extensions, not extraction deliverables.
+Any learning runs outside interactive authoring.
+The first proposed learning experiment is bounded preprocessing search with fixed
+artist/crop/seed and judgments against the original photo; adoption depends on
+held-out evidence. A model or teacher experiment is not a prerequisite for separation.
+The normal workspace keeps one drawing canvas, bounded serial work and cancellation.
+
+### Optional research background: trainable portrait representation
 
 One trainable drawing system does not require one line-extraction algorithm. The current
 system shares source evidence and Drawing output while using renderer-native parameters;
@@ -56,28 +97,26 @@ learn a new stroke vocabulary or an artist's style from saved parameter recipes.
 | [APDrawingGAN](https://cg.cs.tsinghua.edu.cn/people/~Yongjin/Yi_APDrawingGAN_Generating_Artistic_Portrait_Drawings_From_Face_Photos_With_Hierarchical_CVPR_2019_paper.pdf) | Global/local portrait networks support treating identity-bearing features separately. This is hierarchical region specialization, not evidence that a generic learned router over our two kernels will help. Its output is raster and its paired artist drawings differ fundamentally from saved parameter recipes. |
 | [Chan et al., geometry and semantics](https://carolineec.github.io/informative_drawings/) | Geometry and semantic objectives provide a better training target than geometric novelty alone. Raster output still needs a tested fixed-pen vector representation; semantic recognizability alone does not establish this subject's identity or age. |
 | [DiffVG](https://people.csail.mit.edu/tzumao/diffvg/) and [CLIPasso](https://clipasso.github.io/clipasso/) | Differentiable curves provide one optimizable stroke representation and explicit abstraction by stroke count. Per-image optimization and generic CLIP semantics need portrait-specific geometry/likeness checks; they are not a ready native low-latency replacement. |
-| [PortraVec v2](https://arxiv.org/html/2410.04182v2) | Most relevant first vector benchmark: facial initialization, second-pass contour refinement, region freezing and fixed-width black cubic curves. The authors report about five minutes for image-guided optimization and evaluate sampled CelebA-HQ portraits; neither interactive performance, child likeness nor physical pen quality transfers automatically. |
+| [PortraVec v2](https://arxiv.org/html/2410.04182v2) | Optional vector comparison: facial initialization, second-pass contour refinement, region freezing and fixed-width black cubic curves. The authors report about five minutes for image-guided optimization and evaluate sampled CelebA-HQ portraits; neither interactive performance, child likeness nor physical pen quality transfers automatically. |
 | [SwiftSketch](https://swiftsketch.github.io/) | Amortized image-conditioned vector generation addresses eventual interactive speed. Its project describes 35,000 synthetic image/vector pairs across 100 categories and training on 15 categories. That is not our sparse feedback archive, and object-level generalization is not individual portrait identity evidence. |
 | [Single-Line Drawing, 2026](https://arxiv.org/abs/2606.01910) | Continuous vector-path optimization is relevant to pen-lift economy. Connectivity is a stylistic constraint, not established portrait fidelity or mechanical benefit in this application; compare it only after a useful sparse multi-stroke baseline. |
 
-Selected direction: retain independently tuned native renderer baselines. Preference
-learning needs corresponding renderer-specific features before evaluation. Separately,
-evaluate one budgeted set of
-fixed-width cubic curves with separate facial structure and tone objectives, landmark
-initialization, and frozen unrelated regions. A bounded image-guided PortraVec/DiffVG
-prototype is the first comparison; no prompt-driven identity/expression deformation is
-selected. Compile accepted curves into the existing `DrawingProgram` with material,
-spacing, clipping and point/path budgets. Only after useful accepted targets exist should
-we consider distilling into an image-conditioned vector model for interactive inference.
+The October 1 PortraVec/DiffVG-first research sequence is superseded by the accepted
+infrastructure-first direction above. The papers remain optional background, not a
+required teacher, dependency or selected implementation. Retain independently tuned
+native renderer baselines. Preference learning needs corresponding renderer-specific
+features before evaluation. If a later curve experiment is selected, compile accepted
+curves deterministically into `DrawingProgram` with material, spacing, clipping and
+point/path budgets and retain their original representation and provenance.
 
 A parameter preference policy is limited by its representation:
 it can prefer existing parameter settings but cannot recover information discarded by
 analysis or create a new grammar. A single collapsed kernel would lose useful baselines;
 a learned mixture/router currently lacks attributable expert-quality labels and adds
 routing/coverage failure modes. Region experts can be reconsidered if independent
-comparisons show systematic gains over the shared curve model.
+comparisons show systematic gains over the selected artist baselines.
 
-Acceptance for the vector experiment: compare current kernels and learned/optimized
+Acceptance for any later vector experiment: compare current kernels and learned/optimized
 curves on the same held-out real portraits at matched physical size, pen width and
 30/60/120 stroke budgets; record identity and actual age, feature topology, tone, clutter,
 operator preference, failure rate and generation/choice latency. Include profiles,

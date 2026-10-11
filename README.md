@@ -441,6 +441,71 @@ Evidence claims remain separate:
 - a click is an explicit operator assertion;
 - only observed physical ink proves a physical mark.
 
+## Portrait Studio development baseline
+
+`portrait-studio-baseline-2026-10-11` is the local annotated reference for the
+embedded Studio before separation. Its production source and package topology
+are unchanged from `ffd0c6c5a46d24c8e557535fae750ab84c7bf0ef`; the baseline
+adds documentation and comparison tests. The tag is created after review and
+validation, without publishing it or replacing the running app. The tagged commit
+is a reproducible software reference, not physical or native-interaction acceptance.
+
+Flow Edge, Contour and Sketch are the current artists. Studio, its renderer
+contracts and the portrait library still live in `PlotterApp`. The accepted
+separation direction remains [Roadmap work](docs/ROADMAP.md#portrait-studio-separation-and-artist-contracts-accepted-direction-2026-10-11).
+
+Run the frozen renderer comparison in the checkout under test:
+
+```bash
+make portrait-baseline-check
+```
+
+`PortraitBaselineTests` constructs `portrait-baseline-integer-face-96x128-v1`
+from integer grayscale bytes. It bypasses image decoding, Vision, cameras and
+user libraries. Each artist uses its native Balanced preset, front pose, a fixed
+0.4 mm nominal pen profile and a 75 by 100 field. The test freezes the input
+SHA-256, exact ordered stroke/point counts and `DrawingProgram.contentHash`,
+which includes canonical double geometry, IDs, style and provenance. It also
+checks repeatability. This covers this fixture and preset, not all photos,
+parameters, capture behavior, likeness or physical ink.
+
+The input grayscale-byte SHA-256 is
+`2493f5340ca94eb682cf54869c9d6ed85cdd9e8515fecb625175108eb1b66cdb`.
+Frozen expected outputs are:
+
+| Artist | Strokes | Points | Exact program SHA-256 |
+| --- | ---: | ---: | --- |
+| Flow Edge | 6 | 561 | `f25cf16b4a21f9f5fbf12cd125ac919fcf42a089728fe2066b2e7c365cbe603c` |
+| Contour | 12 | 181 | `9f0065a14f51efb4784030af95742604beae7e4efea46c4307a4fd7bab3ff529` |
+| Sketch | 8 | 73 | `0ddd07660e46aab1fb2c3b9c729a29d110852b6d9ff91c4cebc049c54f4b9042` |
+
+For a reviewable before/after comparison, check out the tag into a separate
+worktree and run the same target there and in the candidate checkout with distinct
+absolute `PORTRAIT_BASELINE_OUTPUT` directories. The target exports the input
+PGM, native options, complete program JSON and reports for all three artists:
+
+```bash
+PORTRAIT_BASELINE_OUTPUT=/absolute/path/to/baseline-output make portrait-baseline-check
+PORTRAIT_BASELINE_OUTPUT=/absolute/path/to/candidate-output make portrait-baseline-check
+diff -ru /absolute/path/to/baseline-output /absolute/path/to/candidate-output
+```
+
+The two commands run in their respective checkouts, one Swift executor at a time.
+Use fresh output directories and record `swift --version`, `sw_vers` and commit
+IDs beside the receipts. The recorded baseline toolchain is Apple Swift 6.1.2,
+macOS 15.8.1, x86_64, debug. Cross-toolchain or cross-architecture equality is
+unverified; investigate numerical drift without weakening the tagged reference.
+Exports regenerate observed output only: no command overwrites the expected
+hashes. A behavior change requires an explicit reviewed baseline revision, an
+explained geometry/provenance diff and new expected values; extraction alone
+must preserve the original values. Retain old baseline tags and source history.
+
+Repository acceptance additionally runs `make docs-check`,
+`make quick-test SWIFT_FLAGS=--no-parallel` and `git diff --check` through Blackdog.
+The separate [attended runbook](docs/ATTENDED_HARDWARE_RUNBOOK.md#6-portrait-studio--two-distinct-physical-plans)
+owns camera, operator and physical evidence; these software commands do not launch
+an app or establish that evidence.
+
 ## Build, test, and launch
 
 Requirements:
@@ -455,6 +520,7 @@ Common commands:
 ```bash
 make help
 make build
+make portrait-baseline-check
 make quick-test
 make journey-test
 make test

@@ -65,6 +65,18 @@ protocol facts do not establish the identity or physical behavior of the live fi
 
 ## Package topology
 
+At the [Portrait Studio baseline](../README.md#portrait-studio-development-baseline),
+the package remains a single `AdaptivePlotter` executable with portrait authoring
+inside `PlotterApp`. `PortraitSourcePreparation` and `PortraitRendering` separate
+some responsibilities internally, but render requests/results still depend on
+the existing style/options/raster types. `PortraitCandidate` retains the exact
+renderer recipe and analysis. `SavedDrawing` owns authored geometry, while
+`PlotterApplicationRuntime` admits the selected Studio drawing through the existing
+Drawing path. Physical evidence publication also updates the portrait library.
+SQLite and immutable payloads are already implemented; standalone Studio targets,
+general artist contracts and cross-application drawing/plot exchange are future
+[Roadmap scope](ROADMAP.md#portrait-studio-separation-and-artist-contracts-accepted-direction-2026-10-11).
+
 ```text
 EpisodeCore
   Foundation-only domain-generic episode identities, goals, definitions, manifests

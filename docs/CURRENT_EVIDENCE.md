@@ -8,6 +8,40 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Portrait Studio software baseline, 2026-10-11
+
+Task `task-9ef164c3c8e543e79c42b586f38beedc` establishes the local annotated
+reference `portrait-studio-baseline-2026-10-11` before Studio separation. Production
+`Sources` and `Package.swift` remain byte-for-byte unchanged from
+`ffd0c6c5a46d24c8e557535fae750ab84c7bf0ef`. The change adds a reproducibility
+test/Makefile target and reconciles current documentation with accepted future
+scope; it does not implement extraction, another artist or a learning system.
+
+`make portrait-baseline-check` passed one parameterized test covering Flow Edge,
+Contour and Sketch in 2.776 seconds after the fixed expected values were recorded.
+The integer-defined 96 by 128 grayscale fixture uses no user photo, Vision,
+camera, image decoding or library. It freezes the input bytes, exact program
+hashes and ordered stroke/point counts, and verifies repeatability. The
+[README baseline table and procedure](../README.md#portrait-studio-development-baseline)
+record the exact values and reproducible full-program/option/PGM export commands.
+Observed output exports do not rewrite the reference. Environment: Apple Swift
+6.1.2, macOS 15.8.1, x86_64, debug. Other toolchains and architectures are not
+validated by this receipt.
+
+Configured repository acceptance remains `make docs-check`, `make quick-test`
+with `SWIFT_FLAGS=--no-parallel`, and `git diff --check`; the task's Blackdog
+validation records own those final machine receipts and landing status. The
+unchanged source emits an unused `media` binding warning in
+`DrawingStudioPhysicalGallery.swift`; this baseline does not claim a strict
+warnings-as-errors pass.
+
+The existing user-owned PID 88462 was retained. No running app or main-checkout
+bundle was replaced, no production library was migrated, and no camera/controller
+or physical operation was invoked. The local tag is a software reference only:
+native timing, real-photo likeness, capture quality and the attended runbook's
+physical obligations remain open. Historical evidence below retains its original
+scope and is not upgraded by this baseline.
+
 ## Flow Edge zero-tone density, 2026-10-10
 
 Task `task-70fdc6cb3eb740e2afe89a78d7404e12` extends native Flow Edge tone

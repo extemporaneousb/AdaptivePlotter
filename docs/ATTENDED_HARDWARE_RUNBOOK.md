@@ -301,6 +301,14 @@ Up and observe the existing stroke, but it must not redraw it.
 
 ## 6. Portrait Studio — two distinct physical plans
 
+The `portrait-studio-baseline-2026-10-11` software reference and
+`make portrait-baseline-check` freeze authored renderer output only. They neither
+complete this procedure nor justify restarting a user-owned running session.
+For an explicitly authorized attended run, retain the actual app/build identity,
+selected drawing hash, placement and the exact evidence photographs; record those
+results separately from the synthetic software comparison in
+[Current Evidence](CURRENT_EVIDENCE.md).
+
 ### Camera-proportioned drawing increment
 
 For the camera-based proportion check, rerun initial Guided Learning in the new

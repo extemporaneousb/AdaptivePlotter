@@ -1,4 +1,4 @@
-.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher preview-performance-gate docs-check wave-capsule-test responsiveness-test quick-test journey-test test check strict-check
+.PHONY: help build app launcher run-app run-app-simulated validate-app validate-launcher preview-performance-gate docs-check wave-capsule-test responsiveness-test portrait-baseline-check quick-test journey-test test check strict-check
 
 .DEFAULT_GOAL := help
 
@@ -24,6 +24,7 @@ help:
 		'  docs-check         Validate canonical documents, vocabulary, and execution protocol.' \
 		'  wave-capsule-test  Validate hash-bound wave capsule creation and consumption.' \
 		'  responsiveness-test Validate Learning transitions and truthful workbench controls.' \
+		'  portrait-baseline-check Compare the three current artists with frozen software outputs.' \
 		'  quick-test         Run unit and component tests, excluding retained journeys.' \
 		'  journey-test       Run retained causal journeys sequentially.' \
 		'  test               Run the complete Swift test suite in parallel.' \
@@ -65,6 +66,9 @@ wave-capsule-test:
 
 responsiveness-test:
 	swift test --filter '$(RESPONSIVENESS_TEST_FILTER)' $(SWIFT_FLAGS)
+
+portrait-baseline-check:
+	swift test $(SWIFT_FLAGS) --no-parallel --filter PortraitBaselineTests
 
 run-app: app launcher
 	@.build/AdaptivePlotterLauncher "$(CURDIR)/.build/AdaptivePlotter.app"
