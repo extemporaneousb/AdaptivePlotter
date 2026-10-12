@@ -522,6 +522,22 @@ package actor PortraitCandidateStore {
     committedIndexState = try? VerifiedFileState(databaseURL)
   }
 
+  /// Review journal writes share the canonical actor's mutation and external-change guards.
+  package func validateReviewMutationOwnership() throws {
+    if legacyReadOnly { throw PortraitLibraryError.database("legacy importer is read-only") }
+    if !hasInspected { _ = loadMutationState() }
+    if let writeBlock { throw PortraitCandidateStoreError.invalidIndex(writeBlock) }
+    if let fullHistoryWriteBlock { throw PortraitCandidateStoreError.invalidIndex(fullHistoryWriteBlock) }
+    if let committedIndexState {
+      guard try VerifiedFileState(indexURL) == committedIndexState else {
+        throw PortraitCandidateStoreError.invalidIndex("The committed index changed; reload before retrying.")
+      }
+    } else if FileManager.default.fileExists(atPath: indexURL.path) {
+      throw PortraitCandidateStoreError.invalidIndex("An archive appeared; reload before retrying.")
+    }
+    try assertCurrentInputs(libraryDatabase(), checkEvidence: false)
+  }
+
   package func configureEvidenceArchiveURL(_ url: URL) throws {
     if let evidenceArchiveURL, evidenceArchiveURL.standardizedFileURL != url.standardizedFileURL {
       throw PortraitLibraryError.database("evidence archive owner cannot change")

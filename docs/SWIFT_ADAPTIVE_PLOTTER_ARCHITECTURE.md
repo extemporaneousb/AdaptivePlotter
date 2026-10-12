@@ -95,8 +95,20 @@ retained record bytes and their original referenced frames. Import verifies hash
 identities, bounded geometry/images/media and conflicts before publication. Returned
 evidence is inspection-only; it cannot admit motion, accept Learning, clear paper,
 or replace the raw physical evidence owner. See [the current format and operator
-guide](PORTRAIT_STUDIO.md). SwiftSketch, generalized jobs and training remain
-[Roadmap scope](ROADMAP.md#portrait-studio-extensions-after-separation).
+guide](PORTRAIT_STUDIO.md).
+
+`PortraitCore` also owns immutable review/job/group/pilot/export values and the
+SwiftSketch subprocess protocol; `PortraitArtists` owns its serial local client and
+bounded cubic converter. `PortraitLibrary` retains experiment records through the
+existing serialized store, exact canonical packages and append-only ratings.
+`PortraitStudio` composes the standalone Artists and Review models/views, file
+panels and an explicit disposable `--review-library` path. Source snapshots retain
+occurrence/hash/revision admission, rather than borrowing current gallery selection
+as result provenance. Native preparation and the retained external pilot preparation
+have separate revisions and bytes. The real-pilot test is opt-in, performs no new
+model inference and uses a disposable library; it creates unlabeled comparisons
+through the production codecs/store. Human quality, independent held-out judgments,
+training and native/physical acceptance remain [Roadmap scope](ROADMAP.md#portrait-studio-extensions-after-separation).
 
 ```text
 EpisodeCore

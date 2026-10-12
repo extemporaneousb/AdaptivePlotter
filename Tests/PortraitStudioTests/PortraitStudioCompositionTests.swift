@@ -118,6 +118,8 @@ struct PortraitStudioCompositionTests {
       await studio.model.importPhoto(source, strokeStyle: studio.strokeStyle)
       await studio.model.awaitRendering()
       let first = try #require(studio.model.selectedCandidate)
+      let sourceSnapshot = try await studio.model.experimentalSourceSnapshot()
+      #expect(studio.model.admitsExperimentalSource(sourceSnapshot))
       let second = try PortraitCandidate(sourceData: first.sourceData, sourcePixelExtent: first.sourcePixelExtent,
         raster: first.raster, recipe: first.recipe, program: first.program, photoID: UUID(),
         captureSessionID: UUID(), createdAt: first.createdAt.addingTimeInterval(1), lineage: first.lineage,
@@ -142,6 +144,8 @@ struct PortraitStudioCompositionTests {
       await studio.editSelection()
       #expect(studio.model.selectedCandidate?.photoID == second.photoID)
       #expect(studio.model.selectedPhotoID == second.photoID)
+      #expect(!studio.model.admitsExperimentalSource(sourceSnapshot))
+      #expect(sourceSnapshot.admission.isCancelled)
       await studio.shutdown()
     } catch {
       await studio.shutdown()

@@ -1,0 +1,9 @@
+# Intel macOS final supported PyTorch release; isolated environment only.
+torch==2.2.2
+torchvision==0.17.2
+numpy==1.26.4
+Pillow==10.4.0
+ftfy==6.3.1
+regex==2024.11.6
+tqdm==4.67.1
+gdown==5.2.0

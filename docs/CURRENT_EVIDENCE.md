@@ -8,6 +8,171 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Portrait experiment infrastructure and real CPU feasibility, 2026-10-12
+
+Task `task-3d3f2783360d4705a8c28bd52290c174` resumes the `c640f96`
+separation foundation. The candidate adds a pinned external CPU SwiftSketch worker,
+ordered cubic conversion, library-owned immutable jobs/review/group/export records,
+and standalone Artists/Review presentation. The three native rendering algorithms
+and their frozen output reference are retained. Current source and operator meaning
+belong to [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md) and
+[Portrait Studio](PORTRAIT_STUDIO.md); unfinished human/physical acceptance stays in
+[Roadmap](ROADMAP.md). No upstream code/model is bundled or redistributed by the app.
+
+Real upstream example and two retained-portrait smoke inferences succeeded on the
+local Intel CPU port. The bounded preprocessing pilot then retained all **18 of 18
+successful worker outcomes**, six distinct sources × three frozen arms, with no
+replacement jobs or tuning. The original manifest SHA-256 is
+`952fe45f354b82f29e76ee7e0187c22ebdb8b224103e6341dd17c06bf7d5e7af`.
+The coordinator selected evenly spaced positions in ordered retained metadata before
+outputs, excluding smoke sources. Human subject/session groups and real capture
+times remain unknown/unassigned. Read-only input inspection found distance/angle/
+backlight variation, occlusion and a multiple-face frame; those descriptions do not
+identify a subject or create human preference labels.
+
+The persistent original tree is
+`~/Documents/PortraitStudio-Milestone-2026-10-12/pilot-v1`.
+Its frozen manifest/request/input hashes, raw curves, previews, provenance, responses,
+logs and supervisor receipts remain intact. The 18 request subprocesses took median
+**13.493 seconds**, range **12.228–18.084 seconds**, total external run **263.120
+seconds**, with maximum worker RSS **1,377,828,864 bytes**. Each output has 32 finite
+refined cubics. This worker reloads its models per request, uses two CPU threads,
+and has uncontrolled filesystem-cache state. Stage medians were 2.093 seconds
+process/import, 2.519 model load, 0.151 feature extraction, 6.029 diffusion and 0.060
+refinement. These are worker measurements, not native click-to-paint or a resident
+model-service benchmark.
+
+The subsequently repaired, installed adapter is distinct from the frozen pilot
+adapter. Its SHA-256 is
+`1ea1794129cf68ddf6566319b3806f728eec048e49138085b6e6ca86acab9d12`;
+the installed model-manifest SHA-256 is
+`469556a66314eaeb1b8203c9fd7275cda233fd2e016682cfc8322159fe1c86a4`.
+Its final successful pretrained proof took 13.703 seconds and peak RSS
+1,375,473,664 bytes, after all five official asset hashes and imported versions
+were verified. The proof receipt SHA-256 is
+`b891a0a7113c2b9ff69a50b2d9eb2ee6747bdadb91a75970e58ed82fdc3d692b`.
+The prior proof and failure diagnostics are retained in the milestone's
+`repair-verification` directory. Seven Python contract tests passed. The pilot
+adapter hash is `c377aa7b3e89c70f28793daab5f84ded050671a0a4a7045fe48e25205e76af22`
+and its original path-bound model-manifest hash is
+`7718064270ddb7a7e095df99c56e1fafda8bc0c3797b5a4af68df1d10b93ba1c`.
+The pilot bytes and its original adapter remain unchanged; this later proof does not
+rewrite their provenance or establish aesthetic quality.
+
+The pilot's exact Pillow full-source square pad has no resize before CLIP224 and
+no segmentation; it differs from native authoring's versioned CoreGraphics sRGB
+1024-square fit/pad. Typed native ingestion is retrospective: it retains original
+external manifest/request bytes, leaves the original absolute request clock unknown,
+and declares subsequent conversion/comparison material independently. Controlled
+native artist comparisons use the same retained padded input at 100 × 100 mm and
+nominal 0.4 mm pen, with fixed native options and face crop/background removal off.
+Those software baselines are separate from the paired preprocessing comparisons
+and do not establish tuned ordinary Studio framing or aesthetic usefulness.
+
+The first serialized compile detected two native integration errors (a missing
+`PlotterModel` import and a covariant `Self` default argument), which were corrected.
+The second detected a missing nested `try` in the opt-in ingestion fixture; that
+was corrected. The third compiled the native app but could not compile two new
+worker fixtures importing unavailable `XCTest`; they require the repository's
+Swift Testing convention. The fourth found a missing nested `try` in a review
+fixture. All four failed diagnostic runs are retained and do not count as test
+passes. Those fixture defects were corrected without changing their assertions.
+Source review also required synchronous source admission invalidation and a
+library-owned durable commit boundary so late cancellation cannot turn a saved
+result into a false cancelled/no-result record.
+
+The initial repaired focused run reported 47 tests in 33.309 seconds with three
+explicit skips: two native AX/interaction checks and the opt-in real pilot.
+Subsequent read-only visual QA found vertically inverted common review PNGs. The
+provisional library/dataset/reports/QA assets are retained under
+`v1-inverted-preview`, with all 672 moved files hash-verified in its relocation
+receipt. No ratings were recorded. The display repair changes only the review
+raster transform, with revision `portrait-review-common-field-v2-y-up`; raw model
+outputs and authored programs are preserved.
+
+The final repaired focused sequential command reported **50 Swift Testing tests
+in 32.610 seconds**, with four explicit skips: the two native AX/interaction checks
+and both opt-in retained-evidence tests:
+
+```sh
+swift test --no-parallel --filter 'SwiftSketch|PortraitReview|PortraitStudio|PortraitBaseline'
+```
+
+It covers all three unchanged native artist outputs; bounded worker timeout,
+cancel, identity/tamper and availability failures; deterministic cubic geometry
+and dense physical-tolerance samples; exact immutable review/reopen/export,
+explicit labels, unknown groups and connected split refusal; the 18-attempt cap;
+native preparation/composition/source withdrawal; disposable launch aliases and
+single writer; and six canonical commit regressions spanning refusal before commit,
+truthful success after late cancellation and secondary-journal recovery. Synthetic
+test judgments are disposable fixtures, separate from the unlabeled real pilot.
+Two asymmetric pixel regressions verify y-up field-to-PNG placement and a single
+image-y-down cubic conversion, including white pixels at the incorrect mirrored
+locations. Native interaction was not exercised by this host.
+Logs `portrait-milestone-initial-focused.log` and `portrait-milestone-focused-2.log`
+through `portrait-milestone-focused-6.log` remain in the milestone's `validation`
+directory. Final real-pilot, bundle and configured acceptance receipts follow only
+from the frozen candidate and observed commands.
+
+The corrected real-pilot bootstrap passed its opt-in integration test in **90.340
+seconds**, without running another model job. The retained `PilotLibrary` and
+`PilotDataset` contain 18 valid SwiftSketch packages and 18 native baseline packages,
+36 succeeded/unassigned requests, 12 paired preprocessing comparisons and 18
+native-versus-unchanged artist comparisons. All 30 comparisons are unlabeled,
+with the original visible and the corrected common display revision. There are
+zero failures, human group declarations, labels or plot attachments in this pilot
+export. `pilot-integration-report.json`, `pilot-budget-report.json` and
+`v2-program-equivalence.json` retain the detailed receipts. The final dataset
+manifest SHA-256 is
+`e25138e5237fc2795afb52cec3a7fb7b85ddb87ae7d372d0888716e9cb0158a9`.
+
+All 36 exact encoded program hashes, content hashes and program JSON objects match
+the provisional archive when keyed by source hash and artist/settings. Exact
+artist input, result-record and ordinary package-preview hashes also match. Fresh
+bootstrap creates new canonical producer/origin identities and timestamps; it
+does not mutate the archived records. The corrected `preview-qa` PNGs are byte
+copies of frozen common-scale display assets, with hashes in its index. They prove
+artifact orientation and replay, not native UI interaction or human preference.
+
+| Artist | Retained drawings | Strokes per drawing | Points per drawing |
+| --- | ---: | ---: | ---: |
+| Flow Edge | 6 | 163–331 | 6,694–9,657 |
+| Contour | 6 | 77–206 | 1,121–2,485 |
+| Sketch | 6 | 75–121 | 452–805 |
+| SwiftSketch, all three arms | 18 | 32 | 339–422 |
+
+These are exact program budgets at the declared common 100 × 100 mm field and
+0.4 mm nominal pen, with no tuning or quality ranking. Every arm/baseline uses the
+entire retained square-padded frame. No face/child/individual is designated by this
+full-frame no-segmentation experiment. A fixed independent held-out human quality
+set remains unestablished.
+
+A separate opt-in failed-receipt data-chain test passed in 0.092 seconds. It ingests
+the exact `repair-verification/post-input-runtime-version-fixture` request,
+manifest, input/prepared PNG, provenance and failed response into `FailureLibrary`
+and exports `FailureDataset`. The export has one failed job, no drawing, no
+comparison and no labels; original/runtime/output byte and hash equality and
+exported outcome equality were checked. This is an explicit fault-injection
+contract fixture with mocked model validation/inference: injected Torch 9.9.9
+causes the post-input version failure and is not the installed runtime's version.
+It establishes failure evidence retention, not a failed real pretrained job.
+
+Signed-bundle/source-snapshot and configured repository-validation receipts belong
+to the retained delivery evidence beside these artifacts. The focused and opt-in
+receipts above establish their stated software boundaries independently.
+
+No application was launched, restarted or terminated and no production library
+was modified by this work. The original main-checkout executable remains unchanged
+at SHA-256 `831908c42b45d6ada72e7f6e32d4ae5534c7bbe02b4f57c517fbbe6eec427db6`.
+The final preservation audit found original PID 13907 absent and no running
+AdaptivePlotter or PortraitStudio app; its exit cause is not established. This
+does not claim that the process remained live through completion.
+Zero human ratings means no likeness/preprocessing improvement,
+justified learned preprocessor, held-out quality or subject-generalization result.
+Native usability/camera/interaction latency, real pen/ink quality and attended
+physical transfer remain unverified. Controller or software completion does not
+establish visible ink or an unobstructed final photograph.
+
 ## Independent Portrait Studio and immutable exchange, 2026-10-11
 
 Task `task-3d339e5ba3b341589f6e78612e222ad1` extracts the existing artists,

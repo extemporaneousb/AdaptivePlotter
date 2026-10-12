@@ -69,6 +69,21 @@ struct PortraitStudioLibraryView: View {
               Button("Edit in Studio") { Task { await composition.editSelection() } }
             }
           }
+          HStack {
+            Button("Use as First Drawing") { composition.review.chooseFirst(drawing) }
+            if let first = composition.review.firstDrawing {
+              Text("First: \(first.title)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+              Button("Compare with First Drawing") {
+                Task {
+                  await composition.review.compare(with: drawing)
+                  if composition.review.error == nil { composition.workspace = .review }
+                  else { composition.message = composition.review.error }
+                }
+              }.disabled(composition.review.isLoading)
+              Button("Clear First") { composition.review.clearFirst() }
+            }
+          }.controlSize(.small)
+          PortraitStudioGroupDeclarationView(model: composition.review, drawing: drawing)
           if showsSource { sourcePreview }
           else {
             PortraitPlaneProgramPreview(preview: PortraitPlanePreviewSource()

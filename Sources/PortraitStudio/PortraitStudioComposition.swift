@@ -9,10 +9,17 @@ import PortraitStudioUI
 
 @Observable @MainActor
 final class PortraitStudioComposition {
+  enum Workspace: String, CaseIterable, Hashable { case studio, library, artists, review }
   let model: PortraitStudioModel
   let browser: PortraitStudioLibraryModel
+  let review: PortraitStudioReviewModel
+  let artist: PortraitStudioArtistModel
   let strokeStyle: StrokeStyle
-  var showsLibrary = false
+  var workspace: Workspace = .studio
+  var showsLibrary: Bool {
+    get { workspace == .library }
+    set { workspace = newValue ? .library : .studio }
+  }
   var message: String?
   private(set) var isBusy = false
   private(set) var isClosing = false
@@ -34,6 +41,8 @@ final class PortraitStudioComposition {
     let model = PortraitStudioModel(camera: camera, candidateStore: store)
     self.model = model
     browser = PortraitStudioLibraryModel(sketches: model.sketches)
+    review = PortraitStudioReviewModel(store: store)
+    artist = PortraitStudioArtistModel(studio: model, store: store)
     // A nominal authoring preview width; physical material qualification belongs
     // to the receiving plotter application.
     strokeStyle = try! StrokeStyle(nominalLineWidth: 0.4,
@@ -83,6 +92,28 @@ final class PortraitStudioComposition {
     Task { message = await exportDrawing(drawing) }
   }
 
+  func exportReviewDataset() {
+    guard !isClosing, export == nil, action == nil, !review.isLoading else { return }
+    isBusy = true
+    let task = Task { () -> String? in
+      do {
+        guard let url = await files.chooseReviewDatasetExport() else { return nil }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        try Task.checkCancellation()
+        try await review.exportDataset(to: url)
+        return nil
+      } catch is CancellationError { return nil }
+      catch { return error.localizedDescription }
+    }
+    export = task
+    Task {
+      message = await task.value
+      export = nil
+      isBusy = false
+    }
+  }
+
   func importFile(attachment: Bool) {
     guard !isClosing, action == nil, export == nil else { return }
     isBusy = true
@@ -127,6 +158,8 @@ final class PortraitStudioComposition {
     await action?.value
     _ = await export?.value
     await browser.shutdown()
+    await review.shutdown()
+    await artist.shutdown()
     await model.shutdown()
   }
 }

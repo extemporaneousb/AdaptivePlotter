@@ -8,7 +8,12 @@ struct PortraitStudioRootView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      if composition.showsLibrary {
+      if composition.workspace == .artists {
+        PortraitStudioArtistView(composition: composition)
+      } else if composition.workspace == .review {
+        PortraitStudioReviewView(model: composition.review,
+          exportDataset: { composition.exportReviewDataset() }, isExporting: composition.isBusy)
+      } else if composition.showsLibrary {
         PortraitStudioLibraryView(composition: composition)
       } else {
         PortraitStudioView(model: composition.model, strokeStyle: composition.strokeStyle,
@@ -30,15 +35,20 @@ struct PortraitStudioRootView: View {
     }
     .toolbar {
       ToolbarItem(placement: .navigation) {
-        Picker("Workspace", selection: $composition.showsLibrary) {
-          Label("Studio", systemImage: "pencil.and.outline").tag(false)
-          Label("Library", systemImage: "books.vertical").tag(true)
+        Picker("Workspace", selection: $composition.workspace) {
+          Label("Studio", systemImage: "pencil.and.outline").tag(PortraitStudioComposition.Workspace.studio)
+          Label("Library", systemImage: "books.vertical").tag(PortraitStudioComposition.Workspace.library)
+          Label("Artists", systemImage: "pencil.tip.crop.circle").tag(PortraitStudioComposition.Workspace.artists)
+          Label("Review", systemImage: "rectangle.split.2x1").tag(PortraitStudioComposition.Workspace.review)
         }.pickerStyle(.segmented)
       }
       ToolbarItemGroup {
         Button("Import Drawing", systemImage: "square.and.arrow.down") { composition.importFile(attachment: false) }
         Button("Import Plot Attachment", systemImage: "photo.badge.arrow.down") { composition.importFile(attachment: true) }
       }
+    }
+    .onChange(of: composition.model.selectedPhotoID) { _, _ in
+      Task { await composition.artist.cancelIfSourceChanged() }
     }
     .alert("Portrait Studio", isPresented: Binding(
       get: { composition.message != nil }, set: { if !$0 { composition.message = nil } })) {

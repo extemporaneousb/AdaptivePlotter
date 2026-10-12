@@ -1,4 +1,4 @@
-.PHONY: help build app portrait-studio-app validate-portrait-studio-app launcher run-app run-app-simulated validate-app validate-launcher preview-performance-gate docs-check wave-capsule-test responsiveness-test portrait-baseline-check quick-test journey-test test check strict-check
+.PHONY: help build app portrait-studio-app validate-portrait-studio-app launcher run-app run-app-simulated validate-app validate-launcher preview-performance-gate docs-check wave-capsule-test responsiveness-test portrait-baseline-check portrait-experiment-check quick-test journey-test test check strict-check
 
 .DEFAULT_GOAL := help
 
@@ -27,6 +27,7 @@ help:
 		'  wave-capsule-test  Validate hash-bound wave capsule creation and consumption.' \
 		'  responsiveness-test Validate Learning transitions and truthful workbench controls.' \
 		'  portrait-baseline-check Compare the three current artists with frozen software outputs.' \
+		'  portrait-experiment-check Run artist/review software checks; retained real pilot is opt-in.' \
 		'  quick-test         Run unit and component tests, excluding retained journeys.' \
 		'  journey-test       Run retained causal journeys sequentially.' \
 		'  test               Run the complete Swift test suite in parallel.' \
@@ -69,6 +70,7 @@ docs-check:
 	@PYTHONDONTWRITEBYTECODE=1 ./.VE/bin/python Scripts/test_episode_pilot_metrics.py
 	@$(MAKE) wave-capsule-test
 	@sh Scripts/check_repository_contract.sh
+	@./.VE/bin/python Scripts/test_repository_contract.py
 
 wave-capsule-test:
 	@PYTHONDONTWRITEBYTECODE=1 ./.VE/bin/python Scripts/test_episode_wave_capsule.py
@@ -78,6 +80,9 @@ responsiveness-test:
 
 portrait-baseline-check:
 	swift test $(SWIFT_FLAGS) --no-parallel --filter PortraitBaselineTests
+
+portrait-experiment-check:
+	swift test $(SWIFT_FLAGS) --no-parallel --filter 'SwiftSketch|PortraitReview|PortraitStudioArtist|PortraitStudioReview|PortraitStudioRealPilot|PortraitBaseline'
 
 run-app: app launcher
 	@.build/AdaptivePlotterLauncher "$(CURDIR)/.build/AdaptivePlotter.app"

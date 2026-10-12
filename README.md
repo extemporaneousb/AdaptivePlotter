@@ -36,7 +36,14 @@ not carry its camera permission description. See the
 [Studio operator and format guide](docs/PORTRAIT_STUDIO.md) for capture, imports,
 private storage, exact identity preservation, and returned evidence limits.
 The [frozen development baseline](#portrait-studio-development-baseline) below
-remains the output comparison reference.
+remains the output comparison reference. Standalone **Artists** exposes the three
+native artists and experimental local SwiftSketch with explicit availability and
+cancellation. **Review** compares immutable drawings with the original visible,
+records explicit A/B/tie/neither/skip judgments and exports retained experiment
+bytes. Human source/session declarations remain separate from capture UUIDs.
+See the Studio guide for installed runtime configuration and opening the disposable
+retained pilot library; model success and unlabeled comparisons do not establish
+portrait quality.
 
 ## Operator journey
 

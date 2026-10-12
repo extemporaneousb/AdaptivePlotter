@@ -1891,10 +1891,45 @@ visible ink. Unknown artists remain read-only inspectable and their exact valid
 programs remain transferable; native editing requires supported native provenance.
 The [Studio guide](PORTRAIT_STUDIO.md) owns the current file and operator details.
 
-Promising/rejected feedback still addresses exact native attempts. Generalized
-A/B/tie/neither/skip comparisons, SwiftSketch workers, new job/curve schemas and
-training exports remain future scope; package versioning is an extension seam,
-not a claim that those facilities already exist.
+Promising/rejected feedback still addresses exact native attempts. Standalone
+**Review** is a separate comparison workspace for exact retained native or imported
+results of one capture and source hash. It keeps the original visible and freezes
+randomized A/B order, origins, program/source/package/preview hashes, common display
+field, nominal pen width and immutable display transforms. Both sides use one
+millimeter-to-pixel scale without stretching; unequal nominal pen-width sets are
+refused. Package previews remain distinct from comparison snapshots. Each side
+retains its own dimensions, pen provenance and stroke/point budgets.
+
+Human comparisons record A, B, tie, neither or skip explicitly. Overall preference
+is primary; likeness, expression, structure, tone, clutter and material feasibility
+are separate optional judgments. Unanswered dimensions are absent. Skip is not a
+negative label. An anonymous reviewer remains unknown; age has no score without
+actual ground truth. Append-only revisions bind the exact comparison, rubric,
+reviewer declaration and time. Saved recipes, generation success, plotting and
+software fixtures do not manufacture human preferences.
+
+Experiment requests retain source/derived input, artist settings, seed, nominal
+material and declared groups before native work. All scheduled, successful, failed,
+cancelled, unsupported and skipped outcomes remain inspectable; only a valid exact
+package becomes canonical `SavedDrawing`. SwiftSketch uses a locally configured,
+version-pinned CPU worker with a matching successful inference receipt. Its ordered
+open cubics compile through an explicit uniform affine, fixed physical tolerance
+min(0.05 mm, nominal pen width / 4), deterministic IDs and bounded depth/point counts.
+Invalid curves are refused without clipping, closing, merging or reordering.
+Source selection/deletion and cancellation cannot revive a deleted capture or
+publish a stale result. Shutdown joins worker and durable work.
+
+Subject and photographic-session identities are human declarations with provenance,
+independent of acquisition/capture UUIDs. Unknown groups stay unassigned; connected
+subject/session/source/capture/ancestry groups cannot cross a fixed declared split.
+The export preserves exact source/input/raw/program/preview bytes, ordered origins,
+environments/statuses, ratings and plot-origin links. Retained-byte replay is
+separate from regeneration, photographic independence or generalization. External
+pilot ingestion is explicitly retrospective and retains its original manifest and
+request bytes; it does not invent earlier native journals or known request clocks.
+No training or tuning runs in interactive Studio. Unlabeled outputs establish
+software feasibility only, and mostly one person's photos cannot establish subject
+generalization. The selected experiment and open acceptance belong to [Roadmap](ROADMAP.md).
 
 ### Embedded Studio and Drawing
 

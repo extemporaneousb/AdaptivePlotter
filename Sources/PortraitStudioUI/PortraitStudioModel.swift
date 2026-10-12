@@ -1,10 +1,18 @@
 import PortraitArtists
 import PortraitLibrary
+import PortraitCore
 import Foundation
 import Observation
 import OSLog
 import PlotterModel
 import PlotterRuntime
+
+package struct PortraitExperimentalSourceSnapshot: Sendable {
+  package let photo: PortraitPhoto
+  package let selectionRevision: UInt64
+  package let sourceSHA256: String
+  package let admission: PortraitReviewSourceAdmissionToken
+}
 
 package struct PortraitRenderDiagnostics: Equatable, Sendable {
   package var requestedWorkCount = 0
@@ -91,7 +99,12 @@ package final class PortraitStudioModel {
   @ObservationIgnored private var completedKey: PortraitRenderCacheKey?
   @ObservationIgnored package private(set) var renderCacheHits = 0
   package private(set) var recentPhotos: [PortraitPhoto] = []
-  package private(set) var selectedPhotoID: UUID?
+  package private(set) var selectedPhotoID: UUID? {
+    willSet { experimentalAdmission?.cancel() }
+    didSet { experimentalSourceRevision &+= 1 }
+  }
+  @ObservationIgnored private var experimentalSourceRevision: UInt64 = 0
+  @ObservationIgnored private var experimentalAdmission: PortraitReviewSourceAdmissionToken?
   @ObservationIgnored private var retainedEditSource: PortraitPhoto?
   @ObservationIgnored private var photoSelectionTask: Task<Void, Never>?
   @ObservationIgnored private var photoSelectionRevision: UInt64 = 0
@@ -129,6 +142,28 @@ package final class PortraitStudioModel {
   package func photoForBrowsing(_ id: UUID) async throws -> PortraitPhoto {
     if let photo = recentPhotos.first(where: { $0.id == id }) { return photo }
     return try await sketches.photoForBrowsing(id)
+  }
+  package func experimentalSourceSnapshot() async throws -> PortraitExperimentalSourceSnapshot {
+    guard !isShutdown, let id = selectedPhotoID else {
+      throw DrawingTransferError.unavailable("Select a retained source photo in Studio first.")
+    }
+    let revision = experimentalSourceRevision
+    experimentalAdmission?.cancel()
+    let admission = PortraitReviewSourceAdmissionToken()
+    experimentalAdmission = admission
+    let photo = try await photoForBrowsing(id)
+    let snapshot = PortraitExperimentalSourceSnapshot(photo: photo, selectionRevision: revision,
+      sourceSHA256: DrawingPackageCodec.sha256(photo.data), admission: admission)
+    guard admitsExperimentalSource(snapshot) else {
+      throw DrawingTransferError.unavailable("The selected source changed before the request was frozen.")
+    }
+    return snapshot
+  }
+
+  package func admitsExperimentalSource(_ snapshot: PortraitExperimentalSourceSnapshot) -> Bool {
+    !isShutdown && !snapshot.admission.isCancelled && selectedPhotoID == snapshot.photo.id
+      && experimentalSourceRevision == snapshot.selectionRevision
+      && selectedSource.map { DrawingPackageCodec.sha256($0.data) == snapshot.sourceSHA256 } == true
   }
   package var retainedPhotoBytes: Int { recentPhotos.reduce(0) { $0 + $1.data.count } }
   package let captureDuration: Double = 0.8
@@ -1347,6 +1382,7 @@ package final class PortraitStudioModel {
   package func cameraDiagnostics() async -> CameraCaptureSnapshot { await camera.snapshot() }
 
   package func shutdown() async {
+    experimentalAdmission?.cancel()
     isShutdown = true
     photoSelectionRevision &+= 1; photoSelectionTask?.cancel(); photoSelectionTask = nil
     loadingPhotoID = nil

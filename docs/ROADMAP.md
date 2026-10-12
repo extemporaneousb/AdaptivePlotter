@@ -54,15 +54,40 @@ Studio through the same code. Bulk production-library cloning or migration is no
 part of this release. Native launch/capture, interaction latency and attended
 physical transfer continuity still need distinct acceptance evidence.
 
-Future extensions can add a version-pinned
-SwiftSketch worker through the same contracts, explicit A/B/tie/neither/skip review,
-and grouped training exports. Generalized jobs, a Python worker, native Bézier
-records and training infrastructure are later extensions, not extraction deliverables.
-Any learning runs outside interactive authoring.
-The first proposed learning experiment is bounded preprocessing search with fixed
-artist/crop/seed and judgments against the original photo; adoption depends on
-held-out evidence. A model or teacher experiment is not a prerequisite for separation.
-The normal workspace keeps one drawing canvas, bounded serial work and cancellation.
+The selected next work resumes the `c640f96` separation foundation. It is a
+bounded experiment infrastructure milestone, not evidence of improved portrait
+quality. Preserve all three shipped artists, their native controls and frozen
+baseline outputs. The coordinator owns acceptance, integration, serial validation
+and Blackdog lifecycle; workers share the returned task workspace with exclusive
+path ownership. The operator's running app and both production libraries remain
+untouched. No launch, cloud upload, upstream/model redistribution, training,
+fine-tuning or hardware operation is authorized by these milestones.
+
+#### Selected milestone sequence
+
+| Package / owner / exclusive paths | Dependencies | Observable acceptance and stopping condition |
+| --- | --- | --- |
+| P1 — real SwiftSketch feasibility; worker/protocol owner: `Tools/SwiftSketch/`, selected new worker protocol/adapter files under `Sources/PortraitCore/` and `Sources/PortraitArtists/`, and matching new tests | Existing baseline; upstream code/checkpoint/auxiliary assets, licenses and exact revisions declared before use | First run one upstream example, then at most two real retained portraits with the pinned worker and produce inspectable raw cubic strokes plus environment/status receipts. CPU is capped at two threads, 600 seconds per generation and a 6 GiB target memory budget; measure cold load and inference separately. Pin CLIP, both checkpoints and their adjacent configurations; use RMBG only if required and revision/license-pinned. Separately retain unavailable, unsupported, failed and cancelled cases. A fixture proves protocol only. Stop real execution on missing/incompatible assets, missing usage permission, malformed outputs or unsupported runtime; return an explicit blocker and continue unaffected packages. Intel CPU execution is a candidate requiring proof; CUDA dependencies are not assumed usable. BRIA RMBG custom code requires an exact revision and usage/license check when used, and CLIP RN101 assets require their own pins. No upstream root license has been found; distribute only this repository's glue, with externally supplied upstream code and model assets. |
+| P2 — immutable results, jobs and cubic compilation; core/library owner: selected new files under `Sources/PortraitCore/`, `Sources/PortraitArtists/`, `Sources/PortraitLibrary/`, and matching new tests | Protocol frozen with P1; independent lifecycle/persistence work can proceed while P1 runtime is blocked | Retain every scheduled job and terminal status in the library, including failed/cancelled/unsupported jobs. Preserve source bytes, exact derived input, raw cubic output, transform, settings, physical size, pen-width/tolerance provenance, pins/environment and preview/program hashes. Deterministically flatten accepted cubic geometry through an explicit affine to the existing fixed-pen `DrawingProgram`, using tolerance min(0.05 mm, nominal pen width / 4), deterministic IDs, maximum-depth/point budgets and refusal on invalid geometry; do not clamp, close or merge strokes. Create `SavedDrawing` only for valid immutable drawing packages. Cancellation settles work before a replacement starts; no late result may replace current selection. Retained-byte replay and deterministic regeneration are separate claims. Stop admission on invalid provenance, geometry or budgets. |
+| P3 — neutral A/B review and reproducible export; review/export owner: new `Sources/PortraitCore/PortraitReview*.swift`, `Sources/PortraitLibrary/PortraitReview*.swift`, `Tests/PlotterAppTests/PortraitReview*.swift`; native integration owner: `Sources/PortraitStudio/`, `Sources/PortraitStudioUI/`, `Tests/PortraitStudioTests/` | Immutable result APIs from P2; real SwiftSketch result optional for infrastructure acceptance | Dedicated review shows the original source and two immutable results with randomized recorded A/B order; authoring retains one drawing canvas. Persist A, B, tie, neither and skip distinctly, with explicit judgment dimension. Primary dimension is overall preference; likeness, expression, structure, tone, clutter and material feasibility remain separate judgments. Age requires declared ground truth and is otherwise unassessed. Ratings bind full ordered origins, source/preview hashes, physical dimensions, pen provenance, rubric/reviewer identity, randomization seed and time. Export contains source/derived/raw/program/preview bytes, manifests, worker environment/status, ratings and plot-origin links with integrity checks. No synthetic or saved-recipe labels. Stop review when exact source/results cannot be loaded or persistence fails. |
+| P4 — frozen evaluation grouping and preprocessing feasibility pilot; experiment owner on P2/export files, native integration owner on P3 paths | P2/P3; explicit human group declarations and frozen manifest before results; real P1 runtime needed for SwiftSketch jobs | Subject identity and photographic-session identity are human declarations with provenance, independent of capture/acquisition UUID. Unknown stays unassigned. Compute connected groups across subject/session/source/ancestry links before a fixed held-out split. Mostly one person's archive cannot support subject-generalization claims. The selected feasibility pilot uses six distinct retained sources selected before outputs by evenly spaced positions in ordered retained metadata, excluding the two smoke sources. This supersedes the earlier operator-selection proposal and supplies no human subject/session labels. There are three unchanged/gamma/contrast arms and at most 18 jobs including retries. The frozen arms apply gamma 0.8 and contrast 1.15 about 0.5 to encoded sRGB channels; composite alpha on white; retain the oriented source and exact crop; use paired seed 42 per photo with fixed artist/settings and physical constraints. The selected Pillow preparation preserves the full EXIF-oriented photo and pads to its maximum source dimension with white, without resizing before upstream CLIP224. Native authoring has a separately versioned CoreGraphics sRGB preparation that uniformly resizes/pads to 1024 square; it is not claimed to regenerate the pilot input bytes. The baseline mask is fixed across all three arms; a no-mask pipeline is a separately declared variant. Freeze the source/group declarations, crop/resize/pad, asset/conversion pins and reporting rules before scheduling; do not infer independent groups. Keep all scheduled failures; do not replace them. This small pilot establishes feasibility only. Retrospective native ingestion preserves the original frozen Python manifest/request bytes, marks the original absolute request clock unknown, and declares conversion material separately. For controlled software comparison, all artists consume the same retained padded square input at 100 × 100 mm with nominal 0.4 mm pen; the three native artists use their frozen defaults with face crop/background removal off and no head transform. This framing differs from ordinary Studio authoring. Compare shipped artists separately from the paired preprocessing effect; do not pool those effects. No tuning/training. Stop after the frozen cap or an admission blocker. |
+| P5 — native integration, canonical documentation and software acceptance; native/docs owner: P3 native paths, `Makefile`, `README.md`, `docs/ROADMAP.md`, `docs/PORTRAIT_STUDIO.md`, `docs/PRODUCT_CONTRACT.md`, `docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md`, `docs/CURRENT_EVIDENCE.md` | P2/P3 API handoff; SwiftSketch generation controls wait for P1 real-inference proof or an explicit blocked disposition | Discoverable availability, serial work, cancellation and failure presentation; baseline artists remain available. Validate focused suites, frozen artist baseline, documentation/contract and both signed bundles without launching. Native interaction, human judgments and physical quality remain separately unverified. Update current guides only for as-built behavior and Current Evidence only from actual receipts. The coordinator independently reviews the final diff and required acceptance; incomplete model/label gates remain explicit rather than converted into completion claims. |
+
+Workers must reserve exact filenames before writing in shared modules; the table
+assigns directory domains, not permission for overlapping files. Native generation
+wiring waits for the worker/protocol handoff. SwiftSketch remains an artist choice
+with its own parameters and explicit experimental availability; a dedicated
+experimental workspace may host it without forcing it into the baseline
+`PortraitStyle` enum or substituting a shipped artist on failure. Builds/tests are serialized by the
+coordinator after workers settle the relevant tree. Two fresh substantive reviews
+were used to select these gates; their findings do not establish runtime feasibility
+or human quality outcomes.
+
+The milestone can deliver neutral review/export and failure-safe job infrastructure
+with a model-runtime blocker. It cannot report real SwiftSketch integration until
+real inference succeeds, cannot report quality improvement without human labels,
+and cannot close the preprocessing/evaluation experiment until the frozen bounded
+jobs and judgments exist. Any learning remains outside interactive authoring.
 
 ### Optional research background: trainable portrait representation
 
@@ -107,8 +132,9 @@ The historical policy's grouped holdout is per fit, not a permanent subject-leve
 curated experiments need subject identity grouping beyond source/session/ancestry links.
 Use attended final-scale plotting later to establish line separation and ink quality.
 Fewer strokes, CLIP similarity, synthetic holdout success or a paper's benchmark cannot
-substitute for those observations. No research model, dataset or cloud upload is installed
-or invoked by the current implementation.
+substitute for those observations. These optional research directions add no further
+model, dataset or cloud-upload implementation. The local SwiftSketch runtime and
+feasibility pilot are described above.
 
 These are acceptance gaps and conditional research, not authorization to restore
 parallel sampling interfaces or add new generation systems. Historical scope remains

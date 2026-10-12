@@ -49,6 +49,25 @@ final class PortraitStudioFiles {
     }
   }
 
+  func chooseReviewDatasetExport() async -> URL? {
+    guard panel == nil, !Task.isCancelled else { return nil }
+    let chooser = NSSavePanel()
+    chooser.title = "Export Review Dataset Folder"
+    chooser.nameFieldStringValue = "PortraitReviewExport"
+    chooser.canCreateDirectories = true
+    panel = chooser
+    defer { panel = nil }
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        chooser.begin { response in
+          continuation.resume(returning: response == .OK ? chooser.url : nil)
+        }
+      }
+    } onCancel: {
+      Task { @MainActor in chooser.cancel(nil) }
+    }
+  }
+
   nonisolated static func read(_ url: URL, maximumBytes: Int) throws -> Data {
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }

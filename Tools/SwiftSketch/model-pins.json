@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "upstream_url": "https://github.com/swiftsketch/SwiftSketch.git",
+  "upstream_commit": "6f9fa8654711b9a5d3022b08a59835f0dda08f40",
+  "assets": {
+    "diffusion": {"archive_url":"https://drive.google.com/uc?id=19FryO99dCmz-Dw1jzeZITUI0uuksiOA-","member":"sketch-diffusion/model000450000.pt","sha256":"a0bbd4a767fcbd74669d7fbd505d924b7dc02be0fb68ac8163fef2d08be88803"},
+    "diffusion_args": {"member":"sketch-diffusion/args.json","sha256":"ec7f3f4b921950347f7e091dc50083fdac94efa5bd0de5e3372b8e614d8b3e48"},
+    "refinement": {"archive_url":"https://drive.google.com/uc?id=1OrLzwaJXZ4SlDw3hqn71Yg1L01ytLv2x","member":"refinement-network/model000430000.pt","sha256":"200a61bbaebac8eb8678125a7915c2ad1a5b5dea14be0bf5c3c446751d09b1a1"},
+    "refinement_args": {"member":"refinement-network/args.json","sha256":"9fa16fcfc578fe827a576eb5ad6e8367aa248a666c8990bf4076f126721898e7"},
+    "clip": {"url":"https://openaipublic.azureedge.net/clip/models/8fa8567bab74a42d41c5915025a8e4538c3bdbe8804a470a72f30b0d94fab599/RN101.pt","member":"RN101.pt","sha256":"8fa8567bab74a42d41c5915025a8e4538c3bdbe8804a470a72f30b0d94fab599"}
+  },
+  "license_status": "Root SwiftSketch code and learned checkpoint redistribution permission not established at pin. Fetch into an external local directory; no code or weights vendored. Upstream CLIP subtree declares MIT. RMBG is not used."
+}
