@@ -10,7 +10,9 @@ The pin is `6f9fa8654711b9a5d3022b08a59835f0dda08f40`; exact diffusion, refineme
 their `args.json` and CLIP RN101 hashes are in `model-pins.json`. Root SwiftSketch
 code and checkpoint redistribution permission was not established at that pin.
 These files stay externally fetched on the user's machine. CLIP's upstream
-subtree declares MIT. The stock BRIA RMBG segmentation model is not used.
+subtree declares MIT. The stock BRIA RMBG segmentation model is not used. Current native face preparation
+uses the operating system's Vision person segmentation, retaining its exact mask;
+this adapter still performs no segmentation.
 
 Create a fresh Python 3.9 environment at its final external path and install
 `requirements-cpu.txt`. Intel macOS uses PyTorch 2.2.2 and torchvision 0.17.2.
@@ -30,7 +32,7 @@ the caller owns source photo, EXIF orientation, deliberate crop or full-photo
 padding, color conversion and a frozen mask. No remote image or executable input
 is supported. No network access is needed for inference.
 
-`prepare.py` documents the milestone's full-photo policy: apply EXIF orientation,
+`prepare.py` documents the first milestone's historical full-photo policy: apply EXIF orientation,
 composite alpha over white, convert a supplied ICC profile to sRGB (record the
 assumption for an unprofiled input), retain the full oriented photo and center it
 on an opaque white square. It performs no face crop or background segmentation.
@@ -92,3 +94,41 @@ Tools/SwiftSketch -p 'test_*.py'`. Pillow-only cases skip when unavailable. Swif
 tests cover real physical flattening error, uniform fit and subprocess cancellation,
 timeouts, stale identity and asset tamper fixtures. Those fixtures are not model
 inference receipts.
+
+## Shared native face pilot
+
+`face_pilot.py plan` selects ten distinct retained originals before outputs, copies
+their exact source/capture receipts from a read-only library and snapshots the first
+pilot's file hashes. It performs no image preparation. The opt-in Swift harness
+`PortraitStudioFacePilotTests` uses the production
+`PortraitStudioArtistInput.prepare` to produce the fixed face frame, framed source,
+foreground mask and final 1024-square input. The fixed frame uniformly scales the
+face to 52% target height, center (50%, 54%) from the top left; aspect is preserved.
+A missing or ambiguous face or unusable mask is retained as a refusal. Any explicit
+visual box declaration is frozen before model outputs and never labels a subject.
+
+Run the harness in `prepare`, inspect inputs, then run `freeze` before invoking
+`face_pilot.py run --expected-manifest-sha256 ACCEPTED_SHA256`. Environment variables
+are `PORTRAIT_FACE_PILOT_ROOT`,
+`PORTRAIT_FACE_PILOT_PHASE` and optional `PORTRAIT_FACE_PILOT_PREPARATION_PASS`
+(`prepared-v1` by default). New preparation passes preserve earlier refusals and
+bytes. Freeze binds every actual native input/mask/metadata hash and artist setting.
+The runner checks those frozen bytes and records exact worker/model identity and
+supervisor admission clocks before each launch; internal worker start time remains
+explicitly unknown. Only unchanged preprocessing, seed 42 is
+scheduled: at most ten requests including unsupported/skipped/failed outcomes and
+600 seconds total model wall budget. No replacement or automatic retry is allowed.
+Worker `mask_policy:"fixed-input-no-segmentation-v1"` truthfully means the worker
+receives a caller-masked fixed PNG and applies no additional segmentation.
+
+The Swift `ingest` phase reads outputs without another model job and records all
+forty scheduled outcomes (ten model, thirty native) in the canonical journal. All
+four artists consume the same retained masked PNG. Fixed native defaults disable
+secondary crop/background removal/head transform. Common geometry is 100mm square,
+nominal 0.4mm pen. Only valid matched origins create comparisons, at most thirty;
+failures reduce the count rather than being replaced. The fresh library/export starts
+with zero human labels and unknown groups. It retains source, preparation, mask,
+framed input, external request/manifest, raw/model output, canonical program, settings
+and status evidence. Its external frozen manifest does not broaden the original
+typed six-source/eighteen-job pilot API. `face_pilot.py preserve --root ABSOLUTE_ROOT`
+rechecks the first pilot's complete source/library file inventory.

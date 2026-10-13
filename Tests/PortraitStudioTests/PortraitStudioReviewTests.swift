@@ -82,7 +82,7 @@ struct PortraitStudioReviewTests {
     await model.shutdown()
   }
 
-  private static func package(captureID: UUID = UUID(), libraryID: UUID = UUID(),
+  static func package(captureID: UUID = UUID(), libraryID: UUID = UUID(),
     resultID: String = "fixture", shape: DrawingCatalogEntryID = .square) throws -> DrawingPackage {
     let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID(UUID()))
     let base = try DrawingProgramCatalog.program(for: shape, style: style)

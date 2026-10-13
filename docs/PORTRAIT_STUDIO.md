@@ -183,10 +183,21 @@ Declare nominal field/pen dimensions and optional human subject/photographic-ses
 identities with provenance before **Generate SwiftSketch**. Blank identities remain
 unknown and unassigned. The source/capture/hash/revision, settings, paired seed 42,
 derived input and conversion context are frozen for that request. Native preparation
-uses the full EXIF-oriented retained source, an explicit sRGB conversion, white alpha
-composition and uniform 1024-square fit/pad. The fixed mask policy is no segmentation.
-The three options are unchanged, gamma 0.8 and contrast 1.15 about 0.5 on encoded
-sRGB channels. Generation success does not establish likeness or mask usefulness.
+uses the EXIF-oriented retained source, explicit sRGB conversion, a detected face and
+native Vision foreground removal. One square 1024-pixel canvas contains the face at
+52% canvas height, centered at (50%, 54%) measured from the top left. One uniform
+scale preserves the source and face aspect ratio; faces are not stretched to a common
+shape. Hair and chin context follow this fixed framing, with white outside the mask.
+The original, framed source, exact foreground mask and final input remain separate
+retained assets. Person segmentation can retain adjacent or held foreground objects;
+the retained mask is the actual input evidence, not a perfect isolated-head claim. Missing/ambiguous faces, invalid geometry or an unavailable/empty
+mask refuse preparation without submitting a full-frame substitute. Automatic selection requires one confident face. **Face selection** exposes an
+explicit rectangle and selection declaration for ambiguous/missing detections,
+measured in EXIF-oriented photo pixels from the top left. This visual framing
+declaration is separate from human subject identity. The worker receives the already masked PNG and performs no
+segmentation of its own. Existing unchanged/gamma/contrast choices remain explicit;
+the new face pilot uses unchanged input only. Generation success does not establish
+likeness or mask usefulness.
 
 Accepted ordered open cubics retain their raw representation and compile uniformly
 with an explicit image-to-field affine, no stretch, clipping, closure, merging or
@@ -204,13 +215,19 @@ preserved. Future edits never modify that saved program.
 2. **Review** keeps the original visible and presents randomized A/B sides. Their
    common-scale display PNGs are frozen from the exact programs with one scale,
    declared common field/pen and no stretching. Package thumbnails are retained
-   separately. Each side shows its stroke/point budgets and nominal dimensions;
-   unknown pen qualification remains unknown.
+   separately. **Details** contains stroke/point budgets, nominal dimensions, pen
+   provenance and the retained display/rubric metadata.
 3. Choose **Overall preference** first, using **A**, **B**, **Tie**, **Neither** or
    **Skip**. Other judgment dimensions are optional explicit observations. Unanswered
    dimensions remain absent. Skip is distinct from rejection; no age score is inferred.
-   Reviewer identity is optional and blank remains unknown. Reopening a comparison
-   restores its exact A/B order and append-only label head.
+   Reviewer identity is optional and blank remains unknown. An overall score advances
+   automatically after its durable commit succeeds. **Previous** returns to the
+   comparison with its exact A/B order and append-only label head; **Next** browses
+   without recording a skip. Optional dimension judgments in **Details** stay on the
+   current comparison. The list highlights the selected row and reports rated,
+   skipped and unanswered counts. Left/Right browse, and 1/2/3/4/5 record A/B/Tie/
+   Neither/Skip overall. Those keys retain their normal behavior inside editing
+   controls and while a sheet, modal or another window owns input.
 4. The Library's **Evaluation groups** records human subject and photographic-session
    identifiers with declaration provenance and a fixed split. Acquisition UUIDs do
    not supply those meanings. Unknown groups stay unassigned; connected subject,
@@ -286,3 +303,63 @@ interaction/camera and attended physical evidence. No software receipt establish
 ink quality, actual pen dimensions, an unobstructed final photograph or camera
 availability. Training, tuning, permanent independent held-out human evaluation and
 physical acceptance remain unfinished [Roadmap](ROADMAP.md) work.
+
+## Face framing and foreground pilot, 2026-10-12
+
+The next bounded set has its own retained root:
+`~/Documents/PortraitStudio-FaceReview-2026-10-12/`. The first pilot and its human
+ratings remain in the previous milestone root. The new source selection freezes ten
+distinct retained source hashes before model outputs, using evenly spaced positions
+in retained metadata order and excluding the original smoke sources. Actual subject
+and photographic-session groups remain unassigned. This is an input-conditioning
+and artist comparison, not an independent held-out identity evaluation.
+
+`Tools/SwiftSketch/face_pilot.py plan` copies exact selected originals read-only and
+records the first pilot's file inventory. The opt-in
+`PortraitStudioFacePilotTests` harness has separate `prepare`, `freeze` and `ingest`
+phases, selected by `PORTRAIT_FACE_PILOT_PHASE` and
+`PORTRAIT_FACE_PILOT_ROOT`. Preparation calls the same
+`PortraitStudioArtistInput.prepare` used by native authoring; it retains the exact
+framed source, mask, final PNG and transform metadata. A refused preparation is
+retained. An explicit visual face box can be declared before model output; it is
+not an identity or preference label. Accepted or refused preparation passes are
+preserved rather than overwritten.
+
+After input inspection, freeze binds source/parameter/input/mask/metadata hashes,
+all artist settings, seed 42 and a common 100 × 100 mm nominal field with a 0.4 mm
+nominal pen. `face_pilot.py run --expected-manifest-sha256 ACCEPTED_SHA256` binds the independently
+accepted freeze and makes at most ten model attempts within a 600-second
+batch budget, using the installed pinned external runtime. It never substitutes
+sources or retries a failed job. All four artists consume the same final masked
+1024-square input. Native Flow Edge, Contour and Sketch retain their frozen defaults
+with secondary face crop/background removal and head transform disabled. The target
+is three native-versus-SwiftSketch comparisons per source, at most thirty. A refusal
+or worker/conversion/native failure reduces the actual count and remains in the
+canonical journal; no comparison is fabricated to meet the target.
+
+Ingestion records all ten model and thirty native scheduled outcomes in the existing
+store, imports valid exact packages as canonical `SavedDrawing`, creates randomized
+original-visible comparisons and exports a fresh `PilotDataset` with zero human
+labels. The external manifest is retained with each request; the original version-one
+feasibility-pilot type keeps its six-source/eighteen-job limit. External model
+ingestion remains explicitly retrospective, preserving known frozen request and
+supervisor admission clocks rather than claiming an earlier native journal or an
+observed internal worker start time. Exact run receipts and model-manifest bytes are
+retained in every model request, including successful outcomes. Native jobs enter the
+journal before their renderer runs. `preview-qa` contains byte-identical common-scale
+review images, and `face_pilot.py preserve` checks the first pilot's inventory again.
+
+A retained signed review build can be opened against this new disposable library:
+
+```sh
+open -n "$HOME/Documents/PortraitStudio-FaceReview-2026-10-12/PortraitStudio.app" --args \
+  --review-library "$HOME/Documents/PortraitStudio-FaceReview-2026-10-12/PilotLibrary"
+```
+
+The retained set contains **24** new comparisons from eight admitted photos, **32**
+exact saved drawings and all **40** scheduled outcomes. Two preselected sources were
+refused before inference (invalid partly cropped face geometry and multiple faces),
+so their eight logical jobs remain unsupported. No sources were substituted to reach
+thirty. The export starts with zero human labels. Current build/test receipts belong
+to [Current Evidence](CURRENT_EVIDENCE.md). Improved likeness remains a human judgment
+after reviewing the new set; these model outputs still simplify individual structure.

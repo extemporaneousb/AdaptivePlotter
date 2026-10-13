@@ -104,10 +104,18 @@ existing serialized store, exact canonical packages and append-only ratings.
 `PortraitStudio` composes the standalone Artists and Review models/views, file
 panels and an explicit disposable `--review-library` path. Source snapshots retain
 occurrence/hash/revision admission, rather than borrowing current gallery selection
-as result provenance. Native preparation and the retained external pilot preparation
-have separate revisions and bytes. The real-pilot test is opt-in, performs no new
-model inference and uses a disposable library; it creates unlabeled comparisons
-through the production codecs/store. Human quality, independent held-out judgments,
+as result provenance. `PortraitStudioArtistInput` owns EXIF/sRGB decoding, fixed
+isotropic face framing, native Vision person masking and exact original/framed/mask/
+prepared asset retention. The fresh face pilot calls this same owner; the historical
+full-frame Pillow pilot keeps its separate revision and exact bytes. Review owns
+synchronous presentation admission, one joined durable rating transition and
+post-commit navigation; its AppKit keyboard bridge admits keys only in the active
+Review window outside editing controls/sheets/modals. The opt-in face-pilot harness
+separates native preparation/freeze from bounded external inference and retrospective
+model ingestion, while native jobs are journaled before rendering. It uses the
+production codecs/store and a separate disposable library to create unlabeled
+comparisons. Its external forty-job freeze is retained in request assets without
+changing the original typed six-source/eighteen-job pilot contract. Human quality, independent held-out judgments,
 training and native/physical acceptance remain [Roadmap scope](ROADMAP.md#portrait-studio-extensions-after-separation).
 
 ```text

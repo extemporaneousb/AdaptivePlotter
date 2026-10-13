@@ -30,10 +30,11 @@ struct PortraitStudioArtistView: View {
           Text(model.availability.reason).font(.caption).foregroundStyle(.secondary)
           Button("Check Availability") { Task { await model.refresh() } }.disabled(model.isProcessing)
           Text("Source: \(composition.model.framePosition)").font(.caption)
-          Text("Full oriented source · fixed white square pad · no mask · paired seed 42")
+          Text("Background removed · fixed face frame · seed 42")
             .font(.caption).foregroundStyle(.secondary)
           materialFields
           preprocessingPicker
+          faceSelectionFields
           groupFields
           HStack {
             Button("Generate SwiftSketch", systemImage: "pencil.and.outline") { Task { await model.generate() } }
@@ -112,6 +113,31 @@ struct PortraitStudioArtistView: View {
         TextField("Declaration provenance", text: $model.groupProvenance)
         Text("Blank identities stay unknown and unassigned. Acquisition UUID is retained separately.")
           .font(.caption).foregroundStyle(.secondary)
+      }.textFieldStyle(.roundedBorder).disabled(model.isProcessing)
+    }
+  }
+
+  private var faceSelectionFields: some View {
+    @Bindable var model = model
+    return DisclosureGroup("Face selection") {
+      VStack(alignment: .leading, spacing: 6) {
+        Toggle("Use explicit face rectangle", isOn: $model.usesExplicitFace)
+        if model.usesExplicitFace {
+          HStack {
+            TextField("X", value: $model.faceX, format: .number)
+            TextField("Y", value: $model.faceY, format: .number)
+          }
+          HStack {
+            TextField("Width", value: $model.faceWidth, format: .number)
+            TextField("Height", value: $model.faceHeight, format: .number)
+          }
+          TextField("Selection declaration", text: $model.faceSelectionDeclaration)
+          Text("Oriented photo pixels, measured from the top left.")
+            .font(.caption).foregroundStyle(.secondary)
+        } else {
+          Text("Automatically selects a single confident face. Multiple or undetected faces require an explicit rectangle.")
+            .font(.caption).foregroundStyle(.secondary)
+        }
       }.textFieldStyle(.roundedBorder).disabled(model.isProcessing)
     }
   }

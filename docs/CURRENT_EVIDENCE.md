@@ -8,6 +8,164 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Face framing and review iteration, 2026-10-12
+
+Task `task-73f1ba5ecd3449d4b8733523bdb6951b` follows the operator's human review
+of the first pilot. The retained ratings audit observed 31 append-only revisions
+covering 25 of 30 comparison heads. Of fifteen rated native-versus-SwiftSketch pairs,
+SwiftSketch won zero, native artists won eight, six were Neither and one was Skip.
+Five comparison heads were still absent; this audit does not infer why the operator
+expected thirty ratings or fabricate missing labels. The first zero-label export
+below is the earlier delivery snapshot, not the later live library state.
+
+The fresh retained root is
+`~/Documents/PortraitStudio-FaceReview-2026-10-12/`. Read-only source selection froze
+ten distinct originals from 171 eligible retained hashes, excluding the original
+two smoke inputs, at metadata positions 0, 18, 37, 56, 75, 94, 113, 132, 151 and 170.
+Source-selection SHA-256 is
+`b25030aadcb743a732dc88ea95d3ca3aca8ca9724d95430a0ea9db95d7d28527`.
+Source 00 is the same exact original used for the earlier visually inspected face-crop
+example. A before-inventory retained all 450 files in the first pilot's source and
+live review-library trees, including the actual human ratings; its SHA-256 is
+`38d8aba206ca5a504eb8e50951d545833b8676efd1c01139d77074241fcc7267`.
+
+Before model output, preparation parameters declared the shared native revision
+`studio-face-person-mask-srgb-square-v2`, a 1024-square canvas, isotropic face height
+52%, center (50%, 54%) from the top left and native Vision person masking with white
+composition. The coordinator visually selected the dominant front-central face in
+source 04, using oriented pixel rectangle (615.47, 10.21, 221.14, 221.14), with explicit
+framing provenance and no human subject/session assignment. Source 01 lacks usable
+lower-face context; source 05 has ambiguous partly cropped foreground faces. These
+remain scheduled refusals, without source replacement. The exact parameter-file
+SHA-256 after that declaration is
+`1f3aa276e10dbf628ac1eafca0ceafb118b03d4295dab30a24b7f63588457d2b`.
+
+An exact-algorithm standalone probe retained six previous and ten fresh source
+preparation attempts, including three fresh refusals, without any model inference.
+It uses wrapper stubs for package assets and is distinct from the compiled canonical
+integration harness. Its final probe-receipt SHA-256 is
+`04ca1a69bb5879f9d788d3463db7fb45f87e1b3476b32069f149e25b675545fb`.
+Inspection found a stand above source 00's hair and a held ring/hand in source 08
+remaining in the native person mask. Thus native foreground removal is applied;
+perfect head-only separation is not established. Exact masks and framed/final inputs
+are retained for inspection. The compiled canonical preparation phase then passed in **20.312 seconds**
+(three reported opt-in tests, two inactive-phase skips; model jobs launched: zero).
+It used the production input owner and frozen parameters, retained eight exact
+prepared sources (00, 02, 03, 04, 06, 07, 08, 09) and two refused sources (01, 05).
+The preparation-report SHA-256 is
+`eb730a512c715edd34ff6f6b29d5279bc766ae92f05b5d1b09b0c99a4eaf720a`.
+All 32 accepted mask/framed/input/metadata files were independently hash-checked
+against that report. The expected comparison count is therefore twenty-four if
+all eight model jobs and twenty-four native jobs produce valid matching drawings;
+forty scheduled canonical outcomes are retained regardless of that success count.
+
+The initial focused sequential run reported **58 tests passed in 16.903 seconds**,
+with the three inactive face-pilot phases explicitly skipped. It exercised canonical
+input geometry/refusals, Review persistence/navigation/paging/keyboard admission and
+hosted compact layout; it is distinct from human interaction acceptance. The prepare
+run recompiled the later export/clock provenance patch before invoking preparation.
+A later bounded group-context repair passed **16 affected Review tests in 5.354
+seconds**, with zero skips. It binds group selection to exact drawing/capture/origin,
+suppresses a library group form whose source differs, freezes save context and leaves
+an admitted durable score joined rather than cancelled. Its retained focused-log
+SHA-256 is `9a93d319ec0faa1a41d0b0adb20f950bae65a0f5a10ca4a893c13f358fb9379c`.
+The final offline Python contract run passed **12 tests in 0.714 seconds**, including
+five batch admission/preservation tests and seven existing worker protocol fixtures.
+A fake supervisor callback verified that the exact receipt already contained its
+admission clock and argv before launch; unsupported/skipped jobs keep null admission
+clocks and internal worker start time remains explicitly unknown. No real model was
+used by those fixture tests. The first added callback test exposed a Path-to-JSON
+fixture boundary, corrected by normalizing argv paths to strings; that failed log
+is retained independently of the repaired pass.
+
+The freeze-only canonical phase passed in **0.083 seconds**, with the other two
+phases skipped and no model launched. Its exact manifest SHA-256 is
+`10433c38ce6410a3ba9fb42128e44d5566c2d9926cac0a9e1fd982306bfd9231`
+(57,786 bytes). Independent acceptance checked source/parameter/report links,
+all ten request hashes, unchanged preprocessing/seed42 and the ten-model/thirty-native
+job caps before one bounded batch.
+
+That batch completed in **111.168 seconds** with **eight real successful CPU model
+jobs** and two retained unsupported-preparation entries. There were no extra,
+replacement or retried jobs. All eight responses matched frozen request UUIDs and
+all 32 output artifact hashes matched the responses. Every raw result retained 32
+finite open cubics. Worker time totaled 105.618 seconds, median **12.893 seconds**,
+range **12.663–14.910 seconds**; maximum internal worker RSS was **1,377,783,808 bytes**.
+The supervisor observed maximum RSS 1,368,997,888 bytes. These reload-per-process,
+uncontrolled filesystem-cache measurements do not establish interactive UI latency
+or resident model speed. Stage medians were process/import 2.084 seconds, model load
+2.471, input preparation 0.523, feature extraction 0.138, diffusion 6.068 and
+refinement 0.061. The run-receipt SHA-256 is
+`e73323ee5bf416a728d9255e87887f21e2252dfee9a63f26e3b616d869953e39`.
+`pilot-budget-report-complete.json` retains the derived stage summary; its SHA-256 is
+`e17e5b9e89f99475277af1f656c53c79911a679a6289d0afbc3e2cc7bc65f23b`.
+The installed worker and model-manifest hashes remain the pinned values recorded
+below. The exact run receipt/model-manifest bytes are retained in every model request,
+with the known supervisor admission clocks and explicit unknown internal worker clock.
+
+The after-inventory confirmed all **450** first-pilot source/live-review-library
+files unchanged byte for byte, including human ratings. Its SHA-256 exactly matches
+the before-inventory above. Unblinded inspection found upright, consistently framed
+common-field previews for sources 00 and 03, while the model still omitted identity
+details, including glasses in source 00, and simplified structure. That observation
+is not a human comparison label or a quality acceptance.
+
+The canonical ingestion-only test passed in **135.869 seconds** (the two inactive
+phases skipped), with no additional model inference. The fresh library/export has
+**40 scheduled/outcome records: 32 succeeded and eight unsupported**, **32 canonical
+saved drawings** (eight SwiftSketch and eight of each native style), and **24 randomized
+original-visible comparisons**. All twenty-four comparisons are unlabeled; subject,
+photographic-session and split declarations remain unknown/unassigned. Both refused
+sources retain one model and three native unsupported outcomes. No failure was
+replaced or converted into a drawing/comparison. The exact integration report SHA-256
+is `92b9f94a58b22b60eae80e90a14063cd40c20a329bf183a49589e45c0e000ce9`;
+the dataset manifest SHA-256 is
+`ea67cf703c554ef4390d4392812cbaeb805ebee581c841957abd4c8633e4e0cf`.
+Independent inspection verified all **388** dataset assets (**349,320,680 bytes**)
+and all **48** byte-copied common-scale QA previews against their retained hashes.
+Canonical package exchange/reopen checked exact bytes and programs. Every model
+request includes the original global manifest/request and exact batch/model-manifest
+bytes; every accepted input includes original, framing, mask and preparation evidence.
+
+| Artist | Retained drawings | Strokes per drawing | Points per drawing |
+| --- | ---: | ---: | ---: |
+| SwiftSketch | 8 | 32 | 409–461 |
+| Flow Edge | 8 | 114–344 | 5,104–10,454 |
+| Contour | 8 | 21–113 | 471–2,071 |
+| Sketch | 8 | 18–133 | 210–965 |
+
+These budgets describe exact nominal programs, not aesthetic rankings. Fresh native
+baselines consume the same masked fixed input with secondary cropping/segmentation
+and head transforms disabled; existing renderer algorithms/reference remain unchanged.
+A final focus review found the workspace segmented picker was not excluded by the
+initial key guard. The bounded repair explicitly admits native segmented/radio-group
+input to those controls and adds an actual hosted segmented-control regression.
+The repaired Review run passed **17 tests in 5.391 seconds**, with zero skips; its
+log SHA-256 is `714f553227193f9453276e94c9e5d231fcc1bd4ef9a4999346c7656a835cf812`.
+The first fresh bundles and receipts/source snapshot were retained as provisional
+history under `provisional-review-focus-v1`. All **32** archived files matched their
+original bytes; archive-receipt SHA-256 is
+`6f0d95b71cf48ea897696ed60154de964eecba482524f34242db1965f6c8479b`.
+The pilot/library/dataset and all model outputs remain unchanged.
+
+Both repaired retained **debug** bundles passed strict signed-bundle verification
+and negative validator fixtures, using the existing local development signing identity.
+The executable SHA-256 values are:
+
+- PortraitStudio: `fc072d77ad406abf14d53c57cf5bf76f87ea04aa7b24d2bd6967bc0c9708e3da`.
+- AdaptivePlotter: `f577592c513f9ba904c3c4704dcd9ed1b673f6dd28de4136eb425781061470e5`.
+
+The bundle-receipt SHA-256 is
+`95206970f9353ab2c7c56d346159890ab13d9cbf2775fdb87aeb8ba568e9858b`.
+All compilation-input bytes remained unchanged through staging; their frozen digest
+is `335a86fe0715f018486177acbab5f453d2b31071952223c77e1f418744cd588a`.
+All six files in the earlier retained signed bundles and the original main-checkout
+executable hash remained unchanged. This work did not launch an app or modify either
+production library. Signed packaging is software evidence; native usability/camera,
+new human preferences, actual pen/ink and attended physical transfer remain pending.
+Final configured repository validation and local landing receipts are retained in
+the external delivery evidence after this canonical source freeze.
+
 ## Portrait experiment infrastructure and real CPU feasibility, 2026-10-12
 
 Task `task-3d3f2783360d4705a8c28bd52290c174` resumes the `c640f96`

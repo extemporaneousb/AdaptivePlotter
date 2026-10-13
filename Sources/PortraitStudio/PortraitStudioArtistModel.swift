@@ -21,6 +21,12 @@ final class PortraitStudioArtistModel {
   var subjectID = ""
   var photoSessionID = ""
   var groupProvenance = ""
+  var usesExplicitFace = false
+  var faceX = 0.0
+  var faceY = 0.0
+  var faceWidth = 200.0
+  var faceHeight = 200.0
+  var faceSelectionDeclaration = ""
   @ObservationIgnored private let studio: PortraitStudioModel
   @ObservationIgnored private let store: PortraitCandidateStore
   @ObservationIgnored private let client: SwiftSketchClient?
@@ -73,6 +79,8 @@ final class PortraitStudioArtistModel {
     guard !isClosing, !isProcessing, let client, let configuration, availability.available else { return }
     isProcessing = true; error = nil
     let width = widthMM, height = heightMM, pen = nominalPenWidthMM, arm = preprocessing
+    let faceOverride = usesExplicitFace ? PortraitStudioArtistInput.FaceOverride(x: faceX, y: faceY,
+      width: faceWidth, height: faceHeight, declaration: faceSelectionDeclaration) : nil
     let groups = PortraitReviewGroups(subjectID: Self.known(subjectID), photoSessionID: Self.known(photoSessionID),
       declaration: Self.known(groupProvenance))
     let task = Task {
@@ -84,7 +92,8 @@ final class PortraitStudioArtistModel {
         try groups.validate()
         let frozen = try await self.studio.experimentalSourceSnapshot()
         self.snapshot = frozen
-        let prepare = Task.detached { try PortraitStudioArtistInput.prepare(frozen.photo.data) }
+        self.status = "Framing the face and removing the background locally."
+        let prepare = Task.detached { try PortraitStudioArtistInput.prepare(frozen.photo.data, faceOverride: faceOverride) }
         let input = try await withTaskCancellationHandler { try await prepare.value } onCancel: { prepare.cancel() }
         try Task.checkCancellation()
         guard self.studio.admitsExperimentalSource(frozen) else { throw CancellationError() }
@@ -98,7 +107,11 @@ final class PortraitStudioArtistModel {
         let artist = DrawingPackageArtist(identifier: "swiftsketch.cpu", revision: "pinned-worker-v1", settingsJSON: settings)
         let scheduled = try PortraitReviewGenerationRequest(captureID: frozen.photo.id,
           acquisitionID: frozen.photo.captureSessionID, source: input.source,
-          inputs: [.init(role: "prepared-source", asset: input.squarePNG)], groups: groups, artist: artist,
+          inputs: [.init(role: "prepared-source", asset: input.squarePNG),
+            .init(role: "framed-source", asset: input.framedSourcePNG),
+            .init(role: "foreground-mask", asset: input.foregroundMaskPNG),
+            .init(role: "source-preparation", asset: .init(mediaType: "application/json", bytes: input.preparationJSON))],
+          groups: groups, artist: artist,
           environmentJSON: environment, conversionJSON: conversion, seed: 42,
           material: .init(widthMM: width, heightMM: height, nominalLineWidthMM: pen,
             provenance: "operator-declared nominal authoring dimensions; physical pen unmeasured"))

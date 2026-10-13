@@ -54,16 +54,48 @@ Studio through the same code. Bulk production-library cloning or migration is no
 part of this release. Native launch/capture, interaction latency and attended
 physical transfer continuity still need distinct acceptance evidence.
 
-The selected next work resumes the `c640f96` separation foundation. It is a
-bounded experiment infrastructure milestone, not evidence of improved portrait
-quality. Preserve all three shipped artists, their native controls and frozen
-baseline outputs. The coordinator owns acceptance, integration, serial validation
+The completed infrastructure milestone resumed the `c640f96` separation foundation.
+The sequence below records that bounded decomposition; its software and real CPU
+receipts are in Current Evidence. It does not establish improved portrait quality.
+The current selected iteration is the face-framing/review round described below.
+Preserve all three shipped artists, their native controls and frozen baseline outputs. The coordinator owns acceptance, integration, serial validation
 and Blackdog lifecycle; workers share the returned task workspace with exclusive
 path ownership. The operator's running app and both production libraries remain
-untouched. No launch, cloud upload, upstream/model redistribution, training,
-fine-tuning or hardware operation is authorized by these milestones.
+untouched. The original milestone excluded app launch; explicit operator review
+is separate. Cloud upload, upstream/model redistribution, training, fine-tuning
+and hardware operation remain outside these milestones.
 
-#### Selected milestone sequence
+#### Current face-framing and review iteration, 2026-10-12
+
+The operator's first ratings reject using full-frame feasibility as a portrait-quality
+acceptance gate. The next bounded implementation makes Review compact, adds explicit
+mouse and keyboard navigation and advances only after an overall score commits.
+Back retains exact A/B order and the persisted revision. Secondary metadata and
+optional judgment dimensions remain available without filling the primary canvas.
+
+Use one native face-framing/foreground-removal owner for authoring and the next
+retained set: EXIF/sRGB, a fixed square 1024 canvas, isotropic scale, face height 52%
+and center (50%, 54%) from the top left, native Vision mask and white composition.
+Retain original, framed source, mask, transform and final PNG separately. One confident
+face is required unless explicit batch framing is declared before outputs; unsupported
+inputs remain unsupported without source replacement or full-frame fallback.
+
+Freeze ten distinct retained photos before output, using evenly spaced metadata
+positions excluding the original smoke inputs, and keep groups unknown. At most ten
+unchanged/seed42 model jobs and thirty fixed-default native jobs consume those same
+masked PNG bytes at 100 × 100 mm with nominal 0.4 mm pen. The comparison target is
+thirty valid original-visible native-versus-SwiftSketch pairs. All scheduled failures
+stay in the canonical journal and reduce the actual count. Existing renderer kernels
+and the typed six-source/eighteen-job historical pilot contract remain frozen. Keep
+the first pilot and its actual human ratings intact and use a separate library/export.
+
+Acceptance requires exact frozen bytes, real bounded runtime outputs, canonical
+package/reopen/export identity, focused/required software checks and retained signed
+bundles. Native usability and improved likeness remain human acceptance of the new
+set; renderer/worker success alone cannot close them. No training, new remote assets,
+cloud upload or physical execution belongs to this round.
+
+#### Delivered infrastructure milestone sequence
 
 | Package / owner / exclusive paths | Dependencies | Observable acceptance and stopping condition |
 | --- | --- | --- |

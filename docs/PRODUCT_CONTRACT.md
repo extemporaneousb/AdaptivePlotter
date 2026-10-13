@@ -1906,7 +1906,13 @@ are separate optional judgments. Unanswered dimensions are absent. Skip is not a
 negative label. An anonymous reviewer remains unknown; age has no score without
 actual ground truth. Append-only revisions bind the exact comparison, rubric,
 reviewer declaration and time. Saved recipes, generation success, plotting and
-software fixtures do not manufacture human preferences.
+software fixtures do not manufacture human preferences. An overall score advances
+only after its durable revision commits. Previous/Next are explicit mouse actions;
+browsing without a score never creates a skip. Returning restores the frozen sides
+and current persisted head. Keyboard navigation/scoring remains scoped to the active
+review and does not consume editing-control, sheet or modal input. Presentation
+admission invalidates synchronously during transitions so queued input cannot rate a
+previously displayed comparison. Persistence failure preserves the current item.
 
 Experiment requests retain source/derived input, artist settings, seed, nominal
 material and declared groups before native work. All scheduled, successful, failed,
@@ -1916,6 +1922,13 @@ version-pinned CPU worker with a matching successful inference receipt. Its orde
 open cubics compile through an explicit uniform affine, fixed physical tolerance
 min(0.05 mm, nominal pen width / 4), deterministic IDs and bounded depth/point counts.
 Invalid curves are refused without clipping, closing, merging or reordering.
+Native experimental input preparation preserves the original bytes and retains
+EXIF/sRGB, face selection, fixed isotropic framing, exact native foreground mask and
+white-composite input provenance. The face has a fixed target height/center in a
+square canvas; its individual aspect is preserved rather than stretched. Missing or
+ambiguous faces, invalid framing and unusable masks refuse submission. Explicit batch
+framing is a visual declaration, not a human identity label. The local worker receives
+these frozen masked bytes and applies no additional segmentation.
 Source selection/deletion and cancellation cannot revive a deleted capture or
 publish a stale result. Shutdown joins worker and durable work.
 

@@ -28,8 +28,8 @@ struct PortraitStudioArtistTests {
     #expect(config?.attemptRoot.path == "/local/attempts")
   }
 
-  @Test("Wide transparent source uses uniform white pad and preserves exact retained source bytes")
-  func fixedInputGeometry() throws {
+  @Test("An image without a confident face cannot silently become a full-source model input")
+  func refusesMissingFace() throws {
     let pixels = Data(repeating: 0, count: 8 * 4 * 4)
     let provider = try #require(CGDataProvider(data: pixels as CFData))
     let source = try #require(CGImage(width: 8, height: 4, bitsPerComponent: 8,
@@ -40,13 +40,9 @@ struct PortraitStudioArtistTests {
     let destination = try #require(CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil))
     CGImageDestinationAddImage(destination, source, nil)
     #expect(CGImageDestinationFinalize(destination))
-    let prepared = try PortraitStudioArtistInput.prepare(data as Data)
-    #expect(prepared.source.bytes == data as Data)
-    #expect(prepared.squarePNG.pixelWidth == 1024 && prepared.squarePNG.pixelHeight == 1024)
-    let metadata = try #require(try JSONSerialization.jsonObject(with: prepared.preparationJSON) as? [String: Any])
-    #expect(metadata["uniform_scale"] as? Double == 128)
-    #expect(metadata["pad_x"] as? Double == 0)
-    #expect(metadata["pad_y"] as? Double == 256)
-    #expect(metadata["mask"] as? String == "none-fixed-across-arms")
+    #expect(throws: DrawingTransferError.unavailable(
+      "No confident face was detected. Supply an explicit oriented face rectangle.")) {
+        try PortraitStudioArtistInput.prepare(data as Data, faceDetector: { _ in [] })
+    }
   }
 }
