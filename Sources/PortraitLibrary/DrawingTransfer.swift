@@ -10,6 +10,9 @@ package enum DrawingPackageLibraryValidation {
   package static func validate(_ package: DrawingPackage) throws {
     try package.validate()
     try validateImage(package.source); try validateImage(package.preview)
+    if let selection = try DrawingStrokeSelection.record(in: package) {
+      try validate(try selection.original())
+    }
     if let legacy = package.legacyCandidateJSON {
       let candidate = try JSONDecoder().decode(PortraitCandidate.self, from: legacy)
       try candidate.validateIntegrity()
@@ -274,6 +277,21 @@ extension PortraitCandidateStore {
         throw DrawingTransferError.invalid("The complete drawing package is not durably retained.")
       }
     }
+  }
+
+  package func strokeSelectionDrawing(_ record: DrawingStrokeSelection) throws -> SavedDrawing {
+    try ensureLibraryGraph()
+    let root = try record.original(), program = try record.program()
+    let bytes = try DrawingPackageCodec.encoder().encode(record)
+    let origin = DrawingOriginReference(libraryID: try libraryIdentity(libraryDatabase()),
+      captureID: root.origin.captureID, resultID: record.editID.uuidString.lowercased(),
+      resultRecordSHA256: DrawingPackageCodec.sha256(bytes), programHash: program.contentHash)
+    return try SavedDrawing(package: DrawingPackage(origin: origin, program: program,
+      createdAt: record.createdAt, title: "Flow Edge · edited (\(record.removedStrokeIDs.count) removed)",
+      resultRecordJSON: bytes, source: root.source, artistInput: root.artistInput,
+      artist: .init(identifier: DrawingStrokeSelection.artistIdentifier,
+        revision: DrawingStrokeSelection.revision, settingsJSON: DrawingStrokeSelection.settingsJSON),
+      preview: DrawingPackageLibraryValidation.preview(program)))
   }
 
   package func exportDrawingPackage(_ drawing: SavedDrawing) throws -> Data {

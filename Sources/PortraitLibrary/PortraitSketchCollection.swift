@@ -325,6 +325,21 @@ package final class PortraitSketchCollection {
     return bytes
   }
 
+  package func saveStrokeSelection(_ record: DrawingStrokeSelection, base: SavedDrawing) async throws -> SavedDrawing {
+    let baseBytes = try await exportDrawingPackage(base)
+    let package = try DrawingPackageCodec.decode(baseBytes)
+    let prior = try DrawingStrokeSelection.record(in: package)
+    guard record.baseOrigin == package.origin,
+      record.baseProgram == package.program,
+      record.originalPackageJSON == (prior?.originalPackageJSON ?? baseBytes),
+      record.initialRemovedStrokeIDs == (prior?.removedStrokeIDs ?? []), let store else {
+      throw DrawingTransferError.conflict("The line edit no longer matches its retained starting drawing.")
+    }
+    let drawing = try await store.strokeSelectionDrawing(record)
+    if let failure = await saveDrawing(drawing) { throw DrawingTransferError.unavailable(failure) }
+    return drawing
+  }
+
   package func importDrawingPackage(_ data: Data, restoreDeleted: Bool = false) async throws -> SavedDrawing {
     await awaitPersistence()
     try Task.checkCancellation()

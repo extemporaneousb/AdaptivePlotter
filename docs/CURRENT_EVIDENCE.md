@@ -8,6 +8,32 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Flow Edge whole-polyline editing, 2026-10-18
+
+Task `task-1fbf4fc17bff4b0ebb9cef84b838d667` adds a frozen Flow Edge editing
+canvas with click removal, lasso selection, grouped Delete, undo/redo, zoom and
+Original/Photo comparison. The Studio and Library entry points retain the original
+before editing. Save creates a separate canonical SavedDrawing with exact remaining
+stroke coordinates, IDs, order and pen styles; standalone export and embedded
+Send to Drawing use the existing handoff owners.
+
+The `whole-polyline-removal-v1` record retains one original package, the starting
+program/origin, initial removals, applied deletion groups and final removal IDs.
+Reopening and editing does not nest earlier edited packages. Record/package
+validation checks the result against the exact original subset. Saved targets are
+unrated: this feature does not create pass/fail, likeness or physical-quality
+labels, train a model, or infer approval for every retained line.
+
+Seven focused `PortraitLineEditTests` passed. They cover closest-visible-line
+picking, lasso crossings without enclosed vertices, grouped undo/redo, unchanged
+source geometry, save/reload/export/import, re-edit lineage across two disposable
+libraries, invalid subsets, a missing-source save failure with retained undoable
+work, actual Flow Edge renderer output, and admission of the edited program through
+DrawingPlanner. Offscreen AppKit events exercised click, lasso, Delete and scoped
+Command-Z; an offscreen hosted editor exercised canvas layout. These are software
+and offscreen interaction checks, not attended usability or physical ink evidence.
+No private photo library, running production app or physical plotter was used.
+
 ## Face framing and review iteration, 2026-10-12
 
 Task `task-73f1ba5ecd3449d4b8733523bdb6951b` follows the operator's human review

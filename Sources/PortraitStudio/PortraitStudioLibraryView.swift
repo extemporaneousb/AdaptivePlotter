@@ -10,6 +10,7 @@ struct PortraitStudioLibraryView: View {
   @Bindable var composition: PortraitStudioComposition
   @State private var section = "Drawings"
   @State private var showsSource = false
+  @State private var lineEditDrawing: SavedDrawing?
   private var library: PortraitStudioLibraryModel { composition.browser }
 
   var body: some View {
@@ -65,6 +66,9 @@ struct PortraitStudioLibraryView: View {
             Spacer()
             Toggle("Source", isOn: $showsSource).toggleStyle(.button)
             Button("Export Drawing") { composition.exportSelection() }.disabled(composition.isBusy)
+            if PortraitLineEditModel.supports(drawing) {
+              Button("Edit Lines") { lineEditDrawing = drawing }.disabled(composition.isBusy)
+            }
             if drawing.portraitCandidate != nil {
               Button("Edit in Studio") { Task { await composition.editSelection() } }
             }
@@ -121,6 +125,12 @@ struct PortraitStudioLibraryView: View {
       }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .task { await library.reload() }
+    .sheet(item: $lineEditDrawing, onDismiss: { Task { await library.reload() } }) { drawing in
+      PortraitLineEditor(drawing: drawing, sketches: library.sketches,
+        handoff: { await composition.exportDrawing($0) }) { saved in
+        Task { await library.selectDrawing(saved.id) }
+      }
+    }
     .alert("Library needs attention", isPresented: Binding(get: { library.error != nil },
       set: { if !$0 { library.error = nil } })) {
       Button("OK", role: .cancel) { library.error = nil }

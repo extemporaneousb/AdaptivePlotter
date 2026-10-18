@@ -1,4 +1,5 @@
 import PortraitArtists
+import PortraitLibrary
 import PlotterModel
 import PlotterRuntime
 import SwiftUI
@@ -11,6 +12,7 @@ package struct PortraitStudioView: View {
   package let strokeStyle: PlotterModel.StrokeStyle
   package var previewSource = PortraitPlanePreviewSource()
   package let showOnPlotter: (PortraitCandidate) async -> String?
+  package var showEditedOnPlotter: ((SavedDrawing) async -> String?)? = nil
   package var selectCamera: () async -> String? = { nil }
   package var openReviewer: (UUID?) -> Void = { _ in }
 
@@ -26,6 +28,7 @@ package struct PortraitStudioView: View {
   @State private var submissionErrorTitle = "Studio action failed"
   @State private var isSubmitting = false
   @State private var isStartingCapture = false
+  @State private var lineEditDrawing: SavedDrawing?
 
   private var candidate: PortraitCandidate? { model.selectedCandidate }
   private var canBrowsePhotos: Bool {
@@ -148,7 +151,7 @@ package struct PortraitStudioView: View {
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("portrait.workspace")
     .background {
-      PortraitNavigationKeyRouter(enabled: !importing && !cameraSettings,
+      PortraitNavigationKeyRouter(enabled: !importing && !cameraSettings && lineEditDrawing == nil,
         handle: handleNavigation)
     }
     .onAppear {
@@ -159,6 +162,10 @@ package struct PortraitStudioView: View {
       model.cancelPortraitStep()
     }
     .task { await model.loadPhotoBrowser() }
+    .sheet(item: $lineEditDrawing) { drawing in
+      PortraitLineEditor(drawing: drawing, sketches: model.sketches,
+        handoffTitle: handoffTitle, handoff: showEditedOnPlotter)
+    }
     .onChange(of: model.renderConfiguration) { _, _ in
       model.renderIfConfigurationChanged(strokeStyle: strokeStyle)
     }
@@ -259,6 +266,15 @@ package struct PortraitStudioView: View {
         .disabled(candidate == nil || model.isProcessing || model.isCapturing || isStartingCapture || isSubmitting)
         .accessibilityIdentifier("portrait.keepSketch")
 
+      if let candidate, candidate.recipe.style == .flowEdges {
+        Button("Edit Lines", systemImage: "cursorarrow.and.square.on.square.dashed") {
+          lineEditDrawing = SavedDrawing(candidate: candidate)
+        }
+        .disabled(model.isProcessing || model.isCapturing || isStartingCapture || isSubmitting)
+        .help("Remove whole lines with click or lasso; preserve the original and save an edited drawing")
+        .accessibilityIdentifier("portrait.editLines")
+      }
+
     }
     .controlSize(.regular)
     .frame(minHeight: 32)
@@ -353,6 +369,7 @@ package struct PortraitStudioView: View {
     strokeStyle: PlotterModel.StrokeStyle,
     previewSource: PortraitPlanePreviewSource = PortraitPlanePreviewSource(),
     showOnPlotter: @escaping (PortraitCandidate) async -> String?,
+    showEditedOnPlotter: ((SavedDrawing) async -> String?)? = nil,
     selectCamera: @escaping () async -> String? = { nil },
     openReviewer: @escaping (UUID?) -> Void = { _ in },
     showsAdjustments: Bool = false,
@@ -365,6 +382,7 @@ package struct PortraitStudioView: View {
     self.strokeStyle = strokeStyle
     self.previewSource = previewSource
     self.showOnPlotter = showOnPlotter
+    self.showEditedOnPlotter = showEditedOnPlotter
     self.selectCamera = selectCamera
     self.openReviewer = openReviewer
     self.showsAdjustments = showsAdjustments

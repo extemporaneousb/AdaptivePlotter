@@ -133,6 +133,7 @@ public struct DrawingPackage: Codable, Equatable, Sendable {
     try source.validate(maximumBytes: DrawingTransferLimits.sourceBytes, requireImage: true)
     try artistInput.validate(maximumBytes: DrawingTransferLimits.inputBytes)
     try preview.validate(maximumBytes: DrawingTransferLimits.previewBytes, requireImage: true)
+    _ = try DrawingStrokeSelection.record(in: self)
   }
 }
 

@@ -269,7 +269,8 @@ struct PlotterApplicationRuntimeView: View {
     case .portraitStudio:
       PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
         previewSource: application.portraitPlanePreviewSource,
-        showOnPlotter: usePortraitProgram, selectCamera: { await selectCamera(.portrait) },
+        showOnPlotter: usePortraitProgram, showEditedOnPlotter: useSavedDrawingProgram,
+        selectCamera: { await selectCamera(.portrait) },
         openReviewer: { photoID in reviewerPhotoID = photoID; reviewerIsPresented = true })
         .environment(\.portraitActionTelemetry, WorkbenchRequestTelemetry.nativeActionHandled)
         .padding(12)

@@ -19,7 +19,8 @@ struct PortraitStudioRootView: View {
         PortraitStudioView(model: composition.model, strokeStyle: composition.strokeStyle,
           showOnPlotter: { candidate in
             await composition.exportDrawing(SavedDrawing(candidate: candidate))
-          }, selectCamera: { await composition.selectCamera() },
+          }, showEditedOnPlotter: { await composition.exportDrawing($0) },
+          selectCamera: { await composition.selectCamera() },
           openReviewer: { _ in composition.showsLibrary = true },
           handoffTitle: "Export Drawing", handoffErrorTitle: "Drawing export failed",
           handoffActionID: "portrait.exportDrawing",

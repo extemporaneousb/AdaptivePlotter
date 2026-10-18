@@ -58,6 +58,49 @@ AdaptivePlotter bundle and running session are independent.
    status and available before/progress/after original frames. Controller completion
    alone does not prove visible ink or an unobstructed final photograph.
 
+## Remove Flow Edge lines
+
+Choose **Edit Lines** on a Flow Edge drawing in Studio or in Library → Drawings.
+Opening the editor first retains the exact original. It freezes that drawing;
+editing does not rerun Flow Edge or change its renderer controls.
+
+- **Click to Delete** highlights the nearest line under the pointer and removes
+  the entire polyline on click. Zoom in when neighboring lines are difficult to pick.
+- **Lasso** selects every polyline inside or crossing the drawn loop. It selects
+  whole lines, including their portions outside the loop. Shift adds to the selection;
+  Shift-click toggles one line. Use **Delete Selected** or the Delete key to remove
+  the selected group.
+- **Undo** / **Redo** (Command-Z / Shift-Command-Z) restore or remove the exact
+  last group. Escape clears the selection and unfinished lasso. Undo history is
+  scoped to this editor session; reopening starts from the saved edited target.
+- **Original** and **Photo** switch the same canvas for comparison. **Fit** resets
+  zoom. The original view is read-only.
+- **Save Edited Drawing** retains a new entry in Drawings. The original remains
+  available. A failed save leaves the edit and undo history available for retry;
+  the editor’s Close button offers Save, Discard or Cancel for unsaved changes. A completely empty
+  drawing cannot be saved as a plot target; Undo restores lines.
+
+After saving, use **Export Drawing** in the editor, or select the edited entry
+in Library and export it there. Embedded Studio offers **Send to Drawing** directly
+for the saved edit. For a standalone export, use the existing AdaptivePlotter **Drawing Exchange → Import Drawing → Send to Drawing** path.
+The transferred program contains exactly the retained polylines, with unchanged
+coordinates, ordering and pen styles. Placement, material checks and motion remain
+owned by the receiving plotter. Editing alone establishes no physical result.
+
+The exported Drawing Package also carries the training pair. Its artist is
+`adaptiveplotter.flow-edge-selection`, revision `whole-polyline-removal-v1`.
+The decoded `resultRecordJSON` contains the root `originalPackageJSON`, starting
+program/origin, initial removal IDs, applied deletion groups and final
+`removedStrokeIDs`. Retained IDs are the original IDs minus that mask. Reopening
+and editing retains the same root package rather than nesting edited packages.
+Package validation checks the target against that exact subset; imports preserve
+both target and original bytes.
+
+These records are **unrated selection targets**. Removed lines are explicit
+removal decisions in this drawing context. Retained lines describe the saved target,
+not independent positive judgments. Saving supplies no pass/fail, likeness,
+expression or physical-quality label and does not train a model automatically.
+
 **Import Drawing** admits a validated package into the private library without
 rerendering it. Its source, artist identifier/revision/settings and exact program
 remain read-only. Unknown artists can be inspected and their supported exact

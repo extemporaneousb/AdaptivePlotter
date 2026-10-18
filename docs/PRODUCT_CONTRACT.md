@@ -1889,6 +1889,17 @@ retain their separate meanings. Studio displays the record status and available
 before/progress/after frames without claiming that controller settlement proves
 visible ink. Unknown artists remain read-only inspectable and their exact valid
 programs remain transferable; native editing requires supported native provenance.
+Flow Edge whole-polyline removal is a separate derived-artwork operation. The
+editor retains its native original and saves an immutable selection package through
+the canonical SavedDrawing/library path. Click removal, lasso selection and grouped
+undo/redo do not rerender, move or simplify remaining geometry. The package embeds
+one root original plus the starting program and exact removal mask; validation
+rejects inconsistent subsets. Editing an imported supported selection creates a new
+local result and preserves its original origin; it never rewrites the imported
+record. Export/import preserves the edited target for existing Drawing admission.
+Selection targets carry no inferred pass/fail or aesthetic labels. Complete removal
+is undoable in the editor but cannot create an empty executable DrawingProgram.
+
 The [Studio guide](PORTRAIT_STUDIO.md) owns the current file and operator details.
 
 Promising/rejected feedback still addresses exact native attempts. Standalone
