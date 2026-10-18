@@ -335,6 +335,11 @@ package final class PortraitSketchCollection {
       record.initialRemovedStrokeIDs == (prior?.removedStrokeIDs ?? []), let store else {
       throw DrawingTransferError.conflict("The line edit no longer matches its retained starting drawing.")
     }
+    guard record.operationSource == .exerciseProposal
+      ? prior == nil && record.exerciseContext != nil
+      : record.exerciseContext == prior?.exerciseContext else {
+      throw DrawingTransferError.conflict("Exercise context differs from the retained starting drawing.")
+    }
     let drawing = try await store.strokeSelectionDrawing(record)
     if let failure = await saveDrawing(drawing) { throw DrawingTransferError.unavailable(failure) }
     return drawing

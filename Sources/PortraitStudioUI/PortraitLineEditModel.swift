@@ -6,15 +6,18 @@ import PortraitLibrary
 
 @Observable @MainActor
 package final class PortraitLineEditModel {
-  package enum Tool: String, CaseIterable { case erase = "Click to Delete", lasso = "Lasso" }
+  package enum Tool: String, CaseIterable { case erase = "Click to Delete", lasso = "Lasso", restore = "Restore" }
   package let base: SavedDrawing
   private let sketches: PortraitSketchCollection
   package private(set) var original: DrawingPackage?
   private var originalBytes = Data()
   private var baseOrigin: DrawingOriginReference?
   private var initialRemoved: [StrokeID] = []
-  package private(set) var batches: [[StrokeID]] = []
-  private var redoBatches: [[StrokeID]] = []
+  private var exerciseContext: DrawingStrokeSelection.ExerciseContext?
+  private var isGeneratedExercise = false
+  package private(set) var operations: [DrawingStrokeSelection.Operation] = []
+  package var batches: [[StrokeID]] { operations.filter { $0.action == .remove }.map(\.strokeIDs) }
+  private var redoOperations: [DrawingStrokeSelection.Operation] = []
   package var selection: Set<StrokeID> = []
   package var tool: Tool = .erase
   package var showsOriginal = false
@@ -39,12 +42,22 @@ package final class PortraitLineEditModel {
       } == true
   }
 
-  package var removed: Set<StrokeID> { Set(initialRemoved + batches.flatMap { $0 }) }
-  package var canUndo: Bool { !batches.isEmpty && !isBusy }
-  package var canRedo: Bool { !redoBatches.isEmpty && !isBusy }
+  package var removed: Set<StrokeID> {
+    var value = Set(initialRemoved)
+    for operation in operations {
+      if operation.action == .remove { value.formUnion(operation.strokeIDs) }
+      else { value.subtract(operation.strokeIDs) }
+    }
+    return value
+  }
+  package var canUndo: Bool { !operations.isEmpty && !isBusy }
+  package var canRedo: Bool { !redoOperations.isEmpty && !isBusy }
   package var remainingCount: Int { (original?.program.strokes.count ?? 0) - removed.count }
   package var hasUnsavedChanges: Bool { original != nil && removed != savedMask }
-  package var canSave: Bool { hasUnsavedChanges && remainingCount > 0 && !isBusy }
+  package var canSave: Bool {
+    original != nil && remainingCount > 0 && !isBusy
+      && (hasUnsavedChanges || (isGeneratedExercise && savedDrawing == nil))
+  }
   package var canEdit: Bool { original != nil && !isBusy && !showsOriginal && !showsPhoto }
 
   package func load() async {
@@ -63,6 +76,8 @@ package final class PortraitLineEditModel {
       }
       original = root; baseOrigin = package.origin
       initialRemoved = prior?.removedStrokeIDs ?? []
+      exerciseContext = prior?.exerciseContext
+      isGeneratedExercise = prior?.operationSource == .exerciseProposal
       savedMask = Set(initialRemoved)
     } catch { self.error = error.localizedDescription }
   }
@@ -72,17 +87,27 @@ package final class PortraitLineEditModel {
     let current = removed
     let batch = original.program.strokes.map(\.id).filter { ids.contains($0) && !current.contains($0) }
     guard !batch.isEmpty else { return }
-    batches.append(batch); redoBatches = []; selection.subtract(batch); changed()
+    operations.append(.init(action: .remove, strokeIDs: batch))
+    redoOperations = []; selection.subtract(batch); changed()
+  }
+
+  package func restore(_ ids: Set<StrokeID>) {
+    guard canEdit, let original else { return }
+    let current = removed
+    let batch = original.program.strokes.map(\.id).filter { ids.contains($0) && current.contains($0) }
+    guard !batch.isEmpty else { return }
+    operations.append(.init(action: .restore, strokeIDs: batch))
+    redoOperations = []; selection.subtract(batch); changed()
   }
 
   package func undo() {
-    guard canUndo, let batch = batches.popLast() else { return }
-    redoBatches.append(batch); selection = []; changed()
+    guard canUndo, let operation = operations.popLast() else { return }
+    redoOperations.append(operation); selection = []; changed()
   }
 
   package func redo() {
-    guard canRedo, let batch = redoBatches.popLast() else { return }
-    batches.append(batch); selection = []; changed()
+    guard canRedo, let operation = redoOperations.popLast() else { return }
+    operations.append(operation); selection = []; changed()
   }
 
   private func changed() { editID = UUID(); editDate = Date(); error = nil }
@@ -95,7 +120,7 @@ package final class PortraitLineEditModel {
       let record = try DrawingStrokeSelection(editID: editID, createdAt: editDate,
         originalPackageJSON: originalBytes, baseOrigin: baseOrigin,
         baseProgram: base.program,
-        initialRemovedStrokeIDs: initialRemoved, deletionBatches: batches)
+        initialRemovedStrokeIDs: initialRemoved, operations: operations, exerciseContext: exerciseContext)
       savedDrawing = try await sketches.saveStrokeSelection(record, base: base)
       savedMask = removed
       return true

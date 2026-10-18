@@ -8,6 +8,42 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Sparse Flow Edge exercises and corrective restoration, 2026-10-18
+
+Task `task-a84762656229450aa3f15dfea4b1b3e6` adds a Restore tool over the frozen
+native basis. Removed lines appear in gray and can be restored individually with
+undo/redo. Version-two selection records distinguish generated exercise operations
+from human corrections, retain the proposal context and starting mask, and continue
+to validate exact surviving coordinates, ordering and pen styles. Version-one edits
+remain readable. Explicitly saving an unchanged generated exercise records an empty
+human operation sequence; neither this nor an edited target supplies a quality label.
+
+Ten focused `PortraitLineEditTests` passed in 3.740 seconds, including legacy
+restoration, mixed remove/restore persistence and re-import, generated-versus-human
+attribution, unchanged exercise save, offscreen native Restore pointer events,
+undo/redo, exact DrawingPlanner admission and the existing save-failure behavior.
+An asymmetric pixel test verifies the corrected orientation of newly exported PNG
+previews. Historical package bytes and thumbnails are not rewritten.
+
+The opt-in `PortraitSurfaceExerciseTests` generator reads one to eight frozen local
+sources and writes two proposals per source into a fresh canonical ExerciseLibrary.
+It retains a fuller Flow Edge basis, native face crop/person masking, exact recipes,
+source receipts and per-stroke proposal decisions. Landmark-relative feature/jaw
+supports protect candidates; local image gradient, continuity, spacing and small
+regional budgets rank the remaining candidates. These are experimental geometric
+surface proxies, not learned segmentation, age inference or an expression model.
+A crossing polyline can carry both a feature and excess surface detail. A feature
+missing from the full basis cannot be restored by selection alone. Generation is
+disabled during ordinary tests and refuses an existing exercise library.
+
+Retained local exercise artifacts and build receipts use
+`~/Documents/PortraitStudio-SurfaceExercises-2026-10-18/`. They are separate from
+the earlier review libraries. Read-only hash verification confirmed 316 files in
+the face-review library and 283 in the milestone library unchanged after orderly
+shutdown. Source-specific visual observations and delivery receipts belong to the
+retained run report; the software tests above establish no human likeness,
+expression acceptance or physical ink result.
+
 ## Flow Edge whole-polyline editing, 2026-10-18
 
 Task `task-1fbf4fc17bff4b0ebb9cef84b838d667` adds a frozen Flow Edge editing

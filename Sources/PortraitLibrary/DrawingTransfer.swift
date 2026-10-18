@@ -77,9 +77,10 @@ package enum DrawingPackageLibraryValidation {
     for stroke in program.strokes {
       guard let first = stroke.path.points.first else { continue }
       context.beginPath()
-      context.move(to: CGPoint(x: first.x * scale, y: Double(height) - first.y * scale))
+      // The bitmap CGContext already has a bottom-left origin, like FieldSpace.
+      context.move(to: CGPoint(x: first.x * scale, y: first.y * scale))
       for point in stroke.path.points.dropFirst() {
-        context.addLine(to: CGPoint(x: point.x * scale, y: Double(height) - point.y * scale))
+        context.addLine(to: CGPoint(x: point.x * scale, y: point.y * scale))
       }
       context.setLineWidth(stroke.style.nominalLineWidth * scale); context.strokePath()
     }
@@ -286,11 +287,13 @@ extension PortraitCandidateStore {
     let origin = DrawingOriginReference(libraryID: try libraryIdentity(libraryDatabase()),
       captureID: root.origin.captureID, resultID: record.editID.uuidString.lowercased(),
       resultRecordSHA256: DrawingPackageCodec.sha256(bytes), programHash: program.contentHash)
+    let title = record.operationSource == .exerciseProposal ? record.exerciseContext!.title
+      : (record.exerciseContext?.title ?? "Flow Edge") + " · edited (\(record.removedStrokeIDs.count) removed)"
     return try SavedDrawing(package: DrawingPackage(origin: origin, program: program,
-      createdAt: record.createdAt, title: "Flow Edge · edited (\(record.removedStrokeIDs.count) removed)",
+      createdAt: record.createdAt, title: title,
       resultRecordJSON: bytes, source: root.source, artistInput: root.artistInput,
       artist: .init(identifier: DrawingStrokeSelection.artistIdentifier,
-        revision: DrawingStrokeSelection.revision, settingsJSON: DrawingStrokeSelection.settingsJSON),
+        revision: record.artistRevision, settingsJSON: record.artistSettingsJSON),
       preview: DrawingPackageLibraryValidation.preview(program)))
   }
 

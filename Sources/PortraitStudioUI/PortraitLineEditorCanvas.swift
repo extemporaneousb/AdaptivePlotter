@@ -44,7 +44,7 @@ package final class PortraitLineEditorNSView: NSView {
     setAccessibilityElement(true); setAccessibilityRole(.image)
     setAccessibilityLabel("Flow Edge line editor")
     setAccessibilityIdentifier("portrait.lineEditor.canvas")
-    setAccessibilityHelp("Click removes a whole line. Lasso selects touched lines. Delete removes selection. Command Z undoes; Shift Command Z redoes.")
+    setAccessibilityHelp("Click removes a whole line. Lasso selects touched lines. Restore recovers gray removed lines. Delete removes selection. Command Z undoes; Shift Command Z redoes.")
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
 
@@ -66,11 +66,13 @@ package final class PortraitLineEditorNSView: NSView {
     prepare()
     guard let geometry else { return }
     NSColor.white.setFill(); geometry.page.fill()
-    for line in geometry.lines where !removed.contains(line.id) {
+    for line in geometry.lines where !removed.contains(line.id) || (editingEnabled && tool == .restore) {
       guard let path = paths[line.id] else { continue }
-      NSColor.black.setStroke(); path.stroke()
+      (removed.contains(line.id) ? NSColor.systemGray.withAlphaComponent(0.45) : NSColor.black).setStroke()
+      path.stroke()
       if editingEnabled && (selected.contains(line.id) || hover == line.id) {
-        (tool == .erase && hover == line.id ? NSColor.systemRed : NSColor.selectedControlColor).setStroke()
+        (tool == .restore ? NSColor.systemGreen
+          : tool == .erase && hover == line.id ? NSColor.systemRed : NSColor.selectedControlColor).setStroke()
         let highlight = path.copy() as! NSBezierPath
         highlight.lineWidth = max(line.width + 2, 3); highlight.stroke()
       }
@@ -91,7 +93,7 @@ package final class PortraitLineEditorNSView: NSView {
   }
   package override func mouseMoved(with event: NSEvent) {
     prepare()
-    let next = editingEnabled ? geometry?.hit(convert(event.locationInWindow, from: nil), excluding: removed) : nil
+    let next = editingEnabled ? geometry?.hit(convert(event.locationInWindow, from: nil), excluding: excludedFromPicking) : nil
     if hover != next { hover = next; needsDisplay = true }
   }
   package override func mouseExited(with event: NSEvent) { hover = nil; needsDisplay = true }
@@ -111,9 +113,11 @@ package final class PortraitLineEditorNSView: NSView {
     defer { gesture = []; hover = nil; needsDisplay = true }
     guard editingEnabled, let start = gesture.first, let geometry, let model else { return }
     let point = convert(event.locationInWindow, from: nil)
-    if tool == .erase {
+    if tool == .erase || tool == .restore {
       if hypot(point.x-start.x, point.y-start.y) < 5,
-        let id = geometry.hit(point, excluding: removed) { model.remove([id]) }
+        let id = geometry.hit(point, excluding: excludedFromPicking) {
+        if tool == .restore { model.restore([id]) } else { model.remove([id]) }
+      }
     } else if gesture.count >= 3 {
       let hit = geometry.lasso(gesture, excluding: removed)
       model.selection = event.modifierFlags.contains(.shift) ? model.selection.union(hit) : hit
@@ -122,6 +126,10 @@ package final class PortraitLineEditorNSView: NSView {
         if !model.selection.insert(id).inserted { model.selection.remove(id) }
       } else { model.selection = [id] }
     } else if !event.modifierFlags.contains(.shift) { model.selection = [] }
+  }
+
+  private var excludedFromPicking: Set<StrokeID> {
+    tool == .restore ? Set(program?.strokes.map(\.id) ?? []).subtracting(removed) : removed
   }
 
   package override func performKeyEquivalent(with event: NSEvent) -> Bool {

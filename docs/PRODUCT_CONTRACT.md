@@ -1899,6 +1899,15 @@ local result and preserves its original origin; it never rewrites the imported
 record. Export/import preserves the edited target for existing Drawing admission.
 Selection targets carry no inferred pass/fail or aesthetic labels. Complete removal
 is undoable in the editor but cannot create an empty executable DrawingProgram.
+Selective Restore recovers exact root polylines, including prior saved removals,
+without discarding subsequent edits. Version-two selection records preserve the
+starting mask and ordered applied remove/restore operations. Generated exercise
+proposals are explicitly attributed separately from human operations; human targets
+retain their exercise policy context. A generated selection is never a human label.
+Sparse surface exercise regions are landmark-relative heuristics, not measured
+facial surfaces or expression/likeness evidence. Feature support conservatively
+retains candidate lines; it does not establish that the candidates depict the right
+features. The original candidate pool remains available for corrective restoration.
 
 The [Studio guide](PORTRAIT_STUDIO.md) owns the current file and operator details.
 

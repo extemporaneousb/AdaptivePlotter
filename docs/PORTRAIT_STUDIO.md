@@ -70,6 +70,9 @@ editing does not rerun Flow Edge or change its renderer controls.
   whole lines, including their portions outside the loop. Shift adds to the selection;
   Shift-click toggles one line. Use **Delete Selected** or the Delete key to remove
   the selected group.
+- **Restore** shows removed original lines in gray. Click one to restore that
+  exact polyline, including removals from a previously saved edit or an exercise
+  proposal. It does not synthesize missing geometry. Undo/Redo also apply to restores.
 - **Undo** / **Redo** (Command-Z / Shift-Command-Z) restore or remove the exact
   last group. Escape clears the selection and unfinished lasso. Undo history is
   scoped to this editor session; reopening starts from the saved edited target.
@@ -88,7 +91,8 @@ coordinates, ordering and pen styles. Placement, material checks and motion rema
 owned by the receiving plotter. Editing alone establishes no physical result.
 
 The exported Drawing Package also carries the training pair. Its artist is
-`adaptiveplotter.flow-edge-selection`, revision `whole-polyline-removal-v1`.
+`adaptiveplotter.flow-edge-selection`. Existing `whole-polyline-removal-v1`
+records remain readable. New edits use `whole-polyline-selection-v2`.
 The decoded `resultRecordJSON` contains the root `originalPackageJSON`, starting
 program/origin, initial removal IDs, applied deletion groups and final
 `removedStrokeIDs`. Retained IDs are the original IDs minus that mask. Reopening
@@ -96,10 +100,51 @@ and editing retains the same root package rather than nesting edited packages.
 Package validation checks the target against that exact subset; imports preserve
 both target and original bytes.
 
+Version two additionally stores ordered `operations` (remove or restore),
+`operationSource` (`human` or `exerciseProposal`) and optional `exerciseContext`.
+The context identifies a generated exercise and retains its exact proposal policy.
+Human edits carry that context forward, with the starting mask separate from new
+human operations. A restored line is a correction of that starting selection;
+it is not evidence that every line or the whole drawing is acceptable. Undo removes
+an operation from the applied sequence; this record is not a complete UI event log.
+
 These records are **unrated selection targets**. Removed lines are explicit
 removal decisions in this drawing context. Retained lines describe the saved target,
 not independent positive judgments. Saving supplies no pass/fail, likeness,
 expression or physical-quality label and does not train a model automatically.
+
+## Sparse surface exercises
+
+The opt-in `PortraitSurfaceExerciseTests` harness reads frozen source bytes and
+capture receipts from a fresh external directory and creates `ExerciseLibrary`
+through the canonical library owner. Set `PORTRAIT_SURFACE_EXERCISE_ROOT` to that
+absolute directory and run `swift test --no-parallel --filter PortraitSurfaceExerciseTests`.
+An existing exercise library is refused, never overwritten. `sources.json` contains
+one to eight distinct sources with `index`, `title`, direct `filename`, `sha256`,
+`captureID` and `acquisitionID` fields in its `sources` array.
+
+Each source has a retained Flow Edge basis using face crop, person background
+removal and supported low-density tone. Two whole-polyline subsets preserve every
+candidate touching the existing landmark feature or jaw supports. Other lines are
+ranked by local image gradient and continuity, with spatial separation and small
+budgets for forehead, cheeks, chin, hair, clothing and exterior regions. Round 1
+offers more surface candidates; Round 2 is sparser. These regions are geometric
+proxies, not learned facial-surface segmentation, age inference, or an expression
+model. Protected strokes can cross a surface, so the budget is not a claim that
+every visible region has exactly that many marks.
+
+Choose a numbered **Round** entry in Library → Drawings, then **Edit Lines**.
+Use Photo to judge whether creases and feature marks describe the face; delete
+redundant marks and use Restore where the proposal omitted something necessary.
+Save retains a new human target. The **Source** entries preserve the fuller basis.
+An unchanged generated proposal can also be explicitly saved as a human target;
+its operation sequence is empty and its original proposal attribution is retained.
+Both rounds are starting proposals prepared before human feedback; the second is
+not represented as a model trained on the first. No pass/fail label is inferred.
+
+Newly rendered Drawing Package PNG previews use the same vertical orientation as
+the authored program and editor. Historical immutable package bytes, including
+their original thumbnails, are preserved rather than silently rewritten.
 
 **Import Drawing** admits a validated package into the private library without
 rerendering it. Its source, artist identifier/revision/settings and exact program

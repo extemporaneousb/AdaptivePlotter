@@ -23,7 +23,7 @@ package struct PortraitLineEditor: View {
   package var body: some View {
     VStack(spacing: 10) {
       HStack {
-        Text("Edit Flow Edge Lines").font(.headline)
+        Text(model.base.title).font(.headline).lineLimit(1).help(model.base.title)
         Spacer()
         Button("Close") {
           if model.hasUnsavedChanges { confirmsClose = true } else { dismiss() }
@@ -35,17 +35,17 @@ package struct PortraitLineEditor: View {
       HStack {
         Picker("Tool", selection: $model.tool) {
           ForEach(PortraitLineEditModel.Tool.allCases, id: \.self) { tool in Text(tool.rawValue).tag(tool) }
-        }.pickerStyle(.segmented).frame(width: 240).disabled(!model.canEdit)
+        }.pickerStyle(.segmented).frame(width: 305).disabled(!model.canEdit)
         Button("Delete Selected (\(model.selection.count))", systemImage: "trash") { model.remove(model.selection) }
-          .disabled(!model.canEdit || model.selection.isEmpty)
+          .disabled(!model.canEdit || model.selection.isEmpty || model.tool == .restore)
           .accessibilityIdentifier("portrait.lineEditor.deleteSelected")
         Button("Undo", systemImage: "arrow.uturn.backward") { model.undo() }.disabled(!model.canUndo)
           .keyboardShortcut("z", modifiers: .command)
-          .help("Undo last removal (⌘Z)")
+          .help("Undo last line edit (⌘Z)")
           .accessibilityIdentifier("portrait.lineEditor.undo")
         Button("Redo", systemImage: "arrow.uturn.forward") { model.redo() }.disabled(!model.canRedo)
           .keyboardShortcut("z", modifiers: [.command, .shift])
-          .help("Redo removal (⇧⌘Z)")
+          .help("Redo line edit (⇧⌘Z)")
         Spacer()
       }.controlSize(.small)
       HStack {
@@ -72,7 +72,8 @@ package struct PortraitLineEditor: View {
         } else if model.isBusy { ProgressView("Retaining original…").frame(maxWidth: .infinity, maxHeight: .infinity) }
       }
       HStack {
-        Text(model.tool == .erase ? "Click removes a whole line. Undo restores it." : "Lasso selects every line it touches. Shift adds to selection; Delete removes the group.")
+        Text(model.tool == .restore ? "Click a gray removed line to restore it. Undo and Redo apply to both tools."
+          : model.tool == .erase ? "Click removes a whole line. Undo restores it." : "Lasso selects every line it touches. Shift adds to selection; Delete removes the group.")
           .font(.caption).foregroundStyle(.secondary)
         Spacer()
         if model.isBusy { ProgressView().controlSize(.small) }
@@ -87,7 +88,7 @@ package struct PortraitLineEditor: View {
         }
       } else if model.savedDrawing != nil && !model.hasUnsavedChanges {
         HStack {
-          Text("Saved in Drawings · original and removal data retained").font(.caption).foregroundStyle(.secondary)
+          Text("Saved in Drawings · original and edit data retained").font(.caption).foregroundStyle(.secondary)
           Spacer()
           if let handoff, let drawing = model.savedDrawing {
             Button(handoffTitle) {
@@ -102,6 +103,7 @@ package struct PortraitLineEditor: View {
       .disabled(isHandingOff)
       .interactiveDismissDisabled(model.hasUnsavedChanges || model.isBusy || isHandingOff)
       .task { await model.load() }
+      .onChange(of: model.tool) { _, _ in model.selection = [] }
       .confirmationDialog("Save this edit before closing?", isPresented: $confirmsClose, titleVisibility: .visible) {
         Button("Save Edited Drawing") { Task { if await save() { dismiss() } } }.disabled(!model.canSave)
         Button("Discard Unsaved Changes", role: .destructive) { dismiss() }

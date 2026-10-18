@@ -3,10 +3,11 @@ import Foundation
 import PlotterModel
 import PortraitArtists
 import PortraitCore
-import PortraitLibrary
+@testable import PortraitLibrary
 import PortraitStudioUI
 import Testing
 import SwiftUI
+import ImageIO
 
 @Suite("Flow Edge whole-line editing", .serialized)
 @MainActor
@@ -120,6 +121,98 @@ struct PortraitLineEditTests {
     model.undo(); #expect(model.removed.isEmpty)
   }
 
+  @Test("Restore can recover legacy removals; mixed operations persist and undo without losing later edits")
+  func restoration() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let sketches = PortraitSketchCollection(store: PortraitCandidateStore(directoryURL: directory))
+    let base = try Self.drawing(), bytes = try await sketches.exportDrawingPackage(base)
+    let root = try DrawingPackageCodec.decode(bytes), ids = root.program.strokes.map(\.id)
+    let legacy = try DrawingStrokeSelection(editID: UUID(), createdAt: Date(), originalPackageJSON: bytes,
+      baseOrigin: root.origin, baseProgram: root.program, initialRemovedStrokeIDs: [], deletionBatches: [[ids[0],ids[1]]])
+    let prior = try await sketches.saveStrokeSelection(legacy, base: base)
+    let model = PortraitLineEditModel(base: prior, sketches: sketches)
+    await model.load()
+    model.remove([ids[2]]); model.restore([ids[0]])
+    #expect(model.removed == [ids[1],ids[2]])
+    model.undo(); #expect(model.removed == [ids[0],ids[1],ids[2]])
+    model.redo(); #expect(model.removed == [ids[1],ids[2]])
+    #expect(await model.save())
+    let saved = try #require(model.savedDrawing)
+    let package = try DrawingPackageCodec.decode(try await sketches.exportDrawingPackage(saved))
+    let record = try #require(try DrawingStrokeSelection.record(in: package))
+    #expect(record.schemaVersion == 2)
+    #expect(record.operations == [.init(action: .remove,strokeIDs: [ids[2]]),.init(action: .restore,strokeIDs: [ids[0]])])
+    #expect(record.initialRemovedStrokeIDs == [ids[0],ids[1]])
+    #expect(record.originalPackageJSON == bytes)
+    #expect(package.program.strokes == [root.program.strokes[0],root.program.strokes[3]])
+    let receiver = PortraitSketchCollection(store: PortraitCandidateStore(directoryURL: directory.appendingPathComponent("receiver")))
+    let imported = try await receiver.importDrawingPackage(try await sketches.exportDrawingPackage(saved))
+    let reopened = PortraitLineEditModel(base: imported, sketches: receiver)
+    await reopened.load(); reopened.restore(Set(ids))
+    #expect(await reopened.save())
+    #expect(reopened.savedDrawing?.program.strokes == root.program.strokes)
+    for operations: [DrawingStrokeSelection.Operation] in [
+      [.init(action: .restore,strokeIDs: [ids[2]])],
+      [.init(action: .remove,strokeIDs: [ids[0]])],
+      [.init(action: .restore,strokeIDs: [ids[0],ids[0]])]] {
+      #expect(throws: (any Error).self) {
+        try DrawingStrokeSelection(editID: UUID(),createdAt: Date(),originalPackageJSON: bytes,
+          baseOrigin: try #require(prior.transferOrigin),baseProgram: prior.program,
+          initialRemovedStrokeIDs: [ids[0],ids[1]],operations: operations)
+      }
+    }
+  }
+
+  @Test("Exercise proposals retain attribution through unchanged save and human restoration")
+  func exerciseAttribution() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let sketches = PortraitSketchCollection(store: PortraitCandidateStore(directoryURL: directory))
+    let base = try Self.drawing(), bytes = try await sketches.exportDrawingPackage(base)
+    let root = try DrawingPackageCodec.decode(bytes), ids = root.program.strokes.map(\.id)
+    let context = DrawingStrokeSelection.ExerciseContext(id: UUID(), title: "Round 1 · Example", policyJSON: Data("{}".utf8))
+    let proposal = try DrawingStrokeSelection(editID: UUID(), createdAt: Date(), originalPackageJSON: bytes,
+      baseOrigin: root.origin, baseProgram: root.program, initialRemovedStrokeIDs: [],
+      operations: [.init(action: .remove, strokeIDs: [ids[0], ids[1]])],
+      operationSource: .exerciseProposal, exerciseContext: context)
+    let generated = try await sketches.saveStrokeSelection(proposal, base: base)
+    let model = PortraitLineEditModel(base: generated, sketches: sketches)
+    await model.load()
+    #expect(!model.hasUnsavedChanges && model.canSave)
+    #expect(await model.save())
+    #expect(!model.canSave)
+    let unchanged = try #require(model.savedDrawing?.transferredPackage)
+    let unchangedRecord = try #require(try DrawingStrokeSelection.record(in: unchanged))
+    #expect(unchangedRecord.operationSource == .human && unchangedRecord.operations == [])
+    #expect(unchangedRecord.exerciseContext == context && unchangedRecord.initialRemovedStrokeIDs == [ids[0],ids[1]])
+    #expect(unchanged.program.strokes == generated.program.strokes)
+    model.restore([ids[0]])
+    #expect(await model.save())
+    let corrected = try #require(model.savedDrawing?.transferredPackage)
+    let record = try #require(try DrawingStrokeSelection.record(in: corrected))
+    #expect(record.operations == [.init(action: .restore, strokeIDs: [ids[0]])])
+    #expect(record.operationSource == .human && record.exerciseContext == context)
+    #expect(record.baseOrigin == generated.transferOrigin)
+    #expect(sketches.labels.isEmpty)
+  }
+
+  @Test("Export PNG orientation agrees with y-up authored paths and the editor")
+  func previewOrientation() throws {
+    let asset = try DrawingPackageLibraryValidation.preview(Self.program())
+    let imageSource = try #require(CGImageSourceCreateWithData(asset.bytes as CFData,nil))
+    let image = try #require(CGImageSourceCreateImageAtIndex(imageSource,0,nil))
+    let data = try #require(image.dataProvider?.data)
+    let bytes = try #require(CFDataGetBytePtr(data))
+    func luminance(x: Double,y: Double) -> UInt8 {
+      let offset = Int(y * Double(image.height)) * image.bytesPerRow + Int(x * Double(image.width)) * 4
+      return min(bytes[offset],bytes[offset+1],bytes[offset+2])
+    }
+    // Only the upper-right diagonal passes (80,80). Its vertical mirror is empty.
+    #expect(luminance(x: 0.8,y: 0.2) < 100)
+    #expect(luminance(x: 0.8,y: 0.8) > 240)
+  }
+
   @Test("Native canvas routes click, lasso, Delete and focused undo without taking text shortcuts")
   func nativeEvents() async throws {
     _ = NSApplication.shared
@@ -162,7 +255,11 @@ struct PortraitLineEditTests {
     canvas.mouseUp(with: try mouse(.leftMouseUp,polygon[0]))
     #expect(model.selection == [line.id])
     canvas.keyDown(with: try key(51,"\u{7f}")); #expect(model.removed == [line.id])
-    model.undo()
+    canvas.removed = model.removed; canvas.tool = .restore; model.tool = .restore
+    canvas.mouseDown(with: try mouse(.leftMouseDown,center)); canvas.mouseUp(with: try mouse(.leftMouseUp,center))
+    #expect(model.removed.isEmpty)
+    model.undo(); #expect(model.removed == [line.id]); model.redo(); #expect(model.removed.isEmpty)
+    canvas.removed = []; canvas.tool = .lasso; model.tool = .lasso
     let field = NSTextView(frame: .init(x: 0,y: 420,width: 100,height: 20))
     window.contentView?.addSubview(field); #expect(window.makeFirstResponder(field))
     #expect(!canvas.performKeyEquivalent(with: try key(6,"z",.command)))
