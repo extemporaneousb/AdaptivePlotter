@@ -16,13 +16,12 @@ The application is deliberately local:
 
 ## Independent Portrait Studio
 
-`PortraitStudio` is a second native app for authoring with the same Flow Edge,
-Contour and Sketch implementations and shared Studio controls. It has its own
-fresh library at `~/Library/Application Support/PortraitStudio/PortraitLibrary`;
-it does not clone or open AdaptivePlotter's live database. Export an immutable
-Drawing Package, import it in AdaptivePlotter, then use the existing placement,
-material and Draw workflow. An optional Plot Attachment returns retained attempt
-records and original frames for inspection. Studio composes no machine runtime.
+`PortraitStudio` is the independent Flow Edge Dojo: choose a photo, compare a
+broad panel, refine a choice, remove or restore whole lines, rank alternatives,
+and fit/deploy a personal artist. The embedded workspace uses the same journey.
+Every image, result, choice, edit and judgment is saved incrementally inside a
+portable portfolio directory, by default
+`~/Documents/Flow Edge Portfolio.flowportfolio/`.
 
 ```sh
 make portrait-studio-app
@@ -30,20 +29,25 @@ make validate-portrait-studio-app
 ```
 
 The output is `.build/PortraitStudio.app` (`com.bullard.PortraitStudio`, version
-0.1.0). These commands build and verify the bundle without launching it. Launch
-that bundle explicitly when ready to use Studio; the raw SwiftPM executable does
-not carry its camera permission description. See the
-[Studio operator and format guide](docs/PORTRAIT_STUDIO.md) for capture, imports,
-private storage, exact identity preservation, and returned evidence limits.
-The [frozen development baseline](#portrait-studio-development-baseline) below
-remains the output comparison reference. Standalone **Artists** exposes the three
-native artists and experimental local SwiftSketch with explicit availability and
-cancellation. **Review** compares immutable drawings with the original visible,
-records explicit A/B/tie/neither/skip judgments and exports retained experiment
-bytes. Human source/session declarations remain separate from capture UUIDs.
-See the Studio guide for installed runtime configuration and opening the disposable
-retained pilot library; model success and unlabeled comparisons do not establish
-portrait quality.
+0.1.0). These commands build and verify it without launching. The standalone app
+accepts an absolute `--portfolio` directory; Portfolio → New/Open selects one in
+the UI. Each portfolio has one writer and includes its images, immutable records,
+training snapshots and checkpoints. Existing private libraries remain historical.
+
+The artist combines native Flow Edge parameter variation with learned line
+selection. Explicit rankings and pruning targets fit local image-conditioned
+preference and deletion models. Fit reports distinguish training from held-out
+measurements; activation and rollback affect future proposals. Ordinary autosave
+does not invent labels for untouched lines. **Finish pruning** declares a complete
+target, after the edits are already durable.
+
+Export an immutable Drawing Package, import it in AdaptivePlotter, and use the
+existing placement, material/paper and Draw workflow. Embedded **Send to Drawing**
+uses the same canonical handoff. Studio owns no machine runtime. See the
+[Studio operator and format guide](docs/PORTRAIT_STUDIO.md) for the complete loop,
+portfolio format, fitting limits and physical evidence boundaries. The
+[frozen development baseline](#portrait-studio-development-baseline) remains a
+historical renderer reference; it does not restore multiple authoring paths.
 
 ## Operator journey
 
@@ -325,23 +329,20 @@ drawing archive. Failed or ambiguous trials stop selection. Candidates remain
 diagnostic; automatic batch execution, corrected physical holdouts, and explicit
 model acceptance are still required before adaptive drawing readiness.
 
-Open **Portrait Studio** through **View** to capture a burst or import a photo.
-The workspace displays one portrait. **Contour** provides direct adjustments;
-**Explorer** steps through variations of the current style using **Back** and **Next**.
-New variations are requested one at a time. Back/Forward restore retained results
-without rendering. The inline source strip selects photos; **History** opens the shared Drawings
-browser for the current photo, with optional all-photo and kept-only filters.
-**Send to Drawing** saves and hands the immutable drawing to the
-shared **Drawing** panel; an unchanged drawing retains its existing placement.
-**Save Drawing** stores the immutable program in the shared drawing library.
-**Drawings** groups saved drawings and attempted drawings with their runs,
-stage photos and notes; portrait source and recipe information is optional
-provenance. To execute: Send to Drawing, adjust placement and confirm paper, then
-press **Draw**. Sending and saving do not move hardware.
-Review lists load bounded summaries and materialize exact geometry and images only
-when selected. Notes are annotations. The reviewer can delete saved drawings and
-physical results. Deleting a physical result hides it from review and residual selection while retaining the
-execution records needed for possible-ink and no-redraw safety.
+Open **Portrait Studio** through the toolbar or **View** to enter the shared
+Flow Edge Dojo. Import or capture a photo, generate a broad panel, choose and refine
+an artistic direction, and prune exact lines. Explore, Prune, Rank and Fit & deploy
+are stages of this one portfolio workflow. Photos, rounds, choices, edit revisions,
+randomized ranking presentations and model reports are autosaved; no Save Drawing
+step is required.
+
+**Send to Drawing** imports the selected immutable portfolio result through the
+canonical drawing library and installs it in the shared Drawing panel. Continue
+with placement, material and paper setup, then press **Draw**. Sending invokes no
+motion. Later curation or model activation cannot change an already placed drawing.
+The drawing reviewer retains bounded source/drawing/run summaries, stage photos
+and annotations. Deleting a physical result hides review/residual selection while
+preserving the execution records needed for possible-ink and no-redraw safety.
 
 Drawing also accepts the 11 deterministic catalog producers: line, polyline,
 rectangle, square, triangle, regular polygon, circle, ellipse, star, pyramid and
@@ -481,12 +482,13 @@ adds documentation and comparison tests. The tag was created after review and
 validation at `035e922c7171abff540865c2261e7cad613f318a`, without publishing it or replacing the running app. The tagged commit
 is a reproducible software reference, not physical or native-interaction acceptance.
 
-Flow Edge, Contour and Sketch remain the current artists. In the tagged historical
-state, Studio, its renderer contracts and portrait library lived in `PlotterApp`.
-The current shared modules and independent application are described in the
+Flow Edge is the current Dojo's sole renderer. The tagged historical state also
+contains Contour and Sketch and predates the shared module extraction. Their frozen
+kernel comparisons remain useful regression references without making them current
+UI paths. The current owners and training loop are described in the
 [package topology](docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md#package-topology)
-and [Studio guide](docs/PORTRAIT_STUDIO.md). Further artist and training extensions
-remain [Roadmap work](docs/ROADMAP.md#portrait-studio-extensions-after-separation).
+and [Studio guide](docs/PORTRAIT_STUDIO.md). Remaining human and performance acceptance
+is [Roadmap work](docs/ROADMAP.md#portrait-studio-remaining-acceptance).
 
 Run the frozen renderer comparison in the checkout under test:
 

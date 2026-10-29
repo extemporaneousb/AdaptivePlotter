@@ -8,6 +8,126 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Flow Edge artist dojo and portable learning portfolio, 2026-10-28–29
+
+Task `task-899d2190242143a5bc5c2514d29843d4` replaces the ordinary standalone and
+embedded Portrait Studio with one shared Flow Edge curation flow: photo, broad
+native-parameter proposals, local refinement, whole-line pruning, rankings and
+local fitting/deployment. The new portfolio retains immutable assets and
+incremental decisions independently of the historical SQLite review libraries.
+The model has an image-conditioned pairwise drawing ranker and a contextual
+whole-stroke deletion head. Both fit regularized logistic objectives in Swift;
+same-basis ranked masks also supply deletion utility comparisons. Missing labels,
+one-class corrections and inadequate independent-photo evidence remain explicit.
+Product semantics and mathematical limits are documented in
+[Portrait Studio](PORTRAIT_STUDIO.md).
+
+Seven focused model tests passed in **98.325 seconds**. They exercise deterministic
+native proposals, image/mask features, independent synthetic-photo holdouts,
+numeric loss improvement, partial/no-label fits, corrupt-input refusal, choice
+semantics, ranked-mask supervision, checkpoint reload, deployment and rollback.
+A later full-fit regression reproduced a real numerical failure: normalized
+correct-outcome weights summed to `1.0000000000000002`, causing strict checkpoint
+validation to refuse an otherwise valid fit. Computed bounded rates now normalize
+floating-point roundoff; invalid stored measurements remain rejected. The new
+regression passed in **0.592 seconds**, including exact deployed keep-one behavior
+and rejection of a tampered accuracy of `1.01`.
+
+The final focused Dojo run reported **16 tests in 19.260 seconds**, with the
+opt-in real-photo trial explicitly skipped. Its synthetic four-photo complete
+loop passed in **17.649 seconds**: curate/rank, fit, activate, generate learned
+proposals, correct/refit, copy/reopen the portable directory, roll back and disable
+the model. Thirteen interaction tests passed for autosave/reopen, exact refinement
+anchors, failed-write retry, locked-folder recovery, atomic source curation,
+retained failed fit installation, changing portfolios, exact offered-choice
+identities, embedded-owner lifetime, frozen round styles, shutdown admission,
+joining the entire pending recovery queue before quit/reopen, pre-allocation
+training budgets and stale completed-target handling. These are
+software/model fixtures with declared synthetic judgments, not human artistic
+quality acceptance or attended native interaction.
+
+A configured repository gate exposed four workspace-layout assertions for the
+superseded slider/inspector Studio. Those assertions were replaced with an
+offscreen `NSHostingController`/AppKit contract for the actual shared Dojo.
+One parameterized test passed in **30.819 seconds**, checking **Explore, Prune,
+Rank and Fit & deploy at 1100 × 720 and 1440 × 940**, with eight retained PNGs
+and no issues or skips. It verifies bounds, visible core actions and native
+first-row rank pickers, and that layout neither regenerates drawings nor mutates
+the disposable portfolio. PNG inspection exposed excessive vertical space in the
+compact Rank toolbar; two bounded adaptive action rows now leave all three
+first-row cards and their rank pickers visible. `dojo-layout-tests.log`,
+`dojo-layout-tests.xml`, `dojo-layout-summary.json` and `dojo-layout/` retain this
+headless native-layout evidence. The fixture uses synthetic geometry; it does not
+establish interactive desktop click-through or human usability acceptance.
+
+The separately invoked real-photo loop passed in **179.089 seconds**, using the
+production image preparation and Flow Edge renderer. Its separate
+`Validation.flowportfolio` is explicitly marked `validationFixture`: one real
+photo received synthetic length-based judgments, not the artist's preferences.
+It retains **three rounds, eleven drawings and three rankings**, two fitted
+checkpoints, learned mask proposals, a correction/refit and successful
+reopen/rollback/reactivation. The first fit used 36 ranking and 1,581 deletion
+observations; the second used 41 and 1,658. Both reports correctly remain
+experimental because there is only one independent source group and no holdout.
+The three learned proposals removed **82, nine and 48 strokes**. One warm edit
+transaction took **27.7 ms** in the integration harness; this is not a native
+interaction-latency measurement. The receipt captures portfolio revision 68;
+the subsequent rollback/reactivation reached revision 70. Exact checkpoint IDs,
+source hash, reports and preview paths are retained in `complete-loop-receipt.json`
+under the trial root. `real-photo-loop.log` records the test result, and
+`broad-panel-index.json` binds the four original broad previews to their exact
+recipes and programs. No artistic-quality improvement follows from the synthetic
+judgments or from this one-photo trial.
+
+The portfolio run reported **nine tests in 12.940 seconds**, with its real-library
+import opt-in skipped. Coverage includes relocation, one-writer ownership,
+corruption refusal, failed commits, exact inherited masks and fit-snapshot
+membership. A 1,000-edit exercise retained **1,124,332 operation-record bytes**,
+with a largest record of **2,029 bytes**; the mutation loop took **10.969 seconds**
+and reopening recovered the exact state. Historical import was then invoked
+explicitly and passed separately in **52.041 seconds**.
+
+The artist portfolio at `~/Documents/Flow Edge Portfolio.flowportfolio/` was
+bootstrapped with **five source photos, seven exact human targets and 571 explicit
+stroke-removal decisions**, at revision **7**. Its inventory contains 27 retained
+objects, 223,293,457 logical bytes (approximately **213 MiB**), and verified object
+and record hashes. Existing inherited removals retain their distinct provenance.
+There are no invented rankings, completed-target approvals, subject/session
+declarations, fits or activations in this bootstrap. Remove-only historical data
+does not by itself establish a trained deletion policy. The source exercise
+library's **90 files remained 90 files, byte-for-byte unchanged**, with no added,
+missing or modified entries.
+
+The retained `PortraitStudio.app` was built in release mode and signed with the
+stable local `AdaptivePlotter Local Development` identity. Strict
+signature verification reported the bundle valid on disk and satisfying its
+designated requirement. The retained `Contents/MacOS/PortraitStudio` executable's
+SHA-256 is
+`28b22ec3718b324112d56c54ce14ef1ae9b8d03bb612d75aa73057aaa8e078d6`.
+The final incremental release rebuild took **33.32 seconds** after the compact
+Rank correction. `release-build-layout-fix.log`,
+`app-package-signature-layout-fix.log` and `executable-sha256.txt` retain its
+build/package receipts. This is local packaging evidence, not notarization or
+interactive desktop acceptance. Native computer-use verification was blocked
+before any verified app interaction: "The Mac is locked and automatic unlock
+could not unlock it. Ask the
+user to unlock the Mac manually before continuing." The host must be unlocked to
+complete that check; no live desktop interaction result is claimed here.
+
+Retained receipts are under
+`~/Documents/FlowEdge-ArtistDojo-2026-10-28/receipts/`:
+`model-tests.log`, `model-metric-regression-before.log`,
+`dojo-focused-with-metric-fix.log`, `dojo-focused-tests.log`, `portfolio-tests.log`,
+`portfolio-historical-bootstrap.log`, `portfolio-historical-inventory.json` and
+`historical-preservation.json`. The trial root also retains `Validation.flowportfolio`,
+`complete-loop-receipt.json` and the broad/learned preview PNGs; its receipts
+directory contains `real-photo-loop.log` and `broad-panel-index.json`. The targeted
+checks above do not substitute for the final repository gate; its result is
+recorded in this task's Blackdog validation receipt. No physical machine or ink
+claim follows from these receipts.
+The canonical documentation check passed its contracts and 67 checker tests;
+`dojo-docs-check.log` retains that result.
+
 ## Sparse Flow Edge exercises and corrective restoration, 2026-10-18
 
 Task `task-a84762656229450aa3f15dfea4b1b3e6` adds a Restore tool over the frozen

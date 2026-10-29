@@ -1858,310 +1858,118 @@ native tick marks or planning every pointer movement.
 
 ### Independent Portrait Studio and immutable exchange
 
-The independent Portrait Studio app and embedded workspace share the existing
-Flow Edge, Contour and Sketch code, native controls and exact authored programs.
-Standalone Studio owns a fresh private library under Application Support/PortraitStudio.
-It never opens the AdaptivePlotter default store or composes its machine runtime.
-Startup discovers cameras; capture requires an explicit operator action. Quit
-cancels work, stops the camera and awaits durable library writes. There is no
-production-library migration or shared writable SQLite connection between apps.
+Standalone and embedded Portrait Studio share one Flow Edge Dojo. The operator
+chooses a photo, explores a broad parameter panel, selects a direction, refines it,
+prunes whole lines, ranks outputs and fits/deploys a personal artist. Historical
+Contour, Sketch, SwiftSketch, saved-style, single-canvas Previous/Next and separate
+Review interfaces are not current alternative authoring routes. Earlier archives
+and frozen renderer receipts remain historical; they are not silently migrated.
 
-Standalone **Export Drawing** serializes a version-one `DrawingPackage`. Its exact
-`DrawingProgram`, source bytes, artist input/settings, preview and native record
-retain hash-bound origin library, capture occurrence and result identity. The
-retained source is the existing authoring image, which may be a scaled/reencoded
-PNG from a JPEG import. Import preserves that identity and exact program; it does
-not rerender, invent ancestry or make a transferred result an editable native
-candidate. A supported imported drawing remains a canonical `SavedDrawing` and can
-be explicitly admitted through the receiving app's existing Drawing path. Duplicate
-imports are idempotent; conflicts fail. Deliberate file import may explicitly restore
-an exact transferred-drawing deletion; delayed/background imports cannot silently
-revive it, and broader source tombstones remain authoritative.
-Version one requires the exported program's source kind to be `portrait`, including
-external artists. Import does not relabel programs or weaken portrait-provenance
-admission to make a package executable.
+The Dojo's durable owner is a portable Flow portfolio directory. It contains exact
+source bytes, retained analysis rasters, recipes, generated programs/previews,
+round seeds and outcomes, parent choices and offered alternatives, immutable
+pruning revisions, randomized ranking presentations, judgments, exclusions,
+frozen training snapshots, fitting reports, checkpoints and activation history.
+Each operator mutation is committed incrementally; there is no explicit Save
+requirement. Missing content, corruption or persistence failure is reported.
+A failed mutation never reports success; it retains pending intent and reconciles
+the durable head before retrying when the commit outcome is uncertain. The
+acknowledged in-memory state stays unchanged until reconciliation succeeds.
+One writer owns a portfolio. Source photos and
+all required training assets remain inside the directory rather than depending on
+paths into an old library or outside model runtime.
 
-An optional `PlotAttachment` returns a retained attempt record and its referenced
-original media. It links only by exact origin and program identity, may arrive
-before its drawing, and remains inspection evidence. It grants no controller,
-Learning, paper-clearance, resume or redraw authority. Completion and photographs
-retain their separate meanings. Studio displays the record status and available
-before/progress/after frames without claiming that controller settlement proves
-visible ink. Unknown artists remain read-only inspectable and their exact valid
-programs remain transferable; native editing requires supported native provenance.
-Flow Edge whole-polyline removal is a separate derived-artwork operation. The
-editor retains its native original and saves an immutable selection package through
-the canonical SavedDrawing/library path. Click removal, lasso selection and grouped
-undo/redo do not rerender, move or simplify remaining geometry. The package embeds
-one root original plus the starting program and exact removal mask; validation
-rejects inconsistent subsets. Editing an imported supported selection creates a new
-local result and preserves its original origin; it never rewrites the imported
-record. Export/import preserves the edited target for existing Drawing admission.
-Selection targets carry no inferred pass/fail or aesthetic labels. Complete removal
-is undoable in the editor but cannot create an empty executable DrawingProgram.
-Selective Restore recovers exact root polylines, including prior saved removals,
-without discarding subsequent edits. Version-two selection records preserve the
-starting mask and ordered applied remove/restore operations. Generated exercise
-proposals are explicitly attributed separately from human operations; human targets
-retain their exercise policy context. A generated selection is never a human label.
-Sparse surface exercise regions are landmark-relative heuristics, not measured
-facial surfaces or expression/likeness evidence. Feature support conservatively
-retains candidate lines; it does not establish that the candidates depict the right
-features. The original candidate pool remains available for corrective restoration.
+Broad and local rounds use native Flow Edge parameters. The selected parent and
+mask remain an exact refinement anchor. Rectilinear tonal strokes and supported
+angular regional contours remain distinct mechanisms. The renderer retains its
+image-evidence, point/path and nominal material constraints. New parameter samples
+are not learned drawing quality; failed, duplicate, cancelled and interrupted
+outcomes remain explicit. Late or cancelled work cannot replace another source's
+selection or revive excluded/deleted historical authority.
 
-The [Studio guide](PORTRAIT_STUDIO.md) owns the current file and operator details.
+Pruning removes/restores entire original polylines without changing surviving
+coordinates, order or pen style. Undo/Redo and operation provenance are retained.
+An autosaved unfinished edit supplies only its explicit corrections. **Finish
+pruning** declares a complete intended selection target, including target membership
+for retained lines; it is not required for persistence. Model-generated masks
+remain proposals rather than human labels. Empty results can remain portfolio
+evidence but cannot become executable drawing packages.
 
-Promising/rejected feedback still addresses exact native attempts. Standalone
-**Review** is a separate comparison workspace for exact retained native or imported
-results of one capture and source hash. It keeps the original visible and freezes
-randomized A/B order, origins, program/source/package/preview hashes, common display
-field, nominal pen width and immutable display transforms. Both sides use one
-millimeter-to-pixel scale without stretching; unequal nominal pen-width sets are
-refused. Package previews remain distinct from comparison snapshots. Each side
-retains its own dimensions, pen provenance and stroke/point budgets.
+Artistic ranking binds an exact randomized presentation and exact immutable output
+identities, including pruning masks. Equal ranks are ties, omitted items remain
+unknown, and Neither and Skip are distinct retained outcomes. A refinement choice
+is weaker evidence than an explicit ranking and does not label all unchosen items
+equal or rejected. Ranking revisions preserve the presentation and superseded
+judgments. Source/drawing exclusions affect future fitting without deleting their
+history or images. Subject and photographic-session identities require human
+declarations; unknown identity is never inferred from pixels.
 
-Human comparisons record A, B, tie, neither or skip explicitly. Overall preference
-is primary; likeness, expression, structure, tone, clutter and material feasibility
-are separate optional judgments. Unanswered dimensions are absent. Skip is not a
-negative label. An anonymous reviewer remains unknown; age has no score without
-actual ground truth. Append-only revisions bind the exact comparison, rubric,
-reviewer declaration and time. Saved recipes, generation success, plotting and
-software fixtures do not manufacture human preferences. An overall score advances
-only after its durable revision commits. Previous/Next are explicit mouse actions;
-browsing without a score never creates a skip. Returning restores the frozen sides
-and current persisted head. Keyboard navigation/scoring remains scoped to the active
-review and does not consume editing-control, sheet or modal input. Presentation
-admission invalidates synchronously during transitions so queued input cannot rate a
-previously displayed comparison. Persistence failure preserves the current item.
+The fitted drawing model consists of Flow Edge generation plus learned whole-line
+selection. A regularized image-conditioned pairwise utility learns recipe/output
+preferences. A contextual logistic head learns remove/restore/completed-target
+membership; explicit rankings of masks on an identical basis also constrain
+aggregate deletion utility. Different recipes or photos cannot identify a deletion
+effect. Output features include the actual retained geometry, so ranking pruned
+versions of one recipe does not collapse to a zero parameter difference. Photo
+interactions permit source-dependent preferences. This model cannot add geometry
+absent from the generated basis or alter mechanical calibration.
 
-Experiment requests retain source/derived input, artist settings, seed, nominal
-material and declared groups before native work. All scheduled, successful, failed,
-cancelled, unsupported and skipped outcomes remain inspectable; only a valid exact
-package becomes canonical `SavedDrawing`. SwiftSketch uses a locally configured,
-version-pinned CPU worker with a matching successful inference receipt. Its ordered
-open cubics compile through an explicit uniform affine, fixed physical tolerance
-min(0.05 mm, nominal pen width / 4), deterministic IDs and bounded depth/point counts.
-Invalid curves are refused without clipping, closing, merging or reordering.
-Native experimental input preparation preserves the original bytes and retains
-EXIF/sRGB, face selection, fixed isotropic framing, exact native foreground mask and
-white-composite input provenance. The face has a fixed target height/center in a
-square canvas; its individual aspect is preserved rather than stretched. Missing or
-ambiguous faces, invalid framing and unusable masks refuse submission. Explicit batch
-framing is a visual declaration, not a human identity label. The local worker receives
-these frozen masked bytes and applies no additional segmentation.
-Source selection/deletion and cancellation cannot revive a deleted capture or
-publish a stale result. Shutdown joins worker and durable work.
+Fitting freezes a portfolio revision, observation IDs and source/group partition.
+All exact-photo descendants and connected declared subject/session groups stay in
+one partition. Comparisons crossing the split are excluded. Three or more groups
+permit a deterministic holdout; smaller fits remain explicitly experimental.
+Training/holdout losses, baseline losses, observation counts and group counts have
+distinct meanings. Deletion diagnostics also measure the deployed threshold and
+nonempty safeguard against keep-all correction burden where direct labels exist.
+Fixtures and successful optimization do not establish the artist's human preference
+or cross-subject generalization.
 
-Subject and photographic-session identities are human declarations with provenance,
-independent of acquisition/capture UUIDs. Unknown groups stay unassigned; connected
-subject/session/source/capture/ancestry groups cannot cross a fixed declared split.
-The export preserves exact source/input/raw/program/preview bytes, ordered origins,
-environments/statuses, ratings and plot-origin links. Retained-byte replay is
-separate from regeneration, photographic independence or generalization. External
-pilot ingestion is explicitly retrospective and retains its original manifest and
-request bytes; it does not invent earlier native journals or known request clocks.
-No training or tuning runs in interactive Studio. Unlabeled outputs establish
-software feasibility only, and mostly one person's photos cannot establish subject
-generalization. The selected experiment and open acceptance belong to [Roadmap](ROADMAP.md).
+Checkpoints retain coefficients, exact data digests, feature/recipe/renderer and
+trainer revisions, optimization configuration, seed, inference threshold and
+nonempty policy. Unsupported or malformed checkpoints are refused. No-label or
+one-class evidence cannot silently manufacture the missing component. Partial
+fits can be activated explicitly as experimental; absent deletion keeps the full
+basis. Activation/rollback changes only future proposals, and cancellation cannot
+replace the active checkpoint. The [Studio guide](PORTRAIT_STUDIO.md) owns detailed
+operator steps, fitting limits and file layout.
+
+Standalone Studio composes no machine runtime. Startup discovers cameras; capture
+requires an explicit action through the existing acquisition owner. Shutdown joins
+capture, generation, fitting and durable work. Its default portfolio is under
+Documents; `--portfolio` or New/Open selects another. The previous private library
+is historical and does not become a shared writable database.
+
+**Export Drawing** creates a version-one `DrawingPackage` for the selected exact
+portfolio candidate/pruning revision. Its source bytes, raster input, recipe,
+original basis, selected mask, preview and hash-bound portfolio/source/result
+identity remain inspectable. Its artist is `adaptiveplotter.flow-artist`. Import
+preserves the exact supported `portrait` program and origin; it does not rerender,
+relabel unsupported geometry or invent a native candidate. The canonical
+`SavedDrawing` owner admits the result through the existing Drawing path. Duplicate
+imports remain idempotent and conflicts fail. Deliberate file import may restore
+an exactly matching deleted transfer; delayed/background paths cannot revive it,
+and broader source tombstones remain authoritative.
+
+Existing `PlotAttachment` records remain inspection evidence bound to exact origin
+and program identity. They confer no controller, Learning, paper-clearance, resume
+or redraw authority. Controller settlement and original photographs retain their
+separate meanings; neither software fit nor settlement proves deposited ink.
 
 ### Embedded Studio and Drawing
 
-The built-in catalog and Portrait Studio produce immutable `DrawingProgram`
-values through the existing draft, placement, planner and drawing runtime.
-Within AdaptivePlotter, Portrait Studio is a full workspace, independent of the plotter control docks.
-Opening and closing it preserves those dock placements. The shared Drawing panel
-owns placement, pen/material setup, paper coverage, Draw, Stop and result review.
-Studio authoring remains available with an imported photo while disconnected.
+Within AdaptivePlotter, the same Dojo is a full workspace independent of plotter
+control docks. Imported-photo authoring remains available while disconnected.
+**Send to Drawing** uses the package import and existing draft admission owners;
+it installs a selected immutable program and initially fits it. Re-showing an
+already admitted program preserves its placement. Later portfolio edits and model
+activation cannot mutate placed or executed geometry.
 
-Portrait Studio has one drawing canvas with two control sets: a persistent Parameters
-panel owns drawing style, saved styles, renderer-native parameters and framing; a
-separate navigation row owns Previous, Next and Cancel. History opens the shared
-Drawings browser. The original source photo and selectable source thumbnails remain visible
-above the parameter controls; History opens the shared source/drawing browser. Source and drawing
-always refer to the same selected candidate. Saved styles remain reachable with an empty/loading library and while Next
-is canceled. Their observable popover updates while open and distinguishes loading,
-empty and failed reads with retry. The serialized library owner loads recipe metadata
-before complete candidate verification. New saves commit SQLite metadata referring
-to synchronized immutable records. Legacy embedded, bulk and indexed archives are
-read-only import inputs; successful reconciliation publishes their retained styles
-and drawings into the canonical library. Recipe availability never permits
-overwriting a corrupt source archive. Cancel stops the request without modifying
-saved recipes or selection.
-Drawing-style selection restores independent tuning for each renderer, using its native
-defaults on first selection. Framing and material remain fixed. Reset restores the selected
-renderer's canonical parameters while preserving framing and material. The Feature
-selector and regional authoring controls are absent.
-
-Contour exposes tonal levels, tonal strength, smoothing, minimum contour length and
-simplification. Flow Edge exposes flow spacing, tone density, edge threshold, coherence
-and minimum line length, with line form and evidence-support options available separately.
-Flow Edge tone density ranges from zero to two. Zero omits all tonal streamlines
-without changing structural curves; positive values below 0.4 allow sparser shading.
-Other renderers retain their 0.4 minimum luminance-gamma strength. Historical shared
-parameter recipes retain their original bounds.
-Tonal levels do not also change edge threshold or flow spacing. Contour smoothing filters
-luminance; Flow coherence controls orientation and heading persistence. Spatial native
-settings use analyzed-raster pixels, before existing material floors. Presets and Next use
-the selected renderer's applicable native parameters.
-
-Saved recipes and immutable candidates retain their original interpretation, including
-historical shared Detail/Tone/Smoothness/minimum-line coordinates and regional modifiers.
-Loading, navigation and saving do not migrate artwork. An explicit native parameter edit
-first resolves historical shared coordinates at the actual raster height and then clears
-the shared override on the editable copy. If that source/style/crop has no applicable
-raster yet, native edits and presets wait for it; Reset can select fresh native defaults.
-Both cached Flow layers and direct vectorization
-retain the historical resolver. There is no face-prior boost control: current facial
-support is landmark-based postprocessing, not a native semantic face prior.
-
-Next requests different parameters with at most two renders, preserves the current
-candidate during work and stops after one useful result. Retained navigation
-installs exact candidates without rendering; either end can request another sample. Edits abandon forward history;
-source changes, cancellation, reset and Previous invalidate late publication.
-Whole-portrait proposals vary applicable native axes and reflect at bounds. Historical
-shared recipes are resolved on the new proposal copy before native variation. Next has no
-feature scope and does not add regional modifiers. Repeated requests have fresh seeds and
-no accumulated-edit stopping count. Historical stacked modifiers remain readable and keep
-their original rendering semantics.
-
-Material floors, detail budgets and visible-distance checks still bound proposals.
-A finite-resolution drawing cannot guarantee a distinct useful result on every click;
-a failed two-attempt request keeps the current drawing and Next can try fresh settings.
-There are no background style comparisons, grid rounds or automatic follow-on jobs.
-
-Completed authoring and useful Next results retain source, raster, recipe, geometry,
-thumbnail and ancestry. Unsuccessful probes are transient. History offers current-photo,
-all-photo and kept filters. Plus/minus feedback marks an exact attempt; rejection
-suppresses its source/pose/recipe/material proposal, not a whole style. Explicit feedback
-remains attached to exact attempts. Saved recipes and browsing supply no training label.
-The retained shared-coordinate preference policy and its archived receipts remain
-interpretable, but Studio does not route native proposals through that policy. Native
-parameter preference fitting requires a matching feature schema and validation before
-activation. Saved recipes and historical renderer families remain usable; new sessions
-default to tonal contours. Historical three/nine-slot receipts
-remain readable, but current authoring produces no offered-set trace.
-
-Source preparation retains one oriented decoded image, source-coordinate landmarks,
-a full-frame person-mask result and filtered multiscale luminance evidence. Crops,
-head margins and analysis-resolution changes reuse those results. Content identity,
-source metric and preparation revision gate reuse; unavailable analysis remains
-explicit. Source preparation and crop-specific Flow evidence, structural curves
-and orientation fields have separate bounded retention. Final render entries do
-not retain evicted preparation buffers. The serial render worker constructs each candidate and history thumbnail off the main actor;
-only explicit Next requests compute a comparison footprint. Navigation and feedback reuse
-retained results; cancellation and source/revision checks still gate publication.
-Crop to face, head margin and background removal share the Parameters panel with
-renderer-native controls and detail presets.
-
-Capture Photo remains in Portrait Studio's capture row as a prominent 104 by 88
-point control with a camera icon above its visible label; acquisition changes it
-to Cancel Capture. Plain Left/Right Arrow navigates source photos; Option with
-Left/Right Arrow invokes the existing Previous/Next drawing actions. One scoped
-keyboard router preserves the matching busy/availability guards. The Photos popup
-also permits plain-arrow source browsing through its own scoped photo-only router;
-text/value editing, import, history, camera settings and other windows retain their
-native arrow handling.
-In the embedded workspace, with a configured device, one click asks
-the existing observation owner to activate that portrait camera, awaits readiness,
-and takes a 0.8-second still-subject burst including exposure settling. One quality-selected
-frame becomes the new source photo; the burst does not create a pose gallery.
-Selection uses image sharpness and exposure evidence. It does not fuse unregistered
-frames, reconstruct depth or establish improved optical focus. Camera selection
-lives in the capture popover; pose and capture-duration controls are absent.
-Cancel/Escape and acquisition settlement dismiss the white screen illumination;
-no display brightness setting changes. Recent sources remain individually
-selectable and deletable, bounded to 24 photos / 32 MiB; saved candidates own
-independent source bytes. Deleting sources cannot revive them through late work.
-
-Ordinary Studio has no continuous parameter pad, manual Variation or named-training
-controls. Exact-attempt promising/rejected feedback remains available. Historical
-prototype recipes remain interpretable without restoring their button row or the
-rating/training workflow. Historical candidate formats and required source, raster, label and
-checkpoint interpretation remain compatible. Existing fitted checkpoints are not
-loaded or consulted by normal Studio generation.
-Save Style captures a named reusable recipe. Save Drawing retains the exact immutable
-program and, for a portrait, its source and recipe provenance. Automatic render-attempt history and plus do not implicitly save
-a drawing.
-Session Back remains bounded and does not promise restart-persistent undo. Durable
-history can be revisited after loading the archive. Its explicit cleanup retains
-the current attempt plus promising and saved discoveries; individual deletion
-remains available. Removing a recent photo preserves independently retained attempts;
-Delete Source and All Attempts explicitly removes the archived source and its attempts.
-Deletion invalidates old history and navigation capabilities. A later
-explicit authoring action may create a fresh attempt from a reintroduced source;
-late work and previously deleted retained objects cannot revive themselves.
-Drawings groups saved and attempted drawings with their execution history,
-while inspecting an attempt in Studio changes the Studio selection. Source photos
-and vectors shown together come from the same candidate, including retained candidates.
-
-Historical regional treatment changes generated strokes. Soft overlapping source-coordinate
-supports protect measured facial features, simplify estimated skin regions, adjust
-angularity and construct additional ordered shadow/contour strokes for a fixed-width
-pen. Skin is a face-area estimate; silhouette means the observed jaw, not inferred
-hair or clothing segmentation. Missing or unreliable landmarks preserve the base
-strokes with an explicit unavailable summary. Scoped modifiers retain unaffected
-geometry; repeated adjustments have a bounded recipe depth. Eye exaggeration changes
-strokes within two disjoint, crop-contained supports; it preserves exterior geometry
-and refuses missing or unreliable bilateral measurements. Its nonfolding bound does
-not guarantee existing strokes retain their original separation. The interface reports
-stroke count and normalized ink-path length. These are geometry costs, not measured
-ink coverage or a calibrated physical time prediction.
-
-Flow Edge separates structural evidence from tonal stroke density. Its higher
-resolution analysis supports detailed curves; coherence guides smooth line flow
-without applying the legacy global tonal blur to structural detection. Tonal
-streamlines use local density, separation and structural barriers. Material
-adaptation sets spacing at the explicitly selected drawing height; a digital
-preview or nominal spacing is not proof of separated deposited ink. Flow Edge
-still produces the same immutable `DrawingProgram` consumed by ordinary Drawing.
-Its Line form control offers Organic, Mixed and Rectilinear shading. Rectilinear
-strokes choose a horizontal or vertical direction once and retain long straight
-runs as endpoint pairs. Mixed shading distributes seeds between the two generators
-and reserves them through the same structural and tonal spacing constraints;
-it does not independently overlay two complete drawings. Feature curves remain
-image-derived and do not claim a semantic face prior or reconstructed depth.
-
-Four additive Flow parameters retain the existing drawing at zero: Tone support
-varies the image evidence required for shading; Contour persistence varies
-structural support across scales without replacing retained curves with blurred
-geometry; Evidence scale shifts support between finer and broader neighborhoods;
-Seed irregularity varies regular placement using deterministic within-cell offsets.
-Tone and structural support are independent controls; changing structural barriers
-can also change where tonal paths fit. Evidence scale is retained in the recipe
-but is inactive when both support amounts are zero. Support preparation is lazy
-and bounded per source, and all line forms retain shared material clearance.
-Detail presets preserve these controls. They extend the common recipe; the three
-algorithms still have different rendering semantics. This is not a unified learned
-style model or temporal-motion synthesis. Current short capture retains one
-selected source frame, not registered inter-frame motion evidence.
-
-Pen & material displays the current applicable marker width and whether its origin
-is estimated or independently measured. It is an input to drawing appearance, not
-a calibration slider. Material selection and measurement belong to shared Drawing
-setup. Measure Ink inspects frozen existing images before estimating deposited
-width. Adapt Detail explicitly produces a new portrait candidate with final-scale
-spacing suited to the selected material; it never rewrites an old candidate or
-changes physical calibration. Check Detail at This Size diagnoses short strokes
-and crowded parallel segments without measuring ink, changing the program or
-establishing physical drawing quality. Explanatory and provenance text is behind
-accessible question-mark popovers; the default interface retains control labels,
-concise progress and actionable error states.
-
-The same `PortraitPlaneProgramPreview` renders the Studio canvas and retained
-vector previews. Planned presentation uses only an exact candidate/program/region
-match to the admitted artwork plan; otherwise the view is explicitly a reference
-preview. Reference presentation does not invent physical size. The legacy thumbnail
-renderer is no longer a production UI path. **Send to Drawing** explicitly installs
-a selected immutable program through the existing draft intent sink and initially
-fits it. Re-showing the same admitted program preserves its current placement.
-A successful handoff saves the exact candidate and reveals shared Drawing controls;
-**Save Drawing** is optional library storage, not a prerequisite. The workflow is
-Studio → Send to Drawing → placement/material/paper setup → Draw. Sending invokes
-no motion. Later Studio edits do not mutate the placed program until another
-explicit handoff. The existing Drawing panel keeps the exact admitted plan visible above its
-scrolling controls in its region frame, including rotation and the optional artwork frame. While a run
-or terminal is retained it uses that sealed run plan; it never substitutes a later
-Studio candidate. Without an admitted plan, an authored preview is labeled reference.
+The shared Drawing panel owns placement, pen/material setup, paper coverage,
+Draw, Stop and physical result review. The workflow is Dojo → Send to Drawing →
+placement/material/paper setup → Draw. Sending, curation and fitting invoke no
+motion. During a run or retained terminal review, Drawing presents the sealed run
+plan rather than substituting a later Studio candidate. Reference previews and
+nominal pen width remain separate from measured material and physical evidence.
 
 The Portrait Library presents retained capture occurrences, their exact drawings,
 linked run history, stage photographs and notes. Generic vector drawings remain

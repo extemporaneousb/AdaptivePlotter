@@ -65,6 +65,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
   var applicationRuntime: PlotterApplicationRuntime { composition.application }
   private var terminationTask: Task<Void, Never>?
   private var didReplyToTermination = false
+  var restoreOperatorWindow: (() -> Void)?
 
   override init() {
     composition = .production()
@@ -93,6 +94,18 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     didReplyToTermination = false
     terminationTask = Task { [weak self] in
       guard let self else { return }
+      guard await self.applicationRuntime.portraitStudio.preparePortfolioShutdown() else {
+        self.restoreOperatorWindow?()
+        let alert = NSAlert()
+        alert.messageText = "Portrait portfolio autosave needs recovery"
+        alert.informativeText = "Pending portrait edits remain available. Return to Portrait Studio, resolve the write error, and use Recover autosave before closing."
+        alert.addButton(withTitle: "Return to portfolio")
+        alert.runModal()
+        self.didReplyToTermination = true
+        self.terminationTask = nil
+        sender.reply(toApplicationShouldTerminate: false)
+        return
+      }
       await self.applicationRuntime.shutdown()
       self.completeTermination(of: sender)
     }
@@ -168,14 +181,26 @@ struct AdaptivePlotterApp: App {
 
   var body: some Scene {
     Window("AdaptivePlotter", id: AdaptivePlotterScenePolicy.singletonWindowID) {
-      PlotterApplicationRuntimeView(application: applicationDelegate.applicationRuntime)
-        .frame(
-          minWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
-          minHeight: AdaptivePlotterScenePolicy.minimumWindowHeight
-        )
+      AdaptivePlotterOperatorWindow(delegate: applicationDelegate)
     }
     .windowToolbarStyle(.unified)
     .commands { WorkbenchCommands() }
+  }
+}
+
+private struct AdaptivePlotterOperatorWindow: View {
+  @Environment(\.openWindow) private var openWindow
+  let delegate: AdaptivePlotterApplicationDelegate
+  var body: some View {
+    PlotterApplicationRuntimeView(application: delegate.applicationRuntime)
+      .frame(minWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
+        minHeight: AdaptivePlotterScenePolicy.minimumWindowHeight)
+      .onAppear {
+        delegate.restoreOperatorWindow = {
+          openWindow(id: AdaptivePlotterScenePolicy.singletonWindowID)
+          NSApp.activate(ignoringOtherApps: true)
+        }
+      }
   }
 }
 

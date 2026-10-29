@@ -113,7 +113,7 @@ struct PlotterApplicationRuntimeView: View {
     }
     .sheet(isPresented: $reviewerIsPresented) {
       DrawingReviewerView(application: application, close: { reviewerIsPresented = false },
-        showOnPlotter: useSavedDrawingProgram, initialPhotoID: reviewerPhotoID, inspectInStudio: inspectSavedDrawingInStudio)
+        showOnPlotter: useSavedDrawingProgram, initialPhotoID: reviewerPhotoID)
     }
     .sheet(isPresented: $transferIsPresented) {
       DrawingTransferView(application: application, close: { transferIsPresented = false })
@@ -410,13 +410,6 @@ struct PlotterApplicationRuntimeView: View {
 
   private func selectCamera(_ role: WorkbenchCameraRole) async -> String? {
     return await submit(PlotterAppUIActionID.observationCameraRole(role))
-  }
-
-  private func inspectSavedDrawingInStudio(_ id: PortraitDrawingIdentity) async -> String? {
-    let error = await application.portraitStudio.inspectDrawing(id, strokeStyle: application.drawingStrokeStyle)
-    guard !Task.isCancelled else { return "Drawing inspection was cancelled." }
-    if error == nil { layout.wrappedValue.setPresented(.portraitStudio, true) }
-    return error
   }
 
   private func useSavedDrawingProgram(_ drawing: SavedDrawing) async -> String? {

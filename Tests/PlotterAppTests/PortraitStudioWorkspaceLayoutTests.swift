@@ -1,157 +1,227 @@
 @testable import PortraitArtists
 @testable import PortraitStudioUI
 import AppKit
+import Foundation
+import PortraitCore
+import PortraitLibrary
 import PlotterModel
 import SwiftUI
 import Testing
+import Vision
 @testable import PlotterApp
 
-/// Owned offscreen host only; no live camera, app replacement, or hardware use.
-@Suite("Portrait Studio bounded workspace", .serialized)
+/// Owned offscreen hosts and a disposable validation portfolio only. This proves
+/// native layout and rendered controls, not interactive inspection of the app.
+@Suite("Flow Edge dojo bounded workspace", .serialized)
 @MainActor
 struct PortraitStudioWorkspaceLayoutTests {
-  @Test("one portrait fits with a persistent parameter panel and navigation",
-    arguments: [PortraitStyle.contours, .flowEdges], [false, true])
-  func controlsFit(style: PortraitStyle, detailsExpanded: Bool) async throws {
+  @Test("Explore, Prune, Rank and Fit retain visible core actions without regenerating on layout",
+    arguments: FlowDojoModel.Stage.allCases)
+  func controlsFit(stage: FlowDojoModel.Stage) async throws {
     _ = NSApplication.shared
-    let model = PortraitStudioModel(renderer: WorkspaceLayoutRenderer())
-    let stroke = try portraitTestStyle()
-    model.setPhoto(try portraitTestImage(), for: .left, strokeStyle: stroke)
-    model.setPhoto(try portraitTestImage(), for: .right, strokeStyle: stroke)
-    model.setPhoto(try portraitTestImage(), for: .front, strokeStyle: stroke)
-    await model.awaitRendering()
-    model.saveStyle(name: "Saved layout recipe")
-    #expect(model.browsablePhotos.count >= 3)
-    #expect(!model.isExploring)
-    for size in [CGSize(width: 1000, height: 550), CGSize(width: 1280, height: 650)] {
-      do {
-        model.resetStyle(style, strokeStyle: stroke)
-        model.renderIfNeeded(strokeStyle: stroke)
-        await model.awaitRendering()
-        let host = NSHostingController(rootView: PortraitStudioView(model: model,
-          strokeStyle: stroke, showOnPlotter: { _ in nil }, showsAdjustments: detailsExpanded)
-          .padding(12)
-          .frame(width: size.width, height: size.height)
-          .background(Color(nsColor: .windowBackgroundColor))
-          .environment(\.colorScheme, .light))
-        host.sizingOptions = []
-        let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: -10000, y: -10000), size: size),
-          styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.backgroundColor = .windowBackgroundColor
-        window.contentViewController = host
-        window.setContentSize(size)
-        window.orderFront(nil)
-        try await settle(host.view)
-        let calls = model.renderDiagnostics.startedWorkerCount
-        await model.awaitRendering()
-        try await settle(host.view)
-        defer { window.close() }
-        #expect(!window.isKeyWindow)
-        #expect(model.selectedCandidate?.recipe.style == style)
-        #expect(!model.isExploring)
-        #expect(model.renderDiagnostics.startedWorkerCount == calls)
-        #expect(abs(host.view.bounds.width - size.width) < 1)
-        #expect(abs(host.view.bounds.height - size.height) < 1)
-        let views = descendants(host.view)
-        let scrolls = views.compactMap { $0 as? NSScrollView }
-        let inspectorScrolls = scrolls.filter {
-          $0.convert($0.bounds, to: host.view).minX >= host.view.bounds.maxX - 310
-        }
-        for scroll in scrolls {
-          let document = try #require(scroll.documentView)
-          let isInspector = inspectorScrolls.contains(scroll)
-          #expect(isInspector || document.bounds.height <= scroll.contentView.bounds.height + 2,
-            "Only detailed adjustments may scroll vertically in \(style.rawValue) at \(size): \(document.bounds) / \(scroll.contentView.bounds).")
-        }
-        let parameterScroll = try #require(inspectorScrolls.first { scroll in
-          descendants(scroll).contains { $0 is NSSlider }
-        }, "The native parameter controls must have their own inspector viewport.")
-        try assertCoreParametersVisible(in: parameterScroll, style: style, size: size)
-        let controls = views.compactMap { $0 as? NSControl }.filter {
-          !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
-        }
-        try #require(!controls.isEmpty)
-        for control in controls {
-          let rect = control.convert(control.bounds, to: host.view)
-          let isInspector = inspectorScrolls.contains { control.isDescendant(of: $0) }
-          #expect(rect.minX >= -2 && rect.maxX <= host.view.bounds.maxX + 2)
-          #expect(isInspector || host.view.bounds.insetBy(dx: -2, dy: -2).contains(rect),
-            "\(style.rawValue) control exceeds \(size): \(String(reflecting: type(of: control))) \(rect).")
-        }
-        if let directory = ProcessInfo.processInfo.environment["PORTRAIT_WORKSPACE_SNAPSHOT_DIR"] {
-          try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
-          let bitmap = try #require(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
-          host.view.cacheDisplay(in: host.view.bounds, to: bitmap)
-          let image = try #require(bitmap.cgImage)
-          let index = try #require(PortraitStyle.authoringCases.firstIndex(of: style))
-          try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: directory)
-            .appendingPathComponent("studio-\(Int(size.width))-style-\(index)-details-\(detailsExpanded ? "open" : "closed").png"))
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let renderer = WorkspaceLayoutRenderer()
+    let owner = PortraitStudioModel(candidateStore: .init(directoryURL: directory.appendingPathComponent("legacy")),
+      portfolioFactory: { stroke in
+        FlowDojoModel(directory: directory.appendingPathComponent("layout.flowportfolio"), strokeStyle: stroke,
+          purpose: .validationFixture, render: { data, recipe, pen in
+            try await renderer.render(data, recipe, pen)
+          }, fit: { _, _ in
+            .unavailable("Layout fixture: collect independent photo groups and explicit keep/remove judgments before evaluating an artist checkpoint.")
+          })
+      })
+    do {
+      let stroke = try portraitTestStyle()
+      let dojo = owner.portfolioDojo(strokeStyle: stroke)
+      await dojo.open()
+      await dojo.addPhoto(data: try portraitTestImage(), title: "Disposable portrait layout fixture")
+      dojo.count = 6
+      await dojo.generate(refining: false)
+      try #require(dojo.error == nil)
+      try #require(dojo.roundCandidates.count == 6)
+      let chosen = try #require(dojo.roundCandidates.first)
+      await dojo.selectCandidate(chosen.id, prune: true)
+      await dojo.edit(.remove, ids: [try #require(dojo.program?.strokes.first?.id)])
+      await dojo.edit(.completeTarget)
+      await dojo.presentRanking(scope: .round(try #require(dojo.round?.id)))
+      let items = try #require(dojo.presentation?.items)
+      try #require(items.count == 6)
+      await dojo.rank(item: items[0].id, position: 1)
+      await dojo.rank(item: items[1].id, position: 2)
+      await dojo.fit()
+      try #require(dojo.error == nil)
+      if stage == .prune {
+        let lines = try #require(dojo.program?.strokes)
+        await dojo.edit(.remove, ids: [lines[1].id])
+        await dojo.edit(.undo)
+        dojo.selection = [lines[2].id]
+      }
+      dojo.stage = stage
+      let renderCalls = await renderer.calls
+      let revision = dojo.document?.revision
+      let programHash = dojo.program?.contentHash
+      let roundID = dojo.round?.id
+      for size in [CGSize(width: 1100, height: 720), CGSize(width: 1440, height: 940)] {
+        try await inspect(owner, dojo: dojo, stroke: stroke, stage: stage, size: size)
+        #expect(await renderer.calls == renderCalls, "Layout must never regenerate drawings.")
+        #expect(dojo.document?.revision == revision, "Layout must not create portfolio records or judgments.")
+        #expect(dojo.program?.contentHash == programHash && dojo.round?.id == roundID)
+        #expect(dojo.stage == stage && dojo.candidate?.id == chosen.id)
+      }
+      await owner.shutdown()
+    } catch {
+      await owner.shutdown()
+      throw error
+    }
+  }
 
-        }
+  private func inspect(_ owner: PortraitStudioModel, dojo: FlowDojoModel, stroke: PlotterModel.StrokeStyle,
+    stage: FlowDojoModel.Stage, size: CGSize) async throws {
+    let host = NSHostingController(rootView: PortraitStudioView(model: owner,
+      strokeStyle: stroke, showOnPlotter: { _ in nil }, showEditedOnPlotter: { _ in nil })
+      .padding(12)
+      .frame(width: size.width, height: size.height)
+      .background(Color(nsColor: .windowBackgroundColor))
+      .environment(\.colorScheme, .light))
+    host.sizingOptions = []
+    let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: -10000, y: -10000), size: size),
+      styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.appearance = NSAppearance(named: .aqua)
+    window.backgroundColor = .windowBackgroundColor
+    window.contentViewController = host
+    window.setContentSize(size)
+    window.orderFront(nil)
+    defer { window.close() }
+    try await settle(host.view)
+    #expect(!window.isKeyWindow)
+    #expect(abs(host.view.bounds.width - size.width) < 1 && abs(host.view.bounds.height - size.height) < 1)
+    #expect(!dojo.isBusy && dojo.error == nil)
+
+    let bitmap = try #require(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
+    host.view.cacheDisplay(in: host.view.bounds, to: bitmap)
+    let image = try #require(bitmap.cgImage)
+    if let directory = ProcessInfo.processInfo.environment["PORTRAIT_WORKSPACE_SNAPSHOT_DIR"] {
+      try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+      let name = stage.rawValue.lowercased().replacingOccurrences(of: " & ", with: "-").replacingOccurrences(of: " ", with: "-")
+      try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: directory)
+        .appendingPathComponent("dojo-\(name)-\(Int(size.width))x\(Int(size.height)).png"))
+    }
+    // Read the full frame plus overlapping bands: small native labels otherwise
+    // disappear in OCR segmentation beside the large blank drawing canvas.
+    let bandHeight = CGFloat(image.height) * 0.6
+    let bands = [image, image.cropping(to: CGRect(x: 0, y: 0, width: CGFloat(image.width), height: bandHeight)),
+      image.cropping(to: CGRect(x: 0, y: CGFloat(image.height) - bandHeight, width: CGFloat(image.width), height: bandHeight))].compactMap { $0 }
+    var rendered: [String] = []
+    for band in bands {
+      let recognize = VNRecognizeTextRequest()
+      recognize.recognitionLevel = .accurate
+      recognize.recognitionLanguages = ["en-US"]
+      recognize.minimumTextHeight = 0.005
+      try VNImageRequestHandler(cgImage: band).perform([recognize])
+      rendered += (recognize.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+    }
+    // Disabled native controls can be too low-contrast for OCR. A real native
+    // button title is also evidence when its complete frame is in the viewport.
+    let nativeLabels = descendants(host.view).compactMap { view -> String? in
+      guard let button = view as? NSButton, !button.isHiddenOrHasHiddenAncestor,
+        button.bounds.width > 0, button.bounds.height > 0,
+        host.view.bounds.insetBy(dx: -2, dy: -2).contains(button.convert(button.bounds, to: host.view)),
+        scrollingAncestors(of: button).allSatisfy({ $0.contentView.bounds.insetBy(dx: -2, dy: -2).contains(button.convert(button.bounds, to: $0.contentView)) }) else { return nil }
+      return button.title.isEmpty ? button.accessibilityLabel() : button.title
+    }
+    let normalized = (rendered + nativeLabels).map(normalize)
+    let diagnostic = "stage=\(stage.rawValue) size=\(size) native=\(nativeLabels) rendered=\(rendered)"
+    print("FLOW_DOJO_HOSTED_LAYOUT \(diagnostic)")
+    for label in ["Flow Edge Dojo", "Import Photo", "Portfolio"] + coreLabels(stage) {
+      #expect(normalized.contains { $0.contains(normalize(label)) }, "Core action '\(label)' is not visibly rendered: \(diagnostic)")
+    }
+
+    let bounds = host.view.bounds.insetBy(dx: -2, dy: -2)
+    let views = descendants(host.view)
+    let controls = views.compactMap { $0 as? NSControl }.filter {
+      !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0 && !($0 is NSTableView)
+    }
+    try #require(!controls.isEmpty)
+    // Candidate cards, ranking cards and the photo list may scroll. The viewport
+    // and every action outside a document must still fit the supported window.
+    for control in controls where scrollingAncestors(of: control).isEmpty {
+      let rect = control.convert(control.bounds, to: host.view)
+      #expect(bounds.contains(rect), "Pinned \(stage.rawValue) control exceeds \(size): \(type(of: control)) \(rect).")
+    }
+    let scrolls = views.compactMap { $0 as? NSScrollView }.filter {
+      !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
+    }
+    for scroll in scrolls where scrollingAncestors(of: scroll).isEmpty {
+      let rect = scroll.convert(scroll.bounds, to: host.view)
+      #expect(bounds.contains(rect), "\(stage.rawValue) scroll viewport exceeds \(size): \(rect).")
+    }
+    if stage == .explore || stage == .rank {
+      let contentViewport = try #require(scrolls.first { scroll in
+        scroll.convert(scroll.bounds, to: host.view).midX > size.width / 2
+      })
+      #expect(contentViewport.contentView.bounds.height >= 180,
+        "The drawing panel needs a usable viewport at \(size), not a collapsed scroll region.")
+      if stage == .rank {
+        let columns = max(1, Int((contentViewport.contentView.bounds.width + 12) / 232))
+        let visibleRanks = nativeLabels.filter { ["1", "2", "Unranked"].contains($0) }
+        #expect(visibleRanks.count >= min(columns, 6),
+          "The entire first row of rank pickers must be visible before scrolling at \(size): \(visibleRanks).")
+        #expect(visibleRanks.contains("1") && visibleRanks.contains("2"))
       }
     }
-    await model.shutdown()
-  }
-
-  private func assertCoreParametersVisible(in scroll: NSScrollView, style: PortraitStyle, size: CGSize) throws {
-    let document = try #require(scroll.documentView)
-    let clip = scroll.contentView
-    // Four sliders plus the integer level/spacing stepper are the five native
-    // core rows. The sliders follow that stepper before optional Flow controls
-    // and framing; ordering the real native controls gives a host-independent
-    // viewport assertion without requiring SwiftPM accessibility support.
-    let sliders = descendants(document).compactMap { $0 as? NSSlider }.filter {
-      !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
-    }.sorted { first, second in
-      let a = first.convert(first.bounds, to: document)
-      let b = second.convert(second.bounds, to: document)
-      return document.isFlipped ? a.minY < b.minY : a.maxY > b.maxY
-    }
-    try #require(sliders.count >= 4, "\(style.rawValue) must host its four native core sliders.")
-    #expect(clip.bounds.height >= 230,
-      "Parameters need room for all five core rows at \(size); viewport is \(clip.bounds).")
-    for control in sliders.prefix(4) {
-      let rect = control.convert(control.bounds, to: clip)
-      #expect(clip.bounds.insetBy(dx: -2, dy: -2).contains(rect),
-        "\(style.rawValue) core parameter is hidden at the initial scroll position in \(size): \(rect) / \(clip.bounds).")
-    }
-    let steppers = descendants(document).compactMap { $0 as? NSStepper }.filter {
-      !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
-    }
-    for control in steppers {
-      let rect = control.convert(control.bounds, to: clip)
-      #expect(clip.bounds.insetBy(dx: -2, dy: -2).contains(rect),
-        "\(style.rawValue) level/spacing stepper is hidden at the initial scroll position in \(size).")
+    if stage == .prune {
+      let canvas = try #require(views.first { $0 is PortraitLineEditorNSView })
+      #expect(canvas.bounds.width >= 400 && canvas.bounds.height >= 300,
+        "The pruning canvas must remain usable at \(size): \(canvas.bounds).")
     }
   }
 
+  private func coreLabels(_ stage: FlowDojoModel.Stage) -> [String] {
+    switch stage {
+    case .explore: return ["Broad exploration", "Refine chosen drawing", "Prune chosen drawing"]
+    case .prune: return ["Delete Selected", "Undo", "Redo", "Finish pruning", "Original"]
+    case .rank: return ["Rank by artistic preference", "Random set: this round", "Random set: portfolio", "Skip"]
+    case .fit: return ["Fit portfolio", "Use untrained exploration", "Results", "Training loss", "Holdout loss"]
+    }
+  }
+  private func normalize(_ value: String) -> String {
+    value.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(String.init).joined()
+  }
   private func settle(_ view: NSView) async throws {
-    // onAppear may insert a selected detail view; its task starts on a later
-    // layout pass, so allow several actual layout/render cycles before capture.
     for _ in 0..<8 {
-      view.window?.layoutIfNeeded()
-      view.layoutSubtreeIfNeeded()
-      view.window?.displayIfNeeded()
-      view.displayIfNeeded()
+      view.window?.layoutIfNeeded(); view.layoutSubtreeIfNeeded()
+      view.window?.displayIfNeeded(); view.displayIfNeeded()
       try await Task.sleep(for: .milliseconds(50))
     }
-    view.layoutSubtreeIfNeeded()
-    view.window?.displayIfNeeded()
-    view.displayIfNeeded()
   }
-
-  private func descendants(_ root: NSView) -> [NSView] {
-    [root] + root.subviews.flatMap(descendants)
+  private func descendants(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(descendants) }
+  private func scrollingAncestors(of view: NSView) -> [NSScrollView] {
+    var result: [NSScrollView] = [], ancestor = view.superview
+    while let current = ancestor {
+      if let scroll = current as? NSScrollView, let document = scroll.documentView, view.isDescendant(of: document) {
+        result.append(scroll)
+      }
+      ancestor = current.superview
+    }
+    return result
   }
 }
 
-private actor WorkspaceLayoutRenderer: PortraitRendering {
-  func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
-    let raster = request.cachedRaster ?? portraitTestRaster()
-    return .init(raster: raster, program: try PortraitVectorizer.program(from: raster,
-      pose: request.pose, style: request.style, strokeStyle: request.strokeStyle,
-      vectorOptions: request.vectorOptions))
+private actor WorkspaceLayoutRenderer {
+  private(set) var calls = 0
+  func render(_ data: Data, _ recipe: FlowArtistRecipe, _ pen: PlotterModel.StrokeStyle) throws -> PortraitRenderResult {
+    calls += 1
+    let strokes = try (0..<12).map { index in
+      let value = recipe.values[index % recipe.values.count]
+      return LogicalStroke(id: StrokeID(), path: try Polyline(points: [
+        .init(x: 8, y: Double(index) * 8 + 8),
+        .init(x: 30 + value * 60, y: Double(index) * 8 + 8 + value * 3)]),
+        style: pen, ordering: UInt32(index))
+    }
+    let program = try DrawingProgram(id: ProgramID(), fieldExtent: .init(width: 100, height: 110),
+      strokes: strokes, source: .init(kind: "portrait", sourceIdentifier: "layout-fixture|" + DrawingPackageCodec.sha256(data)))
+    return .init(raster: portraitTestRaster(), program: program)
   }
 }

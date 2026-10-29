@@ -25,6 +25,12 @@ package struct PortraitLineEditorCanvas: NSViewRepresentable {
 package final class PortraitLineEditorNSView: NSView {
   package var model: PortraitLineEditModel?
   package var program: DrawingProgram?
+  /// The dojo supplies durable callbacks; the historical editor keeps its model.
+  package var onRemove: ((Set<StrokeID>) -> Void)?
+  package var onRestore: ((Set<StrokeID>) -> Void)?
+  package var onSelection: ((Set<StrokeID>) -> Void)?
+  package var onUndo: (() -> Void)?
+  package var onRedo: (() -> Void)?
   package var removed: Set<StrokeID> = []
   package var selected: Set<StrokeID> = []
   package var editingEnabled = false
@@ -111,22 +117,28 @@ package final class PortraitLineEditorNSView: NSView {
   }
   package override func mouseUp(with event: NSEvent) {
     defer { gesture = []; hover = nil; needsDisplay = true }
-    guard editingEnabled, let start = gesture.first, let geometry, let model else { return }
+    guard editingEnabled, let start = gesture.first, let geometry else { return }
     let point = convert(event.locationInWindow, from: nil)
     if tool == .erase || tool == .restore {
       if hypot(point.x-start.x, point.y-start.y) < 5,
         let id = geometry.hit(point, excluding: excludedFromPicking) {
-        if tool == .restore { model.restore([id]) } else { model.remove([id]) }
+        if tool == .restore { restore([id]) } else { remove([id]) }
       }
     } else if gesture.count >= 3 {
       let hit = geometry.lasso(gesture, excluding: removed)
-      model.selection = event.modifierFlags.contains(.shift) ? model.selection.union(hit) : hit
+      select(event.modifierFlags.contains(.shift) ? selected.union(hit) : hit)
     } else if let id = geometry.hit(point, excluding: removed) {
       if event.modifierFlags.contains(.shift) {
-        if !model.selection.insert(id).inserted { model.selection.remove(id) }
-      } else { model.selection = [id] }
-    } else if !event.modifierFlags.contains(.shift) { model.selection = [] }
+        var next = selected
+        if !next.insert(id).inserted { next.remove(id) }
+        select(next)
+      } else { select([id]) }
+    } else if !event.modifierFlags.contains(.shift) { select([]) }
   }
+
+  private func select(_ ids: Set<StrokeID>) { selected = ids; if let onSelection { onSelection(ids) } else { model?.selection = ids } }
+  private func remove(_ ids: Set<StrokeID>) { if let onRemove { onRemove(ids) } else { model?.remove(ids) } }
+  private func restore(_ ids: Set<StrokeID>) { if let onRestore { onRestore(ids) } else { model?.restore(ids) } }
 
   private var excludedFromPicking: Set<StrokeID> {
     tool == .restore ? Set(program?.strokes.map(\.id) ?? []).subtracting(removed) : removed
@@ -135,17 +147,18 @@ package final class PortraitLineEditorNSView: NSView {
   package override func performKeyEquivalent(with event: NSEvent) -> Bool {
     guard window?.firstResponder === self, event.modifierFlags.contains(.command),
       !event.modifierFlags.contains(.option), !event.modifierFlags.contains(.control),
-      event.charactersIgnoringModifiers?.lowercased() == "z", let model, !model.isBusy else {
+      event.charactersIgnoringModifiers?.lowercased() == "z", editingEnabled else {
       return super.performKeyEquivalent(with: event)
     }
-    if event.modifierFlags.contains(.shift) { model.redo() } else { model.undo() }
+    if event.modifierFlags.contains(.shift) { if let onRedo { onRedo() } else { model?.redo() } }
+    else { if let onUndo { onUndo() } else { model?.undo() } }
     return true
   }
   package override func keyDown(with event: NSEvent) {
-    guard let model else { super.keyDown(with: event); return }
-    if event.keyCode == 53 { gesture = []; model.selection = []; needsDisplay = true }
+    guard editingEnabled else { super.keyDown(with: event); return }
+    if event.keyCode == 53 { gesture = []; select([]); needsDisplay = true }
     else if [51,117].contains(event.keyCode), event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
-      model.remove(model.selection)
+      remove(selected)
     } else { super.keyDown(with: event) }
   }
 }

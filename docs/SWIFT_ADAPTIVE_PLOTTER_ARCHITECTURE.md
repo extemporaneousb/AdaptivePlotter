@@ -66,57 +66,70 @@ protocol facts do not establish the identity or physical behavior of the live fi
 ## Package topology
 
 The [Portrait Studio baseline](../README.md#portrait-studio-development-baseline)
-records the pre-extraction `PlotterApp` implementation and exact outputs. The current
-package has two executable compositions: `AdaptivePlotter` retains machine/run
-ownership, while `PortraitStudio` owns an independent authoring library. Both use
-the same `PortraitStudioModel` and `PortraitStudioView`. The standalone composition
-constructs its store explicitly under Application Support/PortraitStudio; it never
-uses the AdaptivePlotter default store, production evidence archive, or machine
-runtime. Its quit path cancels and joins file/browser work, stops capture/rendering,
-and awaits library persistence and synchronization before termination.
+records the pre-extraction `PlotterApp` implementation and frozen renderer outputs.
+The current package has two executable compositions: `AdaptivePlotter` retains
+machine/run ownership; standalone `PortraitStudio` owns no machine runtime. Both
+compose the same `FlowDojoModel` and `FlowDojoView` for the sole authoring journey.
+The acquisition portion of `PortraitStudioModel` remains the shared camera/source
+adapter; it does not introduce another camera owner or an alternative renderer UI.
 
-`PortraitCore` contains versioned artist and immutable exchange values/codecs;
-`PortraitArtists` retains the existing coupled rendering, candidate, raster and
-recipe code; `PortraitLibrary` owns `SavedDrawing`, SQLite metadata, immutable
-payloads, transfer retention and evidence inspection; `PortraitStudioUI` owns the
-shared authoring model/views and reference previews. Existing camera/frame and
-immutable evidence types remain dependencies in `PlotterRuntime`. Moving shared
-code does not move its controller, run admission or safety ownership. The shared
-UI receives the handoff action/wording and optional telemetry from its composition:
-embedded **Send to Drawing** retains its existing behavior, standalone **Export
-Drawing** writes a portable file. Imported package drawings remain canonical
-`SavedDrawing` values with a read-only transferred package, not fabricated native
-renderer candidates.
+`PortraitCore` owns immutable drawing/exchange values and codecs. `PortraitArtists`
+owns the Flow Edge renderer and the new `FlowArtistRecipe`, `FlowArtistFeatures`,
+`FlowArtistTraining` and immutable `FlowArtistCheckpoint` contracts. The model has
+an image-conditioned drawing-preference head and contextual whole-stroke deletion
+head. Fitting depends on model-owned observation DTOs, not on library or UI types,
+so there is no reverse dependency from Artists into Library.
 
-Each application remains the sole writer of its own SQLite library. Drawing
-exchange carries exact programs, authoring source bytes, artist inputs/settings,
-capture occurrence and stable origin identity; optional plot exchange carries
-retained record bytes and their original referenced frames. Import verifies hashes,
-identities, bounded geometry/images/media and conflicts before publication. Returned
-evidence is inspection-only; it cannot admit motion, accept Learning, clear paper,
-or replace the raw physical evidence owner. See [the current format and operator
-guide](PORTRAIT_STUDIO.md).
+`PortraitLibrary` owns `FlowPortfolioStore`, a serialized actor over a new
+self-contained portfolio directory. Immutable content-addressed objects and
+operation deltas precede the synchronized atomic head update; a process lease
+prevents competing writers. Its typed graph retains photos, rounds, candidates,
+choices, pruning revisions, ranking presentations/judgments, exclusions, frozen
+training snapshots, reports, checkpoints and activation history. The default
+portfolio is under Documents. It is distinct from the historical SQLite portrait
+libraries and the plotter's canonical `SavedDrawing` and DrawingEvidence owners.
 
-`PortraitCore` also owns immutable review/job/group/pilot/export values and the
-SwiftSketch subprocess protocol; `PortraitArtists` owns its serial local client and
-bounded cubic converter. `PortraitLibrary` retains experiment records through the
-existing serialized store, exact canonical packages and append-only ratings.
-`PortraitStudio` composes the standalone Artists and Review models/views, file
-panels and an explicit disposable `--review-library` path. Source snapshots retain
-occurrence/hash/revision admission, rather than borrowing current gallery selection
-as result provenance. `PortraitStudioArtistInput` owns EXIF/sRGB decoding, fixed
-isotropic face framing, native Vision person masking and exact original/framed/mask/
-prepared asset retention. The fresh face pilot calls this same owner; the historical
-full-frame Pillow pilot keeps its separate revision and exact bytes. Review owns
-synchronous presentation admission, one joined durable rating transition and
-post-commit navigation; its AppKit keyboard bridge admits keys only in the active
-Review window outside editing controls/sheets/modals. The opt-in face-pilot harness
-separates native preparation/freeze from bounded external inference and retrospective
-model ingestion, while native jobs are journaled before rendering. It uses the
-production codecs/store and a separate disposable library to create unlabeled
-comparisons. Its external forty-job freeze is retained in request assets without
-changing the original typed six-source/eighteen-job pilot contract. Human quality, independent held-out judgments,
-training and native/physical acceptance remain [Roadmap scope](ROADMAP.md#portrait-studio-extensions-after-separation).
+`PortraitStudioUI` owns `FlowDojoModel`, the shared Explore/Prune/Rank/Fit & deploy
+views, the serial `FlowDojoRenderer` actor, preview generation and
+`FlowDojoTraining`'s frozen-snapshot-to-model-data adapter. The renderer retains
+source preparation across round candidates and performs native Flow Edge work
+outside the main actor. The main-actor model owns a joined work queue, generation
+and fitting tasks, cancellation and durable-operation presentation. A candidate is
+published only after its exact result commits. Source changes, cancellation and
+shutdown cannot publish stale work into a different selection.
+
+`FlowDojoTraining` connects exact source and declared subject/session groups before
+fitting. It gives the model explicit ranking tiers, weaker refinement choices,
+current remove/restore evidence and explicit completed masks. Ranked pruning
+revisions retain their actual mask features and common-basis identity. Generated
+masks remain unlabelled proposals. Model fitting cannot infer labels from saving,
+raw image count or plotting. Fit configuration, data digests and evaluation groups
+travel with the checkpoint; explicit activation and rollback alter future proposals.
+
+Standalone composition provides file export and an absolute `--portfolio` override.
+Embedded composition provides **Send to Drawing** through existing canonical
+package-import and draft-admission owners. The existing `PortraitStudioView` entry
+is now a compatibility shell around `FlowDojoView`; the runtime composition does
+not need another workspace route. Quit joins camera, render, fit and durable
+work. Each portfolio has one writer; both apps must not share a concurrent writable
+portfolio. Historical private databases and external experiment directories remain
+readable artifacts, not competing current authoring stores.
+
+Drawing exchange carries the exact generated basis, selected subset, source/raster,
+recipe and stable portfolio/source/result identity. Its supported immutable program
+becomes a canonical `SavedDrawing` at the receiving application boundary; portfolio
+records never acquire placement, controller or mechanical Learning authority.
+Existing optional plot exchanges remain inspection-only. Camera/frame and immutable
+physical evidence types remain dependencies in `PlotterRuntime`; this authoring
+change does not move their runtime ownership. See [the Studio guide](PORTRAIT_STUDIO.md)
+for operator/model/file details and [Roadmap](ROADMAP.md#portrait-studio-remaining-acceptance)
+for outstanding human and performance acceptance.
+
+Historical SwiftSketch protocol/client/converter, review/export contracts and legacy
+renderer/archive types remain interpretable for their retained evidence. The current
+app no longer composes their Artists/Review surfaces or activates the old shared
+four-coordinate preference policy. Frozen baseline tests retain historical kernel
+comparisons without creating another authoring workflow.
 
 ```text
 EpisodeCore
@@ -211,16 +224,19 @@ PortraitCore -> PlotterModel
   exact origin/program identity, byte hashes, admission bounds
 
 PortraitArtists -> PortraitCore + PlotterModel + PlotterRuntime
-  existing Flow Edge, Contour and Sketch renderers, source preparation, recipes and candidates
+  Flow Edge renderer, native artist recipes/features, two-head fitting and checkpoint inference
+  historical renderer/candidate contracts and shared source preparation
 
 PortraitLibrary -> PortraitCore + PortraitArtists + PlotterModel + PlotterRuntime + CSQLite
-  canonical SavedDrawing, private database owner, immutable payloads and transfer inspection
+  portable Flow portfolio actor, immutable objects/deltas, training snapshots and activation history
+  canonical SavedDrawing, historical private database, transfer retention and inspection
 
 PortraitStudioUI -> PortraitCore + PortraitArtists + PortraitLibrary + PlotterModel + PlotterRuntime
-  shared Studio model, controls, camera lifecycle and reference preview
+  shared Flow Dojo journey, serial rendering, frozen training adapter and exact-mask preview
+  existing acquisition adapter and scoped native line editor
 
 PortraitStudio -> PortraitCore + PortraitArtists + PortraitLibrary + PortraitStudioUI + PlotterModel + PlotterRuntime
-  independent native authoring composition, private store, file panels and thin library browser
+  independent Flow Dojo composition, portfolio selection, file panels and joined shutdown
   camera discovery only at startup; no PlotterApplicationRuntime or controller composition
 
 PlotterTestSupport
@@ -867,7 +883,8 @@ region, overlay, and diagnostics remain explicit typed actions. Typed
 automatic analysis and capture settle before face capture starts, and face
 capture settles before plotter capture resumes. Superseding requests coalesce
 through the existing runtime. The application retains one `PortraitStudioModel`
-for controls and captured images; no view starts or stops a camera. Returning to
+for acquisition controls and captured images; the Dojo consumes that existing
+acquisition adapter and no view becomes a camera owner. Returning to
 the same physical plotter optics preserves accepted Learning despite a new
 ephemeral capture configuration. Camera status describes the selected role,
 so intentional plotter suspension is not reported as plotter-camera failure.
@@ -2352,13 +2369,12 @@ prove attended controller, camera, motion, Pen, paper, click, or ink behavior.
 
 ## Drawing Studio ownership
 
-`PortraitDrawingActions` composes the existing application owners for projection
-and final-scale material adaptation. Both the native view and integrated journey
-call `projectPortrait` and `applyPortraitMaterial`; each obtains fresh typed UI
-requests. Projection retains its exact candidate only after camera selection,
-program admission and Fit. Material adaptation rechecks the source plan and active
-profile after rendering, creates a child and preserves exact placement. The view
-retains only its local portrait-canvas presentation change.
+The embedded Flow Edge Dojo hands an immutable drawing package to the existing
+canonical import and Drawing draft owners. It does not derive placement or create
+another runner. Historical `PortraitDrawingActions` and final-scale material
+adaptation retain their archived-candidate contracts; current portfolio authoring
+uses its explicit exact-revision package handoff. Mechanical material, paper and
+Draw authority remain in the shared Drawing runtime.
 
 The two metric holdout entries live in `DrawingProgramCatalog` and resolve to
 ordinary line strokes. `OperatorWorkspace` projects their existing
@@ -2515,45 +2531,47 @@ and comparison results. These values have no model-application, controller,
 readiness, or new persistence authority. Automatic batch execution and corrected
 physical holdout evaluation remain unfinished product work.
 
-`PortraitStudioModel` owns capture/import, selected sources, bounded caches and one
-serial acquisition/render drain. The one-canvas `PortraitStudioView` exposes shared
-Previous/Next/Cancel separately from a persistent Parameters inspector. That inspector
-owns renderer and saved-recipe selection, framing and renderer-native tuning. Native
-`PortraitVectorOptions` are the authoring coordinates; Contour and Flow Edge expose
-independent applicable fields and maintain separate tuning across style selection.
-`PortraitDrawingParameters` and the raster-height resolver remain for historical shared
-recipes. Native edits resolve those fields before clearing the shared override on a copy;
-loading and retained navigation preserve exact recipes. Shared recipes require an applicable
-source/style/analysis raster before editing; native recipes remain editable during rendering.
-Cached Flow and direct vectorization
-keep the same compatibility resolver before material floors. Reset and presets use native
-renderer defaults. Feature selection and regional Studio Next ingress are removed, while
-historical regional/eye/semantic schema and renderer interpretation remain supported.
-The retained legacy training schema still refuses shared-parameter recipes rather than
-reading inactive kernel fields. There is no interaction-mode state. Next submits one
-seeded proposal with at most one retry. Navigation installs exact candidates from bounded
-stacks; either end can request a new sample. Edits abandon forward history. Source/revision/request identity and cancellation settlement
-gate publication. Only useful completed results enter durable history; footprint
-comparison runs only for Next. No comparison jobs, grid rounds, fallback pool or
-grid preference state remain. `PortraitParameterPreference` retains its pure
-shared-coordinate policy and historical model receipts. It is no longer called by Studio Next: its four coordinates and forced
-shared-parameter accesses are incompatible with native renderer proposals. Feedback still
-labels exact attempts; no native preference model is inferred from the old schema.
+`FlowDojoModel` owns the current portrait authoring journey: portable portfolio
+selection, broad/local rounds, immutable candidate selection, whole-line editing,
+randomized ranking and local fitting/activation. `FlowDojoView` presents those four
+stages, including comparison panels and an exact-line pruning canvas. The old
+one-canvas Previous/Next, saved-style and separate experimental review surfaces are
+not composed by current authoring. Legacy `PortraitStudioModel` capture support and
+renderer/archive compatibility remain reusable behind the new composition.
 
-`PortraitExplorationPolicy.nativeRecipe` and `nativeRecoveryRecipe` resolve historical
-shared coordinates on the proposal copy and sample native applicable recipe fields for
-the selected renderer, with material floors and reflection at bounds. Historical
-`recipe`/`recoveryRecipe` callers retain shared-coordinate compatibility. The serial Next
-worker has no feature scope. Historical regional proposal and postprocessing helpers remain for compatibility and their existing
-geometry contracts; normal Studio authoring does not call them. Existing stacked recipes
-are not rewritten on load. Point/path/material budgets and whole-portrait novelty checks
-remain enforced. Novelty is a visible-distance floor, not a portrait-quality score. Source
-preparation and regional postprocessing of retained recipes remain shared across kernels;
-renderer selection is discrete and does not imply continuous style interpolation.
+`FlowArtistRecipe` maps twelve bounded normalized coordinates directly to native
+Flow options. Broad panels maximize parameter separation in a deterministic seeded
+pool; refinement perturbs a selected recipe within a smaller reflected radius.
+The selected parent remains an unchanged anchor. Rectilinearity changes tonal line
+construction; angularity invokes existing supported regional treatment. This keeps
+Flow Edge plus exact line selection as the declared representation rather than
+introducing another generator or motion planner.
 
-`PortraitExplorationRecord` only validates historical three/nine-slot archive receipts;
-current authoring does not produce or merge them. Studio remains separate from
-`WorkbenchLayoutState` dock placement and Drawing execution.
+`FlowArtistFeatures` extracts fixed image, recipe, output-mask and stroke-context
+features. `FlowArtistTraining` fits regularized score-difference preference and
+logistic deletion objectives with fixed group holdouts. Same-basis mask rankings
+also constrain deletion utility, without treating all visible strokes as independent
+approvals. Reports separate observation counts, source groups, losses and actual
+threshold correction metrics. Small or partial fits remain experimental. Compatible
+immutable checkpoints are installed in the portfolio; activation receipts preserve
+rollback and do not mutate old artwork.
+
+`FlowPortfolioStore` owns incremental state and all referenced assets. Images,
+programs, rasters, previews, inference receipts, edit ancestry and ranking
+presentations are immutable. The actor synchronizes objects and a hash-linked delta
+before atomically advancing the manifest. Failed operations retain the previous
+head; interruption recovery marks unfinished rounds explicitly. No explicit Save
+operation is required to make a curation action durable. Finish pruning is a label
+semantic, not a persistence gate. The portfolio's typed standalone format is
+separate from historical archives and from physical DrawingEvidence.
+
+Legacy `PortraitDrawingParameters`, `PortraitParameterPreference`, exploration
+receipts, regional/semantic helpers and independent renderer kernels retain their
+historical interpretation where archived evidence needs it. They do not govern
+new Dojo proposals or create a second model activation path. Current Drawing
+handoff exports an exact selected portfolio revision through the existing package
+and canonical `SavedDrawing` chain. Studio remains separate from dock placement,
+physical readiness and Drawing execution.
 
 The workspace caches the canonical `SparseTipBatchMarkPlan` for execution and
 planned video guides. `CameraOverlayKind.calibrationGuide` distinguishes those

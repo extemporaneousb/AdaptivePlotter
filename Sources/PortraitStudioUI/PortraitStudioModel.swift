@@ -64,6 +64,9 @@ package final class PortraitStudioModel {
   package var options = PortraitAnalysisOptions()
   package var vectorOptions = PortraitVectorOptions.nativeDefaults(for: .contours)
   @ObservationIgnored private var vectorOptionsByStyle: [PortraitStyle: PortraitVectorOptions] = [:]
+  package private(set) var embeddedDojo: FlowDojoModel?
+  @ObservationIgnored private var portfolioShutdownStarted = false
+  @ObservationIgnored private let portfolioFactory: (@MainActor (StrokeStyle) -> FlowDojoModel)?
   package let sketches: PortraitSketchCollection
   package private(set) var completedCandidate: PortraitCandidate?
   @ObservationIgnored private var pendingRenders: [PendingRender] = []
@@ -249,7 +252,8 @@ package final class PortraitStudioModel {
     captureClock: any PortraitCaptureClock = PortraitSystemCaptureClock(),
     photoRetention: PortraitPhotoRetention = PortraitPhotoRetention(),
     candidateStore: PortraitCandidateStore? = nil,
-    explorationSeed: UInt64 = 1
+    explorationSeed: UInt64 = 1,
+    portfolioFactory: (@MainActor (StrokeStyle) -> FlowDojoModel)? = nil
   ) {
     let collection = PortraitSketchCollection(store: candidateStore)
     sketches = collection
@@ -260,6 +264,25 @@ package final class PortraitStudioModel {
     self.captureClock = captureClock
     self.photoRetention = photoRetention
     self.nextExplorationSeed = explorationSeed
+    self.portfolioFactory = portfolioFactory
+  }
+
+  /// A host-owned model keeps pending edits and its writer lease alive when the
+  /// Portrait view leaves the hierarchy. Standalone camera acquisition never calls this.
+  package func portfolioDojo(strokeStyle: StrokeStyle) -> FlowDojoModel {
+    if let embeddedDojo { return embeddedDojo }
+    let dojo = portfolioFactory?(strokeStyle) ?? FlowDojoModel(strokeStyle: strokeStyle)
+    if portfolioShutdownStarted { dojo.closeMutationAdmission() }
+    embeddedDojo = dojo
+    return dojo
+  }
+
+  /// Successful preflight closes admission before the host settles other owners.
+  package func preparePortfolioShutdown() async -> Bool {
+    portfolioShutdownStarted = true
+    let ready = await embeddedDojo?.shutdown() ?? true
+    if !ready { portfolioShutdownStarted = false }
+    return ready
   }
 
   package func discover(excluding plotterDeviceID: CameraDeviceID?) async {
@@ -320,6 +343,15 @@ package final class PortraitStudioModel {
     await frames?.value
   }
 
+  package private(set) var portfolioPhoto: PortraitPhoto?
+
+  /// Reuses acquisition/illumination ownership without invoking historical authoring.
+  package func captureForPortfolio(strokeStyle: StrokeStyle) async -> PortraitPhoto? {
+    portfolioPhoto = nil
+    await acquirePhoto(file: nil, strokeStyle: strokeStyle, portfolioOnly: true)
+    return portfolioPhoto
+  }
+
   package func capture(strokeStyle: StrokeStyle) async {
     await acquirePhoto(file: nil, strokeStyle: strokeStyle)
   }
@@ -335,9 +367,10 @@ package final class PortraitStudioModel {
     let pose: PortraitPose
     let strokeStyle: StrokeStyle
     let duration: Double
+    let portfolioOnly: Bool
   }
 
-  private func acquirePhoto(file: URL?, strokeStyle: StrokeStyle) async {
+  private func acquirePhoto(file: URL?, strokeStyle: StrokeStyle, portfolioOnly: Bool = false) async {
     guard !isShutdown else { return }
     prepareStyleForNewSource()
     invalidateExploration()
@@ -357,7 +390,7 @@ package final class PortraitStudioModel {
     captureSummary = nil
     authoringError = nil
     pendingAcquisition = PhotoAcquisition(revision: acquisitionRevision, sessionID: UUID(), file: file, pose: pose,
-      strokeStyle: strokeStyle, duration: captureDuration)
+      strokeStyle: strokeStyle, duration: captureDuration, portfolioOnly: portfolioOnly)
     startWorkIfNeeded()
     await workTask?.value
   }
@@ -454,6 +487,14 @@ package final class PortraitStudioModel {
         guard request.revision == acquisitionRevision, !isShutdown else { continue }
         finishCapture()
         if request.file == nil { cameraStatus = nil }
+        if request.portfolioOnly, let sample = samples.first {
+          portfolioPhoto = PortraitPhoto(id: UUID(), data: sample.data, label: sample.label,
+            capturedAt: Date(), frameID: sample.frameID, captureNanoseconds: sample.captureNanoseconds,
+            pose: request.pose, sourcePixelExtent: sample.sourcePixelExtent,
+            captureSessionID: request.sessionID, selectionProvenance: sample.selectionProvenance)
+          captureSummary = "Photo captured."
+          continue
+        }
         var retained = 0
         for sample in samples {
           if appendPhoto(sample, pose: request.pose, sessionID: request.sessionID) { retained += 1 }
@@ -1382,6 +1423,8 @@ package final class PortraitStudioModel {
   package func cameraDiagnostics() async -> CameraCaptureSnapshot { await camera.snapshot() }
 
   package func shutdown() async {
+    guard await preparePortfolioShutdown() else { return }
+    if let embeddedDojo, await embeddedDojo.shutdown() == false { return }
     experimentalAdmission?.cancel()
     isShutdown = true
     photoSelectionRevision &+= 1; photoSelectionTask?.cancel(); photoSelectionTask = nil
