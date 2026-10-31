@@ -19,6 +19,19 @@ boundaries in [Product Contract](PRODUCT_CONTRACT.md), and software receipts in
 preprocessing pilot plans are superseded as product direction; their retained
 artifacts and dated evidence remain historical.
 
+The revision-527 artist audit found 50 new rounds and 358 drawings on one new
+photo, 99 weaker choice comparisons, one current completed target (78 removals,
+228 retained lines), no explicit rankings and no fitted checkpoint. Six source-hash
+groups are not six independently identified people. Photo-centered coverage and
+feedback queries therefore prioritize additional source groups over more unlabelled
+alternatives on the same photo.
+A subsequent fit on an exact copy proposed zero of that target's 78 intended
+removals at the deployed policy, matching keep-all in sample. A converged reference
+at the same regularization leaves that result unchanged. The remove-only holdout
+cannot establish false-deletion cost, so completed targets and explicit comparisons
+across additional photos remain the next evidence requirement rather than automatic
+threshold tuning.
+
 Remaining acceptance and conditional improvement work:
 
 - Collect the artist's explicit within-round, cross-round, pruned-revision and
@@ -34,7 +47,7 @@ Remaining acceptance and conditional improvement work:
   rollover of the local fitting capacity against realistic curated portfolios;
   do not silently trim observations or rewrite committed history.
 - Evaluate whether the native parameter range produces enough useful variation
-  across organic, straight-tonal and supported angular contours. Diverse parameter
+  across organic, straight-tonal, angular, wavy and closed-mark constructions. Diverse parameter
   vectors alone do not prove visible diversity or artistic value. Preserve failed
   and duplicate attempts when measuring usable results.
 - Expand feature/model capacity only if retained failures show a limitation of the

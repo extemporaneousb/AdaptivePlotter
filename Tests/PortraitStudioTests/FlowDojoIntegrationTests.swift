@@ -136,6 +136,73 @@ struct FlowDojoIntegrationTests {
     await reopened.shutdown()
   }
 
+  @Test("Fit a prepared copy of real artist feedback without inventing preferences or changing the original",
+    .enabled(if: ProcessInfo.processInfo.environment["FLOW_DOJO_ARTIST_REPLAY"] != nil))
+  func artistReplay() async throws {
+    let environment = ProcessInfo.processInfo.environment
+    let directory = URL(fileURLWithPath: try #require(environment["FLOW_DOJO_ARTIST_REPLAY"]))
+    let receiptURL = URL(fileURLWithPath: try #require(environment["FLOW_DOJO_ARTIST_REPLAY_RECEIPT"]))
+    let personal = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Flow Edge Portfolio.flowportfolio")
+    try #require(directory.resolvingSymlinksInPath().standardizedFileURL != personal.resolvingSymlinksInPath().standardizedFileURL)
+    try #require(directory.lastPathComponent == "ArtistReplay.flowportfolio", "Use an explicit prepared artist replay copy.")
+    try #require(!FileManager.default.fileExists(atPath: receiptURL.path))
+    let store = try FlowPortfolioStore(directory: directory, purpose: .artist)
+    let before = await store.snapshot(), progress = FlowDojoTrainingProgress(document: before)
+    let frozen = try await store.freezeTrainingSnapshot()
+    let dataset = try await FlowDojoTraining.dataset(store: store, document: before)
+    let started = Date()
+    let report = FlowArtistTraining.fit(examples: dataset.examples, rankings: dataset.rankings)
+    let seconds = Date().timeIntervalSince(started)
+    let checkpoint = try #require(report.checkpoint, "Actual artist feedback should provide a fitted head: \(report.summary)")
+    let encoder = DrawingPackageCodec.encoder()
+    let fit = try await store.installFit(checkpoint: encoder.encode(checkpoint), report: encoder.encode(report), snapshotID: frozen.id)
+    try await store.activateModel(fit.id)
+    let after = await store.snapshot()
+    #expect(after.sources == before.sources && after.candidates == before.candidates && after.rounds == before.rounds)
+    #expect(after.choices == before.choices && after.pruneRevisions == before.pruneRevisions && after.rankings == before.rankings)
+    #expect(dataset.examples.count == progress.exampleCount)
+    struct TargetDiagnostic: Encodable {
+      let candidateID: String; let sourceGroupID: String; let evaluationScope: String
+      let strokeCount: Int; let intendedRemovedIndices: [Int]; let predictedRemovedIndices: [Int]
+      let correctlyRemoved: Int; let missedRemovals: Int; let falseDeletions: Int; let correctlyKept: Int
+      let correctionRate: Double; let keepAllCorrectionRate: Double
+      let threshold: Double; let nonemptyPolicy: String
+    }
+    let completedTargets = try dataset.examples.filter { example in
+      !example.strokeLabels.isEmpty && example.strokeLabels.count == example.strokeFeatures.count
+        && example.strokeLabels.allSatisfy { $0.provenance == .completedMask }
+    }.map { example -> TargetDiagnostic in
+      let target = Set(example.strokeLabels.filter(\.removed).map(\.index))
+      let predicted = try checkpoint.removedIndices(strokeFeatures: example.strokeFeatures,
+        threshold: checkpoint.fitConfiguration.deletionThreshold)
+      let missed = target.subtracting(predicted).count, falseDeletions = predicted.subtracting(target).count
+      let count = example.strokeFeatures.count
+      return TargetDiagnostic(candidateID: example.id, sourceGroupID: example.sourceGroupID,
+        evaluationScope: checkpoint.holdoutGroupIDs.contains(example.sourceGroupID)
+          ? "held-out photo group" : "in-sample training target; not independent artistic validation",
+        strokeCount: count, intendedRemovedIndices: target.sorted(), predictedRemovedIndices: predicted.sorted(),
+        correctlyRemoved: target.intersection(predicted).count, missedRemovals: missed, falseDeletions: falseDeletions,
+        correctlyKept: count - target.union(predicted).count,
+        correctionRate: Double(missed + falseDeletions) / Double(max(1, count)),
+        keepAllCorrectionRate: Double(target.count) / Double(max(1, count)),
+        threshold: checkpoint.fitConfiguration.deletionThreshold, nonemptyPolicy: checkpoint.fitConfiguration.nonemptyPolicy)
+    }
+    struct Receipt: Encodable {
+      let purpose: String; let directory: String; let sourceRevision: Int; let finalRevision: Int
+      let examples: Int; let comparisons: Int; let removeLabels: Int; let keepLabels: Int
+      let featureValues: Int; let feedbackPhotoGroups: Int; let seconds: Double
+      let checkpointID: String; let fitID: UUID; let report: FlowArtistFitReport
+      let completedTargetDiagnostics: [TargetDiagnostic]
+    }
+    let receipt = Receipt(purpose: "Prepared copy of genuine artist feedback; no new judgments; original portfolio untouched",
+      directory: directory.path, sourceRevision: before.revision, finalRevision: after.revision, examples: dataset.examples.count,
+      comparisons: progress.choiceComparisonCount + progress.rankingComparisonCount, removeLabels: progress.removeLabelCount,
+      keepLabels: progress.keepLabelCount, featureValues: progress.featureValueCount, feedbackPhotoGroups: progress.feedbackGroupCount,
+      seconds: seconds, checkpointID: checkpoint.id, fitID: fit.id, report: report,
+      completedTargetDiagnostics: completedTargets)
+    try encoder.encode(receipt).write(to: receiptURL, options: .atomic)
+  }
+
   private func curateRound(_ model: FlowDojoModel) async throws {
     let candidates = model.roundCandidates
     #expect(candidates.count >= 2)

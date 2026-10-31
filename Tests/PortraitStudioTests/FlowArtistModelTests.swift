@@ -212,6 +212,27 @@ struct FlowArtistModelTests {
     #expect(deletionResult.deleter.keepAllCorrectionRate == 1)
     #expect(abs(try #require(deletionResult.deleter.deploymentCorrectionRate) - 1.0 / 9) < 1e-12)
     #expect(abs(try #require(deletionResult.deleter.deploymentRecall) - 8.0 / 9) < 1e-12)
+    #expect(deletionResult.deleter.trainingRemoveCount == 15)
+    #expect(deletionResult.deleter.trainingKeepCount == 12)
+    #expect(deletionResult.deleter.holdoutRemoveCount == 9)
+    #expect(deletionResult.deleter.holdoutKeepCount == 0)
+    #expect(deletionResult.deleter.status.contains("false-deletion cost is untested"))
+    let combined = try #require(FlowArtistTraining.fit(examples: examples + deletionExamples,
+      rankings: rankings).checkpoint)
+    #expect(combined.ranker?.report.improvesHoldout == true)
+    #expect(combined.deleter?.report.improvesHoldout == true)
+    #expect(combined.isExperimental) // A remove-only holdout cannot assess false deletions.
+    var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(combined)) as? [String: Any])
+    var oldDeleter = try #require(legacy["deleter"] as? [String: Any])
+    var oldReport = try #require(oldDeleter["report"] as? [String: Any])
+    for key in ["trainingRemoveCount", "trainingKeepCount", "holdoutRemoveCount", "holdoutKeepCount"] {
+      oldReport.removeValue(forKey: key)
+    }
+    oldDeleter["report"] = oldReport; legacy["deleter"] = oldDeleter
+    let legacyCheckpoint = try JSONDecoder().decode(FlowArtistCheckpoint.self,
+      from: JSONSerialization.data(withJSONObject: legacy))
+    try legacyCheckpoint.validateArchive()
+    #expect(legacyCheckpoint.deleter?.report.holdoutKeepCount == nil && legacyCheckpoint.isExperimental)
     // Normalize computed roundoff; do not weaken validation of stored artifacts.
     var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(checkpoint)) as? [String: Any])
     var ranker = try #require(object["ranker"] as? [String: Any])

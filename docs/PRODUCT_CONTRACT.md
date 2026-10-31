@@ -1875,12 +1875,29 @@ requirement. Missing content, corruption or persistence failure is reported.
 A failed mutation never reports success; it retains pending intent and reconciles
 the durable head before retrying when the commit outcome is uncertain. The
 acknowledged in-memory state stays unchanged until reconciliation succeeds.
-One writer owns a portfolio. Source photos and
+One writer owns a portfolio. The head publishes writer-capability version two on
+new commits; current code can read version-one heads without rewriting history,
+while older applications must refuse the new head instead of dropping fields.
+Immutable records and frozen document schemas remain unchanged. Camera sources
+retain exact capture identity/time, frame timestamp, measured extent and selection
+provenance; retrying the same photo identity cannot duplicate a source. Only the
+actual acquisition session supplies initial session grouping, never inferred
+subject identity. Source photos and
 all required training assets remain inside the directory rather than depending on
 paths into an old library or outside model runtime.
 
+Photos are the navigation and training-coverage unit. Durable names and representative
+thumbnails identify sources and drawings. Browsing never creates a choice. Coverage
+uses the same effective-supervision projection as fitting; generated alternatives,
+undone edits and inherited masks do not count as new human labels. Exact frozen-data
+comparison distinguishes new/withdrawn supervision from navigation and distinguishes
+latest fit attempt, latest usable checkpoint and active checkpoint. Failed fitting
+does not consume pending feedback.
+
 Broad and local rounds use native Flow Edge parameters. The selected parent and
-mask remain an exact refinement anchor. Rectilinear tonal strokes and supported
+mask remain an exact refinement anchor. Optional wave, angular-segment and closed
+loop/polygon marks extend native tonal construction inside the same support and
+occupancy constraints; absent mark coordinates retain exact legacy rendering. Rectilinear tonal strokes and supported
 angular regional contours remain distinct mechanisms. The renderer retains its
 image-evidence, point/path and nominal material constraints. New parameter samples
 are not learned drawing quality; failed, duplicate, cancelled and interrupted
@@ -1900,9 +1917,14 @@ identities, including pruning masks. Equal ranks are ties, omitted items remain
 unknown, and Neither and Skip are distinct retained outcomes. A refinement choice
 is weaker evidence than an explicit ranking and does not label all unchosen items
 equal or rejected. Ranking revisions preserve the presentation and superseded
-judgments. Source/drawing exclusions affect future fitting without deleting their
-history or images. Subject and photographic-session identities require human
-declarations; unknown identity is never inferred from pixels.
+judgments. Current-panel comparison freezes one current mask per included drawing;
+random version queries remove duplicate exact source/ordered-geometry/style/mask views without treating generated IDs or provenance as visual differences. Two-item
+queries prefer unjudged pairs and report exhaustion rather than claiming new feedback.
+Source/drawing exclusions affect future fitting without deleting their history or images. Subject identities require human declarations; photographic
+sessions may also retain unambiguous original acquisition metadata. Unknown identity
+is never inferred from pixels. Curated source-only collections retain exact image
+bytes and original provenance, import atomically and idempotently, and add no artistic
+preferences or completed targets.
 
 The fitted drawing model consists of Flow Edge generation plus learned whole-line
 selection. A regularized image-conditioned pairwise utility learns recipe/output
@@ -1916,17 +1938,24 @@ absent from the generated basis or alter mechanical calibration.
 
 Fitting freezes a portfolio revision, observation IDs and source/group partition.
 All exact-photo descendants and connected declared subject/session groups stay in
-one partition. Comparisons crossing the split are excluded. Three or more groups
+one partition, including connections through excluded or unlabelled sources. Unused
+generated rows do not allocate training features or count as supervised coverage;
+all portfolio artifacts remain retained. Comparisons crossing the split are excluded. Three or more groups
 permit a deterministic holdout; smaller fits remain explicitly experimental.
 Training/holdout losses, baseline losses, observation counts and group counts have
 distinct meanings. Deletion diagnostics also measure the deployed threshold and
 nonempty safeguard against keep-all correction burden where direct labels exist.
+Direct remove/keep label counts are reported separately for training and holdout;
+unknown or one-class holdout coverage keeps the checkpoint experimental. Readiness
+to fit is not evidence that deployment will reduce the artist's corrections.
 Fixtures and successful optimization do not establish the artist's human preference
 or cross-subject generalization.
 
 Checkpoints retain coefficients, exact data digests, feature/recipe/renderer and
 trainer revisions, optimization configuration, seed, inference threshold and
-nonempty policy. Unsupported or malformed checkpoints are refused. No-label or
+nonempty policy. Known archived schemas remain readable without changing checkpoint
+identities; incompatible old models require refitting before current inference.
+Unsupported or malformed checkpoints are refused. No-label or
 one-class evidence cannot silently manufacture the missing component. Partial
 fits can be activated explicitly as experimental; absent deletion keeps the full
 basis. Activation/rollback changes only future proposals, and cancellation cannot

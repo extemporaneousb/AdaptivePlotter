@@ -174,6 +174,7 @@ package final class PortraitStudioModel {
   package private(set) var captureProgress = 0.0
   package private(set) var screenIlluminationActive = false
   package private(set) var captureSummary: String?
+  package private(set) var capturePhase: String?
   package private(set) var program: DrawingProgram?
   package private(set) var summary = "Capture a portrait or choose a photo."
   package private(set) var authoringError: String?
@@ -299,6 +300,17 @@ package final class PortraitStudioModel {
       cameraStatus = "No portrait camera is available. Connect a face camera and retry Portrait Studio, or import a photo."
       return
     }
+    // Repeated photos share the same live session. Restarting here on every
+    // capture threw away a healthy stream immediately before its short burst.
+    let observedGeneration = cameraGeneration
+    let current = await camera.snapshot()
+    guard !isShutdown, observedGeneration == cameraGeneration,
+      self.selectedDeviceID == selectedDeviceID else { return }
+    if current.state == .running, current.selectedDeviceID == selectedDeviceID {
+      cameraIsRunning = true
+      cameraStatus = current.error?.actionableDescription
+      return
+    }
     let generation = cameraGeneration &+ 1
     await stopCamera()
     guard generation == cameraGeneration else { return }
@@ -388,6 +400,7 @@ package final class PortraitStudioModel {
     screenIlluminationActive = false
     captureProgress = 0
     captureSummary = nil
+    capturePhase = file == nil ? "Preparing camera…" : nil
     authoringError = nil
     pendingAcquisition = PhotoAcquisition(revision: acquisitionRevision, sessionID: UUID(), file: file, pose: pose,
       strokeStyle: strokeStyle, duration: captureDuration, portfolioOnly: portfolioOnly)
@@ -432,13 +445,31 @@ package final class PortraitStudioModel {
           return [PortraitBurstSample(data: acquired.data, frameID: nil,
             captureNanoseconds: nil, label: file.lastPathComponent, sourcePixelExtent: acquired.sourcePixelExtent)]
         }
+        if request.portfolioOnly {
+          // Session start does not mean that pixels have arrived. Require an
+          // advancing frame, not a stale retained preview, before lighting the
+          // screen. This readiness wait is cancellable and has its own deadline.
+          await self?.updateCapturePhase("Waiting for fresh camera video…", revision: request.revision)
+          let waitingAt = await clock.now()
+          let boundary = try await frameSource.latestCaptureNanoseconds() ?? 0
+          var ready = false
+          while await clock.now() - waitingAt < 3 {
+            try Task.checkCancellation()
+            if let timestamp = try await frameSource.latestCaptureNanoseconds(),
+              timestamp > boundary { ready = true; break }
+            try await clock.sleep(seconds: 0.05)
+          }
+          guard ready else {
+            throw DrawingTransferError.unavailable("The selected camera is not delivering fresh video. In the camera panel, use Restart Camera or choose another camera, then retry Capture Photo.")
+          }
+        }
         await self?.beginCaptureIllumination(duration: request.duration, revision: request.revision)
         let started = await clock.now()
         // Leave the light stable long enough for camera exposure to settle.
         try await clock.sleep(seconds: 0.25)
         // Reject any frame still retained from before the exposure settled.
-        let exposureBoundary = try await frameSource.latestFrame(newerThanNanoseconds: 0)
-        var lastCaptureNanoseconds = exposureBoundary?.captureNanoseconds ?? 0
+        let exposureBoundary = try await frameSource.latestCaptureNanoseconds()
+        var lastCaptureNanoseconds = exposureBoundary ?? 0
         var seenFrames = Set<FrameID>()
         var buffer = PortraitBurstBuffer(retention: retention)
         while true {
@@ -505,14 +536,24 @@ package final class PortraitStudioModel {
         guard request.revision == acquisitionRevision, !isShutdown else { continue }
         finishCapture()
         if error is CancellationError { continue }
-        if request.file == nil { cameraStatus = error.localizedDescription }
+        if request.file == nil {
+          if request.portfolioOnly, case PortraitDrawingError.noCameraFrame = error {
+            cameraStatus = "Fresh video stopped before a photo could be captured. Use Restart Camera in the camera panel, wait for moving video, then retry Capture Photo."
+          } else { cameraStatus = error.localizedDescription }
+        }
         else { summary = error.localizedDescription; authoringError = error.localizedDescription }
       }
     }
   }
 
+  private func updateCapturePhase(_ value: String, revision: UInt64) {
+    guard revision == acquisitionRevision, !isShutdown, isCapturing else { return }
+    capturePhase = value
+  }
+
   private func beginCaptureIllumination(duration: Double, revision: UInt64) {
     guard revision == acquisitionRevision, !isShutdown, isCapturing else { return }
+    capturePhase = "Capturing photo…"
     screenIlluminationActive = true
     illuminationTask?.cancel()
     illuminationTask = Task { [weak self] in
@@ -535,6 +576,7 @@ package final class PortraitStudioModel {
     illuminationTask = nil
     isCapturing = false
     screenIlluminationActive = false
+    capturePhase = nil
     captureProgress = 1
   }
 
@@ -1404,6 +1446,7 @@ package final class PortraitStudioModel {
     isCapturing = false
     screenIlluminationActive = false
     captureProgress = 0
+    capturePhase = nil
     acquisitionWorker?.cancel()
     renderRevision &+= 1
     pendingRenders = []

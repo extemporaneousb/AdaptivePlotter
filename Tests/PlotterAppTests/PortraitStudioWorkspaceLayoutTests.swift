@@ -51,6 +51,11 @@ struct PortraitStudioWorkspaceLayoutTests {
       await dojo.rank(item: items[1].id, position: 2)
       await dojo.fit()
       try #require(dojo.error == nil)
+      let activeRound = try #require(dojo.round?.id)
+      for index in 2...18 {
+        await dojo.addPhoto(data: try portraitTestImage(), title: "Historical photo \(index)")
+      }
+      await dojo.selectRound(activeRound)
       if stage == .prune {
         let lines = try #require(dojo.program?.strokes)
         await dojo.edit(.remove, ids: [lines[1].id])
@@ -69,6 +74,16 @@ struct PortraitStudioWorkspaceLayoutTests {
         #expect(dojo.program?.contentHash == programHash && dojo.round?.id == roundID)
         #expect(dojo.stage == stage && dojo.candidate?.id == chosen.id)
       }
+      if stage == .rank {
+        await dojo.presentRanking(scope: .round(try #require(dojo.round?.id)), count: 2)
+        await dojo.compare(preferred: try #require(dojo.presentation?.items.first?.id))
+        let pairRevision = dojo.document?.revision
+        for size in [CGSize(width: 1100, height: 720), CGSize(width: 1440, height: 940)] {
+          try await inspect(owner, dojo: dojo, stroke: stroke, stage: stage, size: size, suffix: "-pair")
+          #expect(dojo.document?.revision == pairRevision)
+          #expect(await renderer.calls == renderCalls)
+        }
+      }
       await owner.shutdown()
     } catch {
       await owner.shutdown()
@@ -76,8 +91,58 @@ struct PortraitStudioWorkspaceLayoutTests {
     }
   }
 
+  @Test("The user-opened camera panel exposes preview, capture and recovery actions without starting a real camera")
+  func cameraPanelLayout() async throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let owner = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
+    let host = NSHostingController(rootView: FlowDojoCameraPanel(camera: owner,
+      strokeStyle: try portraitTestStyle(), selectCamera: { nil }, captured: { _ in })
+      .frame(width: 640, height: 600).background(Color(nsColor: .windowBackgroundColor)))
+    let window = NSWindow(contentRect: CGRect(x: -10000, y: -10000, width: 640, height: 600),
+      styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentViewController = host
+    window.appearance = NSAppearance(named: .aqua); window.orderFront(nil)
+    do {
+      try await settle(host.view)
+      let bitmap = try #require(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
+      host.view.cacheDisplay(in: host.view.bounds, to: bitmap)
+      let image = try #require(bitmap.cgImage)
+      if let directory = ProcessInfo.processInfo.environment["PORTRAIT_WORKSPACE_SNAPSHOT_DIR"] {
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        try PortraitImageAnalyzer.encodedImage(image).write(to:
+          URL(fileURLWithPath: directory).appendingPathComponent("dojo-camera-panel-640x600.png"))
+      }
+      let controls = descendants(host.view).compactMap { $0 as? NSButton }.filter {
+        !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
+      }
+      let labels = controls.map { $0.title + " " + ($0.accessibilityLabel() ?? "") }
+      // SwiftUI draws some button labels separately from its title-less native
+      // NSButton. Verify rendered labels plus actual bounded native controls.
+      let recognize = VNRecognizeTextRequest()
+      recognize.recognitionLevel = .accurate; recognize.recognitionLanguages = ["en-US"]
+      recognize.minimumTextHeight = 0.005
+      try VNImageRequestHandler(cgImage: image).perform([recognize])
+      let rendered = (recognize.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+      let diagnostic = "native=\(labels) rendered=\(rendered)"
+      print("FLOW_DOJO_CAMERA_LAYOUT \(diagnostic)")
+      #expect(controls.count >= 3, "Camera actions must remain real native controls: \(diagnostic)")
+      for title in ["Restart Camera", "Close", "Capture Photo"] {
+        #expect((labels + rendered).contains { normalize($0).contains(normalize(title)) },
+          "Camera action '\(title)' is not visibly rendered: \(diagnostic)")
+      }
+      for button in controls {
+        #expect(host.view.bounds.insetBy(dx: -2, dy: -2).contains(button.convert(button.bounds, to: host.view)),
+          "Camera control lies outside the panel: \(button.title) \(button.frame)")
+      }
+      #expect(!owner.cameraIsRunning && !owner.isCapturing)
+      window.close(); await owner.shutdown()
+    } catch { window.close(); await owner.shutdown(); throw error }
+  }
+
   private func inspect(_ owner: PortraitStudioModel, dojo: FlowDojoModel, stroke: PlotterModel.StrokeStyle,
-    stage: FlowDojoModel.Stage, size: CGSize) async throws {
+    stage: FlowDojoModel.Stage, size: CGSize, suffix: String = "") async throws {
     let host = NSHostingController(rootView: PortraitStudioView(model: owner,
       strokeStyle: stroke, showOnPlotter: { _ in nil }, showEditedOnPlotter: { _ in nil })
       .padding(12)
@@ -106,7 +171,7 @@ struct PortraitStudioWorkspaceLayoutTests {
       try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
       let name = stage.rawValue.lowercased().replacingOccurrences(of: " & ", with: "-").replacingOccurrences(of: " ", with: "-")
       try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: directory)
-        .appendingPathComponent("dojo-\(name)-\(Int(size.width))x\(Int(size.height)).png"))
+        .appendingPathComponent("dojo-\(name)\(suffix)-\(Int(size.width))x\(Int(size.height)).png"))
     }
     // Read the full frame plus overlapping bands: small native labels otherwise
     // disappear in OCR segmentation beside the large blank drawing canvas.
@@ -134,7 +199,7 @@ struct PortraitStudioWorkspaceLayoutTests {
     let normalized = (rendered + nativeLabels).map(normalize)
     let diagnostic = "stage=\(stage.rawValue) size=\(size) native=\(nativeLabels) rendered=\(rendered)"
     print("FLOW_DOJO_HOSTED_LAYOUT \(diagnostic)")
-    for label in ["Flow Edge Dojo", "Import Photo", "Portfolio"] + coreLabels(stage) {
+    for label in ["Flow Edge Dojo", "Import Photo", "Portfolio", "Branches"] + coreLabels(stage) {
       #expect(normalized.contains { $0.contains(normalize(label)) }, "Core action '\(label)' is not visibly rendered: \(diagnostic)")
     }
 
@@ -166,9 +231,13 @@ struct PortraitStudioWorkspaceLayoutTests {
       if stage == .rank {
         let columns = max(1, Int((contentViewport.contentView.bounds.width + 12) / 232))
         let visibleRanks = nativeLabels.filter { ["1", "2", "Unranked"].contains($0) }
-        #expect(visibleRanks.count >= min(columns, 6),
+        #expect(visibleRanks.count >= min(columns, dojo.presentation?.items.count ?? 0),
           "The entire first row of rank pickers must be visible before scrolling at \(size): \(visibleRanks).")
         #expect(visibleRanks.contains("1") && visibleRanks.contains("2"))
+        if dojo.presentation?.items.count == 2 {
+          #expect(normalized.contains { $0.contains(normalize("Prefer this drawing")) })
+          #expect(normalized.contains { $0.contains(normalize("Equal preference")) })
+        }
       }
     }
     if stage == .prune {
@@ -180,9 +249,9 @@ struct PortraitStudioWorkspaceLayoutTests {
 
   private func coreLabels(_ stage: FlowDojoModel.Stage) -> [String] {
     switch stage {
-    case .explore: return ["Broad exploration", "Refine chosen drawing", "Prune chosen drawing"]
+    case .explore: return ["Broad exploration", "Refine selected drawing", "Prune selected drawing"]
     case .prune: return ["Delete Selected", "Undo", "Redo", "Finish pruning", "Original"]
-    case .rank: return ["Rank by artistic preference", "Random set: this round", "Random set: portfolio", "Skip"]
+    case .rank: return ["Rank by artistic preference", "This set", "Across photos", "Next pair", "Skip"]
     case .fit: return ["Fit portfolio", "Use untrained exploration", "Results", "Training loss", "Holdout loss"]
     }
   }

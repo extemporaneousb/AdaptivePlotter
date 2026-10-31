@@ -207,7 +207,7 @@ private struct PortraitFullScreenLight: View {
       Color.white.ignoresSafeArea()
       VStack(spacing: 12) {
         Text("Capturing portrait").font(.title2.weight(.semibold))
-        Text("Turn slowly to capture several angles.").font(.body)
+        Text("Hold still for this brief photo capture.").font(.body)
         Button("Cancel Capture · Esc", action: cancel)
           .keyboardShortcut(.cancelAction)
           .buttonStyle(.bordered)

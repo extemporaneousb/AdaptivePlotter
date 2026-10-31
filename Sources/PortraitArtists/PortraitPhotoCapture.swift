@@ -55,6 +55,13 @@ package struct PortraitPhotoRetention: Sendable {
 /// to a different camera owner's preview or use it as physical drawing evidence.
 package protocol PortraitFrameAcquiring: Sendable {
   func latestFrame(newerThanNanoseconds: UInt64) async throws -> StampedFrame?
+  func latestCaptureNanoseconds() async throws -> UInt64?
+}
+
+extension PortraitFrameAcquiring {
+  package func latestCaptureNanoseconds() async throws -> UInt64? {
+    try await latestFrame(newerThanNanoseconds: 0)?.captureNanoseconds
+  }
 }
 
 package struct PortraitCameraFrameSource: PortraitFrameAcquiring {
@@ -62,6 +69,10 @@ package struct PortraitCameraFrameSource: PortraitFrameAcquiring {
   package func latestFrame(newerThanNanoseconds: UInt64) async throws -> StampedFrame? {
     try await camera.materializeLatestFrame(
       newerThanNanoseconds: newerThanNanoseconds, policy: .returnOnly)?.frame
+  }
+
+  package func latestCaptureNanoseconds() async throws -> UInt64? {
+    await camera.latestCaptureNanoseconds()
   }
 
   package init(camera: CameraCapture) {

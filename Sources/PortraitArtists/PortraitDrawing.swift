@@ -36,6 +36,7 @@ package struct PortraitVectorOptions: Codable, Hashable, Sendable {
   package var flowStructureSupport: Double? = nil
   package var flowSupportScale: Double? = nil
   package var flowSeedIrregularity: Double? = nil
+  package var flowMarks: FlowArtistMarks? = nil
   package var regionalTreatment: PortraitRegionalParameters? = nil
   /// Ordered regional state; historical repeated scopes remain readable.
   package var regionalAdjustments: [PortraitRegionalParameters]? = nil
@@ -60,6 +61,7 @@ package struct PortraitVectorOptions: Codable, Hashable, Sendable {
     result.flowStructureSupport = Self.flowAmount(flowStructureSupport)
     result.flowSupportScale = Self.flowAmount(flowSupportScale)
     result.flowSeedIrregularity = Self.flowAmount(flowSeedIrregularity)
+    result.flowMarks = flowMarks?.isActive == true ? flowMarks : nil
     result.regionalTreatment = regionalTreatment?.bounded
     result.regionalAdjustments = regionalAdjustments.map { $0.map(\.bounded) }
     result.eyeExaggeration = eyeExaggeration?.bounded
@@ -81,6 +83,9 @@ package struct PortraitVectorOptions: Codable, Hashable, Sendable {
     let seeds = value.flowSeedIrregularity.map { "|flowSeedIrregularity=\($0)" } ?? ""
     var result = legacy + head + (materialContext.map { "|" + $0.provenance } ?? "")
     result += flow + support + structure + scale + seeds
+    if let marks = value.flowMarks {
+      result += "|flowMarks=v1,\(marks.wave),\(marks.polygon),\(marks.loop),\(marks.scale)"
+    }
     if let regional = value.regionalTreatment { result += "|regional=" + regional.provenance }
     if let overlays = value.regionalAdjustments { result += "|regionalOverlays=" + overlays.map(\.provenance).joined(separator: ";") }
     if let eyes = value.eyeExaggeration { result += "|eyeExaggeration=\(eyes.revision),\(eyes.amount)" }
@@ -116,6 +121,7 @@ package struct PortraitVectorOptions: Codable, Hashable, Sendable {
     flowStructureSupport: Double? = nil,
     flowSupportScale: Double? = nil,
     flowSeedIrregularity: Double? = nil,
+    flowMarks: FlowArtistMarks? = nil,
     regionalTreatment: PortraitRegionalParameters? = nil,
     regionalAdjustments: [PortraitRegionalParameters]? = nil,
     eyeExaggeration: PortraitEyeExaggerationParameters? = nil
@@ -137,6 +143,7 @@ package struct PortraitVectorOptions: Codable, Hashable, Sendable {
     self.flowStructureSupport = flowStructureSupport
     self.flowSupportScale = flowSupportScale
     self.flowSeedIrregularity = flowSeedIrregularity
+    self.flowMarks = flowMarks?.isActive == true ? flowMarks : nil
     self.regionalTreatment = regionalTreatment
     self.regionalAdjustments = regionalAdjustments
     self.eyeExaggeration = eyeExaggeration
@@ -351,7 +358,7 @@ package enum PortraitVectorizer {
     guard !paths.isEmpty else { throw PortraitDrawingError.noLines }
     let producer = options.semanticHead == nil ? "portrait-v3" : "portrait-v4"
     var provenance = "\(producer)|metric=\(raster.metricProvenance)|\(raster.provenance)|pose=\(pose.rawValue)|style=\(style.rawValue)|\(options.provenance)"
-    if style == .flowEdges { provenance += "|flow=\(PortraitFlowRenderer.revision)" }
+    if style == .flowEdges { provenance += "|flow=\(PortraitFlowRenderer.revision(for: options))" }
     if let manifest = regional.manifest {
       provenance += "|regionalEvidence=" + PortraitCandidateCoding.digest(try PortraitCandidateCoding.encoder().encode(manifest))
     }

@@ -83,7 +83,10 @@ so there is no reverse dependency from Artists into Library.
 `PortraitLibrary` owns `FlowPortfolioStore`, a serialized actor over a new
 self-contained portfolio directory. Immutable content-addressed objects and
 operation deltas precede the synchronized atomic head update; a process lease
-prevents competing writers. Its typed graph retains photos, rounds, candidates,
+prevents competing writers. A version-two head prevents older writers from dropping
+new optional mark/name/import metadata; current readers also accept version-one
+heads, and immutable operation records and frozen documents remain schema one.
+Its typed graph retains photos, rounds, candidates,
 choices, pruning revisions, ranking presentations/judgments, exclusions, frozen
 training snapshots, reports, checkpoints and activation history. The default
 portfolio is under Documents. It is distinct from the historical SQLite portrait
@@ -2539,13 +2542,15 @@ one-canvas Previous/Next, saved-style and separate experimental review surfaces 
 not composed by current authoring. Legacy `PortraitStudioModel` capture support and
 renderer/archive compatibility remain reusable behind the new composition.
 
-`FlowArtistRecipe` maps twelve bounded normalized coordinates directly to native
-Flow options. Broad panels maximize parameter separation in a deterministic seeded
-pool; refinement perturbs a selected recipe within a smaller reflected radius.
-The selected parent remains an unchanged anchor. Rectilinearity changes tonal line
-construction; angularity invokes existing supported regional treatment. This keeps
-Flow Edge plus exact line selection as the declared representation rather than
-introducing another generator or motion planner.
+`FlowArtistRecipe` preserves twelve bounded legacy coordinates and adds optional
+wave/polygon/loop/scale marks. `FlowArtistProposals` supplies named geometry families,
+source-conditioned bounded sampling and limited model-guided slots while keeping
+exactly the requested number of full renders. The selected parent remains an unchanged
+anchor. Mark-enabled tonal paths share the renderer's image/support/occupancy bounds;
+missing marks dispatch the frozen legacy kernel. Version-two feature/checkpoint
+contracts are separate from archive validation of version-one checkpoints. Current
+inference refuses incompatible old heads without losing their retained reports or
+rerendering old programs. Flow Edge plus exact line selection remains the representation.
 
 `FlowArtistFeatures` extracts fixed image, recipe, output-mask and stroke-context
 features. `FlowArtistTraining` fits regularized score-difference preference and
@@ -2555,6 +2560,22 @@ approvals. Reports separate observation counts, source groups, losses and actual
 threshold correction metrics. Small or partial fits remain experimental. Compatible
 immutable checkpoints are installed in the portfolio; activation receipts preserve
 rollback and do not mutate old artwork.
+
+`FlowDojoSupervision` projects the current effective labels and comparison identities
+once for `FlowDojoTraining` and `FlowDojoTrainingProgress`. It resolves transitive
+photo/group connectivity before exclusions, removes only irrelevant feature rows,
+and delays completed-mask label expansion until capacity admission. Progress is
+metadata-only; the UI caches frozen documents for usable/active fit IDs and compares
+exact supervision signatures. Naming, viewing and unrelated source imports are not
+training changes; withdrawal, exclusion and grouping changes are.
+
+`FlowPhotoCollection` validates a bounded self-contained source manifest and original
+image hashes before `FlowPortfolioStore.importPhotoCollection` commits one idempotent
+source-only change. The retained source import points to the manifest object; no
+external library path is required. Renames and navigation-only candidate selection
+are explicit operations that cannot append preference judgments. Ranking presentation
+can freeze the current panel or sample distinct historical versions; pair sampling
+prefers currently unjudged exact source/program/mask combinations.
 
 `FlowPortfolioStore` owns incremental state and all referenced assets. Images,
 programs, rasters, previews, inference receipts, edit ancestry and ranking

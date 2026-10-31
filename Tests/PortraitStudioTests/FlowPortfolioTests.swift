@@ -194,6 +194,52 @@ struct FlowPortfolioTests {
     #expect(try JSONDecoder().decode(FlowArtistFitReport.self, from: await store.fitReportData(fitID: noModel.id)) == unavailable)
   }
 
+  @Test("Pair comparisons deduplicate exact anchors and masks and prefer unseen pairs")
+  func usefulRankingPairs() async throws {
+    let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let store = try FlowPortfolioStore(directory: root, purpose: .validationFixture)
+    let source = try await store.addSource(data: Self.photo, title: "Pair fixture")
+    let round = try await store.beginRound(sourceID: source.id, recipes: [.standard, .standard])
+    let program = try Self.program(), preview = try DrawingPackageLibraryValidation.preview(program).bytes
+    let a = try await store.completeCandidate(roundID: round.id, slot: 0, program: program, raster: Self.raster, previewPNG: preview)
+    let separatelyRendered = try DrawingProgram(id: ProgramID(), fieldExtent: program.fieldExtent,
+      strokes: program.strokes.map { LogicalStroke(id: StrokeID(), path: $0.path, style: $0.style, ordering: $0.ordering) },
+      source: .init(kind: "portrait", sourceIdentifier: "independent-render-provenance"))
+    #expect(separatelyRendered.contentHash != program.contentHash)
+    _ = try await store.completeCandidate(roundID: round.id, slot: 1, program: separatelyRendered, raster: Self.raster, previewPNG: preview)
+    try await store.finishRound(round.id)
+    await #expect(throws: (any Error).self) { try await store.presentRanking(scope: .round(round.id), count: 2, seed: 1) }
+    let removed = try await store.applyPrune(candidateID: a.id, action: .remove, indices: [0])
+    _ = try await store.applyPrune(candidateID: a.id, action: .undo)
+    _ = try await store.applyPrune(candidateID: a.id, action: .redo)
+    let pair = try await store.presentRanking(scope: .round(round.id), count: 2, seed: 1)
+    #expect(Set(pair.items.map(\.id)) == [a.id, removed.id])
+    _ = try await store.recordRanking(presentationID: pair.id, orderedGroups: pair.items.map { [$0.id] })
+    let before = await store.snapshot()
+    await #expect(throws: (any Error).self) { try await store.presentRanking(scope: .round(round.id), count: 2, seed: 2) }
+    #expect(await store.snapshot() == before)
+    let latest = try await store.applyPrune(candidateID: a.id, action: .remove, indices: [1])
+    let panel = try await store.presentRoundRanking(round.id, seed: 42)
+    #expect(panel.items.count == 2)
+    #expect(Set(panel.items.map(\.candidateID)).count == 2)
+    #expect(panel.items.first { $0.candidateID == a.id }?.revisionID == latest.id)
+    #expect(panel.items.first { $0.candidateID == a.id }?.removedIndices == [0, 1])
+    let fresh = try await store.presentRanking(scope: .round(round.id), count: 2, seed: 3)
+    #expect(fresh.items.contains { $0.removedIndices == [0, 1] })
+    try await store.selectPresentation(pair.id)
+    #expect(await store.snapshot().currentPresentationID == pair.id)
+    let alteredRound = try await store.beginRound(sourceID: source.id, recipes: [.standard, .standard])
+    let first = program.strokes[0]
+    var points = first.path.points; points[0] = try Point2(x: points[0].x + 0.01, y: points[0].y)
+    var alteredStrokes = program.strokes
+    alteredStrokes[0] = LogicalStroke(id: first.id, path: try Polyline(points: points), style: first.style, ordering: first.ordering)
+    let altered = try DrawingProgram(id: ProgramID(), fieldExtent: program.fieldExtent, strokes: alteredStrokes, source: program.source)
+    _ = try await store.completeCandidate(roundID: alteredRound.id, slot: 0, program: program, raster: Self.raster, previewPNG: preview)
+    _ = try await store.completeCandidate(roundID: alteredRound.id, slot: 1, program: altered, raster: Self.raster, previewPNG: preview)
+    try await store.finishRound(alteredRound.id)
+    #expect(try await store.presentRanking(scope: .round(alteredRound.id), count: 2, seed: 5).items.count == 2)
+  }
+
   private func temporary() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("flow-portfolio-" + UUID().uuidString) }
   static let photo = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY9sAAAAASUVORK5CYII=")!
   static let raster = PortraitRaster(width: 2, height: 2, luminance: [0,1,1,0], provenance: "synthetic-fixture", analysisSummary: "Synthetic geometry; no human quality evidence")

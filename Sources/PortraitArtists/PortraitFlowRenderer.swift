@@ -5,7 +5,13 @@ import Foundation
 /// coherence smooths the orientation field, not the facial features underneath it.
 /// This is a deterministic 2D renderer, not inferred facial anatomy or depth.
 package enum PortraitFlowRenderer {
+  /// Frozen unextended contract, also consumed by historical Studio archives.
   package static let revision = "flow-edge-v1"
+  package static let markRevision = "flow-edge-v2"
+  package static let legacyRevision = "flow-edge-v1"
+  package static func revision(for options: PortraitVectorOptions) -> String {
+    options.flowMarks?.isActive == true ? markRevision : legacyRevision
+  }
 
   package struct Layers: Sendable {
     package let structure: [[CGPoint]]
@@ -625,6 +631,7 @@ package enum PortraitFlowRenderer {
     guard strength > 0 else { return [] }
     let supportAmount = bounded.flowSupport ?? 0, supportScale = bounded.flowSupportScale ?? 0
     let irregularity = bounded.flowSeedIrregularity ?? 0
+    let marks = bounded.flowMarks
     func evidence(_ point: CGPoint) -> SupportSample? {
       support.map { supportSample($0, field: field, point: point, scale: supportScale) }
     }
@@ -702,8 +709,31 @@ package enum PortraitFlowRenderer {
       if let value = confidence(start), value < supportAmount * 0.65 { continue }
       guard !occupied.intersects(start, radius: spacing(start)) else { continue }
       let seedMix = UInt64(seed) &* 2_654_435_761
+      let formMix = seedHash(seed ^ 0x5a71)
+      let markAmount = marks.map { max($0.wave, max($0.polygon, $0.loop)) } ?? 0
+      let totalMarkWeight = marks.map { $0.wave + $0.polygon + $0.loop } ?? 0
+      let selectsMark = Double(formMix & 0xffff) / 65_536 < markAmount
+      let form = Double((formMix >> 16) & 0xffff) / 65_536 * totalMarkWeight
+      let wave = selectsMark && form < (marks?.wave ?? 0)
+      let polygon = selectsMark && !wave && form < (marks.map { $0.wave + $0.polygon } ?? 0)
+      let loop = selectsMark && !wave && !polygon
+      if loop, let marks {
+        let radius = max(2, min(9, nominal * (0.45 + marks.scale * 0.65)))
+        let polygonLoop = Double((formMix >> 32) & 0xffff) / 65_536 < marks.polygon
+        let sides = polygonLoop ? 3 + Int((marks.scale * 4).rounded()) : nil
+        let phase = Double((formMix >> 48) & 0xffff) / 65_536 * 2 * .pi
+        if let mark = try PortraitFlowMarkTracer.closed(seed: start, radius: radius, polygonSides: sides,
+          phase: phase, minimumLength: minimumLength, width: width, height: height,
+          spacing: spacing, luminance: { field.sample(field.image, $0) },
+          intersects: { occupied.intersects($0, radius: $1) },
+          support: support == nil ? nil : { confidence($0) ?? 0 }, minimumSupport: supportAmount * 0.28,
+          minimumClearance: minimumSpacing) {
+          occupied.insert(mark.samples, radii: mark.radii); curves.append(mark.path)
+        }
+        continue
+      }
       let chooseRectilinear = Double(seedMix & 0xffff) / 65_536 < rectilinearity
-      if chooseRectilinear {
+      if chooseRectilinear && !wave && !polygon {
         if let straight = try PortraitRectilinearFlowTracer.trace(seed: start,
           tangent: direction(start, following: nil), width: width, height: height,
           minimumLength: minimumLength, spacing: spacing,
@@ -730,6 +760,8 @@ package enum PortraitFlowRenderer {
       func trace(sign: Double) throws -> [CGPoint] {
         var result: [CGPoint] = [], point = start, heading = direction(start, following: nil) * sign
         var unsupportedLength = 0.0, supportedCount = 0
+        var polygonHeading = heading
+        let cornerSteps = max(2, Int((2 + (marks?.scale ?? 0) * 6) / stepSize))
         for index in 0..<maximumSteps {
           if index.isMultiple(of: 64) { try Task.checkCancellation() }
           let first = direction(point, following: heading)
@@ -738,7 +770,20 @@ package enum PortraitFlowRenderer {
           // A tensor singularity must not create a sudden hairpin. Integrating
           // a bounded turn gives smooth plotter motion; stop at an opposing flow.
           guard dot(proposed, heading) > 0.35 else { break }
-          let tangent = unit(proposed * (1 - headingBlend) + heading * headingBlend)
+          var tangent = unit(proposed * (1 - headingBlend) + heading * headingBlend)
+          if wave, let marks {
+            let phase = Double((formMix >> 32) & 0xffff) / 65_536 * 2 * .pi
+            let progress = sign * Double(index) * stepSize
+            let angle = sin(progress * 2 * .pi / (10 + marks.scale * 22) + phase) * 0.65
+            tangent = CGPoint(x: proposed.x * cos(angle) - proposed.y * sin(angle),
+              y: proposed.x * sin(angle) + proposed.y * cos(angle))
+          } else if polygon {
+            if index.isMultiple(of: cornerSteps) {
+              let angle = (atan2(proposed.y, proposed.x) / (.pi / 4)).rounded() * (.pi / 4)
+              polygonHeading = CGPoint(x: cos(angle), y: sin(angle))
+            }
+            tangent = polygonHeading
+          }
           let next = point + tangent * stepSize
           let nextSpacing = spacing(next)
           guard next.x >= 1, next.y >= 1, next.x < Double(width - 2), next.y < Double(height - 2),

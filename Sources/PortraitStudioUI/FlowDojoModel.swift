@@ -22,6 +22,7 @@ package final class FlowDojoModel {
   package private(set) var progress = "Opening portfolio…"
   package private(set) var error: String?
   package private(set) var needsRecovery = false
+  package private(set) var pendingMetadataCount = 0
   package var stage: Stage = .explore
   package var count = 6
   package var tool: PortraitLineEditModel.Tool = .erase
@@ -33,7 +34,9 @@ package final class FlowDojoModel {
   package private(set) var ranks: [UUID: Int] = [:]
   package private(set) var reportSummary: String?
   package private(set) var fitReport: FlowArtistFitReport?
+  package private(set) var activeModelIssue: String?
   package private(set) var activeCheckpoint: FlowArtistCheckpoint?
+  package private(set) var trainingProgress: FlowDojoTrainingProgress?
   @ObservationIgnored package private(set) var store: FlowPortfolioStore?
   @ObservationIgnored private let renderer = FlowDojoRenderer()
   @ObservationIgnored private var work: Task<Void, Never>?
@@ -47,6 +50,17 @@ package final class FlowDojoModel {
   @ObservationIgnored private var failedIntent: (status: String, baseline: Int, replayPartial: Bool, operation: @MainActor () async throws -> Void)?
   @ObservationIgnored private var blockedIntents: [(String, Bool, Bool, @MainActor () async throws -> Void)] = []
   @ObservationIgnored private var loadedSourceHash: String?
+  @ObservationIgnored private var nameDebounce: Task<Void, Never>?
+  @ObservationIgnored private var nameFlush: Task<Void, Never>?
+  @ObservationIgnored private var nameFlushID: UUID?
+  /// One-shot deterministic join seam for persistence tests; absent in the product.
+  @ObservationIgnored private var metadataJoinHook: (@MainActor () async -> Void)?
+  @ObservationIgnored private var pendingNames: [(id: UUID, photo: Bool, title: String, store: FlowPortfolioStore)] = []
+  @ObservationIgnored private var pendingCurations: [(id: UUID, subject: String, session: String, excluded: Bool, store: FlowPortfolioStore)] = []
+  @ObservationIgnored private var fittedDocument: FlowPortfolioSnapshot?
+  @ObservationIgnored private var activeTrainingDocument: FlowPortfolioSnapshot?
+  @ObservationIgnored private var fittedSnapshotID: UUID?
+  @ObservationIgnored private var activeSnapshotID: UUID?
   @ObservationIgnored private var loadedProgramID: UUID?
   @ObservationIgnored private var previewKeys: [UUID: String] = [:]
   @ObservationIgnored private let purpose: FlowPortfolioPurpose?
@@ -57,11 +71,12 @@ package final class FlowDojoModel {
   package init(directory: URL = FlowDojoModel.defaultDirectory,
     strokeStyle: StrokeStyle? = nil, purpose: FlowPortfolioPurpose? = nil,
     render: (@Sendable (Data, FlowArtistRecipe, StrokeStyle) async throws -> PortraitRenderResult)? = nil,
-    fit: (@Sendable ([FlowArtistExample], [FlowArtistRanking]) async throws -> FlowArtistFitReport)? = nil) {
+    fit: (@Sendable ([FlowArtistExample], [FlowArtistRanking]) async throws -> FlowArtistFitReport)? = nil,
+    metadataJoinHook: (@MainActor () async -> Void)? = nil) {
     self.directory = directory; self.purpose = purpose
     self.strokeStyle = strokeStyle ?? (try! StrokeStyle(nominalLineWidth: 0.4,
       penProfileID: PenProfileID(UUID(uuidString: "00000000-0000-0000-0000-000000000001")!)))
-    renderOverride = render; fitOverride = fit
+    renderOverride = render; fitOverride = fit; self.metadataJoinHook = metadataJoinHook
   }
   package var selectedSource: FlowPortfolioSource? { document?.sources.first { $0.id == document?.selectedSourceID } }
   package var round: FlowPortfolioRound? { document?.rounds.first { $0.id == document?.currentRoundID } }
@@ -78,8 +93,9 @@ package final class FlowDojoModel {
     return ids.compactMap { id in document.candidates.first { $0.id == id } }
   }
   package var autosaveStatus: String {
-    if let error { return "Not saved: " + error }
+    if let error { return (needsRecovery ? "Not saved: " : "Action unavailable: ") + error }
     if isBusy { return progress }
+    if pendingMetadataCount > 0 { return "Saving name and source edits…" }
     return "All changes saved · revision \(document?.revision ?? 0)"
   }
 
@@ -96,12 +112,15 @@ package final class FlowDojoModel {
 
   package func switchPortfolio(to url: URL) async {
     guard !isBusy, url.standardizedFileURL != directory.standardizedFileURL else { return }
+    await flushMetadataEdits()
     await perform("Opening portfolio…", autosave: false) {
       let next = try await Task.detached { try FlowPortfolioStore(directory: url) }.value
       self.store = next; self.directory = url; self.document = nil
       self.previews = [:]; self.previewKeys = [:]; self.loadedSourceHash = nil; self.loadedProgramID = nil
       self.rankingPreviews = [:]; self.presentation = nil; self.ranks = [:]
-      self.reportSummary = nil; self.fitReport = nil; self.activeCheckpoint = nil; self.selection = []
+      self.reportSummary = nil; self.fitReport = nil; self.activeCheckpoint = nil; self.activeModelIssue = nil; self.selection = []
+      self.fittedDocument = nil; self.activeTrainingDocument = nil
+      self.fittedSnapshotID = nil; self.activeSnapshotID = nil
       self.stage = .explore
       try await self.store?.markInterruptedRounds()
       try await self.refresh()
@@ -116,6 +135,27 @@ package final class FlowDojoModel {
       try await self.refresh(); self.stage = .explore
     }
   }
+  package func addCapturedPhoto(_ photo: PortraitPhoto, title: String) async {
+    guard let store else { return }
+    await perform("Retaining captured photo…") {
+      _ = try await store.addCapturedSource(photo: photo, title: title)
+      try await self.refresh(); self.stage = .explore
+    }
+  }
+
+  package func importPhotoCollection(_ directory: URL) async {
+    guard let store else { return }
+    await perform("Importing photo set…") {
+      let collection = try await Task.detached {
+        let scoped = directory.startAccessingSecurityScopedResource()
+        defer { if scoped { directory.stopAccessingSecurityScopedResource() } }
+        return try FlowPhotoCollection.load(directory: directory)
+      }.value
+      _ = try await store.importPhotoCollection(collection)
+      try await self.refresh()
+    }
+  }
+
   package func selectSource(_ id: UUID) async {
     guard let store else { return }
     await perform("Opening photo…", autosave: false) { try await store.selectSource(id); try await self.refresh(); self.stage = .explore }
@@ -134,6 +174,99 @@ package final class FlowDojoModel {
     }
   }
 
+  /// Navigation supplies no judgment. Only Choose direction records a weak preference.
+  package func browseCandidate(_ id: UUID, prune: Bool = false) async {
+    guard let store else { return }
+    await perform("Opening drawing…", autosave: false) {
+      try await store.selectCandidate(id); try await self.refresh()
+      self.stage = prune ? .prune : .explore
+    }
+  }
+
+  package func renameSource(_ id: UUID, title: String) async {
+    guard let store, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    await perform("Saving photo name…") { try await store.renameSource(sourceID: id, title: title); try await self.refresh() }
+  }
+
+  package func renameCandidate(_ id: UUID, title: String) async {
+    guard let store, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    await perform("Saving drawing name…") { try await store.renameCandidate(candidateID: id, title: title); try await self.refresh() }
+  }
+
+  /// Valid name edits are admitted immediately, coalesced while typing, and
+  /// drained on dismissal, portfolio switching and application shutdown.
+  package func queueName(_ id: UUID, photo: Bool, title: String) {
+    guard acceptsChanges, let store else { return }
+    let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty, name.utf8.count <= 1024 else { return }
+    pendingNames.removeAll { $0.id == id && $0.photo == photo }
+    pendingNames.append((id, photo, name, store))
+    pendingMetadataCount = pendingNames.count + pendingCurations.count
+    nameDebounce?.cancel()
+    nameDebounce = Task {
+      do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+      await flushMetadataEdits()
+    }
+  }
+  package func queueSourceCuration(_ id: UUID, subject: String, session: String, excluded: Bool) {
+    guard acceptsChanges, let store, subject.utf8.count <= 256, session.utf8.count <= 256 else { return }
+    pendingCurations.removeAll { $0.id == id }
+    pendingCurations.append((id, subject, session, excluded, store))
+    pendingMetadataCount = pendingNames.count + pendingCurations.count
+    nameDebounce?.cancel()
+    nameDebounce = Task {
+      do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+      await flushMetadataEdits()
+    }
+  }
+  package func flushMetadataEdits() async {
+    while true {
+      nameDebounce?.cancel(); nameDebounce = nil
+      if let running = nameFlush {
+        await running.value
+        await afterMetadataJoin()
+        // Joining is not proof that a later admitted edit was included.
+        continue
+      }
+      guard !pendingNames.isEmpty || !pendingCurations.isEmpty else { return }
+      let id = UUID()
+      let task = Task { @MainActor in
+        defer {
+          // Clear before completion, and only our handle. A late joiner must
+          // never clear a newer worker or mistake this completed one for it.
+          if self.nameFlushID == id { self.nameFlush = nil; self.nameFlushID = nil }
+        }
+        while !self.pendingNames.isEmpty || !self.pendingCurations.isEmpty {
+          if !self.pendingNames.isEmpty {
+            let edit = self.pendingNames.removeFirst()
+            self.pendingMetadataCount = self.pendingNames.count + self.pendingCurations.count
+            await self.perform("Saving name…", alreadyAdmitted: true) {
+              if edit.photo { try await edit.store.renameSource(sourceID: edit.id, title: edit.title) }
+              else { try await edit.store.renameCandidate(candidateID: edit.id, title: edit.title) }
+              try await self.refresh()
+            }
+          } else {
+            let edit = self.pendingCurations.removeFirst()
+            self.pendingMetadataCount = self.pendingNames.count + self.pendingCurations.count
+            await self.perform("Saving source curation…", alreadyAdmitted: true) {
+              try await edit.store.setSourceGroups(sourceID: edit.id,
+                subjectID: edit.subject.isEmpty ? nil : edit.subject,
+                sessionID: edit.session.isEmpty ? nil : edit.session, excluded: edit.excluded)
+              try await self.refresh()
+            }
+          }
+        }
+      }
+      nameFlushID = id; nameFlush = task
+      await task.value
+      await afterMetadataJoin()
+    }
+  }
+  private func afterMetadataJoin() async {
+    let hook = metadataJoinHook; metadataJoinHook = nil
+    await hook?()
+  }
+
   package func updateStrokeStyle(_ style: StrokeStyle) {
     guard !closed, !closing else { return }
     strokeStyle = style
@@ -148,9 +281,17 @@ package final class FlowDojoModel {
       self.cancelRequested = self.closing
       let data = try await store.sourceData(source.id)
       let seed = UInt64.random(in: 1...UInt64.max)
-      let recipes = parent?.recipe.refined(count: panelCount, seed: seed, radius: 0.12)
-        ?? FlowArtistRecipe.broad(count: panelCount, seed: seed)
       let checkpoint = self.activeCheckpoint
+      do { try checkpoint?.validateForInference() }
+      catch { throw FlowPortfolioError.invalid(error.localizedDescription) }
+      let recipes: [FlowArtistRecipe]
+      if self.renderOverride != nil {
+        recipes = parent?.recipe.refined(count: panelCount, seed: seed, radius: 0.12)
+          ?? FlowArtistRecipe.broad(count: panelCount, seed: seed)
+      } else {
+        recipes = try await self.renderer.proposals(data: data, count: panelCount, seed: seed,
+          parent: parent?.recipe, checkpoint: checkpoint)
+      }
       let round = try await store.beginRound(sourceID: source.id, recipes: recipes,
         parentCandidateID: parent?.id, modelID: checkpoint?.id, seed: seed, analysisOptions: FlowDojoRenderer.analysisOptions)
       self.stage = .explore; try await self.refresh()
@@ -243,10 +384,18 @@ package final class FlowDojoModel {
     }
   }
 
-  package func presentRanking(scope: FlowRankingScope) async {
+  package func presentRanking(scope: FlowRankingScope, count: Int? = nil) async {
     guard let store else { return }
     await perform("Preparing comparison…", autosave: false) {
-      self.presentation = try await store.presentRanking(scope: scope, count: self.count, seed: UInt64.random(in: 1...UInt64.max))
+      self.presentation = try await store.presentRanking(scope: scope, count: count ?? self.count, seed: UInt64.random(in: 1...UInt64.max))
+      self.ranks = [:]; self.rankingPreviews = [:]; self.stage = .rank
+      try await self.loadRankingPreviews(); try await self.refresh()
+    }
+  }
+  package func rankCurrentSet() async {
+    guard let store, let round else { return }
+    await perform("Preparing full-set ranking…", autosave: false) {
+      self.presentation = try await store.presentRoundRanking(round.id, seed: UInt64.random(in: 1...UInt64.max))
       self.ranks = [:]; self.rankingPreviews = [:]; self.stage = .rank
       try await self.loadRankingPreviews(); try await self.refresh()
     }
@@ -269,6 +418,19 @@ package final class FlowDojoModel {
       self.ranks = next; try await self.refresh()
     }
   }
+  package func compare(preferred itemID: UUID?) async {
+    guard let store, let presentation, presentation.items.count == 2 else { return }
+    let ids = presentation.items.map(\.id)
+    guard itemID == nil || ids.contains(itemID!) else { return }
+    await perform("Saving artistic comparison…") {
+      let tiers = itemID.map { chosen in [[chosen], ids.filter { $0 != chosen }] } ?? [ids]
+      _ = try await store.recordRanking(presentationID: presentation.id, orderedGroups: tiers)
+      self.ranks = [:]
+      for (index, tier) in tiers.enumerated() { for id in tier { self.ranks[id] = index + 1 } }
+      try await self.refresh()
+    }
+  }
+
   package func declineRanking(neither: Bool) async {
     guard let store, let presentation else { return }
     await perform("Saving comparison outcome…") {
@@ -291,6 +453,7 @@ package final class FlowDojoModel {
 
   package func fit() async {
     guard let store else { return }
+    await flushMetadataEdits()
     let requestID = UUID()
     var retainedReport: FlowArtistFitReport?
     await perform("Freezing training dataset…", replayAfterPartialCommit: true) {
@@ -329,7 +492,7 @@ package final class FlowDojoModel {
       if let fitID {
         let bytes = try await store.checkpointData(fitID: fitID)
         let checkpoint = try JSONDecoder().decode(FlowArtistCheckpoint.self, from: bytes)
-        try checkpoint.validate()
+        try checkpoint.validateForInference()
       }
       try await store.activateModel(fitID); try await self.refresh()
     }
@@ -353,7 +516,9 @@ package final class FlowDojoModel {
   package func prepareForShutdown() async -> Bool {
     if closed { return true }
     closing = true
-    cancel(); await recoveryWork?.value; await work?.value
+    cancel()
+    await flushMetadataEdits()
+    await recoveryWork?.value; await work?.value
     if needsRecovery { closing = false; return false }
     return true
   }
@@ -364,9 +529,9 @@ package final class FlowDojoModel {
   }
   package func clearError() { error = nil }
 
-  private func perform(_ status: String, replayAfterPartialCommit: Bool = false, autosave: Bool = true, alreadyAdmitted: Bool = false, operation: @escaping @MainActor () async throws -> Void) async {
+  private func perform(_ status: String, replayAfterPartialCommit: Bool = false, autosave: Bool = true, alreadyAdmitted: Bool = false, replayingRecovery: Bool = false, operation: @escaping @MainActor () async throws -> Void) async {
     guard !closed, !closing || alreadyAdmitted else { return }
-    if recoveryWork != nil && !alreadyAdmitted {
+    if recoveryWork != nil && !replayingRecovery {
       blockedIntents.append((status, replayAfterPartialCommit, autosave, operation))
       return
     }
@@ -418,7 +583,7 @@ package final class FlowDojoModel {
           let pending = self.blockedIntents; self.blockedIntents = []
           for (status, replay, autosave, operation) in pending {
             await self.perform(status, replayAfterPartialCommit: replay, autosave: autosave,
-              alreadyAdmitted: true, operation: operation)
+              alreadyAdmitted: true, replayingRecovery: true, operation: operation)
           }
         }
       } catch { self.error = error.localizedDescription }
@@ -431,6 +596,21 @@ package final class FlowDojoModel {
   private func refresh() async throws {
     guard let store else { return }
     document = await store.snapshot()
+    if let document {
+      let last = document.fits.last(where: { $0.hasCheckpoint })
+      if fittedSnapshotID != last?.snapshotID {
+        if let last { fittedDocument = try await store.trainingDocument(snapshotID: last.snapshotID) }
+        else { fittedDocument = nil }
+        fittedSnapshotID = last?.snapshotID
+      }
+      let active = document.fits.first(where: { $0.id == document.activeFitID })
+      if activeSnapshotID != active?.snapshotID {
+        if let active { activeTrainingDocument = try await store.trainingDocument(snapshotID: active.snapshotID) }
+        else { activeTrainingDocument = nil }
+        activeSnapshotID = active?.snapshotID
+      }
+      trainingProgress = FlowDojoTrainingProgress(document: document, fittedDocument: fittedDocument, activeDocument: activeTrainingDocument)
+    }
     if let source = selectedSource {
       if loadedSourceHash != source.image.sha256 {
         sourceData = try await store.sourceData(source.id); loadedSourceHash = source.image.sha256
@@ -441,8 +621,10 @@ package final class FlowDojoModel {
     } else { program = nil; loadedProgramID = nil }
     if let fitID = document?.activeFitID {
       activeCheckpoint = try JSONDecoder().decode(FlowArtistCheckpoint.self, from: await store.checkpointData(fitID: fitID))
-      try activeCheckpoint?.validate()
-    } else { activeCheckpoint = nil }
+      try activeCheckpoint?.validateArchive()
+      do { try activeCheckpoint?.validateForInference(); activeModelIssue = nil }
+      catch { activeModelIssue = error.localizedDescription }
+    } else { activeCheckpoint = nil; activeModelIssue = nil }
     let visibleIDs = Set(roundCandidates.map(\.id))
     previews = previews.filter { visibleIDs.contains($0.key) }
     previewKeys = previewKeys.filter { visibleIDs.contains($0.key) }

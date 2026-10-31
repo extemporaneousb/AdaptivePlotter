@@ -67,16 +67,32 @@ struct PortraitDrawingTests {
     let gridImage = try #require(ImageRenderer(content: grid).cgImage)
     try PortraitImageAnalyzer.encodedImage(gridImage)
       .write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-marker-presets.png"))
-    let model = PortraitStudioModel()
-    model.setPhoto(data, for: .front, strokeStyle: try portraitTestStyle())
-    await model.awaitRendering()
-    #expect(model.program != nil)
-    let editorImage = try await portraitEditorImage(PortraitStudioView(model: model,
-      strokeStyle: try portraitTestStyle(), showOnPlotter: { _ in nil }))
-    try PortraitImageAnalyzer.encodedImage(editorImage).write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-populated.png"))
-    let narrow = try await portraitEditorImage(PortraitStudioView(model: model,
-      strokeStyle: portraitTestStyle(), showOnPlotter: { _ in nil }), width: 1000)
-    try PortraitImageAnalyzer.encodedImage(narrow).write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-style-narrow.png"))
+    let editorDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: editorDirectory) }
+    let model = PortraitStudioModel(candidateStore: .init(directoryURL: editorDirectory.appendingPathComponent("historical")),
+      portfolioFactory: { stroke in
+        FlowDojoModel(directory: editorDirectory.appendingPathComponent("reference.flowportfolio"),
+          strokeStyle: stroke, purpose: .validationFixture)
+      })
+    do {
+      // The earlier grids exercise historical renderers. The production editor
+      // snapshot must populate the current dojo, not an inactive legacy model.
+      model.setPhoto(data, for: .front, strokeStyle: try portraitTestStyle())
+      await model.awaitRendering()
+      #expect(model.program != nil)
+      let dojo = model.portfolioDojo(strokeStyle: try portraitTestStyle())
+      await dojo.open(); await dojo.addPhoto(data: data, title: "Reference photograph")
+      dojo.count = 3; await dojo.generate(refining: false)
+      try #require(dojo.error == nil && dojo.roundCandidates.count == 3)
+      #expect(dojo.document?.purpose == .validationFixture && dojo.document?.choices.isEmpty == true)
+      let editorImage = try await portraitEditorImage(PortraitStudioView(model: model,
+        strokeStyle: try portraitTestStyle(), showOnPlotter: { _ in nil }))
+      try PortraitImageAnalyzer.encodedImage(editorImage).write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-populated.png"))
+      let narrow = try await portraitEditorImage(PortraitStudioView(model: model,
+        strokeStyle: portraitTestStyle(), showOnPlotter: { _ in nil }), width: 1000)
+      try PortraitImageAnalyzer.encodedImage(narrow).write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-style-narrow.png"))
+      await model.shutdown()
+    } catch { await model.shutdown(); throw error }
     let recipes = PortraitStyle.allCases.map {
       PortraitStyleRecipe(id: "algorithm-\($0.rawValue)", title: $0.rawValue, seed: 0,
         style: $0, vectorOptions: PortraitVectorPreset.broadMarker.options, analysisOptions: .init())
@@ -364,18 +380,33 @@ struct PortraitDrawingTests {
     #expect(model.acquisitionDiagnostics.activeWorkerCount == 0)
   }
 
-  @Test("portrait workspace renders without a vertical scroll container", arguments: [1000, 1280])
+  @Test("isolated dojo workspace renders within the requested editor dimensions", arguments: [1000, 1280])
   @MainActor
   func editorLayout(width: Int) async throws {
-    let view = PortraitStudioView(model: PortraitStudioModel(),
-                                  strokeStyle: try portraitTestStyle(), showOnPlotter: { _ in nil })
-    let image = try await portraitEditorImage(view, width: width)
-    #expect(image.width >= width)
-    #expect(image.width * 610 == image.height * width)
-    if let path = ProcessInfo.processInfo.environment["PORTRAIT_UI_SNAPSHOT"] {
-      let output = URL(fileURLWithPath: path).deletingPathExtension().appendingPathExtension("\(width).png")
-      try PortraitImageAnalyzer.encodedImage(image).write(to: output)
-    }
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = PortraitStudioModel(candidateStore: .init(directoryURL: directory.appendingPathComponent("historical")),
+      portfolioFactory: { stroke in
+        FlowDojoModel(directory: directory.appendingPathComponent("editor.flowportfolio"),
+          strokeStyle: stroke, purpose: .validationFixture)
+      })
+    do {
+      let stroke = try portraitTestStyle(), dojo = model.portfolioDojo(strokeStyle: try portraitTestStyle())
+      await dojo.open()
+      let revision = dojo.document?.revision
+      let view = PortraitStudioView(model: model, strokeStyle: stroke, showOnPlotter: { _ in nil })
+      let image = try await portraitEditorImage(view, width: width)
+      #expect(image.width >= width)
+      #expect(image.width * 610 == image.height * width)
+      #expect(dojo.document?.purpose == .validationFixture && dojo.directory.path.hasPrefix(directory.path))
+      #expect(dojo.document?.revision == revision && model.portfolioDojo(strokeStyle: stroke) === dojo)
+      #expect(model.renderDiagnostics.startedWorkerCount == 0 && !model.cameraIsRunning)
+      if let path = ProcessInfo.processInfo.environment["PORTRAIT_UI_SNAPSHOT"] {
+        let output = URL(fileURLWithPath: path).deletingPathExtension().appendingPathExtension("\(width).png")
+        try PortraitImageAnalyzer.encodedImage(image).write(to: output)
+      }
+      await model.shutdown()
+    } catch { await model.shutdown(); throw error }
   }
 }
 
@@ -512,6 +543,7 @@ private func portraitEditorImage(_ view: PortraitStudioView, width: Int = 1280) 
   let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: CGFloat(width), height: 610),
     styleMask: [.borderless], backing: .buffered, defer: false)
   window.isReleasedWhenClosed = false
+  defer { window.close() }
   window.appearance = NSAppearance(named: .aqua)
   window.contentView = host
   host.frame = NSRect(x: 0, y: 0, width: CGFloat(width), height: 610)
@@ -523,6 +555,5 @@ private func portraitEditorImage(_ view: PortraitStudioView, width: Int = 1280) 
   let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
   host.cacheDisplay(in: host.bounds, to: bitmap)
   let image = try #require(bitmap.cgImage)
-  window.close()
   return image
 }

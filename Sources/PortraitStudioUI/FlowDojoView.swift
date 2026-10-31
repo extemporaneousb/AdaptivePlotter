@@ -15,13 +15,12 @@ package struct FlowDojoView: View {
   package var handoffTitle = "Export Drawing"
   package var handoff: ((Data) async -> String?)? = nil
   @State private var importing = false
-  @State private var cameraSettings = false
+  @State private var showingCamera = false
   @State private var curating = false
   @State private var curationSourceID: UUID?
   @State private var curationExcluded = false
   @State private var subject = ""
   @State private var session = ""
-  @State private var captureBusy = false
   @State private var message: String?
 
   package init(model: FlowDojoModel, camera: PortraitStudioModel,
@@ -40,9 +39,10 @@ package struct FlowDojoView: View {
       }
       Divider()
       HSplitView {
-        portfolioSidebar.frame(minWidth: 190, idealWidth: 220, maxWidth: 300)
+        portfolioSidebar.frame(minWidth: 230, idealWidth: 270, maxWidth: 340)
         VStack(alignment: .leading, spacing: 12) {
           stageBar
+          FlowDojoTrainingFeedback(model: model)
           switch model.stage {
           case .explore: exploration
           case .prune: pruning
@@ -64,6 +64,11 @@ package struct FlowDojoView: View {
     }
     .accessibilityIdentifier("flowDojo.workspace")
     .task { await model.open() }
+    .sheet(isPresented: $showingCamera) {
+      FlowDojoCameraPanel(camera: camera, strokeStyle: model.strokeStyle, selectCamera: selectCamera) { photo in
+        await model.addCapturedPhoto(photo, title: model.nextPhotoTitle(capturedAt: photo.capturedAt))
+      }
+    }
     .fileImporter(isPresented: $importing, allowedContentTypes: [.png, .jpeg]) { result in
       Task {
         do {
@@ -89,30 +94,12 @@ package struct FlowDojoView: View {
       Text("Flow Edge Dojo").font(.title2.weight(.semibold))
       Button("Import Photo", systemImage: "photo.badge.plus") { importing = true }
         .accessibilityIdentifier("flowDojo.importPhoto")
-      Button(camera.isCapturing ? "Cancel Capture" : "Capture Photo", systemImage: "camera") {
-        if camera.isCapturing { Task { await camera.cancelRendering() }; return }
-        captureBusy = true
-        Task {
-          defer { captureBusy = false }
-          if let error = await selectCamera() { message = error; return }
-          guard camera.cameraIsRunning else { message = "Choose an available portrait camera first."; return }
-          if let photo = await camera.captureForPortfolio(strokeStyle: model.strokeStyle) {
-            await model.addPhoto(data: photo.data, title: photo.label)
-          } else if let error = camera.cameraStatus { message = error }
-        }
-      }.disabled(!camera.isCapturing && (captureBusy || camera.selectedDeviceID == nil))
-      Button { cameraSettings.toggle() } label: { Image(systemName: "slider.horizontal.3") }
-        .help("Camera settings").popover(isPresented: $cameraSettings) {
-          VStack(alignment: .leading) {
-            Text("Portrait camera").font(.headline)
-            Picker("Camera", selection: $camera.selectedDeviceID) {
-              Text("Choose camera").tag(Optional<CameraDeviceID>.none)
-              ForEach(camera.devices) { Text($0.name).tag(Optional($0.id)) }
-            }.disabled(camera.isCapturing || camera.cameraIsStarting)
-          }.padding().frame(width: 300)
-        }
+      Button("Capture Photo", systemImage: "camera") { showingCamera = true }
+        .accessibilityIdentifier("flowDojo.openCamera")
       Spacer()
       Menu("Portfolio") {
+        Button("Import Photo Set…") { Task { if let url = await FlowDojoFiles.openPhotoCollection() { await model.importPhotoCollection(url) } } }
+        Divider()
         Button("Open Portfolio…") { Task { if let url = await FlowDojoFiles.openPortfolio() { await model.switchPortfolio(to: url) } } }
         Button("New Portfolio…") { Task { if let url = await FlowDojoFiles.newPortfolio() { await model.switchPortfolio(to: url) } } }
       }
@@ -129,36 +116,7 @@ package struct FlowDojoView: View {
     }.disabled(model.isBusy || model.needsRecovery).controlSize(.regular)
   }
 
-  private var portfolioSidebar: some View {
-    List {
-      Section("Photos") {
-        ForEach(model.document?.sources ?? []) { source in
-          Button { Task { await model.selectSource(source.id) } } label: {
-            HStack {
-              Image(systemName: source.excluded ? "eye.slash" : "photo")
-              Text(source.title).lineLimit(2)
-              Spacer(minLength: 0)
-              if source.id == model.selectedSource?.id { Image(systemName: "checkmark") }
-            }.contentShape(Rectangle())
-          }.buttonStyle(.plain)
-        }
-      }
-      if let source = model.selectedSource {
-        Section("Rounds for this photo") {
-          ForEach((model.document?.rounds ?? []).filter { $0.sourceID == source.id }.reversed()) { round in
-            Button {
-              Task { await model.selectRound(round.id) }
-            } label: {
-              VStack(alignment: .leading, spacing: 2) {
-                Text(round.parentCandidateID == nil ? "Broad exploration" : "Refinement")
-                Text("\(round.candidateIDs.count) drawings · \(round.status.rawValue)").font(.caption).foregroundStyle(.secondary)
-              }
-            }.buttonStyle(.plain)
-          }
-        }
-      }
-    }.listStyle(.sidebar).disabled(model.isBusy || model.needsRecovery)
-  }
+  private var portfolioSidebar: some View { FlowDojoSidebar(model: model) }
 
   private var stageBar: some View {
     HStack {
@@ -190,30 +148,41 @@ package struct FlowDojoView: View {
     }.padding().frame(width: 340)
       .onChange(of: subject) { _, _ in saveSourceGroups() }
       .onChange(of: session) { _, _ in saveSourceGroups() }
+      .onDisappear { Task { await model.flushMetadataEdits() } }.disabled(false)
   }
   private func saveSourceGroups() {
     guard let id = curationSourceID else { return }
     let subject = subject, session = session, excluded = curationExcluded
-    Task { await model.curateSource(sourceID: id, subject: subject, session: session, excluded: excluded) }
+    model.queueSourceCuration(id, subject: subject, session: session, excluded: excluded)
   }
 
   private var exploration: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .top, spacing: 14) {
-        if let data = model.sourceData { FlowDojoImage(data: data).frame(width: 100, height: 110) }
         VStack(alignment: .leading, spacing: 8) {
-          Text(model.selectedSource?.title ?? "Choose a photo to begin").font(.title3.weight(.semibold))
-          Text("Explore different Flow Edge constructions, choose a direction, then refine it or remove lines.")
-            .foregroundStyle(.secondary)
+          Text(model.selectedSource.map(model.photoName) ?? "Choose a photo to begin").font(.title3.weight(.semibold))
           HStack {
+            Text(model.currentBranch).font(.callout).foregroundStyle(.secondary)
+            if !model.branchAncestors.isEmpty {
+              Menu("Parent drawings") {
+                ForEach(model.branchAncestors) { parent in
+                  Button(model.drawingName(parent)) { Task { await model.browseCandidate(parent.id) } }
+                }
+              }
+            }
+          }
+          PortraitAdaptiveRow {
             Stepper("\(model.count) drawings", value: $model.count, in: 3...9).fixedSize()
             Button("Broad exploration") { Task { await model.generate(refining: false) } }
               .disabled(model.selectedSource == nil)
               .accessibilityIdentifier("flowDojo.broad")
-            Button("Refine chosen drawing") { Task { await model.generate(refining: true) } }
+            Button("Refine selected drawing") { Task { await model.generate(refining: true) } }
               .disabled(model.candidate == nil)
               .accessibilityIdentifier("flowDojo.refine")
-            Button("Prune chosen drawing") { model.stage = .prune }.disabled(model.candidate == nil)
+          }
+          HStack {
+            Button("Prune selected drawing") { model.stage = .prune }.disabled(model.candidate == nil)
+            Button("Compare this set") { if let round = model.round { Task { await model.presentRanking(scope: .round(round.id), count: 2) } } }.disabled(model.roundCandidates.count < 2)
           }
         }
       }.disabled(model.isBusy || model.needsRecovery)
@@ -227,21 +196,23 @@ package struct FlowDojoView: View {
             VStack(alignment: .leading, spacing: 6) {
               FlowDojoImage(data: model.previews[candidate.id]).frame(height: 220)
               HStack {
-                Text("Drawing \(candidate.slot + 1)").font(.headline)
+                Text(model.drawingName(candidate)).font(.headline)
                 Spacer()
                 if candidate.id == model.round?.recommendedCandidateID { Label("Recommended", systemImage: "sparkle").font(.caption) }
               }
               HStack {
-                Button(model.candidate?.id == candidate.id ? "Chosen" : "Choose") { Task { await model.selectCandidate(candidate.id) } }
-                  .buttonStyle(.borderedProminent).tint(model.candidate?.id == candidate.id ? .green : .accentColor)
+                Button("Choose direction") { Task { await model.selectCandidate(candidate.id) } }
+                  .buttonStyle(.borderedProminent)
                   .accessibilityIdentifier("flowDojo.choose.\(candidate.slot)")
-                Button("Prune") { Task { await model.selectCandidate(candidate.id, prune: true) } }
+              }.disabled(model.isBusy || model.needsRecovery)
+              HStack {
+                Button("Open / prune") { Task { await model.browseCandidate(candidate.id, prune: true) } }
                 Spacer()
                 Button { Task { await model.excludeCandidate(candidate, excluded: !candidate.excluded) } } label: {
                   Image(systemName: candidate.excluded ? "eye.slash" : "eye")
                 }.help(candidate.excluded ? "Include in training" : "Exclude from training")
               }.disabled(model.isBusy || model.needsRecovery)
-              Text("\(candidate.strokeCount) source lines" + (candidate.excluded ? " · excluded" : ""))
+              Text(candidate.recipe.themeTitle + " · \(candidate.strokeCount) source lines" + (candidate.excluded ? " · excluded" : ""))
                 .font(.caption).foregroundStyle(.secondary)
             }.padding(10).background(.background, in: RoundedRectangle(cornerRadius: 8))
               .overlay { RoundedRectangle(cornerRadius: 8).stroke(model.candidate?.id == candidate.id ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1) }
@@ -258,6 +229,8 @@ package struct FlowDojoView: View {
   private var pruning: some View {
     VStack(alignment: .leading, spacing: 10) {
       if let program = model.program {
+        Text((model.candidate.map(model.drawingName) ?? "Drawing") + " · " + model.currentBranch)
+          .font(.callout).foregroundStyle(.secondary).lineLimit(1)
         HStack {
           Picker("Tool", selection: $model.tool) { ForEach(PortraitLineEditModel.Tool.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
             .pickerStyle(.segmented).frame(width: 320)
@@ -278,7 +251,11 @@ package struct FlowDojoView: View {
             .accessibilityIdentifier("flowDojo.finishPruning")
         }
         if model.prune?.action == .completeTarget {
-          Text("Completed selection target retained for training. Further edits create a new unfinished revision.").font(.caption).foregroundStyle(.secondary)
+          HStack {
+            Text("Complete target saved.").font(.caption).foregroundStyle(.secondary)
+            Button("Revisions") { if let candidate = model.candidate { Task { await model.presentRanking(scope: .candidate(candidate.id), count: 2) } } }
+            Button("Train artist") { model.stage = .fit }
+          }
         }
         GeometryReader { proxy in
           if model.showsPhoto { FlowDojoImage(data: model.sourceData).frame(maxWidth: .infinity, maxHeight: .infinity) }
@@ -298,14 +275,21 @@ package struct FlowDojoView: View {
   private var rankings: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("Rank by artistic preference").font(.title3.weight(.semibold))
-      Text("1 is your favorite. Equal ranks are ties; unranked drawings supply no preference. Each change is saved.").foregroundStyle(.secondary)
+      Text("Compare two drawings with one click, or set ranks below. Equal ranks are ties; unranked drawings supply no preference.").foregroundStyle(.secondary)
       PortraitAdaptiveRow {
-        Button("Random set: this round") { if let round = model.round { Task { await model.presentRanking(scope: .round(round.id)) } } }.disabled(model.round == nil)
-        Button("This drawing’s revisions") { if let candidate = model.candidate { Task { await model.presentRanking(scope: .candidate(candidate.id)) } } }.disabled(model.candidate == nil)
-        Button("Random set: this photo") { if let source = model.selectedSource { Task { await model.presentRanking(scope: .source(source.id)) } } }.disabled(model.selectedSource == nil)
-        Button("Random set: portfolio") { Task { await model.presentRanking(scope: .portfolio) } }
+        Text("Compare pair:").font(.caption).foregroundStyle(.secondary)
+        Button("This set") { if let round = model.round { Task { await model.presentRanking(scope: .round(round.id), count: 2) } } }.disabled(model.round == nil)
+        Button("Revisions") { if let candidate = model.candidate { Task { await model.presentRanking(scope: .candidate(candidate.id), count: 2) } } }.disabled(model.candidate == nil)
+        Button("This photo") { if let source = model.selectedSource { Task { await model.presentRanking(scope: .source(source.id), count: 2) } } }.disabled(model.selectedSource == nil)
+        Button("Across photos") { Task { await model.presentRanking(scope: .portfolio, count: 2) } }
+        Button("Next pair") { if let presentation = model.presentation { Task { await model.presentRanking(scope: presentation.scope, count: 2) } } }.disabled(model.presentation == nil)
       }.disabled(model.isBusy || model.needsRecovery)
       PortraitAdaptiveRow {
+        Menu("Rank a full set") {
+          Button("All drawings in this set") { Task { await model.rankCurrentSet() } }.disabled(model.round == nil)
+          Button("Random drawings from this photo") { if let source = model.selectedSource { Task { await model.presentRanking(scope: .source(source.id)) } } }.disabled(model.selectedSource == nil)
+          Button("Random drawings from portfolio") { Task { await model.presentRanking(scope: .portfolio) } }
+        }
         if !(model.document?.presentations.isEmpty ?? true) {
           Menu("Previous comparisons") {
             ForEach((model.document?.presentations ?? []).reversed()) { presentation in
@@ -315,6 +299,9 @@ package struct FlowDojoView: View {
             }
           }
         }
+        if model.presentation?.items.count == 2 {
+          Button("Equal preference") { Task { await model.compare(preferred: nil) } }
+        }
         Button("Neither / none worth keeping") { Task { await model.declineRanking(neither: true) } }.disabled(model.presentation == nil)
         Button("Skip") { Task { await model.declineRanking(neither: false) } }.disabled(model.presentation == nil)
       }.disabled(model.isBusy || model.needsRecovery)
@@ -323,6 +310,10 @@ package struct FlowDojoView: View {
           ForEach(model.presentation?.items ?? []) { item in
             VStack(spacing: 8) {
               FlowDojoImage(data: model.rankingPreviews[item.id]).frame(height: 240)
+              if model.presentation?.items.count == 2 {
+                Button("Prefer this drawing") { Task { await model.compare(preferred: item.id) } }
+                  .buttonStyle(.borderedProminent).disabled(model.isBusy || model.needsRecovery)
+              }
               Picker("Rank", selection: Binding(get: { model.ranks[item.id] ?? 0 }, set: { rank in Task { await model.rank(item: item.id, position: rank) } })) {
                 Text("Unranked").tag(0)
                 ForEach(1...max(1, model.presentation?.items.count ?? 1), id: \.self) { Text("\($0)").tag($0) }
@@ -337,42 +328,51 @@ package struct FlowDojoView: View {
   }
 
   private var fitting: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Train your Flow Edge artist").font(.title3.weight(.semibold))
-      Text("Fit a parameter preference model and a line-deletion model from this portfolio. Activate a checkpoint to recommend drawings and propose removals in new rounds.")
-        .foregroundStyle(.secondary)
-      HStack {
-        Button("Fit portfolio") { Task { await model.fit() } }.buttonStyle(.borderedProminent)
-          .disabled(model.isBusy || model.needsRecovery || model.document?.candidates.isEmpty != false)
-          .accessibilityIdentifier("flowDojo.fit")
-        Button("Use untrained exploration") { Task { await model.activate(nil) } }
-          .disabled(model.isBusy || model.needsRecovery || model.document?.activeFitID == nil)
-        Text(model.activeCheckpoint == nil ? "No active checkpoint" : "Active: " + [model.activeCheckpoint?.ranker == nil ? nil : "preference", model.activeCheckpoint?.deleter == nil ? nil : "deletion"].compactMap { $0 }.joined(separator: " + ") + (model.activeCheckpoint?.isExperimental == true ? " · experimental" : "")).font(.caption).foregroundStyle(.secondary)
-      }
-      if let summary = model.reportSummary { Text(summary).font(.callout).textSelection(.enabled) }
-      if let report = model.fitReport {
-        Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 6) {
-          GridRow { Text("Model"); Text("Training loss"); Text("Holdout loss"); Text("Baseline loss"); Text("Train / holdout observations") }
-          reportRow("Parameter preference", report.ranker)
-          reportRow("Line deletion", report.deleter)
-        }.font(.caption).padding(10).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
-        Text("Deletion at deployment threshold · precision \(metric(report.deleter.deploymentPrecision)) · recall \(metric(report.deleter.deploymentRecall)) · correction rate \(metric(report.deleter.deploymentCorrectionRate)) · keep-all baseline \(metric(report.deleter.keepAllCorrectionRate))")
-          .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-      }
-      List((model.document?.fits ?? []).reversed()) { fit in
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 12) {
+        Text("Train your Flow Edge artist").font(.title3.weight(.semibold))
+        Text("Fit a parameter preference model and a line-deletion model from this portfolio. Activate a checkpoint to recommend drawings and propose removals in new rounds.")
+          .foregroundStyle(.secondary)
         HStack {
-          VStack(alignment: .leading) {
-            Text(fit.createdAt.formatted(date: .abbreviated, time: .shortened))
-            Text("Checkpoint \(fit.id.uuidString.prefix(8))").font(.caption).foregroundStyle(.secondary)
-          }
-          Spacer()
-          Button("Results") { Task { await model.showReport(fit.id) } }
-          Button(model.document?.activeFitID == fit.id ? "Active" : "Activate") { Task { await model.activate(fit.id) } }
-            .disabled(model.document?.activeFitID == fit.id || !fit.hasCheckpoint)
+          Button("Fit portfolio") { Task { await model.fit() } }.buttonStyle(.borderedProminent)
+            .disabled(model.isBusy || model.needsRecovery || model.trainingProgress?.canAttemptFit != true)
+            .accessibilityIdentifier("flowDojo.fit")
+          Button("Use untrained exploration") { Task { await model.activate(nil) } }
+            .disabled(model.isBusy || model.needsRecovery || model.document?.activeFitID == nil)
+          Text(model.activeCheckpoint == nil ? "No active checkpoint" : "Active: " + [model.activeCheckpoint?.ranker == nil ? nil : "preference", model.activeCheckpoint?.deleter == nil ? nil : "deletion"].compactMap { $0 }.joined(separator: " + ") + (model.activeCheckpoint?.isExperimental == true ? " · experimental" : "")).font(.caption).foregroundStyle(.secondary)
         }
-      }.disabled(model.isBusy || model.needsRecovery)
-      Text("Rankings train artistic preference. Remove/restore corrections train line decisions. Finish pruning declares a complete selection target. Fitting results report held-out evidence separately from training fit.")
-        .font(.caption).foregroundStyle(.secondary)
+        if let issue = model.activeModelIssue { Text(issue).font(.callout).foregroundStyle(.orange).textSelection(.enabled) }
+        if let progress = model.trainingProgress {
+          Text("\(progress.feedbackPhotoCount) photos with feedback · \(progress.feedbackGroupCount) source groups · \(progress.choiceComparisonCount) choice comparisons · \(progress.rankingComparisonCount) explicit comparisons · \(progress.removeLabelCount) remove / \(progress.keepLabelCount) keep labels")
+            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+        }
+        if let summary = model.reportSummary { Text(summary).font(.callout).textSelection(.enabled) }
+        if let report = model.fitReport {
+          Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 6) {
+            GridRow { Text("Model"); Text("Training loss"); Text("Holdout loss"); Text("Baseline loss"); Text("Train / holdout observations") }
+            reportRow("Parameter preference", report.ranker)
+            reportRow("Line deletion", report.deleter)
+          }.font(.caption).padding(10).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
+          Text("Deletion labels · training: \(coverage(report.deleter.trainingRemoveCount)) remove / \(coverage(report.deleter.trainingKeepCount)) keep · holdout: \(coverage(report.deleter.holdoutRemoveCount)) remove / \(coverage(report.deleter.holdoutKeepCount)) keep")
+            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+          Text("Deletion at deployment threshold · precision \(metric(report.deleter.deploymentPrecision)) · recall \(metric(report.deleter.deploymentRecall)) · correction rate \(metric(report.deleter.deploymentCorrectionRate)) · keep-all baseline \(metric(report.deleter.keepAllCorrectionRate))")
+            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+        }
+        ForEach((model.document?.fits ?? []).reversed()) { fit in
+          HStack {
+            VStack(alignment: .leading) {
+              Text(fit.createdAt.formatted(date: .abbreviated, time: .shortened))
+              Text("Checkpoint \(fit.id.uuidString.prefix(8))").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Results") { Task { await model.showReport(fit.id) } }
+            Button(model.document?.activeFitID == fit.id ? "Active" : "Activate") { Task { await model.activate(fit.id) } }
+              .disabled(model.document?.activeFitID == fit.id || !fit.hasCheckpoint)
+          }.padding(10).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
+        }.disabled(model.isBusy || model.needsRecovery)
+        Text("Subject and session identities define source groups for held-out evaluation. Rankings train artistic preference. Remove/restore corrections train line decisions. Finish pruning declares a complete selection target. Fitting results report held-out evidence separately from training fit.")
+          .font(.caption).foregroundStyle(.secondary)
+      }.frame(maxWidth: .infinity, alignment: .leading)
     }
   }
   private func reportRow(_ title: String, _ report: FlowArtistHeadReport) -> some View {
@@ -385,6 +385,7 @@ package struct FlowDojoView: View {
       }
     }
   }
+  private func coverage(_ value: Int?) -> String { value.map(String.init) ?? "Unavailable" }
   private func metric(_ value: Double?) -> String { value.map { String(format: "%.4f", $0) } ?? "Unavailable" }
 
 }

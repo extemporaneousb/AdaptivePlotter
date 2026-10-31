@@ -4,9 +4,10 @@ import PlotterModel
 /// Frozen, image-conditioned features. Fixed physical/image normalizations avoid
 /// estimating preprocessing statistics from held-out photos.
 package enum FlowArtistFeatures {
-  package static let revision = "flow-artist-image-and-mask-features-v1"
-  package static let drawingCount = 123
-  package static let strokeCount = 84
+  package static let revision = "flow-artist-image-and-mask-features-v2"
+  package static let legacyRevision = "flow-artist-image-and-mask-features-v1"
+  package static let drawingCount = 153
+  package static let strokeCount = 106
 
   package static func source(raster: PortraitRaster) -> [Double] {
     guard valid(raster) else { return Array(repeating: 0, count: 8) }
@@ -27,19 +28,22 @@ package enum FlowArtistFeatures {
 
   package static func drawing(recipe: FlowArtistRecipe, program: DrawingProgram, raster: PortraitRaster,
     removedIndices: Set<Int> = []) -> [Double] {
-    let photo = source(raster: raster), parameters = recipe.values.map { $0 * 2 - 1 }
+    let photo = source(raster: raster), parameters = recipe.coordinates.map { $0 * 2 - 1 }
     let remaining = program.strokes.indices.filter { !removedIndices.contains($0) }
     let height = max(0.0001, program.fieldExtent.height), width = max(0.0001, program.fieldExtent.width)
-    var length = 0.0, straightness = 0.0, turning = 0.0
+    var length = 0.0, straightness = 0.0, turning = 0.0, closed = 0.0, corners = 0.0
     var bins = Array(repeating: 0.0, count: 9)
     for index in remaining {
       let path = program.strokes[index].path, points = path.points
       let normalizedLength = path.length / height
       length += normalizedLength
       if let first = points.first, let last = points.last {
-        straightness += min(1, hypot(last.x - first.x, last.y - first.y) / max(0.0001, path.length))
+        let ratio = min(1, hypot(last.x - first.x, last.y - first.y) / max(0.0001, path.length))
+        straightness += ratio
+        if ratio < 0.025 { closed += 1 }
       }
-      turning += turn(points.map { CGPoint(x: $0.x / width, y: $0.y / height) })
+      let normalized = points.map { CGPoint(x: $0.x / width, y: $0.y / height) }
+      turning += turn(normalized); corners += cornerFraction(normalized)
       for (a, b) in zip(points, points.dropFirst()) {
         let x = min(2, max(0, Int((a.x + b.x) / (2 * width) * 3)))
         let y = min(2, max(0, Int((a.y + b.y) / (2 * height) * 3)))
@@ -49,7 +53,7 @@ package enum FlowArtistFeatures {
     let n = Double(max(1, remaining.count))
     let summary = [saturate(Double(remaining.count), scale: 300), saturate(length, scale: 40),
       Double(remaining.count) / Double(max(1, program.strokes.count)), straightness / n, turning / n]
-      + bins.map { saturate($0, scale: 6) }
+      + bins.map { saturate($0, scale: 6) } + [closed / n, corners / n]
     // Source-only values cancel in same-photo comparisons. These interactions
     // allow different photos to prefer different parameters and retained masks.
     var features: [Double] = [1]
@@ -62,8 +66,19 @@ package enum FlowArtistFeatures {
     return features
   }
 
+  /// Known recipe/photo terms only. The output-statistic terms are zero, so this
+  /// is a bounded proposal heuristic, never a claim to score an unseen drawing.
+  package static func proposal(recipe: FlowArtistRecipe, raster: PortraitRaster) -> [Double] {
+    let photo = source(raster: raster), parameters = recipe.coordinates.map { $0 * 2 - 1 }
+    var result: [Double] = [1]
+    result += parameters; result += parameters.map { $0 * $0 }; result += photo
+    for parameter in parameters { for value in photo.prefix(4) { result.append(parameter * value) } }
+    result += Array(repeating: 0, count: 48)
+    return result
+  }
+
   package static func strokes(recipe: FlowArtistRecipe, program: DrawingProgram, raster: PortraitRaster) -> [[Double]] {
-    let photo = source(raster: raster), parameters = recipe.values.map { $0 * 2 - 1 }
+    let photo = source(raster: raster), parameters = recipe.coordinates.map { $0 * 2 - 1 }
     let width = max(0.0001, program.fieldExtent.width), height = max(0.0001, program.fieldExtent.height)
     let normalized = program.strokes.map { stroke in
       stroke.path.points.map { CGPoint(x: $0.x / width, y: 1 - $0.y / height) }
@@ -100,9 +115,10 @@ package enum FlowArtistFeatures {
       let base: [Double] = [1, Double(center.x), Double(center.y), saturate(length, scale: 0.3),
         min(1, endpointDistance / max(0.0001, length)), turn(points), light / sampleCount,
         gradient / sampleCount, saturate(Double(neighbors.count), scale: 12), min(1, nearest / 0.25),
-        protection] + supports + [field == nil ? 0.0 : 1.0]
+        protection] + supports + [field == nil ? 0.0 : 1.0,
+          endpointDistance / max(0.0001, length) < 0.025 ? 1.0 : 0.0]
       let geometry = [base[3], base[4], base[5], base[7], base[8]]
-      let style = [parameters[3], parameters[6], parameters[11]]
+      let style = [parameters[3], parameters[6], parameters[11], parameters[12], parameters[13], parameters[14]]
       var features = base
       features += parameters
       features += photo
@@ -130,6 +146,7 @@ package enum FlowArtistFeatures {
       luminance(x: x, y: y + 1, raster: raster) - luminance(x: x, y: y - 1, raster: raster)) / sqrt(2)
   }
   private static func turn(_ points: [CGPoint]) -> Double {
+    let points = resampled(points)
     guard points.count > 2 else { return 0 }
     var total = 0.0, count = 0.0
     for index in 1..<(points.count - 1) {
@@ -139,6 +156,36 @@ package enum FlowArtistFeatures {
       if norm > 1e-12 { total += acos(min(1, max(-1, (ux * vx + uy * vy) / norm))) / .pi; count += 1 }
     }
     return total / max(1, count)
+  }
+  private static func cornerFraction(_ points: [CGPoint]) -> Double {
+    let points = resampled(points)
+    guard points.count > 2 else { return 0 }
+    var count = 0.0
+    for index in 1..<(points.count - 1) {
+      let a = points[index - 1], b = points[index], c = points[index + 1]
+      let ux = b.x - a.x, uy = b.y - a.y, vx = c.x - b.x, vy = c.y - b.y
+      let norm = hypot(ux, uy) * hypot(vx, vy)
+      if norm > 1e-12, (ux * vx + uy * vy) / norm < cos(.pi / 6) { count += 1 }
+    }
+    return count / Double(points.count - 2)
+  }
+  /// Fixed arc-length sampling prevents a renderer's vertex budget from being
+  /// mistaken for artistic curvature when a path is represented more densely.
+  private static func resampled(_ points: [CGPoint]) -> [CGPoint] {
+    guard points.count > 2 else { return points }
+    var cumulative = [0.0]
+    for (a, b) in zip(points, points.dropFirst()) { cumulative.append(cumulative.last! + hypot(b.x - a.x, b.y - a.y)) }
+    let length = cumulative.last!
+    guard length > 1e-12 else { return Array(points.prefix(2)) }
+    var result: [CGPoint] = [], segment = 1
+    for index in 0..<33 {
+      let distance = length * Double(index) / 32
+      while segment < points.count - 1, cumulative[segment] < distance { segment += 1 }
+      let a = points[segment - 1], b = points[segment]
+      let t = (distance - cumulative[segment - 1]) / max(1e-12, cumulative[segment] - cumulative[segment - 1])
+      result.append(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+    }
+    return result
   }
   private static func saturate(_ value: Double, scale: Double) -> Double { max(0, value) / (max(0, value) + scale) }
 }

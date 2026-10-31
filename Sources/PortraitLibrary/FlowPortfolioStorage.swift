@@ -82,7 +82,7 @@ final class FlowPortfolioStorage: @unchecked Sendable {
       return (snapshot, head)
     }
     let head = try JSONDecoder().decode(FlowPortfolioHead.self, from: readFile(headURL, maximum: 64 * 1024))
-    guard head.schemaVersion == 1, head.revision >= 0, head.revision <= 1_000_000, Self.validHash(head.recordSHA256) else {
+    guard (1...2).contains(head.schemaVersion), head.revision >= 0, head.revision <= 1_000_000, Self.validHash(head.recordSHA256) else {
       throw FlowPortfolioError.invalid("Portfolio head has an unsupported schema or identity.")
     }
     var hash: String? = head.recordSHA256, expected = head.revision, seen = Set<String>()
@@ -148,7 +148,10 @@ final class FlowPortfolioStorage: @unchecked Sendable {
     guard bytes.count <= maximumBytes else { throw FlowPortfolioError.invalid("Portfolio metadata exceeds its size limit.") }
     let hash = DrawingPackageCodec.sha256(bytes)
     try writeImmutable(bytes, to: hashedURL(hash, folder: "records"))
-    let head = FlowPortfolioHead(schemaVersion: 1, portfolioID: record.portfolioID, revision: record.sequence, recordSHA256: hash)
+    // Head v2 is a writer-capability floor. Older applications reject it before
+    // decoding optional fields they would otherwise discard on a later write.
+    // Immutable operation records and frozen document envelopes remain v1.
+    let head = FlowPortfolioHead(schemaVersion: 2, portfolioID: record.portfolioID, revision: record.sequence, recordSHA256: hash)
     try synchronizedAtomicWrite(DrawingPackageCodec.encoder().encode(head), to: url)
     return head
   }

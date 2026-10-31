@@ -8,6 +8,273 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Flow Edge artist usage audit and photo-centered iteration, 2026-10-31
+
+Task `task-89740a18d40941648d270458d96ca0b9` starts from an immutable artist
+portfolio cutoff: revision **527**, record
+`f093294b7bb160757bb943fabead7148dd8fd423a8d730fe991552e871867121`, captured at
+2026-10-31 07:05:53 UTC. A read-only replay verified **528 records and 621 referenced
+objects**, totaling 311,934,837 object bytes. The source head remained unchanged
+through the audit and exact replay-copy preparation. The running app's writer was
+not acquired and no artist fitting, import, relabeling or restart occurred during
+this audit.
+
+There are **six photos**: five historical sources and one new capture. All **50 new
+completed rounds** (19 broad, 31 refinements) and **358 new drawings** concern that
+one capture. Nineteen choices become **17 distinct weaker judgments / 99 recipe
+comparisons**. Eighteen removal actions touched 241 indices; four Undo actions fully
+reversed the first 163-line edit. Two Finish events refine the same 306-stroke target,
+whose current mask is **78 removed / 228 retained**. Its inherited refinement copy
+adds no human labels. All four exclusion toggles were reversed. There are **zero
+explicit rankings, fits, activations or learned proposals** in this artist cutoff.
+
+Effective direct supervision is **649 remove / 228 keep labels**: 571 historical
+removals plus the new completed target. The old seed-42 holdout contains **272
+remove / zero keep labels**; all 99 preference comparisons are training-only on
+one photo. Logical fitting prerequisites are present, but these counts establish
+neither cross-photo style generalization nor the false-deletion cost on intended
+kept lines. Source hashes do not establish independent subjects or photo sessions.
+The audit did not fit coefficients. The later version-two adapter materializes
+**106 supervised examples / 2,062,230 feature values**, retaining all effective
+labels and offered comparisons. Materializing all 366 formerly expanded rows at
+the same v2 dimensions would require 6,859,926 values; this avoids about **69.9%**
+of that allocation without removing any portfolio artifact.
+
+Historical source inventory verified **184 distinct image hashes** across named
+retained libraries, exported originals and current artist sources. Seven contact
+sheets were inspected, and a bounded **12-photo addition** was selected for visible
+pose/framing/expression/accessory/lighting variation. It preserves the existing six
+sources and declares no identities or artistic preferences. The self-contained
+collection retains 13,122,259 image bytes and original acquisition provenance;
+manifest SHA-256 is
+`842377912d9333dac0309f5ce768996bc6ad4eabfe1a445b21f99028facfa501`.
+The coordinator later used the signed app's native **Import Photo Set** control
+to add the collection to the original artist portfolio, producing **18 photos** at
+revision **528**, record
+`1dec9e1471421c5d91ec187f21ccf12769621abd4f4bdcf2df582cf28643002a`.
+A read-only before/after audit verified all **528 old record files and 621 old
+object files** byte-for-byte unchanged, the six original source records and every
+feedback/model array and selection unchanged by import, and all twelve new names,
+image hashes and provenance entries matching the retained manifest. Six entries
+retain declared acquisition sessions; none invent a subject identity or preference.
+The collection remains mostly indoor workspace imagery.
+
+Audit receipts live under
+`~/Documents/FlowEdge-UsageAnalysis-2026-10-31/`, including
+`artist-usage-revision-527.json`, `artist-usage-and-photo-coverage.md`,
+`historical-photo-inventory.json`, `proposed-photo-library.json`, and
+`CuratedHistoricalPhotos.flowphotos/`. The exact genuine-feedback copy is
+`~/Documents/FlowEdge-ArtistDojo-2026-10-31/ArtistReplay.flowportfolio`; the delivery's
+`receipts/artist-replay-baseline.json` binds every copied object and record to the
+pinned source head. It is separate from both the artist's live directory and
+synthetic validation fixtures.
+
+The curated collection was imported into the **disposable genuine-feedback copy**,
+advancing revision 527 to 528 and six photos to eighteen in **6.945 seconds**.
+The import checked exact equality of the original source prefix, every feedback
+array, model record and current selection. A genuine-feedback fit then completed
+in **93.258 seconds** including data preparation, with **45.755 seconds** in the
+optimizer. Its checkpoint
+`43523913560ed045f34304cca9f1b8738ce5dad9de8391620551a89c86e47440` was installed
+and activated only in this copy, ending at revision 531. It used 99 preference
+comparisons and 649 remove / 228 keep labels across six source-hash groups.
+
+This fit **did not improve the completed target**. At the deployed 0.65 policy it
+proposed zero removals on the 306-stroke target: **0 correct removals, 78 misses,
+0 false deletions and 228 correctly kept strokes**. Correction burden is
+**78/306 = 25.49%**, equal to keep-all, and the target was used for training.
+The ranker has no held-out preference comparisons. The deletion holdout contains
+272 remove labels and zero keep labels, so its apparently strong recall cannot
+measure false deletion of intended retained lines. Fit readiness and optimization
+success therefore do not establish artistic usefulness.
+
+A separate training-only diagnostic reproduced native coefficients within
+5.55e-16 and used a predeclared regularization/threshold grid. A converged Newton
+reference for the same objective at the shipped L2=0.015 still proposes zero
+removals on the completed target; the 700-iteration limit is not the explanation
+for this deployed result. Four historical remove-only groups receive 80% of the
+grouped training weight, while the completed target receives 20%. Lower-penalty,
+completed-target-only experiments recover some intended removals but also delete
+kept lines; these are in-sample sensitivity results, not held-out model selection.
+No deployment default was changed from these diagnostics. The useful next data are
+completed targets and explicit comparisons across additional photos.
+
+The coordinator also invoked **Fit** on the original artist portfolio through the
+native UI after source import. Revision **530** retains a genuine fit from frozen
+revision 528: 106 examples, 99 weak comparisons, training **377 remove / 228 keep**
+and holdout **272 remove / zero keep**. The checkpoint remains **inactive**; no
+activation, new preference or pruning label was added. The read-only audit verifies
+all original sources and feedback unchanged. Its example/ranking/group identities
+match the disposable fit, ranker coefficients match exactly and deletion coefficients
+differ by at most 5.55e-17. The stored feature-data digest differs, so this establishes
+numerical coefficient agreement, not byte-identical feature extraction. Both exact
+reports remain available; no claim of improved artistic deletion follows.
+
+Native rendering evidence contains **34 actual renders** in **72.584 seconds**:
+six controlled mark constructions on three retained photos (18 renders), and equal
+eight-result legacy/themed proposal panels (16 renders). Looped constructions add
+102, 59 and 30 closed strokes relative to the fluid controls. Polygon-loop deltas
+are 14, 6 and 0; the third image's support constraints admit no extra polygon loops.
+All measured geometry is finite and bounded. Both eight-result panels have eight
+unique previews. The minimum occupancy distance increases **0.32835 to 0.38209**,
+while the mean decreases **0.63623 to 0.51704**; the new panel spans eight named
+families rather than three. Render times were **24.026 and 21.605 seconds** in this
+run. These mixed metrics and independently inspected matched contact sheets support
+additional visible construction choices, not a claim of uniformly maximal diversity
+or artist preference. Images, exact recipes and metrics are retained in
+`~/Documents/FlowEdge-ArtistDojo-2026-10-31/variation/variation-receipt.json` and its
+neighboring contact sheets.
+
+Focused software evidence includes **23 camera/UI tests** in 52.486 seconds,
+**18 portfolio/coverage/loop tests** in 37.678 seconds (four declared opt-ins
+skipped), and **13 final-addition tests** in 59.107 seconds (one opt-in skipped).
+The synthetic complete feedback/fit/activation/correction/reopen loop took 22.868
+seconds. New regressions cover unused-row filtering, exact frozen-fit freshness,
+withdrawn feedback, transitive grouping, separate-render geometry deduplication,
+source-only import preservation, camera provenance and retry, and old-head read
+without mutation followed by writer-floor-two publication. Offscreen AppKit evidence
+covers all four stages at two sizes with an eighteen-photo library. These are
+software/fixture observations; native camera acquisition and human artistic
+acceptance are separate evidence categories.
+
+A fresh **Validation.flowportfolio** completed the real-renderer software loop in
+**408.743 seconds** (407.957 seconds within its receipt): one real source, three
+rounds, eleven drawings and three complete ranking presentations. Judgments are an
+explicit synthetic stroke-length rule, not attributed to the artist. Two fitted
+checkpoints were activated; the learned round proposed 101, 50 and 35 removals.
+A correction/refit increased ranking observations from 36 to 41 and deletion
+observations from 2,237 to 2,535. Warm edit-to-saved-state time was 0.0654 seconds
+in this fixture. Copy/reopen, rollback and reactivation completed; the receipt pins
+revision 68 before those final checks, and the final portfolio head is 70.
+`~/Documents/FlowEdge-ArtistDojo-2026-10-31/complete-loop-receipt.json` and
+`receipts/real-photo-loop.log`/`.xml` retain the exact models, masks and outcomes.
+One-photo training losses are not independent-photo artistic evaluation.
+
+The coordinator then exercised the signed native app on the separate retained
+**NativeVerification.flowportfolio**, explicitly marked as validation data. It
+opened the old revision-111 history and version-one model archive, disabled that
+incompatible model at revision 114, and retained three actual camera captures at
+112, 113 and 135. The third capture followed exploration, refinement, ranking and
+pruning without a camera restart. Disk checks verify different photo/frame identities,
+image hashes and increasing capture timestamps; live preview and same-owner camera
+continuity are the coordinator's CUA observations rather than facts inferred from
+image hashes alone.
+
+This native run added three rounds/nine drawings, one weak choice, two comparison
+presentations with four autosaved ranking records, and an exact inherited refinement
+anchor. It fitted and activated a current model, generated three model-bound masks
+of **1 / 0 / 0 removals**, restored the proposed removed stroke in the 74-stroke
+first drawing, completed that all-kept target, refitted and activated the second
+model. The verified cutoff is revision **152**, record
+`c62b5b803cccdb1a1dd80a1d45da910835f6cecca56d84cb3563992c942f9f74`.
+Every baseline-111 record/object remains unchanged; the correction is present in the
+second frozen fit. Native judgments are arbitrary fixture actions, never copied into
+the artist's portfolio. Exact capture and graph/model receipts are
+`receipts/native-camera-verification.json` and
+`receipts/native-core-loop-152-verification.json`. The app quit normally after the
+core loop; plotting hardware was not used.
+
+The locally signed **B** bundle used for these observations was
+`~/Documents/FlowEdge-ArtistDojo-2026-10-31/PortraitStudio.app`, executable SHA-256
+`dafd9c8daf83b17ddb2ffe757d5b84f53cd321062a981cfd5ffcc101f9a15068`.
+Strict signature verification passes. B corrects a native-review finding: the Fit
+banner must show portfolio-wide effective feedback, while selected-photo banners
+must include partial remove/keep labels. Thirteen focused UI tests passed in
+**60.734 seconds**, with no skips or errors; the revised compact layouts were
+independently inspected. Renderer, model and portfolio logic are unchanged from
+the completed A core-loop trial.
+
+In B, the coordinator reopened personal revision 530 and verified a historical
+photo's **80 remove / zero keep** partial labels separately from global **six
+feedback photos, 17 directions, zero explicit rankings, 649 remove / 228 keep**.
+The genuine checkpoint remained inactive. The fixture reopened at 152 with the
+completed **74 kept / zero removed** target and second active fit intact. Two more
+actual camera captures produced revisions **153 and 154**: five distinct new image
+and frame identities with increasing timestamps across A and B. Initial
+computer-use attempts at the second B capture did not invoke the action; closing
+and reopening the sheet and refreshing its full accessibility map succeeded,
+without **Restart Camera** or an app restart. The cause of the initial failed
+attempts is not established. This is not a claim that every first automation click
+succeeded. The app was returned to personal revision
+530, with its original feedback still unchanged and its fit inactive.
+`receipts/native-final-B-verification.json` binds these attributed native observations
+to the exact executable, strict signature, running process and immutable graph/data
+checks through fixture revision 154. `receipts/release-B-artifact.json` retains the
+source-manifest binding; original delivery and failed-run receipts remain available.
+
+The implementation adds photo thumbnails/names and exploration ancestry, navigation
+without preference labels, current-panel and unseen-pair comparison actions, and
+shared effective-feedback coverage. Acquisition metadata retains actual photo,
+frame and session identities; it supplies no inferred subject identity. Head version
+two prevents the earlier application from silently dropping new fields, while exact
+old records and version-one checkpoint identities remain readable. Canonical fit
+reports now expose remove/keep counts by split and keep one-class or unknown-class
+holdout results explicitly experimental. Exact receipts are in the new delivery's
+`receipts/` directory: `curated-copy-import.json`, `artist-replay-fit.json`,
+`artist-deletion-diagnostic.json`, `artist-deletion-convergence.json`,
+`personal-before-native-import.json`, `personal-native-import-verification.json`,
+`personal-native-fit-verification.json`, focused XML results and retained failure logs.
+
+The first final configured gate passed `make docs-check` in **52.405 seconds**,
+then terminated `make quick-test` at its configured **900.008-second timeout**
+(return code -15). Its XML is incomplete, and `git diff --check` was not reached.
+Read-only process samples showed forward test execution during this run; neither
+those samples nor the interrupted XML establish a complete test pass. The canonical
+failed result and samples remain in `receipts/final-gate-result.json` and
+`receipts/final-gate-progress-sample*.txt`. The versioned validation timeout is now
+**1,800 seconds**, with all three configured commands and their test selection
+unchanged.
+
+The complete 1,800-second retry passed `make docs-check` in **52.759 seconds**
+and failed `make quick-test` after **1,068.551 seconds**; `git diff --check` was
+again not reached. Its XML contains **1,965 cases: 1,926 passed, one failed and
+38 skipped**. The one failing `PortraitStudioNativeLayoutTests` case contains four
+assertion failures: its retired inspector setup expected a tall empty Photos area
+while the hosted production view now presents the Dojo. No other failing test case
+was reported. The complete result, XML and exact case inventory remain in
+`receipts/final-gate-retry-audit.json` and its referenced receipts. The coordinator
+and UI owner replaced this layout setup and isolated two legacy view-hosting paths
+with disposable portfolio ownership. The replacement exercises the actual populated
+eighteen-photo Dojo, navigation without preferences, controls and scroll reachability.
+
+The stronger harness exposed two real compact-layout defects: a branch viewport too
+short to show a complete drawing row, and a Fit report that pushed the stage selector
+and checkpoint history outside the viewport. Compact sidebar sizing now leaves room
+for the complete branch row. Fit uses one scrolling report/history body with the
+stage selector and feedback banner pinned. Assertions cover visible stage controls,
+an exact composited branch crop and row boundary, and reachable Results/Activate
+controls after scrolling. The coordinator independently inspected the final compact
+initial/scrolled Fit screenshots and visible branch row in
+`receipts/embedded-layout-C-final/`. The final focused layout run passed **eleven
+executed tests**, with two declared accessibility opt-ins skipped, in
+**109.590 seconds**; a broader nine-test run including real-reference evidence had
+passed in **88.786 seconds**. Renderer, camera and model semantics were unchanged
+by these layout corrections. Failed intermediate harness checks and their images
+remain retained. These focused results do not convert the earlier failed full gate
+into a pass.
+
+The final locally signed **C** bundle is at the same delivery path, executable
+SHA-256 `008d3952f069d736af1d2fc6047eb09d2b07d9642cdd5ec2f30f03bdfaa44782`.
+Its strict signature verifies and its forty-file source manifest is
+`69f1140da33e8e0f07233663fdd71815f7d3e821b04725fe1ee1007db13c9dc4`.
+After B quit normally, the coordinator cold-opened C on personal revision **530**:
+the genuine fit remained inactive, the global feedback counts and one-class holdout
+warning persisted. C then reopened fixture 154 and browsed its completed target,
+producing only `sourceSelected` and `candidateViewed` records at **155 and 156**.
+The target remained **74 kept / zero removed**, with its complete status and active
+second fit intact. No C capture, ranking, pruning, fit or activation was performed.
+The app was returned to personal revision 530 and its inactive saved report.
+
+Independent read-only checks verified all **157 fixture records and 69 objects**,
+the unchanged prefix through 154, empty entity/feedback deltas in both navigation
+records, the personal 531-record chain, and all **528 original record files and
+621 original object files** unchanged. `receipts/native-final-C-verification.json`
+separates these checks from the coordinator's native observations and binds them
+to the exact running C executable. `receipts/release-C-artifact.json` preserves the
+final signing/source association, including the distinct staged signature bytes.
+Full configured-gate completion is reported in its external canonical validation
+receipt after the final source/doc freeze.
+
 ## Flow Edge artist dojo and portable learning portfolio, 2026-10-28–29
 
 Task `task-899d2190242143a5bc5c2514d29843d4` replaces the ordinary standalone and

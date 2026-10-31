@@ -10,6 +10,12 @@ package enum FlowDojoFiles {
     panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
     return await withCheckedContinuation { continuation in panel.begin { continuation.resume(returning: $0 == .OK ? panel.url : nil) } }
   }
+  package static func openPhotoCollection() async -> URL? {
+    let panel = NSOpenPanel(); panel.title = "Import Photo Set"
+    panel.message = "Choose a photo collection folder containing photo-collection.json and its images. Originals and provenance are retained."
+    panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
+    return await withCheckedContinuation { continuation in panel.begin { continuation.resume(returning: $0 == .OK ? panel.url : nil) } }
+  }
   package static func newPortfolio() async -> URL? {
     let panel = NSSavePanel(); panel.title = "New Flow Edge Portfolio"
     panel.nameFieldStringValue = "Artist Portfolio.flowportfolio"; panel.canCreateDirectories = true

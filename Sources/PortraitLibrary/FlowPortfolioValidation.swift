@@ -20,9 +20,30 @@ enum FlowPortfolioValidation {
     let candidates = Dictionary(uniqueKeysWithValues: state.candidates.map { ($0.id, $0) })
     let edits = Dictionary(uniqueKeysWithValues: state.pruneRevisions.map { ($0.id, $0) })
     let presentations = Dictionary(uniqueKeysWithValues: state.presentations.map { ($0.id, $0) })
+    let captureIDs = state.sources.compactMap { $0.captureProvenance?.photoID }
+    try require(Set(captureIDs).count == captureIDs.count, "Captured photo identities must be unique.")
     for source in state.sources {
       try require(!source.title.isEmpty && source.title.utf8.count <= 1024, "Portfolio source title is invalid.")
       try require(source.image.mediaType == "image/png" || source.image.mediaType == "image/jpeg", "Source encoding is unsupported.")
+      if let capture = source.captureProvenance {
+        try require(capture.imageSHA256 == source.image.sha256 && capture.capturedAt.timeIntervalSince1970.isFinite
+          && capture.label.utf8.count <= 1024, "Captured photo provenance differs from its image or has invalid metadata.")
+        let bytes = try DrawingPackageCodec.encoder().encode(capture)
+        try require(bytes.count <= 64 * 1024, "Captured photo provenance is too large.")
+        if let selection = capture.selectionProvenance {
+          try require(selection.capturedFrameCount >= 0 && selection.evaluatedFrameCount >= 0
+            && selection.evaluatedFrameCount <= selection.capturedFrameCount
+            && (selection.selectedSharpness.map { $0.isFinite && $0 >= 0 } ?? true)
+            && (selection.selectedMeanLuminance.map { $0.isFinite && (0...1).contains($0) } ?? true)
+            && (selection.selectedClippedFraction.map { $0.isFinite && (0...1).contains($0) } ?? true),
+            "Captured frame selection measurements are invalid.")
+        }
+      }
+      if let provenance = source.importProvenance {
+        try require(!provenance.collectionID.isEmpty && provenance.collectionID.utf8.count <= 256
+          && !provenance.entryID.isEmpty && provenance.entryID.utf8.count <= 256
+          && provenance.manifest.mediaType == "application/json", "Photo import provenance is invalid.")
+      }
     }
     for round in state.rounds {
       try require(sources[round.sourceID] != nil && (1...24).contains(round.recipes.count), "Round has a missing source or invalid recipes.")
@@ -52,6 +73,7 @@ enum FlowPortfolioValidation {
         && candidate.modelID == round.modelID && (1...DrawingTransferLimits.maximumStrokes).contains(candidate.strokeCount),
         "Candidate differs from its immutable generation request.")
       try require(FlowPortfolioStorage.validHash(candidate.programHash), "Candidate program identity is invalid.")
+      if let title = candidate.title { try require(!title.isEmpty && title.utf8.count <= 1024, "Drawing name is invalid.") }
     }
     for choice in state.choices {
       try require(candidates[choice.candidateID]?.roundID == choice.roundID
@@ -190,6 +212,7 @@ enum FlowPortfolioValidation {
 
   static func blobs(_ state: FlowPortfolioSnapshot) -> [FlowPortfolioBlob] {
     var result: [FlowPortfolioBlob] = state.sources.map(\.image)
+    result.append(contentsOf: state.sources.compactMap { $0.importProvenance?.manifest })
     result.append(contentsOf: state.legacyImports.map(\.package))
     for candidate in state.candidates { result.append(contentsOf: [candidate.program, candidate.raster, candidate.preview]) }
     result.append(contentsOf: state.pruneRevisions.compactMap(\.historicalRecord))

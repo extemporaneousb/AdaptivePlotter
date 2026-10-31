@@ -139,7 +139,7 @@ package enum FlowArtistTraining {
     } catch is CancellationError { return unavailable("Fit cancelled; the active checkpoint remains unchanged.") }
     catch { return unavailable("Training manifest could not be encoded.") }
     let checkpoint = FlowArtistCheckpoint(schemaVersion: 1, featureRevision: FlowArtistFeatures.revision,
-      recipeRevision: FlowArtistRecipe.revision, rendererRevision: PortraitFlowRenderer.revision,
+      recipeRevision: FlowArtistRecipe.revision, rendererRevision: PortraitFlowRenderer.markRevision,
       ranker: ranker.head, deleter: deleter.head, sourceGroupIDs: groups,
       holdoutGroupIDs: holdout.sorted(), exampleIDs: examples.map(\.id), rankingIDs: rankings.map(\.id),
       trainingDataSHA256: digest, seed: seed, fitConfiguration: .current)
@@ -199,16 +199,31 @@ package enum FlowArtistTraining {
       let correct = row.y == 0.5 ? abs(prediction - 0.5) <= 0.1 : (prediction >= 0.5) == (row.y > 0.5)
       return sum + (correct ? row.weight : 0)
     }
-    let status: String
+    var status: String
     if let holdoutLoss, let baseline {
       status = String(format: "%d training / %d holdout observations; holdout loss %.4f, baseline %.4f.", training.count, testing.count, holdoutLoss, baseline)
     } else { status = "\(training.count) training observations; no independent-photo holdout measurements." }
+    let heldoutDirect = testing.filter { !$0.isComparison }
+    if !pairwise, !testing.isEmpty {
+      if !heldoutDirect.contains(where: { $0.y == 0 }) {
+        status += " Holdout has no explicit keep labels; false-deletion cost is untested."
+      }
+      if !heldoutDirect.contains(where: { $0.y == 1 }) {
+        status += " Holdout has no explicit remove labels; missed-removal cost is untested."
+      }
+    }
     var report = FlowArtistHeadReport(status: status, trainingCount: training.count, holdoutCount: testing.count,
       trainingGroupCount: Set(training.flatMap(\.groups)).count, holdoutGroupCount: Set(testing.flatMap(\.groups)).count,
       trainingLoss: loss(training, learned: true), holdoutLoss: holdoutLoss, baselineLoss: baseline,
       accuracy: accuracy.map { boundedRate($0) })
-    if !pairwise { deploymentMetrics(examples: deletionExamples.filter { holdout.contains($0.sourceGroupID) },
-      weights: weights, report: &report) }
+    if !pairwise {
+      report.trainingRemoveCount = direct.filter { $0.y == 1 }.count
+      report.trainingKeepCount = direct.filter { $0.y == 0 }.count
+      report.holdoutRemoveCount = heldoutDirect.filter { $0.y == 1 }.count
+      report.holdoutKeepCount = heldoutDirect.filter { $0.y == 0 }.count
+      deploymentMetrics(examples: deletionExamples.filter { holdout.contains($0.sourceGroupID) },
+        weights: weights, report: &report)
+    }
     return (.init(weights: weights, report: report), status)
   }
 

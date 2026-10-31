@@ -10,6 +10,8 @@ package actor FlowPortfolioStore {
   let storage: FlowPortfolioStorage
   var state: FlowPortfolioSnapshot
   private var head: FlowPortfolioHead
+  private var comparisonGeometryCache: [String: String] = [:]
+  private var comparisonGeometryOrder: [String] = []
   package nonisolated let directory: URL
 
   package init(directory: URL, purpose: FlowPortfolioPurpose? = nil) throws {
@@ -269,26 +271,76 @@ package actor FlowPortfolioStore {
     case .source(let id): _ = try source(id); permitted = state.candidates.filter { $0.sourceID == id }
     case .round(let id): _ = try round(id); permitted = state.candidates.filter { $0.roundID == id }
     }
-    var items: [FlowPortfolioPresentationItem] = []
-    for candidate in permitted where !candidate.excluded && state.sources.contains(where: { $0.id == candidate.sourceID && !$0.excluded }) {
-      items.append(.init(id: candidate.id, candidateID: candidate.id, revisionID: nil, sourceID: candidate.sourceID, removedIndices: []))
-      var masks = Set(["[]"])
-      for edit in state.pruneRevisions where edit.candidateID == candidate.id {
-        let key = edit.removedIndices.description
-        if masks.insert(key).inserted {
+    var items: [FlowPortfolioPresentationItem] = [], seenVersions = Set<String>()
+    let sourceIDs = Set(state.sources.filter { !$0.excluded }.map(\.id))
+    let revisions = Dictionary(grouping: state.pruneRevisions, by: \.candidateID)
+    let candidatesByID = Dictionary(uniqueKeysWithValues: state.candidates.map { ($0.id, $0) })
+    let sourceHashes = Dictionary(uniqueKeysWithValues: state.sources.map { ($0.id, $0.image.sha256) })
+    func versionKey(_ candidateID: UUID, _ mask: [Int]) throws -> String {
+      guard let candidate = candidatesByID[candidateID] else { return candidateID.uuidString }
+      return (sourceHashes[candidate.sourceID] ?? candidate.sourceID.uuidString)
+        + "|" + (try comparisonGeometry(candidate)) + "|" + mask.description
+    }
+    for candidate in permitted where !candidate.excluded && sourceIDs.contains(candidate.sourceID) {
+      if seenVersions.insert(try versionKey(candidate.id, [])).inserted {
+        items.append(.init(id: candidate.id, candidateID: candidate.id, revisionID: nil, sourceID: candidate.sourceID, removedIndices: []))
+      }
+      for edit in revisions[candidate.id] ?? [] {
+        if seenVersions.insert(try versionKey(candidate.id, edit.removedIndices)).inserted {
           items.append(.init(id: edit.id, candidateID: candidate.id, revisionID: edit.id, sourceID: candidate.sourceID, removedIndices: edit.removedIndices))
         }
       }
     }
-    guard items.count >= 2 else { throw FlowPortfolioError.unavailable("Create at least two drawing versions before ranking.") }
+    guard items.count >= 2 else { throw FlowPortfolioError.unavailable("Create at least two distinct drawing versions before ranking.") }
     var random = FlowPortfolioRandom(state: seed)
     for index in stride(from: items.count - 1, through: 1, by: -1) {
       items.swapAt(index, Int(random.next() % UInt64(index + 1)))
+    }
+    if count == 2 {
+      func pairKey(_ a: String, _ b: String) -> String { [a, b].sorted().joined(separator: "::") }
+      let presentations = Dictionary(uniqueKeysWithValues: state.presentations.map { ($0.id, $0) })
+      var reviewed = Set<String>()
+      for rank in state.latestRankings where !rank.skipped && !rank.neither {
+        guard let shown = presentations[rank.presentationID] else { continue }
+        let ranked = Set(rank.orderedGroups.flatMap { $0 })
+        let versions = try shown.items.filter { ranked.contains($0.id) }.map { try versionKey($0.candidateID, $0.removedIndices) }
+        for a in versions.indices { for b in versions.indices where b > a { reviewed.insert(pairKey(versions[a], versions[b])) } }
+      }
+      var pair: [FlowPortfolioPresentationItem]?
+      search: for a in items.indices { for b in items.indices where b > a {
+        if !reviewed.contains(pairKey(try versionKey(items[a].candidateID, items[a].removedIndices), try versionKey(items[b].candidateID, items[b].removedIndices))) {
+          pair = [items[a], items[b]]; break search
+        }
+      } }
+      guard let pair else { throw FlowPortfolioError.unavailable("Every available pair here has a current ranking. Reopen a previous comparison to revise it, or create another drawing version.") }
+      items = pair
     }
     let presentation = FlowPortfolioPresentation(id: UUID(), createdAt: Date(), scope: scope,
       seed: seed, items: Array(items.prefix(count)))
     var next = state; next.presentations.append(presentation); next.currentPresentationID = presentation.id
     try commit(next, operation: "rankingPresented", subjectID: presentation.id)
+    return presentation
+  }
+
+  /// Freeze the actual current panel: one latest displayed version per included
+  /// candidate. Historical intermediate masks belong to the random version flow.
+  @discardableResult package func presentRoundRanking(_ roundID: UUID, seed: UInt64) throws -> FlowPortfolioPresentation {
+    let round = try round(roundID)
+    let order = round.displayedCandidateIDs.isEmpty ? round.candidateIDs : round.displayedCandidateIDs
+    let values = Dictionary(uniqueKeysWithValues: state.candidates.map { ($0.id, $0) })
+    let includedSources = Set(state.sources.filter { !$0.excluded }.map(\.id))
+    var items: [FlowPortfolioPresentationItem] = order.compactMap { id in
+      guard let candidate = values[id], !candidate.excluded, includedSources.contains(candidate.sourceID) else { return nil }
+      let revision = state.latestPrune(candidateID: id)
+      return .init(id: revision?.id ?? id, candidateID: id, revisionID: revision?.id,
+        sourceID: candidate.sourceID, removedIndices: revision?.removedIndices ?? [])
+    }
+    guard items.count >= 2 else { throw FlowPortfolioError.unavailable("The current panel needs at least two included drawings to compare.") }
+    var random = FlowPortfolioRandom(state: seed)
+    for index in stride(from: items.count - 1, through: 1, by: -1) { items.swapAt(index, Int(random.next() % UInt64(index + 1))) }
+    let presentation = FlowPortfolioPresentation(id: UUID(), createdAt: Date(), scope: .round(roundID), seed: seed, items: items)
+    var next = state; next.presentations.append(presentation); next.currentPresentationID = presentation.id
+    try commit(next, operation: "currentPanelPresented", subjectID: presentation.id)
     return presentation
   }
 
@@ -357,7 +409,7 @@ package actor FlowPortfolioStore {
     let decodedReport = try JSONDecoder().decode(FlowArtistFitReport.self, from: report)
     if let checkpoint {
       let decoded = try JSONDecoder().decode(FlowArtistCheckpoint.self, from: checkpoint)
-      try decoded.validate()
+      try decoded.validateArchive()
       let includedSources = Set(frozen.sources.filter { !$0.excluded }.map(\.id))
       let includedCandidates = Set(frozen.candidates.filter { !$0.excluded && includedSources.contains($0.sourceID) }.map(\.id))
       let allowedExamples = Set(includedCandidates.map(\.uuidString)
@@ -381,7 +433,7 @@ package actor FlowPortfolioStore {
   package func activateModel(_ fitID: UUID?) throws {
     if let fitID {
       let checkpoint = try JSONDecoder().decode(FlowArtistCheckpoint.self, from: checkpointData(fitID: fitID))
-      try checkpoint.validate()
+      try checkpoint.validateForInference()
     }
     var next = state
     next.activations.append(.init(id: UUID(), createdAt: Date(), previousFitID: state.activeFitID, fitID: fitID))
@@ -399,6 +451,29 @@ package actor FlowPortfolioStore {
     return try storage.read(fit.report)
   }
   package func sourceData(_ id: UUID) throws -> Data { try storage.read(source(id).image) }
+  /// Comparison identity ignores generated IDs and provenance while preserving
+  /// exact array order, coordinates, field and stroke style. An index mask can
+  /// only alias another mask on this identical ordered basis.
+  private func comparisonGeometry(_ candidate: FlowPortfolioCandidate) throws -> String {
+    if let cached = comparisonGeometryCache[candidate.programHash] { return cached }
+    let program = try candidateProgram(candidate.id)
+    var encoder = CanonicalEncoder(schemaVersion: 1)
+    try encoder.appendString("FlowPortfolioComparisonGeometry")
+    try program.fieldExtent.encodeCanonical(to: &encoder)
+    try encoder.appendCount(program.strokes.count)
+    for stroke in program.strokes {
+      try stroke.path.encodeCanonical(to: &encoder)
+      try stroke.style.encodeCanonical(to: &encoder)
+    }
+    let hash = DrawingPackageCodec.sha256(encoder.data)
+    if comparisonGeometryOrder.count >= 2_048 {
+      comparisonGeometryCache.removeValue(forKey: comparisonGeometryOrder.removeFirst())
+    }
+    comparisonGeometryCache[candidate.programHash] = hash
+    comparisonGeometryOrder.append(candidate.programHash)
+    return hash
+  }
+
   package func candidateProgram(_ id: UUID) throws -> DrawingProgram {
     let candidate = try candidate(id)
     let result = try JSONDecoder().decode(DrawingProgram.self, from: storage.read(candidate.program))
@@ -425,18 +500,24 @@ package actor FlowPortfolioStore {
     let removed = Set(edit?.removedIndices ?? [])
     guard removed.count < base.strokes.count else { throw FlowPortfolioError.invalid("An empty drawing remains portfolio evidence but cannot be exported for plotting.") }
     let resultID = edit?.id ?? candidateID
+    let artistRevision = candidate.recipe.marks == nil ? "flow-artist-v1" : "flow-artist-v2"
     let program = try DrawingProgram(id: ProgramID(resultID), fieldExtent: base.fieldExtent,
       strokes: base.strokes.enumerated().filter { !removed.contains($0.offset) }.map(\.element),
-      source: DrawingSourceProvenance(kind: "portrait", sourceIdentifier: "flow-artist-v1|portfolio=\(state.id)|candidate=\(candidateID)|revision=\(resultID)"))
-    struct Result: Codable { let portfolioID: UUID; let candidate: FlowPortfolioCandidate; let prune: FlowPortfolioPruneRevision?; let rootProgram: DrawingProgram }
-    let result = try encode(Result(portfolioID: state.id, candidate: candidate, prune: edit, rootProgram: base))
+      source: DrawingSourceProvenance(kind: "portrait", sourceIdentifier: "\(artistRevision)|portfolio=\(state.id)|candidate=\(candidateID)|revision=\(resultID)"))
+    struct Result: Codable {
+      let portfolioID: UUID; let candidate: FlowPortfolioCandidate; let prune: FlowPortfolioPruneRevision?; let rootProgram: DrawingProgram
+      let recipeRevision: String; let rendererRevision: String
+    }
+    let result = try encode(Result(portfolioID: state.id, candidate: candidate, prune: edit, rootProgram: base,
+      recipeRevision: candidate.recipe.marks == nil ? FlowArtistRecipe.legacyRevision : FlowArtistRecipe.revision,
+      rendererRevision: PortraitFlowRenderer.revision(for: candidate.recipe.vectorOptions)))
     let input = try storage.read(candidate.raster), raster = try candidateRaster(candidateID)
     let package = try DrawingPackage(origin: .init(libraryID: state.id, captureID: source.id,
       resultID: resultID.uuidString.lowercased(), resultRecordSHA256: DrawingPackageCodec.sha256(result), programHash: program.contentHash),
-      program: program, createdAt: edit?.createdAt ?? candidate.createdAt, title: source.title + " · Flow Edge",
+      program: program, createdAt: edit?.createdAt ?? candidate.createdAt, title: candidate.title ?? (source.title + " · Flow Edge"),
       resultRecordJSON: result, source: DrawingPackageLibraryValidation.sourceAsset(storage.read(source.image)),
       artistInput: .init(mediaType: "application/json", bytes: input, pixelWidth: raster.width, pixelHeight: raster.height),
-      artist: .init(identifier: "adaptiveplotter.flow-artist", revision: "flow-artist-v1", settingsJSON: encode(candidate.recipe)),
+      artist: .init(identifier: "adaptiveplotter.flow-artist", revision: artistRevision, settingsJSON: encode(candidate.recipe)),
       preview: DrawingPackageLibraryValidation.preview(program))
     try DrawingPackageLibraryValidation.validate(package)
     return try DrawingPackageCodec.encode(package)

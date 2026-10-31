@@ -643,6 +643,13 @@ public actor CameraCapture {
     )
   }
 
+  /// Cheap freshness boundary for acquisition. Reading this metadata neither
+  /// materializes pixels nor hashes or publishes an exact frame.
+  public func latestCaptureNanoseconds() -> UInt64? {
+    guard state == .running else { return nil }
+    return latestCapture?.captureNanoseconds
+  }
+
   /// Materializes the newest delivered camera pixels as one immutable, hashed
   /// frame under an explicit publication policy. A freshness boundary returns
   /// nil rather than substituting an older preview frame.

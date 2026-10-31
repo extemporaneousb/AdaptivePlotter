@@ -55,6 +55,12 @@ package struct FlowArtistHeadReport: Codable, Equatable, Sendable {
   package var deploymentRecall: Double? = nil
   package var deploymentCorrectionRate: Double? = nil
   package var keepAllCorrectionRate: Double? = nil
+  /// Direct artist labels only. Pairwise mask preferences are not independent
+  /// remove/keep decisions. Optional fields retain old checkpoint byte identity.
+  package var trainingRemoveCount: Int? = nil
+  package var trainingKeepCount: Int? = nil
+  package var holdoutRemoveCount: Int? = nil
+  package var holdoutKeepCount: Int? = nil
   package var isFitted: Bool { trainingLoss != nil }
   package var improvesHoldout: Bool { holdoutLoss.map { $0 < (baselineLoss ?? $0) } ?? false }
   package static func unavailable(_ reason: String) -> Self {
@@ -115,6 +121,8 @@ package struct FlowArtistCheckpoint: Codable, Equatable, Sendable {
   package var id: String { (try? FlowArtistCoding.digest(self)) ?? "invalid-checkpoint" }
   package var isExperimental: Bool {
     guard let ranker, let deleter, ranker.report.improvesHoldout, deleter.report.improvesHoldout,
+      (deleter.report.holdoutRemoveCount ?? 0) > 0,
+      (deleter.report.holdoutKeepCount ?? 0) > 0,
       let correction = deleter.report.deploymentCorrectionRate,
       let baseline = deleter.report.keepAllCorrectionRate else { return true }
     // Pairwise mask ordering does not establish calibrated per-stroke deletion
@@ -122,9 +130,16 @@ package struct FlowArtistCheckpoint: Codable, Equatable, Sendable {
     return correction >= baseline
   }
 
-  package func validate() throws {
-    guard schemaVersion == 1, featureRevision == FlowArtistFeatures.revision,
-      recipeRevision == FlowArtistRecipe.revision, rendererRevision == PortraitFlowRenderer.revision,
+  /// Archives remain readable independently of which feature space is currently
+  /// fitted. Never reinterpret old coefficients as the new mark coordinates.
+  package func validateArchive() throws {
+    let legacy = featureRevision == FlowArtistFeatures.legacyRevision
+      && recipeRevision == FlowArtistRecipe.legacyRevision
+      && rendererRevision == PortraitFlowRenderer.legacyRevision
+    let current = featureRevision == FlowArtistFeatures.revision
+      && recipeRevision == FlowArtistRecipe.revision
+      && rendererRevision == PortraitFlowRenderer.markRevision
+    guard schemaVersion == 1, legacy || current,
       fitConfiguration == .current,
       ranker != nil || deleter != nil, !sourceGroupIDs.isEmpty,
       Set(sourceGroupIDs).count == sourceGroupIDs.count,
@@ -134,9 +149,21 @@ package struct FlowArtistCheckpoint: Codable, Equatable, Sendable {
       trainingDataSHA256.count == 64, trainingDataSHA256.allSatisfy({ $0.isHexDigit }) else {
       throw FlowArtistModelError.invalid("Checkpoint schema, renderer, feature space or training manifest is incompatible.")
     }
-    for (head, dimension) in [(ranker, FlowArtistFeatures.drawingCount), (deleter, FlowArtistFeatures.strokeCount)] {
+    for (head, dimension) in [(ranker, legacy ? 123 : FlowArtistFeatures.drawingCount),
+      (deleter, legacy ? 84 : FlowArtistFeatures.strokeCount)] {
       if let head {
         let report = head.report
+        let directCounts = [report.trainingRemoveCount, report.trainingKeepCount,
+          report.holdoutRemoveCount, report.holdoutKeepCount]
+        if directCounts.contains(where: { $0 != nil }) {
+          guard let trainRemove = report.trainingRemoveCount, let trainKeep = report.trainingKeepCount,
+            let testRemove = report.holdoutRemoveCount, let testKeep = report.holdoutKeepCount,
+            directCounts.compactMap({ $0 }).allSatisfy({ (0...20_000).contains($0) }),
+            trainRemove + trainKeep <= report.trainingCount,
+            testRemove + testKeep <= report.holdoutCount else {
+            throw FlowArtistModelError.invalid("Checkpoint direct-label coverage is inconsistent with its observations.")
+          }
+        }
         let boundedMeasurements: [(String, Double?)] = [("accuracy", report.accuracy),
           ("deploymentPrecision", report.deploymentPrecision), ("deploymentRecall", report.deploymentRecall),
           ("deploymentCorrectionRate", report.deploymentCorrectionRate), ("keepAllCorrectionRate", report.keepAllCorrectionRate)]
@@ -161,6 +188,16 @@ package struct FlowArtistCheckpoint: Codable, Equatable, Sendable {
       }
     }
   }
+
+  package func validateForInference() throws {
+    try validateArchive()
+    guard featureRevision == FlowArtistFeatures.revision, recipeRevision == FlowArtistRecipe.revision,
+      rendererRevision == PortraitFlowRenderer.markRevision else {
+      throw FlowArtistModelError.invalid("This retained checkpoint uses the earlier Flow feature space. Its report and drawings remain available; fit this portfolio again to activate the current mark grammar.")
+    }
+  }
+
+  package func validate() throws { try validateForInference() }
 
   package func score(features: [Double]) throws -> Double {
     try validate()

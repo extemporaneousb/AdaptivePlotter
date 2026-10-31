@@ -21,11 +21,13 @@ package struct FlowPortfolioBlob: Codable, Equatable, Sendable {
 package struct FlowPortfolioSource: Codable, Identifiable, Equatable, Sendable {
   package let id: UUID
   package let createdAt: Date
-  package let title: String
+  package var title: String
   package let image: FlowPortfolioBlob
   package var subjectID: String?
   package var sessionID: String?
   package var excluded = false
+  package var importProvenance: FlowPortfolioSourceImport? = nil
+  package var captureProvenance: FlowPortfolioCaptureProvenance? = nil
   /// Exact source identity is the minimum grouping boundary. Declared identities
   /// are joined transitively by the training consumer, never inferred from pixels.
   package var groupKeys: [String] {
@@ -70,6 +72,7 @@ package struct FlowPortfolioCandidate: Codable, Identifiable, Equatable, Sendabl
   package let programHash: String
   package let strokeCount: Int
   package var excluded = false
+  package var title: String? = nil
 }
 package struct FlowPortfolioChoice: Codable, Identifiable, Equatable, Sendable {
   package let id: UUID
@@ -112,6 +115,10 @@ package struct FlowPortfolioPresentationItem: Codable, Identifiable, Equatable, 
   package let revisionID: UUID?
   package let sourceID: UUID
   package let removedIndices: [Int]
+  package init(id: UUID, candidateID: UUID, revisionID: UUID?, sourceID: UUID, removedIndices: [Int]) {
+    self.id = id; self.candidateID = candidateID; self.revisionID = revisionID
+    self.sourceID = sourceID; self.removedIndices = removedIndices
+  }
 }
 package struct FlowPortfolioPresentation: Codable, Identifiable, Equatable, Sendable {
   package let id: UUID
