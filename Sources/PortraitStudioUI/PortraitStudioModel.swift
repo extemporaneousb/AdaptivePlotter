@@ -270,9 +270,13 @@ package final class PortraitStudioModel {
 
   /// A host-owned model keeps pending edits and its writer lease alive when the
   /// Portrait view leaves the hierarchy. Standalone camera acquisition never calls this.
-  package func portfolioDojo(strokeStyle: StrokeStyle) -> FlowDojoModel {
-    if let embeddedDojo { return embeddedDojo }
-    let dojo = portfolioFactory?(strokeStyle) ?? FlowDojoModel(strokeStyle: strokeStyle)
+  package func portfolioDojo(strokeStyle: StrokeStyle, nominalPenWidthMM: Double? = nil) -> FlowDojoModel {
+    if let embeddedDojo {
+      embeddedDojo.updateStrokeStyle(strokeStyle, nominalPenWidthMM: nominalPenWidthMM)
+      return embeddedDojo
+    }
+    let dojo = portfolioFactory?(strokeStyle) ?? FlowDojoModel(strokeStyle: strokeStyle, nominalPenWidthMM: nominalPenWidthMM ?? 0.4)
+    dojo.updateStrokeStyle(strokeStyle, nominalPenWidthMM: nominalPenWidthMM)
     if portfolioShutdownStarted { dojo.closeMutationAdmission() }
     embeddedDojo = dojo
     return dojo

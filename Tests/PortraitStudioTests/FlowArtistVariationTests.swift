@@ -9,6 +9,150 @@ import Testing
 
 @Suite("Flow artist native mark grammar and bounded proposals", .serialized)
 struct FlowArtistVariationTests {
+  @Test("The cached live producer admits one program and retains preparation after admission failure")
+  func liveProducerCache() async throws {
+    let data = FlowDojoFixture.image(4), renderer = FlowDojoRenderer()
+    let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
+    await #expect(throws: (any Error).self) {
+      try await renderer.produce(data: data, recipe: .standard, strokeStyle: style, nominalPenWidthMM: -1)
+    }
+    let produced = try await renderer.produce(data: data, recipe: .standard,
+      strokeStyle: style, nominalPenWidthMM: 0.6)
+    #expect(produced.drawing.program == produced.artifacts.program)
+    #expect(produced.drawing.programDigest == produced.artifacts.program.contentHash)
+    #expect(produced.drawing.units.nominalPenWidthMM == 0.6)
+    #expect(produced.drawing.capabilities.producerVerified)
+    #expect(produced.artifacts.timings?.sourceCacheHit == true)
+    #expect(produced.artifacts.preparedSource != nil)
+    if case .unavailable = produced.drawing.input { } else { Issue.record("Transient input must remain explicitly unavailable") }
+    let claim = try #require(JSONSerialization.jsonObject(with: produced.drawing.producer.originalJSON) as? [String: Any])
+    #expect(claim["origin"] as? String == "rendered")
+
+    let input = PortraitFlowDrawingProducer.Input(data: data)
+    let settings = PortraitFlowDrawingProducer.Settings(recipe: .standard,
+      analysisOptions: FlowDojoRenderer.analysisOptions, strokeStyle: style, nominalPenWidthMM: 0.6)
+    let fullyValidatedClaim = try PortraitFlowProducerClaim(result: produced.artifacts,
+      input: input, settings: settings, origin: "rendered")
+    #expect(try PortraitCandidateCoding.encoder().encode(fullyValidatedClaim) == produced.drawing.producer.originalJSON)
+    let validator = try PortraitFlowDrawingProducer.validator(result: produced.artifacts,
+      input: input, settings: settings, expectedOrigin: .rendered)
+    let key = DrawingProducerKey(id: PortraitFlowProducerClaim.producerID, version: PortraitFlowProducerClaim.version)
+    let validators = DrawingProducerValidators([key: validator])
+    let frozen = try DrawingExchangeCodec.freeze(produced.drawing, identity: .init(issuer: UUID()), createdAt: Date())
+    let objects = [ExchangeDigest.hash(frozen.originalProgramJSON): frozen.originalProgramJSON,
+      produced.drawing.producer.record: produced.drawing.producer.originalJSON]
+    guard case .materialized(let reloaded) = try DrawingExchangeCodec.decode(frozen.originalJSON,
+      objects: objects, expected: frozen.reference, validators: validators) else {
+      Issue.record("Native rendered drawing unexpectedly opaque"); return
+    }
+    #expect(reloaded.drawing.capabilities.producerVerified)
+    #expect(reloaded.drawing.program == produced.drawing.program)
+    #expect(DrawingExchangeCodec.encode(reloaded) == frozen.originalJSON)
+    #expect(reloaded.drawing.producer.originalJSON == produced.drawing.producer.originalJSON)
+    let envelope = try #require(JSONSerialization.jsonObject(with: frozen.originalJSON) as? [String: Any])
+    for field in ["sourceWidth", "rasterSHA256", "recipeRevision", "origin"] {
+      var changedClaim = claim
+      switch field {
+      case "sourceWidth": changedClaim[field] = 999
+      case "rasterSHA256": changedClaim[field] = String(repeating: "0", count: 64)
+      case "recipeRevision": changedClaim[field] = "forged-recipe"
+      default: changedClaim[field] = "reusedArtifacts"
+      }
+      let changedBytes = try JSONSerialization.data(withJSONObject: changedClaim, options: [.sortedKeys])
+      let changedDigest = ExchangeDigest.hash(changedBytes)
+      var changedEnvelope = envelope
+      var producer = try #require(changedEnvelope["producer"] as? [String: Any])
+      producer["record"] = changedDigest.description
+      changedEnvelope["producer"] = producer
+      let changedRecord = try JSONSerialization.data(withJSONObject: changedEnvelope, options: [.sortedKeys])
+      var changedObjects = objects; changedObjects[changedDigest] = changedBytes
+      // Outer record and producer digest are coherent; rejection must be semantic.
+      do {
+        _ = try DrawingExchangeCodec.decode(changedRecord, objects: changedObjects, validators: validators)
+        Issue.record("Admitted tampered native claim: \(field)")
+      } catch {
+        #expect(error as? DrawingExchangeError == .invalidProducer(PortraitFlowProducerClaim.producerID))
+      }
+    }
+    for field in ["input", "parent", "units"] {
+      var changedEnvelope = envelope
+      if field == "units" {
+        var representation = try #require(changedEnvelope["representation"] as? [String: Any])
+        representation["nominalPenWidthMillimeters"] = 0.8
+        changedEnvelope["representation"] = representation
+      } else if field == "input" {
+        changedEnvelope[field] = ["state": "none"]
+      } else {
+        changedEnvelope[field] = ["state": "unavailable", "reason": "Forged parent"]
+      }
+      let changedRecord = try JSONSerialization.data(withJSONObject: changedEnvelope, options: [.sortedKeys])
+      do {
+        _ = try DrawingExchangeCodec.decode(changedRecord, objects: objects, validators: validators)
+        Issue.record("Admitted mismatched native authored context: \(field)")
+      } catch {
+        #expect(error as? DrawingExchangeError == .invalidProducer(PortraitFlowProducerClaim.producerID))
+      }
+    }
+  }
+
+  @Test("Caller-supplied raster evidence cannot inherit a local-render validation proof")
+  func suppliedRasterAlwaysValidates() async throws {
+    let data = FlowDojoFixture.image(4)
+    let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
+    let input = PortraitFlowDrawingProducer.Input(data: data)
+    let settings = PortraitFlowDrawingProducer.Settings(recipe: .standard,
+      analysisOptions: FlowDojoRenderer.analysisOptions, strokeStyle: style, nominalPenWidthMM: 0.4)
+    let produced = try await PortraitFlowDrawingProducer().produce(input: input, settings: settings)
+    let base = produced.artifacts.raster, width = base.width, height = base.height
+    let geometry = try #require(base.analysisGeometry)
+    let mask = PortraitPersonMask(status: .applied, requestRevision: 1, platformVersion: "test",
+      width: width, height: height, sourceMaskWidth: width, sourceMaskHeight: height,
+      sourceMaskCrop: .init(x: 0, y: 0, width: Double(width), height: Double(height)),
+      alpha: Array(repeating: 1, count: width * height))
+    func raster(luminance: [Double]? = nil, personMask: PortraitPersonMask? = nil,
+      analysisGeometry: PortraitAnalysisGeometry? = nil) -> PortraitRaster {
+      PortraitRaster(width: width, height: height, luminance: luminance ?? base.luminance,
+        provenance: base.provenance, analysisSummary: base.analysisSummary,
+        faceBounds: base.faceBounds, sourceCropExtent: base.sourceCropExtent,
+        analysisGeometry: analysisGeometry ?? geometry, personMask: personMask ?? mask, faceAnalysis: base.faceAnalysis)
+    }
+    let healthy = PortraitRenderResult(raster: raster(), program: produced.drawing.program)
+    for origin in [PortraitFlowDrawingProducer.Origin.providedArtifacts, .reusedArtifacts] {
+      #expect(try PortraitFlowDrawingProducer.admit(result: healthy, input: input,
+        settings: settings, origin: origin).drawing.capabilities.producerVerified)
+    }
+    _ = try PortraitFlowDrawingProducer.validator(result: healthy, input: input, settings: settings, expectedOrigin: .rendered)
+    _ = try PortraitFlowProducerClaim(result: healthy, input: input, settings: settings, origin: "rendered")
+    var nanLuminance = base.luminance; nanLuminance[0] = .nan
+    var nanMask = mask; nanMask.alpha?[0] = .nan
+    var outOfRangeMask = mask; outOfRangeMask.alpha?[0] = Double(1).nextUp
+    var shortMask = mask; shortMask.alpha?.removeLast()
+    let impossibleStatus = PortraitPersonMask(status: .notRequested, platformVersion: "test",
+      width: width, height: height, sourceMaskWidth: width, sourceMaskHeight: height,
+      sourceMaskCrop: mask.sourceMaskCrop, alpha: mask.alpha)
+    let badGeometry = PortraitAnalysisGeometry(sourcePixelExtent: geometry.sourcePixelExtent,
+      decodedWidth: geometry.decodedWidth, decodedHeight: geometry.decodedHeight, crop: geometry.crop,
+      rasterWidth: width + 1, rasterHeight: height, contrastLow: geometry.contrastLow,
+      contrastHigh: geometry.contrastHigh, contrastApplied: geometry.contrastApplied)
+    let invalidRasters = [raster(luminance: nanLuminance), raster(luminance: Array(base.luminance.dropLast())),
+      raster(personMask: nanMask), raster(personMask: outOfRangeMask), raster(personMask: shortMask),
+      raster(personMask: impossibleStatus), raster(analysisGeometry: badGeometry)]
+    for invalidRaster in invalidRasters {
+      let result = PortraitRenderResult(raster: invalidRaster, program: produced.drawing.program)
+      for origin in [PortraitFlowDrawingProducer.Origin.providedArtifacts, .reusedArtifacts] {
+        #expect(throws: PortraitDrawingError.self) {
+          try PortraitFlowDrawingProducer.admit(result: result, input: input, settings: settings, origin: origin)
+        }
+      }
+      #expect(throws: PortraitDrawingError.self) {
+        try PortraitFlowDrawingProducer.validator(result: result, input: input, settings: settings, expectedOrigin: .rendered)
+      }
+      #expect(throws: PortraitDrawingError.self) {
+        try PortraitFlowProducerClaim(result: result, input: input, settings: settings, origin: "rendered")
+      }
+    }
+  }
+
   @Test("Absent and zero mark coordinates preserve legacy recipe bytes and exact geometry")
   func zeroIdentity() throws {
     let encoder = DrawingPackageCodec.encoder(), original = FlowArtistRecipe.standard

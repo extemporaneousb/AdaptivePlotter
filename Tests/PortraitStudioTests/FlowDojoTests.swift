@@ -11,6 +11,32 @@ import Testing
 @Suite("Flow Edge dojo autosaved interaction", .serialized)
 @MainActor
 struct FlowDojoTests {
+  @Test("Typed admission rejects invalid authoring units for overrides and exact parent reuse")
+  func liveAdmission() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = FlowDojoModel(directory: directory, nominalPenWidthMM: -1,
+      purpose: .validationFixture, render: FlowDojoFixture.render)
+    model.count = 3
+    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(2), title: "Admission source")
+    await model.generate(refining: false)
+    #expect(model.roundCandidates.isEmpty)
+    #expect(model.round?.failures.count == 3)
+    let style = model.strokeStyle
+    model.updateStrokeStyle(style, nominalPenWidthMM: 0.6)
+    await model.generate(refining: false)
+    #expect(model.roundCandidates.count == 3)
+    let parent = try #require(model.roundCandidates.first)
+    await model.selectCandidate(parent.id)
+    let original = try #require(model.program)
+    model.updateStrokeStyle(style, nominalPenWidthMM: -1)
+    await model.generate(refining: true)
+    // Slot zero bypasses rendering, but cannot bypass common Drawing admission.
+    #expect(model.roundCandidates.isEmpty)
+    #expect(try await model.store?.candidateProgram(parent.id) == original)
+    await model.shutdown()
+  }
+
   @Test("Photo, broad round, exact anchor refinement and pruning survive reopening without Save")
   func autosavedJourney() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

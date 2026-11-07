@@ -23,7 +23,12 @@ package struct PortraitStudioView: View {
 
   @State package var showsAdjustments = false
 
+  private let nominalPenWidthMM: Double?
   @State private var dojo: FlowDojoModel
+
+  private var authoringContext: FlowDojoAuthoringContext {
+    FlowDojoAuthoringContext(strokeStyle: strokeStyle, nominalPenWidthMM: nominalPenWidthMM)
+  }
 
   package var body: some View {
     FlowDojoView(model: dojo, camera: model, selectCamera: selectCamera,
@@ -34,13 +39,16 @@ package struct PortraitStudioView: View {
           return await showEditedOnPlotter(drawing)
         } catch { return error.localizedDescription }
       })
-      .task(id: strokeStyle) { dojo.updateStrokeStyle(strokeStyle) }
+      .task(id: authoringContext) {
+        dojo.updateStrokeStyle(authoringContext.strokeStyle, nominalPenWidthMM: authoringContext.nominalPenWidthMM)
+      }
       .onDisappear { dojo.cancel() }
   }
 
   package init(
     model: PortraitStudioModel,
     strokeStyle: PlotterModel.StrokeStyle,
+    nominalPenWidthMM: Double? = nil,
     previewSource: PortraitPlanePreviewSource = PortraitPlanePreviewSource(),
     showOnPlotter: @escaping (PortraitCandidate) async -> String?,
     showEditedOnPlotter: ((SavedDrawing) async -> String?)? = nil,
@@ -53,8 +61,9 @@ package struct PortraitStudioView: View {
     handoffHelp: String = "Send to Drawing places it in Drawing; Draw there starts execution."
   ) {
     self.model = model
-    _dojo = State(initialValue: model.portfolioDojo(strokeStyle: strokeStyle))
+    _dojo = State(initialValue: model.portfolioDojo(strokeStyle: strokeStyle, nominalPenWidthMM: nominalPenWidthMM))
     self.strokeStyle = strokeStyle
+    self.nominalPenWidthMM = nominalPenWidthMM
     self.previewSource = previewSource
     self.showOnPlotter = showOnPlotter
     self.showEditedOnPlotter = showEditedOnPlotter

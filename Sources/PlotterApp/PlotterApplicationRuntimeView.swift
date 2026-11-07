@@ -268,6 +268,7 @@ struct PlotterApplicationRuntimeView: View {
       }
     case .portraitStudio:
       PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
+        nominalPenWidthMM: application.drawingMaterials.activeRecord?.profile.nominalWidthMM,
         previewSource: application.portraitPlanePreviewSource,
         showOnPlotter: usePortraitProgram, showEditedOnPlotter: useSavedDrawingProgram,
         selectCamera: { await selectCamera(.portrait) },

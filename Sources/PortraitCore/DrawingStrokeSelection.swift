@@ -147,8 +147,10 @@ public struct DrawingStrokeSelection: Codable, Equatable, Sendable {
 
   public func program() throws -> DrawingProgram {
     let root = try original(), removed = Set(removedStrokeIDs)
+    let strokes = removed.isEmpty ? root.program.strokes
+      : try DrawingStrokeMembership.apply(.remove(removedStrokeIDs), to: root.program, universe: root.program)
     return try DrawingProgram(id: ProgramID(editID), fieldExtent: root.program.fieldExtent,
-      strokes: root.program.strokes.filter { !removed.contains($0.id) },
+      strokes: strokes,
       source: DrawingSourceProvenance(kind: "portrait", sourceIdentifier:
         artistRevision + "|original=" + root.origin.identityHash.description + "|edit=" + editID.uuidString.lowercased()))
   }

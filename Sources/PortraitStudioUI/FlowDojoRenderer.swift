@@ -12,6 +12,8 @@ package actor FlowDojoRenderer {
   private var sourceHash: String?
   private var proposalRaster: PortraitRaster?
 
+  package init() {}
+
   /// Recipe selection performs one cached source preparation, never a hidden
   /// drawing batch. The returned count is the complete rendering budget.
   package func proposals(data: Data, count: Int, seed: UInt64, parent: FlowArtistRecipe?,
@@ -30,15 +32,21 @@ package actor FlowDojoRenderer {
   }
 
   package func render(data: Data, recipe: FlowArtistRecipe, strokeStyle: StrokeStyle) async throws -> PortraitRenderResult {
+    try await produce(data: data, recipe: recipe, strokeStyle: strokeStyle, nominalPenWidthMM: 0.4).artifacts
+  }
+
+  package func produce(data: Data, recipe: FlowArtistRecipe, strokeStyle: StrokeStyle,
+    nominalPenWidthMM: Double, parent: SourceLink<DrawingRef> = .none) async throws -> DrawingProduction<PortraitRenderResult> {
     try Task.checkCancellation()
     let hash = DrawingPackageCodec.sha256(data)
     if hash != sourceHash { preparedSource = nil; proposalRaster = nil; sourceHash = hash }
     do {
-      let result = try await PortraitImageAnalyzer().render(.init(data: data, pose: .front, style: .flowEdges,
-        options: Self.analysisOptions,
-        strokeStyle: strokeStyle, vectorOptions: recipe.vectorOptions, preparedSource: preparedSource))
-      preparedSource = result.preparedSource
-      return result
+      let production = try await PortraitFlowDrawingProducer().produce(
+        input: .init(data: data, preparedSource: preparedSource, parent: parent),
+        settings: .init(recipe: recipe, analysisOptions: Self.analysisOptions,
+          strokeStyle: strokeStyle, nominalPenWidthMM: nominalPenWidthMM))
+      preparedSource = production.artifacts.preparedSource
+      return production
     } catch let failure as PortraitPreparedRenderFailure {
       preparedSource = failure.preparedSource
       throw failure.underlyingError

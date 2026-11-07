@@ -22,7 +22,7 @@ struct PortraitStudioApp: App {
     if args.contains("--review-library") {
       error = "This release uses Flow Edge portfolios. Historical review libraries remain unchanged; launch without --review-library or choose --portfolio with a new portfolio directory."
     }
-    _dojo = State(initialValue: FlowDojoModel(directory: location))
+    _dojo = State(initialValue: FlowDojoModel(directory: location, nominalPenWidthMM: 0.4))
     _acquisition = State(initialValue: PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: PortraitStudioComposition.privateLibraryURL)))
     launchError = error
   }

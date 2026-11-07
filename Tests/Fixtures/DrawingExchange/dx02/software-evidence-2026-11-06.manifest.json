@@ -1,0 +1,19 @@
+{
+  "artifact": "software-evidence-2026-11-06.json.gz",
+  "artifactSHA256": "6ed75453c07f81ab848555737c9ba689cbe9dc7fb24e1b403017c896e1528275",
+  "attributionInvocations": 2,
+  "beforeArtifactsUnchanged": true,
+  "compressedBytes": 439677,
+  "decodeCommand": "python3 -c 'import gzip,json; print(json.dumps(json.load(gzip.open(\"Tests/Fixtures/DrawingExchange/dx02/software-evidence-2026-11-06.json.gz\")),indent=2))'",
+  "decodedBytes": 2555421,
+  "decodedSHA256": "9f22f8298d710ff26a8ad8d09a159fc53c776bc9571a1dca7f38615d2015863a",
+  "finalConfiguredGateScope": "Blackdog lifecycle record; deliberately not asserted by this bundle",
+  "finalCoreExecutedPassed": 22,
+  "fixtureVectorCount": 14,
+  "focusedDeclaredSkipped": 2,
+  "focusedExecutedPassed": 58,
+  "independentPythonExecutedPassed": 23,
+  "normalTimedInvocations": 50,
+  "producerWarmP95RegressionPercent": 10.81511120531884,
+  "profile": "adaptiveplotter.dx02-evidence-manifest/1"
+}

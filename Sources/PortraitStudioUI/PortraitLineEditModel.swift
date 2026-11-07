@@ -87,7 +87,9 @@ package final class PortraitLineEditModel {
     let current = removed
     let batch = original.program.strokes.map(\.id).filter { ids.contains($0) && !current.contains($0) }
     guard !batch.isEmpty else { return }
-    operations.append(.init(action: .remove, strokeIDs: batch))
+    guard let target = validatedMembership(current.union(batch), in: original.program) else { return }
+    let admittedBatch = original.program.strokes.map(\.id).filter { target.contains($0) && !current.contains($0) }
+    operations.append(.init(action: .remove, strokeIDs: admittedBatch))
     redoOperations = []; selection.subtract(batch); changed()
   }
 
@@ -96,8 +98,22 @@ package final class PortraitLineEditModel {
     let current = removed
     let batch = original.program.strokes.map(\.id).filter { ids.contains($0) && current.contains($0) }
     guard !batch.isEmpty else { return }
-    operations.append(.init(action: .restore, strokeIDs: batch))
+    guard let target = validatedMembership(current.subtracting(batch), in: original.program) else { return }
+    let admittedBatch = original.program.strokes.map(\.id).filter { current.contains($0) && !target.contains($0) }
+    operations.append(.init(action: .restore, strokeIDs: admittedBatch))
     redoOperations = []; selection.subtract(batch); changed()
+  }
+
+  /// The legacy editor permits an empty, unsavable draft. Every nonempty
+  /// selection passes the shared stable-ID engine before becoming edit state.
+  private func validatedMembership(_ removed: Set<StrokeID>, in universe: DrawingProgram) -> Set<StrokeID>? {
+    let ids = universe.strokes.map(\.id).filter { !removed.contains($0) }
+    if ids.isEmpty { return Set(universe.strokes.map(\.id)) }
+    if ids.count == universe.strokes.count { return [] }
+    do {
+      let kept = try DrawingStrokeMembership.apply(.membership(ids), to: universe, universe: universe)
+      return Set(universe.strokes.map(\.id)).subtracting(kept.map(\.id))
+    } catch { self.error = error.localizedDescription; return nil }
   }
 
   package func undo() {

@@ -11,10 +11,12 @@ this roadmap does not restate or reorder them.
 
 ## Drawing Exchange
 
-Status: DX-01 baseline frozen at `b2ff045483f75f6eb60b92dbeb8674c2a11aeba7`;
-adoption follows the Blackdog task/run record linked in its dated receipt. All
-later tickets remain planned until actual dependency completion. No ticket below
-is implementation or acceptance evidence. The accepted target is [Drawing Exchange](DRAWING_EXCHANGE.md). The Flow Edge Dojo
+Status: DX-01 is adopted; DX-02 source/evidence freeze is recorded in its receipt.
+Final configured validation/adoption follow the authoritative Blackdog task/run
+`dx02-feature-closure-20261106`. See the dated [DX-02 receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-02-typed-contract-receipt-2026-11-06)
+for concrete boundaries, validation and remaining limits. DX-03 and DX-04 become
+next dependency-eligible only after DX-02 completion is recorded by its Blackdog
+task/run. No ticket below is implementation or acceptance evidence. The accepted target is [Drawing Exchange](DRAWING_EXCHANGE.md). The Flow Edge Dojo
 section below describes the shipped baseline and outstanding model evaluation;
 it does not authorize a competing portfolio, retention or storage authority.
 This campaign replaces its relevant internals with the shared library/authoring
@@ -81,42 +83,11 @@ M5 does not imply M6 or physical readiness.
 
 ### Ticket acceptance contracts
 
-**DX-01 — Freeze reachable-surface and performance baseline.** Baseline frozen at
-`b2ff045483f75f6eb60b92dbeb8674c2a11aeba7`; adoption and the final configured gate
-follow the authoritative Blackdog task/run record in the dated [DX-01 receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-01-baseline-receipt-2026-11-06). Allowed:
-read-only inspection of `Package.swift`, `Sources/`, `Tests/`, `Tools/`, `Scripts/`,
-`Resources/`, routed docs; write baseline fixtures/measurements under existing test
-fixture conventions and docs. Trace `PortraitStudioApp`/`PortraitStudioComposition`,
-embedded `PortraitStudioView`, `FlowDojoModel`, `PortraitSketchCollection`,
-`PortraitCandidateStore`, `PortraitLibraryDatabase`, CLI entrypoints and bundle
-registrations. Classify every producer, reader, writer, export, launch option and
-script as reachable, source-only, test-only, dormant or historical; filename alone
-is insufficient. Identify all duplicate ID/lookup/cache/DB authorities, including
-`loadDrawing(String)` versus `PortraitDrawingIdentity`, candidate-only cache keys,
-`generic_drawing` versus photo-only joins, and `FlowDojoModel.refresh` work. Capture
-baseline cold/warm latency, allocations, RSS, query/decode counts and disk bytes on
-the fixtures defined below. Deliver a deletion/caller matrix, owner map and exact
-commands, not a second architecture. Gate: reproducible baseline and no baseline
-mutation. Recovery: discard generated copies only; originals remain untouched.
-
-**DX-02 — Freeze typed wire records and reference vectors.** Allowed:
-`Sources/PortraitCore/`, additive exchange types in `Sources/PlotterModel/` only
-where required by existing model ownership, `Package.swift`, producer/acquisition adapters in
-`Sources/PortraitArtists/{PortraitPhotoCapture,PortraitCandidate,PortraitSourcePreparation}.swift`,
-shared Studio/executable compositions and dependency-contract tests, `Tests/PlotterAppTests/DrawingPackageTests.swift`,
-exchange fixtures and independent-reader tests in `Tools/`. Define DrawingRef,
-Photo/ImageInput/parent tri-state references, immutable JSON bytes, program profile,
-producer claim validation, units/transforms, required-feature handling, asset
-layouts/limits, job handles, snapshot keys and assessment/capsule references.
-Preserve `DrawingProgram.contentHash` and v1 decoders. Include source-free catalog,
-photo, masked/rotated input, pruned child, equal-byte distinct captures, unknown
-producer/required feature and historical unknown-unit vectors. Gate: Swift and
-independent Python readers agree on bytes, geometry and APCB semantic hashes;
-known invalid claims fail, unknown optional bytes survive re-export unchanged.
-Recovery: schemas remain additive until callers migrate; never rewrite old bytes.
-Put the value/ref types, pure edit operations, shared admission and typed producer
-interfaces into service in the existing modules. Isolate capture/runtime adapters
-at app composition. DX-05 owns the remainder of the library dependency inversion.
+DX-01's completed baseline contract and DX-02's implemented typed-contract scope
+are retained in their dated [Current Evidence receipts](CURRENT_EVIDENCE.md#drawing-exchange-dx-02-typed-contract-receipt-2026-11-06).
+The receipt preserves their accepted scope/gate/recovery constraints and points
+to DX-02's authoritative final configured run and adoption record. The contracts
+below remain unfinished and keep the existing dependency DAG.
 
 **DX-03 — Implement closed exchange carrier and validation.** Allowed:
 `Sources/PortraitCore/DrawingPackage.swift`, new exchange carrier/codec files in

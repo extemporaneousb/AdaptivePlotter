@@ -64,22 +64,6 @@ extension PortraitFrameAcquiring {
   }
 }
 
-package struct PortraitCameraFrameSource: PortraitFrameAcquiring {
-  package let camera: CameraCapture
-  package func latestFrame(newerThanNanoseconds: UInt64) async throws -> StampedFrame? {
-    try await camera.materializeLatestFrame(
-      newerThanNanoseconds: newerThanNanoseconds, policy: .returnOnly)?.frame
-  }
-
-  package func latestCaptureNanoseconds() async throws -> UInt64? {
-    await camera.latestCaptureNanoseconds()
-  }
-
-  package init(camera: CameraCapture) {
-    self.camera = camera
-  }
-}
-
 package protocol PortraitCaptureClock: Sendable {
   func now() async -> TimeInterval
   func sleep(seconds: TimeInterval) async throws

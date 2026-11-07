@@ -14,6 +14,31 @@ import UniformTypeIdentifiers
 @Suite("Standalone Studio composition", .serialized)
 @MainActor
 struct PortraitStudioCompositionTests {
+  @Test("Nominal-only material changes and clearing refresh the retained dojo authoring context")
+  func nominalAuthoringContext() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let host = PortraitStudioModel(camera: CameraCapture(driver: StudioTestCameraDriver()),
+      portfolioFactory: { FlowDojoModel(directory: directory, strokeStyle: $0, purpose: .validationFixture) })
+    let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
+    let dojo = host.portfolioDojo(strokeStyle: style, nominalPenWidthMM: 0.5)
+    let renderer = FlowDojoRenderer(), data = FlowDojoFixture.image(4)
+    var previous = FlowDojoAuthoringContext(strokeStyle: style, nominalPenWidthMM: 0.5)
+    let widths: [Double?] = [0.6, nil]
+    for width in widths {
+      let context = FlowDojoAuthoringContext(strokeStyle: style, nominalPenWidthMM: width)
+      #expect(context != previous)
+      #expect(host.portfolioDojo(strokeStyle: style, nominalPenWidthMM: width) === dojo)
+      #expect(dojo.strokeStyle == style)
+      let production = try await renderer.produce(data: data, recipe: .standard,
+        strokeStyle: dojo.strokeStyle, nominalPenWidthMM: dojo.nominalPenWidthMM)
+      #expect(production.drawing.units.nominalPenWidthMM == (width ?? 0.4))
+      #expect(production.drawing.program.strokes.allSatisfy { $0.style == style })
+      previous = context
+    }
+    await host.shutdown()
+  }
+
   @Test("Selecting another camera restarts only the Studio camera owner")
   func cameraReselection() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

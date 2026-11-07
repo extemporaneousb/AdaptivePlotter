@@ -8,11 +8,160 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing Exchange DX-02 typed-contract receipt, 2026-11-06
+
+Status: **source/evidence freeze; final configured gate and adoption are machine-owned**.
+Task `task-d8595cc784084454bfa3315a9d4c588e`, attempt
+`attempt-aae3925eb74845c8892027e90974e5c7`, targets `main` from adopted DX-01
+`10139af16a24e43da316542e4399ec09d9c4441f`. The immutable outcome definition is
+`441a48d458132fab67c6fb03d480f8f741eb11098e2d89eec29e9e3b21a02664`.
+The authoritative task record and configured run `dx02-feature-closure-20261106`
+own final source-tree validation and adoption; this receipt does not predict either
+result. The earlier `dx02-frozen-tree-20261106` invocation was interrupted during
+docs-check before Swift tests started, without final JSON: incomplete validation,
+not a test failure. DX-01's configured run
+`dx01-frozen-tree-20261106` passed. Its internal `b2ff045…` baseline source and
+checked observations remain preserved separately from its canonical landing.
+
+### Implemented boundary and live replacements
+
+- `PortraitCore/Drawing.swift` adds immutable `Drawing`, cached `DrawingSummary`,
+  explicit `DrawingUnits`, `DrawingCapabilities`, `DrawingProducing` and
+  `DrawingProduction`. `DrawingExchangeReferences.swift` adds digest-pinned
+  `DrawingRef`, `PhotoRef`, `ImageInputRef`, assessment/ranking references,
+  tri-state `SourceLink`, job/receipt handles and `SnapshotKey`.
+  `DrawingExchange{Codec,JSON,Assets,Images,Time}.swift` admit original UTF-8
+  records, bounded program/asset layouts, transforms and clocks. Frozen drawing
+  and program JSON re-export unchanged; byte integrity and APCB semantic hashes
+  are separate checks. No `DrawingProgram.contentHash` or v1 decoder change.
+- `CatalogDrawingProducer` produces source-free catalog geometry through the
+  common admission boundary. `PortraitFlowDrawingProducer` and
+  `PortraitFlowProducerClaim` in `PortraitSourcePreparation.swift` bind source,
+  raster, settings, recipe/renderer revisions, geometry and authoring units.
+  Known validators are composition-supplied typed callbacks, never wire flags.
+  This binding does not authenticate an external renderer or prove deterministic
+  reproduction of arbitrary geometry.
+- Live `FlowDojoRenderer.produce` replaces its direct analyzer-render path;
+  `FlowDojoModel.generate` uses the admitted program for preview, scoring and
+  existing `completeCandidate` persistence. Overrides and refinement anchors
+  enter as explicit provided/reused artifacts. The concrete local producer renders
+  once and preserves preparation across noncancellation post-render admission
+  failures; cancellation remains unwrapped.
+  Embedded `PortraitStudioView`/`PortraitStudioModel.portfolioDojo` and
+  `PlotterApplicationRuntimeView` carry current nominal material width separately
+  from field-space style; standalone `PortraitStudioApp` declares 0.4 mm.
+- `DrawingStrokeMembership.apply` is the shared stable-ID engine used by
+  `DrawingStrokeSelection.program` and `PortraitLineEditModel` remove/restore.
+  Child admission verifies exact parent/universe, unchanged surviving strokes,
+  input/units, semantic hashes and membership receipt bindings in both Swift and
+  independent Python. Recognized membership-v1 children must retain every parent
+  requirement; additional requirements are allowed. Historical known units inherit
+  only through exact equality with a recursively validated parent, anchoring the
+  original producer proof across edit generations; forged root/child proofs fail. The editor still permits an empty unsavable
+  draft and retains grouped undo/redo. `PortraitCameraFrameSource` moves from
+  Artists' `PortraitPhotoCapture.swift` to Studio UI's
+  `PortraitCameraComposition.swift`; return-only camera materialization stays
+  with host composition.
+
+Unknown optional JSON survives byte-for-byte; unknown producer versions remain
+unverified. All declared drawing requirements survive decode, value copying,
+child edits and freeze, including requirements supported by the originating reader;
+a receiver evaluates its own capabilities. Unknown required drawing features block
+semantic operations; unknown major/representation records remain opaque. Unknown
+or unavailable source semantics are diagnosed independently of valid stroke geometry. Geometry preview/plot/edit
+capabilities neither validate encoded-image expansion nor confer regeneration,
+training or device readiness. PNG/JPEG header/dimension/decode proof and complete
+BagIt/ZIP carrier validation remain DX-03 work.
+
+### Verification and performance limits
+
+Durable observations and exact commands are retained in the checked
+[software evidence manifest](../Tests/Fixtures/DrawingExchange/dx02/software-evidence-2026-11-06.manifest.json)
+and [compressed evidence bundle](../Tests/Fixtures/DrawingExchange/dx02/software-evidence-2026-11-06.json.gz):
+**439,677 compressed / 2,555,421 decoded bytes**, SHA-256
+`6ed75453c07f81ab848555737c9ba689cbe9dc7fb24e1b403017c896e1528275`.
+Diagnostic `/tmp` originals do not replace these retained observations. The final
+configured invocation is identified by the authoritative Blackdog task/run record.
+
+The frozen `Tests/Fixtures/DrawingExchange/dx02/vectors.json` and independent
+`Tools/DrawingExchange/reader.py` cover source-free, photo, masked/rotated,
+pruned-child, equal-byte distinct captures, unknown producer/feature/optional,
+historical-unit, stroke-order, signed-zero/NFC and timestamp records. Swift and
+Python compare exact bytes, geometry and APCB hashes. Coherently rehashed negatives
+exercise forged producer/unit claims, malformed references/clocks, masks, layout
+arithmetic and fake edits rather than only checksum corruption. Narrow Swift
+verification executed **58 passing tests and two declared skips** in 24.273 s.
+After the requirement-preservation fix, the focused Core suite separately executed
+**22 passing tests, no skips**, in 1.773 s; this is not an additional full-suite run.
+That phase's independent Python verification executed **23 passing tests** in
+2.802 s, including normative schema checks with format validation. A subsequent
+membership/lineage closure check executed **23 Core tests, no skips**, in 2.001 s,
+and **29 independent Python tests, no skips**, in 1.983 s; its distinct supplement
+below retains those observations rather than relabeling the original bundle. The dependency contract
+evaluates the actual SwiftPM graph; a fresh-scratch `PortraitCore` build passed in
+**71.53 s**, building only `PlotterModel` and `PortraitCore`. The isolated build
+precedes the final requirement and membership/lineage fixes; those changes alter
+no imports or target dependencies and passed the separate Core checks above.
+
+The separate [membership/lineage supplement manifest](../Tests/Fixtures/DrawingExchange/dx02/membership-admission-2026-11-06.manifest.json)
+and [supplement bundle](../Tests/Fixtures/DrawingExchange/dx02/membership-admission-2026-11-06.json.gz)
+retain the final 23/29 checks, exact source hashes, corrections and incomplete prior
+configured invocation: **15,563 compressed / 83,254 decoded bytes**, SHA-256
+`8669cbf18eb459e0375baf7c5bf7d4685839716d997c47d8ecce09cad216ad7f`.
+The original 439,677-byte bundle above is unchanged. Neither bundle asserts the
+fresh final configured run passed or the task was adopted.
+
+Same-host/input/config synthetic debug comparison retains 30 measured warm
+operations and five fresh-process first operations per condition. The initial
+producer warm p95 regression of about **14.4%** is retained. After attributing a
+redundant raster validation, only the private concrete-render path reuses the
+analyzer's sealed validation postcondition; supplied/reused artifacts and external
+validator construction still fully validate raster evidence, with malformed-raster
+negative coverage. Post-change producer warm median is **+4.786%**, warm p95
+**+10.815%**, and fresh p95 **+3.615%** against DX-01; peak RSS is
+**115,253,248 versus 113,848,320 bytes**. This does not restore baseline performance
+or establish a producer p95 pass at 10%. The Roadmap's 10% gate applies to ordinary
+metadata operations; measured Rename/Rank satisfy it in the initial comparison.
+Generate/Refine use stochastic recipes and evolving history, so their timings are
+reported observations, not strict same-output A/B proof. Filesystem caches were
+uncontrolled; no native paint, signed-app, camera scheduling or hardware claim.
+Timings pin their actual measured source in the evidence manifest. Subsequent
+requirement preservation and membership/lineage validation changes passed the
+separate focused checks above; no retiming of that exact final source is claimed.
+DX-20 still owns the integrated final performance gate.
+
+DX-05 still owns Library dependency inversion, exact-reference catalog adoption
+and retirement of ambiguous identity/cache paths; the existing retained Library
+catalog still depends on Artists/Runtime. DX-07 retention semantics are unchanged:
+current generation still persists through the legacy portfolio. No production archive/data mutation,
+cleanup, physical run, signed-app acceptance or new retention policy occurred.
+DX-03 and DX-04 become the next dependency-eligible tickets only after authoritative
+DX-02 completion; this receipt alone does not select them.
+
+### Frozen acceptance scope
+
+The accepted DX-02 contract remains additive: new Core value/ref, admission, pure
+edit and typed producer interfaces must serve real callers; isolate camera/runtime
+adapters at composition, leaving the remaining Library dependency inversion to
+DX-05. Allowed implementation paths were `Sources/PortraitCore/`, additive exchange
+values in `Sources/PlotterModel/` only for existing ownership, `Package.swift`,
+`Sources/PortraitArtists/{PortraitPhotoCapture,PortraitCandidate,PortraitSourcePreparation}.swift`,
+shared Studio/executable compositions and dependency tests,
+`Tests/PlotterAppTests/DrawingPackageTests.swift`, exchange fixtures and independent
+reader tests in `Tools/`. Required wire scope includes exact Drawing/Photo/Input
+and parent tri-state refs, original JSON, program profile, producer claims, units,
+transforms, feature handling, asset layouts/limits, job/snapshot handles and
+assessment/capsule refs. Gate: Swift/Python exact-byte, geometry and APCB agreement
+on the declared vectors; reject known invalid claims and preserve unknown optional
+bytes. Recovery: additive schemas until consumer migration; never rewrite legacy
+bytes. This preserves the accepted DX-02 constraints formerly in the Roadmap at
+`81d95a892d2d419f8467da52edfd01a242258afb`, not additional migration authority.
+
 ## Drawing Exchange DX-01 baseline receipt, 2026-11-06
 
-Status: **baseline frozen at `b2ff045483f75f6eb60b92dbeb8674c2a11aeba7`**.
-Adoption and final configured-gate results belong to the authoritative Blackdog
-task/run record named below. This is a baseline inventory,
+Status: **adopted at `10139af16a24e43da316542e4399ec09d9c4441f`**; configured
+run `dx01-frozen-tree-20261106` passed. The internal baseline source remains
+`b2ff045483f75f6eb60b92dbeb8674c2a11aeba7`. This is a baseline inventory,
 not a completed exchange cutover or a performance-improvement claim. The reviewed
 source baseline is `6305c0503ae3cae7130bd38d0e2def309a927e88`; the accepted contract
 and roadmap entered this task at `81d95a892d2d419f8467da52edfd01a242258afb`.
@@ -20,11 +169,20 @@ The actual harness/fixture implementation commit is
 `b2ff045483f75f6eb60b92dbeb8674c2a11aeba7` (21 new test/fixture files, no production
 source or package edits); it is distinct from a final landing hash.
 Task `task-8f5e44db9ece4b7a81db4f6d7fd8e6ed`, attempt
-`attempt-b52dd49c1035460f97b299c1591bdda9`, targets `main`. The actual landing
-hash belongs in a subsequent ticket receipt, because a commit
-cannot contain its own hash. No production library, app session or hardware is a
-baseline fixture. This receipt preserves the [DX-01 gate](ROADMAP.md#drawing-exchange)
+`attempt-b52dd49c1035460f97b299c1591bdda9`, targets `main`. The canonical landing
+hash above was recorded during the subsequent DX-02 receipt update; it is distinct
+from the internal harness source commit. No production library, app session or
+hardware is a baseline fixture. This receipt preserves the [DX-01 gate](ROADMAP.md#drawing-exchange)
 and does not satisfy missing measurements by assertion.
+
+The accepted DX-01 scope was read-only inspection of `Package.swift`, `Sources/`,
+`Tests/`, `Tools/`, `Scripts/`, `Resources/` and routed docs, with writes limited to
+baseline fixtures/measurements under existing test conventions and canonical docs.
+Its gate was a reproducible unchanged baseline with caller/deletion matrix,
+ownership and exact commands; recovery discards only generated copies, preserving
+originals. The caller inventory and measurement sections below retain its detailed
+acceptance evidence. These are the completed constraints formerly in the Roadmap
+at `81d95a892d2d419f8467da52edfd01a242258afb`.
 
 ### Reachable callers, replacement and retained owners
 

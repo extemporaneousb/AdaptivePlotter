@@ -1,0 +1,16 @@
+{
+  "artifact": "membership-admission-2026-11-06.json.gz",
+  "artifactSHA256": "8669cbf18eb459e0375baf7c5bf7d4685839716d997c47d8ecce09cad216ad7f",
+  "compressedBytes": 15563,
+  "configuredPassClaimed": false,
+  "decodedBytes": 83254,
+  "decodedSHA256": "f580f87da455735111219bcaea37af4bba7b0212a95d902d6b5ef6e55fcecd15",
+  "finalCoreDeclaredSkipped": 0,
+  "finalCoreExecutedPassed": 23,
+  "finalPythonExecutedPassed": 29,
+  "freshConfiguredRunID": "dx02-feature-closure-20261106",
+  "interruptedRunCompleted": false,
+  "interruptedRunID": "dx02-frozen-tree-20261106",
+  "preservedOriginalBundleSHA256": "6ed75453c07f81ab848555737c9ba689cbe9dc7fb24e1b403017c896e1528275",
+  "profile": "adaptiveplotter.dx02-membership-evidence-manifest/1"
+}

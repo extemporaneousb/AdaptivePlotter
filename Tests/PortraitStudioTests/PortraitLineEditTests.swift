@@ -12,6 +12,33 @@ import ImageIO
 @Suite("Flow Edge whole-line editing", .serialized)
 @MainActor
 struct PortraitLineEditTests {
+  @Test("Stable membership ignores unknown UI picks and restores an all-removed draft without replacing strokes")
+  func stableMembershipBoundary() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let sketches = PortraitSketchCollection(store: PortraitCandidateStore(directoryURL: directory))
+    let model = PortraitLineEditModel(base: try Self.drawing(), sketches: sketches)
+    await model.load()
+    let original = try #require(model.original)
+    let ids = original.program.strokes.map(\.id), unknown = StrokeID()
+    model.remove([unknown]); #expect(!model.canUndo)
+    model.remove(Set(ids)); #expect(model.remainingCount == 0 && !model.canSave)
+    model.restore([ids[1], unknown])
+    #expect(model.removed == Set(ids).subtracting([ids[1]]))
+    #expect(model.remainingCount == 1)
+    model.undo(); #expect(model.remainingCount == 0)
+    model.redo(); #expect(model.remainingCount == 1)
+    #expect(await model.save())
+    let saved = try #require(model.savedDrawing)
+    #expect(saved.program.strokes == [original.program.strokes[1]])
+    let package = try #require(saved.transferredPackage)
+    let record = try #require(try DrawingStrokeSelection.record(in: package))
+    #expect(try record.original() == original)
+    let appliedOperations = try #require(record.operations)
+    let operationStrokeIDs = appliedOperations.flatMap { $0.strokeIDs }
+    #expect(operationStrokeIDs.allSatisfy { ids.contains($0) })
+  }
+
   @Test("Picking chooses the closest visible polyline; lasso includes crossing segments, not just vertices")
   func geometry() throws {
     let program = try Self.program()

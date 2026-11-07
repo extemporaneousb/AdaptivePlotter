@@ -6,6 +6,16 @@ import PortraitArtists
 import PortraitCore
 import PortraitLibrary
 
+/// A physical authoring declaration, independent of preview geometry units.
+package struct FlowDojoAuthoringContext: Equatable, Sendable {
+  package let strokeStyle: StrokeStyle
+  package let nominalPenWidthMM: Double
+  package init(strokeStyle: StrokeStyle, nominalPenWidthMM: Double?) {
+    self.strokeStyle = strokeStyle
+    self.nominalPenWidthMM = nominalPenWidthMM ?? 0.4
+  }
+}
+
 @Observable @MainActor
 package final class FlowDojoModel {
   package enum Stage: String, CaseIterable { case explore = "Explore", prune = "Prune", rank = "Rank", fit = "Fit & deploy" }
@@ -41,7 +51,7 @@ package final class FlowDojoModel {
   @ObservationIgnored private let renderer = FlowDojoRenderer()
   @ObservationIgnored private var work: Task<Void, Never>?
   @ObservationIgnored private var recoveryWork: Task<Void, Never>?
-  @ObservationIgnored private var rendering: Task<PortraitRenderResult, Error>?
+  @ObservationIgnored private var rendering: Task<DrawingProduction<PortraitRenderResult>, Error>?
   @ObservationIgnored private var fitting: Task<FlowArtistFitReport, Error>?
   @ObservationIgnored private var lastWorkID: UUID?
   @ObservationIgnored private var cancelRequested = false
@@ -67,13 +77,15 @@ package final class FlowDojoModel {
   @ObservationIgnored private let renderOverride: (@Sendable (Data, FlowArtistRecipe, StrokeStyle) async throws -> PortraitRenderResult)?
   @ObservationIgnored private let fitOverride: (@Sendable ([FlowArtistExample], [FlowArtistRanking]) async throws -> FlowArtistFitReport)?
   package private(set) var strokeStyle: StrokeStyle
+  package private(set) var nominalPenWidthMM: Double
 
   package init(directory: URL = FlowDojoModel.defaultDirectory,
-    strokeStyle: StrokeStyle? = nil, purpose: FlowPortfolioPurpose? = nil,
+    strokeStyle: StrokeStyle? = nil, nominalPenWidthMM: Double = 0.4, purpose: FlowPortfolioPurpose? = nil,
     render: (@Sendable (Data, FlowArtistRecipe, StrokeStyle) async throws -> PortraitRenderResult)? = nil,
     fit: (@Sendable ([FlowArtistExample], [FlowArtistRanking]) async throws -> FlowArtistFitReport)? = nil,
     metadataJoinHook: (@MainActor () async -> Void)? = nil) {
     self.directory = directory; self.purpose = purpose
+    self.nominalPenWidthMM = nominalPenWidthMM
     self.strokeStyle = strokeStyle ?? (try! StrokeStyle(nominalLineWidth: 0.4,
       penProfileID: PenProfileID(UUID(uuidString: "00000000-0000-0000-0000-000000000001")!)))
     renderOverride = render; fitOverride = fit; self.metadataJoinHook = metadataJoinHook
@@ -267,15 +279,16 @@ package final class FlowDojoModel {
     await hook?()
   }
 
-  package func updateStrokeStyle(_ style: StrokeStyle) {
+  package func updateStrokeStyle(_ style: StrokeStyle, nominalPenWidthMM: Double? = nil) {
     guard !closed, !closing else { return }
     strokeStyle = style
+    self.nominalPenWidthMM = FlowDojoAuthoringContext(strokeStyle: style, nominalPenWidthMM: nominalPenWidthMM).nominalPenWidthMM
   }
 
   package func generate(refining: Bool) async {
     guard let store, let source = selectedSource else { return }
     let parent = refining ? candidate : nil
-    let pen = strokeStyle, panelCount = min(9, max(3, count))
+    let pen = strokeStyle, nominalWidth = nominalPenWidthMM, panelCount = min(9, max(3, count))
     if refining && parent == nil { return }
     await perform(refining ? "Preparing refinement…" : "Preparing broad exploration…") {
       self.cancelRequested = self.closing
@@ -302,32 +315,49 @@ package final class FlowDojoModel {
       for (slot, recipe) in recipes.enumerated() {
         if Task.isCancelled || self.cancelRequested { cancelled = true; break }
         self.progress = "Drawing \(slot + 1) of \(recipes.count)…"
+        let production: DrawingProduction<PortraitRenderResult>
         let result: PortraitRenderResult
+        let admittedProgram: DrawingProgram
         let preview: Data
         let removed: Set<Int>
         let probabilities: [Double]?
         let score: Double
         do {
           let renderer = self.renderer, override = self.renderOverride
+          let parentLink: SourceLink<DrawingRef> = parent == nil ? .none
+            : .unavailable(reason: "Legacy portfolio parent has no retained DrawingRef", knownRef: nil)
+          let input = PortraitFlowDrawingProducer.Input(data: data, parent: parentLink)
+          let settings = PortraitFlowDrawingProducer.Settings(recipe: recipe,
+            analysisOptions: FlowDojoRenderer.analysisOptions, strokeStyle: pen, nominalPenWidthMM: nominalWidth)
           if slot == 0, let parent {
-            result = PortraitRenderResult(raster: try await store.candidateRaster(parent.id),
+            let reused = PortraitRenderResult(raster: try await store.candidateRaster(parent.id),
               program: try await store.candidateProgram(parent.id))
+            production = try PortraitFlowDrawingProducer.admit(result: reused, input: input,
+              settings: settings, origin: .reusedArtifacts)
+            result = production.artifacts
+            admittedProgram = production.drawing.program
             preview = try await store.candidatePreview(parent.id)
             removed = Set(inheritedRevision?.removedIndices ?? [])
             probabilities = nil
           } else {
             let worker = Task.detached(priority: .userInitiated) {
-              if let override { return try await override(data, recipe, pen) }
-              return try await renderer.render(data: data, recipe: recipe, strokeStyle: pen)
+              if let override {
+                return try PortraitFlowDrawingProducer.admit(result: await override(data, recipe, pen),
+                  input: input, settings: settings, origin: .providedArtifacts)
+              }
+              return try await renderer.produce(data: data, recipe: recipe, strokeStyle: pen,
+                nominalPenWidthMM: nominalWidth, parent: parentLink)
             }
             self.rendering = worker
-            result = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+            production = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
             self.rendering = nil
+            result = production.artifacts
+            admittedProgram = production.drawing.program
             try Task.checkCancellation()
-            preview = try await Task.detached { try FlowDojoRenderer.preview(result.program) }.value
+            preview = try await Task.detached { try FlowDojoRenderer.preview(admittedProgram) }.value
             if let checkpoint {
               let inference = try await Task.detached {
-                let features = FlowArtistFeatures.strokes(recipe: recipe, program: result.program, raster: result.raster)
+                let features = FlowArtistFeatures.strokes(recipe: recipe, program: admittedProgram, raster: result.raster)
                 return (try checkpoint.deletionProbabilities(strokeFeatures: features),
                   try checkpoint.removedIndices(strokeFeatures: features))
               }.value
@@ -337,7 +367,7 @@ package final class FlowDojoModel {
           let mask = removed
           score = try await Task.detached {
             try checkpoint?.score(features: FlowArtistFeatures.drawing(recipe: recipe,
-              program: result.program, raster: result.raster, removedIndices: mask)) ?? 0
+              program: admittedProgram, raster: result.raster, removedIndices: mask)) ?? 0
           }.value
           let fingerprint = DrawingPackageCodec.sha256(preview)
           guard seenPreviews.insert(fingerprint).inserted else {
@@ -355,7 +385,7 @@ package final class FlowDojoModel {
         // Storage failures are not renderer failures. Stop without overwriting a
         // completed slot; recovery marks any unfinished round interrupted.
         let saved = try await store.completeCandidate(roundID: round.id, slot: slot,
-          program: result.program, raster: result.raster, previewPNG: preview)
+          program: admittedProgram, raster: result.raster, previewPNG: preview)
         if slot == 0, parent != nil, let inheritedRevision {
           _ = try await store.applyPrune(candidateID: saved.id, action: .inheritedSelection,
             indices: removed.sorted(), inheritedFromRevisionID: inheritedRevision.id)
