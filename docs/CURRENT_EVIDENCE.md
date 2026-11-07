@@ -8,16 +8,301 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing Exchange DX-03 closed-carrier receipt, 2026-11-07
+
+Status: **implemented source and measured inert-software evidence; final configured gate and adoption remain machine-owned**.
+Task `task-6209a9f4548346f3abe26c035dddb56f`, attempt
+`attempt-f51db17600b24b52a6d81439c49ce570`, targets `main` from adopted DX-02
+`66b830b15ac70fdd6dfbf08ddc5be440fe1568e7`. The immutable outcome definition is
+`3f38da3999559b37fee9cca21ebc204f5f94da1a913c385448f769356ce68bcb`.
+The task source/evidence commit is `aa93101af5851228191462d51f482f24c6a2c9ac`,
+tree `441ab6740f2a1fcd7c7d2332c6035b5b23c1fbd9`: 96 code/test/evidence files,
+excluding the final documentation edits. This is not canonical adoption.
+Configured run `dx03-inert-carrier-closure-20261107` is planned and was not yet
+invoked when this receipt was prepared. The authoritative Blackdog task/run owns
+its eventual result and adoption; the observations below do not predict either.
+
+### Implemented boundary and preserved callers
+
+- `DrawingExchangeCarrier.stageDirectory` and `stageZIP` produce a
+  `StagedExchangePackage` only after private staging, streaming file integrity and
+  exact BagIt/tag-manifest verification. `VerifiedExchangeFiles` has no public
+  constructor; its bounded record reads, file lengths and asset proofs replace
+  eager media dictionaries on the new carrier path. Staging grants no Drawing,
+  Library-publication or physical-evidence operation.
+- `ExchangeAdmission.validate` checks the known application closure and returns
+  the separately sealed `ValidatedExchangePackage`. Original-byte views cover
+  `ExchangeIndex`, job receipts, attempt snapshots, assessments and ranking
+  capsules. `ExchangeIndexAdmission` distinguishes known v1 inspection from an
+  opaque unfamiliar-major index, without inventing missing v1 fields. The
+  `files:` overloads of `DrawingExchangeCodec.decode` and
+  `DrawingImageAdmission.photo`/`input` retain the existing dictionary APIs for
+  bounded legacy callers. The new exchange-v1 codec is extended/factored here;
+  legacy `DrawingPackage`/portraitdrawing v1 compatibility decoders and
+  `DrawingProgram.contentHash` remain unchanged.
+- `preserveDirectory` and `preserveZIP` copy verified immutable bytes. Frozen
+  JSON, program objects, unknown optional fields and every declared requirement
+  survive re-export. When enclosing index requirements are unsupported, Drawing
+  admissions remain opaque rather than exposing an independently refreezable,
+  plot-eligible Drawing. Explicit supported-feature re-admission can expose the
+  same DrawingRef; it does not rewrite intrinsic Drawing requirements.
+- `ExchangeEncodedImageProof` separates bounded encoded-container/header proof
+  from explicit pixel decoding. Its decoded value states channel order, row
+  stride, component/byte/alpha interpretation and orientation policy. Header
+  validation does not claim decoded pixels, source semantics, observations or
+  physical readiness. Unsupported optional orientation, color-space or
+  decoded-digest claims limit encoded-image proof; header validation does not
+  externally verify every optional asset fact. Raw layouts separately retain
+  their mandatory orientation/color interpretation. Raw/array layout checks use
+  declared bounds and file lengths without materializing media.
+- Independent `Tools/DrawingExchange/carrier.py` adds inert directory/ZIP import
+  to the existing Python Drawing/APCB reader, using a file-backed resolver and
+  retaining verified bytes for preservation. Its CLI takes a source and `--staging-parent`; the
+  [tool guide](../Tools/DrawingExchange/README.md) records the concrete format,
+  limits and unsupported semantics. No existing Library, Studio, plotter or raw
+  run-evidence writer was replaced by this ticket. Consumer adoption remains
+  DX-04/05/06 and later work.
+
+### Closed profile, recovery and semantic limits
+
+Known exchange v1 requires the exact BagIt two-line header, lowercase SHA-256
+payload/tag manifests with exact file closure, canonical typed paths and indexed
+canonical object paths. Properly declared opaque objects and retained unselected
+canonical typed records remain valid. A manifest alone cannot admit arbitrary
+extra application payload files. The carrier rejects unsafe paths, duplicate or
+NFC/case-fold-colliding entries, traversal, links/special files, changed staged
+fingerprints, missing/unlisted bytes and digest/type/length/link conflicts.
+Classic single-disk stored/DEFLATE ZIP is supported; ZIP64, encryption, data
+descriptors and other unsupported transport features are refused explicitly.
+Compressed ranges, local/central agreement, expanded length, CRC and DEFLATE end
+conditions are checked independently. Cancellation is observed during streaming
+output, including highly compressible members. There is no whole-archive base64
+or eager raw-media decode.
+
+Known typed relationships resolve to exact local bytes and the intended kind;
+identity/digest conflicts reject. Repeated identical references and descriptors
+with identical modeled facts are idempotent, while their original arrays survive.
+Known optional fact presence is part of descriptor equality; this importer does
+not enrich one repeated descriptor from another. Unknown optional metadata stays
+opaque. Unsupported string enums or dependencies cannot conceal recognizable
+known sibling claims. An unfamiliar-major index preserves any safe manifested
+future layout without asserting v1 application closure.
+
+Result closure pins immutable receipts, exact drawing roots, request/issuance
+bindings and zero-or-one run identity. The known zero-attempt result form is a
+refused job; unknown disposition is neither inferred acceptance nor refusal.
+Known snapshot chains verify sequence/predecessor identity, stable job/drawing/
+environment/intent, no successor after a known seal and cumulative possible-ink
+facts across unknown dispatch strings. A known current snapshot still validates
+its intent, coverage, terminal, plan and assessment claims when a receipt or
+predecessor is opaque. Unknown dependency bodies do not acquire invented v1 facts.
+Sealing is independent of terminal outcome or cancellation. Missing observations
+and omitted historical frontiers never become negative labels or zero progress.
+
+`ExchangePayloadValidators` is a trusted composition-supplied registry for native
+owner payload semantics, separate from envelope integrity. Verified facts bind
+client request, run, issuance, exact drawing, semantic program hash, plan and
+pre-motion association; an exact program-object digest is a separate optional
+claim. Optional proven frontiers remain distinct and cumulative. Bare digests or
+a copied namespace are not physical proof or authentication. Fixture callbacks
+exercise registry refusal and support behavior; they are not production native
+intent/plan/frontier adapters. Unsupported owner/answer semantics block result
+interpretation/training/physical conclusions while inert inspection and full-byte
+preservation remain available. Imported history grants no device readiness,
+possible-ink clearance or retry authority.
+
+The source is not modified. Incoming ZIP bytes and failed/partial private staging
+remain available for inspection; cancellation or admission failure publishes no
+catalog state. The caller owns retained staging cleanup. This is an inert carrier,
+not the DX-06 atomic Library publication/mount transaction.
+
+### Independent verification and retained corrections
+
+Durable commands, source/build identities, per-input decisions, normal-series
+rows and retained failed attempts are in the checked
+[software evidence manifest](../Tests/Fixtures/DrawingExchange/dx03/software-evidence-2026-11-07.manifest.json)
+and [compressed evidence bundle](../Tests/Fixtures/DrawingExchange/dx03/software-evidence-2026-11-07.json.gz):
+**2,157,834 compressed / 7,243,226 decoded bytes**, bundle SHA-256
+`b70934e21c2d83d04fb1bff0eef07985c10de5e86a03517940afd4e88c26f84e`.
+The manifest SHA-256 is
+`c2b3fa260f3f6168e58845fb46ede71c3525c0bf7e495649eb6dfcb26fd72364`.
+It retains structured receipts/log text with original artifact byte hashes:
+163 parsed JSON receipt payloads and 57 text logs, each with its original path,
+byte length and SHA-256. These are not exact original JSON receipt byte blobs;
+the separately retained wire fixtures preserve their original bytes. The 220
+artifacts cover six normal groups and all 108 operations, including three
+excluded warmups. Coordinator review checked all 220 against the retained original
+files and the 670 timed-input hashes. Diagnostic `/tmp` paths do not replace this
+retained evidence. Review provenance remains caller-declared, not authenticated.
+The timed-input source-map SHA-256 is
+`bb81ca20cd55ee153e158ac946ee9da0d315ec0c5a936edc48cf858b2e278b78`;
+this identifies the measured inputs separately from the source/evidence commit
+above and the full tree after final documentation additions. The loaded test artifact is
+pinned by SHA-256
+`16c4e54d0d45611708575c9e375cd87faf99cbd5a33ae8c117a3ade8bf3a3c9c`
+and Mach-O UUID `29260791-b422-3935-b715-f3f8db3404ca`.
+
+The shared [expectation manifest](../Tests/Fixtures/DrawingExchange/dx03/cross-reader-expectations.json)
+pins the same **68 compact ZIP inputs** used by Swift and the independent Python
+reader: **21 admitted and 47 refused**. Admitted unsupported/opaque cases retain
+exact bytes without acquiring unknown semantics. Known programs check both the
+original JSON object digest and the independent APCB semantic digest. The
+source-free reference object is
+`6fb592aedc29e2909cc9eb7106fa40699c53ef5783695a8ef8a663c6e11d89b1`;
+its APCB hash is
+`960ce7fe5f34203bdaa451fbd48f401cdb34598bebcb3a8be7a739645f236097`.
+The final matrix result SHA-256 is
+`e25746a3e25536c260115f426195242d47587194cf1fcefe00c97ad9554415dd`.
+
+The matrix exercises genuine coherent closure, not only damaged checksums:
+refusals, missing/mismatched roots, identity/descriptor conflicts, job/request/
+issuance bindings, lost/divergent predecessor chains, post-seal successors,
+sticky possible ink through unknown dispatch, unsupported owner dependencies
+with corrupt known sibling claims, optional metadata, unfamiliar majors,
+required index context, retained ranking feedback and canonical payload
+inventory. Exact import/preservation checks distinguish unsupported semantics
+from integrity failures. Additional carrier/image tests cover traversal,
+link/special entries, ZIP aliases/CRC/stream boundaries, cancellation,
+post-verification mutation, encoded headers/layouts and explicit bounded decode.
+
+A standalone `python -S -B` proof ran in an unrelated directory with only the two
+reader modules and five compact inputs: no repository imports, `jsonschema`,
+application, service or installed Library. It admitted a source-free drawing and
+a sealed two-snapshot possible-ink interrupted result, preserved an exchange-major-9
+index opaquely, and refused bad-CRC/lost-predecessor inputs while retaining incoming
+archives. A manual copy of the verified inventory followed by re-import preserved
+exact bytes; this is not a new Python export API or native handoff. Its result
+SHA-256 is `ca5020136447cd13b4459fb1641b376c449635d7ee179e7696bca4ed551927a5`.
+The runtime is standard-library-only; normative schema cross-check tests separately
+use a provisioned Python with `jsonschema.Draft202012Validator` and `FormatChecker`.
+
+A fresh-scratch, single-job `PortraitCore` target build passed in **86.58 s tool
+reported / 88.354 s wall**. The actual package graph contains only
+`PortraitCore → PlotterModel` in that target's transitive package closure, with no
+PortraitArtists or PlotterRuntime dependency. `Package.swift` remains unchanged;
+its SHA-256 is `d6b682a2ac3e9cd4a7791d197a909807a12644ea76cddb39d7d795f3323abec8`.
+This does not claim the remaining Library dependency inversion or a native-app
+cutover is complete.
+
+The latest compiled closure/instrumentation check reported **20 tests: 19 passed
+and one opt-in performance skip**, 4.837 s test time / 24.670 s wall. Its filter was
+`DrawingExchangeClosureTests|DrawingExchangeCarrierPerformanceTests`; the separate
+normal scale series below supplies the actual performance observations. An earlier
+source-bound images/closure check passed **26 tests in 4.949 s**, before later
+additive telemetry/inventory changes. The earlier legacy
+`DrawingExchangeValueTests|DrawingPackageTests` check passed **23 tests in 1.835 s**.
+Those narrow snapshots are not summed into a full-suite or final-gate count. The
+independent Python run used the still-current reader/carrier sources and reported
+**124 tests: 122 passed and two explicit case-insensitive-directory skips** in
+3.841 s. Final configured validation is separate and was not yet invoked.
+
+Earlier observations are not relabeled as final passes. Initial Swift builds
+succeeded while carrier positives failed at the staging path boundary; canonical
+`/var` versus `/private/var` handling and descriptor-relative staged traversal
+were corrected before successful semantic checks: the first two retained runs
+reported 26 tests / 50 issues and 31 tests / 61 issues respectively. A later nested
+test-macro compile failure executed no tests and was fixed mechanically. The first
+Python run reported 101 tests with one failure and one error from filesystem
+fixture assumptions; corrected host-aware controls and the later source-bound
+result are retained separately. An earlier 50-input matrix matched 47 expectations
+and exposed three real reader-parity failures; the final 68-input matrix above
+records the corrected decisions. Review-driven
+corrections added hash-to-resolver fingerprints, output-time cancellation,
+scoped read budgets, strict known optional fields, opaque-dependency sibling
+closure, index-context gating, sticky ink and full v1 inventory admission.
+Directory case-collision controls explicitly skip on a volume that cannot
+represent both names; coherently manifested ZIP alias/collision controls still
+exercise refusal on that host. Historical failures, source-bound final checks
+and measurement receipts remain separate evidence classes.
+
+### Synthetic raw-directory scale observations
+
+The normal series executed **105 measured import/export pairs and three excluded
+warmups**, all passing their byte, raw-materialization, decode-count and exact
+export checks. Each condition has 30 measured process-warm pairs in one helper
+process and five independent fresh-helper pairs. Percentiles use nearest rank.
+Fixtures contain one, 320 or 640 distinct-digest, ordinarily allocated 16 MiB
+frames: 4,096 × 4,096 gray8, row stride 4,096. There are no sparse-file or hardlink
+substitutes. Raw data totals are 16,777,216; 5,368,709,120; and 10,737,418,240 bytes.
+The 5/10 GiB complete carrier sizes are 5,368,965,856 / 10,737,928,736 bytes.
+
+| Raw fixture | Warm import p50 / p95 (s) | Warm export p50 / p95 (s) | Fresh import p50 / p95 (s) | Fresh export p50 / p95 (s) |
+|---|---:|---:|---:|---:|
+| 16 MiB | 0.086216 / 0.094096 | 0.022991 / 0.028855 | 0.108890 / 0.111395 | 0.024177 / 0.027601 |
+| 5 GiB | 20.449615 / 20.741862 | 4.447352 / 4.506465 | 20.336961 / 20.517745 | 4.399260 / 4.492883 |
+| 10 GiB | 41.125510 / 41.663957 | 10.514585 / 10.584908 | 41.183956 / 41.530575 | 10.615653 / 10.668575 |
+
+Warm-helper lifetime peak RSS is 290,361,344 / 288,722,944 / 292,392,960 bytes;
+the 10-to-5 GiB ratio is **1.01271**. Fresh-helper maximum lifetime RSS is
+287,830,016 / 291,405,824 / 293,888,000 bytes; that ratio is **1.00852**.
+These are actual helper process high-water marks, including import, export and
+untimed output proof. Thirty warm rows share one cumulative process peak; these
+are not independent per-operation allocation or phase-memory measurements.
+Import materializes 256,875 / 510,635 metadata bytes at 5/10 GiB, with **zero raw
+media materialization**, one program decode, one producer-validator callback and
+zero image decodes per operation. The streaming buffer is 1 MiB. Counters describe
+instrumented owner entries/read passes and byte categories, not all allocations.
+Across each Swift import/preservation pair and untimed output proof, the phase
+ledger accounts for four full-file logical read passes, two writes and two SHA
+passes. Tag/record rereads and bounded-record semantic hashes are separate.
+Driver full-source inventory validation adds two read/SHA passes per group,
+four per condition, outside the operation clocks. Fixture preparation hashes
+raw bytes while writing and separately inventories them. These are logical
+passes, not measurements of physical disk I/O; no single-pass optimization claim
+is made.
+
+Host: MacBookPro15,1, Intel Core i9-9880H 2.30 GHz, 16 logical CPUs, 16 GiB RAM,
+macOS 15.8.1 build 24H32, Swift 6.1.2 debug build, internal APFS SSD. Full source
+integrity reads and source/build identity checks run outside measured intervals.
+Filesystem caches were uncontrolled: a fresh process is not a cold filesystem.
+Every row passed exact export verification, and source/build identities matched
+before and after each group. This demonstrates bounded inert synthetic
+raw-directory import/preservation at these inputs, without a prior-carrier
+optimization or baseline-comparison claim. It is not the campaign's mixed
+original/prepared/real-camera/media scale protocol, native UI/paint acceptance,
+ZIP-throughput measurement or integrated final performance gate. Those remain
+with their owning future tickets and DX-20.
+
+### Frozen acceptance scope and remaining work
+
+The accepted DX-03 contract was: implement the declared BagIt directory profile
+and optional ZIP transport with streaming hashes, exact manifests, declared
+closure, safe paths, case-fold collision checks, duplicate-key detection,
+length/decode/expansion limits and overflow checks. Reject traversal,
+symlink/special entries, unlisted/missing files, digest/type/link mismatches and
+incomplete result chains. Preserve opaque unsupported major payloads without
+granting operations. Gate: empty-machine independent import, tamper/refusal matrix
+and bounded allocations on large raw-frame fixtures; no whole-archive base64 or
+eager media decoding. Recovery: failed import leaves original and incoming bytes
+available for inspection, no visible catalog mutation. Allowed implementation
+paths were `Sources/PortraitCore/DrawingPackage.swift`, new exchange carrier/codec
+files in that module, and independent-reader/malformed-fixture tests in
+`Tools/`/`Tests/`, with corresponding canonical documentation.
+
+DX-04 still owns single-writer catalog/storage transactions, conflict publication,
+crash recovery and derived-index rebuild. Its dependency on adopted DX-02 is
+satisfied; this receipt does not select or execute it. DX-05 still owns common
+Library adoption, dependency inversion and retirement of old identity/cache paths;
+DX-06 owns atomic import/export/mount publication. DX-13 and later owner adapters
+still govern native run evidence and runtime/physical authority. No production
+archive promotion, destructive cleanup, signed-native UI acceptance, real camera,
+controller or attended physical run occurred for DX-03.
+
 ## Drawing Exchange DX-02 typed-contract receipt, 2026-11-06
 
-Status: **source/evidence freeze; final configured gate and adoption are machine-owned**.
+Status: **adopted** at canonical `66b830b15ac70fdd6dfbf08ddc5be440fe1568e7`,
+tree `a8d6f6ee594a4293e01f7408533b08bc093fd46e`.
 Task `task-d8595cc784084454bfa3315a9d4c588e`, attempt
 `attempt-aae3925eb74845c8892027e90974e5c7`, targets `main` from adopted DX-01
 `10139af16a24e43da316542e4399ec09d9c4441f`. The immutable outcome definition is
 `441a48d458132fab67c6fb03d480f8f741eb11098e2d89eec29e9e3b21a02664`.
-The authoritative task record and configured run `dx02-feature-closure-20261106`
-own final source-tree validation and adoption; this receipt does not predict either
-result. The earlier `dx02-frozen-tree-20261106` invocation was interrupted during
+The authoritative configured run `dx02-feature-closure-20261106` passed its
+three checks: docs-check 49.855 s, quick-test 957.339 s and diff-check 0.046 s.
+Its retained validation event is
+`0a19e6587ae34e5edfbfea38855a3b8a85251a2590515409083dee9fb820e27e`.
+The full configured Swift test count was not retained and is not inferred from
+focused runs below. These machine-owned results and canonical adoption supersede
+the earlier pending-gate status. The earlier `dx02-frozen-tree-20261106` invocation was interrupted during
 docs-check before Swift tests started, without final JSON: incomplete validation,
 not a test failure. DX-01's configured run
 `dx01-frozen-tree-20261106` passed. Its internal `b2ff045…` baseline source and
@@ -71,7 +356,8 @@ semantic operations; unknown major/representation records remain opaque. Unknown
 or unavailable source semantics are diagnosed independently of valid stroke geometry. Geometry preview/plot/edit
 capabilities neither validate encoded-image expansion nor confer regeneration,
 training or device readiness. PNG/JPEG header/dimension/decode proof and complete
-BagIt/ZIP carrier validation remain DX-03 work.
+BagIt/ZIP carrier validation were left to DX-03; its later receipt above records
+the implemented inert carrier boundary.
 
 ### Verification and performance limits
 
@@ -108,8 +394,9 @@ and [supplement bundle](../Tests/Fixtures/DrawingExchange/dx02/membership-admiss
 retain the final 23/29 checks, exact source hashes, corrections and incomplete prior
 configured invocation: **15,563 compressed / 83,254 decoded bytes**, SHA-256
 `8669cbf18eb459e0375baf7c5bf7d4685839716d997c47d8ecce09cad216ad7f`.
-The original 439,677-byte bundle above is unchanged. Neither bundle asserts the
-fresh final configured run passed or the task was adopted.
+The original 439,677-byte bundle above is unchanged. Neither historical bundle asserts the
+fresh final configured run passed or the task was adopted; those later machine-owned
+results are recorded separately at the start of this receipt.
 
 Same-host/input/config synthetic debug comparison retains 30 measured warm
 operations and five fresh-process first operations per condition. The initial
@@ -135,8 +422,9 @@ and retirement of ambiguous identity/cache paths; the existing retained Library
 catalog still depends on Artists/Runtime. DX-07 retention semantics are unchanged:
 current generation still persists through the legacy portfolio. No production archive/data mutation,
 cleanup, physical run, signed-app acceptance or new retention policy occurred.
-DX-03 and DX-04 become the next dependency-eligible tickets only after authoritative
-DX-02 completion; this receipt alone does not select them.
+Adopted DX-02 satisfies the prerequisites of DX-03 and DX-04. The later DX-03
+receipt records its own implementation/evidence boundary; neither receipt selects
+or executes DX-04.
 
 ### Frozen acceptance scope
 

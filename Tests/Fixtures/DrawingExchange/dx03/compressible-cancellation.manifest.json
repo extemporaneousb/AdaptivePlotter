@@ -1,0 +1,6 @@
+{
+  "archiveSHA256": "b352ea22fe7985f1baba0a6e51b09959799751d30957af57379953f6b247dc7e",
+  "expandedBlobBytes": 67108864,
+  "blobSHA256": "3b6a07d0d404fab4e23b6d34bc6696a6a312dd92821332385e5af7c01c421351",
+  "purpose": "Highly compressible rawDEFLATE output cancellation regression; no physical evidence"
+}

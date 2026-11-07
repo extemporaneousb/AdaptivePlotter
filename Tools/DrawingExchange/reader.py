@@ -112,6 +112,7 @@ def uuid_text(v, canonical=True):
 
 def object_bytes(root, digest, maximum=None):
     require(type(digest) is str and re.fullmatch(r"[0-9a-f]{64}", digest), "object digest")
+    if hasattr(root, "read_object"): return root.read_object(digest, maximum)
     path = root / "objects" / digest
     require(not path.is_symlink(), "object symlink")
     if maximum is not None: require(path.stat().st_size <= maximum, "object size")
@@ -184,7 +185,8 @@ def validate_program(program):
 def declaration(link):
     allowed={"none":{"state"},"present":{"state","ref"},"unavailable":{"state","reason","knownRef"}}
     state=link["state"]
-    require(state in allowed and set(link)<=allowed[state],"link fields")
+    if state not in allowed: return "unsupported"
+    require(set(link)<=allowed[state],"link fields")
     if state=="present": require("ref" in link,"missing ref")
     if state=="unavailable":
         require(type(link.get("reason")) is str and bool(link["reason"]),"unavailable reason")
@@ -195,7 +197,9 @@ def declaration(link):
     return state
 
 def drawing(root, ref, depth=0, *, asset_descriptors=None, supported_features=()):
+    if hasattr(root,"require_path"): root.require_path(ref,"drawings")
     record, raw = load_record(root, ref, depth)
+    require(not known_wrong_profile(record.get("profile"), "drawing"), "wrong Drawing record type")
     if record["profile"] != "adaptiveplotter.drawing/1": return {"opaque":True,"bytes":raw,"blocked":True}
     walltime(record["createdAt"])
     unsupported=features(record,supported_features)
@@ -234,8 +238,8 @@ def drawing(root, ref, depth=0, *, asset_descriptors=None, supported_features=()
     dependency_reasons=[]; dependency_records=[]; dependency_features=set(); parent_result=None
     for name in ("input","parent"):
         link=record[name];state=declaration(link)
-        if state=="unavailable":
-            source_supported=False;dependency_reasons.append(name+": unavailable")
+        if state in ("unavailable","unsupported"):
+            source_supported=False;dependency_reasons.append(name+": "+state)
         if state=="present":
             if name=="parent": child=drawing(root,link["ref"],depth+1,asset_descriptors=asset_descriptors,supported_features=supported_features)
             else: child=image_input(root,link["ref"],depth+1,asset_descriptors=asset_descriptors,supported_features=supported_features)
@@ -323,17 +327,41 @@ def validate_membership(root, record, claim, program, parent_result, depth, *, a
     actual=[stroke(s) for s in sorted(program['strokes'],key=lambda s:s['ordering'])]
     require(actual==expected and extent(program)==extent(before) and source(program)==source(before), 'membership geometry')
 
+def asset_facts(descriptor):
+    """Modeled descriptor facts; vendor-only fields remain in original bytes."""
+    nested={
+        'dimensions':('width','height'),
+        'pixelLayout':('width','height','pixelFormat','componentType','bitDepth','channelOrder','rowStride','byteOrder','orientation','colorInterpretation'),
+        'arrayLayout':('shape','dtype','layout','byteOrder','units'),
+        'decodedDigest':('algorithm','value'),
+    }
+    keys=('object','byteLength','mediaType','encoding','dimensions','orientation','colorSpace','containerType','pixelLayout','arrayLayout','decodedDigest')
+    facts={k:descriptor[k] for k in keys if k in descriptor}
+    for key,fields in nested.items():
+        if key in facts and type(facts[key]) is dict:
+            facts[key]={k:facts[key][k] for k in fields if k in facts[key]}
+    return facts
+
 def asset(root, descriptor, asset_descriptors=None, dimensions=None):
     extra=(asset_descriptors or {}).get(descriptor["object"],{})
-    require(all(k not in descriptor or descriptor[k]==v for k,v in extra.items()),"descriptor contradiction")
+    facts=asset_facts(descriptor)
+    require(all(k not in facts or facts[k]==v for k,v in asset_facts(extra).items()),"descriptor contradiction")
     d={**extra,**descriptor};integer(d["byteLength"])
+    for key in ("orientation","colorSpace","containerType"):
+        if key in d:require(type(d[key]) is str and bool(d[key]),"descriptor string")
+    if "decodedDigest" in d:
+        decoded=d["decodedDigest"];require(type(decoded) is dict and {"algorithm","value"}<=decoded.keys(),"decoded digest fields")
+        for key in ("algorithm","value"):require(type(decoded[key]) is str and bool(decoded[key]),"decoded digest string")
     require(type(d["mediaType"]) is str and re.fullmatch(r"[^\s/]+/[^\s/]+",d["mediaType"]) and type(d["encoding"]) is str and bool(d["encoding"]),"asset types")
-    raw=object_bytes(root,d["object"],32*1024*1024)
-    require(len(raw)==d["byteLength"],"asset length")
+    if hasattr(root,"object_size"):
+        length=root.object_size(d["object"])
+    else:
+        length=len(object_bytes(root,d["object"],32*1024*1024))
+    require(length==d["byteLength"],"asset length")
     for expected in (dimensions,d.get("dimensions")):
         if expected is not None:
-            require(set(expected)=={"width","height"},"dimension fields")
-            for v in expected.values():integer(v,1,8192)
+            require(type(expected) is dict and {"width","height"}<=expected.keys(),"dimension fields")
+            for k in ("width","height"):integer(expected[k],1,8192)
             require(expected["width"]*expected["height"]<=32*1024*1024,"image pixels")
     layout=d.get("pixelLayout")
     known=d["encoding"] in ("raw-gray8","raw-rgb8","raw-rgba8","raw-bgra8")
@@ -349,10 +377,10 @@ def asset(root, descriptor, asset_descriptors=None, dimensions=None):
         require(layout["byteOrder"] in ("little","big","not-applicable"),"byte order")
         row=(layout["width"]*len(channels)*layout["bitDepth"]+7)//8
         size=layout["rowStride"]*layout["height"]
-        require(row<=layout["rowStride"] and size<=SAFE and size==len(raw),"stride/length overflow")
+        require(row<=layout["rowStride"] and size<=SAFE and size==length,"stride/length overflow")
         dims={k:layout[k] for k in ("width","height")}
         for expected in (dimensions,d.get("dimensions")):
-            if expected is not None: require(dims==expected,"asset dimensions")
+            if expected is not None: require(dims=={k:expected[k] for k in ("width","height")},"asset dimensions")
         expected_channels={"gray":["gray"],"rgb":["red","green","blue"],"rgba":["red","green","blue","alpha"],"bgra":["blue","green","red","alpha"]}.get(layout["pixelFormat"])
         if known:
             expected_format={"raw-gray8":"gray","raw-rgb8":"rgb","raw-rgba8":"rgba","raw-bgra8":"bgra"}[d["encoding"]]
@@ -367,17 +395,23 @@ def asset(root, descriptor, asset_descriptors=None, dimensions=None):
         require(a["layout"] in ("row-major","column-major") and a["byteOrder"] in ("little","big","not-applicable"),"array layout")
         for k in ("dtype","units"):require(type(a[k]) is str and bool(a[k]),"array fact")
         widths={"uint8":1,"int8":1,"uint16":2,"int16":2,"float16":2,"uint32":4,"int32":4,"float32":4,"uint64":8,"int64":8,"float64":8}
-        if a["dtype"] in widths:require(product*widths[a["dtype"]]<=SAFE and product*widths[a["dtype"]]==len(raw),"array byte length")
+        if a["dtype"] in widths:require(product*widths[a["dtype"]]<=SAFE and product*widths[a["dtype"]]==length,"array byte length")
         if d["encoding"].startswith("array-"):supported=a["dtype"] in widths
+    if hasattr(root,"validate_media"):
+        supported |= root.validate_media(d, dimensions)
     return supported
 
 def image_input(root, ref, depth=0, *, asset_descriptors=None, supported_features=()):
+    if hasattr(root,"require_path"): root.require_path(ref,"inputs")
     value,raw=load_record(root,ref,depth)
+    require(not known_wrong_profile(value.get("profile"), "image-input"), "wrong ImageInput record type")
     if value["profile"]!="adaptiveplotter.image-input/1":
         return {"bytes":raw,"opaque":True,"blocked":True,"sourceSupported":False,"dependencyReasons":["unsupported ImageInput profile"]}
     unsupported=features(value,supported_features)
+    if hasattr(root,"require_path"): root.require_path(value["photo"],"photos")
     photo,photo_raw=load_record(root,value["photo"],depth+1)
     reasons=[];supported=True
+    require(not known_wrong_profile(photo.get("profile"), "photo"), "wrong Photo record type")
     if photo["profile"]!="adaptiveplotter.photo/1":
         supported=False;reasons.append("unsupported Photo profile")
     else:
@@ -481,3 +515,10 @@ def validate_catalog(record, receipt, program):
         actual=[(p['x'],p['y']) for p in stroke['path']['points']]
         require(actual==expected and stroke['ordering']==i and stroke['semanticRole']==0 and stroke['style']==style,'catalog geometry/style')
         require(uuid.UUID(stroke['id']['rawValue'])==stable('stroke:'+seed+':'+str(i)),'catalog stroke ID')
+
+
+def known_wrong_profile(profile, expected):
+    known={"drawing","image-input","photo","assessment","feature-ranking","plot-attempt","plot-job-receipt","coverage","exchange"}
+    if not isinstance(profile,str): return False
+    family=profile.removeprefix("adaptiveplotter.").split("/")[0]
+    return family in known and family!=expected

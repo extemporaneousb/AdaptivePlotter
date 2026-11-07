@@ -19,11 +19,19 @@ public struct ExchangeImageInputRecord: Sendable {
   public let supportedSemantics: Bool
 }
 public enum DrawingImageAdmission {
-  static func bytes(_ digest: ExchangeDigest, in objects: [ExchangeDigest: Data]) throws -> Data {
-    guard let bytes = objects[digest] else { throw DrawingExchangeError.missingAsset(digest.description) }
-    guard ExchangeDigest.hash(bytes) == digest else { throw DrawingExchangeError.digestMismatch(digest.description) }
-    return bytes
+  public static func photo(_ expected: PhotoRef, objects: [ExchangeDigest: Data], supportedFeatures: Set<String> = [], assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]) throws -> ExchangePhotoRecord {
+    try photo(expected, objects: .dictionary(objects), supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors)
   }
+  public static func photo(_ expected: PhotoRef, files: VerifiedExchangeFiles, supportedFeatures: Set<String> = [], assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]) throws -> ExchangePhotoRecord {
+    try photo(expected, objects: .files(files, budget: .init(maximum: files.limits.maximumMaterializedBytes)), supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors)
+  }
+  public static func input(_ expected: ImageInputRef, objects: [ExchangeDigest: Data], supportedFeatures: Set<String> = [], assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]) throws -> ExchangeImageInputRecord {
+    try input(expected, objects: .dictionary(objects), supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors)
+  }
+  public static func input(_ expected: ImageInputRef, files: VerifiedExchangeFiles, supportedFeatures: Set<String> = [], assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]) throws -> ExchangeImageInputRecord {
+    try input(expected, objects: .files(files, budget: .init(maximum: files.limits.maximumMaterializedBytes)), supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors)
+  }
+  static func bytes(_ digest: ExchangeDigest, in objects: ExchangeObjectResolver) throws -> Data { try objects.bytes(digest) }
   static func decode<T: Decodable>(_ value: Any?, as type: T.Type) throws -> T {
     guard let value else { throw DrawingExchangeError.malformed("Missing field") }
     return try JSONDecoder().decode(type, from: JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed))
@@ -37,9 +45,9 @@ public enum DrawingImageAdmission {
     return (width, height)
   }
   /// Unknown encodings remain preservable. Recognized raw encodings require complete checked layout.
-  static func validateImageAsset(_ raw: Any?, objects: [ExchangeDigest: Data], descriptors: [ExchangeDigest: ExchangeAssetDescriptor], dimensions expected: (Int, Int)? = nil) throws -> (ExchangeAsset, Bool) {
+  static func validateImageAsset(_ raw: Any?, objects: ExchangeObjectResolver, descriptors: [ExchangeDigest: ExchangeAssetDescriptor], dimensions expected: (Int, Int)? = nil) throws -> (ExchangeAsset, Bool) {
     let descriptor = try decode(raw, as: ExchangeAsset.self)
-    let data = try bytes(descriptor.object, in: objects); try descriptor.validate(data)
+    try objects.validate(descriptor)
     if let object = raw as? [String: Any] {
       for key in ["dimensions", "orientation", "colorSpace", "containerType", "pixelLayout", "arrayLayout", "decodedDigest"] where object[key] is NSNull { throw DrawingExchangeError.malformed("Null descriptor field") }
     }
@@ -55,10 +63,26 @@ public enum DrawingImageAdmission {
         dimensions.width <= DrawingTransferLimits.maximumImagePixels / dimensions.height else { throw DrawingExchangeError.limit("Descriptor dimensions") }
       if let expected, dimensions.width != expected.0 || dimensions.height != expected.1 { throw DrawingExchangeError.malformed("Descriptor dimensions disagree") }
     }
+    if let left = inline.orientation, let right = indexed?.orientation, left != right { throw DrawingExchangeError.malformed("Conflicting orientation") }
+    if let left = inline.colorSpace, let right = indexed?.colorSpace, left != right { throw DrawingExchangeError.malformed("Conflicting color space") }
+    if let left = inline.containerType, let right = indexed?.containerType, left != right { throw DrawingExchangeError.malformed("Conflicting container type") }
+    if let left = inline.decodedDigest, let right = indexed?.decodedDigest, left != right { throw DrawingExchangeError.malformed("Conflicting decoded digest") }
     let pixelLayout = inline.pixelLayout ?? indexed?.pixelLayout
     let arrayLayout = inline.arrayLayout ?? indexed?.arrayLayout
     if let pixelLayout { _ = try pixelLayout.requiredBytes() }
     if let arrayLayout { _ = try arrayLayout.elementCount() }
+    if case .files(let files, _) = objects {
+      let merged = ExchangeAssetDescriptor(asset: descriptor, dimensions: inline.dimensions ?? indexed?.dimensions ?? expected.map { ExchangeDimensions(width: $0.0, height: $0.1) },
+        pixelLayout: pixelLayout, arrayLayout: arrayLayout,
+        orientation: inline.orientation ?? indexed?.orientation, colorSpace: inline.colorSpace ?? indexed?.colorSpace,
+        containerType: inline.containerType ?? indexed?.containerType, decodedDigest: inline.decodedDigest ?? indexed?.decodedDigest)
+      if let expected {
+        if let d = merged.dimensions, d.width != expected.0 || d.height != expected.1 { throw DrawingExchangeError.malformed("Image dimensions") }
+        if let l = pixelLayout, l.width != expected.0 || l.height != expected.1 { throw DrawingExchangeError.malformed("Raw dimensions") }
+      }
+      return (descriptor, try files.validateAsset(merged).isSupported)
+    }
+    let data = try objects.bytes(descriptor.object, maximum: DrawingTransferLimits.sourceBytes)
     // Recognized aliases specify interleaved unsigned 8-bit components in this exact order.
     let knownRaw: [String: (format: String, channels: [String])] = [
       "raw-gray8": ("gray", ["gray"]), "raw-rgb8": ("rgb", ["red", "green", "blue"]),
@@ -87,7 +111,7 @@ public enum DrawingImageAdmission {
       features.allSatisfy(exchangeNamespacedID) else { throw DrawingExchangeError.malformed("Required features") }
     return features
   }
-  public static func photo(_ expected: PhotoRef, objects: [ExchangeDigest: Data], supportedFeatures: Set<String> = [], assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]) throws -> ExchangePhotoRecord {
+  static func photo(_ expected: PhotoRef, objects: ExchangeObjectResolver, supportedFeatures: Set<String>, assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor]) throws -> ExchangePhotoRecord {
     let data = try bytes(expected.digest, in: objects), json = try ExchangeJSON.validate(data)
     guard let profile = json["profile"] as? String, exchangeNamespacedID(profile) else { throw DrawingExchangeError.malformed("Photo profile") }
     guard profile == "adaptiveplotter.photo/1" else { throw DrawingExchangeError.unsupportedProfile(profile) }
@@ -107,12 +131,12 @@ public enum DrawingImageAdmission {
       }
     }
     if let capture = json["captureFacts"] {
-      let descriptor = try decode(capture, as: ExchangeAsset.self); try descriptor.validate(bytes(descriptor.object, in: objects))
+      let descriptor = try decode(capture, as: ExchangeAsset.self); try objects.validate(descriptor)
     }
     return .init(originalJSON: data, reference: expected, original: asset, width: width, height: height,
       supportedSemantics: declaredFeatures.allSatisfy(supportedFeatures.contains) && encodingSupported)
   }
-  public static func input(_ expected: ImageInputRef, objects: [ExchangeDigest: Data], supportedFeatures: Set<String> = [], assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]) throws -> ExchangeImageInputRecord {
+  static func input(_ expected: ImageInputRef, objects: ExchangeObjectResolver, supportedFeatures: Set<String>, assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor]) throws -> ExchangeImageInputRecord {
     let data = try bytes(expected.digest, in: objects), json = try ExchangeJSON.validate(data)
     guard let profile = json["profile"] as? String, exchangeNamespacedID(profile) else { throw DrawingExchangeError.malformed("Input profile") }
     guard profile == "adaptiveplotter.image-input/1" else { throw DrawingExchangeError.unsupportedProfile(profile) }
@@ -120,8 +144,13 @@ public enum DrawingImageAdmission {
     guard identity == expected.identity else { throw DrawingExchangeError.digestMismatch("Input identity") }
     var supported = try features(json).allSatisfy(supportedFeatures.contains)
     let photoRef = try decode(json["photo"], as: PhotoRef.self)
-    let source = try photo(photoRef, objects: objects, supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors)
-    supported = supported && source.supportedSemantics
+    do {
+      let source = try photo(photoRef, objects: objects, supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors)
+      supported = supported && source.supportedSemantics
+    } catch DrawingExchangeError.unsupportedProfile {
+      // The Photo is opaque, but every known claim in this ImageInput must still close.
+      supported = false
+    }
     guard let basis = json["pixelBasis"] as? [String: Any], let orientation = basis["orientation"] as? String,
       !orientation.isEmpty, basis["origin"] as? String == "top-left", basis["xAxis"] as? String == "right",
       basis["yAxis"] as? String == "down", basis["pixelEdges"] as? String == "integer",
@@ -149,7 +178,7 @@ public enum DrawingImageAdmission {
       if !["identity", "crop", "rotate", "scale", "mask"].contains(kind) { supported = false }
       if kind == "mask" { needsMask = true }
       let parameters = try decode(operation["parameters"], as: ExchangeAsset.self)
-      try parameters.validate(bytes(parameters.object, in: objects))
+      try objects.validate(parameters)
     }
     guard !needsMask || mask != nil else { throw DrawingExchangeError.missingAsset("Declared mask operation has no mask") }
     guard let preparation = json["preparation"] as? [String: Any],

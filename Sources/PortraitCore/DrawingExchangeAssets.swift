@@ -132,29 +132,55 @@ public struct ExchangeDimensions: Hashable, Codable, Sendable {
   public let height: Int
   public init(width: Int, height: Int) { self.width = width; self.height = height }
 }
+public struct ExchangeDecodedDigest: Codable, Hashable, Sendable {
+  public let algorithm: String
+  public let value: String
+  public init(algorithm: String, value: String) throws {
+    guard !algorithm.isEmpty, !value.isEmpty else { throw DrawingExchangeError.malformed("Decoded digest") }
+    self.algorithm = algorithm; self.value = value
+  }
+  enum CodingKeys: String, CodingKey { case algorithm, value }
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    try self.init(algorithm: c.decode(String.self, forKey: .algorithm), value: c.decode(String.self, forKey: .value))
+  }
+}
 /// Flattened AssetDescriptor, usable directly from ExchangeIndex.assets.
 public struct ExchangeAssetDescriptor: Codable, Hashable, Sendable {
   public let asset: ExchangeAsset
   public let dimensions: ExchangeDimensions?
   public let pixelLayout: ExchangePixelLayout?
   public let arrayLayout: ExchangeArrayLayout?
+  public let orientation: String?
+  public let colorSpace: String?
+  public let containerType: String?
+  public let decodedDigest: ExchangeDecodedDigest?
   public init(asset: ExchangeAsset, dimensions: ExchangeDimensions? = nil,
-    pixelLayout: ExchangePixelLayout? = nil, arrayLayout: ExchangeArrayLayout? = nil) {
+    pixelLayout: ExchangePixelLayout? = nil, arrayLayout: ExchangeArrayLayout? = nil,
+    orientation: String? = nil, colorSpace: String? = nil, containerType: String? = nil, decodedDigest: ExchangeDecodedDigest? = nil) {
     self.asset = asset; self.dimensions = dimensions; self.pixelLayout = pixelLayout; self.arrayLayout = arrayLayout
+    self.orientation = orientation; self.colorSpace = colorSpace; self.containerType = containerType; self.decodedDigest = decodedDigest
   }
-  enum CodingKeys: String, CodingKey { case dimensions, pixelLayout, arrayLayout }
+  enum CodingKeys: String, CodingKey { case dimensions, pixelLayout, arrayLayout, orientation, colorSpace, containerType, decodedDigest }
   public init(from decoder: Decoder) throws {
     asset = try ExchangeAsset(from: decoder)
     let c = try decoder.container(keyedBy: CodingKeys.self)
     dimensions = c.contains(.dimensions) ? try c.decode(ExchangeDimensions.self, forKey: .dimensions) : nil
     pixelLayout = c.contains(.pixelLayout) ? try c.decode(ExchangePixelLayout.self, forKey: .pixelLayout) : nil
     arrayLayout = c.contains(.arrayLayout) ? try c.decode(ExchangeArrayLayout.self, forKey: .arrayLayout) : nil
+    orientation = c.contains(.orientation) ? try c.decode(String.self, forKey: .orientation) : nil
+    colorSpace = c.contains(.colorSpace) ? try c.decode(String.self, forKey: .colorSpace) : nil
+    containerType = c.contains(.containerType) ? try c.decode(String.self, forKey: .containerType) : nil
+    decodedDigest = c.contains(.decodedDigest) ? try c.decode(ExchangeDecodedDigest.self, forKey: .decodedDigest) : nil
+    guard [orientation, colorSpace, containerType].allSatisfy({ $0?.isEmpty != true }) else { throw DrawingExchangeError.malformed("Asset metadata") }
   }
   public func encode(to encoder: Encoder) throws {
     try asset.encode(to: encoder)
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encodeIfPresent(dimensions, forKey: .dimensions); try c.encodeIfPresent(pixelLayout, forKey: .pixelLayout)
     try c.encodeIfPresent(arrayLayout, forKey: .arrayLayout)
+    try c.encodeIfPresent(orientation, forKey: .orientation); try c.encodeIfPresent(colorSpace, forKey: .colorSpace)
+    try c.encodeIfPresent(containerType, forKey: .containerType); try c.encodeIfPresent(decodedDigest, forKey: .decodedDigest)
   }
 }
 public struct ExchangeTransform: Hashable, Codable, Sendable {

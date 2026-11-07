@@ -63,13 +63,20 @@ public enum DrawingExchangeCodec {
   }
   public static func decode(_ record: Data, objects: [ExchangeDigest: Data], expected: DrawingRef? = nil,
     validators: DrawingProducerValidators = .init(), supportedFeatures: Set<String> = [], assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]) throws -> DrawingRecordAdmission {
-    try decodeRecord(record, objects: objects, expected: expected, validators: validators, supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors, depth: 0)
+    try decodeRecord(record, objects: .dictionary(objects), expected: expected, validators: validators, supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors, depth: 0)
   }
-  private static func decodeRecord(_ record: Data, objects: [ExchangeDigest: Data], expected: DrawingRef?,
+  public static func decode(_ record: Data, files: VerifiedExchangeFiles, expected: DrawingRef? = nil,
+    validators: DrawingProducerValidators = .init(), supportedFeatures: Set<String> = [], assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]) throws -> DrawingRecordAdmission {
+    try decodeRecord(record, objects: .files(files, budget: .init(maximum: files.limits.maximumMaterializedBytes)), expected: expected, validators: validators, supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors, depth: 0)
+  }
+  private static func decodeRecord(_ record: Data, objects: ExchangeObjectResolver, expected: DrawingRef?,
     validators: DrawingProducerValidators, supportedFeatures: Set<String>, assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor], depth: Int) throws -> DrawingRecordAdmission {
-    guard depth <= 64, objects.count <= 10_000 else { throw DrawingExchangeError.limit("Record closure") }
+    guard depth <= 64 else { throw DrawingExchangeError.limit("Record depth") }
+    if case .dictionary(let dictionary) = objects, dictionary.count > 10_000 { throw DrawingExchangeError.limit("Record closure") }
     guard record.count <= ExchangeJSON.maximumRecordBytes else { throw DrawingExchangeError.limit("Record bytes") }
-    if let expected, expected.digest != .hash(record) { throw DrawingExchangeError.digestMismatch("Drawing bytes") }
+    let recordDigest = ExchangeDigest.hash(record)
+    if case .files(let files, _) = objects { files.counters.update { $0.semanticBytesHashed += UInt64(record.count) } }
+    if let expected, expected.digest != recordDigest { throw DrawingExchangeError.digestMismatch("Drawing bytes") }
     let object = try ExchangeJSON.validate(record)
     guard let profile = object["profile"] as? String else { throw DrawingExchangeError.malformed("Missing profile") }
     guard profile == drawingProfile else { return .opaque(originalJSON: record, profile: profile) }
@@ -86,17 +93,18 @@ public enum DrawingExchangeCodec {
     guard exchangeDate(wire.createdAt) != nil,
       Set(wire.requiredFeatures).count == wire.requiredFeatures.count,
       wire.requiredFeatures.allSatisfy(exchangeNamespacedID) else { throw DrawingExchangeError.malformed("Date/features") }
-    let ref = DrawingRef(issuer: wire.ref.issuer, revision: wire.ref.revision, digest: .hash(record))
+    let ref = DrawingRef(issuer: wire.ref.issuer, revision: wire.ref.revision, digest: recordDigest)
     if let expected, ref != expected { throw DrawingExchangeError.digestMismatch("Drawing reference") }
     guard wire.representation.kind == strokeProfile else { return .opaque(originalJSON: record, profile: wire.representation.kind) }
-    guard let programBytes = objects[wire.representation.object] else { throw DrawingExchangeError.missingAsset("Program") }
+    let programBytes = try objects.bytes(wire.representation.object, maximum: DrawingExchangeLimits.maximumProgramBytes)
     guard programBytes.count <= DrawingExchangeLimits.maximumProgramBytes else { throw DrawingExchangeError.limit("Program bytes") }
-    guard ExchangeDigest.hash(programBytes) == wire.representation.object else { throw DrawingExchangeError.digestMismatch("Program object") }
     // Strict JSON preflight uses a separate program-size limit and rejects ambiguous duplicate keys.
     _ = try ExchangeJSON.validate(programBytes, maximumBytes: DrawingExchangeLimits.maximumProgramBytes)
+    if case .files(let files, _) = objects { files.counters.update { $0.programJSONDecodeCalls += 1 } }
     let program = try JSONDecoder().decode(DrawingProgram.self, from: programBytes)
     guard wire.representation.programHash == ExchangeDigest(program.contentHash) else { throw DrawingExchangeError.digestMismatch("Program semantic hash") }
-    guard let receiptBytes = objects[wire.producer.record] else { throw DrawingExchangeError.missingAsset("Producer record") }
+    let receiptBytes = try objects.bytes(wire.producer.record)
+    if case .files(let files, _) = objects { files.counters.update { $0.semanticBytesHashed += UInt64(receiptBytes.count) } }
     let receipt = try DrawingProducerReceipt(id: wire.producer.id, version: wire.producer.version, recordJSON: receiptBytes)
     guard receipt.record == wire.producer.record else { throw DrawingExchangeError.digestMismatch("Producer record") }
     let validator = validators.validators[.init(id: receipt.id, version: receipt.version)] ?? builtinValidator(receipt.id, version: receipt.version)
@@ -117,7 +125,10 @@ public enum DrawingExchangeCodec {
     let units = try DrawingUnits(nominalPenWidthMM: wire.representation.nominalPenWidthMillimeters,
       intendedPhysicalFieldMM: wire.representation.intendedPhysicalFieldMillimeters,
       historical: historical?.units, historicalReceipt: historical?.producerReceipt)
-    if let validator { try validator(receipt, .init(program: program, input: wire.input, parent: wire.parent, units: units)) }
+    if let validator {
+      if case .files(let files, _) = objects { files.counters.update { $0.producerValidatorEntries += 1 } }
+      try validator(receipt, .init(program: program, input: wire.input, parent: wire.parent, units: units))
+    }
     let unknown = wire.requiredFeatures.filter { !supportedFeatures.contains($0) }
     var sourceDependencies: [String] = []
     if case .present(let input) = wire.input {

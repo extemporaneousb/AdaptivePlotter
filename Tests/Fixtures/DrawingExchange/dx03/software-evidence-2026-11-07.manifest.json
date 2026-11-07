@@ -1,0 +1,41 @@
+{
+  "adoption": "pending",
+  "artifact": "software-evidence-2026-11-07.json.gz",
+  "attemptID": "attempt-f51db17600b24b52a6d81439c49ce570",
+  "baseCommit": "66b830b15ac70fdd6dfbf08ddc5be440fe1568e7",
+  "compressedBytes": 2157834,
+  "compression": "gzip9/mtime0; UTF8 compact sorted JSON",
+  "configuredGate": {
+    "runID": "dx03-inert-carrier-closure-20261107",
+    "status": "pending_not_invoked"
+  },
+  "counts": {
+    "excludedWarmups": 3,
+    "latestFocusedSwiftPassed": 19,
+    "latestFocusedSwiftSkipped": 1,
+    "normalGroups": 6,
+    "normalMeasuredOperations": 105,
+    "pythonExecuted": 122,
+    "pythonSkipped": 2,
+    "retainedArtifacts": 220,
+    "sharedAdmitted": 21,
+    "sharedFixtures": 68,
+    "sharedRefused": 47,
+    "standaloneCases": 5
+  },
+  "reviewProvenance": "caller_declared, not authenticated",
+  "schemaVersion": 1,
+  "scope": "Inert software directory import/preservation, classic ZIP correctness, strict closure and independent stdlib reader; no nativeapp/production migration/catalogpublication/physical proof",
+  "sha256": "b70934e21c2d83d04fb1bff0eef07985c10de5e86a03517940afd4e88c26f84e",
+  "targetBranch": "main",
+  "taskID": "task-6209a9f4548346f3abe26c035dddb56f",
+  "testArtifact": {
+    "bytes": 247070296,
+    "loadedMachOUUID": "29260791-b422-3935-b715-f3f8db3404ca",
+    "path": "/Users/bullard/Projects/.worktrees/wt-task-6209a9f4548346f3abe26c035dddb56f-you-own-the-fresh-implementation-coordination-task-for-adaptiveplotter-the-handoff-documents-ha/.build/x86_64-apple-macosx/debug/AdaptivePlotterPackageTests.xctest/Contents/MacOS/AdaptivePlotterPackageTests",
+    "sha256": "16c4e54d0d45611708575c9e375cd87faf99cbd5a33ae8c117a3ade8bf3a3c9c"
+  },
+  "timedInputMapSHA256": "bb81ca20cd55ee153e158ac946ee9da0d315ec0c5a936edc48cf858b2e278b78",
+  "uncompressedBytes": 7243226,
+  "uncompressedSHA256": "bf13c5e1bbbfb0df1aeea705fd2e25c99cfa90b5fc552c74ec434c5e952863f8"
+}

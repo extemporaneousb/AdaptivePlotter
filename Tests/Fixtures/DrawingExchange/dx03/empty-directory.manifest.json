@@ -1,0 +1,7 @@
+{
+  "empty-directory-bad-crc.zip": "ac7467360c0172731db06c0d6d61a66dba9f4ccba621851b6a3c16d2182cb051",
+  "empty-directory-bad-deflate.zip": "ebada8899108366d2605ca78690189753e4a7f3752c1865badecba341672dfdd",
+  "empty-directory-deflated.zip": "041f1aa3bf017961c7971a8cade7cd7323b04731470c1620e3b373dd95aad913",
+  "empty-directory-missing-deflate.zip": "3daebd5f44394b36eb5e6abb19ec5ec1741184cfbfa187d7db8d632d30924109",
+  "empty-directory-stored.zip": "d6107aed5dbf42dfd099c0eb2e1fb53a1de195ebe7be55f4ca9e56691e6dc758"
+}

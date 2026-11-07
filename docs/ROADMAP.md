@@ -11,12 +11,15 @@ this roadmap does not restate or reorder them.
 
 ## Drawing Exchange
 
-Status: DX-01 is adopted; DX-02 source/evidence freeze is recorded in its receipt.
-Final configured validation/adoption follow the authoritative Blackdog task/run
-`dx02-feature-closure-20261106`. See the dated [DX-02 receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-02-typed-contract-receipt-2026-11-06)
-for concrete boundaries, validation and remaining limits. DX-03 and DX-04 become
-next dependency-eligible only after DX-02 completion is recorded by its Blackdog
-task/run. No ticket below is implementation or acceptance evidence. The accepted target is [Drawing Exchange](DRAWING_EXCHANGE.md). The Flow Edge Dojo
+Status: DX-01 and DX-02 are adopted; the dated
+[DX-02 receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-02-typed-contract-receipt-2026-11-06)
+records canonical adoption and its final configured run. DX-03's implemented
+carrier/validation scope and inert software observations are retained in its
+[dated receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-03-closed-carrier-receipt-2026-11-07);
+its final configured gate and adoption remain machine-owned. DX-04 is dependency-ready
+through adopted DX-02; DX-05 still requires DX-03 and DX-04. No ticket below is
+implementation or acceptance evidence, and this status does not select work.
+The accepted target is [Drawing Exchange](DRAWING_EXCHANGE.md). The Flow Edge Dojo
 section below describes the shipped baseline and outstanding model evaluation;
 it does not authorize a competing portfolio, retention or storage authority.
 This campaign replaces its relevant internals with the shared library/authoring
@@ -83,24 +86,12 @@ M5 does not imply M6 or physical readiness.
 
 ### Ticket acceptance contracts
 
-DX-01's completed baseline contract and DX-02's implemented typed-contract scope
-are retained in their dated [Current Evidence receipts](CURRENT_EVIDENCE.md#drawing-exchange-dx-02-typed-contract-receipt-2026-11-06).
-The receipt preserves their accepted scope/gate/recovery constraints and points
-to DX-02's authoritative final configured run and adoption record. The contracts
-below remain unfinished and keep the existing dependency DAG.
-
-**DX-03 — Implement closed exchange carrier and validation.** Allowed:
-`Sources/PortraitCore/DrawingPackage.swift`, new exchange carrier/codec files in
-that module, independent reader and malformed fixture tests in `Tools/`/`Tests/`.
-Implement the declared BagIt directory profile and optional ZIP transport with
-streaming hashes, exact manifests, declared closure, safe paths, case-fold collision
-checks, duplicate-key detection, length/decode/expansion limits and overflow checks.
-Reject traversal, symlink/special entries, unlisted/missing files, digest/type/link
-mismatches and incomplete result chains. Preserve opaque unsupported major payloads
-without granting operations. Gate: empty-machine independent import, tamper/refusal
-matrix and bounded allocations on large raw-frame fixtures; no whole-archive base64
-or eager media decoding. Recovery: failed import leaves original and incoming bytes
-available for inspection, no visible catalog mutation.
+DX-01's baseline, DX-02's typed-contract adoption and DX-03's implemented
+carrier/validation scope are retained in their dated
+[Current Evidence receipts](CURRENT_EVIDENCE.md#drawing-exchange-dx-03-closed-carrier-receipt-2026-11-07).
+Those receipts preserve the accepted scope, gate and recovery constraints and
+separate source/evidence observations from authoritative validation/adoption.
+The contracts below remain unfinished and keep the existing dependency DAG.
 
 **DX-04 — Build single-writer catalog and immutable object storage.** Allowed:
 `Sources/PortraitLibrary/PortraitLibraryDatabase.swift`, `PortraitCandidateStore.swift`,
