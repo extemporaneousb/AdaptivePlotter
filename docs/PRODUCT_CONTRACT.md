@@ -10,6 +10,12 @@ the target episode migration to
 [Episode Architecture Execution Plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md),
 and verified status to [Current Evidence](CURRENT_EVIDENCE.md).
 
+The accepted [Drawing Exchange v1 contract](DRAWING_EXCHANGE.md) defines the
+shared authored revision, job and portable attempt for adoption by Studio and
+Plotter. The product boundary below describes the current physical application.
+The standalone authoring application may send a document and receive results
+through that contract. AdaptivePlotter owns live execution and evidence.
+
 ## Product boundary
 
 AdaptivePlotter is one native, signed macOS application operating one local

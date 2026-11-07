@@ -10,6 +10,7 @@ to the task.
 | [README](../README.md) | Operator and contributor orientation: current product journey, mechanical/evidence summary, build/test/launch commands, and links to authority. It does not own detailed product or architecture semantics. |
 | [Document Routing](INDEX.md) | This exhaustive inventory and routing table. It assigns each document one noncompeting responsibility and owns the single-plan documentation rule. |
 | [Product Contract](PRODUCT_CONTRACT.md) | Current durable product authority: safety, evidence classes, accepted artifacts, operator semantics, simulation limits, and episode-migration/observability non-negotiables. |
+| [Drawing Exchange](DRAWING_EXCHANGE.md) | Accepted DX-0001 decision and normative v1 wire, Swift ownership, retention, device handoff and performance specification. Delivery status belongs to the Drawing Exchange backlog in the Roadmap. |
 | [Learning Path Operating Protocol](DISCOVERY_AND_OBSERVED_TRIAL_PROTOCOL.md) | Exact current operator/runtime sequence, dependencies, Stop, ambiguity, recovery, reset, and causal-simulator behavior. It is current behavior, not the target migration plan. |
 | [Learning Path Button Transitions](LEARNING_PATH_BUTTON_TRANSITIONS.md) | Exhaustive current Learning Path controls and state destinations. Its Mermaid diagram is the current UI interaction contract, not a target architecture proposal. |
 | [Swift Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md) | Current as-built package topology, owners, data flow, and validation shape. It must not claim that planned episode packages already exist. |
@@ -30,6 +31,7 @@ to the task.
 
 - Read Product Contract for authority, safety, persistence, evidence, model
   semantics, or observability requirements.
+- For drawing, photo, input, job or attempt adoption, read Drawing Exchange and its Roadmap backlog. Use the versioned schema and fixture linked by the spec. Preserve current operator instructions until each consumer cutover lands.
 - Read the Learning Path Operating Protocol and Button Transitions for current
   actions, progression, recovery, or UI actionability.
 - Read Swift Architecture for current owners and dependencies.

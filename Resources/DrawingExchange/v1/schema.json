@@ -1,0 +1,2378 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://adaptiveplotter.invalid/schemas/drawing-exchange/v1/schema.json",
+  "title": "AdaptivePlotter Drawing Exchange v1 structural envelope",
+  "description": "Accepted DX-0001 v1 structural wire contract. This schema describes envelopes, not a physical runtime or a complete importer. Validate known envelope profiles structurally, then perform mandatory semantic and closed-package validation before mounting or operating. $defs are reusable named entrypoints. Unknown major schemas are opaque preservation only.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Photo"
+    },
+    {
+      "$ref": "#/$defs/ImageInput"
+    },
+    {
+      "$ref": "#/$defs/Drawing"
+    },
+    {
+      "$ref": "#/$defs/ExchangeIndex"
+    },
+    {
+      "$ref": "#/$defs/JobReceipt"
+    },
+    {
+      "$ref": "#/$defs/AttemptSnapshot"
+    },
+    {
+      "$ref": "#/$defs/CoverageInventory"
+    },
+    {
+      "$ref": "#/$defs/Assessment"
+    },
+    {
+      "$ref": "#/$defs/FeatureRankingCapsule"
+    }
+  ],
+  "$defs": {
+    "UUID": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "minLength": 36,
+      "maxLength": 36
+    },
+    "SHA256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "NamespacedID": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+(?:[/:][A-Za-z0-9._/-]+)?$",
+      "minLength": 3
+    },
+    "RequiredFeatures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/NamespacedID"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "SafeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "PositiveInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "DecimalClockTicks": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$",
+      "description": "Clock counters are decimal strings, never potentially rounded JSON numbers."
+    },
+    "WallTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "Identity": {
+      "type": "object",
+      "properties": {
+        "issuer": {
+          "$ref": "#/$defs/UUID"
+        },
+        "revision": {
+          "$ref": "#/$defs/UUID"
+        }
+      },
+      "required": [
+        "issuer",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "RecordReference": {
+      "type": "object",
+      "properties": {
+        "issuer": {
+          "$ref": "#/$defs/UUID"
+        },
+        "revision": {
+          "$ref": "#/$defs/UUID"
+        },
+        "digest": {
+          "$ref": "#/$defs/SHA256"
+        }
+      },
+      "required": [
+        "issuer",
+        "revision",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "PhotoReference": {
+      "$ref": "#/$defs/RecordReference"
+    },
+    "ImageInputReference": {
+      "$ref": "#/$defs/RecordReference"
+    },
+    "DrawingReference": {
+      "$ref": "#/$defs/RecordReference"
+    },
+    "AssessmentReference": {
+      "$ref": "#/$defs/RecordReference"
+    },
+    "RankingReference": {
+      "$ref": "#/$defs/RecordReference"
+    },
+    "JobHandle": {
+      "type": "object",
+      "properties": {
+        "engine": {
+          "$ref": "#/$defs/UUID"
+        },
+        "job": {
+          "$ref": "#/$defs/UUID"
+        }
+      },
+      "required": [
+        "engine",
+        "job"
+      ],
+      "additionalProperties": false
+    },
+    "AttemptJobReference": {
+      "type": "object",
+      "properties": {
+        "engine": {
+          "$ref": "#/$defs/UUID"
+        },
+        "job": {
+          "$ref": "#/$defs/UUID"
+        },
+        "receiptDigest": {
+          "$ref": "#/$defs/SHA256"
+        }
+      },
+      "required": [
+        "engine",
+        "job",
+        "receiptDigest"
+      ],
+      "additionalProperties": false
+    },
+    "AttemptReference": {
+      "type": "object",
+      "properties": {
+        "archive": {
+          "$ref": "#/$defs/UUID"
+        },
+        "run": {
+          "$ref": "#/$defs/UUID"
+        },
+        "sequence": {
+          "$ref": "#/$defs/PositiveInteger"
+        },
+        "digest": {
+          "$ref": "#/$defs/SHA256"
+        }
+      },
+      "required": [
+        "archive",
+        "run",
+        "sequence",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "PhotoDeclaration": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "none"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "present"
+            },
+            "ref": {
+              "$ref": "#/$defs/PhotoReference"
+            }
+          },
+          "required": [
+            "state",
+            "ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unavailable"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "knownRef": {
+              "$ref": "#/$defs/PhotoReference"
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "An affirmative none is distinct from unavailable. A present reference must resolve locally in the claimed exchange scope."
+    },
+    "InputDeclaration": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "none"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "present"
+            },
+            "ref": {
+              "$ref": "#/$defs/ImageInputReference"
+            }
+          },
+          "required": [
+            "state",
+            "ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unavailable"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "knownRef": {
+              "$ref": "#/$defs/ImageInputReference"
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "An affirmative none is distinct from unavailable. A present reference must resolve locally in the claimed exchange scope."
+    },
+    "ParentDeclaration": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "none"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "present"
+            },
+            "ref": {
+              "$ref": "#/$defs/DrawingReference"
+            }
+          },
+          "required": [
+            "state",
+            "ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unavailable"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "knownRef": {
+              "$ref": "#/$defs/DrawingReference"
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "An affirmative none is distinct from unavailable. A present reference must resolve locally in the claimed exchange scope."
+    },
+    "Dimensions": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "$ref": "#/$defs/PositiveInteger"
+        },
+        "height": {
+          "$ref": "#/$defs/PositiveInteger"
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "additionalProperties": false
+    },
+    "Timestamp": {
+      "type": "object",
+      "properties": {
+        "wallTime": {
+          "$ref": "#/$defs/WallTime"
+        },
+        "event": {
+          "type": "object",
+          "properties": {
+            "clockID": {
+              "type": "string",
+              "minLength": 1
+            },
+            "bootSession": {
+              "$ref": "#/$defs/UUID"
+            },
+            "ticks": {
+              "$ref": "#/$defs/DecimalClockTicks"
+            },
+            "ticksPerSecond": {
+              "$ref": "#/$defs/PositiveInteger"
+            }
+          },
+          "required": [
+            "clockID",
+            "bootSession",
+            "ticks",
+            "ticksPerSecond"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [],
+      "additionalProperties": true,
+      "description": "At least wallTime or event is required; compare different clock domains only through a recorded synchronization and error bound.",
+      "anyOf": [
+        {
+          "required": [
+            "wallTime"
+          ]
+        },
+        {
+          "required": [
+            "event"
+          ]
+        }
+      ]
+    },
+    "ClockSynchronization": {
+      "type": "object",
+      "properties": {
+        "fromClock": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fromBootSession": {
+          "$ref": "#/$defs/UUID"
+        },
+        "toClock": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toBootSession": {
+          "$ref": "#/$defs/UUID"
+        },
+        "fromTicks": {
+          "$ref": "#/$defs/DecimalClockTicks"
+        },
+        "toTicks": {
+          "$ref": "#/$defs/DecimalClockTicks"
+        },
+        "errorBoundSeconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "fromClock",
+        "fromBootSession",
+        "toClock",
+        "toBootSession",
+        "fromTicks",
+        "toTicks",
+        "errorBoundSeconds"
+      ],
+      "additionalProperties": true
+    },
+    "AssetReference": {
+      "type": "object",
+      "properties": {
+        "object": {
+          "$ref": "#/$defs/SHA256"
+        },
+        "byteLength": {
+          "$ref": "#/$defs/SafeInteger"
+        },
+        "mediaType": {
+          "type": "string",
+          "pattern": "^[^\\s/]+/[^\\s/]+$"
+        },
+        "encoding": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "object",
+        "byteLength",
+        "mediaType",
+        "encoding"
+      ],
+      "additionalProperties": true,
+      "description": "Exact-byte SHA-256 and byte length. JSON encoding names its explicit record profile; legacy payload bytes retain their native schema and spelling."
+    },
+    "RawPixelLayout": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "$ref": "#/$defs/PositiveInteger"
+        },
+        "height": {
+          "$ref": "#/$defs/PositiveInteger"
+        },
+        "pixelFormat": {
+          "type": "string",
+          "minLength": 1
+        },
+        "componentType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bitDepth": {
+          "$ref": "#/$defs/PositiveInteger"
+        },
+        "channelOrder": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "rowStride": {
+          "$ref": "#/$defs/PositiveInteger"
+        },
+        "byteOrder": {
+          "enum": [
+            "little",
+            "big",
+            "not-applicable"
+          ]
+        },
+        "orientation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "colorInterpretation": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "pixelFormat",
+        "componentType",
+        "bitDepth",
+        "channelOrder",
+        "rowStride",
+        "byteOrder",
+        "orientation",
+        "colorInterpretation"
+      ],
+      "additionalProperties": true,
+      "description": "Semantic validation checks multiplication/stride/decoded byte limits before allocation, including padding. Unknown source facts must be represented explicitly, never inferred."
+    },
+    "ArrayLayout": {
+      "type": "object",
+      "properties": {
+        "shape": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PositiveInteger"
+          },
+          "minItems": 1
+        },
+        "dtype": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "enum": [
+            "row-major",
+            "column-major"
+          ]
+        },
+        "byteOrder": {
+          "enum": [
+            "little",
+            "big",
+            "not-applicable"
+          ]
+        },
+        "units": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "shape",
+        "dtype",
+        "layout",
+        "byteOrder",
+        "units"
+      ],
+      "additionalProperties": true
+    },
+    "AssetDescriptor": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/AssetReference"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "dimensions": {
+              "$ref": "#/$defs/Dimensions"
+            },
+            "orientation": {
+              "type": "string",
+              "minLength": 1
+            },
+            "colorSpace": {
+              "type": "string",
+              "minLength": 1
+            },
+            "containerType": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pixelLayout": {
+              "$ref": "#/$defs/RawPixelLayout"
+            },
+            "arrayLayout": {
+              "$ref": "#/$defs/ArrayLayout"
+            },
+            "decodedDigest": {
+              "type": "object",
+              "properties": {
+                "algorithm": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "algorithm",
+                "value"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [],
+          "additionalProperties": true
+        }
+      ],
+      "description": "Descriptor resolves object to data/objects/sha256/<object>. Raw encodings require pixelLayout; array encodings require arrayLayout; encoded image dimensions and decode limits are checked semantically."
+    },
+    "Producer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/NamespacedID"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "record": {
+          "$ref": "#/$defs/SHA256"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "record"
+      ],
+      "additionalProperties": true,
+      "description": "Frozen producer record object. Recognized producers must validate typed claims; unfamiliar producer claims remain unverified. Checkpoint identity stays in producer payload, independently of human/device identity."
+    },
+    "DatedFact": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "enum": [
+            "known",
+            "unknown"
+          ]
+        },
+        "time": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "provenance": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "state",
+        "provenance"
+      ],
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "known"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "time"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "time"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Photo": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "const": "adaptiveplotter.photo/1"
+        },
+        "requiredFeatures": {
+          "$ref": "#/$defs/RequiredFeatures"
+        },
+        "ref": {
+          "$ref": "#/$defs/Identity"
+        },
+        "original": {
+          "$ref": "#/$defs/AssetReference"
+        },
+        "dimensions": {
+          "$ref": "#/$defs/Dimensions"
+        },
+        "acquired": {
+          "$ref": "#/$defs/DatedFact"
+        },
+        "imported": {
+          "$ref": "#/$defs/DatedFact"
+        },
+        "captureFacts": {
+          "$ref": "#/$defs/AssetReference"
+        }
+      },
+      "required": [
+        "profile",
+        "requiredFeatures",
+        "ref",
+        "original",
+        "dimensions",
+        "acquired",
+        "imported"
+      ],
+      "additionalProperties": true,
+      "description": "An acquisition occurrence, not content identity. Original asset digest and decoding facts are preserved. Equal-byte captures may have different revision identities.",
+      "examples": [
+        {
+          "profile": "adaptiveplotter.photo/1",
+          "requiredFeatures": [],
+          "ref": {
+            "issuer": "550e8400-e29b-41d4-a716-446655440000",
+            "revision": "e95e1607-a025-4598-880a-221077f27cc1"
+          },
+          "original": {
+            "object": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "byteLength": 10,
+            "mediaType": "image/png",
+            "encoding": "png"
+          },
+          "dimensions": {
+            "width": 2,
+            "height": 2
+          },
+          "acquired": {
+            "state": "unknown",
+            "provenance": "historical import lacks capture timestamp"
+          },
+          "imported": {
+            "state": "known",
+            "time": {
+              "wallTime": "2026-11-03T18:00:00Z"
+            },
+            "provenance": "import event"
+          }
+        }
+      ]
+    },
+    "Matrix3x3": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 9,
+      "maxItems": 9,
+      "description": "Row-major matrix acting on column homogeneous coordinates; numbers must be finite binary64. Semantic validation rejects singular/unusable mappings."
+    },
+    "PixelBasis": {
+      "type": "object",
+      "properties": {
+        "orientation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin": {
+          "const": "top-left"
+        },
+        "xAxis": {
+          "const": "right"
+        },
+        "yAxis": {
+          "const": "down"
+        },
+        "pixelEdges": {
+          "const": "integer"
+        },
+        "pixelCenters": {
+          "const": "half-integer"
+        },
+        "dimensions": {
+          "$ref": "#/$defs/Dimensions"
+        }
+      },
+      "required": [
+        "orientation",
+        "origin",
+        "xAxis",
+        "yAxis",
+        "pixelEdges",
+        "pixelCenters",
+        "dimensions"
+      ],
+      "additionalProperties": true
+    },
+    "PreparationOperation": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "identity",
+            "crop",
+            "rotate",
+            "scale",
+            "mask"
+          ]
+        },
+        "parameters": {
+          "$ref": "#/$defs/AssetReference"
+        }
+      },
+      "required": [
+        "kind",
+        "parameters"
+      ],
+      "additionalProperties": true,
+      "description": "Ordered typed operation parameters, not a substitute for the exact consumed raster and mask."
+    },
+    "ImageInput": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "const": "adaptiveplotter.image-input/1"
+        },
+        "requiredFeatures": {
+          "$ref": "#/$defs/RequiredFeatures"
+        },
+        "ref": {
+          "$ref": "#/$defs/Identity"
+        },
+        "photo": {
+          "$ref": "#/$defs/PhotoReference"
+        },
+        "pixelBasis": {
+          "$ref": "#/$defs/PixelBasis"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PreparationOperation"
+          },
+          "minItems": 1
+        },
+        "sourceToInput": {
+          "$ref": "#/$defs/Matrix3x3"
+        },
+        "inputToField": {
+          "$ref": "#/$defs/Matrix3x3"
+        },
+        "preparation": {
+          "$ref": "#/$defs/Producer"
+        },
+        "raster": {
+          "$ref": "#/$defs/AssetReference"
+        },
+        "mask": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "const": "none"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "const": "present"
+                },
+                "asset": {
+                  "$ref": "#/$defs/AssetReference"
+                }
+              },
+              "required": [
+                "state",
+                "asset"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "profile",
+        "requiredFeatures",
+        "ref",
+        "photo",
+        "pixelBasis",
+        "operations",
+        "sourceToInput",
+        "inputToField",
+        "preparation",
+        "raster",
+        "mask"
+      ],
+      "additionalProperties": true,
+      "description": "Source-to-input operations apply in listed order in oriented source pixels. Resulting input-to-field mapping is explicit. Identity may reference the original object when bytes are equal.",
+      "examples": [
+        {
+          "profile": "adaptiveplotter.image-input/1",
+          "requiredFeatures": [],
+          "ref": {
+            "issuer": "550e8400-e29b-41d4-a716-446655440000",
+            "revision": "e95e1607-a025-4598-880a-221077f27cc1"
+          },
+          "photo": {
+            "issuer": "550e8400-e29b-41d4-a716-446655440000",
+            "revision": "e95e1607-a025-4598-880a-221077f27cc1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "pixelBasis": {
+            "orientation": "up",
+            "origin": "top-left",
+            "xAxis": "right",
+            "yAxis": "down",
+            "pixelEdges": "integer",
+            "pixelCenters": "half-integer",
+            "dimensions": {
+              "width": 2,
+              "height": 2
+            }
+          },
+          "operations": [
+            {
+              "kind": "identity",
+              "parameters": {
+                "object": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "byteLength": 10,
+                "mediaType": "application/json",
+                "encoding": "adaptiveplotter.example/1"
+              }
+            }
+          ],
+          "sourceToInput": [
+            1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            1
+          ],
+          "inputToField": [
+            1,
+            0,
+            0,
+            0,
+            -1,
+            2,
+            0,
+            0,
+            1
+          ],
+          "preparation": {
+            "id": "adaptiveplotter.example",
+            "version": "1",
+            "record": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "raster": {
+            "object": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "byteLength": 10,
+            "mediaType": "image/png",
+            "encoding": "png"
+          },
+          "mask": {
+            "state": "none"
+          }
+        }
+      ]
+    },
+    "StrokeRepresentation": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "adaptiveplotter.stroke-program/1"
+        },
+        "object": {
+          "$ref": "#/$defs/SHA256"
+        },
+        "programHash": {
+          "$ref": "#/$defs/SHA256"
+        },
+        "nominalPenWidthMillimeters": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "intendedPhysicalFieldMillimeters": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "height": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ],
+          "additionalProperties": true
+        },
+        "historicalUnits": {
+          "type": "object",
+          "properties": {
+            "state": {
+              "enum": [
+                "known",
+                "unknown"
+              ]
+            },
+            "units": {
+              "type": "string",
+              "minLength": 1
+            },
+            "producerReceipt": {
+              "$ref": "#/$defs/SHA256"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "kind",
+        "object",
+        "programHash"
+      ],
+      "additionalProperties": true,
+      "description": "Object is existing DrawingProgram bytes; verify its APCB canonical semantic contentHash independently. Field units are abstract, lower-left origin, X right/Y up in closed field extent. New exports declare nominalPenWidthMillimeters; historical fixture/legacy bytes do not gain invented units. Nominal width is not measured ink width."
+    },
+    "Representation": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/StrokeRepresentation"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/NamespacedID"
+                },
+                {
+                  "not": {
+                    "const": "adaptiveplotter.stroke-program/1"
+                  }
+                }
+              ]
+            },
+            "object": {
+              "$ref": "#/$defs/SHA256"
+            }
+          },
+          "required": [
+            "kind",
+            "object"
+          ],
+          "additionalProperties": true
+        }
+      ],
+      "description": "An unfamiliar representation is preservable but blocks operations needing its semantics. Never silently flatten into strokes."
+    },
+    "Drawing": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "const": "adaptiveplotter.drawing/1"
+        },
+        "requiredFeatures": {
+          "$ref": "#/$defs/RequiredFeatures"
+        },
+        "ref": {
+          "$ref": "#/$defs/Identity"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/WallTime"
+        },
+        "representation": {
+          "$ref": "#/$defs/Representation"
+        },
+        "input": {
+          "$ref": "#/$defs/InputDeclaration"
+        },
+        "parent": {
+          "$ref": "#/$defs/ParentDeclaration"
+        },
+        "producer": {
+          "$ref": "#/$defs/Producer"
+        }
+      },
+      "required": [
+        "profile",
+        "requiredFeatures",
+        "ref",
+        "createdAt",
+        "representation",
+        "input",
+        "parent",
+        "producer"
+      ],
+      "additionalProperties": true,
+      "description": "Exactly one authored representation. Digest lives in referring records and pins exact immutable UTF-8 bytes; mutable titles are catalog metadata. Pruning creates a child revision.",
+      "examples": [
+        {
+          "createdAt": "2026-11-03T18:00:00Z",
+          "input": {
+            "state": "none"
+          },
+          "parent": {
+            "state": "none"
+          },
+          "producer": {
+            "id": "adaptiveplotter.catalog",
+            "record": "20e72ed1a6ea86a0fff6ed88be9df8eb4756dcb9774618a09ea1f3aa68e7de33",
+            "version": "1"
+          },
+          "profile": "adaptiveplotter.drawing/1",
+          "ref": {
+            "issuer": "550e8400-e29b-41d4-a716-446655440000",
+            "revision": "e95e1607-a025-4598-880a-221077f27cc1"
+          },
+          "representation": {
+            "kind": "adaptiveplotter.stroke-program/1",
+            "object": "6fb592aedc29e2909cc9eb7106fa40699c53ef5783695a8ef8a663c6e11d89b1",
+            "programHash": "960ce7fe5f34203bdaa451fbd48f401cdb34598bebcb3a8be7a739645f236097"
+          },
+          "requiredFeatures": []
+        }
+      ]
+    },
+    "ExchangeIndex": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "const": "adaptiveplotter.exchange/1"
+        },
+        "requiredFeatures": {
+          "$ref": "#/$defs/RequiredFeatures",
+          "description": "Optional only for compatibility with the frozen source-free exchange index; absence means no declared required features. New exports should emit an explicit empty array."
+        },
+        "kind": {
+          "enum": [
+            "drawing",
+            "result",
+            "feedback"
+          ]
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DrawingReference"
+          },
+          "minItems": 0
+        },
+        "includedAsOf": {
+          "$ref": "#/$defs/WallTime"
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssetDescriptor"
+          },
+          "minItems": 0
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AttemptReference"
+          },
+          "minItems": 0
+        },
+        "assessments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssessmentReference"
+          },
+          "minItems": 0
+        },
+        "photos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PhotoReference"
+          },
+          "minItems": 0
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImageInputReference"
+          },
+          "minItems": 0
+        },
+        "jobs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JobReceiptReference"
+          },
+          "minItems": 0
+        },
+        "rankingCapsules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RankingReference"
+          },
+          "minItems": 0
+        },
+        "scope": {
+          "$ref": "#/$defs/AssetReference"
+        }
+      },
+      "required": [
+        "profile",
+        "kind",
+        "roots",
+        "includedAsOf",
+        "assets",
+        "attempts",
+        "assessments"
+      ],
+      "additionalProperties": true,
+      "description": "Closed BagIt profile index. Kind drawing/result requires digest-pinned drawing roots. Result additionally requires one or more digest-pinned immutable job receipt roots in jobs. Attempts may be empty for refusal before staging; resolve the receipt and verify refused disposition, zero attempts and the exact drawing binding semantically. Results with attempts require complete sequence 1..N and authored dependency closure. Root object types, all asset references, namespace collisions and included-as-of scope require semantic validation.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "drawing",
+                  "result"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "roots": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "result"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "jobs"
+            ],
+            "properties": {
+              "jobs": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ],
+      "examples": [
+        {
+          "assessments": [],
+          "assets": [
+            {
+              "byteLength": 605,
+              "encoding": "adaptiveplotter.stroke-program/1",
+              "mediaType": "application/json",
+              "object": "6fb592aedc29e2909cc9eb7106fa40699c53ef5783695a8ef8a663c6e11d89b1"
+            },
+            {
+              "byteLength": 139,
+              "encoding": "adaptiveplotter.example.catalog-receipt/1",
+              "mediaType": "application/json",
+              "object": "20e72ed1a6ea86a0fff6ed88be9df8eb4756dcb9774618a09ea1f3aa68e7de33"
+            }
+          ],
+          "attempts": [],
+          "includedAsOf": "2026-11-03T18:00:00Z",
+          "kind": "drawing",
+          "profile": "adaptiveplotter.exchange/1",
+          "roots": [
+            {
+              "digest": "e6f9f570fa580fa59cb5f6f3435641aa5c5c3acbcc4eeb944f3a606fe0b55ddd",
+              "issuer": "550e8400-e29b-41d4-a716-446655440000",
+              "revision": "e95e1607-a025-4598-880a-221077f27cc1"
+            }
+          ]
+        },
+        {
+          "assessments": [],
+          "assets": [
+            {
+              "byteLength": 605,
+              "encoding": "adaptiveplotter.stroke-program/1",
+              "mediaType": "application/json",
+              "object": "6fb592aedc29e2909cc9eb7106fa40699c53ef5783695a8ef8a663c6e11d89b1"
+            },
+            {
+              "byteLength": 139,
+              "encoding": "adaptiveplotter.example.catalog-receipt/1",
+              "mediaType": "application/json",
+              "object": "20e72ed1a6ea86a0fff6ed88be9df8eb4756dcb9774618a09ea1f3aa68e7de33"
+            }
+          ],
+          "attempts": [],
+          "includedAsOf": "2026-11-03T18:00:00Z",
+          "kind": "result",
+          "profile": "adaptiveplotter.exchange/1",
+          "roots": [
+            {
+              "digest": "e6f9f570fa580fa59cb5f6f3435641aa5c5c3acbcc4eeb944f3a606fe0b55ddd",
+              "issuer": "550e8400-e29b-41d4-a716-446655440000",
+              "revision": "e95e1607-a025-4598-880a-221077f27cc1"
+            }
+          ],
+          "requiredFeatures": [],
+          "jobs": [
+            {
+              "engine": "550e8400-e29b-41d4-a716-446655440000",
+              "job": "e95e1607-a025-4598-880a-221077f27cc1",
+              "receiptDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ]
+        }
+      ]
+    },
+    "JobReceipt": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "const": "adaptiveplotter.plot-job-receipt/1"
+        },
+        "requiredFeatures": {
+          "$ref": "#/$defs/RequiredFeatures"
+        },
+        "handle": {
+          "$ref": "#/$defs/JobHandle"
+        },
+        "client": {
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "$ref": "#/$defs/UUID"
+            },
+            "request": {
+              "$ref": "#/$defs/UUID"
+            },
+            "requestDigest": {
+              "$ref": "#/$defs/SHA256"
+            }
+          },
+          "required": [
+            "namespace",
+            "request",
+            "requestDigest"
+          ],
+          "additionalProperties": true
+        },
+        "drawing": {
+          "$ref": "#/$defs/DrawingReference"
+        },
+        "preparedPlan": {
+          "$ref": "#/$defs/AssetReference"
+        },
+        "requestedMediumOptions": {
+          "$ref": "#/$defs/AssetReference"
+        },
+        "issuedAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "disposition": {
+          "enum": [
+            "accepted",
+            "refused"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issuance": {
+          "$ref": "#/$defs/UUID"
+        }
+      },
+      "required": [
+        "profile",
+        "requiredFeatures",
+        "handle",
+        "client",
+        "drawing",
+        "preparedPlan",
+        "requestedMediumOptions",
+        "issuedAt",
+        "disposition",
+        "reason"
+      ],
+      "additionalProperties": true,
+      "description": "Immutable submission receipt; current mutable status is separate. Request reuse with a different digest conflicts. Accepted jobs reserve one durable issuance identity before Start. Refusal before staging has zero attempts; runtime reconciliation, not this schema, enforces zero-or-one attempt per job.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "accepted"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "issuance"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "issuance"
+              ]
+            }
+          }
+        }
+      ],
+      "examples": [
+        {
+          "profile": "adaptiveplotter.plot-job-receipt/1",
+          "requiredFeatures": [],
+          "handle": {
+            "engine": "550e8400-e29b-41d4-a716-446655440000",
+            "job": "e95e1607-a025-4598-880a-221077f27cc1"
+          },
+          "client": {
+            "namespace": "550e8400-e29b-41d4-a716-446655440000",
+            "request": "e95e1607-a025-4598-880a-221077f27cc1",
+            "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "drawing": {
+            "issuer": "550e8400-e29b-41d4-a716-446655440000",
+            "revision": "e95e1607-a025-4598-880a-221077f27cc1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "preparedPlan": {
+            "object": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "byteLength": 10,
+            "mediaType": "application/json",
+            "encoding": "adaptiveplotter.example/1"
+          },
+          "requestedMediumOptions": {
+            "object": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "byteLength": 10,
+            "mediaType": "application/json",
+            "encoding": "adaptiveplotter.example/1"
+          },
+          "issuedAt": {
+            "wallTime": "2026-11-03T18:00:00Z"
+          },
+          "disposition": "accepted",
+          "reason": "Durably accepted",
+          "issuance": "550e8400-e29b-41d4-a716-446655440000"
+        },
+        {
+          "profile": "adaptiveplotter.plot-job-receipt/1",
+          "requiredFeatures": [],
+          "handle": {
+            "engine": "550e8400-e29b-41d4-a716-446655440000",
+            "job": "e95e1607-a025-4598-880a-221077f27cc1"
+          },
+          "client": {
+            "namespace": "550e8400-e29b-41d4-a716-446655440000",
+            "request": "e95e1607-a025-4598-880a-221077f27cc1",
+            "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "drawing": {
+            "issuer": "550e8400-e29b-41d4-a716-446655440000",
+            "revision": "e95e1607-a025-4598-880a-221077f27cc1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "preparedPlan": {
+            "object": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "byteLength": 10,
+            "mediaType": "application/json",
+            "encoding": "adaptiveplotter.example/1"
+          },
+          "requestedMediumOptions": {
+            "object": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "byteLength": 10,
+            "mediaType": "application/json",
+            "encoding": "adaptiveplotter.example/1"
+          },
+          "issuedAt": {
+            "wallTime": "2026-11-03T18:00:00Z"
+          },
+          "disposition": "refused",
+          "reason": "Destination refuses requested medium before staging any physical attempt"
+        }
+      ]
+    },
+    "EvidenceReference": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/NamespacedID"
+        },
+        "status": {
+          "enum": [
+            "present",
+            "never-captured",
+            "unavailable",
+            "intentionally-withheld"
+          ]
+        },
+        "asset": {
+          "$ref": "#/$defs/AssetReference"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "captureTime": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "registration": {
+          "$ref": "#/$defs/AssetReference"
+        },
+        "assessment": {
+          "$ref": "#/$defs/AssessmentReference"
+        }
+      },
+      "required": [
+        "kind",
+        "status"
+      ],
+      "additionalProperties": true,
+      "description": "A frame is evidence only in an attributable accepted observation context. Synthetic/imported provenance and raw bytes must be retained. Omitted optional facts never imply negative observation.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "present"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "asset"
+            ]
+          },
+          "else": {
+            "required": [
+              "reason"
+            ],
+            "not": {
+              "required": [
+                "asset"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "CoverageInventory": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "const": "adaptiveplotter.coverage/1"
+        },
+        "requiredFeatures": {
+          "$ref": "#/$defs/RequiredFeatures"
+        },
+        "includedAsOf": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceReference"
+          },
+          "minItems": 0
+        },
+        "frontiers": {
+          "type": "object",
+          "properties": {
+            "planned": {
+              "$ref": "#/$defs/EvidenceReference"
+            },
+            "commanded": {
+              "$ref": "#/$defs/EvidenceReference"
+            },
+            "controllerCompleted": {
+              "$ref": "#/$defs/EvidenceReference"
+            },
+            "inkVerified": {
+              "$ref": "#/$defs/EvidenceReference"
+            }
+          },
+          "required": [
+            "planned",
+            "commanded",
+            "controllerCompleted",
+            "inkVerified"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "profile",
+        "requiredFeatures",
+        "includedAsOf",
+        "entries",
+        "frontiers"
+      ],
+      "additionalProperties": true,
+      "description": "Cumulative coverage as of this snapshot; intended/commanded/controller-completed/ink-verified frontiers remain separate typed payloads from the existing run owner. No inferred success or invented missing history.",
+      "examples": [
+        {
+          "profile": "adaptiveplotter.coverage/1",
+          "requiredFeatures": [],
+          "includedAsOf": {
+            "wallTime": "2026-11-03T18:00:00Z"
+          },
+          "entries": [
+            {
+              "kind": "adaptiveplotter.terminal-frame",
+              "status": "never-captured",
+              "reason": "Interrupted before terminal capture"
+            }
+          ],
+          "frontiers": {
+            "planned": {
+              "kind": "adaptiveplotter.frontier/planned",
+              "status": "unavailable",
+              "reason": "Illustrative envelope only; no actual run evidence"
+            },
+            "commanded": {
+              "kind": "adaptiveplotter.frontier/commanded",
+              "status": "unavailable",
+              "reason": "Illustrative envelope only; no actual run evidence"
+            },
+            "controllerCompleted": {
+              "kind": "adaptiveplotter.frontier/controllerCompleted",
+              "status": "unavailable",
+              "reason": "Illustrative envelope only; no actual run evidence"
+            },
+            "inkVerified": {
+              "kind": "adaptiveplotter.frontier/inkVerified",
+              "status": "unavailable",
+              "reason": "Illustrative envelope only; no actual run evidence"
+            }
+          }
+        }
+      ]
+    },
+    "AttemptSnapshot": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "const": "adaptiveplotter.plot-attempt/1"
+        },
+        "requiredFeatures": {
+          "$ref": "#/$defs/RequiredFeatures"
+        },
+        "issuerArchive": {
+          "$ref": "#/$defs/UUID"
+        },
+        "run": {
+          "$ref": "#/$defs/UUID"
+        },
+        "sequence": {
+          "$ref": "#/$defs/PositiveInteger"
+        },
+        "previous": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/SHA256"
+            }
+          ]
+        },
+        "sealed": {
+          "type": "boolean"
+        },
+        "drawing": {
+          "$ref": "#/$defs/DrawingReference"
+        },
+        "job": {
+          "$ref": "#/$defs/AttemptJobReference"
+        },
+        "environment": {
+          "enum": [
+            "live",
+            "simulation"
+          ]
+        },
+        "intent": {
+          "$ref": "#/$defs/SHA256"
+        },
+        "coverage": {
+          "$ref": "#/$defs/SHA256"
+        },
+        "state": {
+          "enum": [
+            "staged",
+            "running",
+            "cancelling",
+            "interrupted",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "dispatch": {
+          "enum": [
+            "not-dispatched",
+            "possibleInk"
+          ]
+        },
+        "observation": {
+          "enum": [
+            "accepted",
+            "rejected",
+            "unavailable"
+          ]
+        },
+        "terminalRecord": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/SHA256"
+            }
+          ]
+        },
+        "assessments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssessmentReference"
+          },
+          "minItems": 0
+        },
+        "plan": {
+          "$ref": "#/$defs/AssetReference"
+        },
+        "clockSynchronizations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ClockSynchronization"
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "profile",
+        "requiredFeatures",
+        "issuerArchive",
+        "run",
+        "sequence",
+        "previous",
+        "sealed",
+        "drawing",
+        "job",
+        "environment",
+        "intent",
+        "coverage",
+        "state",
+        "dispatch",
+        "observation",
+        "terminalRecord",
+        "assessments"
+      ],
+      "additionalProperties": true,
+      "description": "Immutable cumulative snapshot. Sealed closes producer history independently of outcome; cancellation may still move. Sequence consistency, retained frontier facts, original pre-motion binding, job/drawing consistency and one run per issuance require semantic validation. Imported assertions carry no local readiness/retry authority.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "sequence": {
+                "const": 1
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "previous": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "previous": {
+                "$ref": "#/$defs/SHA256"
+              }
+            }
+          }
+        }
+      ],
+      "examples": [
+        {
+          "profile": "adaptiveplotter.plot-attempt/1",
+          "requiredFeatures": [],
+          "issuerArchive": "550e8400-e29b-41d4-a716-446655440000",
+          "run": "e95e1607-a025-4598-880a-221077f27cc1",
+          "sequence": 1,
+          "previous": null,
+          "sealed": false,
+          "drawing": {
+            "issuer": "550e8400-e29b-41d4-a716-446655440000",
+            "revision": "e95e1607-a025-4598-880a-221077f27cc1",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "job": {
+            "engine": "550e8400-e29b-41d4-a716-446655440000",
+            "job": "e95e1607-a025-4598-880a-221077f27cc1",
+            "receiptDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "environment": "live",
+          "intent": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "coverage": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "state": "interrupted",
+          "dispatch": "possibleInk",
+          "observation": "unavailable",
+          "terminalRecord": null,
+          "assessments": []
+        }
+      ]
+    },
+    "AssessmentTarget": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "drawing"
+            },
+            "ref": {
+              "$ref": "#/$defs/DrawingReference"
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "attempt"
+            },
+            "ref": {
+              "$ref": "#/$defs/AttemptReference"
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "ranking-capsule"
+            },
+            "ref": {
+              "$ref": "#/$defs/RankingReference"
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "asset"
+            },
+            "asset": {
+              "$ref": "#/$defs/AssetReference"
+            }
+          },
+          "required": [
+            "kind",
+            "asset"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Reviewer": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "human",
+            "algorithm"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "algorithm"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "version"
+            ]
+          }
+        }
+      ]
+    },
+    "TypedAnswer": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/NamespacedID"
+        },
+        "value": {},
+        "schema": {
+          "$ref": "#/$defs/AssetReference"
+        }
+      },
+      "required": [
+        "type",
+        "value"
+      ],
+      "additionalProperties": true,
+      "description": "Question-specific answer vocabulary must be separately understood before training. Unknown answer types remain preservable and unverified."
+    },
+    "Assessment": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "const": "adaptiveplotter.assessment/1"
+        },
+        "requiredFeatures": {
+          "$ref": "#/$defs/RequiredFeatures"
+        },
+        "ref": {
+          "$ref": "#/$defs/Identity"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssessmentTarget"
+          },
+          "minItems": 1
+        },
+        "reviewer": {
+          "$ref": "#/$defs/Reviewer"
+        },
+        "time": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "question": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/NamespacedID"
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "id",
+            "version",
+            "text"
+          ],
+          "additionalProperties": true
+        },
+        "answer": {
+          "$ref": "#/$defs/TypedAnswer"
+        },
+        "supportingAssets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssetReference"
+          },
+          "minItems": 0
+        },
+        "regionOrStrokes": {
+          "$ref": "#/$defs/AssetReference"
+        },
+        "supersedes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssessmentReference"
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "profile",
+        "requiredFeatures",
+        "ref",
+        "targets",
+        "reviewer",
+        "time",
+        "question",
+        "answer",
+        "supportingAssets"
+      ],
+      "additionalProperties": true,
+      "description": "Separate attribution for outcome, artistic preference, operator confirmation and measured error. Corrections supersede immutable assertions; an assessment after sealing is a supplement pointing to the exact snapshot.",
+      "examples": [
+        {
+          "profile": "adaptiveplotter.assessment/1",
+          "requiredFeatures": [],
+          "ref": {
+            "issuer": "550e8400-e29b-41d4-a716-446655440000",
+            "revision": "e95e1607-a025-4598-880a-221077f27cc1"
+          },
+          "targets": [
+            {
+              "kind": "drawing",
+              "ref": {
+                "issuer": "550e8400-e29b-41d4-a716-446655440000",
+                "revision": "e95e1607-a025-4598-880a-221077f27cc1",
+                "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            }
+          ],
+          "reviewer": {
+            "kind": "human",
+            "id": "example-reviewer"
+          },
+          "time": {
+            "wallTime": "2026-11-03T18:00:00Z"
+          },
+          "question": {
+            "id": "adaptiveplotter.preference",
+            "version": "1",
+            "text": "Prefer this authored drawing?"
+          },
+          "answer": {
+            "type": "adaptiveplotter.preference/1",
+            "value": {
+              "preferred": true
+            }
+          },
+          "supportingAssets": []
+        }
+      ]
+    },
+    "RankingPresentation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/UUID"
+        },
+        "features": {
+          "$ref": "#/$defs/AssetReference"
+        },
+        "producer": {
+          "$ref": "#/$defs/Producer"
+        },
+        "extractor": {
+          "$ref": "#/$defs/Producer"
+        }
+      },
+      "required": [
+        "id",
+        "features",
+        "producer",
+        "extractor"
+      ],
+      "additionalProperties": true
+    },
+    "RankingResponse": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "ranking"
+            },
+            "groups": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UUID"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "kind",
+            "groups"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "skip"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "Ordered groups encode preference, equal positions encode ties. Semantic validation requires presentation IDs occur exactly once across groups and belong to this capsule."
+    },
+    "FeatureRankingCapsule": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "const": "adaptiveplotter.feature-ranking/1"
+        },
+        "requiredFeatures": {
+          "$ref": "#/$defs/RequiredFeatures"
+        },
+        "ref": {
+          "$ref": "#/$defs/Identity"
+        },
+        "geometry": {
+          "const": "omitted"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "presentations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RankingPresentation"
+          },
+          "minItems": 2
+        },
+        "question": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/NamespacedID"
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "id",
+            "version",
+            "text"
+          ],
+          "additionalProperties": true
+        },
+        "reviewer": {
+          "$ref": "#/$defs/Reviewer"
+        },
+        "response": {
+          "$ref": "#/$defs/RankingResponse"
+        },
+        "limitations": {
+          "const": "Features only; no geometry re-extraction or arbitrary future image labels."
+        }
+      },
+      "required": [
+        "profile",
+        "requiredFeatures",
+        "ref",
+        "geometry",
+        "createdAt",
+        "presentations",
+        "question",
+        "reviewer",
+        "response",
+        "limitations"
+      ],
+      "additionalProperties": true,
+      "description": "Independent digest-pinned feedback target; does not require a retained DrawingReference. Array order freezes presentation order; group response freezes ranking/tie/skip judgment and extractor/producer context.",
+      "examples": [
+        {
+          "profile": "adaptiveplotter.feature-ranking/1",
+          "requiredFeatures": [],
+          "ref": {
+            "issuer": "550e8400-e29b-41d4-a716-446655440000",
+            "revision": "e95e1607-a025-4598-880a-221077f27cc1"
+          },
+          "geometry": "omitted",
+          "createdAt": {
+            "wallTime": "2026-11-03T18:00:00Z"
+          },
+          "presentations": [
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "features": {
+                "object": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "byteLength": 10,
+                "mediaType": "application/json",
+                "encoding": "adaptiveplotter.example/1"
+              },
+              "producer": {
+                "id": "adaptiveplotter.example",
+                "version": "1",
+                "record": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "extractor": {
+                "id": "adaptiveplotter.example",
+                "version": "1",
+                "record": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "id": "e95e1607-a025-4598-880a-221077f27cc1",
+              "features": {
+                "object": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "byteLength": 10,
+                "mediaType": "application/json",
+                "encoding": "adaptiveplotter.example/1"
+              },
+              "producer": {
+                "id": "adaptiveplotter.example",
+                "version": "1",
+                "record": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "extractor": {
+                "id": "adaptiveplotter.example",
+                "version": "1",
+                "record": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            }
+          ],
+          "question": {
+            "id": "adaptiveplotter.preference",
+            "version": "1",
+            "text": "Rank these presented alternatives"
+          },
+          "reviewer": {
+            "kind": "human",
+            "id": "example-reviewer"
+          },
+          "response": {
+            "kind": "ranking",
+            "groups": [
+              [
+                "550e8400-e29b-41d4-a716-446655440000",
+                "e95e1607-a025-4598-880a-221077f27cc1"
+              ]
+            ]
+          },
+          "limitations": "Features only; no geometry re-extraction or arbitrary future image labels."
+        }
+      ]
+    },
+    "JobReceiptReference": {
+      "type": "object",
+      "properties": {
+        "engine": {
+          "$ref": "#/$defs/UUID"
+        },
+        "job": {
+          "$ref": "#/$defs/UUID"
+        },
+        "receiptDigest": {
+          "$ref": "#/$defs/SHA256"
+        }
+      },
+      "required": [
+        "engine",
+        "job",
+        "receiptDigest"
+      ],
+      "additionalProperties": false,
+      "description": "Digest-pinned immutable submission receipt, independent of whether a physical attempt exists. Resolves to data/jobs/<engine>/<job>/receipt.json."
+    }
+  },
+  "x-extensionRules": {
+    "optionalFields": "Preserve original immutable record bytes, including unknown optional fields. Additional fields do not grant supported capabilities. Typed reference/declaration variants are closed to prevent ambiguous identities and source states.",
+    "requiredFeatures": "Stable namespaced IDs; unknown required features block only operations needing their semantics. A checksum or copied namespace provides no authentication.",
+    "profiles": "Known envelope profiles use exact /1 discriminators. Unknown profiles and enum values may be preserved opaquely; do not rewrite or use unsupported semantics. Unfamiliar representation kind may pass envelope validation but requires capability gating.",
+    "legacyPayloads": "Existing Swift DrawingProgram and producer/run payloads remain separate exact-byte objects; their internal UUID spelling, hashes and units are not rewritten to envelope conventions."
+  },
+  "x-semanticValidation": [
+    "Parse UTF-8 without BOM; reject duplicate JSON keys, NaN, Infinity and numbers outside finite binary64. Enable date-time format assertions. Apply bounded record/asset counts and byte/image expansion limits.",
+    "Validate exact BagIt 1.0 two-line bagit.txt, SHA-256 payload and tag manifests; reject fetch.txt, links/special entries, unsafe relative paths, duplicate and case-fold-colliding ZIP entries. JSON Schema does not validate ZIP or filesystem safety.",
+    "Verify each object descriptor byte length, media type/encoding, exact-byte SHA-256, decoding metadata and dimensional/stride arithmetic before allocating. Require appropriate pixel/array metadata for raw encodings.",
+    "Resolve every present typed reference to exact immutable local bytes and the intended profile. Reject changed bytes at a previously committed issuer/revision; unavailable components require an explicit reason. Validate retained photo/input/parent paths and known producer claims without fuzzy identity.",
+    "Verify native DrawingProgram schema and canonical APCB contentHash; finite points/stable stroke IDs/order/field extent, all transforms and producer-proven units. New stroke exports declare nominal pen width; preserved historical fixtures retain exact bytes.",
+    "For closed results require sequence 1..N, same-run predecessor digests, consistent drawing/job and pinned immutable receipt, exact pre-motion binding and cumulative dispatch/frontier facts. Refusal has no attempt; one accepted job issues at most one run. Sealed snapshots are final producer testimony; later assertions are supplements.",
+    "Coverage references and task-specific eligibility are distinct. Missing/rejected observations are not negative labels. Assessments require supported typed answer semantics. Ranking groups must exhaust their unique presentations without duplication; features cannot support future geometry re-extraction.",
+    "Physical plan, placement, correspondence (including borders), calibration, device, material mapping and run evidence stay typed payloads of their existing owners. Imported bytes never establish current device readiness, clear possible ink or authorize retry.",
+    "For every result, resolve jobs as digest-pinned immutable JobReceiptReference roots and verify each receipt drawing matches an included exact drawing root. A zero-attempt refused result requires refused receipt disposition, no issuance/run and no staged physical attempt; do not invent a run. For result attempts verify each pins an included matching job receipt. Job handles without receipt digests are insufficient portable result roots."
+  ],
+  "$comment": "The Drawing and ExchangeIndex examples are exact decoded frozen fixture records. Other $defs examples are structural examples with placeholder UUIDs/digests, not package-closure vectors or physical evidence."
+}

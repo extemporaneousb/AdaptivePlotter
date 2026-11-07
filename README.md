@@ -16,6 +16,10 @@ The application is deliberately local:
 
 ## Independent Portrait Studio
 
+The [Drawing Exchange decision and v1 specification](docs/DRAWING_EXCHANGE.md)
+defines the shared authoring and physical-result contract. The [adoption backlog](docs/ROADMAP.md#drawing-exchange)
+tracks its implementation across both applications.
+
 `PortraitStudio` is the independent Flow Edge Dojo: choose a photo, compare a
 broad panel, refine a choice, remove or restore whole lines, rank alternatives,
 and fit/deploy a personal artist. The embedded workspace uses the same journey.

@@ -64,6 +64,7 @@ preview-performance-gate: app launcher
 		"$(PREVIEW_PERFORMANCE_EVIDENCE)" "$(or $(PREVIEW_PERFORMANCE_SCENARIO),preview)"
 
 docs-check:
+	@./.VE/bin/python Scripts/check_drawing_exchange_fixture.py
 	@sh Scripts/check_episode_documentation.sh
 	@./.VE/bin/python Scripts/check_episode_contract.py
 	@PYTHONDONTWRITEBYTECODE=1 ./.VE/bin/python Scripts/test_episode_pilot_gate.py

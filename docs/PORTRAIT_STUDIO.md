@@ -3,7 +3,7 @@
 Status: current operator and file-format guide for the Flow Edge Dojo. Product
 semantics belong to [Product Contract](PRODUCT_CONTRACT.md); implementation owners
 belong to [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md). Actual validation
-receipts remain in [Current Evidence](CURRENT_EVIDENCE.md).
+receipts remain in [Current Evidence](CURRENT_EVIDENCE.md). The accepted replacement contract and adoption sequence live in [Drawing Exchange](DRAWING_EXCHANGE.md) and the [Roadmap](ROADMAP.md#drawing-exchange). This guide describes the shipping paths until their cutovers land.
 
 Portrait Studio has one authoring journey: choose a photo, explore Flow Edge
 constructions, refine a choice, prune whole lines, rank drawings, fit the artist,
