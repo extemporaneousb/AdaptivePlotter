@@ -1,0 +1,29 @@
+{
+  "large": {
+    "attemptCount": 1000,
+    "compressedBytes": 279406,
+    "decodedSHA256": "7b7a5ace9cd35fd41098417e0a940805ef7f33330935314110e6e4a35d82f570",
+    "filename": "archive-times-large.json.gz",
+    "recordCount": 100000,
+    "sha256": "de47318215caec1d69df05a87993d8860fde35e420b11553915ca0a51bccc09a",
+    "sourceLegacySHA256": "32dd0c9661d93ae89d51812b032259ac5f512e5f35237c103a122d7efa8a9680"
+  },
+  "medium": {
+    "attemptCount": 10,
+    "compressedBytes": 28471,
+    "decodedSHA256": "ce6473e8e268dcd3cc899d40b3de609c124ac760aeed5aa15c10723c50f1463e",
+    "filename": "archive-times-medium.json.gz",
+    "recordCount": 10000,
+    "sha256": "6af8e41b743638acd8d6e0eb11109b1e4961419326f988d720e6b39e43aa12d3",
+    "sourceLegacySHA256": "a8f99ff1e2b485bb686181a8282c29b288926df3aeaf20130e68ed9d2be16095"
+  },
+  "small": {
+    "attemptCount": 10,
+    "compressedBytes": 366,
+    "decodedSHA256": "304a1d8ba9077a5da072cdc50d76d5bd4cbfdc9f588ad9fc7564490008ab375e",
+    "filename": "archive-times-small.json.gz",
+    "recordCount": 100,
+    "sha256": "8590def233a4164df877d76d14ae72f95eaca0498603d1f5297ef93c7dbaf853",
+    "sourceLegacySHA256": "91c8322aaad47b9283e63bf957349a7995e091ff957e5d8e26d6021614cbd984"
+  }
+}

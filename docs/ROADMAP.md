@@ -11,8 +11,10 @@ this roadmap does not restate or reorder them.
 
 ## Drawing Exchange
 
-Status: planned; no ticket below is implementation or acceptance evidence. The
-accepted target is [Drawing Exchange](DRAWING_EXCHANGE.md). The Flow Edge Dojo
+Status: DX-01 baseline frozen at `b2ff045483f75f6eb60b92dbeb8674c2a11aeba7`;
+adoption follows the Blackdog task/run record linked in its dated receipt. All
+later tickets remain planned until actual dependency completion. No ticket below
+is implementation or acceptance evidence. The accepted target is [Drawing Exchange](DRAWING_EXCHANGE.md). The Flow Edge Dojo
 section below describes the shipped baseline and outstanding model evaluation;
 it does not authorize a competing portfolio, retention or storage authority.
 This campaign replaces its relevant internals with the shared library/authoring
@@ -79,7 +81,9 @@ M5 does not imply M6 or physical readiness.
 
 ### Ticket acceptance contracts
 
-**DX-01 — Freeze reachable-surface and performance baseline.** Allowed:
+**DX-01 — Freeze reachable-surface and performance baseline.** Baseline frozen at
+`b2ff045483f75f6eb60b92dbeb8674c2a11aeba7`; adoption and the final configured gate
+follow the authoritative Blackdog task/run record in the dated [DX-01 receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-01-baseline-receipt-2026-11-06). Allowed:
 read-only inspection of `Package.swift`, `Sources/`, `Tests/`, `Tools/`, `Scripts/`,
 `Resources/`, routed docs; write baseline fixtures/measurements under existing test
 fixture conventions and docs. Trace `PortraitStudioApp`/`PortraitStudioComposition`,

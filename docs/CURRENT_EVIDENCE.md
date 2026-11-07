@@ -8,6 +8,527 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing Exchange DX-01 baseline receipt, 2026-11-06
+
+Status: **baseline frozen at `b2ff045483f75f6eb60b92dbeb8674c2a11aeba7`**.
+Adoption and final configured-gate results belong to the authoritative Blackdog
+task/run record named below. This is a baseline inventory,
+not a completed exchange cutover or a performance-improvement claim. The reviewed
+source baseline is `6305c0503ae3cae7130bd38d0e2def309a927e88`; the accepted contract
+and roadmap entered this task at `81d95a892d2d419f8467da52edfd01a242258afb`.
+The actual harness/fixture implementation commit is
+`b2ff045483f75f6eb60b92dbeb8674c2a11aeba7` (21 new test/fixture files, no production
+source or package edits); it is distinct from a final landing hash.
+Task `task-8f5e44db9ece4b7a81db4f6d7fd8e6ed`, attempt
+`attempt-b52dd49c1035460f97b299c1591bdda9`, targets `main`. The actual landing
+hash belongs in a subsequent ticket receipt, because a commit
+cannot contain its own hash. No production library, app session or hardware is a
+baseline fixture. This receipt preserves the [DX-01 gate](ROADMAP.md#drawing-exchange)
+and does not satisfy missing measurements by assertion.
+
+### Reachable callers, replacement and retained owners
+
+“Reachable” below means a current executable/UI or explicitly invokable tool path;
+compiled source and test reachability are identified separately. Disposition is a
+future cutover obligation: **DX-01 deletes no production caller**.
+
+| Surface / concrete caller | Current writer, reader or authority | Classification and replacement/deletion obligation |
+|---|---|---|
+| Standalone `PortraitStudioApp` → `PortraitStudioDojoWindow` → `FlowDojoView`; embedded `PortraitStudioView` → `FlowDojoView` | `FlowDojoModel` and `FlowPortfolioStore` own live authoring/portfolio state; `PortraitStudioModel` supplies camera acquisition | Reachable in both apps. Replace both compositions together; retain camera cancellation and autosave recovery. Standalone `--portfolio ABSOLUTE_PATH` selects the portfolio; `--review-library` is explicitly refused. |
+| `FlowDojoModel.generate` → `beginRound` → `completeCandidate` → masks → round finish | `FlowPortfolioStore.completeCandidate` writes program, raster and preview for generated alternatives before intentional choice | Reachable durable-generation writer; replace with ephemeral alternatives and explicit selected-path retention. Browsing `selectCandidate` is separate from `chooseCandidate` feedback. Preserve round recovery, renderer recipes and cancellation. |
+| `FlowDojoModel` choose/refine, prune, rank, rename, fit/activate and restart | `FlowPortfolio{Store,PhotoCollection,Storage,Delta,Types,Validation,LegacyImport}.swift`; preview/training/checkpoint caches | Reachable. Retire live portfolio writes only after each interaction has a replacement test. Keep immutable legacy head/delta/import readers and exact human versus computed mask provenance. Rank feedback commits durably before refresh. Rename currently invokes broad refresh. |
+| `FlowPortfolioPhotoCollection.import` / camera capture | Import deduplicates image digest; camera path deduplicates capture ID then allocates a portfolio source UUID | Reachable acquisition authority. Equal-byte distinct acquisition is a required future reference vector; digest equality must not become acquisition identity. |
+| `FlowDojoModel.refresh` | Snapshot, training-progress refresh, previews and active checkpoint decode/validation | Reachable shared hot path after rename, selection and rank. Conditional training-snapshot reuse does not suppress active-checkpoint decoding. Replace at owning metadata/cache seam; no DX-01 runtime edit. |
+| Embedded Send: `PortraitStudioView` exports package → `sketches.importDrawingPackage` → host `showEditedOnPlotter` | `PortraitSketchCollection` and `PortraitCandidateStore` remain legacy retained-library writers | Reachable independent portfolio-to-library handoff. Preserve v1 imports and exact retained edit identity; route through common Drawing/exact reference and Library adapter in later tickets. |
+| `PortraitSketchCollection` retain/import/child-selection; queued snapshot → `PortraitCandidateStore.save` | Snapshot queue and retained drawing storage remain additional writer/cache authorities | Reachable library API, UI and tests. No deletion based on disappearance of old generation UI; account for explicit child edits, provenance, conflict/tombstone behavior and restart. |
+| `PortraitCandidateStore.loadPhotoPage`, unfiltered `loadDrawingPage` → `browseIndex` → `PortraitLibraryDatabase.index` | Canonical SQLite plus legacy fallback and per-store caches; `generic_drawing` separate from photo/drawing joins | Reachable browsing. Photo and unfiltered drawing pages enumerate full photo/drawing/generic summary indexes; `candidateRecordsRead == 0` is not bounded SQL/summary work. Photo-filtered drawing paging uses SQL LIMIT/OFFSET. Replace full enumeration with indexed bounded queries. |
+| `loadDrawing(String)` versus `PortraitDrawingIdentity`; candidate-only versus photo-qualified keys | Independent string lookup, exact identity and cache key conventions | Reachable API ambiguity. Preserve exact identities in selection, preview and transfer; test collisions across photos and generic/source-free records before removing old lookup. |
+| `PlotterApplicationRuntimeView` reviewer/transfer/studio routes; `DrawingTransferView` | Transfer maintains string selection plus optional photo ID; lookup/import/export/attachment actions use the legacy library | Reachable native UI. Replace both independent browser selections; preserve restore-deleted semantics explicitly (`DrawingTransferView` import permits it, embedded handoff does not). |
+| `PortraitDrawingActions` send/save/material adaptation | Ordinary `.selectProgram` / `.fit` plus `projectedDrawing` side channel | Reachable Plotter ingress. Keep lower draft, placement, planner, readiness and Stop owners; replace only the exchange/reference adapter under its authorized ticket. |
+| `DrawingRunEvidenceComposition`; `PlotterDrawingRunRuntime`; run-attempt archive | Raw intent, progress, terminal evidence, possible ink and RunID persistence | Reachable retained runtime authority, not obsolete library storage. Start allocates a fresh RunID before publication/run and stages intent later; run-store deduplication is by RunID. DX-13 needs its own named eligible episode package; completed EA08A/B do not authorize issuance changes. |
+| `PortraitStudioRootView`, `PortraitStudioComposition`, Artist/Review/Library views and models | Historical composition redirects root authoring into the same Dojo; compiled library page/edit routes and review/model test coverage remain | Compiled source/test reachable, no current standalone entrypoint invocation of these views established. App still uses `privateLibraryURL`. Library UI contains real page/load/edit-to-save operations; legacy model generation remains compiled/tested. Preserve obligations before removing old UI; material adaptation still uses model `acceptProjection`. |
+| `PortraitPhotoPage`, `SavedDrawing`, `PortraitLibrary`, `PortraitLibraryQueries`, `PortraitLibraryDatabase`, `PortraitCandidateStore`, `PortraitSketchCollection` | Retained catalog/value/query/database/snapshot ownership | Reachable library infrastructure. All `Sources/PortraitLibrary/` files belong to the migration inventory; no second catalog or mutable database authority may be introduced. |
+| `Portrait{EvidenceSource,ParameterPreferenceArchive,CheckpointStore,ReviewStore,ReviewCommit,ReviewExport,LibraryReconciliation,LibraryReconciler,LegacySnapshot}.swift` | Evidence, feedback/checkpoint, review jobs/exports and migration readers/writers | Library API/tool/test reachability varies; preserve physical protection, legacy interpretation and conflict/tombstone evidence. Review and migration tests do not make these historical-only or authorize production cleanup. |
+| `Tools/portrait-library-reconcile` | Explicit command runs `PortraitLibraryMigrationCommandTests` through `swift test --skip-build`; environment names destination, backup and optional promotion | Reachable opt-in **mutating** CLI, not a read-only audit. Keep parser, backup/promotion safeguards and corresponding tests with the migration consumer. Not executed against original data for DX-01. |
+| `PortraitStudioArtistModel` → `SwiftSketchClient` / `worker.py`; protocol/converter/model pins | Optional local subprocess producer and frozen interpretation contract | Compiled/configured-client and test reachable; not a current standalone UI route. `prepare.py`, `prove.py`, `pilot.py`, `face_pilot.py`, `acquire.py`, `run_bounded.py` and worker tests remain explicit executable experiment/tool paths; historical purpose does not establish dead code. Preserve protocol and model receipts until callers/interpretation are replaced. |
+| `Resources/{AdaptivePlotter,PortraitStudio}-Info.plist`; Makefile `app`, `portrait-studio-app`, `launcher`, `validate-app`, `validate-portrait-studio-app`; `Scripts/build_{local_app,local_app_launcher,portrait_studio_app}.sh`, `validate_{local_app,portrait_studio_app}_bundle.sh`, `launch_local_app.swift` | Independent `PortraitStudio` and `AdaptivePlotter` executable/bundle identities, permissions and file associations | Reachable distribution/launch surface. Preserve old identities and associations. `Scripts/check_repository_contract.sh` binds approved SwiftSketch subprocess fragments; episode inventory/cutover checks bind repository/executable paths. Update checks with their actual callers. Launcher `--validate-only` checks identity; `--simulated` passes `-AdaptivePlotterStartSimulated YES` and cannot combine with validation-only. Makefile `run-app`/`run-app-simulated` and launcher logic/bundle tests remain supported routes. |
+| `Scripts/check_running_app_preview_performance.sh`, `inspect_running_app.{swift,py}`, `test_native_workbench_report.py`; `RunningAppPreviewPerformanceGate` and launch variants | Gate validates/launches the nominated bundle and activates exact PID; native-workbench uses simulated startup, physical variants require controller/operator authority | Explicit executable native/physical tools, not fixture-only. No native or physical run is implied by Swift benchmark success. Keep existing responsiveness budgets and separate receipts. |
+| Existing FlowDojo navigation/integration, FlowPortfolio, SavedDrawingStore, transfer admission/library/package/lineage and RunAttemptStore benchmark tests | Interaction preservation, storage counters/races, exchange and accumulated-history contracts | Test-only entrypoints with distinct obligations. Replace/delete tests only with equivalent contract coverage; new baseline harness does not supersede them. |
+
+Current dependency direction is also baseline evidence: `PortraitCore` depends on
+`PlotterModel`; `PortraitArtists` depends on `PlotterRuntime`; `PortraitLibrary`
+depends on both Artists and Runtime; Studio UI and both executable compositions
+consume these layers. Pure common value/reference operations and catalog targets
+are therefore not yet independent of the producer/device runtime.
+
+The **first replacement boundary** is the common Core Drawing/exact-reference
+value and Library adapters at live Dojo generation/intentional retention and the
+embedded handoff. Preserve `DrawingProgram.contentHash`, existing v1 decoders and
+frozen program bytes. Subsequent producer/catalog dependency inversion removes
+semantic validation/reconciliation from Library through typed composition
+adapters. Existing placement, draft/planner, run/evidence and Stop continue owning
+their semantics. This identifies the first seam; it does not reorder DX tickets or
+authorize an episode runtime package.
+
+### Reproducible baseline measurements
+
+The disposable harness is `Tests/PlotterAppTests/DrawingExchangeBaselineTests.swift`.
+The runner is `Tests/Fixtures/DrawingExchange/baseline/run.py`. The normal-chain
+measurements, supplemental actor/typed calls, corrected transfer gates and driver
+negative controls and instrumented owner counters below are frozen at the source
+commit above. Final configured validation and adoption are recorded by the named
+Blackdog task/run.
+Primary durable evidence is the checked
+[readable manifest](../Tests/Fixtures/DrawingExchange/baseline/observations-2026-11-06.manifest.json)
+and [compressed observation bundle](../Tests/Fixtures/DrawingExchange/baseline/observations-2026-11-06.json.gz):
+**192,275 compressed / 2,008,642 uncompressed bytes**, SHA-256
+`ceab2037757321c99bcb45cfddd92daaf142c0d40e1578bbd6fdb925b5282be6`.
+It retains **654 normal receipts and 37 admitted structural sets**, with original
+receipt hashes and source/build/profile/run identities. `/tmp` paths below are
+diagnostic originals; the checked bundle owns durable replay evidence. The
+immutable Blackdog outcome definition hash is
+`05527cafa60ecfab599d73aa1a68b8998fe434d16266b7fb5e7c1951c7def6ad`;
+the exact original UTF-8 input file separately hashes to
+`503a34ea9bfd1d6745f6ee37dec5c9ea4e1a26c856a73b515ed5c91b2561d3b1`.
+The bundle retains both and does not conflate their meanings.
+
+The implemented seed is **7301**, with small/medium/large conditions of
+**40 / 1,000 / 10,000 photos**, five retained candidates per photo and one
+**20,000-stroke source-free drawing** per catalog. Source photos intentionally
+share one encoded 40 × 40 PNG while retaining distinct acquisition IDs; ten
+photos share each declared capture session. This isolates indexed catalog cost;
+it does not represent varied portrait/media geometry or human feedback. Legacy
+archive targets are **100 / 10,000 / 100,000 terminals** plus
+**10 / 10 / 1,000 interrupted states**, split between prepared and possible-ink.
+They share one actual **640 × 480 gray8 synthetic baseline frame (307,200 bytes)**
+through legacy content-addressed media and per-snapshot references, exercising
+current snapshot/pixel admission. The 10 GiB mixed-media pool remains separate
+and unattached; the combined fixtures do not establish a closed exchange result
+or representative interrupted-history graph.
+
+Current runner commands, from the reviewed task workspace (use a **new**
+disposable root for a new preparation). These phases use existing checked gold;
+`*-author` phases are separate fixture-authoring operations and are not benchmark
+prerequisites. Source/fixture commit C is pinned above; configured validation
+uses the final combined source and documentation tree:
+
+```sh
+swift test --no-parallel --filter DrawingExchangeBaselineTests
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py prepare --root /tmp/adaptiveplotter-dx01-20261106 --condition small
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py measure --root /tmp/adaptiveplotter-dx01-20261106 --condition small
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py prepare --root /tmp/adaptiveplotter-dx01-20261106 --condition medium
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py measure --root /tmp/adaptiveplotter-dx01-20261106 --condition medium
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py prepare --root /tmp/adaptiveplotter-dx01-20261106 --condition large
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py measure --root /tmp/adaptiveplotter-dx01-20261106 --condition large
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py media --root /tmp/adaptiveplotter-dx01-20261106
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py negative --root /tmp/adaptiveplotter-dx01-20261106 --condition small
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py sql-capability --root /tmp/adaptiveplotter-dx01-20261106
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py flow-prepare --root /tmp/adaptiveplotter-dx01-20261106
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py flow-measure --root /tmp/adaptiveplotter-dx01-20261106
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py transfer-prepare --root /tmp/adaptiveplotter-dx01-20261106
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py transfer-measure --root /tmp/adaptiveplotter-dx01-20261106
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py producer-prepare --root /tmp/adaptiveplotter-dx01-20261106
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py producer-measure --root /tmp/adaptiveplotter-dx01-20261106
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py supplement --root /tmp/adaptiveplotter-dx01-20261106 --condition small
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py supplement --root /tmp/adaptiveplotter-dx01-20261106 --condition medium
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py supplement --root /tmp/adaptiveplotter-dx01-20261106 --condition large
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py verify-media --root /tmp/adaptiveplotter-dx01-20261106
+python3 Tests/Fixtures/DrawingExchange/baseline/run.py summary --root /tmp/adaptiveplotter-dx01-20261106
+```
+
+The completed normal-chain executions and corrected driver checks are recorded
+below; instrumented observations have separate coverage-build provenance and
+are not replacements for normal timing. Configured validation results belong to
+the named final-tree machine record. Each
+measurement invokes `/usr/bin/time -l swift test --skip-build --no-parallel`
+with the runner's named catalog or archive filter and explicit environment.
+Cold protocol: five fresh processes per operation/condition,
+filesystem caches uncontrolled; no whole-catalog manifest decode before measuring
+an interactive page. Next-page cursor setup reads the previous page outside the
+timer, so next-page results are not cold-archive observations. External corpus
+verification streams files in 1 MiB chunks outside measurement processes; it does
+not allocate whole archive files in the measured process. Warm protocol: warm-up followed by at least thirty measured
+operations per scenario with median/p95. A process-cold observation is not a
+filesystem-cache-cold or signed-native-launch observation.
+
+The separate `Tests/PortraitStudioTests/DrawingExchangeFlowBaselineTests.swift`
+harness measures full `FlowDojoModel` awaited persistence/refresh on a frozen
+small portfolio: four 40 × 40 PNG sources, twelve synthetic 16-stroke broad
+drawings plus three parent refinements, masks/ranks and an actually fitted and
+activated checkpoint. This deliberately exposes active-checkpoint refresh cost.
+It is not a 10,000-photo Dojo workload. Operations cover reopen, view, select,
+choose, refine, prune, rename, rank, failed-rank, equal-byte capture and generation.
+The default renderer override's synthetic geometry time/call count is separate;
+production proposals are bypassed. Optional `real-generate` exercises the actual
+renderer separately. Warm trials evolve one disposable copy after warm-up; the
+frozen starting head stays unchanged. Rank currently preserves its comparison;
+there is no production automatic Rank-to-next behavior to benchmark yet. First
+operation after model open is process-fresh with preloaded assets, not cold
+archive access. Flow RSS covers process startup, copying, model open and setup.
+Failed-rank checks committed feedback and comparison stay unchanged on failure;
+recovery belongs to the measured operation. Completed results appear below;
+source-input randomness and profiling restrictions remain explicit.
+
+Verified preparation host (`receipts/host.json`): **MacBookPro15,1**, x86_64,
+**17,179,869,184 bytes RAM / 16 logical CPUs**, **macOS 15.8.1 (24H32)**,
+**Swift 6.1.2**, debug test build at accepted parent `81d95a892d2d419f8467da52edfd01a242258afb`
+plus this task's harness. Storage is `/dev/disk1s1` on
+`/System/Volumes/Data` (466 GiB filesystem); filesystem caches are uncontrolled.
+
+| Prepared condition | Photos / retained candidates | Legacy terminals / interrupted | Logical / allocated bytes | Files / inventory SHA-256 |
+|---|---|---|---|---|
+| Small | 40 / 200, plus source-free 20,000-stroke drawing | 100 / 10 (5 possible-ink) | 8,575,437 / 9,637,888 | 412; `8ffd327b9cd1fd97945b65492f1776df41ebbf6833cd56f9be484f1c7f06ff09` |
+| Medium | 1,000 / 5,000, plus source-free 20,000-stroke drawing | 10,000 / 10 (5 possible-ink) | 127,844,138 / 154,521,600 | 10,012; `4e37a209a23bed0c2c9293eae2ee1c982c40aa51aab8aafc12a37ffc106f466a` |
+| Large | 10,000 / 50,000, plus source-free 20,000-stroke drawing | 100,000 / 1,000 (500 possible-ink) | 1,250,208,761 / 1,514,876,928 | 100,012; `90bdf49eb1f82a5742471ae61d9dd8795bef107c62f0e23529915f9709c5947a` |
+
+All three original corpus inventories remained byte-identical before/after
+measurement: `{small,medium,large}-immutability.json` each records `unchanged: true`
+and the identical roots in this table. Receipts are under `/tmp/adaptiveplotter-dx01-20261106/receipts/`, named
+`{small,medium,large}-before.json` and corresponding
+`*-catalog-prepare.json` / `*-archive-prepare.json`. The frozen legacy archive seed
+is 12,159 bytes, SHA-256
+`f6c1c418ea89824639bc96f987abbfee988fe5566ac5038c6fe843013679933c`.
+Preparation counters and durations describe fixture construction; they are not
+interactive-operation results. A disposable SQL query-counter probe on AppleSQLite returned `SQLITE_MISUSE`
+(21) from `sqlite3_auto_extension` before opening its control database, after an
+Apple deprecated/unsupported API warning. `/tmp/dx01-sql-control.log` preserves
+that capability failure. Official SQLite API availability did not establish host
+support; actual query counts remain unavailable, without a zero-query claim.
+
+The added legacy transfer scenario uses the current **photo-required v1 JSON**
+package, with native export, first import and exact reimport on disposable stores.
+It does not exercise the new closed carrier or 10 GiB streaming. The prepared
+fixture is **58,382 bytes**, SHA-256
+`def00a78893810aa2d520ed0eab0b4c84cbb1a2e30ac195d05b2cd7845d78d4f`,
+program hash `5494037dfcea6934c239ffa2a825db8d42c41a4d08dc3ee358cb590a68b2f07b`
+(`transfer-prepare.json`). Its pre-measurement inventory root is
+`1029e6cb02d8cf791ffee792fc7fe4b6121a8a147feda955cc70dd90b6d31b5b`
+(`transfer-before.json`). Corrected interactive results and byte-identical
+transfer fixture verification appear below.
+
+Completed **small** interactive baseline (`receipts/small-summary.json`): each
+row has **30 warm trials after one warm-up** and **five fresh-process trials**.
+Latencies are milliseconds; RSS columns are MiB (bytes / 1,048,576), measured over
+the process lifetime. They include test startup and setup and are not operation
+allocation/live-page memory. Next-page fresh-process rows include untimed previous
+page setup. The small corpus inventory stayed byte-identical before/after, root
+`8ffd327b9cd1fd97945b65492f1776df41ebbf6833cd56f9be484f1c7f06ff09`
+(`small-immutability.json`).
+
+| Small operation | Warm p50 / p95 ms | Process-fresh p50 / p95 ms | Warm / max fresh RSS MiB |
+|---|---|---|---|
+| `legacy-loadSnapshot` | 80.998 / 82.706 | 100.591 / 102.133 | 47.59 / 43.23 |
+| `drawing-first-page` | 51.196 / 58.034 | 57.426 / 61.609 | 36.51 / 35.07 |
+| `drawing-next-page` | 52.278 / 57.155 | 54.131 / 55.433 | 38.90 / 37.43 |
+| `exact-drawing-load` | 56.428 / 57.793 | 63.118 / 63.507 | 35.68 / 36.05 |
+| `large-drawing-load` | 633.475 / 646.887 | 630.063 / 640.335 | 67.38 / 62.41 |
+| `photo-filtered-drawing-page` | 1.578 / 1.684 | 2.996 / 3.720 | 34.50 / 34.64 |
+| `photo-first-page` | 51.813 / 56.956 | 56.543 / 58.989 | 36.53 / 35.98 |
+| `photo-next-page` | 50.744 / 52.394 | 52.090 / 60.178 | 37.11 / 36.25 |
+
+Page APIs reported `candidateRecordsRead: 0`; exact drawing loads expose no such
+counter. These normal-timing receipts leave query/decode/allocation/IO counters
+null; the separate instrumented owner entries below have narrower explicit scope.
+Full summary-index
+materialization still occurs on unfiltered page paths, so zero candidate records
+does not establish bounded work. The completed medium/large results follow.
+
+Completed **medium** baseline (`receipts/medium-summary.json`), with the
+same thirty-warm / five-fresh-process protocol and process-lifetime RSS scope:
+
+| Medium operation | Warm p50 / p95 ms | Process-fresh p50 / p95 ms | Warm / max fresh RSS MiB |
+|---|---|---|---|
+| `legacy-loadSnapshot` | 6061.767 / 6150.668 | 6236.961 / 6299.445 | 624.90 / 473.35 |
+| `drawing-first-page` | 1328.858 / 1356.833 | 1377.329 / 1393.260 | 106.51 / 89.77 |
+| `drawing-next-page` | 1335.919 / 1369.735 | 1359.260 / 1395.798 | 107.32 / 107.91 |
+| `exact-drawing-load` | 1346.174 / 1384.055 | 1369.423 / 1412.504 | 117.41 / 88.60 |
+| `large-drawing-load` | 1907.414 / 1973.471 | 1928.392 / 1977.283 | 121.84 / 99.42 |
+| `photo-filtered-drawing-page` | 1.567 / 1.711 | 2.982 / 3.080 | 32.01 / 34.54 |
+| `photo-first-page` | 1339.359 / 1369.845 | 1340.898 / 1377.730 | 115.54 / 88.16 |
+| `photo-next-page` | 1348.164 / 1427.141 | 1330.680 / 1367.544 | 112.18 / 106.05 |
+
+Completed **large** baseline (`receipts/large-summary.json`), with the
+same thirty-warm / five-fresh-process protocol and process-lifetime RSS scope:
+
+| Large operation | Warm p50 / p95 ms | Process-fresh p50 / p95 ms | Warm / max fresh RSS MiB |
+|---|---|---|---|
+| `legacy-loadSnapshot` | 63777.260 / 64329.566 | 64945.722 / 65036.761 | 4790.53 / 3918.24 |
+| `drawing-first-page` | 14632.837 / 18567.072 | 14277.750 / 18432.161 | 597.59 / 514.75 |
+| `drawing-next-page` | 14741.136 / 17535.177 | 14918.159 / 17208.694 | 601.70 / 597.43 |
+| `exact-drawing-load` | 14622.042 / 18292.618 | 14281.963 / 15683.133 | 628.53 / 516.28 |
+| `large-drawing-load` | 15570.866 / 18517.599 | 18161.489 / 18580.086 | 555.65 / 515.23 |
+| `photo-filtered-drawing-page` | 1.616 / 1.705 | 2.903 / 4.271 | 33.04 / 34.45 |
+| `photo-first-page` | 14725.373 / 19080.299 | 15089.199 / 15650.215 | 625.27 / 516.45 |
+| `photo-next-page` | 14603.976 / 17222.327 | 14194.050 / 15476.976 | 628.16 / 625.39 |
+
+At **10× catalog scale** (1,000 → 10,000 photos; 5,000 → 50,000 retained
+portrait drawings; fixed page limit 20), the warm metadata p95 **directly fails
+the contract's 2× latency limit**: photo first page grows
+13.93×, photo next 12.07×, drawing first 13.68×, drawing next 12.80×.
+Photo-filtered paging stays near 1.7 ms p95. This matches the inspected
+full-summary-index path; it is a measured baseline defect, not an optimization.
+Process RSS growth is observed separately and **does not measure the 1.25× live
+page/cache-memory budget**; that budget remains unobserved. Legacy snapshot
+materialization is approximately 64.3 seconds p95 / 4,790.5 MiB warm process peak
+at 100,000 terminals; it is not indexed job/snapshot paging.
+
+Completed Flow model operations (`receipts/flow-summary.json`): thirty warm
+operations on evolving disposable history plus five first operations after open.
+These first operations preload model assets and are not cold archive loads.
+Reopen has five fresh-process observations: **153.718 / 158.466 ms p50/p95**.
+The frozen Flow head and full corpus remained byte-identical in
+`flow-immutability.json` and `producer-immutability.json`.
+
+| Flow operation | Warm p50 / p95 ms | First-after-open p50 / p95 ms | Warm process RSS MiB | Retained drawing delta / operation |
+|---|---|---|---|---|
+| `view` | 0.108 / 0.119 | 0.157 / 0.159 | 40.67 | 0 |
+| `select` | 9.115 / 12.786 | 11.882 / 14.209 | 39.16 | 0 |
+| `choose` | 8.278 / 10.427 | 10.821 / 14.744 | 40.18 | 0 |
+| `refine` | 139.857 / 159.688 | 116.219 / 122.628 | 41.41 | 3 |
+| `prune` | 12.491 / 15.528 | 28.093 / 34.823 | 40.22 | 0 |
+| `rename` | 7.820 / 9.659 | 9.766 / 12.674 | 42.30 | 0 |
+| `rank` | 7.487 / 9.423 | 9.474 / 13.774 | 38.84 | 0 |
+| `generate` | 151.641 / 185.130 | 124.753 / 145.071 | 43.58 | 3 |
+| `failed-rank` | 56.346 / 62.307 | 56.523 / 57.398 | 39.26 | 0 |
+| `equal-byte-capture` | 54.095 / 187.053 | 22.412 / 27.726 | 39.11 | 0 |
+
+`generate` and `refine` use synthetic vector overrides and stochastic recipe
+inputs; each retains **three** candidates per operation, recording the current
+durable-generation defect. They are not frozen strict A/B renderer inputs.
+Earlier UI-generated seeds have uncertain comparability. Profiled stochastic
+`real-generate` observed **9,438.061 / 9,675.257 ms** warm p50/p95 and
+**10,351.366 / 10,404.799 ms** first-after-open p50/p95, with **121.961 MiB**
+process peak; exclude it from strict A/B timing. It combines proposals, rendering,
+persistence and refresh under profiling.
+
+The separate **fixed producer replay** provides the comparable renderer boundary:
+**35 renders** (30 warm + five first-after-open), **953.803 / 1,001.607 ms** warm
+p50/p95; **1,691.016 / 1,702.350 ms** first-after-open; **105.902 MiB** warm
+process peak. All recorded hashes match. `baseline/producer-pin.json` freezes
+source/input receipt SHA-256
+`e7a54a76997d1617275d66442d395832cf62fa131551117c537bd347d24b3844`,
+canonical program hash
+`10605881e0c25e5fef1587b59e4b3935e17a947cfd732bbc2f057a71cb3662e0`
+and exact encoded program bytes SHA-256
+`5a26e61ef231b261a5a188e0aac95ea1c8bb9fff84d465c6f938e94266194e9f`.
+`producer-summary.json` and per-process receipts preserve the observations;
+this does not establish native UI latency or physical quality.
+
+An intermediate **failed reproducibility check** regenerated small corpus root
+`8ce2437712eba41b4b0652828ce0c13c2da042dd620406f8fe72bd759c65b9a9`
+instead of original `8ffd327b9cd1fd97945b65492f1776df41ebbf6833cd56f9be484f1c7f06ff09`
+(`reproducibility.json`, `identical: false`). Raw fixture construction used actual
+`Date()` binary64 timestamps. The correction freezes original reference-date
+binary64 values in `archive-times-{small,medium,large}.json.gz` and their manifest.
+Corrected small regeneration then exactly matched original root
+`8ffd327b9cd1fd97945b65492f1776df41ebbf6833cd56f9be484f1c7f06ff09`
+(`reproducibility-fixed.json`, `identical: true`). The original measured corpora
+were unchanged. This records both failure and correction; it does not substitute
+for the separate instrumented observations or configured final-tree validation.
+
+Completed **actor gallery / typed identity supplement** (`supplement-summary.json`):
+fixed **k=100**, thirty warm operations and five first calls in fresh processes,
+on disposable full catalog copies. RSS includes copying, test startup and setup;
+it is not live page/cache memory. `evidenceArchiveURL=nil` and no physical-work
+rows mean production raw-archive hashing and physical-work joins are **absent**
+from this measured workload. A SQL LIMIT or function-entry count does not prove
+total SQL work or complexity.
+
+| Condition / operation | Warm p50 / p95 ms | First p50 / p95 ms | Warm process RSS MiB |
+|---|---|---|---|
+| Small / `gallery-first-page` | 3.807 / 4.734 | 14.773 / 15.366 | 33.92 |
+| Small / `gallery-next-page` | N/A: 40 photos < k=100 | N/A | N/A |
+| Small / `identity-drawing-load` | 8.321 / 9.066 | 17.712 / 18.065 | 34.12 |
+| Medium / `gallery-first-page` | 15.961 / 17.491 | 69.758 / 92.032 | 40.97 |
+| Medium / `gallery-next-page` | 16.024 / 16.827 | 17.058 / 19.623 | 43.23 |
+| Medium / `identity-drawing-load` | 8.535 / 8.865 | 19.355 / 20.373 | 35.59 |
+| Large / `gallery-first-page` | 87.617 / 91.518 | 758.435 / 765.345 | 63.68 |
+| Large / `gallery-next-page` | 118.747 / 219.159 | 121.475 / 142.715 | 63.69 |
+| Large / `identity-drawing-load` | 9.184 / 10.085 | 23.260 / 25.383 | 64.01 |
+
+Large/medium warm gallery p95 ratios are **5.23× first page** and **13.02× next
+page**, directly failing the future **2×** latency target. Typed identity load
+p95 grows **1.14×**. These observations do not prove the 1.25× live-cache memory
+budget. The receipts also expose process malloc snapshots (live bytes/blocks,
+reserved bytes and zone high-water values); snapshots and peak RSS are **not
+allocation counts**. Instrumented owner-entry observations appear below.
+`{small,medium,large}-supplement-immutability.json` all record `unchanged: true`
+with the original roots above. `mixed-media-immutability.json` independently
+verifies the same media root before/after and unchanged allocated byte count.
+
+Completed **corrected legacy v1 transfer** (`transfer-summary.json`), thirty warm
+operations plus five first calls, without native paint or new-carrier streaming:
+
+| Transfer operation | Warm p50 / p95 ms | First p50 / p95 ms | Warm process RSS MiB |
+|---|---|---|---|
+| `v1-native-export` | 7.496 / 9.260 | 34.992 / 37.081 | 42.40 |
+| `v1-first-import` | 55.954 / 64.987 | 74.314 / 77.255 | 53.34 |
+| `v1-reimport` | 40.696 / 43.011 | 41.511 / 42.174 | 54.64 |
+
+Native export starts from a pre-materialized selected native candidate with the
+original namespace seeded through a test-only DB API; no package exists before
+first export. First import starts with frozen package bytes and tiny expected
+hashes only: no package/candidate/program decode precedes the measured API.
+Reimport has one explicit untimed initial import; measured calls are duplicate
+admissions. `transfer-immutability.json` records `unchanged: true`, preserving
+root `1029e6cb02d8cf791ffee792fc7fe4b6121a8a147feda955cc70dd90b6d31b5b`.
+
+**Driver and output-gold checks** (`driver-negative-controls.json`) passed:
+a real zero-matching-test run exited zero but was rejected despite an existing
+sibling output, whose bytes stayed unchanged. Missing producer/Flow/transfer
+preparation failed with exit 1. Attempts to overwrite existing authored gold
+failed with exit 1 and preserved staged gold. Changed producer input-receipt or
+expected-program hashes failed with exit 1, retained diagnostic actual programs
+and left staged pins unchanged. All checked gold stayed unchanged, including
+producer pin SHA-256
+`cc3a070f4a6058ddea292e487014329d1f86f8144dd82ddf4bf22e22788fbf79`
+and the program/Flow/transfer bytes pinned above. `historical-receipt-audit.json`
+checked **233** prior process receipts with zero failures against actual exits,
+operation/trial/condition fields and output time intervals. This is an audit of
+those first-use observations, not retroactive proof from `output.exists` alone.
+
+### Instrumented structural observations
+
+The accepted profile set contains **37 actual exports**: three controls,
+23 catalog/UI/typed scenarios, six Flow scenarios, three transfer scenarios and
+two raw-archive scenarios. These are **whole selected test-process owner-function
+entries**, including setup/assertions/open/shutdown, not isolated operation
+counts, SQLite VM steps or all decoder events. The readable manifest pins all
+eight current harness-source hashes and the observation bundle preserves the
+actual coverage binary, generated runner, source tree and profile/run identity.
+
+| Unfiltered photo/drawing first-page condition | `checkedDrawing` | `checkedPhoto` | DB `decode` | DB `rows` / `prepare` |
+|---|---|---|---|---|
+| Small | 200 | 240 | 443 | 456 / 456 |
+| Medium | 5,000 | 6,000 | 11,003 | 11,016 / 11,016 |
+| Large | 50,000 | 60,000 | 110,003 | 110,016 / 110,016 |
+
+These actual application-owner entries expose full index work despite zero
+candidate-record page counters. They do not count SQLite internal statements or
+prove SQL VM complexity. Typed identity lookup at **all three scales** reports
+**one checked drawing, one checked photo, two metadata decoder entries and one
+DrawingProgram decoder entry** (whole-process DB rows/prepare: 51/51).
+Photo-filtered pages report five checked drawings/five checked photos/ten metadata
+decoder entries. Gallery first page at medium/large has 100 checked-photo/metadata
+decoder entries and 123 rows/prepare entries. Gallery next-page processes include
+initial cursor-page setup: 200 checked-photo/metadata decoder entries and 243
+rows/prepare entries. These bounded owner counts do not establish bounded total
+SQL work; production archive hashing/work rows remain outside this workload.
+
+| Flow whole-process scenario | `refresh` entries | `checkpointData` read entries | DrawingProgram decoder entries |
+|---|---|---|---|
+| Reopen | 1 | 1 | 5 |
+| Rename | 2 | 2 | 5 |
+| Rank | 2 | 2 | 5 |
+| Select | 2 | 2 | 6 |
+| Prune | 2 | 2 | 8 |
+| Generate | 6 | 6 | 8 |
+
+`checkpointData` counts **reads**, not checkpoint decodes. The exact checkpoint
+JSON decoder expression at `FlowDojoModel.swift:623` lacks a unique exported
+region; its decoder count remains unavailable/null. The five DrawingProgram
+decoder entries in reopen/rename/rank include model open/setup; do not blindly
+subtract them or call them checkpoint decodes. Actual refresh mappings contained
+one source-body symbol, without an exported resume/coroutine duplicate; logical
+invocation counts are still not asserted.
+
+Raw small/large processes each report **one archive-decoder entry and one
+loadSnapshot entry**. Their **10 / 1,000 DrawingProgram decoder entries** arise
+from full `intent.program` values in interrupted contexts; terminal records hold
+program hashes. This is not a total decoder count. Transfer native export / first
+import / reimport respectively report **5 / 9 / 22 DrawingProgram decoder
+entries**, **6 / 8 / 17 DB metadata decoder entries**, and **105 / 79 / 136 DB rows
+entries**, including the documented setup. No blind operation-only subtraction
+is claimed.
+
+Actual controls exercised all **21 mapped owners**: no-op returned zero for all;
+program-decode returned one DrawingProgram decoder entry; DB-positive returned
+four `rows`, four `prepare`, one `execute`. Eleven coverage acceptance checks and
+five fast runner negative tests passed; earlier critic findings were closed after
+re-review against actual controls. This supports the scoped counters, not total
+SQL/decoder/cumulative-allocation/I/O claims.
+
+macOS uses a Mach-O test bundle that requires the **observed SwiftPM testing
+helper**, not direct executable assumptions. The bundle preserves the actual
+helper invocation, exact PID profile and SHA proof: helper
+`c5fc2f081babd734b89c150874b34cb5bc2f2dbfa4a203bdafdd3b96087f78a7`,
+coverage binary
+`052780e1127640ed372bacfb169d5d8c4e32ac5c326f83fbcc68225f3a1d5358`.
+No `--help` preflight is used: this helper executes tests. Profile and run hashes
+agree in the admitted sets.
+
+Post-profile checks preserved **all three original content roots, file counts
+and logical lengths**. Allocated-block sizes changed by **−8,192 / −765,952 /
+−5,832,704 bytes** for small/medium/large. The original strict all-field receipt
+therefore records `unchanged: false`; the separate byte-identity receipt records
+`byteIdentityUnchanged: true`. Both are retained. The allocated-size drift is not
+reported as content mutation or suppressed. Normal-timing before/after checks
+remain unchanged as recorded earlier. A later generation metadata smoke observed
+**three successful slots of three requested** with explicit metadata/oracle facts;
+it is functional validation, not a replacement 30-trial timing distribution.
+
+| Dimension | Baseline status / limitation |
+|---|---|
+| Small library and 10,000-photo / 50,000-drawing catalog; fixed-page first/next pages and selected loads | All three catalogs and normal-chain interactive results above completed. Actor k100 gallery and typed lookup supplement completed above. |
+| Separate synthetic mixed-media storage pool | **10,746,839,040 allocated bytes**, **10,741,258,249 logical bytes**, **3,073 files**, prepared/verified in **150.863 s**. This is storage preparation, not import/export throughput or runtime memory evidence. |
+| Cold/warm latency and process peak RSS | Normal-chain catalog/archive/Flow and fixed-producer results above completed; corrected transfer/current-driver checks completed above. RSS is not allocation count or live page/cache memory. |
+| Candidate-record counters | Page APIs report zero candidate records only; full summary/index enumeration remains explicit. General decoder counts stay unmeasured. |
+| Structural owner entries | Actual scoped metadata/program/DB/refresh/read entries above. Total SQL VM steps, all decoders, actual I/O, cumulative allocations, isolated live cache and UI-thread occupancy remain unavailable. |
+| Rename, Rank-to-next, edit-to-durable-commit and full Dojo refresh/checkpoint cost | Full awaited model rename/rank/prune operations measured above. Automatic Rank-to-next is unavailable; no native paint claim. |
+| Legacy 100,000 terminals plus 1,000 interrupted states | Read latency/RSS measured above; whole-snapshot cost remains large. Not new exchange jobs or immutable exchange snapshot records. |
+| New exchange jobs, multiple immutable snapshots and long interrupted-history recovery | New model unavailable at baseline; legacy archive evidence cannot substitute for it. Unmeasured. |
+| Mount, streaming 10 GiB carrier import/export, 2× payload RSS, migration/recovery | New exchange paths unavailable or not exercised. Unmeasured; no bounded-buffer or throughput claim. |
+| 10× indexed-catalog scale ratio | Metadata p95 directly fails the 2× limit as above. Live page/cache memory unobserved. |
+| Signed native responsiveness, frame-fed/acquisition-free comparison | Unmeasured. Existing native gate remains a later separate observation. |
+| Representative real archive copy | Opt-in and not measured in this receipt; originals untouched. |
+
+Mixed-media preparation completed via the `media` command above. The external
+receipt `/tmp/adaptiveplotter-dx01-20261106/receipts/mixed-media.inventory.json`
+pins root inventory SHA-256
+`0b3867804e51eabe3268dabd8f850d0aea90cc37f127758f6d6365c6ff599069`
+and every file digest. Media-manifest SHA-256 is
+`328a6a86bfd2ea1a738977b5e153a0440d9fe94e9b41b1dea2be2d69d2c64e0c`.
+Allocation is `st_blocks × 512`; logical length is measured
+separately. Seed 7301 generates 1,024 groups, each with a 2048 × 1024 RGB original
+PNG, 1024 × 1024 gray prepared PNG (row-wise left-half red-channel crop), and
+2048 × 1536 gray8 raw frame. All media are synthetic; the 3,073rd file is the
+manifest. This pool is unattached to legacy attempts and proves neither package
+closure nor bounded streaming memory.
+
+The `negative --condition small` run completed: corrupt/missing source loads
+were rejected while metadata remained browsable and index bytes were preserved;
+forty equal-byte acquisitions remained distinct with one source digest. Corrupt
+legacy archive payload and corrupt/missing claimed raw pixels were rejected; a
+missing archive remained absent and exact legacy bytes were preserved. `small-{catalog,archive}-negative.json` and
+`small-negative-immutability.json` record these outcomes, with `unchanged: true`
+for the frozen corpus. `sql-capability.json` independently records status
+`unsupported`, SQLite code 21, `supported: false`, and null query/decode counts.
+Initial Flow preparation failed the `/tmp` versus `/private/tmp` path guard;
+that fixture guard was corrected and preparation then passed. The frozen Flow
+seed archive is **160,975 bytes**, SHA-256
+`2e2734d837ea0921237b7ca61a58e7971f6fb85a4b38aa3248ca62934f123dab`,
+with installed corpus root
+`19c2b501845bc97af3fdc37f6a677b992bd43b74aa77eaaaa9659cee95db3f05`,
+**502,758 logical / 806,912 allocated bytes**, **124 files**. The checked seed
+manifest pins every file. `flow-prepare.json` records revision **86**, five rounds
+(one parented), fifteen 16-stroke drawings, twelve choices/ranks, 25 pruning
+revisions, twelve completed masks, one inherited mask and an active checkpoint
+fitted on synthetic judgments. Its completed model-operation results appear above; synthetic judgments do not
+establish artistic preference or physical quality.
+
+### Final-tree validation authority
+
+The stable final gate is Blackdog run **`dx01-frozen-tree-20261106`** under task
+`task-8f5e44db9ece4b7a81db4f6d7fd8e6ed` / attempt
+`attempt-b52dd49c1035460f97b299c1591bdda9`. It runs configured commands
+**`make docs-check`**, **`make quick-test`** and **`git diff --check`** on the frozen
+combined tree, with `SWIFT_FLAGS=--no-parallel`. Its machine validation receipt
+owns the actual start/completion/result; this pre-gate document does not assert
+an unobserved pass. Earlier run `dx01-final-20261106` is superseded and is not the
+final gate locator. Coordinator acceptance and landing require inspection of the
+actual frozen-tree result. The subsequent ticket receipt records the eventual
+landing hash rather than self-referencing this commit.
+
 ## Flow Edge artist usage audit and photo-centered iteration, 2026-10-31
 
 Task `task-89740a18d40941648d270458d96ca0b9` starts from an immutable artist

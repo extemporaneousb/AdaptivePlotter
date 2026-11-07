@@ -1,0 +1,47 @@
+{
+  "expectedProgramHash": "10605881e0c25e5fef1587b59e4b3935e17a947cfd732bbc2f057a71cb3662e0",
+  "input": {
+    "analysisOptions": {
+      "cropToFace": true,
+      "faceCropMargin": 0.18,
+      "removeBackground": true
+    },
+    "candidateID": "00A4CC12-2EC4-4DAD-875F-C721B7478723",
+    "recipe": {
+      "marks": {
+        "loop": 0.39952419290294416,
+        "polygon": 0.3317867593022873,
+        "scale": 0.5396846766550785,
+        "wave": 0.3474876802708278
+      },
+      "values": [
+        0.30599983567251415,
+        0.26170068364574794,
+        0.061602556373065706,
+        0.6768949411193235,
+        0.49542512645082837,
+        0.2299551797011864,
+        0.3023692230617456,
+        0.16103863028654852,
+        0.32471302456290335,
+        0.52800116510412,
+        0.36047140933866473,
+        0.39480244109611545
+      ]
+    },
+    "recipeRevision": "flow-artist-recipe-v2",
+    "sourceBytes": 273,
+    "sourceID": "A14035D0-E850-463D-9110-C079DA85DC7B",
+    "sourceSHA256": "d3b5d0fa10b8b1a240ccd9c5737bf0795736a84e85d037b5e0dc115ebf4da08e",
+    "strokeStyle": {
+      "nominalLineWidth": 0.4,
+      "penProfileID": {
+        "rawValue": "00000000-0000-0000-0000-000000000001"
+      }
+    }
+  },
+  "inputReceiptSHA256": "e7a54a76997d1617275d66442d395832cf62fa131551117c537bd347d24b3844",
+  "programFile": "producer-program.json",
+  "programObjectSHA256": "5a26e61ef231b261a5a188e0aac95ea1c8bb9fff84d465c6f938e94266194e9f",
+  "sourceReceiptSHA256": "e7ae0fd5932a585d908f00103d68b32510713817a15ff7ce0a553fbc83eb7c3d"
+}

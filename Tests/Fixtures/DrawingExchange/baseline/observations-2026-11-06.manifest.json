@@ -1,0 +1,415 @@
+{
+  "acceptedStructuralRunCount": 37,
+  "artifact": "observations-2026-11-06.json.gz",
+  "artifactSHA256": "ceab2037757321c99bcb45cfddd92daaf142c0d40e1578bbd6fdb925b5282be6",
+  "asyncMapping": "Actual Flow refresh mappings contain one source body symbol; no resume/coroutine duplicate in exported mappings. Logical invocation counts not asserted.",
+  "checkpointDecoderCallsite": "unavailable: no exact unique expression region at FlowDojoModel.swift:623; checkpointData entries are reads, not decoder counts",
+  "compressedBytes": 192275,
+  "controls": {
+    "final-db-positive": "accepted",
+    "final-noop": "accepted",
+    "final-program-decode": "accepted"
+  },
+  "counterScope": "Whole selected test process including setup/assertions/open/shutdown. Function-entry counts, not SQL VM steps or all decoder events. Next gallery includes initial page for cursor. Transfer includes per-operation documented setup. No blind subtraction.",
+  "decodeCommand": "python3 -c 'import gzip,json; print(json.dumps(json.load(gzip.open(\"Tests/Fixtures/DrawingExchange/baseline/observations-2026-11-06.json.gz\")),indent=2))'",
+  "immutableOutcomeDefinitionSHA256": "05527cafa60ecfab599d73aa1a68b8998fe434d16266b7fb5e7c1951c7def6ad",
+  "normalReceiptCount": 654,
+  "outcomeDefinitionInputFileSHA256": "503a34ea9bfd1d6745f6ee37dec5c9ea4e1a26c856a73b515ed5c91b2561d3b1",
+  "ownerEntries": {
+    "final-db-positive": {
+      "PortraitLibraryDatabase.execute": 1,
+      "PortraitLibraryDatabase.prepare": 4,
+      "PortraitLibraryDatabase.rows": 4
+    },
+    "final-flow-generate": {
+      "DrawingProgram.init(from": 8,
+      "FlowDojoModel.refresh": 6,
+      "FlowDojoRenderer.preview": 10,
+      "FlowPortfolioStorage.read": 72,
+      "FlowPortfolioStore.candidateProgram": 8,
+      "FlowPortfolioStore.checkpointData": 6
+    },
+    "final-flow-prune": {
+      "DrawingProgram.init(from": 8,
+      "FlowDojoModel.refresh": 2,
+      "FlowDojoRenderer.preview": 7,
+      "FlowPortfolioStorage.read": 67,
+      "FlowPortfolioStore.candidateProgram": 8,
+      "FlowPortfolioStore.checkpointData": 2
+    },
+    "final-flow-rank": {
+      "DrawingProgram.init(from": 5,
+      "FlowDojoModel.refresh": 2,
+      "FlowDojoRenderer.preview": 4,
+      "FlowPortfolioStorage.read": 64,
+      "FlowPortfolioStore.candidateProgram": 5,
+      "FlowPortfolioStore.checkpointData": 2
+    },
+    "final-flow-rename": {
+      "DrawingProgram.init(from": 5,
+      "FlowDojoModel.refresh": 2,
+      "FlowDojoRenderer.preview": 4,
+      "FlowPortfolioStorage.read": 64,
+      "FlowPortfolioStore.candidateProgram": 5,
+      "FlowPortfolioStore.checkpointData": 2
+    },
+    "final-flow-reopen": {
+      "DrawingProgram.init(from": 5,
+      "FlowDojoModel.refresh": 1,
+      "FlowDojoRenderer.preview": 4,
+      "FlowPortfolioStorage.read": 63,
+      "FlowPortfolioStore.candidateProgram": 5,
+      "FlowPortfolioStore.checkpointData": 1
+    },
+    "final-flow-select": {
+      "DrawingProgram.init(from": 6,
+      "FlowDojoModel.refresh": 2,
+      "FlowDojoRenderer.preview": 4,
+      "FlowPortfolioStorage.read": 65,
+      "FlowPortfolioStore.candidateProgram": 6,
+      "FlowPortfolioStore.checkpointData": 2
+    },
+    "final-large-drawing-first-page": {
+      "PortraitLibraryDatabase.checkedDrawing": 50000,
+      "PortraitLibraryDatabase.checkedPhoto": 60000,
+      "PortraitLibraryDatabase.decode": 110003,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 110016,
+      "PortraitLibraryDatabase.rows": 110016
+    },
+    "final-large-exact-drawing-load": {
+      "DrawingProgram.init(from": 1,
+      "PortraitCandidateStore.browseAsset": 2,
+      "PortraitCandidateStore.browseRecord": 1,
+      "PortraitLibraryDatabase.checkedDrawing": 50000,
+      "PortraitLibraryDatabase.checkedPhoto": 60000,
+      "PortraitLibraryDatabase.decode": 110003,
+      "PortraitLibraryDatabase.execute": 7,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 110028,
+      "PortraitLibraryDatabase.rows": 110028
+    },
+    "final-large-gallery-first-page": {
+      "PortraitCandidateStore.librarySnapshot": 1,
+      "PortraitLibraryDatabase.checkedPhoto": 100,
+      "PortraitLibraryDatabase.decode": 100,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.prepare": 123,
+      "PortraitLibraryDatabase.rows": 123
+    },
+    "final-large-gallery-next-page": {
+      "PortraitCandidateStore.librarySnapshot": 2,
+      "PortraitLibraryDatabase.checkedPhoto": 200,
+      "PortraitLibraryDatabase.decode": 200,
+      "PortraitLibraryDatabase.execute": 5,
+      "PortraitLibraryDatabase.prepare": 243,
+      "PortraitLibraryDatabase.rows": 243
+    },
+    "final-large-identity-drawing-load": {
+      "DrawingProgram.init(from": 1,
+      "PortraitCandidateStore.loadDrawing(identity)": 1,
+      "PortraitCandidateStore.readAsset": 2,
+      "PortraitCandidateStore.readRecords": 1,
+      "PortraitLibraryDatabase.checkedDrawing": 1,
+      "PortraitLibraryDatabase.checkedPhoto": 1,
+      "PortraitLibraryDatabase.decode": 2,
+      "PortraitLibraryDatabase.execute": 13,
+      "PortraitLibraryDatabase.prepare": 51,
+      "PortraitLibraryDatabase.rows": 51
+    },
+    "final-large-large-drawing-load": {
+      "DrawingProgram.init(from": 1,
+      "PortraitCandidateStore.browseRecord": 1,
+      "PortraitLibraryDatabase.checkedDrawing": 50000,
+      "PortraitLibraryDatabase.checkedPhoto": 60000,
+      "PortraitLibraryDatabase.decode": 110003,
+      "PortraitLibraryDatabase.execute": 5,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 110020,
+      "PortraitLibraryDatabase.rows": 110020
+    },
+    "final-large-photo-filtered-drawing-page": {
+      "PortraitLibraryDatabase.checkedDrawing": 5,
+      "PortraitLibraryDatabase.checkedPhoto": 5,
+      "PortraitLibraryDatabase.decode": 10,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.prepare": 18,
+      "PortraitLibraryDatabase.rows": 18
+    },
+    "final-large-photo-first-page": {
+      "PortraitLibraryDatabase.checkedDrawing": 50000,
+      "PortraitLibraryDatabase.checkedPhoto": 60000,
+      "PortraitLibraryDatabase.decode": 110003,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 110016,
+      "PortraitLibraryDatabase.rows": 110016
+    },
+    "final-medium-drawing-first-page": {
+      "PortraitLibraryDatabase.checkedDrawing": 5000,
+      "PortraitLibraryDatabase.checkedPhoto": 6000,
+      "PortraitLibraryDatabase.decode": 11003,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 11016,
+      "PortraitLibraryDatabase.rows": 11016
+    },
+    "final-medium-exact-drawing-load": {
+      "DrawingProgram.init(from": 1,
+      "PortraitCandidateStore.browseAsset": 2,
+      "PortraitCandidateStore.browseRecord": 1,
+      "PortraitLibraryDatabase.checkedDrawing": 5000,
+      "PortraitLibraryDatabase.checkedPhoto": 6000,
+      "PortraitLibraryDatabase.decode": 11003,
+      "PortraitLibraryDatabase.execute": 7,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 11028,
+      "PortraitLibraryDatabase.rows": 11028
+    },
+    "final-medium-gallery-first-page": {
+      "PortraitCandidateStore.librarySnapshot": 1,
+      "PortraitLibraryDatabase.checkedPhoto": 100,
+      "PortraitLibraryDatabase.decode": 100,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.prepare": 123,
+      "PortraitLibraryDatabase.rows": 123
+    },
+    "final-medium-gallery-next-page": {
+      "PortraitCandidateStore.librarySnapshot": 2,
+      "PortraitLibraryDatabase.checkedPhoto": 200,
+      "PortraitLibraryDatabase.decode": 200,
+      "PortraitLibraryDatabase.execute": 5,
+      "PortraitLibraryDatabase.prepare": 243,
+      "PortraitLibraryDatabase.rows": 243
+    },
+    "final-medium-identity-drawing-load": {
+      "DrawingProgram.init(from": 1,
+      "PortraitCandidateStore.loadDrawing(identity)": 1,
+      "PortraitCandidateStore.readAsset": 2,
+      "PortraitCandidateStore.readRecords": 1,
+      "PortraitLibraryDatabase.checkedDrawing": 1,
+      "PortraitLibraryDatabase.checkedPhoto": 1,
+      "PortraitLibraryDatabase.decode": 2,
+      "PortraitLibraryDatabase.execute": 13,
+      "PortraitLibraryDatabase.prepare": 51,
+      "PortraitLibraryDatabase.rows": 51
+    },
+    "final-medium-large-drawing-load": {
+      "DrawingProgram.init(from": 1,
+      "PortraitCandidateStore.browseRecord": 1,
+      "PortraitLibraryDatabase.checkedDrawing": 5000,
+      "PortraitLibraryDatabase.checkedPhoto": 6000,
+      "PortraitLibraryDatabase.decode": 11003,
+      "PortraitLibraryDatabase.execute": 5,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 11020,
+      "PortraitLibraryDatabase.rows": 11020
+    },
+    "final-medium-photo-filtered-drawing-page": {
+      "PortraitLibraryDatabase.checkedDrawing": 5,
+      "PortraitLibraryDatabase.checkedPhoto": 5,
+      "PortraitLibraryDatabase.decode": 10,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.prepare": 18,
+      "PortraitLibraryDatabase.rows": 18
+    },
+    "final-medium-photo-first-page": {
+      "PortraitLibraryDatabase.checkedDrawing": 5000,
+      "PortraitLibraryDatabase.checkedPhoto": 6000,
+      "PortraitLibraryDatabase.decode": 11003,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 11016,
+      "PortraitLibraryDatabase.rows": 11016
+    },
+    "final-noop": {},
+    "final-program-decode": {
+      "DrawingProgram.init(from": 1
+    },
+    "final-raw-large": {
+      "DrawingProgram.init(from": 1000,
+      "DrawingRunEvidenceArchive.init(from": 1,
+      "DrawingRunEvidenceStore.loadSnapshot": 1
+    },
+    "final-raw-small": {
+      "DrawingProgram.init(from": 10,
+      "DrawingRunEvidenceArchive.init(from": 1,
+      "DrawingRunEvidenceStore.loadSnapshot": 1
+    },
+    "final-small-drawing-first-page": {
+      "PortraitLibraryDatabase.checkedDrawing": 200,
+      "PortraitLibraryDatabase.checkedPhoto": 240,
+      "PortraitLibraryDatabase.decode": 443,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 456,
+      "PortraitLibraryDatabase.rows": 456
+    },
+    "final-small-exact-drawing-load": {
+      "DrawingProgram.init(from": 1,
+      "PortraitCandidateStore.browseAsset": 2,
+      "PortraitCandidateStore.browseRecord": 1,
+      "PortraitLibraryDatabase.checkedDrawing": 200,
+      "PortraitLibraryDatabase.checkedPhoto": 240,
+      "PortraitLibraryDatabase.decode": 443,
+      "PortraitLibraryDatabase.execute": 7,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 468,
+      "PortraitLibraryDatabase.rows": 468
+    },
+    "final-small-gallery-first-page": {
+      "PortraitCandidateStore.librarySnapshot": 1,
+      "PortraitLibraryDatabase.checkedPhoto": 40,
+      "PortraitLibraryDatabase.decode": 40,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.prepare": 63,
+      "PortraitLibraryDatabase.rows": 63
+    },
+    "final-small-identity-drawing-load": {
+      "DrawingProgram.init(from": 1,
+      "PortraitCandidateStore.loadDrawing(identity)": 1,
+      "PortraitCandidateStore.readAsset": 2,
+      "PortraitCandidateStore.readRecords": 1,
+      "PortraitLibraryDatabase.checkedDrawing": 1,
+      "PortraitLibraryDatabase.checkedPhoto": 1,
+      "PortraitLibraryDatabase.decode": 2,
+      "PortraitLibraryDatabase.execute": 13,
+      "PortraitLibraryDatabase.prepare": 51,
+      "PortraitLibraryDatabase.rows": 51
+    },
+    "final-small-large-drawing-load": {
+      "DrawingProgram.init(from": 1,
+      "PortraitCandidateStore.browseRecord": 1,
+      "PortraitLibraryDatabase.checkedDrawing": 200,
+      "PortraitLibraryDatabase.checkedPhoto": 240,
+      "PortraitLibraryDatabase.decode": 443,
+      "PortraitLibraryDatabase.execute": 5,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 460,
+      "PortraitLibraryDatabase.rows": 460
+    },
+    "final-small-photo-filtered-drawing-page": {
+      "PortraitLibraryDatabase.checkedDrawing": 5,
+      "PortraitLibraryDatabase.checkedPhoto": 5,
+      "PortraitLibraryDatabase.decode": 10,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.prepare": 18,
+      "PortraitLibraryDatabase.rows": 18
+    },
+    "final-small-photo-first-page": {
+      "PortraitLibraryDatabase.checkedDrawing": 200,
+      "PortraitLibraryDatabase.checkedPhoto": 240,
+      "PortraitLibraryDatabase.decode": 443,
+      "PortraitLibraryDatabase.execute": 4,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 456,
+      "PortraitLibraryDatabase.rows": 456
+    },
+    "final-transfer-v1-first-import": {
+      "DrawingProgram.init(from": 9,
+      "PortraitCandidateStore.browseRecord": 1,
+      "PortraitCandidateStore.readRecords": 1,
+      "PortraitLibraryDatabase.decode": 8,
+      "PortraitLibraryDatabase.execute": 31,
+      "PortraitLibraryDatabase.index": 1,
+      "PortraitLibraryDatabase.prepare": 87,
+      "PortraitLibraryDatabase.rows": 79
+    },
+    "final-transfer-v1-native-export": {
+      "DrawingProgram.init(from": 5,
+      "PortraitCandidateStore.readAsset": 4,
+      "PortraitCandidateStore.readRecords": 3,
+      "PortraitLibraryDatabase.checkedDrawing": 1,
+      "PortraitLibraryDatabase.checkedPhoto": 1,
+      "PortraitLibraryDatabase.decode": 6,
+      "PortraitLibraryDatabase.execute": 47,
+      "PortraitLibraryDatabase.prepare": 121,
+      "PortraitLibraryDatabase.rows": 105
+    },
+    "final-transfer-v1-reimport": {
+      "DrawingProgram.init(from": 22,
+      "PortraitCandidateStore.browseRecord": 3,
+      "PortraitCandidateStore.readRecords": 1,
+      "PortraitLibraryDatabase.decode": 17,
+      "PortraitLibraryDatabase.execute": 43,
+      "PortraitLibraryDatabase.index": 3,
+      "PortraitLibraryDatabase.prepare": 144,
+      "PortraitLibraryDatabase.rows": 136
+    }
+  },
+  "quantiles": "nearest-rank ceil(q*n), units milliseconds; raw samples retained",
+  "rawDecoderAttribution": "Raw small/large archive decoder1 and loadSnapshot1; DrawingProgram decoder10/1000 comes from full programs in interrupted intent contexts (DrawingRunIntent.swift:89-90), not 100/100000 terminal hash-only references. Not total decoder count.",
+  "schemaVersion": 1,
+  "sourceFilesSHA256": {
+    "Tests/Fixtures/DrawingExchange/baseline/coverage.py": "2a019af50574d3da338476d7b6b76b47c2b162c18446eb341b84a956b1e255e8",
+    "Tests/Fixtures/DrawingExchange/baseline/run.py": "169659c51e29c7560bc9da609c492ce9a76c3aa46319a5bc1c6aaab075f12e47",
+    "Tests/Fixtures/DrawingExchange/baseline/test_coverage_acceptance.py": "5545963ee02736aecad262a83c07f3b4f866819011a7da01334d515c6bf3ba07",
+    "Tests/Fixtures/DrawingExchange/baseline/test_runner.py": "f8dd0f5199a6682a7f911d4876680eb0c86651aee5a63655f6cb4f334e1a5eac",
+    "Tests/PlotterAppTests/DrawingExchangeBaselineTests.swift": "8a3071d897d7cf820c4e99b985b278464c3e1c466c190801732700d88bd60a1d",
+    "Tests/PlotterAppTests/DrawingExchangeCounterControlsTests.swift": "99395ab92719c3ed6c98a4cca5ffa3c18ec4281794bee728281e4d6e0ddda8bc",
+    "Tests/PlotterRuntimeTests/DrawingExchangeArchiveBaselineTests.swift": "b7c2bbdfcb61a2e6631f9150a70f045a882e5c76a3127c3673123dd6360edb90",
+    "Tests/PortraitStudioTests/DrawingExchangeFlowBaselineTests.swift": "db360716699ce491fdb031e65ff0ad0a6a04358e896254bf13f6706ea822fb97"
+  },
+  "toolchainLauncherEvidence": {
+    "direct-helper-diagnostic.json": {
+      "SHA256": "3c8ab3ee8d190db90aebf78055818725da23988db5f5cfd8dc0fcb703daf8ff6",
+      "receipt": {
+        "command": [
+          "/Library/Developer/CommandLineTools/usr/libexec/swift/pm/swiftpm-testing-helper",
+          "--test-bundle-path",
+          "/tmp/adaptiveplotter-dx01-coverage-20261106/build/x86_64-apple-macosx/debug/AdaptivePlotterPackageTests.xctest/Contents/MacOS/AdaptivePlotterPackageTests",
+          "--scratch-path",
+          "/tmp/adaptiveplotter-dx01-coverage-20261106/build",
+          "--skip-build",
+          "--enable-code-coverage",
+          "--disable-xctest",
+          "--enable-swift-testing",
+          "--no-parallel",
+          "--filter",
+          "DrawingExchangeCounterControlsTests",
+          "/tmp/adaptiveplotter-dx01-coverage-20261106/build/x86_64-apple-macosx/debug/AdaptivePlotterPackageTests.xctest/Contents/MacOS/AdaptivePlotterPackageTests",
+          "--testing-library",
+          "swift-testing"
+        ],
+        "exactPIDProfilePresent": true,
+        "exitCode": 0,
+        "helperPID": 60336,
+        "helperSHA256": "c5fc2f081babd734b89c150874b34cb5bc2f2dbfa4a203bdafdd3b96087f78a7",
+        "measurementPresent": true,
+        "profiles": [
+          "/tmp/adaptiveplotter-dx01-coverage-20261106/diagnostic-direct-60336.profraw"
+        ]
+      }
+    },
+    "helper-invocation-observation.json": {
+      "SHA256": "6e727befc84329085d6f16f40e994086d20f8ba957fc0d2f9b7fe45c5f5de713",
+      "receipt": {
+        "exitCode": 0,
+        "observedHelpers": [
+          {
+            "command": "/Library/Developer/CommandLineTools/usr/libexec/swift/pm/swiftpm-testing-helper --test-bundle-path /tmp/adaptiveplotter-dx01-coverage-20261106/build/x86_64-apple-macosx/debug/AdaptivePlotterPackageTests.xctest/Contents/MacOS/AdaptivePlotterPackageTests --scratch-path /tmp/adaptiveplotter-dx01-coverage-20261106/build --skip-build --enable-code-coverage --disable-xctest --enable-swift-testing --no-parallel --filter DrawingExchangeBaselineTests /tmp/adaptiveplotter-dx01-coverage-20261106/build/x86_64-apple-macosx/debug/AdaptivePlotterPackageTests.xctest/Contents/MacOS/AdaptivePlotterPackageTests --testing-library swift-testing",
+            "parentPID": 60234,
+            "pid": 60273
+          }
+        ],
+        "scope": "actual descendant helper command observation during diagnostic only; no profile admitted",
+        "swiftPMCommand": [
+          "swift",
+          "test",
+          "--scratch-path",
+          "/tmp/adaptiveplotter-dx01-coverage-20261106/build",
+          "--skip-build",
+          "--enable-code-coverage",
+          "--disable-xctest",
+          "--enable-swift-testing",
+          "--no-parallel",
+          "--filter",
+          "DrawingExchangeBaselineTests"
+        ],
+        "swiftPMPID": 60234
+      }
+    }
+  },
+  "uncompressedBytes": 2008642
+}
