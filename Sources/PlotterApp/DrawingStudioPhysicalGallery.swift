@@ -1,54 +1,107 @@
 import PortraitArtists
 import DrawingLibrary
 import PortraitCore
+import PortraitLibrary
 import PortraitStudioUI
 import ImageIO
 import PlotterModel
 import PlotterRuntime
 import SwiftUI
 
+/// Review visibility comes from the raw owner's projections. A hidden terminal
+/// is still a terminal and must never become a synthetic incomplete attempt.
+struct DrawingReviewRawRows {
+  let records: [DrawingRunEvidenceRecord]
+  let incomplete: DrawingRunAttemptState?
+  static func resolve(run: RunID, archive: DrawingRunEvidenceArchive) -> Self {
+    .init(records: archive.reviewRecords.filter { $0.role == .ordinaryDrawing && $0.runID == run },
+      incomplete: archive.reviewIncompleteAttempts.first { $0.intent.role == .ordinaryDrawing && $0.intent.runID == run })
+  }
+}
+
+/// Raw archive revision counts terminal records. Attempt dispatch, appended
+/// media and review visibility can change independently of that count.
+struct DrawingReviewRefreshKey: Hashable {
+  struct Media: Hashable {
+    let frame: FrameID
+    let captured: UInt64
+    let digest: String
+    init(_ value: DrawingRunMediaReference) {
+      frame = value.frame.frameID; captured = value.frame.captureNanoseconds; digest = value.frame.frameSHA256
+    }
+  }
+  struct Progress: Hashable {
+    let media: Media
+    let completedStrokes: Int
+  }
+  struct Attempt: Hashable {
+    let run: RunID
+    let request: UUID
+    let possibleInk: Bool
+    let baselines: [Media]
+    let progress: [Progress]
+  }
+  let archive: UUID
+  let revision: UInt64
+  let attempts: [Attempt]
+  let deleted: [DrawingEvidenceRecordID]
+  let dismissed: [RunID]
+  init(_ archive: DrawingRunEvidenceArchive) {
+    self.archive = archive.archiveID; revision = archive.revision
+    deleted = archive.deletedReviewRecordIDs; dismissed = archive.dismissedReviewRunIDs
+    attempts = archive.attempts.map { attempt in
+      .init(run: attempt.intent.runID, request: attempt.intent.requestID, possibleInk: attempt.inkDispatchPossible,
+        baselines: attempt.baselines.map(Media.init),
+        progress: attempt.progressFrames.map { .init(media: .init($0.media), completedStrokes: $0.progress.completedStrokeIDs.count) })
+    }
+  }
+}
+
 /// Browsing reads compact metadata. Only an explicit selection materializes its verified drawing.
 struct DrawingReviewerView: View {
   let application: PlotterApplicationRuntime
-  let close: () -> Void
-  var showOnPlotter: ((Drawing) async -> String?)? = nil
-  @State private var entries: [DrawingLibraryEntry] = []
-  @State private var cursor: DrawingLibraryCursor?
-  @State private var selectedRef: DrawingRef?
-  @State private var drawing: Drawing?
+  let drawing: Drawing
   @State private var failure: String?
   @State private var originalPixels = false
+  @State private var records: [DrawingRunEvidenceRecord] = []
+  @State private var staged: [String] = []
+  @State private var incomplete: [DrawingRunAttemptState] = []
+  @State private var portable: [DrawingLibraryAttemptEntry] = []
+  @State private var rawCursor: DrawingLibraryRecordCursor?
+  @State private var portableCursor: DrawingLibraryAttemptCursor?
   private var library: DrawingLibrary { application.portraitStudio.library }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HStack {
-        Text("Drawings").font(.title2)
-        Spacer()
-        Button("Close", action: close).keyboardShortcut(.cancelAction)
-      }
-      HSplitView {
-        VStack {
-          List(entries, id: \.reference, selection: $selectedRef) { entry in
-            VStack(alignment: .leading) {
-              Text(entry.title ?? "Drawing")
-              Text("\(entry.strokeCount) strokes").font(.caption).foregroundStyle(.secondary)
-            }.tag(entry.reference)
-          }
-          if cursor != nil { Button("Load More") { Task { await loadPage(reset: false) } } }
-        }.frame(minWidth: 230)
-        ScrollView {
+      Text("Attempts").font(.title2)
+      Text("\(portable.count) declared result runs loaded · \(records.count + incomplete.count) raw attempted runs loaded")
+        .font(.caption).foregroundStyle(.secondary)
           VStack(alignment: .leading, spacing: 12) {
-            if let drawing, let ref = drawing.reference {
+            if let ref = drawing.reference {
               Text(ref.revision.uuidString).font(.caption).textSelection(.enabled)
-              PortraitPlaneProgramPreview(preview: referencePreview(drawing.program)).frame(height: 245)
-              Button("Send to Drawing") { Task { failure = await showOnPlotter?(drawing) } }
-              let records = application.drawingReviewRecords.filter {
-                $0.attemptEvidence?.intent.context.candidate?.contentHash.description == ref.digest.description
+              if records.isEmpty && staged.isEmpty && portable.isEmpty && incomplete.isEmpty { Text("No attributable attempts for this Drawing.").foregroundStyle(.secondary) }
+              ForEach(staged, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+              ForEach(incomplete, id: \.intent.runID) { attempt in
+                Text("Run \(attempt.intent.runID.rawValue) · possible ink; terminal result unavailable").font(.headline)
+                Text("Raw owner dispatch classification; execution environment is not retained here.").font(.caption).foregroundStyle(.secondary)
+                let media = attempt.baselines + attempt.progressFrames.map(\.media)
+                ForEach(Array(media.enumerated()), id: \.offset) { _, reference in
+                  DrawingReviewRetainedPhoto(application: application, reference: reference,
+                    runID: attempt.intent.runID, originalPixels: originalPixels).frame(height: 240)
+                }
+                DrawingReviewNotes(application: application, scope: .run(attempt.intent.runID))
               }
-              if records.isEmpty { Text("No retained runs for this drawing.").foregroundStyle(.secondary) }
+              ForEach(portable, id: \.snapshot) { entry in
+                VStack(alignment: .leading) {
+                  Text("Result snapshot for run \(entry.run)").font(.headline)
+                  Text("\(entry.environment) · \(entry.state) · \(entry.dispatch) · \(entry.observation)").font(.caption)
+                  Text("Declared snapshot; raw photographs and execution authority remain with their archive.").font(.caption).foregroundStyle(.secondary)
+                  ForEach(entry.unsupportedReasons, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
+                }
+              }
               ForEach(records, id: \.recordID) { record in
                 Text("Run \(record.runID.rawValue)").font(.headline)
+                Text("Raw execution environment unavailable in this record.").font(.caption).foregroundStyle(.secondary)
                 Text(String(describing: record.executionDisposition)).font(.caption)
                 if let attempt = record.attemptEvidence {
                   let media = attempt.baselines + attempt.progressFrames.map(\.media) + attempt.terminalFrames
@@ -59,31 +112,46 @@ struct DrawingReviewerView: View {
                 }
                 DrawingReviewNotes(application: application, scope: .run(record.runID))
               }
-              DrawingReviewNotes(application: application, scope: .drawing(ref.digest.description))
               Toggle("Original image pixels", isOn: $originalPixels)
+              DrawingReviewNotes(application: application, scope: .drawing(ref.digest.description))
+              if rawCursor != nil || portableCursor != nil {
+                Button("More Attempts") { Task { await load(more: true) } }
+              }
             } else { Text("Select a drawing.").foregroundStyle(.secondary) }
           }.padding()
-        }
-      }
       if let failure { Text(failure).foregroundStyle(.red) }
-    }.padding().frame(minWidth: 800, minHeight: 600)
-      .task { await loadPage(reset: true) }
-      .task(id: selectedRef) {
-        drawing = nil
-        guard let ref = selectedRef else { return }
-        do {
-          let loaded = try await library.drawing(ref)
-          guard !Task.isCancelled, selectedRef == ref else { return }
-          drawing = loaded
-        } catch { if !Task.isCancelled { failure = error.localizedDescription } }
-      }
+    }.padding().task(id: DrawingReviewRefreshKey(application.drawingEvidenceArchive)) { await load() }
   }
-  private func loadPage(reset: Bool) async {
+  private func load(more: Bool = false) async {
+    guard let ref = drawing.reference else { return }
+    if !more { failure = nil; records = []; staged = []; incomplete = []; portable = []; rawCursor = nil; portableCursor = nil }
     do {
-      let page = try await library.drawings(limit: 50, after: reset ? nil : cursor)
-      entries = reset ? page.entries : entries + page.entries
-      cursor = page.next
-    } catch { failure = error.localizedDescription }
+      if !more || rawCursor != nil {
+        let page = try await PortraitDrawingAttemptBinding.page(for: ref, library: library, after: more ? rawCursor : nil)
+        guard !Task.isCancelled, drawing.reference == ref else { return }
+        for record in page.entries {
+          do {
+            let binding = try PortraitDrawingAttemptBinding.decode(record, for: ref)
+            let state = try binding.verify(in: application.drawingEvidenceArchive, at: application.drawingEvidencePort.archiveURL, drawing: drawing)
+            let visible = DrawingReviewRawRows.resolve(run: state.intent.runID, archive: application.drawingEvidenceArchive)
+            let matches = visible.records
+            for match in matches where !records.contains(where: { $0.runID == match.runID }) { records.append(match) }
+            if matches.isEmpty, let state = visible.incomplete, state.inkDispatchPossible {
+              if !incomplete.contains(where: { $0.intent.runID == state.intent.runID }) { incomplete.append(state) }
+            } else if matches.isEmpty, visible.incomplete != nil {
+              staged.append("Run \(binding.run): staged before Start; not an attempted run or ink evidence")
+            }
+          } catch { staged.append("Raw attribution unavailable: " + error.localizedDescription) }
+        }
+        rawCursor = page.next
+      }
+      if !more || portableCursor != nil {
+        let page = try await library.attempts(for: ref, after: more ? portableCursor : nil)
+        guard !Task.isCancelled, drawing.reference == ref else { return }
+        portable += page.entries.filter { entry in !portable.contains { $0.archive == entry.archive && $0.run == entry.run } }
+        portableCursor = page.next
+      }
+    } catch { if !Task.isCancelled { failure = error.localizedDescription } }
   }
 }
 
@@ -195,14 +263,4 @@ private struct DrawingReviewImage: View {
       }
     }.clipped()
   }
-}
-
-private func referencePreview(_ program: DrawingProgram) -> PortraitPlanePreview {
-  PortraitPlanePreviewSource().resolve(program: program, nominalWidth: program.strokes.first?.style.nominalLineWidth ?? 0.4)
-}
-private func reviewPanel<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-  VStack(alignment: .leading, spacing: 5) {
-    Text(title).font(.caption).foregroundStyle(.secondary)
-    content().frame(maxWidth: .infinity, maxHeight: .infinity).background(.white).border(.quaternary)
-  }.frame(maxWidth: .infinity, maxHeight: .infinity)
 }

@@ -1,10 +1,15 @@
 import SwiftUI
 import PortraitLibrary
+import PortraitCore
+import DrawingLibrary
 
 package struct FlowDojoSidebar: View {
   @Bindable var model: FlowDojoModel
   @State private var expandedRounds = Set<UUID>()
   @State private var renaming: RenameTarget?
+  @State private var photos: [DrawingLibraryPhotoEntry] = []
+  @State private var photoCursor: DrawingLibraryPhotoCursor?
+  @State private var photoFailure: String?
 
   package var body: some View {
     GeometryReader { geometry in
@@ -23,30 +28,24 @@ package struct FlowDojoSidebar: View {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 6) {
           Text("Photos").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-          ForEach(model.document?.sources ?? []) { source in
-            Button { Task { await model.selectSource(source.id) } } label: {
+          ForEach(photos, id: \.reference) { photo in
+            Button { Task { await model.selectPhoto(photo.reference) } } label: {
               HStack(spacing: 8) {
-                SourceThumbnail(model: model, source: source).frame(width: 46, height: 48)
                 VStack(alignment: .leading, spacing: 3) {
-                  Text(model.photoName(source)).lineLimit(2)
-                  if let item = model.representative(for: source.id),
-                    let drawing = model.document?.candidates.first(where: { $0.id == item.candidateID }) {
-                    Text(model.drawingName(drawing)).font(.caption).foregroundStyle(.secondary)
-                  } else { Text("No drawings yet").font(.caption).foregroundStyle(.secondary) }
-                  if let feedback = model.trainingProgress?.photo(source.id) {
-                    Text("\(feedback.candidateCount) drawings · \(feedback.rankingCount) comparisons · \(feedback.completedTargetCount) targets")
-                      .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-                  }
+                  Text(photo.metadata.title ?? "Photo").lineLimit(1)
+                  Text(photo.sortDate?.formatted(date: .abbreviated, time: .omitted) ?? "Date unknown")
+                    .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
               }.padding(5).contentShape(Rectangle())
-                .background(source.id == model.selectedSource?.id ? Color.accentColor.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 5))
+                .background(photo.reference == model.currentPhotoRef ? Color.accentColor.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 5))
             }.buttonStyle(.plain)
-              .help("Representative drawing from a saved comparison or choice; otherwise the latest edit. Clicking opens the photo without a preference judgment.")
-              .contextMenu { Button("Rename photo…") { renaming = .init(id: source.id, photo: true, name: model.photoName(source)) } }
+              .help("Open this exact Library Photo without recording preference.")
           }
+          if photoCursor != nil { Button("More Photos") { Task { await loadPhotos(more: true) } } }
+          if let photoFailure { Text(photoFailure).font(.caption).foregroundStyle(.orange) }
         }.padding(10)
-      }.frame(height: min(compact ? 140 : 180, CGFloat(model.document?.sources.count ?? 0) * 80 + 30))
+      }.frame(height: compact ? 140 : 180)
       Divider()
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 6) {
@@ -61,11 +60,21 @@ package struct FlowDojoSidebar: View {
     }.padding(.top, 8)
       .disabled(model.isBusy || model.needsRecovery)
       .onChange(of: model.round?.id, initial: true) { _, id in if let id { expandedRounds.insert(id) } }
-      .sheet(item: $renaming) { target in
+      .task { await loadPhotos() }
+      .onChange(of: model.document?.sources.count) { _, _ in Task { await loadPhotos() } }
+      .overlay(alignment: .bottom) { if let target = renaming {
         FlowDojoNameEditor(name: target.name, title: target.photo ? "Photo name" : "Drawing name", changed: { name in
           model.queueName(target.id, photo: target.photo, title: name)
-        }, flush: { await model.flushMetadataEdits() }).disabled(false)
-      }
+        }, flush: { await model.flushMetadataEdits() }, close: { renaming = nil }).disabled(false).background(.regularMaterial)
+      } }
+  }
+  private func loadPhotos(more: Bool = false) async {
+    do {
+      guard let library = model.drawingLibrary else { return }
+      let page = try await library.photos(after: more ? photoCursor : nil)
+      guard !Task.isCancelled else { return }
+      photos = more ? photos + page.entries : page.entries; photoCursor = page.next
+    } catch { photoFailure = error.localizedDescription }
   }
 
   private func branch(_ round: FlowPortfolioRound) -> some View {
@@ -108,12 +117,6 @@ package struct FlowDojoSidebar: View {
   private struct RenameTarget: Identifiable { let id: UUID; let photo: Bool; let name: String }
 }
 
-private struct SourceThumbnail: View {
-  let model: FlowDojoModel
-  let source: FlowPortfolioSource
-  @State private var data: Data?
-  var body: some View { FlowDojoImage(data: data).task(id: model.representativeKey(source)) { data = await model.representativeThumbnail(source) } }
-}
 private struct CandidateThumbnail: View {
   let model: FlowDojoModel
   let candidate: FlowPortfolioCandidate
@@ -130,13 +133,13 @@ private struct FlowDojoNameEditor: View {
   let title: String
   let changed: (String) -> Void
   let flush: () async -> Void
-  @Environment(\.dismiss) private var dismiss
+  let close: () -> Void
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text(title).font(.headline)
       TextField(title, text: $name).onChange(of: name) { _, value in changed(value) }
       Text("Names are saved automatically. Original images and drawing identities stay unchanged.").font(.caption).foregroundStyle(.secondary)
-      HStack { Spacer(); Button("Done") { Task { await flush(); dismiss() } }.keyboardShortcut(.defaultAction) }
+      HStack { Spacer(); Button("Done") { Task { await flush(); close() } }.keyboardShortcut(.defaultAction) }
     }.padding(20).frame(width: 400).onDisappear { Task { await flush() } }
   }
 }

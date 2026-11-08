@@ -328,6 +328,39 @@ task. See the [dated receipt](CURRENT_EVIDENCE.md#dx-09-canonical-feedback-and-f
 Historical import remains deferred; no additional UI/width/setup input or physical,
 Runtime/Episode, signed deployment or model-promotion authority is introduced.
 
+## Current Library navigation boundary, 2026-11-08
+
+The production Library routes reuse `DrawingLibraryBrowser`, the membership editor
+and `PortraitSketchCollection`; they do not create another Drawing selection owner.
+`drawings(in:limit:after:)` scopes compact metadata to all retained Drawings, exact
+Photo, exact Input or direct children of an exact parent. Existing Photo/Input pages
+and scoped Drawing cursors bind complete refs and catalog generation. Metadata pages
+read indexed SQL projections, not Drawing programs, raster assets or whole portfolios.
+Missing/conflicting selections remain unavailable; capability refusals apply to
+operations that depend on unsupported semantics, preserving independent known geometry.
+
+`attempts(for:limit:after:)` projects only known declared snapshot targets and returns
+one latest snapshot per archive/run. Several index roots are not assigned every
+attempt. Each row preserves declared environment/state/dispatch/observation, unsupported
+reasons and the exact result publication handle; none grants physical interpretation.
+The projection is frozen/verified with the existing publication journal/SQL transaction.
+Raw binding `adaptiveplotter.drawing-run-binding/2` is minimal staged navigation:
+full DrawingRef, archive/run/request and staged generation. It contains no duplicated
+execution program/intent. Bounded exact-ref domain pages locate bindings; explicit
+selected verification checks the existing raw owner. Binding alone proves neither
+Start, current RunID nor ink. Raw media/notes/possible-ink authority stays unchanged;
+deleted/dismissed review rows are not resurrected, and metadata-only refresh keys
+observe same-revision attempt/visibility changes without hashing whole programs.
+
+`adoptExistingPhoto(_:)` uses the original verified Photo/assets for current PNG/JPEG
+authoring and reuses its occurrence/navigation. It neither reimports the image nor
+initializes metadata over existing clears/groups/exclusions. Raw/opaque sources remain
+browsable/exportable with dependent authoring refused. `exportPhoto(_:to:)` preserves a
+verified containing publication, including opaque context; it is not a pixel conversion
+or a Photo-based selector for a particular result inventory. Collection-admitted optional
+field patches serialize and drain on close; view dismissal cannot lose an accepted write.
+No new metadata owner, mandatory field, normalization algorithm or runtime owner is added.
+
 ## Neutral source and metadata boundary, 2026-11-08
 
 DX-07's concrete `DrawingLibrary` exposes `photos(limit:after:)`,
@@ -343,8 +376,9 @@ supplied bytes and dimensions to the exact Photo original asset.
 Photo metadata pages use compact journaled SQL projections, capture/import fallback
 and an explicit unknown-date bucket. Inputs use exact-ref keysets, because their
 wire records have no authored date. Cursors bind full scope and catalog generation;
-readonly absence creates no catalog or writer. Internal schema 11 requires current
-metadata tables and rejects older schemas without migration or backfill.
+readonly absence creates no catalog or writer. The current internal schema is 12;
+it requires source metadata and derived result-attempt tables and rejects older
+internal schemas without migration or backfill. The wire profile remains unchanged.
 
 `DrawingLibraryPhotoMetadata` is the one live optional title/subject/session/
 exclusion authority. Patches explicitly distinguish unchanged from set/clear;

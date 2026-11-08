@@ -14,20 +14,18 @@ package struct FlowDojoView: View {
   package var selectCamera: () async -> String? = { nil }
   package var handoffTitle = "Export Drawing"
   package var handoff: ((Drawing) async -> String?)? = nil
+  package var photoSelected: (PhotoRef?) -> Void = { _ in }
   @State private var importing = false
   @State private var showingCamera = false
-  @State private var curating = false
-  @State private var curationSourceID: UUID?
-  @State private var curationExcluded = false
-  @State private var subject = ""
-  @State private var session = ""
+  @Environment(\.drawingPresentationPolicy) private var presentationPolicy
   @State private var message: String?
 
   package init(model: FlowDojoModel, camera: PortraitStudioModel,
     selectCamera: @escaping () async -> String? = { nil }, handoffTitle: String = "Export Drawing",
-    handoff: ((Drawing) async -> String?)? = nil) {
+    handoff: ((Drawing) async -> String?)? = nil, photoSelected: @escaping (PhotoRef?) -> Void = { _ in }) {
     self.model = model; self.camera = camera; self.selectCamera = selectCamera
     self.handoffTitle = handoffTitle; self.handoff = handoff
+    self.photoSelected = photoSelected
   }
 
   package var body: some View {
@@ -58,12 +56,16 @@ package struct FlowDojoView: View {
           .textSelection(.enabled).lineLimit(2)
         Spacer()
         if model.needsRecovery { Button("Recover autosave") { Task { await model.recoverAutosave() } }.disabled(model.isBusy) }
-        if model.isBusy { Button("Cancel") { model.cancel() }.keyboardShortcut(.escape, modifiers: []) }
+        if model.isBusy { Button("Cancel") { model.cancel() }.keyboardShortcut(.escape, modifiers: presentationPolicy.modalUnavailableReason == nil ? [] : [.command]) }
         Text(model.directory.lastPathComponent).font(.caption).foregroundStyle(.secondary).help(model.directory.path)
       }.padding(8)
     }
     .accessibilityIdentifier("flowDojo.workspace")
     .task { await model.open() }
+    .onChange(of: model.currentPhotoRef) { _, ref in photoSelected(ref) }
+    .onChange(of: presentationPolicy.modalUnavailableReason) { _, reason in
+      if reason != nil { importing = false; showingCamera = false; FlowDojoFiles.cancelPanel() }
+    }
     .sheet(isPresented: $showingCamera) {
       FlowDojoCameraPanel(camera: camera, strokeStyle: model.strokeStyle, selectCamera: selectCamera) { photo in
         await model.addCapturedPhoto(photo, title: model.nextPhotoTitle(capturedAt: photo.capturedAt))
@@ -79,9 +81,9 @@ package struct FlowDojoView: View {
         } catch { message = error.localizedDescription }
       }
     }
-    .alert("Portrait Studio", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
-      Button("OK") { message = nil }
-    } message: { Text(message ?? "") }
+    .overlay(alignment: .bottom) {
+      if let message { HStack { Text(message); Button("Dismiss") { self.message = nil } }.padding().background(.regularMaterial) }
+    }
     .background {
       PortraitScreenIllumination(isActive: camera.screenIlluminationActive) {
         Task { await camera.cancelRendering() }
@@ -92,17 +94,17 @@ package struct FlowDojoView: View {
   private var acquisitionBar: some View {
     HStack(spacing: 10) {
       Text("Flow Edge Dojo").font(.title2.weight(.semibold))
-      Button("Import Photo", systemImage: "photo.badge.plus") { importing = true }
+      Button("Import Photo", systemImage: "photo.badge.plus") { if permitModal() { importing = true } }
         .accessibilityIdentifier("flowDojo.importPhoto")
-      Button("Capture Photo", systemImage: "camera") { showingCamera = true }
+      Button("Capture Photo", systemImage: "camera") { if permitModal() { showingCamera = true } }
         .accessibilityIdentifier("flowDojo.openCamera")
       Spacer()
-      Button("Import Photo Set…") { Task { if let url = await FlowDojoFiles.openPhotoCollection() { await model.importPhotoCollection(url) } } }
+      Button("Import Photo Set…") { if permitModal() { Task { if let url = await FlowDojoFiles.openPhotoCollection() { await model.importPhotoCollection(url) } } } }
       Button(handoffTitle, systemImage: "square.and.arrow.up") {
         Task {
           do {
             if let handoff { message = await handoff(try await model.retainedDrawing()) }
-            else if let url = await FlowDojoFiles.exportDrawing() { try await model.exportDrawing(to: url) }
+            else if permitModal(), let url = await FlowDojoFiles.exportDrawing() { try await model.exportDrawing(to: url) }
           } catch { message = error.localizedDescription }
         }
       }.disabled(model.candidate == nil || model.program?.strokes.count == model.removedIndices.count)
@@ -118,36 +120,12 @@ package struct FlowDojoView: View {
         ForEach(FlowDojoModel.Stage.allCases, id: \.self) { Text($0.rawValue).tag($0) }
       }.pickerStyle(.segmented).frame(maxWidth: 480)
       Spacer()
-      if let source = model.selectedSource {
-        Button(source.excluded ? "Source excluded" : "Curate source") {
-          curationSourceID = source.id; curationExcluded = source.excluded
-          subject = source.subjectID ?? ""; session = source.sessionID ?? ""; curating = true
-        }.popover(isPresented: $curating) { sourceCuration }
-      }
     }.disabled(model.isBusy || model.needsRecovery)
   }
 
-  private var sourceCuration: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Source identity & training").font(.headline)
-      Text("Optional identities keep related photos together during evaluation.").font(.caption).foregroundStyle(.secondary)
-      TextField("Subject identity (optional)", text: $subject)
-        .onSubmit { saveSourceGroups() }
-      TextField("Photo session (optional)", text: $session)
-        .onSubmit { saveSourceGroups() }
-      Toggle("Include this source in training", isOn: Binding(
-        get: { !curationExcluded },
-        set: { value in curationExcluded = !value; saveSourceGroups() }))
-      Text("Edits and drawings remain in the portfolio when excluded.").font(.caption).foregroundStyle(.secondary)
-    }.padding().frame(width: 340)
-      .onChange(of: subject) { _, _ in saveSourceGroups() }
-      .onChange(of: session) { _, _ in saveSourceGroups() }
-      .onDisappear { Task { await model.flushMetadataEdits() } }.disabled(false)
-  }
-  private func saveSourceGroups() {
-    guard let id = curationSourceID else { return }
-    let subject = subject, session = session, excluded = curationExcluded
-    model.queueSourceCuration(id, subject: subject, session: session, excluded: excluded)
+  private func permitModal() -> Bool {
+    if let reason = presentationPolicy.modalUnavailableReason { message = reason; return false }
+    return true
   }
 
   private var exploration: some View {

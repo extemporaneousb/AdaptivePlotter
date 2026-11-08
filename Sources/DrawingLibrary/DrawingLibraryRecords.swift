@@ -25,6 +25,16 @@ public struct DrawingLibraryRecord: Codable, Sendable {
     self.kind=kind;self.id=id;self.payload=payload;self.drawings=drawings;self.photos=photos;self.inputs=inputs;self.assets=assets
   }
 }
+public struct DrawingLibraryRecordCursor: Sendable {
+  let drawing: DrawingRef
+  let kind: String
+  let generation: DrawingLibraryGeneration
+  let id: String
+}
+public struct DrawingLibraryRecordPage: Sendable {
+  public let entries: [DrawingLibraryRecord]
+  public let next: DrawingLibraryRecordCursor?
+}
 package struct DrawingLibraryExistingRetention: Codable, Sendable {
   let metadata:LibraryExchangeMetadata
   let intent:UUID
@@ -59,6 +69,29 @@ extension DrawingLibrary {
     guard let db=try commonReadDatabase(),try tableExists("domain_record",in:db) else { return [] }
     return try commonSnapshot(db) {
       try db.rows("SELECT payload FROM domain_record WHERE kind=? ORDER BY id",[kind]).map { try db.decode(DrawingLibraryRecord.self,$0[0]) }
+    }
+  }
+  /// Bounded exact-reference navigation. Oversized domain payloads are refused
+  /// before SQLite returns them; artwork belongs in CAS, not navigation rows.
+  public func records(kind: String, for drawing: DrawingRef, limit: Int = 50,
+    after: DrawingLibraryRecordCursor? = nil) throws -> DrawingLibraryRecordPage {
+    guard limit > 0, limit <= 500, !kind.isEmpty else { throw DrawingLibraryError.invalidQuery }
+    if let after, after.drawing != drawing || after.kind != kind { throw DrawingLibraryError.invalidQuery }
+    guard let db = try commonReadDatabase() else { return .init(entries: [], next: nil) }
+    return try commonSnapshot(db) {
+      try assertSourceReference(.drawing(drawing), database: db)
+      let generation = try db.generation
+      if let after, after.generation != generation { throw DrawingLibraryError.staleSelection }
+      let rows = try db.rows("SELECT r.id,length(CAST(r.payload AS BLOB)),CASE WHEN length(CAST(r.payload AS BLOB))<=65536 THEN r.payload ELSE NULL END FROM domain_reference d JOIN domain_record r ON r.kind=d.kind AND r.id=d.id WHERE d.target_kind='drawing' AND d.namespace=? AND d.identity=? AND d.digest=? AND d.kind=? AND r.id>? ORDER BY r.id LIMIT ?", [drawing.issuer.uuidString.lowercased(), drawing.revision.uuidString.lowercased(), drawing.digest.description, kind, after?.id ?? "", String(limit + 1)])
+      let page = Array(rows.prefix(limit))
+      let entries = try page.map { row -> DrawingLibraryRecord in
+        guard let size = row[1].flatMap(Int.init), size <= 65536, let raw = row[2] else { throw DrawingLibraryError.invalidQuery }
+        let record = try db.decode(DrawingLibraryRecord.self, raw)
+        guard record.kind == kind, record.id.uuidString.lowercased() == row[0], record.drawings.contains(drawing) else { throw DrawingLibraryError.invalidIdentity }
+        return record
+      }
+      let next: DrawingLibraryRecordCursor? = rows.count > limit ? .init(drawing: drawing, kind: kind, generation: generation, id: page.last![0]!) : nil
+      return .init(entries: entries, next: next)
     }
   }
   public func asset(_ digest:ExchangeDigest,maximumBytes:Int=DrawingExchangeLimits.maximumProgramBytes)throws->Data {

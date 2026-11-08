@@ -157,7 +157,27 @@ package final class FlowDojoModel {
     }
   }
 
+  @ObservationIgnored private var photoSelectionRevision: UInt64 = 0
+  package var currentPhotoRef: PhotoRef? { selectedSource?.photo }
+  package var drawingLibrary: DrawingLibrary? { library ?? store?.library }
+  @discardableResult package func selectPhoto(_ reference: PhotoRef, isStillCurrent: @escaping @MainActor () -> Bool = { true }) async -> String? {
+    guard let store, !closed, !closing, !needsRecovery else { return "Recover or reopen Drawing Studio before opening this Photo." }
+    photoSelectionRevision &+= 1; let revision = photoSelectionRevision
+    await perform("Opening photo…", autosave: false) {
+      guard revision == self.photoSelectionRevision, !self.closing, !self.closed, isStillCurrent() else { return }
+      _ = try await store.adoptExistingPhoto(reference)
+      guard revision == self.photoSelectionRevision, !self.closing, !self.closed, isStillCurrent() else { return }
+      try await self.refresh(photoRevision: revision, isStillCurrent: isStillCurrent)
+      guard revision == self.photoSelectionRevision, isStillCurrent() else { return }
+      self.stage = .explore
+    }
+    guard revision == photoSelectionRevision, isStillCurrent(), !closed, !closing else { return "The Photo selection changed before opening completed." }
+    if let error { return error }
+    guard currentPhotoRef == reference, sourceData != nil else { return "The exact Photo could not be opened for authoring." }
+    return nil
+  }
   package func selectSource(_ id: UUID) async {
+    photoSelectionRevision &+= 1
     guard let store else { return }
     await perform("Opening photo…", autosave: false) { try await store.selectSource(id); try await self.refresh(); self.stage = .explore }
   }
@@ -628,10 +648,26 @@ package final class FlowDojoModel {
     recoveryWork = nil
     if work == nil { isBusy = false }
   }
-  private func refresh() async throws {
+  private func refresh(photoRevision: UInt64? = nil, isStillCurrent: @MainActor () -> Bool = { true }) async throws {
     guard let store else { return }
+    func assertCurrent() throws {
+      guard !closed, isStillCurrent() else { throw CancellationError() }
+      // Admitted recovery/edit work must finish while shutdown joins it. Only
+      // navigation requests lose publication authority when closing begins.
+      if let photoRevision {
+        guard !closing, photoRevision == photoSelectionRevision else { throw CancellationError() }
+      }
+    }
     try await store.refreshPhotoMetadata()
-    document = await store.snapshot()
+    let snapshot = await store.snapshot()
+    try assertCurrent()
+    // Never pair a newly published source identity with the prior source's
+    // pixels/program when a subsequent exact asset read is unavailable.
+    let nextSource = snapshot.selectedSourceID.flatMap { id in snapshot.sources.first { $0.id == id } }
+    if nextSource?.image.sha256 != loadedSourceHash {
+      sourceData = nil; loadedSourceHash = nil; program = nil; loadedProgramID = nil
+    }
+    document = snapshot
     if let document {
       let last = document.fits.last(where: { $0.hasCheckpoint })
       if fittedSnapshotID != last?.snapshotID {
@@ -649,7 +685,8 @@ package final class FlowDojoModel {
     }
     if let source = selectedSource {
       if loadedSourceHash != source.image.sha256 {
-        sourceData = try await store.sourceData(source.id); loadedSourceHash = source.image.sha256
+        let data = try await store.sourceData(source.id); try assertCurrent()
+        sourceData = data; loadedSourceHash = source.image.sha256
       }
     } else { sourceData = nil; loadedSourceHash = nil }
     if let candidate {

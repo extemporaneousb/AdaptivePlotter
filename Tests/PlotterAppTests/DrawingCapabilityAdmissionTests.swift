@@ -3,6 +3,7 @@ import Foundation
 import PlotterEpisodeModel
 import PlotterModel
 import PortraitCore
+import PortraitLibrary
 import PortraitStudioUI
 import Testing
 @testable import PlotterApp
@@ -106,7 +107,7 @@ struct DrawingCapabilityAdmissionTests {
       if border { #expect(execution != program) }
       #expect(app.authoredDrawing(for: execution) == nil)
       let references = try await library.drawings().entries.map(\.reference)
-      let bindings = try DrawingArtifactCoding.encoder().encode(await library.records(kind: "adaptiveplotter.drawing-run-binding/1"))
+      let bindings = try DrawingArtifactCoding.encoder().encode(await library.records(kind: PortraitDrawingAttemptBinding.kind))
       let before = app.drawingDraftSnapshot
       let archive = app.drawingEvidenceArchive
       let penCommands = await fixture.machine.requestedPenCommands
@@ -118,7 +119,7 @@ struct DrawingCapabilityAdmissionTests {
       #expect(app.drawingDraftSnapshot.plan == before.plan)
       #expect(app.portraitStudio.projectedDrawing?.reference == carrier.reference)
       #expect(try await library.drawings().entries.map(\.reference) == references)
-      #expect(try DrawingArtifactCoding.encoder().encode(await library.records(kind: "adaptiveplotter.drawing-run-binding/1")) == bindings)
+      #expect(try DrawingArtifactCoding.encoder().encode(await library.records(kind: PortraitDrawingAttemptBinding.kind)) == bindings)
       #expect(app.drawingEvidenceArchive == archive)
       #expect(await fixture.planGate.request == nil)
       #expect(await fixture.machine.requestedPenCommands == penCommands)

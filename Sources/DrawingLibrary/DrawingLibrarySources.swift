@@ -98,6 +98,20 @@ extension DrawingLibrary {
       throw DrawingLibraryError.unsupportedFeature("No supported Photo publication context")
     }
   }
+  /// Preserves a verified containing publication, including its original Photo
+  /// bytes, assets and opaque context. It is not a pixel conversion or a claim
+  /// that this Photo selects a particular result delivery.
+  public func exportPhoto(_ ref: PhotoRef, to destination: URL) throws {
+    guard let db = try commonReadDatabase() else { throw DrawingLibraryError.unavailable("Photo is not present") }
+    try commonSnapshot(db) {
+      try assertSourceReference(.photo(ref), database: db)
+      guard let candidate = try publicationCandidates(.photo(ref), database: db).first else { throw DrawingLibraryError.unavailable("Photo publication is not present") }
+      let files = try publicationFiles(candidate, database: db)
+      let admitted = try ExchangeAdmission.validate(files: files, producerValidators: producerValidators, payloadValidators: payloadValidators)
+      if destination.pathExtension.lowercased() == "zip" { try DrawingExchangeCarrier.preserveZIP(admitted.files, to: destination) }
+      else { try DrawingExchangeCarrier.preserveDirectory(admitted.files, to: destination) }
+    }
+  }
   public func input(_ ref: ImageInputRef) throws -> FrozenImageInputRecord {
     guard let db = try commonReadDatabase() else { throw DrawingLibraryError.unavailable("Input is not present") }
     return try commonSnapshot(db) {

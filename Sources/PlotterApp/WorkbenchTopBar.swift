@@ -60,17 +60,15 @@ struct WorkbenchSavedLearningPresentation: Equatable {
 
 /// Toolbar destinations describe visible surfaces, not retained dock membership.
 enum WorkbenchToolbarDestination: String, CaseIterable, Identifiable {
-  case plotter, portraitStudio, drawings, drawing, motion, video
+  case plotter, portraitStudio, drawings
+  static var allCases: [Self] { [.drawings, .portraitStudio, .plotter] }
 
   var id: String { rawValue }
   var title: String {
     switch self {
     case .plotter: "Plotter"
-    case .portraitStudio: "Portrait Studio"
-    case .drawings: "Drawings"
-    case .drawing: "Drawing"
-    case .motion: "Motion"
-    case .video: "Video"
+    case .portraitStudio: "Drawing Studio"
+    case .drawings: "Library"
     }
   }
   var systemImage: String {
@@ -78,23 +76,18 @@ enum WorkbenchToolbarDestination: String, CaseIterable, Identifiable {
     case .plotter: "video"
     case .portraitStudio: "person.crop.rectangle"
     case .drawings: "square.grid.2x2"
-    case .drawing: WorkbenchPanel.drawing.systemImage
-    case .motion: WorkbenchPanel.motion.systemImage
-    case .video: WorkbenchPanel.videoSettings.systemImage
     }
   }
   var panel: WorkbenchPanel? {
     switch self {
     case .portraitStudio: .portraitStudio
-    case .drawing: .drawing
-    case .motion: .motion
-    case .video: .videoSettings
     case .plotter, .drawings: nil
     }
   }
   func isSelected(layout: WorkbenchLayoutState, reviewerIsPresented: Bool) -> Bool {
     if self == .drawings { return reviewerIsPresented }
-    if self == .plotter { return !layout.isPresented(.portraitStudio) }
+    if reviewerIsPresented { return false }
+    if self == .plotter { return !reviewerIsPresented && !layout.isPresented(.portraitStudio) }
     guard let panel else { return false }
     return layout.isPresented(panel)
       && (panel == .portraitStudio || !layout.isPresented(.portraitStudio))

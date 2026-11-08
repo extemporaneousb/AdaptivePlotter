@@ -15,6 +15,15 @@ import Testing
 @Suite("Workbench Stop projection and runtime", .serialized)
 @MainActor
 struct WorkbenchStopCompositionTests {
+  @Test("Each actionable projected Stop guards native modal presentation without blocking idle pickers")
+  func modalPolicyTracksExistingStop() {
+    for action in stopActions() {
+      #expect(WorkbenchStopPresentation.modalUnavailableReason(in: stopProjection(action)) != nil)
+      let unavailable = PlotterUIAction(id: action.id, title: action.title, intent: action.intent,
+        unavailableReason: "No operation is active.")
+      #expect(WorkbenchStopPresentation.modalUnavailableReason(in: stopProjection(unavailable)) == nil)
+    }
+  }
   @Test("Learning, Motion, and Drawing Stops retain exact projected authority with panels hidden")
   func globalStopsPreserveProjectedCapabilities() throws {
     for action in stopActions() {

@@ -6,6 +6,7 @@ import PortraitCore
 @MainActor
 package struct DrawingMembershipEditor: View {
   @Bindable package var model: PortraitLineEditModel
+  @Environment(\.drawingPresentationPolicy) private var presentationPolicy
   private let completion: () -> Void
   private let cancel: () -> Void
   package init(model: PortraitLineEditModel, completion: @escaping () -> Void, cancel: @escaping () -> Void) {
@@ -39,7 +40,8 @@ package struct DrawingMembershipEditor: View {
         Button("Delete Selected") { model.remove(model.selection) }.disabled(!model.canEdit || model.selection.isEmpty)
         Button("Restore All") { model.restore(model.removed) }.disabled(!model.canEdit || model.removed.isEmpty)
         Spacer()
-        Button(model.isBusy ? "Close" : "Cancel") { model.close(); cancel() }.keyboardShortcut(.cancelAction)
+        Button(model.isBusy ? "Close" : "Cancel") { model.close(); cancel() }
+          .keyboardShortcut(.escape, modifiers: presentationPolicy.modalUnavailableReason == nil ? [] : [.command])
           .accessibilityIdentifier("drawing.membershipEditor.cancel")
         Button("Done") {
           Task { if await model.save() { completion() } }

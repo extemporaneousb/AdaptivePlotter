@@ -122,15 +122,34 @@ extension DrawingLibrary {
   }
 
   public func drawings(limit: Int = 50, after: DrawingLibraryCursor? = nil) throws -> DrawingLibraryPage {
+    try drawings(in: .all, limit: limit, after: after)
+  }
+  public func drawings(in scope: DrawingLibraryDrawingScope, limit: Int = 50, after: DrawingLibraryCursor? = nil) throws -> DrawingLibraryPage {
     guard limit > 0, limit <= 500 else { throw DrawingLibraryError.invalidQuery }
+    if let after, after.scope != scope { throw DrawingLibraryError.invalidQuery }
     guard let db = try commonReadDatabase(), try tableExists("dx_drawing_summary",in:db) else { return .init(entries:[],next:nil) }
     return try commonSnapshot(db) {
       let generation = try db.generation
       if let after, after.generation != generation { throw DrawingLibraryError.staleSelection }
       var predicate = "WHERE COALESCE(m.tombstoned,0)=0", values: [String?] = []
+      switch scope {
+      case .all: break
+      case .photo(let ref):
+        try assertSourceReference(.photo(ref), database: db)
+        predicate += " AND (s.namespace,s.identity) IN (SELECT d.source_namespace,d.source_identity FROM dx_link i JOIN dx_link d ON d.target_kind='input' AND d.target_namespace=i.source_namespace AND d.target_identity=i.source_identity AND d.relation='input' AND d.source_kind='drawing' WHERE i.source_kind='input' AND i.relation='photo' AND i.target_kind='photo' AND i.target_namespace=? AND i.target_identity=?)"
+        values += [ref.issuer.uuidString.lowercased(), ref.revision.uuidString.lowercased()]
+      case .input(let ref):
+        try assertSourceReference(.input(ref), database: db)
+        predicate += " AND (s.namespace,s.identity) IN (SELECT d.source_namespace,d.source_identity FROM dx_link d WHERE d.source_kind='drawing' AND d.relation='input' AND d.target_kind='input' AND d.target_namespace=? AND d.target_identity=?)"
+        values += [ref.issuer.uuidString.lowercased(), ref.revision.uuidString.lowercased()]
+      case .children(let ref):
+        try assertSourceReference(.drawing(ref), database: db)
+        predicate += " AND (s.namespace,s.identity) IN (SELECT d.source_namespace,d.source_identity FROM dx_link d WHERE d.source_kind='drawing' AND d.relation='parent' AND d.target_kind='drawing' AND d.target_namespace=? AND d.target_identity=?)"
+        values += [ref.issuer.uuidString.lowercased(), ref.revision.uuidString.lowercased()]
+      }
       if let after {
         predicate += " AND (s.created_at < CAST(? AS REAL) OR (s.created_at=CAST(? AS REAL) AND (s.namespace>? OR (s.namespace=? AND s.identity>?))))"
-        values = [after.date,after.date,after.issuer,after.issuer,after.revision]
+        values += [after.date,after.date,after.issuer,after.issuer,after.revision]
       }
       let rows = try db.rows("SELECT s.namespace,s.identity,s.digest,s.program_digest,printf('%!.17g',s.created_at),s.stroke_count,s.point_count,m.payload FROM dx_drawing_summary s LEFT JOIN dx_metadata m ON m.kind='drawing' AND m.namespace=s.namespace AND m.identity=s.identity " + predicate + " ORDER BY s.created_at DESC,s.namespace ASC,s.identity ASC LIMIT ?",values+[String(limit+1)])
       let page = Array(rows.prefix(limit))
@@ -141,7 +160,7 @@ extension DrawingLibrary {
         if let metadata,metadata.reference != .drawing(ref) { throw DrawingLibraryError.invalidIdentity }
         return .init(reference:ref,title:metadata?.title,createdAt:row[4].flatMap(Double.init).map(Date.init(timeIntervalSince1970:)),programDigest:try ExchangeDigest(program),strokeCount:count,pointCount:points)
       }
-      let next:DrawingLibraryCursor? = rows.count > limit ? .init(generation:generation,date:page.last![4]!,issuer:page.last![0]!,revision:page.last![1]!) : nil
+      let next:DrawingLibraryCursor? = rows.count > limit ? .init(generation:generation,date:page.last![4]!,issuer:page.last![0]!,revision:page.last![1]!,scope:scope) : nil
       return .init(entries:entries,next:next)
     }
   }

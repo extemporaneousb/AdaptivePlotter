@@ -44,6 +44,7 @@ struct DrawingLibraryResultHeader: Codable, Equatable {
   let attempts: [SnapshotRef]
   let assessments: [AssessmentRef]
   let summaries: [DrawingLibraryPublishedSummary]?
+  let projectedAttempts: [DrawingLibraryProjectedAttempt]?
   init?(_ admitted: ValidatedExchangePackage) throws {
     guard let index = admitted.index.known, index.kind == "result" else { return nil }
     let formatter = ISO8601DateFormatter()
@@ -53,6 +54,17 @@ struct DrawingLibraryResultHeader: Codable, Equatable {
     guard let date = fractional ?? formatter.date(from: index.includedAsOf) else { throw DrawingLibraryError.invalidIdentity }
     includedAsOf = index.includedAsOf; chronology = date.timeIntervalSince1970
     drawings = index.roots; jobs = index.jobs; attempts = index.attempts; assessments = index.assessments
+    projectedAttempts = index.attempts.compactMap { ref -> DrawingLibraryProjectedAttempt? in
+      guard let attempt = admitted.attempts[ref] else { return nil }
+      return DrawingLibraryProjectedAttempt(drawing: attempt.drawing, snapshot: ref, environment: attempt.environment, state: attempt.state,
+        dispatch: attempt.dispatch, observation: attempt.observation,
+        unsupportedReasons: (index.requiredFeatures + attempt.requiredFeatures).map { "Unsupported required feature: " + $0 })
+    }.sorted {
+      let a = $0.snapshot, b = $1.snapshot
+      if a.archive != b.archive { return a.archive.uuidString.lowercased() < b.archive.uuidString.lowercased() }
+      if a.run != b.run { return a.run.uuidString.lowercased() < b.run.uuidString.lowercased() }
+      return a.sequence < b.sequence
+    }
     summaries = try index.roots.compactMap { ref in
       guard case .materialized(let frozen)? = admitted.drawings[ref] else { return nil }
       return try DrawingLibraryPublishedSummary(original: frozen)
@@ -191,6 +203,7 @@ extension LibraryExchangeCatalog {
       try verifyResultHeader(header, transaction: transaction)
       return
     }
+    try applyAttempts(header.projectedAttempts ?? [], transaction: id)
     for summary in header.summaries ?? [] { try applySummary(summary) }
     for drawing in Set(header.drawings) {
       try database.execute("INSERT INTO dx_result_root(transaction_id,issuer,revision,digest,chronology,index_digest,package_digest) VALUES(?,?,?,?,?,?,?)", [id, drawing.issuer.uuidString.lowercased(), drawing.revision.uuidString.lowercased(), drawing.digest.description, String(header.chronology), index, package])
@@ -206,6 +219,7 @@ extension LibraryExchangeCatalog {
     }
     for summary in header.summaries ?? [] { try verifySummary(summary) }
     guard let canonical = row[7] else { throw DrawingLibraryError.invalidIdentity }
+    try verifyAttempts(header.projectedAttempts ?? [], transaction: canonical)
     let roots = try database.rows("SELECT issuer,revision,digest,printf('%!.17g',chronology),index_digest,package_digest FROM dx_result_root WHERE transaction_id=?", [canonical])
     let expected = Set(header.drawings.map { [$0.issuer.uuidString.lowercased(), $0.revision.uuidString.lowercased(), $0.digest.description].joined(separator: "\0") })
     guard Set(roots.map { Array($0.prefix(3)).map { $0 ?? "" }.joined(separator: "\0") }) == expected,

@@ -48,9 +48,9 @@ package final class DrawingLibraryDatabase {
       try execute("PRAGMA foreign_keys=ON")
       guard try scalar("PRAGMA foreign_keys") == "1" else { throw DrawingLibraryDatabaseError.database("foreign key enforcement unavailable") }
       let existingVersion = try scalar("PRAGMA user_version")
-      guard existingVersion == "0" || existingVersion == "11" else { throw DrawingLibraryDatabaseError.database("unsupported schema") }
-      if existingVersion == "11" {
-        guard try scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('dx_source_summary','dx_photo_metadata')") == "2" else {
+      guard existingVersion == "0" || existingVersion == "12" else { throw DrawingLibraryDatabaseError.database("unsupported schema") }
+      if existingVersion == "12" {
+        guard try scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('dx_source_summary','dx_photo_metadata','dx_result_attempt')") == "3" else {
           throw DrawingLibraryDatabaseError.database("unsupported schema: required source metadata tables are missing")
         }
       }
@@ -59,7 +59,7 @@ package final class DrawingLibraryDatabase {
         try execute("PRAGMA synchronous=FULL")
         if existingVersion == "0" { try execute(Self.schema) }
       }
-      guard let version = try scalar("PRAGMA user_version"), version == "11" else {
+      guard let version = try scalar("PRAGMA user_version"), version == "12" else {
         throw DrawingLibraryDatabaseError.database("unsupported schema")
       }
       guard try scalar("SELECT value FROM state WHERE key='profile'") == "adaptiveplotter.drawing-library/1" else { throw DrawingLibraryDatabaseError.database("Unsupported Library profile") }
@@ -206,6 +206,8 @@ package final class DrawingLibraryDatabase {
   INSERT INTO state(key,value) VALUES('profile','adaptiveplotter.drawing-library/1');
   CREATE TABLE dx_source_summary(kind TEXT NOT NULL,namespace TEXT NOT NULL,identity TEXT NOT NULL,digest TEXT NOT NULL,payload TEXT NOT NULL,known_date INTEGER NOT NULL,chronology REAL,photo_namespace TEXT,photo_identity TEXT,photo_digest TEXT,PRIMARY KEY(kind,namespace,identity));
   CREATE TABLE dx_photo_metadata(namespace TEXT NOT NULL,identity TEXT NOT NULL,digest TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(namespace,identity));
-  PRAGMA user_version=11;
+  CREATE TABLE IF NOT EXISTS dx_result_attempt(transaction_id TEXT NOT NULL,issuer TEXT NOT NULL,revision TEXT NOT NULL,digest TEXT NOT NULL,archive TEXT NOT NULL,run TEXT NOT NULL,sequence INTEGER NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(transaction_id,archive,run,sequence));
+  CREATE INDEX IF NOT EXISTS dx_result_attempt_drawing ON dx_result_attempt(issuer,revision,digest,archive,run,sequence DESC,transaction_id);
+  PRAGMA user_version=12;
   """
 }

@@ -94,48 +94,29 @@ The [canonical receipt](CURRENT_EVIDENCE.md#dx-08-canonical-adoption-2026-11-08)
 its test/host limits: default constructor/canvas/separate-model evidence is not hosted
 browser private-state/button/sheet or AX acceptance. Flow pruning remains intact.
 
-**DX-09 — Canonical feature feedback and frozen training inputs.** Task
-`task-222f2a729f8b4f9781bf4eb7f0c4095f` owns the dated pre-gate software snapshot:
-`Sources/PortraitLibrary/{FlowPortfolioGraph,FlowPortfolioStore,FlowPortfolioTypes,FlowPortfolioValidation,FlowPortfolioRetention,FlowAuthoringArtifacts,FlowPortfolioFeedback,FlowPortfolioTraining}.swift`,
-`Sources/PortraitStudioUI/{FlowDojoTraining,FlowDojoTrainingFeedback,FlowDojoTrainingProgress,FlowDojoModel}.swift`,
-`Sources/PortraitArtists/{FlowArtistTraining,FlowArtistFeatures,FlowArtistModel}.swift`,
-the narrow existing-owner `DrawingLibrary/DrawingLibraryFeedback.swift`, relevant Core
-envelope/closure/codec/image admission, schema/checker and canonical feedback/training tests.
-No legacy review/portfolio compatibility adapter is restored.
+DX-09 completed normal main adoption at `c7b29057eaf6426bdeb0f3d27a59e91201872fe0`,
+all nine bounded caller-declared artifact criteria current/met. Its
+[canonical receipt](CURRENT_EVIDENCE.md#dx-09-canonical-adoption-2026-11-08) retains
+actual full-gate, grouping/provenance and environment limits; no whole-campaign or
+physical/model-promotion claim follows.
 
-Canonical capsules/assessments pin exact features, producer/extractor configuration,
-ordered stable stroke basis and explicit ranking/partial/Neither/Skip/choice/pruning
-meaning. Software revision markers are administrative, not duplicate human answers.
-Explicit authored retention is separate from feedback; canonical dependencies/navigation
-commit atomically before acknowledgement. Rank retains zero Drawings; optional display
-previews remain outside the JSON-only training task. Frozen manifests drive actual
-supervision, seed/configuration, curation/connectivity and splits with no live UUID or
-geometry fallback. Exact equal-source bytes and subject/session links define supported
-grouping; cross-encoding decoded-pixel equivalence is not established.
+**DX-10 — Photos/Drawings browser and Curate cutover.** The admitted task
+`task-c316fcdff30a4b7fbe3ca22922889e18` implements the dated pre-gate boundary in
+`DrawingLibrary{Reads,Sources,Records,Results,Attempts}`, `PortraitSketchCollection`,
+`FlowPortfolioStore/Graph`, `PortraitDrawingAttemptBinding`, `FlowDojoModel`, shared
+`DrawingLibrary{Browser,Navigation,SourceView}` and actual embedded/standalone route owners.
+The top row uses Library/Drawing Studio/Plotter; optional contextual Photo metadata
+replaces Curate, exact existing Photo adoption preserves identity/metadata, typed
+current-format collection/Photo/Input/Drawing/branch bookmarks reopen without fuzzy
+fallback, and result snapshots/staged bindings/raw evidence remain distinct. Existing
+Stop and raw possible-ink authority remain accessible and current; no issuance bridge
+is claimed. See [scoped software observations](CURRENT_EVIDENCE.md#dx-10-library-and-drawing-studio-cutover-2026-11-08).
 
-The [dated receipt](CURRENT_EVIDENCE.md#dx-09-canonical-feedback-and-frozen-training-inputs-2026-11-08)
-records failed and passing observations without summing overlapping tests. Final full
-configured validation, acceptance and landing remain authoritative in the task, not
-claimed by this pre-gate snapshot. Historical import is deferred/nonblocking. DX-10+
-remain separate work; no whole-campaign, physical, deployment or model-promotion claim.
-
-**DX-10 — Photos/Drawings browser and Curate cutover.** Allowed:
-`Sources/PortraitStudioUI/{PortraitLibraryBrowsePresentation,PortraitRecentItemsView,PortraitSavedStylesView,FlowDojoSidebar,FlowDojoView,FlowDojoPresentation}.swift`,
-`Sources/PortraitStudio/{PortraitStudioLibraryView,PortraitStudioRootView,PortraitStudioGroupDeclarationView}.swift`,
-Library query files, `Sources/PlotterApp/{PlotterApplicationRuntimeView,WorkbenchTopBar,WorkbenchLayout,WorkbenchPanels,DrawingStudioPhysicalGallery,DrawingTransferView}.swift`
-and browser/navigation tests. Cut over the actual top row to the three workspaces.
-Exercise restored layouts, embedded and standalone entrypoints, keyboard focus,
-picker/Exchange actions and persistent global Stop in native navigation. Provide chronological Photos,
-retained Drawings including source-free/imported work, prepared-input/branch navigation
-and Attempts. Show acquisition/import/unknown date truthfully; separate retained
-drawing, attempted run and attributable-evidence counts (snapshots do not inflate
-attempts). Remove the Curate button. Expose grouping/exclusion metadata on the selected photo.
-Use typed selection across app modes/relaunch; no hidden current-portfolio authority.
-Gate: empty and large catalogs, generic drawings, same-date ordering/pagination,
-tombstones, interrupted/failed attempts, unknown dates, keyboard/accessibility and
-wrong-selection regressions. Delete replaced reachable duplicate browser/query paths;
-source-only historical screens require caller proof before deletion. Recovery:
-retain catalog backup and preserve selection aliases rather than fuzzy reattachment.
+Final configured validation, acceptance and verified normal landing remain authoritative
+in that task; this dated observation claims none prematurely. Native focus/button/sheet/
+AX and signed-app interaction remain bounded by actual host evidence. Continue the
+remaining current-app DX-11/18/19/native-20 group above after normal DX-10 adoption;
+historical schemas/files/layout continuity remain outside this release.
 
 **DX-11 — Interactive performance and cache discipline.** Allowed:
 DX-08/10 UI/model files, `Sources/PortraitStudioUI/{FlowDojoRenderer,FramePresentationImageCache,PortraitPlanePreview}.swift`,

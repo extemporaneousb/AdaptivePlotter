@@ -233,7 +233,7 @@ struct DrawingBrowserTests {
     canvas.mouseDown(with: try event(.leftMouseDown)); canvas.mouseUp(with: try event(.leftMouseUp))
   }
 
-  @Test("AX-capable host: actual standalone Edit sheet, native canvas, Done and Cancel workflow",
+  @Test("AX-capable host: actual standalone inline Edit, native canvas, Done and Cancel workflow",
     .enabled(if: ProcessInfo.processInfo.environment["PORTRAIT_NATIVE_AX_CHECK"] == "1"))
   func standaloneNativeEditorRoute() async throws {
     _ = NSApplication.shared
@@ -243,15 +243,17 @@ struct DrawingBrowserTests {
     let acquisition = PortraitStudioModel(library: library)
     let dojo = FlowDojoModel(directory: root, library: library)
     let delegate = PortraitStudioApplicationDelegate()
-    // Inspect/host the real browser property, not the main window body: this
-    // performs no camera discovery, application launch or default-store access.
-    let standalone = PortraitStudioDojoWindow(dojo: dojo, acquisition: acquisition, library: library, delegate: delegate)
-    let shared = standalone.drawingBrowser
-    #expect(shared.sketches === acquisition.sketches && shared.handoff == nil)
     let base = try await acquisition.sketches.retain(DrawingEditFixture.value(), reason: "save")
     let baseRef = try #require(base.reference)
-    try acquisition.sketches.selectLoaded(base)
-    await acquisition.sketches.load()
+    var navigation = DrawingLibraryRoute()
+    navigation.collection = .drawings; navigation.drawing = baseRef
+    // Inspect/host the real browser property, not the main window body: this
+    // performs no camera discovery, application launch or default-store access.
+    let standalone = PortraitStudioDojoWindow(dojo: dojo, acquisition: acquisition, library: library, delegate: delegate,
+      route: Binding(get: { navigation }, set: { navigation = $0 }))
+    let shared = standalone.drawingBrowser
+    #expect(shared.sketches === acquisition.sketches && shared.handoff == nil)
+    #expect(acquisition.sketches.selected == nil)
     let host = NSHostingController(rootView: shared.frame(width: 960, height: 700))
     host.sizingOptions = []
     let window = NSWindow(contentRect: .init(x: -10000, y: -10000, width: 960, height: 700),
@@ -267,11 +269,14 @@ struct DrawingBrowserTests {
     await settleHostedView(host.view)
     print("DX08 production browser host: finished=\(NSRunningApplication.current.isFinishedLaunching) elements=\(hostElementDiagnostics(accessibilityTree(window)))")
     do {
+      try #require(await waitForUI {
+        acquisition.sketches.scope == .all && !acquisition.sketches.isLoading && acquisition.sketches.selected?.reference == baseRef
+      })
       try #require(await waitForUI { self.action("drawing.library.edit", label: "Edit", in: window).map(self.enabled) == true },
         "Edit unavailable. Actions: \(actionDiagnostics(window))")
       try press("drawing.library.edit", label: "Edit", in: window)
-      try #require(await waitForUI { window.attachedSheet != nil })
-      let sheet = try #require(window.attachedSheet)
+      #expect(window.attachedSheet == nil)
+      let sheet = window
       if let content = sheet.contentView { await settleHostedView(content) }
       try #require(await waitForUI {
         guard let view = sheet.contentView else { return false }
@@ -291,8 +296,8 @@ struct DrawingBrowserTests {
       let count = try await library.drawings().entries.count
       #expect(count == 2)
       try press("drawing.library.edit", label: "Edit", in: window)
-      try #require(await waitForUI { window.attachedSheet != nil })
-      let cancelledSheet = try #require(window.attachedSheet)
+      #expect(window.attachedSheet == nil)
+      let cancelledSheet = window
       if let content = cancelledSheet.contentView { await settleHostedView(content) }
       try #require(await waitForUI { self.action("drawing.membershipEditor.cancel", label: "Cancel", in: cancelledSheet).map(self.enabled) == true },
         "Cancel unavailable. Actions: \(actionDiagnostics(cancelledSheet))")
@@ -316,14 +321,15 @@ struct DrawingBrowserTests {
     let library = DrawingLibrary(directoryURL: root)
     let acquisition = PortraitStudioModel(library: library)
     let dojo = FlowDojoModel(directory: root, library: library)
+    let base = try await acquisition.sketches.retain(DrawingEditFixture.value(), reason: "save")
+    let baseRef = try #require(base.reference)
+    var navigation = DrawingLibraryRoute()
+    navigation.collection = .drawings; navigation.drawing = baseRef
     let standalone = PortraitStudioDojoWindow(dojo: dojo, acquisition: acquisition, library: library,
-      delegate: PortraitStudioApplicationDelegate())
+      delegate: PortraitStudioApplicationDelegate(), route: Binding(get: { navigation }, set: { navigation = $0 }))
     let shared = standalone.drawingBrowser
     #expect(shared.sketches === acquisition.sketches && shared.handoff == nil)
-    let base = try await shared.sketches.retain(DrawingEditFixture.value(), reason: "save")
-    let baseRef = try #require(base.reference)
-    try shared.sketches.selectLoaded(base)
-    await shared.sketches.load()
+    #expect(shared.sketches.selected == nil)
     let browserHost = NSHostingController(rootView: shared.frame(width: 960, height: 700))
     browserHost.sizingOptions = []
     let browserWindow = NSWindow(contentRect: .init(x: -10000, y: -10000, width: 960, height: 700),
@@ -339,10 +345,13 @@ struct DrawingBrowserTests {
     do {
       await settleHostedView(browserHost.view)
       #expect(browserHost.view.bounds.width > 0 && browserHost.view.bounds.height > 0)
+      try #require(await waitForUI {
+        shared.sketches.scope == .all && !shared.sketches.isLoading && shared.sketches.selected?.reference == baseRef
+      }, "The actual hosted browser must restore this fixture's exact global Drawing before editing.")
       let editor = try #require(browser.beginEdit())
       #expect(editor.base.reference == baseRef)
       await editor.load()
-      // This is the same production constructor used by the browser's sheet.
+      // This is the same production constructor used by the inline browser editor.
       // Save/adoption below deliberately use the real models, not AX controls.
       let editorView = DrawingMembershipEditor(model: editor, completion: { _ = browser.finishEdit(editor) },
         cancel: { browser.dismissEditor() })
@@ -378,10 +387,21 @@ struct DrawingBrowserTests {
       #expect(cancelled.isClosed && browser.editor == nil)
       #expect(shared.sketches.selected?.reference == saved.reference)
       #expect(try await library.drawings().entries.count == count)
+      try #require(await waitForUI { navigation.drawing == saved.reference })
+      let reopened = DrawingLibraryBrowserModel(sketches: shared.sketches)
+      await reopened.restore(DrawingLibraryRoute.restored(navigation.encoded))
+      #expect(reopened.error == nil && shared.sketches.selected?.reference == saved.reference)
+      #expect(navigation.activeCollection == .drawings && navigation.drawing == saved.reference)
+      reopened.close()
       browser.close()
       window.orderOut(nil); window.contentViewController = nil
       browserWindow.orderOut(nil); browserWindow.contentViewController = nil
       _ = await dojo.shutdown(); await acquisition.shutdown(); await library.closeLibrary()
+      let reopenedLibrary = DrawingLibrary(directoryURL: root)
+      let restoredChild = try await reopenedLibrary.drawing(try #require(saved.reference))
+      #expect(restoredChild.reference == saved.reference && restoredChild.parent == .present(baseRef))
+      #expect(restoredChild.program == saved.program)
+      await reopenedLibrary.closeLibrary()
     } catch {
       browser.close()
       editorWindow?.orderOut(nil); editorWindow?.contentViewController = nil

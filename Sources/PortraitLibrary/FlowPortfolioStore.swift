@@ -7,6 +7,7 @@ import DrawingLibrary
 
 /// Authoring session and typed domain graph; the common Library owns persistence.
 package actor FlowPortfolioStore {
+  package nonisolated let library: DrawingLibrary
   let storage: FlowAuthoringArtifacts
   var state: FlowPortfolioSnapshot
   var committedRecords = Set<DrawingLibraryRecordKey>()
@@ -15,6 +16,7 @@ package actor FlowPortfolioStore {
   var drawingInputs: [UUID: FrozenImageInputRecord] = [:]
   var sourcePhotoRecords: [UUID: FrozenPhotoRecord] = [:]
   var publishedPhotoIDs = Set<UUID>()
+  var newPhotoMetadataSources = Set<UUID>()
   var photoMetadataProjectionRevision: Int64?
   var photoMetadataProjectionRefs = Set<PhotoRef>()
   var photoMetadataProjectionValues: [PhotoRef: DrawingLibraryPhotoMetadata] = [:]
@@ -30,6 +32,7 @@ package actor FlowPortfolioStore {
 
   package init(directory: URL, purpose: FlowPortfolioPurpose? = nil, library: DrawingLibrary? = nil) {
     let owner = library ?? DrawingLibrary(directoryURL: directory)
+    self.library = owner
     storage = FlowAuthoringArtifacts(library: owner)
     self.directory = owner.directoryURL; requestedPurpose = purpose
     state = .empty(purpose: purpose ?? .artist)
@@ -71,6 +74,53 @@ package actor FlowPortfolioStore {
     var next = state; next.sources.append(source); next.selectedSourceID = source.id
     next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
     try await commit(next, operation: "sourceImported", subjectID: source.id)
+    return source
+  }
+
+  /// Adopt the existing occurrence; publication and live Photo metadata retain
+  /// their original authority. This is not an import or a new Photo revision.
+  @discardableResult package func adoptExistingPhoto(_ reference: PhotoRef) async throws -> FlowPortfolioSource {
+    try requireArtifactMutationAdmission()
+    if let existing = state.sources.first(where: { $0.photo == reference }) {
+      try await selectSource(existing.id)
+      return existing
+    }
+    let photo = try await storage.library.photo(reference)
+    guard ["image/png", "image/jpeg"].contains(photo.record.original.mediaType),
+      let original = photo.assets.first(where: { $0.descriptor.asset == photo.record.original }) else {
+      throw FlowPortfolioError.invalid("This source can be inspected and exported, but authoring requires a supported PNG or JPEG photograph.")
+    }
+    let encoded = try Self.validatedSourceAsset(original.bytes)
+    guard encoded.asset.descriptor.asset == photo.record.original,
+      encoded.width == photo.record.width,
+      encoded.height == photo.record.height else { throw DrawingExchangeError.mismatchedParent }
+    let metadata = try await storage.library.photoMetadata(reference)
+    // Actor reentrancy during exact loading must not create a second navigation
+    // occurrence for an already-adopted Photo.
+    if let existing = state.sources.first(where: { $0.photo == reference }) {
+      try await selectSource(existing.id)
+      return existing
+    }
+    let blob = FlowPortfolioBlob(sha256: photo.record.original.object.description,
+      byteCount: original.bytes.count, mediaType: photo.record.original.mediaType)
+    let createdAt: Date
+    switch photo.acquired ?? photo.imported {
+    case .known(let timestamp, _):
+      let formatter = ISO8601DateFormatter()
+      formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+      let fractional = timestamp.wallTime.flatMap { formatter.date(from: $0) }
+      formatter.formatOptions = [.withInternetDateTime]
+      createdAt = fractional ?? timestamp.wallTime.flatMap { formatter.date(from: $0) } ?? Date()
+    default: createdAt = Date()
+    }
+    var source = FlowPortfolioSource(id: UUID(), createdAt: createdAt, title: metadata.title ?? "Photo",
+      image: blob, subjectID: metadata.subjectID, sessionID: metadata.sessionID)
+    source.photo = reference; source.excluded = metadata.excluded
+    sourcePhotoRecords[source.id] = photo; publishedPhotoIDs.insert(source.id)
+    storage.markPublished([blob])
+    var next = state; next.sources.append(source); next.selectedSourceID = source.id
+    next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
+    try await commit(next, operation: "existingPhotoAdopted", subjectID: source.id)
     return source
   }
 

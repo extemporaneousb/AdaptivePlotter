@@ -13,12 +13,11 @@ import AppKit
 struct PlotterApplicationRuntimeView: View {
   @Bindable var application: PlotterApplicationRuntime
   @AppStorage("AdaptivePlotter.workbenchLayout.v1") private var savedLayout = Data()
+  @AppStorage("AdaptivePlotter.libraryRoute.v1") private var savedRoute = Data()
   @State private var gateLayout: WorkbenchLayoutState?
   @State private var selection = LearningPathSelectionState(current: .humanGuidedDiscovery(.penInteraction))
   @State private var actionSurfaceViewport = ActionSurfaceViewportState()
   @State private var reviewerIsPresented = false
-  @State private var transferIsPresented = false
-  @State private var reviewerPhotoID: UUID?
   @State private var isSavingDrawing = false
   @State private var materialSettingsPresented = false
   @State private var manualMotionDraft = ManualMotionDraft()
@@ -34,6 +33,9 @@ struct PlotterApplicationRuntimeView: View {
       if gateLayout != nil { gateLayout = $0 } else { savedLayout = $0.encoded }
     })
   }
+  private var libraryRoute: Binding<DrawingLibraryRoute> {
+    Binding(get: { .restored(savedRoute) }, set: { savedRoute = $0.encoded })
+  }
 
   private func currentProjection(program: DrawingProgram? = nil) -> PlotterAppUIProjection {
     application.plotterUIProjection(
@@ -48,13 +50,6 @@ struct PlotterApplicationRuntimeView: View {
       HStack(spacing: 8) {
         WorkbenchNavigationControls(layout: layout.wrappedValue,
           reviewerIsPresented: reviewerIsPresented, selectDestination: selectToolbarDestination)
-        Button("Drawing Exchange", systemImage: "arrow.up.arrow.down.square") {
-          transferIsPresented = true
-        }
-        .controlSize(.small)
-        .accessibilityIdentifier("drawing.openExchange")
-        .help("Import authored drawings and export drawings or retained plot results")
-        .padding(.trailing, 10)
       }
       if let panelError {
         HStack {
@@ -82,13 +77,26 @@ struct PlotterApplicationRuntimeView: View {
         resultPhotoMissing: application.drawingRunSnapshot?.terminal.map {
           !DrawingReviewPhotographs.hasResultPhoto($0.record)
         } ?? false).equatable()
-      if layout.wrappedValue.isPresented(.portraitStudio) {
+      if reviewerIsPresented {
+        DrawingTransferView(application: application, close: { selectToolbarDestination(.plotter) },
+          route: libraryRoute, openStudio: openLibraryPhoto, projected: {
+            reviewerIsPresented = false; libraryRoute.wrappedValue.workspace = .plotter
+            layout.wrappedValue.setPresented(.portraitStudio, false)
+            layout.wrappedValue.setPresented(.drawing, true)
+          })
+      } else if layout.wrappedValue.isPresented(.portraitStudio) {
         VStack(spacing: 0) {
           panelContent(.portraitStudio)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workbench.panel.portraitStudio")
       } else {
+        HStack {
+          ForEach([WorkbenchPanel.drawing, .motion, .videoSettings], id: \.self) { panel in
+            Button(panel.title) { togglePanel(panel) }
+          }
+          Spacer()
+        }.padding(.horizontal, 12).padding(.vertical, 6)
         WorkbenchPanels(layout: layout, select: { panel in Task { await preparePanel(panel) } },
           autosavePrefix: RunningAppPreviewPerformanceGate.isRequested ? nil : "AdaptivePlotter.workbench.v2",
           content: panelContent) {
@@ -112,13 +120,8 @@ struct PlotterApplicationRuntimeView: View {
         Task { await application.portraitStudio.cancelRendering() }
       }
     }
-    .sheet(isPresented: $reviewerIsPresented) {
-      DrawingReviewerView(application: application, close: { reviewerIsPresented = false },
-        showOnPlotter: useDrawingProgram)
-    }
-    .sheet(isPresented: $transferIsPresented) {
-      DrawingTransferView(application: application, close: { transferIsPresented = false })
-    }
+    .environment(\.drawingPresentationPolicy, DrawingPresentationPolicy(modalUnavailableReason:
+      WorkbenchStopPresentation.modalUnavailableReason(in: ui.semantic)))
     .onChange(of: ui.currentLearningPathItemID, initial: true) { _, item in selection.updateCurrent(item) }
     .toolbar {
       WorkbenchToolbar(savedLearningAction: ui.semantic.actions.first { action in
@@ -136,6 +139,16 @@ struct PlotterApplicationRuntimeView: View {
         ? AdaptivePlotterLaunchPolicy(arguments: [AdaptivePlotterLaunchPolicy.simulatedArgument, "YES"])
         : AdaptivePlotterLaunchPolicy.current
       await application.performApplicationStartup(launch)
+      if savedRoute.isEmpty, !savedLayout.isEmpty {
+        libraryRoute.wrappedValue.workspace = layout.wrappedValue.isPresented(.portraitStudio) ? .drawingStudio : .plotter
+      }
+      let restored = libraryRoute.wrappedValue
+      reviewerIsPresented = restored.workspace == .library
+      if restored.workspace == .drawingStudio { layout.wrappedValue.setPresented(.portraitStudio, true) }
+      if restored.workspace == .drawingStudio, let ref = restored.photo {
+        panelError = await openLibraryPhoto(ref)
+        if panelError != nil { selectToolbarDestination(.drawings) }
+      }
       if RunningAppPreviewPerformanceGate.isRequested {
         gateLayout = WorkbenchLayoutState(presented: [.guidedLearning, .motion, .activeLearning, .portraitStudio])
       }
@@ -156,31 +169,55 @@ struct PlotterApplicationRuntimeView: View {
     WorkbenchRequestTelemetry.nativeActionHandled("workbench.destination.\(destination.rawValue)")
     switch destination {
     case .plotter:
+      reviewerIsPresented = false
+      libraryRoute.wrappedValue.workspace = .plotter
       if layout.wrappedValue.isPresented(.portraitStudio) { closePortraitStudio() }
     case .drawings:
-      reviewerPhotoID = nil
-      reviewerIsPresented.toggle()
-    case .portraitStudio, .drawing, .motion, .video:
-      if let panel = destination.panel {
-        if panel != .portraitStudio && layout.wrappedValue.isPresented(.portraitStudio) { reveal(panel) }
-        else { togglePanel(panel) }
+      reviewerIsPresented = true
+      libraryRoute.wrappedValue.workspace = .library
+    case .portraitStudio:
+      if reviewerIsPresented, let ref = libraryRoute.wrappedValue.photo {
+        Task { panelError = await openLibraryPhoto(ref) }; return
       }
+      reviewerIsPresented = false
+      libraryRoute.wrappedValue.workspace = .drawingStudio
+      layout.wrappedValue.setPresented(.portraitStudio, true)
     }
+  }
+
+  private func openLibraryPhoto(_ ref: PhotoRef) async -> String? {
+    let openingWorkspace = libraryRoute.wrappedValue.workspace
+    let dojo = application.portraitStudio.portfolioDojo(strokeStyle: application.drawingStrokeStyle,
+      nominalPenWidthMM: application.drawingMaterials.activeRecord?.profile.nominalWidthMM)
+    await dojo.open()
+    let failure = await dojo.selectPhoto(ref, isStillCurrent: {
+      libraryRoute.wrappedValue.photo == ref && libraryRoute.wrappedValue.workspace == openingWorkspace
+    })
+    guard libraryRoute.wrappedValue.photo == ref, libraryRoute.wrappedValue.workspace == openingWorkspace else { return "The Library selection changed." }
+    if let failure { return failure }
+    guard dojo.currentPhotoRef == ref, dojo.error == nil else { return dojo.error ?? "The exact Photo is unavailable for authoring." }
+    reviewerIsPresented = false
+    libraryRoute.wrappedValue.workspace = .drawingStudio
+    layout.wrappedValue.setPresented(.portraitStudio, true)
+    return nil
   }
 
   private func togglePanel(_ panel: WorkbenchPanel) {
     WorkbenchRequestTelemetry.nativeActionHandled("workbench.toggle.\(panel.rawValue)")
+    if panel == .portraitStudio, reviewerIsPresented { selectToolbarDestination(.portraitStudio); return }
     if panel == .portraitStudio && layout.wrappedValue.isPresented(panel) { closePortraitStudio() }
     else if layout.wrappedValue.isPresented(panel) { layout.wrappedValue.setPresented(panel, false) }
     else { reveal(panel) }
   }
 
   private func closePortraitStudio() {
+    libraryRoute.wrappedValue.workspace = .plotter
     layout.wrappedValue.setPresented(.portraitStudio, false)
     Task { panelError = await selectCamera(.plotter) }
   }
 
   private func restoreDefaultLayout() {
+    reviewerIsPresented = false; libraryRoute.wrappedValue.workspace = .plotter
     let leavesPortrait = layout.wrappedValue.isPresented(.portraitStudio)
     layout.wrappedValue = WorkbenchLayoutState()
     if leavesPortrait { Task { panelError = await selectCamera(.plotter) } }
@@ -252,14 +289,14 @@ struct PlotterApplicationRuntimeView: View {
                   }
                 }.accessibilityIdentifier("drawing.saveDrawing")
                   .disabled(application.drawingDraftSnapshot.program == nil || isSavingDrawing)
-                Button("Drawings", systemImage: "square.grid.2x2") { reviewerPhotoID = nil; reviewerIsPresented = true }
+                Button("Library", systemImage: "square.grid.2x2") { selectToolbarDestination(.drawings) }
                   .accessibilityIdentifier("drawing.openReviewer")
                 Spacer()
                 Button("Portrait Studio", systemImage: "person.crop.rectangle") { reveal(.portraitStudio) }
               }
               DrawingStudioView(presentation: ui.drawingStudio, plotterUIProjection: ui.semantic,
                 plotterUIIntentSink: application, panel: .drawing,
-                openReviewer: { reviewerPhotoID = nil; reviewerIsPresented = true }) {
+                openReviewer: { selectToolbarDestination(.drawings) }) {
                   studioMaterialControls
                   paperControls(ui, showsExplanation: false)
                 }
@@ -271,7 +308,9 @@ struct PlotterApplicationRuntimeView: View {
       PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
         nominalPenWidthMM: application.drawingMaterials.activeRecord?.profile.nominalWidthMM,
         showOnPlotter: useDrawingProgram,
-        selectCamera: { await selectCamera(.portrait) })
+        selectCamera: { await selectCamera(.portrait) }, photoSelected: { ref in
+          if let ref { libraryRoute.wrappedValue.selectPhoto(ref) }
+        })
         .environment(\.portraitActionTelemetry, WorkbenchRequestTelemetry.nativeActionHandled)
         .padding(12)
         .task(id: application.observationConfigurationProjection.selectedCameraID) {
@@ -390,6 +429,11 @@ struct PlotterApplicationRuntimeView: View {
   }
 
   private func reveal(_ panel: WorkbenchPanel) {
+    if panel == .portraitStudio, reviewerIsPresented, let ref = libraryRoute.wrappedValue.photo {
+      Task { panelError = await openLibraryPhoto(ref) }; return
+    }
+    reviewerIsPresented = false
+    libraryRoute.wrappedValue.workspace = panel == .portraitStudio ? .drawingStudio : .plotter
     let leavesPortrait = panel != .portraitStudio && layout.wrappedValue.isPresented(.portraitStudio)
     if panel != .portraitStudio { layout.wrappedValue.setPresented(.portraitStudio, false) }
     layout.wrappedValue.setPresented(panel, true)
@@ -415,6 +459,8 @@ struct PlotterApplicationRuntimeView: View {
   private func useDrawingProgram(_ drawing: Drawing) async -> String? {
     let error = await application.projectDrawing(drawing)
     if error == nil {
+      reviewerIsPresented = false
+      libraryRoute.wrappedValue.workspace = .plotter
       layout.wrappedValue.setPresented(.portraitStudio, false)
       layout.wrappedValue.setPresented(.drawing, true)
     }
@@ -436,6 +482,10 @@ struct PlotterApplicationRuntimeView: View {
 }
 
 enum WorkbenchStopPresentation {
+  static func modalUnavailableReason(in projection: PlotterUIProjection) -> String? {
+    actions(in: projection).contains { $0.unavailableReason == nil }
+      ? "Stop the active operation before opening a file picker or camera panel." : nil
+  }
   static func actions(in projection: PlotterUIProjection) -> [PlotterUIAction] {
     projection.actions.filter { action in
       if action.isLearningStop { return true }

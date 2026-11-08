@@ -5,14 +5,18 @@ import UniformTypeIdentifiers
 
 @MainActor
 package enum FlowDojoFiles {
+  private static var activePanel: NSSavePanel?
+  package static func cancelPanel() { activePanel?.cancel(nil) }
   package static func openPhotoCollection() async -> URL? {
     let panel = NSOpenPanel(); panel.title = "Import Photo Set"
+    activePanel = panel; defer { activePanel = nil }
     panel.message = "Choose a photo collection folder containing photo-collection.json and its images. Originals and provenance are retained."
     panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
     return await withCheckedContinuation { continuation in panel.begin { continuation.resume(returning: $0 == .OK ? panel.url : nil) } }
   }
   package static func exportDrawing() async -> URL? {
     let panel = NSSavePanel(); panel.title = "Export Drawing"; panel.allowedContentTypes = [.zip]
+    activePanel = panel; defer { activePanel = nil }
     panel.nameFieldStringValue = "Drawing.zip"
     return await withCheckedContinuation { continuation in panel.begin { continuation.resume(returning: $0 == .OK ? panel.url : nil) } }
   }

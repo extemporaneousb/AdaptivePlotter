@@ -10,16 +10,18 @@ package struct PortraitStudioView: View {
   private let handoff: (Drawing) async -> String?
   private let selectCamera: () async -> String?
   private let handoffTitle: String
+  private let photoSelected: (PhotoRef?) -> Void
   @State private var dojo: FlowDojoModel
   package init(model: PortraitStudioModel, strokeStyle: PlotterModel.StrokeStyle, nominalPenWidthMM: Double? = nil,
     showOnPlotter: @escaping (Drawing) async -> String?, selectCamera: @escaping () async -> String? = { nil },
-    handoffTitle: String = "Send to Drawing") {
+    handoffTitle: String = "Send to Drawing", photoSelected: @escaping (PhotoRef?) -> Void = { _ in }) {
     self.model = model; self.strokeStyle = strokeStyle; self.nominalPenWidthMM = nominalPenWidthMM
     self.handoff = showOnPlotter; self.selectCamera = selectCamera; self.handoffTitle = handoffTitle
+    self.photoSelected = photoSelected
     _dojo = State(initialValue: model.portfolioDojo(strokeStyle: strokeStyle, nominalPenWidthMM: nominalPenWidthMM))
   }
   package var body: some View {
-    FlowDojoView(model: dojo, camera: model, selectCamera: selectCamera, handoffTitle: handoffTitle, handoff: handoff)
+    FlowDojoView(model: dojo, camera: model, selectCamera: selectCamera, handoffTitle: handoffTitle, handoff: handoff, photoSelected: photoSelected)
       .task(id: FlowDojoAuthoringContext(strokeStyle: strokeStyle, nominalPenWidthMM: nominalPenWidthMM)) {
         dojo.updateStrokeStyle(strokeStyle, nominalPenWidthMM: nominalPenWidthMM)
       }.onDisappear { dojo.cancel() }

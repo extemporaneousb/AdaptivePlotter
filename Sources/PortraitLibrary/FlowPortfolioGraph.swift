@@ -192,7 +192,7 @@ extension FlowPortfolioStore {
     let publishedBlobs = durableAssets(next)
     let assets = try await storage.closureAssets(publishedBlobs) + featureClosureAssets()
     let oldIDs = Set(state.sources.map(\.id))
-    let initial = next.sources.filter { !oldIDs.contains($0.id) }.compactMap { source -> DrawingLibraryPhotoMetadataUpdate? in
+    let initial = next.sources.filter { !oldIDs.contains($0.id) && newPhotoMetadataSources.contains($0.id) }.compactMap { source -> DrawingLibraryPhotoMetadataUpdate? in
       guard let ref = source.photo else { return nil }
       return .init(reference: ref, patch: .init(title: .set(source.title), subjectID: .set(source.subjectID), sessionID: .set(source.sessionID), excluded: source.excluded))
     }
@@ -210,6 +210,7 @@ extension FlowPortfolioStore {
       try await storage.library.commitRecords(write.records, assets: write.assets, intent: write.intent, closure: write.closure, photoMetadata: write.photoMetadata)
     }
     publishedPhotoIDs.formUnion(write.next.sources.map(\.id))
+    newPhotoMetadataSources.subtract(write.next.sources.map(\.id))
     storage.markPublished(write.publishedBlobs)
     for record in write.records { committedRecords.insert(record.key) }
     for record in write.records where record.kind == kind("frozen-view") { frozenTrainingViews.removeValue(forKey: record.id) }
@@ -282,6 +283,7 @@ extension FlowPortfolioStore {
     let photo = try PortraitDrawingImages.photo(data: bytes, issuer: state.id, captureID: source.id,
       capturedAt: capturedPhoto?.capturedAt ?? source.captureProvenance?.capturedAt, importedAt: source.createdAt, facts: facts)
     source.photo = photo.reference; sourcePhotoRecords[source.id] = photo
+    newPhotoMetadataSources.insert(source.id)
   }
   package func sourcePhoto(_ id: UUID) async throws -> FrozenPhotoRecord {
     if let photo = sourcePhotoRecords[id] { return photo }

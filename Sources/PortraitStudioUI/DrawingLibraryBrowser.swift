@@ -35,6 +35,28 @@ package final class DrawingLibraryBrowserModel {
     await sketches.load()
     if !isClosed { error = sketches.error }
   }
+  package func restore(_ route: DrawingLibraryRoute, isStillCurrent: @escaping @MainActor () -> Bool = { true }) async {
+    guard !isClosed, !sketches.isClosing, !Task.isCancelled, isStillCurrent() else { return }
+    let selected = route.drawing
+    requestRevision &+= 1; let revision = requestRevision
+    selectionTask?.cancel(); dismissEditor(); sketches.clearSelection(); sketches.invalidateBrowse()
+    isBusy = true
+    defer { if current(revision) { isBusy = false } }
+    do {
+      let scope = try await route.validatedScope(in: sketches.library)
+      guard current(revision), isStillCurrent(), !Task.isCancelled else { return }
+      await sketches.load(scope: scope)
+      guard current(revision), isStillCurrent(), !Task.isCancelled else { return }
+      if let failure = sketches.error { error = failure; return }
+      if let ref = selected {
+        let value = try await sketches.library.drawing(ref)
+        try await route.validate(value, in: sketches.library)
+        guard current(revision), isStillCurrent(), !Task.isCancelled else { return }
+        try sketches.selectLoaded(value)
+      }
+      error = nil
+    } catch { if current(revision), isStillCurrent(), !Task.isCancelled { self.error = error.localizedDescription } }
+  }
   @discardableResult package func select(_ reference: DrawingRef?) -> Task<Void, Never> {
     requestRevision &+= 1
     let revision = requestRevision
@@ -42,6 +64,7 @@ package final class DrawingLibraryBrowserModel {
     guard current(revision) else { return Task {} }
     if reference == nil { sketches.clearSelection(); isBusy = false; return Task {} }
     isBusy = true
+    sketches.clearSelection()
     let task = Task { [weak self] in
       guard let self else { return }
       defer { if self.current(revision) { self.isBusy = false } }
@@ -105,19 +128,23 @@ package final class DrawingLibraryBrowserModel {
     let failure = await handoff(request.drawing, request)
     if request.isCurrent { error = failure }
   }
-  package func importDrawings(from url: URL) async {
-    guard !isClosed, !isBusy, !sketches.isClosing else { return }
+  package func importDrawings(from url: URL, route: Binding<DrawingLibraryRoute>) async {
+    guard !isClosed, !isBusy, !sketches.isClosing, !Task.isCancelled else { return }
+    let opening = route.wrappedValue
     requestRevision &+= 1; let revision = requestRevision
     dismissEditor(); isBusy = true
     defer { if current(revision) { isBusy = false } }
     do {
       let refs = try await sketches.importDrawings(from: url)
-      guard current(revision), !Task.isCancelled else { return }
-      await sketches.load()
-      guard current(revision), !Task.isCancelled else { return }
-      if let first = refs.first { try await sketches.select(first) }
-      if current(revision), !Task.isCancelled { error = nil }
-    } catch { if current(revision), !Task.isCancelled { self.error = error.localizedDescription } }
+      guard current(revision), route.wrappedValue == opening, !Task.isCancelled else { return }
+      guard let first = refs.first else { error = "The package contains no authored Drawings."; return }
+      var next = opening; next.showDrawing(first)
+      let destination = next
+      route.wrappedValue = destination
+      await restore(destination, isStillCurrent: { route.wrappedValue == destination })
+    } catch {
+      if current(revision), route.wrappedValue == opening, !Task.isCancelled { self.error = error.localizedDescription }
+    }
   }
   package func exportDrawing(_ ref: DrawingRef, to url: URL) async {
     guard !isClosed, !isBusy, !sketches.isClosing else { return }
@@ -130,8 +157,9 @@ package final class DrawingLibraryBrowserModel {
   }
   package func loadMore() async {
     guard !isClosed, !isBusy else { return }
+    let revision = requestRevision
     do { try await sketches.loadMore() }
-    catch { if !isClosed { self.error = error.localizedDescription } }
+    catch { if current(revision), !Task.isCancelled { self.error = error.localizedDescription } }
   }
   package func report(_ message: String) { if !isClosed { error = message } }
 }
@@ -142,31 +170,64 @@ package final class DrawingLibraryBrowserModel {
 package struct DrawingLibraryBrowser: View {
   package let sketches: PortraitSketchCollection
   package let handoff: DrawingBrowserHandoff?
+  @Environment(\.drawingPresentationPolicy) private var presentationPolicy
+  @Binding private var route: DrawingLibraryRoute
+  private let openStudio: (PhotoRef) async -> String?
+  private let review: (Drawing) -> AnyView
+  private var showsPhotos: Binding<Bool> {
+    Binding(get: { route.activeCollection == .photos }, set: { photos in
+      model.dismissEditor(); sketches.clearSelection(); route.drawing = nil
+      route.collection = photos ? .photos : .drawings
+      route.branchParent = nil; route.photo = nil; route.input = nil
+    })
+  }
+  @State private var activePanel: NSSavePanel?
   private let close: () -> Void
   @State private var model: DrawingLibraryBrowserModel
-  package init(sketches: PortraitSketchCollection, close: @escaping () -> Void, handoff: DrawingBrowserHandoff? = nil) {
+  package init(sketches: PortraitSketchCollection, close: @escaping () -> Void, handoff: DrawingBrowserHandoff? = nil,
+    route: Binding<DrawingLibraryRoute> = .constant(.init()), openStudio: @escaping (PhotoRef) async -> String? = { _ in nil },
+    review: @escaping (Drawing) -> AnyView = { _ in AnyView(EmptyView()) }) {
     self.sketches = sketches; self.close = close; self.handoff = handoff
+    _route = route; self.openStudio = openStudio; self.review = review
     _model = State(initialValue: DrawingLibraryBrowserModel(sketches: sketches))
   }
   package var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
-        Text("Drawings").font(.title2)
+        Text("Library").font(.title2)
+        Picker("Collection", selection: showsPhotos) { Text("Photos").tag(true); Text("Drawings").tag(false) }
+          .pickerStyle(.segmented).frame(width: 200)
+        if route.activeCollection == .children {
+          Button("All Drawings") { sketches.clearSelection(); route.collection = .drawings; route.branchParent = nil; route.photo = nil; route.input = nil; route.drawing = nil }
+        }
         Spacer()
         Button("Import Drawing", systemImage: "square.and.arrow.down") { Task { await importDrawing() } }
           .accessibilityIdentifier("drawing.library.import").disabled(model.isBusy)
-        Button("Close") { model.close(); close() }.keyboardShortcut(.cancelAction)
+        Button("Close") { model.close(); close() }
+          .keyboardShortcut(.escape, modifiers: presentationPolicy.modalUnavailableReason == nil ? [] : [.command])
           .accessibilityIdentifier("drawing.library.close")
       }
-      HSplitView {
+      if let draft = model.editor {
+        DrawingMembershipEditor(model: draft, completion: {
+          if model.finishEdit(draft), let reference = sketches.selected?.reference {
+            route.showDrawing(reference)
+            let destination = route
+            Task { await model.restore(destination, isStillCurrent: { route == destination }) }
+          }
+        }, cancel: { model.dismissEditor() })
+      } else { HSplitView {
+        if showsPhotos.wrappedValue {
+          DrawingLibrarySourceView(sketches: sketches, route: $route, openStudio: openStudio).frame(minWidth: 420)
+        }
         VStack {
-          List(sketches.entries, id: \.reference, selection: Binding(
+          Text("\(sketches.entries.count) retained Drawings loaded").font(.caption).foregroundStyle(.secondary)
+          List(sketches.error == nil ? sketches.entries : [], id: \.reference, selection: Binding(
             get: { sketches.selected?.reference }, set: { reference in _ = model.select(reference) })) { entry in
               Text(entry.title ?? "Drawing").tag(entry.reference)
             }.disabled(model.isBusy)
           if sketches.hasMore { Button("Load More") { Task { await model.loadMore() } }.disabled(model.isBusy) }
         }.frame(minWidth: 230)
-        VStack(alignment: .leading, spacing: 12) {
+        ScrollView { VStack(alignment: .leading, spacing: 12) {
           if let drawing = sketches.selected, let ref = drawing.reference {
             Text("\(drawing.program.strokes.count) strokes").foregroundStyle(.secondary)
             if drawing.capabilities.supported.contains(.preview) {
@@ -186,30 +247,47 @@ package struct DrawingLibraryBrowser: View {
               Button("Export Drawing", systemImage: "square.and.arrow.up") { Task { await exportDrawing(ref) } }
                 .accessibilityIdentifier("drawing.library.export")
             }.disabled(model.isBusy)
+            if case .present(let parent) = drawing.parent {
+              Button("Parent Drawing") {
+                route.showDrawing(parent)
+                _ = model.select(parent)
+              }
+            }
+            Button("Child Drawings") {
+              route.collection = .children; route.branchParent = ref; route.photo = nil; route.input = nil; route.drawing = nil
+            }
+            review(drawing)
           } else { Text("Select a drawing.").foregroundStyle(.secondary) }
-        }.padding()
-      }
+        }.padding() }
+      } }
       if model.isBusy { ProgressView().controlSize(.small) }
       if let error = model.error { Text(error).foregroundStyle(.red) }
+      else if let error = sketches.error { Text("Library unavailable: " + error).foregroundStyle(.red) }
     }.padding().frame(minWidth: 760, minHeight: 500).accessibilityIdentifier("drawing.library.browser")
-      .task { await model.load() }
-      .onDisappear { model.close() }
-      .sheet(item: Binding(get: { model.editor }, set: { if case .none = $0 { model.dismissEditor() } })) { draft in
-        DrawingMembershipEditor(model: draft, completion: {
-          if model.finishEdit(draft) { Task { await model.load() } }
-        }, cancel: { model.dismissEditor() })
+      .task(id: route.scopeKey) {
+        let requested = route
+        await model.restore(requested, isStillCurrent: { route.scopeKey == requested.scopeKey })
       }
+      .onChange(of: sketches.selected?.reference) { _, ref in if let ref { route.drawing = ref } }
+      .onDisappear { model.close() }
+      .onChange(of: presentationPolicy.modalUnavailableReason) { _, reason in if reason != nil { activePanel?.cancel(nil) } }
   }
   private func importDrawing() async {
+    if let reason = presentationPolicy.modalUnavailableReason { model.report(reason); return }
+    let opening = route
     let panel = NSOpenPanel(); panel.title = "Import Drawing"
+    activePanel = panel; defer { activePanel = nil }
     panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
     guard await panel.begin() == .OK, let url = panel.url else { return }
+    guard route == opening, !Task.isCancelled, !model.isClosed else { return }
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-    await model.importDrawings(from: url)
+    await model.importDrawings(from: url, route: $route)
   }
   private func exportDrawing(_ ref: DrawingRef) async {
+    if let reason = presentationPolicy.modalUnavailableReason { model.report(reason); return }
     let panel = NSSavePanel(); panel.title = "Export Drawing"; panel.nameFieldStringValue = "Drawing.drawingexchange"
+    activePanel = panel; defer { activePanel = nil }
     guard await panel.begin() == .OK, let url = panel.url else { return }
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }

@@ -49,9 +49,12 @@ calibration, motion, paper-clearance or mechanical Learning controls.
 
 ## Edit a retained Drawing
 
-Open **Drawings** from the standalone window toolbar. In AdaptivePlotter, the
-existing **Drawing Exchange** toolbar control opens the same Drawings browser.
-Both routes use the application's existing Drawing Library and selection.
+Open **Library** and choose **Drawings** in either app. Both routes use the same
+browser/editor and the application's existing Library/collection selection.
+AdaptivePlotter's top row is **Library**, **Drawing Studio**, **Plotter**;
+Motion/Video remain Plotter-local. Standalone has Library and Drawing Studio, without
+device authority. Exact current-format selections and collection scope reopen by ref;
+a missing/conflicting ref is unavailable rather than reattached to equal geometry.
 
 Select a retained drawing and choose **Edit**. Click to delete a whole stroke,
 use **Lasso** for a selection, or choose **Restore**; Undo/Redo and **Restore All**
@@ -142,10 +145,22 @@ acknowledged in-memory state stays unchanged until reconciliation succeeds.
 There is no requirement to save photos, drawings, choices, rankings or line edits
 explicitly. Source identity declarations and training exclusions are also retained.
 
-**Curate source** can declare an optional subject and photographic session and
-exclude a source from fitting. Individual drawings can also be excluded. Exclusion
-retains original images, descendants and historical judgments. Identity is a human
-declaration; matching appearance is not used to invent subject identity.
+In **Library → Photos**, choose a Photo to edit its optional title, subject/session
+and training exclusion. These fields replace the Curate popover and use the same
+neutral metadata authority. Accepted edits drain before shutdown. Exclusion retains
+images, descendants and judgments; subject identity is never inferred from appearance.
+Open **Drawing Studio** adopts that exact existing Photo, preserving its dates and
+cleared metadata. Supported PNG/JPEG sources remain authorable; raw/unsupported sources
+stay browsable/exportable with an explicit authoring refusal. Photos show capture,
+import-fallback or unknown date truthfully, with exact prepared Inputs and branches.
+Source-free Drawings remain available in the global Drawings collection without a Photo.
+
+**Attempts** belongs to the selected Drawing. Declared portable result snapshots,
+staged raw bindings and verified current raw evidence are distinguished; snapshot or
+binding counts do not prove physical attempts or ink. Stored environment is displayed
+rather than borrowed from the current controller mode. Missing evidence remains
+unavailable. Existing global Stop remains usable across workspaces; active-run guards
+prevent editor/picker presentation from hiding it. No implicit project or Start occurs.
 
 ## What the artist learns
 

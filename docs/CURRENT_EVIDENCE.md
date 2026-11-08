@@ -8,6 +8,82 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DX-10 Library and Drawing Studio cutover, 2026-11-08
+
+Dated pre-acceptance software observation for `task-c316fcdff30a4b7fbe3ca22922889e18`.
+Final configured validation, assessments and verified normal adoption are not claimed
+by this snapshot; subsequent acceptance belongs to that authoritative task.
+
+Both apps share the canonical Library/browser/editor and existing collection selection.
+The embedded workspaces are Library, Drawing Studio and Plotter; Motion/Video stay
+Plotter-local. Photos, exact Inputs, retained Drawings and direct parent branches use
+bounded metadata pages and typed bookmarks. Failed scopes clear preceding rows/cursors;
+failed source reads cannot pair a new Photo with the preceding pixels/program. Closed,
+stale or cancelled restore requests refuse before mutating shared selection/pages. Studio
+adopts the existing verified PNG/JPEG occurrence without reimport or metadata reset.
+Raw/unsupported sources remain browsable/exportable with dependent authoring unavailable.
+Optional field patches register synchronously, serialize and drain before owner close.
+
+Portable rows project each declared snapshot's exact Drawing, archive/run and stored
+environment. They are not physical attempts or ink proof. Forward-only raw binding /2
+contains only exact Drawing/archive/run/request/staged-generation navigation; the raw
+owner keeps full intent and evidence. Selected verification uses that owner. Deleted/
+dismissed terminal rows cannot reappear as incomplete attempts; same-revision ink,
+media and visibility changes refresh the open view. Existing projected Stop and
+active-run presentation guards retain their owners. No implicit Start was introduced.
+
+| Retained observation | Actual scope/result |
+| --- | --- |
+| Initial two build attempts | Missing owning imports; exit 1, no tests/XML; 951 inputs unchanged |
+| Broad scoped run | 118 cases: 115 passes, 2 skips, 1 invalid-JSON fixture failure; remains failed |
+| Focused correction/drain/router run | 16 cases: 15 passes, 1 synthetic archive-revision fixture failure; remains failed |
+| Corrected reviewer, then refresh delta | Two separate one-case passes; not added to overlapping counts |
+| Normal all-products build | Cached exit 0/2.450 s; both executable sizes/hashes retained; neither launched |
+| First integrated `make drawing-app-test` | 49 cases: 47 passes, 1 AX skip, 1 standalone navigation-fixture failure; remains failed |
+| Corrected standalone case, then integrated target | One-case pass, then 49 cases: 48 passes, 1 explicit AX skip, zero failures/errors |
+| Final page/admission guards | Workspace 5 passes including 101-ref page/no-mutation negatives, then normal app target 50 cases: 49 passes, 1 explicit AX skip, zero failures/errors; overlapping observations are not summed |
+| First configured gate, `b0289ac` | Docs passed; quick-test failed; diff-check not run. XML 1,934 cases: 1,905 passes, 27 skips, 2 failed cases. Not accepted for delivery |
+| Correction compile/retry | Initial assertion-macro compile failed with no tests/XML; corrected combined run passed 14 cases, no skips/failures/errors, including both failed gate cases; overlapping observations are not summed |
+
+Passing scopes include exact adoption/metadata/reopen, artwork-unavailable pages,
+per-snapshot target attribution, immediate-shutdown field drain, source-free edit/
+reopen/export, selection refusals and fake-port Prepare/no-Start/Stop checks. Each run
+kept its discovered inputs unchanged (951 before upstream tool cleanup, 947 afterward). Commands, failures, raw logs, process/pins,
+XML and product receipts are retained in [`dx10-verification/`](/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx10-verification/).
+The failed configured event is
+`d4577f4faab38b2a75f087330c9be2bf875e9da193bdb89d659ea975bb5e52e3`,
+retained in `dx10-library-lifecycle/final1/`; configured stdout/stderr were not
+retained by this runtime. Its two failures exposed an overly broad closing guard
+that blocked admitted recovery and a duplicate Studio metadata form that squeezed
+out compact branch navigation. Ordinary admitted work again drains while closing;
+Photo-navigation publication guards remain strict. Optional metadata stays solely
+in Library and the original native branch geometry/OCR assertions are unchanged.
+Related route review removed loaded-selection fallback and a duplicate view scope
+mask, normalized successful imports/saved edits to exact global bookmarks, and
+preserved same-Photo Input intent. The combined correction run kept all 947 inputs
+unchanged; both current binaries were linked/rehashed without launching either app.
+These observations do not replace final configured validation on the corrected tree.
+
+Static review is caller-declared. Offscreen constructor/canvas/model checks do not
+establish hosted private-state button/sheet delivery or AX acceptance. No signed app
+launch/restart, physical/ink, performance improvement, production-model promotion,
+historical import, Runtime/Episode or DX13 issuance change is claimed.
+
+## DX-09 canonical adoption, 2026-11-08
+
+Task `task-222f2a729f8b4f9781bf4eb7f0c4095f` landed normally on main at
+`c7b29057eaf6426bdeb0f3d27a59e91201872fe0`, exact validated tree
+`92c93ff5df05369d820b3ce231a764a5cc0057e3`. Configured event
+`bd9888f66691954924197b35a7347a07b3045fd2efa774da7285939f2d252a45`
+passed docs/full quick/diff; XML 1,918 cases: 1,891 passes, 27 skips, zero failures/errors.
+Post-adoption delivery correction
+`9c858040db2c8ee379ff06c357362f9b3a2170dbc82f654fff4825dcf6624ea4`
+made all nine bounded artifact criteria current/met, caller-declared. Terminal
+environment applicability is separately unknown. The dated pre-gate receipt below
+remains unchanged; lifecycle receipts are retained in `dx09-feedback-lifecycle/`
+beside its delivery artifacts. This adds no universal decoded-pixel grouping or
+arbitrary native-producer revalidation claim.
+
 ## DX-09 canonical feedback and frozen training inputs, 2026-11-08
 
 Dated pre-gate software observation for

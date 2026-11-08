@@ -24,6 +24,7 @@ package final class PortraitSketchCollection {
   private var selectionRevision: UInt64 = 0
   private var closing = false
   @ObservationIgnored private var inFlight = 0
+  @ObservationIgnored private var photoMetadataWork: Task<String?, Never>?
   @ObservationIgnored private var drainWaiters: [CheckedContinuation<Void, Never>] = []
   private func admit() throws {
     guard !closing else { throw DrawingLibraryError.closed }; inFlight += 1
@@ -119,18 +120,49 @@ package final class PortraitSketchCollection {
       for intent in intents { await library.discardPending(intent) }
     }
   }
-  package func load() async {
+  package private(set) var scope: DrawingLibraryDrawingScope = .all
+  private var loadRevision: UInt64 = 0
+  /// Invalidate the previously displayed page before asynchronous route
+  /// validation. Late page completions belong to the old browse request.
+  package func invalidateBrowse() {
+    loadRevision &+= 1
+    entries = []; cursor = nil; error = nil; isLoading = false
+  }
+  package func load(scope: DrawingLibraryDrawingScope? = nil) async {
     guard !closing else { return }
+    if let scope, scope != self.scope { self.scope = scope; entries = []; cursor = nil }
+    loadRevision &+= 1; let revision = loadRevision; let requestedScope = self.scope
     inFlight += 1
-    isLoading = true; defer { isLoading = false; finished() }
-    do { let page = try await library.drawings(limit: 100); entries = page.entries; cursor = page.next; error = nil }
-    catch { self.error = error.localizedDescription }
+    isLoading = true; defer { if revision == loadRevision { isLoading = false }; finished() }
+    do { let page = try await library.drawings(in: requestedScope, limit: 100); guard !closing, revision == loadRevision else { return }; entries = page.entries; cursor = page.next; error = nil }
+    catch { if !closing, revision == loadRevision { self.error = error.localizedDescription } }
   }
   package func loadMore() async throws {
     try admit(); defer { finished() }
     guard let cursor, !closing else { return }
-    let page = try await library.drawings(limit: 100, after: cursor)
+    let revision = loadRevision
+    let page = try await library.drawings(in: scope, limit: 100, after: cursor)
+    guard !closing, revision == loadRevision else { return }
     entries += page.entries; self.cursor = page.next
+  }
+  /// Admit the field action synchronously, before any caller can dismiss its
+  /// view or shut down this collection. Accepted patches settle in arrival order
+  /// and share the same drain as edits and handoffs; no UI copy owns metadata.
+  @discardableResult package func updatePhotoMetadata(_ reference: PhotoRef,
+    patch: DrawingLibraryPhotoMetadataPatch, intent: DrawingLibraryCommitIntent = .init()) -> Task<String?, Never> {
+    do { try admit() }
+    catch { let message = error.localizedDescription; return Task { message } }
+    let predecessor = photoMetadataWork
+    let task = Task<String?, Never> { @MainActor in
+      if let predecessor { _ = await predecessor.value }
+      defer { finished() }
+      do {
+        try await library.updatePhotoMetadata(reference, patch: patch, intent: intent)
+        return nil
+      } catch { return error.localizedDescription }
+    }
+    photoMetadataWork = task
+    return task
   }
   package func rename(_ reference: DrawingRef, title: String?) async throws {
     try admit(); defer { finished() }
@@ -167,21 +199,12 @@ package final class PortraitSketchCollection {
     let durable = try await library.drawing(reference)
     guard durable.program == drawing.program else { throw DrawingExchangeError.mismatchedParent }
     let proof = try PortraitEvidenceSource.proveStagedAttempt(intent, archive: archive, url: archiveURL)
-    struct Binding: Codable {
-      let profile: String
-      let drawing: DrawingRef
-      let run: UUID
-      let request: UUID
-      let intent: DrawingRunIntent
-      let archive: UUID
-      let stagedGeneration: String
-    }
-    let record = Binding(profile: "adaptiveplotter.drawing-run-binding/1", drawing: reference,
-      run: intent.runID.rawValue, request: intent.requestID, intent: intent,
-      archive: archive.archiveID, stagedGeneration: proof.generation)
+    let record = PortraitDrawingAttemptBinding(profile: PortraitDrawingAttemptBinding.kind, drawing: reference,
+      archive: archive.archiveID, run: intent.runID.rawValue, request: intent.requestID,
+      stagedGeneration: proof.generation)
     let payload = try DrawingArtifactCoding.encoder().encode(record)
     try proof.assertUnchanged()
-    try await library.commitRecords([.init(kind: "adaptiveplotter.drawing-run-binding/1", id: intent.runID.rawValue,
+    try await library.commitRecords([.init(kind: PortraitDrawingAttemptBinding.kind, id: intent.runID.rawValue,
       payload: payload, drawings: [reference])], intent: .init(id: intent.requestID))
     try proof.assertUnchanged()
   }

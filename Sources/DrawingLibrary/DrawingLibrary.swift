@@ -12,7 +12,14 @@ public enum DrawingLibraryError: Error, Sendable {
 }
 package enum DrawingLibraryDatabaseError: Error { case database(String) }
 package struct DrawingLibraryGeneration: Equatable, Sendable { let revision: Int64 }
+public enum DrawingLibraryDrawingScope: Hashable, Sendable {
+  case all, photo(PhotoRef), input(ImageInputRef), children(DrawingRef)
+}
 public struct DrawingLibraryCursor: Sendable {
+  package let scope: DrawingLibraryDrawingScope
+  package init(generation: DrawingLibraryGeneration, date: String, issuer: String, revision: String, scope: DrawingLibraryDrawingScope = .all) {
+    self.generation = generation; self.date = date; self.issuer = issuer; self.revision = revision; self.scope = scope
+  }
   package let generation: DrawingLibraryGeneration
   package let date: String
   package let issuer: String
