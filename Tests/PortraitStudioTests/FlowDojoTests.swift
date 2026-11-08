@@ -12,6 +12,44 @@ import Testing
 @Suite("Flow Edge dojo autosaved interaction", .serialized)
 @MainActor
 struct FlowDojoTests {
+  @Test("Failed Rank publication preserves the comparison and durable recovery records one response without geometry", arguments: [LibraryExchangeCatalogBoundary.beforeSQLPublication, .afterSQLCommit])
+  func canonicalRankFailure(boundary: LibraryExchangeCatalogBoundary) async throws {
+    let directory = DrawingExchangeFeedbackFixture.root()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let library = DrawingLibrary(directoryURL: directory)
+    let model = FlowDojoModel(directory: directory, library: library, purpose: .validationFixture, render: FlowDojoFixture.render)
+    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(1), title: "Rank failure")
+    model.count = 3; await model.generate(refining: false)
+    let round = try #require(model.round)
+    await model.presentRanking(scope: .round(round.id), count: 2)
+    let presentation = try #require(model.presentation)
+    let previousRanks = model.ranks
+    try await library.feedbackFault(boundary)
+    await model.compare(preferred: presentation.items[0].id)
+    #expect(model.needsRecovery && model.error != nil)
+    #expect(model.presentation?.id == presentation.id && model.ranks == previousRanks)
+    #expect(try await library.drawings().entries.isEmpty)
+    try await library.feedbackFault(nil)
+    await model.recoverAutosave()
+    #expect(!model.needsRecovery && model.error == nil)
+    #expect(model.document?.rankings.filter { $0.presentationID == presentation.id }.count == 1)
+    let committed = try #require(model.document?.rankings.first { $0.presentationID == presentation.id })
+    let store = try #require(model.store)
+    let reference = try await store.feedbackReference(for: committed.id)
+    #expect(try await library.feedback(reference.publication).rankingCapsules.count == 1)
+    await model.recoverAutosave()
+    #expect(model.document?.rankings.filter { $0.presentationID == presentation.id }.count == 1)
+    #expect(try await library.drawings().entries.isEmpty)
+    #expect(await model.shutdown())
+    await library.closeLibrary()
+    let reopened = DrawingLibrary(directoryURL: directory)
+    let cold = FlowPortfolioStore(directory: directory, purpose: .validationFixture, library: reopened)
+    try await cold.loadRecords()
+    #expect(await cold.snapshot().rankings.filter { $0.presentationID == presentation.id }.count == 1)
+    #expect(try await reopened.drawings().entries.isEmpty)
+    await reopened.closeLibrary()
+  }
+
   @Test("An invalid source image is refused before mutation and does not block subsequent valid capture")
   func invalidSourceIsAdmissionFailure() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -142,8 +180,8 @@ struct FlowDojoTests {
     #expect(model.selectedSource?.sessionID == "Sitting 1"); #expect(model.selectedSource?.excluded == true)
     model.count = 3; await model.generate(refining: false)
     #expect(model.error == nil); #expect(model.roundCandidates.count == 3)
-    if let store = model.store, let document = model.document {
-      let dataset = try await FlowDojoTraining.dataset(store: store, document: document)
+    if let store = model.store {
+      let dataset = try await DrawingExchangeFeedbackFixture.freezeInputs(store)
       #expect(dataset.examples.isEmpty)
     }
     #expect(await model.shutdown())
@@ -196,8 +234,8 @@ struct FlowDojoTests {
     let stroke = try #require(model.program?.strokes.first?.id)
     await model.edit(.remove, ids: [stroke])
     await model.selectCandidate(a.id); await model.selectCandidate(a.id)
-    if let store = model.store, let document = model.document {
-      let dataset = try await FlowDojoTraining.dataset(store: store, document: document)
+    if let store = model.store {
+      let dataset = try await DrawingExchangeFeedbackFixture.freezeInputs(store)
       let choices = dataset.rankings.filter { $0.provenance == .choice && $0.tiers.first == [a.id.uuidString] }
       try #require(choices.count == 2)
       #expect(choices[0].tiers != choices[1].tiers)
@@ -327,8 +365,8 @@ struct FlowDojoTests {
     let program = try #require(model.program), first = program.strokes[0]
     await model.edit(.remove, ids: [first.id]); await model.edit(.completeTarget)
     await model.edit(.restore, ids: [first.id])
-    let store = try #require(model.store), document = try #require(model.document)
-    let data = try await FlowDojoTraining.dataset(store: store, document: document)
+    let store = try #require(model.store)
+    let data = try await DrawingExchangeFeedbackFixture.freezeInputs(store)
     let example = try #require(data.examples.first { $0.id == candidate.id.uuidString })
     #expect(example.strokeLabels.count == 1)
     #expect(example.strokeLabels[0].provenance == .restore)

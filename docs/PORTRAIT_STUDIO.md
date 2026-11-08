@@ -212,18 +212,30 @@ not require Python, a cloud API, pretrained weights or network access.
 
 ## Fitting, evaluation and deployment
 
-A fit freezes the exact portfolio revision and retained observation identities.
-The coverage display and fit adapter share one effective-supervision projection.
-Only bases/versions participating in current comparisons or effective correction
-labels allocate features. Rank capsules retain their exact features and previews
-without making unused generated geometry permanent.
-Completed masks expand only after allocation limits are checked. Group connectivity
-is computed across every source first, including excluded or unlabelled bridges.
-All variants of an exact photo, plus connected declared subject/session groups,
-remain in one partition. Three or more groups reserve a deterministic held-out
-subset; smaller fits are explicitly experimental and have no independent-photo
-measurement. Comparisons crossing the split are excluded. Source counts, observation
-counts, training loss, held-out loss and baseline loss remain separate quantities.
+Train freezes an exact feature-only task before fitting. It pins canonical human
+feedback, exact feature/label bytes, producer receipts, extractor and trainer versions,
+recipe, curation, seed/configuration and group/split assignments. The fitter reads only
+that manifest's dependencies; it does not look up a current UUID or re-extract geometry.
+Later edits or grouping/exclusion changes affect only future fits. Missing, corrupt or
+unsupported frozen dependencies produce an unavailable result, not regeneration.
+There is no additional setup, width declaration or required field.
+
+The coverage display and freeze use the same effective-supervision resolver. Explicit
+rankings, partial ranks, Neither and Skip remain distinct; unranked is unknown. Choose
+records only the selected direction against offered alternatives, not loser-versus-loser
+judgments. Remove/Restore and Finish pruning retain their existing explicit-label rules.
+Choose/prune retains the requested Drawing first, then commits canonical feedback and
+navigation atomically; acknowledgement waits for both. A failed feedback phase can leave
+that explicitly requested Drawing retained without claiming a saved judgment. Rank
+retains features and optional display previews, not compared Drawing geometry. The
+portable training task excludes those previews, source photos and the UI portfolio view.
+
+Connectivity is frozen across every source before exclusions, including unlabelled
+bridges: exact encoded-source-byte identity and connected declared subject/session
+groups stay together. Equal decoded pixels across different encodings are not established
+as equivalent here. Three or more groups reserve a deterministic held-out subset;
+smaller fits remain experimental. Comparisons crossing the split are excluded. Source
+counts, observation counts, training loss, held-out loss and baseline loss remain separate.
 Mostly one person's photographs cannot establish generalization to new subjects.
 
 A missing component remains inactive. In particular, remove-only corrections do

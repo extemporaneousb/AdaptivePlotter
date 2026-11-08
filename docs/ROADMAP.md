@@ -116,47 +116,38 @@ caller-declared criteria current/met. Its strict forward-only schema 11, one liv
 Photo metadata authority and Photo-only frozen metadata isolation do not complete
 DX-09 feature/feedback manifests, historical import or GC.
 
-**DX-08 — Shared Drawing membership editor production routes.** Task
-`task-67802fca3f9b44dc9e8b024dfa58ccc4` owns
-`PortraitLibrary/PortraitSketchCollection.swift`, shared
-`PortraitStudioUI/{PortraitLineEditModel,PortraitLineEditorCanvas,DrawingLibraryBrowser,DrawingMembershipEditor}.swift`,
-`PlotterApp/DrawingTransferView.swift`, `PortraitStudio/PortraitStudioApp.swift`,
-directly associated editor/browser/lifetime/route tests and canonical DX/operator
-docs. Existing Core/Library persistence APIs and package dependencies are reused;
-there is no Runtime/Episode/issuance release.
+**DX-08 — Shared Drawing membership editor production routes.** Adopted on main at
+`6a1108dc311ce90c2c24ebad7f13dc43125b98ac`, all eight bounded caller-declared artifact
+criteria current/met after verified normal landing. The shared browser/editor reuses
+one collection and native canvas with exact/drained saves and stale-completion guards.
+The [canonical receipt](CURRENT_EVIDENCE.md#dx-08-canonical-adoption-2026-11-08) retains
+its test/host limits: default constructor/canvas/separate-model evidence is not hosted
+browser private-state/button/sheet or AX acceptance. Flow pruning remains intact.
 
-The **2026-11-08 pre-gate snapshot** wires the shared browser/editor into both actual
-applications, using the existing collection and native canvas. Save is admitted and
-drained by that collection, enforces `.edit` against the exact parent, retains
-stable-ID membership atomically and reloads the exact result. Explicit unchanged
-completion retains the base, not a fake child. Sheet base/epoch/identity guards
-prevent dismissed or switched selections from being retargeted. Handoff guards
-allow their own expected publication, with no implicit project/Start from generic
-editing. Live Retry keeps intents; abandoned/replaced preparations are safely
-released without deleting durable journals/CAS. Flow pruning/feedback remains intact.
+**DX-09 — Canonical feature feedback and frozen training inputs.** Task
+`task-222f2a729f8b4f9781bf4eb7f0c4095f` owns the dated pre-gate software snapshot:
+`Sources/PortraitLibrary/{FlowPortfolioGraph,FlowPortfolioStore,FlowPortfolioTypes,FlowPortfolioValidation,FlowPortfolioRetention,FlowAuthoringArtifacts,FlowPortfolioFeedback,FlowPortfolioTraining}.swift`,
+`Sources/PortraitStudioUI/{FlowDojoTraining,FlowDojoTrainingFeedback,FlowDojoTrainingProgress,FlowDojoModel}.swift`,
+`Sources/PortraitArtists/{FlowArtistTraining,FlowArtistFeatures,FlowArtistModel}.swift`,
+the narrow existing-owner `DrawingLibrary/DrawingLibraryFeedback.swift`, relevant Core
+envelope/closure/codec/image admission, schema/checker and canonical feedback/training tests.
+No legacy review/portfolio compatibility adapter is restored.
 
-The [scoped receipt](CURRENT_EVIDENCE.md#dx-08-shared-drawing-editor-software-receipt-2026-11-08)
-records failures and passing default constructor/native-canvas/model integration,
-including actual embedded fake-port Send/Prepare/no-Start. Hosted browser button
-delivery/private state/sheet presentation remain the strict existing AX opt-in
-workflow, unverified in this offscreen host; no product/AX acceptance claim follows
-from its known-control failure. Final configured validation, criterion assessments
-and normal landing belong to the task. Historical import, DX-09, new mandatory
-fields/width declarations, physical and app-deployment work remain excluded.
+Canonical capsules/assessments pin exact features, producer/extractor configuration,
+ordered stable stroke basis and explicit ranking/partial/Neither/Skip/choice/pruning
+meaning. Software revision markers are administrative, not duplicate human answers.
+Explicit authored retention is separate from feedback; canonical dependencies/navigation
+commit atomically before acknowledgement. Rank retains zero Drawings; optional display
+previews remain outside the JSON-only training task. Frozen manifests drive actual
+supervision, seed/configuration, curation/connectivity and splits with no live UUID or
+geometry fallback. Exact equal-source bytes and subject/session links define supported
+grouping; cross-encoding decoded-pixel equivalence is not established.
 
-**DX-09 — Feature-only Rank capsule and explicit training membership.** Allowed:
-`Sources/PortraitLibrary/{FlowPortfolioStore,FlowPortfolioTypes,FlowPortfolioDelta,PortraitReviewStore,PortraitReviewCommit,PortraitReviewExport,PortraitCheckpointStore}.swift`,
-`Sources/PortraitArtists/{FlowArtistTraining,PortraitTrainingContract,PortraitAttemptHistory,PortraitTrainingValidation}.swift`,
-`Sources/PortraitStudioUI/{FlowDojoTraining,FlowDojoTrainingFeedback,FlowDojoModel}.swift`
-and ranking/training tests. Freeze ordered presentation IDs, features, producer and
-extractor versions, question, tie/skip/rank response and geometry-omitted status.
-Advance only after durable feedback commit. Curate grouping/exclusion is attributed
-metadata, not changed photo identity or silent negative label. Freeze task manifests,
-selected input/label/snapshot digests, exclusions, grouping/splits and checkpoint
-revision; no discarded geometry dependency. Gate: failure before commit, ties/skips,
-legacy review compatibility, unavailable weights, frozen-membership reload and
-source/session leakage fixtures. Recovery retains earlier feedback and names
-superseding assessments; aesthetic activation affects future authoring only.
+The [dated receipt](CURRENT_EVIDENCE.md#dx-09-canonical-feedback-and-frozen-training-inputs-2026-11-08)
+records failed and passing observations without summing overlapping tests. Final full
+configured validation, acceptance and landing remain authoritative in the task, not
+claimed by this pre-gate snapshot. Historical import is deferred/nonblocking. DX-10+
+remain separate work; no whole-campaign, physical, deployment or model-promotion claim.
 
 **DX-10 — Photos/Drawings browser and Curate cutover.** Allowed:
 `Sources/PortraitStudioUI/{PortraitLibraryBrowsePresentation,PortraitRecentItemsView,PortraitSavedStylesView,FlowDojoSidebar,FlowDojoView,FlowDojoPresentation}.swift`,

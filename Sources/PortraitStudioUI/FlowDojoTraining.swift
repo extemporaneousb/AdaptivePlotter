@@ -28,31 +28,10 @@ package enum FlowDojoTraining {
     }
   }
 
-  package static func dataset(store: FlowPortfolioStore, document: FlowPortfolioSnapshot) async throws
-    -> (examples: [FlowArtistExample], rankings: [FlowArtistRanking]) {
-    let plan = FlowDojoSupervision.plan(document)
-    var budget = Budget()
-    var examples: [FlowArtistExample] = []
-    for entry in plan.entries {
-      try Task.checkCancellation()
-      let candidate = entry.candidate
-      try budget.admit(strokeCount: candidate.strokeCount, revisionCount: entry.revisions.count,
-        labelCount: entry.labels.count, includeRoot: entry.includeRoot)
-      let root = try await store.featureCapsule(candidateID: candidate.id)
-      let strokeFeatures = root.strokes
-      let rootID = candidate.id.uuidString
-      if entry.includeRoot {
-        examples.append(.init(id: rootID, sourceGroupID: entry.group, recipe: candidate.recipe,
-          features: root.drawing,
-          strokeFeatures: strokeFeatures, strokeLabels: entry.labels.expanded(), baseDrawingID: rootID, removedIndices: []))
-      }
-      for revision in entry.revisions {
-        let capsule = try await store.featureCapsule(candidateID: candidate.id, revisionID: revision.id)
-        examples.append(.init(id: revision.id.uuidString, sourceGroupID: entry.group, recipe: candidate.recipe,
-          features: capsule.drawing, strokeFeatures: strokeFeatures, strokeLabels: [],
-          baseDrawingID: rootID, removedIndices: revision.removedIndices))
-      }
+  package static func dataset(store: FlowPortfolioStore, document: FlowPortfolioSnapshot) async throws -> FlowPortfolioTrainingInputs {
+    guard let manifest = document.frozenManifest, let publication = document.frozenTrainingPublication else {
+      throw FlowPortfolioError.unavailable("Training requires an exact frozen task manifest; a live portfolio is not a dataset.")
     }
-    return (examples, plan.rankings)
+    return try await store.trainingInputs(manifest: manifest, publication: publication)
   }
 }

@@ -283,6 +283,51 @@ in the observed host. Final configured validation/landing belong to the task. Se
 [Current Evidence](CURRENT_EVIDENCE.md#dx-08-shared-drawing-editor-software-receipt-2026-11-08)
 for exact proof and limits; this is not campaign completion or historical import.
 
+## Canonical feedback and frozen training task, 2026-11-08
+
+DX-09's dated pre-gate software boundary uses the existing DrawingLibrary journal/CAS.
+`commitFeedback`, `feedback`, `mountFeedback` and `exportFeedback` select exact index/
+inventory pairs and preserve original bytes; read/export recheck admission. Canonical
+ranking capsules alone own the human presentation, exact features, question and response.
+A software-attributed Assessment records a selected revision, targets/answers only its
+exact capsule and supersedes the prior marker within the same presentation/feature basis.
+It is not another human judgment. Common Assessment answer semantics remain conservative;
+the Flow reader accepts only its known questions, adapter and exact basis.
+
+`feature-ranking/1` exhaustive ranking and Skip are unchanged. Partial ranking uses
+`adaptiveplotter.feature-ranking.partial-ranking/1` with groups plus an explicit
+unranked partition (empty groups/all-unranked is valid); Neither uses
+`adaptiveplotter.feature-ranking.neither/1`. These features apply only to that profile.
+Choice is an asset-targeted selected/ordered-offered observation, not a tied ranking of
+losers. Pruning assessments name stable stroke IDs on an exact feature basis, with
+remove/restore/undo/redo/completed-mask semantics; authored Drawing refs stay in local
+navigation, not canonical answers. Earlier judgments remain immutable.
+
+Explicit Choose/prune has two durable facts: atomic authored parent/child retention,
+then atomic canonical feedback/dependencies/navigation with a distinct stable intent.
+UI acknowledgement waits for both. Failure between them may retain the explicitly
+requested Drawing without claiming feedback success. Rank/view creates no retained
+Drawing. Optional display-preview PNGs can accompany exact feedback export; they are
+neither source Photos nor authored geometry nor training inputs.
+
+`freezeTrainingSnapshot` emits a digest-addressed `adaptiveplotter.flow-training-task/1`
+manifest. It pins canonical Assessment/Ranking refs, exact JSON feature/label/producer/
+extractor assets, program digest, ordered stroke IDs, resolved supervision, curation and
+reasons, connectivity/splits, seed (current pipeline 42), trainer/configuration and recipe.
+The actual fitter receives the frozen seed/configuration/split. Online and offline reads
+use the same strict exact-files task decoder; missing, corrupt or unsupported dependencies
+refuse rather than fall back to live UUID lookup, geometry extraction or regeneration.
+JSON-only task export follows those dependencies, excluding display rasters, source
+Photos, Drawing programs and the separate frozen UI projection. Later metadata/feedback/
+extraction changes affect only future tasks. Unique materialized bytes and feature values
+are bounded across each read/freeze; selected-example limits remain separately enforced.
+
+This implementation snapshot is tracked by
+`task-222f2a729f8b4f9781bf4eb7f0c4095f`; final configured acceptance/landing belongs to that
+task. See the [dated receipt](CURRENT_EVIDENCE.md#dx-09-canonical-feedback-and-frozen-training-inputs-2026-11-08).
+Historical import remains deferred; no additional UI/width/setup input or physical,
+Runtime/Episode, signed deployment or model-promotion authority is introduced.
+
 ## Neutral source and metadata boundary, 2026-11-08
 
 DX-07's concrete `DrawingLibrary` exposes `photos(limit:after:)`,
@@ -312,14 +357,16 @@ derived “Photo” label. They are not a second writable authority.
 
 Collection idempotence uses collection ID plus original entry ID, binding original
 bytes/length/session/provenance rather than mutable curation or pixel equality.
-Equal-pixel acquisitions retain distinct Photo refs and shared leakage grouping.
+Exact equal-source-byte acquisitions retain distinct Photo refs and shared leakage
+grouping, joined transitively with declared subject/session groups. Decoded-pixel
+equivalence across different encodings has not been established.
 Drawing-only `retention`, `setRetentionReason` and `restore` expose reversible
 reason/hide state; these operations neither delete CAS/evidence nor establish GC
 eligibility. No Photo/Input tombstone API is introduced.
 
 Photo-metadata training isolation means future freezes sample current neutral
-values and old frozen training documents retain their bytes/values. It does not
-close DX-09's feature-capsule live-UUID/digest-membership gap. Historical import,
+values and old frozen training documents retain their bytes/values. Canonical feature membership belongs to the DX-09 boundary above, independently
+of the frozen Photo metadata projection. Historical import,
 reachability/GC and physical execution remain separate. No mandatory new user
 fields, width declarations or setup are introduced. This dated pre-gate scope is
 tracked by task `task-660bbaadb1c6459aac41feaae2902409`; final validation and landing

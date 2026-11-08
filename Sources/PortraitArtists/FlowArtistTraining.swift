@@ -12,7 +12,8 @@ package enum FlowArtistTraining {
     var isComparison = false
   }
 
-  package static func fit(examples: [FlowArtistExample], rankings: [FlowArtistRanking], seed: UInt64 = 42) -> FlowArtistFitReport {
+  package static func fit(examples: [FlowArtistExample], rankings: [FlowArtistRanking], seed: UInt64 = 42,
+    configuration: FlowArtistFitConfiguration = .current, frozenHoldoutGroupIDs: [String]? = nil) -> FlowArtistFitReport {
     func unavailable(_ reason: String) -> FlowArtistFitReport {
       .init(checkpoint: nil, summary: reason, ranker: .unavailable(reason), deleter: .unavailable(reason))
     }
@@ -46,14 +47,12 @@ package enum FlowArtistTraining {
     let examples = examples.sorted { $0.id < $1.id }, rankings = rankings.sorted { $0.id < $1.id }
     let byID = Dictionary(uniqueKeysWithValues: examples.map { ($0.id, $0) })
     let groups = Set(examples.map(\.sourceGroupID)).sorted()
-    var random = FlowArtistRandom(seed: seed)
-    var groupOrder: [(group: String, key: UInt64)] = []
-    for group in groups { groupOrder.append((group: group, key: random.next())) }
-    groupOrder.sort { left, right in left.key == right.key ? left.group < right.group : left.key < right.key }
-    let shuffled: [String] = groupOrder.map { $0.group }
-    // Small-data fits remain explicitly experimental instead of inventing
-    // independent-photo quality. Three groups permit a fixed held-out group.
-    let holdout = Set<String>(groups.count >= 3 ? Array(shuffled.suffix(max(1, groups.count / 4))) : [])
+    guard configuration == .current else { return unavailable("Frozen trainer configuration is unsupported.") }
+    let computedHoldout = holdoutGroups(groups, seed: seed)
+    if let frozenHoldoutGroupIDs, frozenHoldoutGroupIDs != computedHoldout {
+      return unavailable("Frozen partition differs from its exact groups and seed.")
+    }
+    let holdout = Set(frozenHoldoutGroupIDs ?? computedHoldout)
     var rankRows: [Row] = [], maskRows: [Row] = []
     for ranking in rankings {
       let ids = ranking.tiers.flatMap { $0 }
@@ -111,9 +110,9 @@ package enum FlowArtistTraining {
       }
     }
     deletionRows += maskRows
-    let ranker = fitHead(rows: rankRows, holdout: holdout, dimension: FlowArtistFeatures.drawingCount, pairwise: true)
+    let ranker = fitHead(rows: rankRows, holdout: holdout, dimension: FlowArtistFeatures.drawingCount, pairwise: true, configuration: configuration)
     let deleter = fitHead(rows: deletionRows, holdout: holdout, dimension: FlowArtistFeatures.strokeCount,
-      pairwise: false, deletionExamples: examples)
+      pairwise: false, deletionExamples: examples, configuration: configuration)
     if Task.isCancelled { return unavailable("Fit cancelled; the active checkpoint remains unchanged.") }
     let rankReport = ranker.head?.report ?? .unavailable(ranker.reason)
     let deleteReport = deleter.head?.report ?? .unavailable(deleter.reason)
@@ -135,14 +134,14 @@ package enum FlowArtistTraining {
       for example in examples { try Task.checkCancellation(); exampleDigests.append(try FlowArtistCoding.digest(example)) }
       for ranking in rankings { try Task.checkCancellation(); rankingDigests.append(try FlowArtistCoding.digest(ranking)) }
       digest = try FlowArtistCoding.digest(Manifest(revision: "ordered-example-ranking-digests-v1",
-        exampleDigests: exampleDigests, rankingDigests: rankingDigests, configuration: .current))
+        exampleDigests: exampleDigests, rankingDigests: rankingDigests, configuration: configuration))
     } catch is CancellationError { return unavailable("Fit cancelled; the active checkpoint remains unchanged.") }
     catch { return unavailable("Training manifest could not be encoded.") }
     let checkpoint = FlowArtistCheckpoint(schemaVersion: 1, featureRevision: FlowArtistFeatures.revision,
       recipeRevision: FlowArtistRecipe.revision, rendererRevision: PortraitFlowRenderer.markRevision,
       ranker: ranker.head, deleter: deleter.head, sourceGroupIDs: groups,
       holdoutGroupIDs: holdout.sorted(), exampleIDs: examples.map(\.id), rankingIDs: rankings.map(\.id),
-      trainingDataSHA256: digest, seed: seed, fitConfiguration: .current)
+      trainingDataSHA256: digest, seed: seed, fitConfiguration: configuration)
     do { try checkpoint.validate() }
     catch { return unavailable("Fit produced an invalid checkpoint: \(error.localizedDescription) The active model is unchanged.") }
     let status = checkpoint.isExperimental ? "Experimental fit; held-out artistic improvement is not established." : "Both heads improve their fixed photo-group holdout losses. Human artistic evaluation remains separate."
@@ -150,12 +149,22 @@ package enum FlowArtistTraining {
       ranker: rankReport, deleter: deleteReport)
   }
 
+  /// Same deterministic partition algorithm used by both freeze and fit.
+  package static func holdoutGroups(_ groups: [String], seed: UInt64) -> [String] {
+    var random = FlowArtistRandom(seed: seed)
+    var order: [(group: String, key: UInt64)] = []
+    for group in Set(groups).sorted() { order.append((group, random.next())) }
+    order.sort { $0.key == $1.key ? $0.group < $1.group : $0.key < $1.key }
+    guard order.count >= 3 else { return [] }
+    return order.suffix(max(1, order.count / 4)).map(\.group).sorted()
+  }
+
   private static func valid(_ features: [Double], count: Int) -> Bool {
     features.count == count && features.allSatisfy { $0.isFinite && abs($0) <= 100 }
   }
 
   private static func fitHead(rows: [Row], holdout: Set<String>, dimension: Int, pairwise: Bool,
-    deletionExamples: [FlowArtistExample] = []) -> (head: FlowArtistLinearHead?, reason: String) {
+    deletionExamples: [FlowArtistExample] = [], configuration: FlowArtistFitConfiguration) -> (head: FlowArtistLinearHead?, reason: String) {
     var training = rows.filter { $0.groups.isDisjoint(with: holdout) }
     var testing = rows.filter { !$0.groups.isEmpty && $0.groups.isSubset(of: holdout) }
     // Comparisons crossing the split are intentionally excluded, not leaked.
@@ -169,7 +178,7 @@ package enum FlowArtistTraining {
     }
     equalizeGroups(&training); equalizeGroups(&testing)
     var weights = Array(repeating: 0.0, count: dimension)
-    let configuration = FlowArtistFitConfiguration.current, lambda = configuration.l2
+    let lambda = configuration.l2
     // A Lipschitz upper bound gives a deterministic safe full-batch step.
     let averageNorm = training.reduce(0.0) { $0 + $1.weight * FlowArtistMath.dot($1.x, $1.x) }
     let rate = 1 / (0.25 * averageNorm + lambda + 1e-9)
@@ -222,18 +231,18 @@ package enum FlowArtistTraining {
       report.holdoutRemoveCount = heldoutDirect.filter { $0.y == 1 }.count
       report.holdoutKeepCount = heldoutDirect.filter { $0.y == 0 }.count
       deploymentMetrics(examples: deletionExamples.filter { holdout.contains($0.sourceGroupID) },
-        weights: weights, report: &report)
+        weights: weights, report: &report, configuration: configuration)
     }
     return (.init(weights: weights, report: report), status)
   }
 
   /// Exact deployed threshold plus nonempty safeguard, evaluated only where the
   /// artist supplied a label. Equal photo weighting prevents dense masks winning.
-  private static func deploymentMetrics(examples: [FlowArtistExample], weights: [Double], report: inout FlowArtistHeadReport) {
+  private static func deploymentMetrics(examples: [FlowArtistExample], weights: [Double], report: inout FlowArtistHeadReport, configuration: FlowArtistFitConfiguration) {
     var grouped: [String: [Double]] = [:], counts: [String: Double] = [:]
     for example in examples where !example.strokeLabels.isEmpty {
       let probabilities = example.strokeFeatures.map { FlowArtistMath.sigmoid(FlowArtistMath.dot(weights, $0)) }
-      var removed = Set(probabilities.indices.filter { probabilities[$0] >= FlowArtistFitConfiguration.current.deletionThreshold })
+      var removed = Set(probabilities.indices.filter { probabilities[$0] >= configuration.deletionThreshold })
       if !probabilities.isEmpty, removed.count == probabilities.count,
         let keep = probabilities.indices.min(by: { probabilities[$0] < probabilities[$1] }) { removed.remove(keep) }
       var metrics = [0.0, 0, 0, 0, 0]

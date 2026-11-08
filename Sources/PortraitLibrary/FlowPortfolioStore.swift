@@ -22,6 +22,8 @@ package actor FlowPortfolioStore {
   var pendingGraphWrite: FlowPendingGraphWrite?
   var pendingRetainedWrite: FlowPendingRetainedWrite?
   var previewArtifacts: [UUID: FlowPortfolioPreviewArtifact] = [:]
+  var frozenTrainingViews: [UUID: Data] = [:]
+  var featureSupportingAssets: [ExchangeDigest: Data] = [:]
   var featureCapsules: [UUID: FlowPortfolioFeatureCapsule] = [:]
   let requestedPurpose: FlowPortfolioPurpose?
   package nonisolated let directory: URL
@@ -37,11 +39,11 @@ package actor FlowPortfolioStore {
     try await finishPendingGraphWrite(); try await finishPendingRetainedWrite(); try await loadRecords()
     trimTransientCaches()
   }
-  func commit(_ next: FlowPortfolioSnapshot, operation: String, subjectID: UUID? = nil, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = []) async throws {
+  func commit(_ next: FlowPortfolioSnapshot, operation: String, subjectID: UUID? = nil, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = [], feedback: FlowPreparedFeedback? = nil) async throws {
     guard next.revision == state.revision else { throw FlowPortfolioError.conflict("The authoring session changed while this action was being prepared.") }
     var next = next; next.revision = state.revision + 1
     try FlowPortfolioValidation.validate(next)
-    state = try await publishRecords(next, photoMetadata: photoMetadata)
+    state = try await publishRecords(next, photoMetadata: photoMetadata, feedbackOverride: feedback)
     trimTransientCaches()
   }
 
@@ -416,31 +418,9 @@ package actor FlowPortfolioStore {
     try await commit(next, operation: "candidateCurationChanged", subjectID: candidateID)
   }
 
-  @discardableResult package func freezeTrainingSnapshot(id: UUID? = nil) async throws -> FlowPortfolioTrainingSnapshot {
-    if let id, let existing = state.trainingSnapshots.first(where: { $0.id == id }) { return existing }
-    try await refreshPhotoMetadata()
-    let bytes = try encode(state), document = try storage.retain(bytes, mediaType: "application/json")
-    let snapshot = FlowPortfolioTrainingSnapshot(id: id ?? UUID(), createdAt: Date(), portfolioID: state.id,
-      portfolioRevision: state.revision, purpose: state.purpose, document: document, contentSHA256: document.sha256)
-    var next = state; next.trainingSnapshots.append(snapshot)
-    try await commit(next, operation: "trainingSnapshotFrozen", subjectID: snapshot.id)
-    return snapshot
-  }
-
-  package func trainingDocument(snapshotID: UUID) async throws -> FlowPortfolioSnapshot {
-    guard let snapshot = state.trainingSnapshots.first(where: { $0.id == snapshotID }) else {
-      throw FlowPortfolioError.unavailable("Training snapshot is unavailable.")
-    }
-    let document = try JSONDecoder().decode(FlowPortfolioSnapshot.self, from: await storage.read(snapshot.document))
-    try FlowPortfolioValidation.validate(document)
-    guard document.id == snapshot.portfolioID, document.revision == snapshot.portfolioRevision else {
-      throw FlowPortfolioError.invalid("Training snapshot identity differs from its retained content.")
-    }
-    return document
-  }
-
   @discardableResult package func installFit(checkpoint: Data?, report: Data, snapshotID: UUID) async throws -> FlowPortfolioFit {
-    let frozen = try await trainingDocument(snapshotID: snapshotID)
+    _ = try await trainingDocument(snapshotID: snapshotID)
+    let frozenInputs = try await trainingInputs(snapshotID: snapshotID)
     if let existing = state.fits.first(where: { $0.snapshotID == snapshotID }) {
       guard existing.report.sha256 == DrawingArtifactCoding.sha256(report),
         existing.checkpoint?.sha256 == checkpoint.map(DrawingArtifactCoding.sha256) else {
@@ -452,14 +432,13 @@ package actor FlowPortfolioStore {
     if let checkpoint {
       let decoded = try JSONDecoder().decode(FlowArtistCheckpoint.self, from: checkpoint)
       try decoded.validateArchive()
-      let includedSources = Set(frozen.sources.filter { !$0.excluded }.map(\.id))
-      let includedCandidates = Set(frozen.candidates.filter { !$0.excluded && includedSources.contains($0.sourceID) }.map(\.id))
-      let allowedExamples = Set(includedCandidates.map(\.uuidString)
-        + frozen.pruneRevisions.filter { includedCandidates.contains($0.candidateID) }.map { $0.id.uuidString })
-      let allowedRanks = Set(frozen.latestRankings.filter { !$0.skipped && !$0.neither }.map { $0.id.uuidString }
-        + frozen.choices.filter { includedCandidates.contains($0.candidateID) }.map { $0.id.uuidString })
-      guard Set(decoded.exampleIDs).isSubset(of: allowedExamples), Set(decoded.rankingIDs).isSubset(of: allowedRanks),
-        !decoded.exampleIDs.isEmpty else { throw FlowPortfolioError.invalid("Checkpoint examples or judgments do not belong to this frozen included portfolio.") }
+      guard Set(decoded.exampleIDs) == Set(frozenInputs.examples.map(\.id)),
+        Set(decoded.rankingIDs) == Set(frozenInputs.rankings.map(\.id)), !decoded.exampleIDs.isEmpty,
+        decoded.seed == frozenInputs.seed, decoded.fitConfiguration == frozenInputs.configuration,
+        decoded.holdoutGroupIDs == frozenInputs.holdoutGroupIDs,
+        decoded.sourceGroupIDs == Set(frozenInputs.examples.map(\.sourceGroupID)).sorted() else {
+        throw FlowPortfolioError.invalid("Checkpoint inputs/configuration differ from the exact frozen task.")
+      }
       guard decodedReport.checkpoint == decoded else { throw FlowPortfolioError.invalid("Checkpoint differs from its fit report.") }
     } else {
       guard decodedReport.checkpoint == nil else { throw FlowPortfolioError.invalid("Fit report has a checkpoint that was not retained.") }

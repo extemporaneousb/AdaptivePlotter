@@ -134,7 +134,7 @@ public enum DrawingImageAdmission {
       let descriptor = try decode(capture, as: ExchangeAsset.self); try objects.validate(descriptor)
     }
     return .init(originalJSON: data, reference: expected, original: asset, width: width, height: height,
-      supportedSemantics: declaredFeatures.allSatisfy(supportedFeatures.contains) && encodingSupported)
+      supportedSemantics: declaredFeatures.allSatisfy(supportedFeatures.subtracting(ExchangeRankingCapsule.localFeatures).contains) && encodingSupported)
   }
   static func input(_ expected: ImageInputRef, objects: ExchangeObjectResolver, supportedFeatures: Set<String>, assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor]) throws -> ExchangeImageInputRecord {
     let data = try bytes(expected.digest, in: objects), json = try ExchangeJSON.validate(data)
@@ -142,7 +142,7 @@ public enum DrawingImageAdmission {
     guard profile == "adaptiveplotter.image-input/1" else { throw DrawingExchangeError.unsupportedProfile(profile) }
     let identity = try decode(json["ref"], as: ExchangeIdentity.self)
     guard identity == expected.identity else { throw DrawingExchangeError.digestMismatch("Input identity") }
-    var supported = try features(json).allSatisfy(supportedFeatures.contains)
+    var supported = try features(json).allSatisfy(supportedFeatures.subtracting(ExchangeRankingCapsule.localFeatures).contains)
     let photoRef = try decode(json["photo"], as: PhotoRef.self)
     do {
       let source = try photo(photoRef, objects: objects, supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors)

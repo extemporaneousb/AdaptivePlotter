@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check the normative schema and its design fixtures with a development-only validator."""
 import json
+from copy import deepcopy
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -36,6 +37,26 @@ def main():
         "accepted without issuance": {k: v for k, v in accepted.items() if k != "issuance"},
         "result without authored revision": {**result, "roots": []},
     }
+    ranking = next(r for r in examples if r.get("profile") == "adaptiveplotter.feature-ranking/1")
+    ids = [p["id"] for p in ranking["presentations"]]
+    partial_feature = "adaptiveplotter.feature-ranking.partial-ranking/1"
+    neither_feature = "adaptiveplotter.feature-ranking.neither/1"
+    partial = {**deepcopy(ranking), "requiredFeatures": [partial_feature],
+               "response": {"kind": "partial-ranking", "groups": [[ids[0]]], "unranked": ids[1:]}}
+    neither = {**deepcopy(ranking), "requiredFeatures": [neither_feature], "response": {"kind": "neither"}}
+    positives = [partial, neither, {**partial, "response": {"kind": "partial-ranking", "groups": [], "unranked": ids}}]
+    for record in positives:
+        validator.validate(record)
+    invalid.update({
+        "partial missing feature": {**partial, "requiredFeatures": []},
+        "partial wrong feature": {**partial, "requiredFeatures": [neither_feature]},
+        "neither missing feature": {**neither, "requiredFeatures": []},
+        "neither wrong feature": {**neither, "requiredFeatures": [partial_feature]},
+        "partial empty group": {**partial, "response": {"kind": "partial-ranking", "groups": [[]], "unranked": ids}},
+        "partial duplicate unranked": {**partial, "response": {"kind": "partial-ranking", "groups": [], "unranked": ids + ids}},
+        "partial missing unranked": {**partial, "response": {"kind": "partial-ranking", "groups": []}},
+        "neither groups": {**neither, "response": {"kind": "neither", "groups": []}},
+    })
     for label, record in invalid.items():
         if validator.is_valid(record):
             raise ValueError(f"Schema admitted invalid example: {label}")

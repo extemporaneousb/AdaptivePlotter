@@ -18,7 +18,7 @@ struct FlowDojoTrainingProgressTests {
     let candidates = try await round(store, source: source.id, count: 3)
     let empty = FlowDojoTrainingProgress(document: await store.snapshot())
     #expect(empty.exampleCount == 0 && !empty.canAttemptFit)
-    #expect(try await FlowDojoTraining.dataset(store: store, document: store.snapshot()).examples.isEmpty)
+    #expect(try await DrawingExchangeFeedbackFixture.freezeInputs(store).examples.isEmpty)
     try await store.chooseCandidate(candidates[0].id)
     try await store.chooseCandidate(candidates[0].id)
     _ = try await store.applyPrune(candidateID: candidates[0].id, action: .remove, indices: [0])
@@ -33,7 +33,7 @@ struct FlowDojoTrainingProgressTests {
     #expect(progress.photo(source.id).candidateCount == 4)
     // No extraction should touch an unused generated raster, even if it is unreadable.
     await #expect(throws: FlowPortfolioError.self) { try await store.candidateProgram(unused[0].id) }
-    let dataset = try await FlowDojoTraining.dataset(store: store, document: document)
+    let dataset = try await DrawingExchangeFeedbackFixture.freezeInputs(store)
     #expect(!dataset.examples.contains { $0.id == unused[0].id.uuidString })
     #expect(dataset.examples.count == progress.exampleCount)
     #expect(dataset.rankings.count == progress.choiceCount + progress.rankingCount)
@@ -60,10 +60,21 @@ struct FlowDojoTrainingProgressTests {
     let p = try await store.presentRanking(scope: .round(candidates[0].roundID), count: 2, seed: 2)
     _ = try await store.recordRanking(presentationID: p.id, orderedGroups: [[p.items[0].id]])
     #expect(FlowDojoTrainingProgress(document: await store.snapshot()).rankingCount == 0)
+    let cleared = try await store.recordRanking(presentationID: p.id, orderedGroups: [])
+    #expect(cleared.orderedGroups.isEmpty && !cleared.skipped && !cleared.neither)
+    #expect(try await DrawingExchangeFeedbackFixture.freezeInputs(store).rankings.isEmpty)
     _ = try await store.recordRanking(presentationID: p.id, orderedGroups: p.items.map { [$0.id] })
     #expect(FlowDojoTrainingProgress(document: await store.snapshot()).rankingCount == 1)
-    _ = try await store.recordRanking(presentationID: p.id, orderedGroups: [], skipped: true)
+    _ = try await store.recordRanking(presentationID: p.id, orderedGroups: [p.items.map(\.id)])
+    let tied = FlowDojoTrainingProgress(document: await store.snapshot())
+    #expect(tied.rankingCount == 1 && tied.tieComparisonCount == 1)
+    let neither = try await store.recordRanking(presentationID: p.id, orderedGroups: [], neither: true)
+    #expect(neither.neither && !neither.skipped)
+    #expect(try await DrawingExchangeFeedbackFixture.freezeInputs(store).rankings.isEmpty)
+    let skipped = try await store.recordRanking(presentationID: p.id, orderedGroups: [], skipped: true)
+    #expect(skipped.skipped && !skipped.neither)
     #expect(FlowDojoTrainingProgress(document: await store.snapshot()).exampleCount == 0)
+    #expect(try await DrawingExchangeFeedbackFixture.freezeInputs(store).examples.isEmpty)
   }
 
   @Test("Excluded unlabelled source bridges still join related photo groups")
@@ -81,7 +92,7 @@ struct FlowDojoTrainingProgressTests {
       _ = try await store.applyPrune(candidateID: candidate.id, action: .remove, indices: [0])
       _ = try await store.applyPrune(candidateID: candidate.id, action: .completeTarget)
     }
-    let document = await store.snapshot(), data = try await FlowDojoTraining.dataset(store: store, document: document)
+    let document = await store.snapshot(), data = try await DrawingExchangeFeedbackFixture.freezeInputs(store)
     #expect(data.examples.count == 2 && Set(data.examples.map(\.sourceGroupID)).count == 1)
     let progress = FlowDojoTrainingProgress(document: document)
     #expect(progress.photoCount == 3 && progress.includedPhotoCount == 2)
@@ -109,8 +120,8 @@ struct FlowDojoTrainingProgressTests {
     let newDocument = try await store.trainingDocument(snapshotID: newSnapshot.id)
     #expect(newSnapshot.contentSHA256 != oldSnapshot.contentSHA256)
     #expect(newDocument.sources.first == live)
-    // This tests frozen photo facts only. Feature assets still fetched by live
-    // UUID are a separate DX09 obligation, not established by this assertion.
+    // This checks the frozen UI projection. Exact feature authority is exercised
+    // separately by DrawingExchangeFrozenTrainingTests against hostile locators.
   }
 
   @Test("Exact frozen comparisons track withdrawals and groups, ignore browsing, and never consume failed fits")

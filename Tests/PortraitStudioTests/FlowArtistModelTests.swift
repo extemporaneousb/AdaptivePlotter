@@ -49,6 +49,7 @@ struct FlowArtistModelTests {
     let report = FlowArtistTraining.fit(examples: dataset.examples, rankings: dataset.rankings)
     let model = try #require(report.checkpoint)
     try model.validate()
+    #expect(model.seed == 42 && model.fitConfiguration == .current)
     #expect(model.sourceGroupIDs.count == 12)
     #expect(model.holdoutGroupIDs.count == 3)
     #expect(report.ranker.improvesHoldout)
@@ -67,6 +68,7 @@ struct FlowArtistModelTests {
     #expect(removed.contains { !$0.isEmpty })
     #expect(zip(removed, dataset.examples).allSatisfy { $0.count < $1.strokeFeatures.count })
     let refit = try #require(FlowArtistTraining.fit(examples: dataset.examples, rankings: dataset.rankings, seed: 43).checkpoint)
+    #expect(refit.seed == 43 && refit.fitConfiguration == .current)
     var active = model
     let before = try active.score(features: example.features)
     active = refit

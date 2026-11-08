@@ -491,7 +491,8 @@ package final class FlowDojoModel {
         let worker = Task.detached(priority: .userInitiated) {
           let dataset = try await FlowDojoTraining.dataset(store: store, document: snapshot)
           if let fitter { return try await fitter(dataset.examples, dataset.rankings) }
-          return FlowArtistTraining.fit(examples: dataset.examples, rankings: dataset.rankings)
+          return FlowArtistTraining.fit(examples: dataset.examples, rankings: dataset.rankings, seed: dataset.seed,
+            configuration: dataset.configuration, frozenHoldoutGroupIDs: dataset.holdoutGroupIDs)
         }
         self.fitting = worker
         if self.closing { worker.cancel() }

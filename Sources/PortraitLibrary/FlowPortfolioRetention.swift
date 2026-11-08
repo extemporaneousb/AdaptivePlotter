@@ -10,6 +10,9 @@ struct FlowPendingRetainedWrite: Sendable {
   let records: [DrawingLibraryRecord]
   let assets: [DrawingLibraryClosureAsset]
   let publishedBlobs: [FlowPortfolioBlob]
+  let feedback: FlowPreparedFeedback?
+  let feedbackIntent: DrawingLibraryCommitIntent
+  var authoredCommitted = false
 }
 
 extension FlowPortfolioStore {
@@ -89,16 +92,29 @@ extension FlowPortfolioStore {
     writeAdmissionActive = true; defer { writeAdmissionActive = false; trimTransientCaches() }
     var next = next; next.revision = state.revision + 1
     try FlowPortfolioValidation.validate(next)
+    let feedback = try await prepareFeedback(next: &next)
     let records = try graphRecords(next), publishedBlobs = durableAssets(next)
-    let assets = try await storage.closureAssets(publishedBlobs)
-    pendingRetainedWrite = .init(prepared: prepared, next: next, records: records, assets: assets, publishedBlobs: publishedBlobs)
+    let assets = try await storage.closureAssets(publishedBlobs) + featureClosureAssets()
+    pendingRetainedWrite = .init(prepared: prepared, next: next, records: records, assets: assets, publishedBlobs: publishedBlobs, feedback: feedback, feedbackIntent: .init())
     try await finishPendingRetainedWrite()
   }
   func finishPendingRetainedWrite() async throws {
-    guard let write = pendingRetainedWrite else { return }
-    _ = try await storage.library.commitRetentions(write.prepared, records: write.records, assets: write.assets)
+    guard var write = pendingRetainedWrite else { return }
+    if let feedback = write.feedback {
+      if !write.authoredCommitted {
+        // Explicit authored fact is independent of the human judgment. Its
+        // stable retention tokens are distinct from the feedback commit intent.
+        _ = try await storage.library.commitRetentions(write.prepared, assets: write.assets)
+        write.authoredCommitted = true; pendingRetainedWrite = write
+      }
+      _ = try await storage.library.commitFeedback(feedback.package, records: write.records, intent: write.feedbackIntent)
+      try? FileManager.default.removeItem(at: feedback.temporaryRoot)
+    } else {
+      _ = try await storage.library.commitRetentions(write.prepared, records: write.records, assets: write.assets)
+    }
     for record in write.records { committedRecords.insert(record.key) }
     storage.markPublished(write.publishedBlobs)
+    for asset in write.assets { featureSupportingAssets.removeValue(forKey: asset.descriptor.asset.object) }
     state = write.next; pendingRetainedWrite = nil
   }
   package func closeLibrary() async { await storage.library.closeLibrary() }

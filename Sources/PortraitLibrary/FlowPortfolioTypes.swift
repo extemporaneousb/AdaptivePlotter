@@ -2,6 +2,7 @@ import Foundation
 import PlotterModel
 import PortraitArtists
 import PortraitCore
+import DrawingLibrary
 
 package enum FlowPortfolioError: Error, LocalizedError, Sendable {
   case invalid(String), unavailable(String), conflict(String)
@@ -85,6 +86,7 @@ package struct FlowPortfolioChoice: Codable, Identifiable, Equatable, Sendable {
   package let offeredItems: [FlowPortfolioPresentationItem]
   /// A navigation/refinement choice is retained separately from explicit rank.
   package let purpose: String
+  package var feedback: FlowPortfolioFeedbackReference? = nil
 }
 
 package enum FlowPruneAction: String, Codable, Sendable { case remove, restore, undo, redo, modelProposal, inheritedSelection, completeTarget }
@@ -107,6 +109,7 @@ package struct FlowPortfolioPruneRevision: Codable, Identifiable, Equatable, Sen
   package var undoOperationIDs: [UUID]
   package var redoOperationIDs: [UUID]
   package var drawing: DrawingRef? = nil
+  package var feedback: FlowPortfolioFeedbackReference? = nil
 }
 
 package enum FlowRankingScope: Codable, Equatable, Sendable { case round(UUID), source(UUID), candidate(UUID), portfolio }
@@ -138,6 +141,7 @@ package struct FlowPortfolioRanking: Codable, Identifiable, Equatable, Sendable 
   package let skipped: Bool
   package let neither: Bool
   package let supersedesID: UUID?
+  package var feedback: FlowPortfolioFeedbackReference? = nil
 }
 
 package struct FlowPortfolioTrainingSnapshot: Codable, Identifiable, Equatable, Sendable {
@@ -148,6 +152,8 @@ package struct FlowPortfolioTrainingSnapshot: Codable, Identifiable, Equatable, 
   package let purpose: FlowPortfolioPurpose
   package let document: FlowPortfolioBlob
   package let contentSHA256: String
+  package var manifest: ExchangeAsset? = nil
+  package var publication: DrawingLibraryFeedbackRef? = nil
 }
 package struct FlowPortfolioFit: Codable, Identifiable, Equatable, Sendable {
   package let id: UUID
@@ -170,6 +176,8 @@ package struct FlowPortfolioSnapshot: Codable, Equatable, Sendable {
   package let id: UUID
   package let createdAt: Date
   package var revision: Int
+  package var frozenManifest: ExchangeAsset? = nil
+  package var frozenTrainingPublication: DrawingLibraryFeedbackRef? = nil
   package var sources: [FlowPortfolioSource]
   package var rounds: [FlowPortfolioRound]
   package var candidates: [FlowPortfolioCandidate]

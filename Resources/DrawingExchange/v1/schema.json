@@ -2148,6 +2148,34 @@
         {
           "type": "object",
           "properties": {
+            "kind": { "const": "partial-ranking" },
+            "groups": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/UUID" },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            },
+            "unranked": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/UUID" },
+              "uniqueItems": true
+            }
+          },
+          "required": ["kind", "groups", "unranked"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "kind": { "const": "neither" } },
+          "required": ["kind"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
             "kind": {
               "const": "ranking"
             },
@@ -2188,10 +2216,20 @@
           "additionalProperties": false
         }
       ],
-      "description": "Ordered groups encode preference, equal positions encode ties. Semantic validation requires presentation IDs occur exactly once across groups and belong to this capsule."
+      "description": "Ordered groups encode preference, equal positions encode ties. Exhaustive ranking partitions all presentation IDs. Partial ranking groups and explicit unranked IDs form a complete duplicate-free disjoint partition; unranked relations remain unknown, including when all items are unranked. Neither asserts no pair labels. Cross-field membership requires semantic validation."
     },
     "FeatureRankingCapsule": {
       "type": "object",
+      "allOf": [
+        {
+          "if": { "properties": { "response": { "properties": { "kind": { "const": "partial-ranking" } }, "required": ["kind"] } }, "required": ["response"] },
+          "then": { "properties": { "requiredFeatures": { "contains": { "const": "adaptiveplotter.feature-ranking.partial-ranking/1" } } }, "required": ["requiredFeatures"] }
+        },
+        {
+          "if": { "properties": { "response": { "properties": { "kind": { "const": "neither" } }, "required": ["kind"] } }, "required": ["response"] },
+          "then": { "properties": { "requiredFeatures": { "contains": { "const": "adaptiveplotter.feature-ranking.neither/1" } } }, "required": ["requiredFeatures"] }
+        }
+      ],
       "properties": {
         "profile": {
           "const": "adaptiveplotter.feature-ranking/1"
@@ -2260,7 +2298,7 @@
         "limitations"
       ],
       "additionalProperties": true,
-      "description": "Independent digest-pinned feedback target; does not require a retained DrawingReference. Array order freezes presentation order; group response freezes ranking/tie/skip judgment and extractor/producer context.",
+      "description": "Independent digest-pinned feedback target; does not require a retained DrawingReference. Array order freezes presentation order; responses freeze exhaustive or partial ranking, ties, skip or neither and extractor/producer context. Partial ranking and neither require their respective profile-local required features.",
       "examples": [
         {
           "profile": "adaptiveplotter.feature-ranking/1",
@@ -2370,7 +2408,7 @@
     "Resolve every present typed reference to exact immutable local bytes and the intended profile. Reject changed bytes at a previously committed issuer/revision; unavailable components require an explicit reason. Validate retained photo/input/parent paths and known producer claims without fuzzy identity.",
     "Verify native DrawingProgram schema and canonical APCB contentHash; finite points/stable stroke IDs/order/field extent, all transforms and producer-proven units. New stroke exports declare nominal pen width; preserved historical fixtures retain exact bytes.",
     "For closed results require sequence 1..N, same-run predecessor digests, consistent drawing/job and pinned immutable receipt, exact pre-motion binding and cumulative dispatch/frontier facts. Refusal has no attempt; one accepted job issues at most one run. Sealed snapshots are final producer testimony; later assertions are supplements.",
-    "Coverage references and task-specific eligibility are distinct. Missing/rejected observations are not negative labels. Assessments require supported typed answer semantics. Ranking groups must exhaust their unique presentations without duplication; features cannot support future geometry re-extraction.",
+    "Coverage references and task-specific eligibility are distinct. Missing/rejected observations are not negative labels. Assessments require supported typed answer semantics. Exhaustive ranking groups partition all presentations; partial ranking groups plus unranked IDs partition all presentations without duplication or overlap, leaving unranked relations unknown. Neither asserts no pair labels. Partial ranking and neither require matching profile-local features; features cannot support future geometry re-extraction.",
     "Physical plan, placement, correspondence (including borders), calibration, device, material mapping and run evidence stay typed payloads of their existing owners. Imported bytes never establish current device readiness, clear possible ink or authorize retry.",
     "For every result, resolve jobs as digest-pinned immutable JobReceiptReference roots and verify each receipt drawing matches an included exact drawing root. A zero-attempt refused result requires refused receipt disposition, no issuance/run and no staged physical attempt; do not invent a run. For result attempts verify each pins an included matching job receipt. Job handles without receipt digests are insufficient portable result roots."
   ],

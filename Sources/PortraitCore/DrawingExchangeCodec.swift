@@ -186,7 +186,8 @@ public enum DrawingExchangeCodec {
       try validator(receipt, .init(program: program, input: wire.input, parent: wire.parent, units: units,
         artifacts: try DrawingProducerArtifactReads(artifacts)))
     }
-    let unknown = wire.requiredFeatures.filter { !supportedFeatures.contains($0) }
+    let globalFeatures = supportedFeatures.subtracting(ExchangeRankingCapsule.localFeatures)
+    let unknown = wire.requiredFeatures.filter { !globalFeatures.contains($0) }
     var sourceDependencies: [String] = []
     if case .present(let input) = wire.input {
       do {

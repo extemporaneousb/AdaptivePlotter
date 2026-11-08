@@ -185,7 +185,9 @@ enum FlowPortfolioValidation {
     let snapshotIDs = Set(state.trainingSnapshots.map(\.id)), fitIDs = Set(state.fits.map(\.id))
     for snapshot in state.trainingSnapshots {
       try require(snapshot.portfolioID == state.id && snapshot.purpose == state.purpose && snapshot.portfolioRevision < state.revision
-        && snapshot.document.sha256 == snapshot.contentSHA256, "Training snapshot identity is invalid.")
+        && snapshot.document.sha256 == snapshot.contentSHA256
+        && snapshot.manifest?.mediaType == "application/json" && snapshot.manifest?.encoding == "utf8-json"
+        && snapshot.publication != nil, "Training snapshot identity is invalid.")
     }
     for fit in state.fits { try require(snapshotIDs.contains(fit.snapshotID), "Fit has no frozen training snapshot.") }
     var active: UUID?

@@ -189,6 +189,9 @@ public struct ExchangeAssessment: Sendable {
   }
 }
 public struct ExchangeRankingCapsule: Sendable {
+  public static let partialRankingFeature = "adaptiveplotter.feature-ranking.partial-ranking/1"
+  public static let neitherFeature = "adaptiveplotter.feature-ranking.neither/1"
+  static let localFeatures: Set<String> = [partialRankingFeature, neitherFeature]
   public let originalJSON: Data
   public let requiredFeatures: [String]
   public let identity: ExchangeIdentity
@@ -227,6 +230,21 @@ public struct ExchangeRankingCapsule: Sendable {
     case "skip":
       let reason: String = try envelopeValue(response, "reason")
       guard Set(response.keys) == ["kind", "reason"], !reason.isEmpty else { throw DrawingExchangeError.malformed("Ranking skip") }
+    case "partial-ranking":
+      let groups: [[String]] = try envelopeValue(response, "groups")
+      let unranked: [String] = try envelopeValue(response, "unranked")
+      guard requiredFeatures.contains(Self.partialRankingFeature),
+        Set(response.keys) == ["kind", "groups", "unranked"], groups.allSatisfy({ !$0.isEmpty }) else {
+        throw DrawingExchangeError.malformed("Partial ranking response or required feature")
+      }
+      let ids = try (groups.flatMap { $0 } + unranked).map(exchangeUUID)
+      guard ids.count == presentationIDs.count, Set(ids) == Set(presentationIDs), Set(ids).count == ids.count else {
+        throw DrawingExchangeError.malformed("Partial ranking membership")
+      }
+    case "neither":
+      guard requiredFeatures.contains(Self.neitherFeature), Set(response.keys) == ["kind"] else {
+        throw DrawingExchangeError.malformed("Neither response or required feature")
+      }
     default: reasons.append("Unsupported ranking response: " + responseKind)
     }
     unsupportedReasons = reasons

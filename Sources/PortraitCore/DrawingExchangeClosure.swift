@@ -239,7 +239,8 @@ fileprivate final class ExchangeClosureValidator {
       guard !knownProfiles.contains(profile) else { throw DrawingExchangeError.malformed("Wrong index profile") }
       index = nil; indexAdmission = .opaque(originalJSON: staged.indexJSON, profile: profile)
     }
-    self.producers = producers; self.payloads = payloads; self.features = features; self.limits = limits
+    self.producers = producers; self.payloads = payloads
+    self.features = features.subtracting(ExchangeRankingCapsule.localFeatures); self.limits = limits
     resolver = .init(files: files, limits: limits)
   }
   func unsupported(_ features: [String]) { for feature in features where !self.features.contains(feature) { reasons.insert("Required feature: " + feature) } }
@@ -323,14 +324,14 @@ fileprivate final class ExchangeClosureValidator {
     guard active.insert(path).inserted else { return false }; return true
   }
   func finish(_ path: String) { active.remove(path); completed.insert(path) }
-  func profile(_ data: Data, path: String, expected: String) throws -> [String: Any]? {
+  func profile(_ data: Data, path: String, expected: String, localFeatures: Set<String> = []) throws -> [String: Any]? {
     let j = try ExchangeJSON.validate(data); let p: String = try envelopeValue(j, "profile")
     guard exchangeNamespacedID(p) else { throw DrawingExchangeError.malformed("Record profile") }
     if p != expected {
       guard !knownProfiles.contains(p) else { throw DrawingExchangeError.malformed("Recognized record has wrong kind at " + path) }
       opaque[path] = data; reasons.insert("Unsupported profile: " + p); return nil
     }
-    unsupported(try envelopeFeatures(j)); return j
+    unsupported(try envelopeFeatures(j).filter { !localFeatures.contains($0) }); return j
   }
   func register(_ identity: ExchangeIdentity, kind: String, digest: ExchangeDigest) throws {
     if let old = identities[identity], old.0 != kind || old.1 != digest { throw DrawingExchangeError.malformed("Conflicting global record identity") }
@@ -599,7 +600,7 @@ fileprivate final class ExchangeClosureValidator {
     let p = path(ref, kind: "rankings"); try register(ref.identity, kind: "ranking", digest: ref.digest)
     guard try enter(p, depth: depth) else { _ = try load(p, digest: ref.digest); return }; defer { finish(p) }
     let data = try load(p, digest: ref.digest)
-    guard let j = try profile(data, path: p, expected: "adaptiveplotter.feature-ranking/1") else { return }
+    guard let j = try profile(data, path: p, expected: "adaptiveplotter.feature-ranking/1", localFeatures: ExchangeRankingCapsule.localFeatures) else { return }
     let r = try ExchangeRankingCapsule(originalJSON: data)
     guard r.identity == ref.identity else { throw DrawingExchangeError.malformed("Ranking identity") }
     rankings[ref] = r; reasons.formUnion(r.unsupportedReasons)

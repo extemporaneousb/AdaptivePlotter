@@ -8,6 +8,79 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DX-09 canonical feedback and frozen training inputs, 2026-11-08
+
+Dated pre-gate software observation for
+`task-222f2a729f8b4f9781bf4eb7f0c4095f`, based on adopted DX-08 below.
+Final configured validation, assessments and normal landing are not claimed here;
+the authoritative subsequent status belongs to that task.
+
+Flow now records canonical feature-only ranking capsules and asset-targeted choice/
+pruning assessments before acknowledging feedback. Domain rows locate exact refs;
+human answers are read from canonical records. Ranking revision markers are attributed
+to the software adapter, not a second human endorsement. Partial rankings, including
+all-unranked, and Neither use their matching profile-local required features; existing
+exhaustive ranking/Skip semantics and choice loser-exclusion are preserved.
+
+Choose/prune first retains the explicitly requested authored Drawing (parent/child
+atomic), then atomically commits canonical feedback/dependencies/navigation with a
+separate stable intent. No acknowledgement occurs until both settle. A second-phase
+failure may leave the authorized Drawing retained without committed feedback.
+Rank retains no Drawing. Optional display-preview PNGs preserve reopening visuals in
+the feedback publication; they are not training dependencies.
+
+The typed training task pins exact feature JSON, program digest/ordered stroke IDs,
+actual producer receipt, extractor/configuration, canonical feedback/labels, curation,
+seed/configuration and split. One exact-files decoder serves owned and offline reads;
+there is no live UUID/geometry fallback. JSON-only task export excludes the UI portfolio
+projection, display previews, source Photos and authored Drawings. Descriptor/context/
+fingerprint checks precede invocation-local byte/decoded-feature reuse, with aggregate
+unique-byte/feature and selected-example bounds. Unknown/missing/corrupt dependencies
+refuse task interpretation rather than trigger regeneration. Group connectivity is
+frozen before exclusion from exact encoded-source bytes plus subject/session declarations;
+no decoded-pixel equivalence across different encodings was established.
+
+| Observation | Retained outcome |
+| --- | --- |
+| Initial schema attempt | Failed: task `.VE` lacked `jsonschema`; no fixture/Swift execution |
+| Task-local environment correction | Documented `jsonschema[format-nongpl]==4.26.0` installed only in that task `.VE`; schema and checked-fixture scripts then passed |
+| First Swift build | Exit 1/174.606 s; access-control/type-inference diagnostics; zero tests/no XML; 944 inputs unchanged |
+| Scoped incremental run | Build passed; exit 1/618.647 s; XML 56 cases: 52 passes, one real-data opt-in skip, three fixture failures; 944 inputs unchanged |
+| Corrected two-suite retry | Exit 0/36.270 s; XML 13 passes, no skips/failures/errors; 944 inputs unchanged |
+| Normal all-products build | Cached exit 0/2.247 s; both actual executable hashes retained, neither launched |
+
+The three test corrections preserve assertions: canonical lowercase source UUIDs,
+comparison to the actual supplied randomized program, and capture of exact bytes
+before deleting their original directory. The broader failed run remains failed;
+overlapping observations are not summed into a new pass. Its passing scopes include
+frozen curation/labels/configuration, cache/fault recovery, canonical predecessor/
+descriptor negatives and synthetic integration. Static review remains caller-declared,
+not authenticated review or machine compliance proof. Raw failures, the single isolated
+test-helper sample, XML, commands, versions and input/source freezes are retained under
+`/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx09-feedback-delivery/`.
+
+No historical import, universal decoded-pixel grouping, model promotion, real-data fit,
+physical/native/signed deployment, AX retry, app launch/restart, Runtime/Episode or
+issuance change, performance improvement or whole-campaign completion is claimed.
+Default persisted producer/native interpretation remains conservative; the task-specific
+reader validates only its declared questions, exact features and configuration.
+
+## DX-08 canonical adoption, 2026-11-08
+
+Task `task-67802fca3f9b44dc9e8b024dfa58ccc4` completed normal local landing at
+`6a1108dc311ce90c2c24ebad7f13dc43125b98ac`, exact validated tree
+`a369fe1be04164ad49ec24a307163ca48aab84fb`. Configured event
+`75a84479bf6eec46b8835e42b02d9b799adcb0b15e84a219c919da3bf5df0fe7`
+passed docs/full quick/diff; XML records 1,895 cases: 1,868 passes, 27 skips,
+zero failures/errors. After independently verified adoption, delivery correction
+`f8fd2064eab1289bee05ccc24ec4c716cd5cf90c0635e1c1cad26b463898c935`
+made all eight bounded artifact criteria current/met, caller-declared. Task outcome
+and compliance are met; terminal environment applicability is separately unknown.
+The dated pre-gate receipt below remains unchanged. Its default constructor/native-
+canvas/separate-model proof does not establish hosted private `@State` button/sheet
+delivery or AX acceptance. Detailed lifecycle receipts are in the external
+`dx08-editor-lifecycle/` artifact directory; no physical/deployment claim follows.
+
 ## DX-08 shared Drawing editor software receipt, 2026-11-08
 
 Dated pre-gate observation for task `task-67802fca3f9b44dc9e8b024dfa58ccc4`,
