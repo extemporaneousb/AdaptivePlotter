@@ -1,4 +1,4 @@
-.PHONY: help build app portrait-studio-app validate-portrait-studio-app launcher run-app run-app-simulated validate-app validate-launcher preview-performance-gate docs-check wave-capsule-test responsiveness-test portrait-baseline-check portrait-experiment-check quick-test journey-test test check strict-check
+.PHONY: help build app portrait-studio-app validate-portrait-studio-app launcher run-app run-app-simulated validate-app validate-launcher preview-performance-gate docs-check wave-capsule-test responsiveness-test portrait-baseline-check portrait-experiment-check drawing-app-test quick-test journey-test test check strict-check
 
 .DEFAULT_GOAL := help
 
@@ -6,6 +6,7 @@ SWIFT_FLAGS ?=
 APP_CONFIGURATION ?= debug
 JOURNEY_TEST_FILTER := PlotterApplicationRuntimeSparseTipCalibrationTests/(fullFourCornerMarkAcceptance|checkpointRevalidationRestoresWithoutAnotherMark|stageFourConsumesExactTipRevision)|PlotterBoundaryEpisodeTests/(boundaryRepeatActionsAggregateAndReplaceAcceptedSet|boundaryAtomicFailurePreservesAcceptedAuthority)|PlotterApplicationRuntimeTests/(resetBoundaryForwardRetainsEarlierLearning|resetObservedTrialAtomically)|PlotterCausalEpisodeEnvironmentTests/(drawingCompletion|cooperativeBoundaryStopRaces|cooperativeBoundaryAtTruth)
 RESPONSIVENESS_TEST_FILTER := Plotter(PenInteraction|CameraCalibration|SpeechEffect|ControllerSession)EpisodeTests|PlotterEpisodeCompositionTests|PlotterApplicationRuntimeTests/resetAllKeepsCameraCalibrationReusable|OperatorWorkspaceAuthorityTests|OperatorWorkspaceSparseTipCalibrationTests|CameraCaptureTests|OverlayStateTests|WorkbenchTopBarLayoutTests|PlotterEpisodeUIActionabilityTests|PlotterLearningPresentationCompilerTests
+DRAWING_APP_TEST_FILTER := DrawingBrowserTests|DrawingEditLifetimeTests|DrawingTransferRouteTests|DrawingLibraryAtomicRetentionTests|DrawingLibraryPhotoQueryTests|DrawingLibraryResultDiscoveryTests/discoverDrawingAfterReopen|FlowDojoNavigationTests
 
 help:
 	@printf '%s\n' \
@@ -27,7 +28,8 @@ help:
 		'  wave-capsule-test  Validate hash-bound wave capsule creation and consumption.' \
 		'  responsiveness-test Validate Learning transitions and truthful workbench controls.' \
 		'  portrait-baseline-check Compare the three current artists with frozen software outputs.' \
-		'  portrait-experiment-check Run artist/review software checks; retained real pilot is opt-in.' \
+		'  portrait-experiment-check Run renderer baseline and SwiftSketch adapter checks.' \
+		'  drawing-app-test   Exercise current Drawing browsing, editing, retention, reopen and Plotter handoff.' \
 		'  quick-test         Run unit and component tests, excluding retained journeys.' \
 		'  journey-test       Run retained causal journeys sequentially.' \
 		'  test               Run the complete Swift test suite in parallel.' \
@@ -83,7 +85,10 @@ portrait-baseline-check:
 	swift test $(SWIFT_FLAGS) --no-parallel --filter PortraitBaselineTests
 
 portrait-experiment-check:
-	swift test $(SWIFT_FLAGS) --no-parallel --filter 'SwiftSketch|PortraitReview|PortraitStudioArtist|PortraitStudioReview|PortraitStudioRealPilot|PortraitBaseline'
+	swift test $(SWIFT_FLAGS) --no-parallel --filter 'SwiftSketch|PortraitBaseline'
+
+drawing-app-test:
+	swift test $(SWIFT_FLAGS) --no-parallel --filter '$(DRAWING_APP_TEST_FILTER)'
 
 run-app: app launcher
 	@.build/AdaptivePlotterLauncher "$(CURDIR)/.build/AdaptivePlotter.app"
@@ -92,7 +97,7 @@ run-app-simulated: app launcher
 	@.build/AdaptivePlotterLauncher --simulated "$(CURDIR)/.build/AdaptivePlotter.app"
 
 quick-test:
-	swift test --parallel --skip '$(JOURNEY_TEST_FILTER)' $(SWIFT_FLAGS)
+	swift test --no-parallel --skip '$(JOURNEY_TEST_FILTER)' $(SWIFT_FLAGS)
 
 journey-test:
 	swift test --no-parallel --filter '$(JOURNEY_TEST_FILTER)' $(SWIFT_FLAGS)

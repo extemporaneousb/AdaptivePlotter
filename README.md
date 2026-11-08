@@ -543,7 +543,7 @@ explained geometry/provenance diff and new expected values; extraction alone
 must preserve the original values. Retain old baseline tags and source history.
 
 Repository acceptance additionally runs `make docs-check`,
-`make quick-test SWIFT_FLAGS=--no-parallel` and `git diff --check` through Blackdog.
+`make quick-test` and `git diff --check` through Blackdog.
 The separate [attended runbook](docs/ATTENDED_HARDWARE_RUNBOOK.md#6-portrait-studio--two-distinct-physical-plans)
 owns camera, operator and physical evidence; these software commands do not launch
 an app or establish that evidence.
@@ -563,6 +563,7 @@ Common commands:
 make help
 make build
 make portrait-baseline-check
+make drawing-app-test
 make quick-test
 make journey-test
 make test
@@ -574,8 +575,12 @@ make run-app
 make run-app-simulated
 ```
 
-`make quick-test` runs unit and component tests while excluding retained
-end-to-end Learning Path routes. `make journey-test` runs those routes
+`make drawing-app-test` runs the current-format browser, editing, Library and
+Plotter handoff suites on disposable data. Use it while changing Drawing workflows.
+`make quick-test` runs unit and component tests serially. Concurrent person
+segmentation requests can stall in Apple Vision on the validation Mac. SwiftPM
+still compiles in parallel. The target excludes retained end-to-end Learning
+Path routes. `make journey-test` runs those routes
 sequentially. `make test` runs the complete suite. `make check` adds signed app,
 launcher, repository-contract, and diff validation; `make strict-check` repeats
 that gate with complete Swift concurrency checking and warnings as errors.

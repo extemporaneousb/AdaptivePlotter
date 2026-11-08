@@ -82,55 +82,12 @@ through `DrawingLibrary` and exchange exact references through the current
 Drawing Exchange carrier. Historical pilot files remain untouched; their import
 is deferred. Physical plotting belongs to the main plotter app.
 
-`pilot.py plan` freezes six distinct retained originals before any output, selects
-evenly spaced positions in retained metadata order, records the source/capture/
-acquisition identities and exact preparation, and leaves human subject/session
-groups unassigned. Metadata order is not claimed to be actual capture chronology.
-`pilot.py run` attempts the 18 paired arms once within a ten-minute total budget,
-counts failures, preserves partial results, skips remaining arms after the budget,
-and never substitutes images or tunes settings. This pilot measures feasibility
-and preprocessing evidence; it does not supply human quality labels or training.
-
 Protocol tests run without weights using `python3 -m unittest discover -s
 Tools/SwiftSketch -p 'test_*.py'`. Pillow-only cases skip when unavailable. Swift
 tests cover real physical flattening error, uniform fit and subprocess cancellation,
 timeouts, stale identity and asset tamper fixtures. Those fixtures are not model
 inference receipts.
 
-## Shared native face pilot
-
-`face_pilot.py plan` selects ten distinct retained originals before outputs, copies
-their exact source/capture receipts from a read-only library and snapshots the first
-pilot's file hashes. It performs no image preparation. The opt-in Swift harness
-`PortraitStudioFacePilotTests` uses the production
-`PortraitStudioArtistInput.prepare` to produce the fixed face frame, framed source,
-foreground mask and final 1024-square input. The fixed frame uniformly scales the
-face to 52% target height, center (50%, 54%) from the top left; aspect is preserved.
-A missing or ambiguous face or unusable mask is retained as a refusal. Any explicit
-visual box declaration is frozen before model outputs and never labels a subject.
-
-Run the harness in `prepare`, inspect inputs, then run `freeze` before invoking
-`face_pilot.py run --expected-manifest-sha256 ACCEPTED_SHA256`. Environment variables
-are `PORTRAIT_FACE_PILOT_ROOT`,
-`PORTRAIT_FACE_PILOT_PHASE` and optional `PORTRAIT_FACE_PILOT_PREPARATION_PASS`
-(`prepared-v1` by default). New preparation passes preserve earlier refusals and
-bytes. Freeze binds every actual native input/mask/metadata hash and artist setting.
-The runner checks those frozen bytes and records exact worker/model identity and
-supervisor admission clocks before each launch; internal worker start time remains
-explicitly unknown. Only unchanged preprocessing, seed 42 is
-scheduled: at most ten requests including unsupported/skipped/failed outcomes and
-600 seconds total model wall budget. No replacement or automatic retry is allowed.
-Worker `mask_policy:"fixed-input-no-segmentation-v1"` truthfully means the worker
-receives a caller-masked fixed PNG and applies no additional segmentation.
-
-The Swift `ingest` phase reads outputs without another model job and records all
-forty scheduled outcomes (ten model, thirty native) in the canonical journal. All
-four artists consume the same retained masked PNG. Fixed native defaults disable
-secondary crop/background removal/head transform. Common geometry is 100mm square,
-nominal 0.4mm pen. Only valid matched origins create comparisons, at most thirty;
-failures reduce the count rather than being replaced. The fresh library/export starts
-with zero human labels and unknown groups. It retains source, preparation, mask,
-framed input, external request/manifest, raw/model output, canonical program, settings
-and status evidence. Its external frozen manifest does not broaden the original
-typed six-source/eighteen-job pilot API. `face_pilot.py preserve --root ABSOLUTE_ROOT`
-rechecks the first pilot's complete source/library file inventory.
+The old-library pilots are retired. Their original outputs and manifests remain
+historical experiment records. Current inference accepts an explicit prepared
+input through the worker protocol above.

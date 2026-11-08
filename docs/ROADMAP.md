@@ -11,87 +11,57 @@ this roadmap does not restate or reorder them.
 
 ## Drawing Exchange
 
-DX-05 was adopted on **2026-11-08** at
-`bb9ab0c88d5cc95f72cb45bc258cf1a577a9200d`, tree
-`86c0841b27c535e23dd706ad0319ad7b9124b69a`, following the completed configured
-validation and normal local landing of Blackdog task
-`task-89f7fee3b6c847e9ae9acebb9b901347`. Its earlier
-[dated probes](CURRENT_EVIDENCE.md#drawing-first-software-probe-receipt-2026-11-08)
-retain their original scopes. The initial compatibility-oriented DX-05 task was
-canceled as superseded, not passed. Historical import remains deferred.
+### Current-format app delivery
 
-The 2026-11-07 operator direction supersedes legacy compatibility requirements
-below wherever they conflict with this cutover: thread Drawing and the new format
-through the software, remove live v1–4 authoring readers/writers/fallbacks, and
-leave historical files untouched for a later importer. No converter, migration
-rehearsal or production-data operation belongs to this task. Existing renderer,
-editing, learning and physical handoff behavior remains required; no new mandatory
-UI input or setup obligation is allowed.
+The release target is a usable Drawing workflow in both applications. Start with a
+fresh Library. Import a photo, generate alternatives, choose or refine one, edit
+its strokes, and reopen the same retained revision. Browse by photo date, rank
+without retaining rejected drawings, and export the selected revision. Import that
+export into the other app's fresh Library. Repeat with a source-free Drawing.
+Prepare on Plotter must select the exact revision and show the actual readiness
+reason with Stop accessible. Use fake effects for automated handoff. A signed
+native check covers visible navigation, focus, and reopen on the running UI.
 
-The accepted target is [Drawing Exchange](DRAWING_EXCHANGE.md). The Flow Edge Dojo
-section below describes the shipped baseline and outstanding model evaluation;
-it does not authorize a competing portfolio, retention or storage authority.
-This campaign replaces its relevant internals with the shared library/authoring
-contract while preserving useful renderer, editing and learning capabilities.
+Historical authoring archives, old catalog schemas, file associations, saved
+layouts and portfolio continuity are outside this release. Existing files stay
+untouched. The current Drawing Exchange v1 profile, new-library restart/recovery,
+digest verification and raw physical evidence remain required. The completed
+[DX-01 inventory](CURRENT_EVIDENCE.md#reachable-callers-replacement-and-retained-owners)
+records the former owners. Use current call sites for implementation.
 
 ### Delivery rules and ownership
 
-Execute one ticket at a time through the normal Blackdog task workflow. Each
-DX ID is stable; completed tickets move to dated Current Evidence receipts rather
-than becoming completion claims here. A ticket may be split into suffixed IDs
-without weakening its parent acceptance. Record exact changed symbols, deleted
-callers, validation commands, fixture identities and remaining blockers in each
-receipt. `docs/DRAWING_EXCHANGE.md` is the contract; this section is the execution
-DAG. A contract conflict blocks the affected ticket for explicit resolution.
+Keep the admitted DX-10 task moving under its recorded definition. After it lands,
+group the eligible slices in each row below into one Blackdog task, one workspace,
+one integration owner and one configured validation on the integrated tree.
+Retain the individual DX IDs and their acceptance criteria. Within a group, reuse
+the preceding slice's work directly. Split a group when a genuine dependency,
+separate execution authority or independently shippable outcome requires it.
 
-Every ticket permits changes only to its listed paths, directly corresponding
-tests, and the canonical documentation needed to describe that change. A directory
-scope permits new files for that responsibility, not unrelated cleanup. Before
-editing, resolve the named symbols against the current tree and record callers;
-a renamed/deleted symbol requires a current replacement proof. Software tickets use local Git and disposable stores. Stage and inspect the signed artifact before a restart after a fix, as authorized by the operator. Reserve physical operation, destructive cleanup and production data promotion for their specific operator handoff. Use disposable library/archive copies and
-simulated devices. Keep machine execution, calibration, paper, Stop, possible-ink,
-retry admission and raw evidence with their existing owners.
-
-An authoring/exchange adapter can consume an existing episode interface. Changes
-to episode-owned runtime seams require a *named eligible package* selected under
-[episode workflow](../.codex/guidance/adaptiveplotter-workflow.md) and the existing
-[execution plan](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md); do not invent eligibility
-or reorder that ledger. DX-13 records the specific package or a blocker after
-inspection. Unrelated document/library/UI/tool tickets proceed independently.
-No new episode runtime, planner, physical archive or competing library writer is
-permitted. Refusal/cancellation is a durable outcome, not permission to retry.
-
-### Replacement inventory at 6305c05
-
-Use this map as the starting worklist. DX-01 reconciles it against current callers, including fixtures, command-line launch variants and conditional compilation. A read-compatible decoder or raw evidence owner may be required even after its UI writer disappears.
-
-| Area and tickets | Baseline callers and disposition |
-|---|---|
-| Object and edit operations (02–03, 05, 08) | `PlotterModel/{CanonicalEncoding,DrawingProgram,DrawingPlacement,DrawingExecutionPlan,DrawingOriginReference}.swift` retain existing hash and planning semantics. Adapt `PortraitCore/{DrawingPackage,PlotAttachment,DrawingStrokeSelection}.swift`, `PortraitArtists/{PortraitCandidate,PortraitAttemptHistory,PortraitDrawing}.swift` and `PortraitLibrary/SavedDrawing.swift` at their producer/import edges. Move shared draw/summary/edit operations and reference/asset verification into the common value or codec. Prove the same revision survives title changes, handoffs and child edits. |
-| Producer and dependency cutover (02, 07–08, 19) | Update `Package.swift` and both executable compositions. Split the camera materialization adapter out of `PortraitPhotoCapture.swift`. Keep `PortraitSourcePreparation`, `PortraitImageAnalyzer`, `PortraitFlowRenderer`, `FlowDojoRenderer` and typed recipes/analysis in the producer. Move library-to-artist semantic validation and library-to-runtime reconciliation to integration adapters with injected typed callbacks. Prove the common object/catalog targets compile without Artists or device runtime. Use the existing source-free catalog plus Flow Edge to exercise both producer paths. |
-| Storage, old identity and selective cleanup (04–07, 17, 19) | Cover **all** files in `Sources/PortraitLibrary/`. Retire Flow portfolio live writes only after replacing capture, rounds/choice/refinement, pruning, ranking, fitting/activation and restart recovery. Keep immutable old delta/head readers for import, conflict/tombstone proof and source evidence. Include `PortraitPhotoPage`, `PortraitParameterPreferenceArchive`, `PortraitEvidenceSource`, legacy snapshot/reconciliation and review jobs/exports in migration. Dry run separately reports explicit retention, protected physical history, provably generated-only and unresolved legacy candidates. Remove generated-only entries from active storage using reversible compaction. Quarantine uncertain originals; never convert a missing old intent log into proof of nonselection. |
-| Browser and workbench routing (08, 10–11, 18–20) | Reachable root `PlotterApplicationRuntimeView`, `WorkbenchTopBar`, `WorkbenchLayout`, `WorkbenchPanels`, `DrawingReviewerView` in `DrawingStudioPhysicalGallery.swift`, `DrawingTransferView`, standalone `PortraitStudioApp` and embedded `PortraitStudioView`. Present Library, Drawing Studio and Plotter as workspace destinations. Move Motion/Video under Plotter and import/export to Library actions. Replace both independent browser selections with exact refs. Keep native session/Stop controls accessible. Preserve layout migration, deep links, focus, old bundle identity/associations and chronological recent-photo access even when starting in Studio. |
-| Authoring and feedback (07–11, 16) | `FlowDojo{Model,View,Sidebar,CameraPanel,Files,Presentation,Training,TrainingProgress,TrainingFeedback}`, `PortraitLine{EditModel,Editor,EditorCanvas,SelectionGeometry}`. Keep real renderer controls, reversible edits and worker cancellation. Replace `FlowPortfolioStore.completeCandidate` durable generation and `PortraitSketchCollection` legacy rate→retain. Replace Curate's button with contextual photo fields; preserve subject/session/exclusion meaning. Move rank comparison to the next set after a committed preference. Keep active checkpoint selection, human/computed mask distinction and held-out groups. |
-| Physical selection, observation and return (12–16) | `PortraitDrawingActions`, `OperatorWorkspace`, `DrawingRunEvidenceComposition`, `PaperCoverageComposition`, `DrawingRunMedia{,Coverage,Validation}`, `DrawingRunProgressFrame`, `DrawingRunObservationPlan`, `DrawingRetrospectiveResidualAnalysis`. A source ref bound before motion is the join key. Retain current camera, interpreter, controller, Stop, no-redraw and raw evidence owners. Passive preview and causal trial simulation have different evidence classes. Exercise the ordinary-run admission with fake ports in tests; do not turn simulated preview into a physical attempt. |
-| Dormant implementations and external tools (16–19) | `PortraitStudio{RootView,Composition,ArtistView,ReviewView,LibraryView}`, their model/launch/file/artist-input helpers and tests require separate caller proof. The standalone entrypoint still references a composition constant. Preserve SwiftSketch protocol/client/converter, model pins and archived experiments where required for interpretation. Cover `Tools/SwiftSketch/{README.md,face_pilot.py,worker.py,prepare.py,prove.py,pilot.py,acquire.py,run_bounded.py}`, `Tools/portrait-library-reconcile`, both Info.plists, Makefile, bundle launch/build/sign/validate scripts, native report/performance gate, repository checker and tests. Change CLI examples and regression filters alongside the caller they exercise. |
-| Evidence and documentation (every cutover, 19–21) | `README.md`, `docs/{INDEX,PRODUCT_CONTRACT,PORTRAIT_STUDIO,SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE,ROADMAP,CURRENT_EVIDENCE}.md`, operator guides and tool READMEs. Add a dependency/forbidden-call check scoped to reachable production targets, allowlist legacy readers by path/purpose, and update executable-path/name checks. Keep historical receipts dated. For every deleted old route require a replacement interaction test and a source search for remaining callers. |
+During development run `make drawing-app-test` and the tests specific to the
+changed behavior. Reuse the worktree's incremental build. Run the configured
+suite at landing and rerun affected checks after a fix. Keep one short outcome
+receipt for the group with the actual commands, results and any unverified
+interaction. Use Blackdog’s validation event and commit for provenance. Keep raw
+logs with the run, outside Git. Assign one owner to run a check and wait for
+its exit. Send updates when a decision, failure or completed interaction changes
+the work.
 
 ### DAG and delivery milestones
 
-| Milestone | Tickets and prerequisites | Reviewable delivery boundary |
+| Delivery order | Work and dependencies | Acceptance |
 |---|---|---|
-| M0: baseline and frozen contracts | DX-01 → DX-02 | Inventory, reference vectors, budgets and ownership; no user behavior change |
-| M1: inert interoperable library | DX-03 ← 02; DX-04 ← 02; DX-05 ← 03,04; DX-06 ← 05 | Independent offline reader; immutable import/export; crash-safe copied library |
-| M2: authoring and browsing cutover | DX-07 ← 05; DX-08 ← 06,07; DX-09 ← 07; DX-10 ← 08,09; DX-11 ← 08,10 | Photos/Drawings, photo metadata, intentional retention and feedback work without hardware |
-| M3: printer boundary and returned evidence | DX-12 ← 02,06; DX-13 ← 01,12; DX-14 ← 06,12,13; DX-15 ← 14; DX-16 ← 09,15 | Separate-process simulated recovery and offline results; physical seam blockers explicit |
-| M4: migration and distribution | DX-17a ← 06,07,11; DX-17b ← 17a,15; DX-18 ← 10,11,12,15; DX-19 ← 11,16,17b,18 | Copied archive rehearsal, signed native apps, obsolete reachable writers removed |
-| M5: software release gate | DX-20 ← 19; DX-21 ← 20 | Native regression, performance and independent critique closed with re-review |
-| M6: separately authorized deployment | DX-22 ← 21 | Operator-approved production migration and attended ink evaluation; separate receipts |
+| 1. Native Drawing workflow | DX-10 builds on DX-08/09. Follow it with DX-11, the current-format app packaging in DX-18, the corresponding DX-19 cleanup and the native authoring cases of DX-20. | Demonstrate the fresh-library journey above in both signed apps. Measure browsing and editing, and remove replaced screens and readers alongside their callers. This milestone can ship independently of the engine. |
+| 2. Job protocol | DX-12 uses DX-02/06. DX-13 depends on DX-12 and an eligible named episode package. | Exercise separate-process job identity, refusal and restart on disposable stores. Record the exact unavailable runtime seam if DX-13 is blocked. |
+| 3. Returning results | After the DX-13 seam, group the eligible DX-14/15 adapters. DX-16 consumes DX-09 and DX-15. Finish engine-specific DX-18/19 integration with its owning change. | Prepare the exact Drawing, recover jobs through the existing runtime, and inspect returned evidence offline. Keep the raw owner of Stop, possible ink, retry and run evidence. |
+| 4. Integrated software release | Complete the remaining DX-20 regression and scale cases on the integrated tree, then DX-21 independent final review. Reuse applicable native evidence from the first delivery. | Both app routes, current-format integrity/recovery, responsiveness and simulated return pass their gates. |
+| 5. Attended deployment | DX-22 follows DX-21 and requires separate operator authorization. | Signed-app handoff and attended ink evidence each have their own result. |
 
-DX-13's runtime prerequisites may hold M3 onward; they must not hold M1/M2 or
-DX-17's authored-data rehearsal. Partial deliveries identify which operations
-remain unavailable. A signed app with simulated results is software evidence.
-M5 does not imply M6 or physical readiness.
+DX-17a/b are deferred. No active milestone depends on either. Any change to an
+episode-owned runtime seam still requires a named eligible package under the
+[episode workflow](../.codex/guidance/adaptiveplotter-workflow.md). A blocked
+seam cannot block the native Drawing workflow. Production data, physical motion
+and model promotion remain separate operator decisions.
 
 ### Ticket acceptance contracts
 
@@ -99,9 +69,9 @@ DX-01's baseline, adopted DX-02/DX-03 contracts and DX-04's implemented
 single-writer storage scope are retained in their dated
 [Current Evidence receipts](CURRENT_EVIDENCE.md#drawing-exchange-dx-04-single-writer-catalog-receipt-2026-11-07).
 Those receipts retain accepted scope/gate/recovery constraints and distinguish
-source observations from authoritative validation/adoption. The unfinished entries
-below retain the existing dependency DAG; the adopted DX-05 cutover is recorded
-above and in Current Evidence.
+source observations from authoritative validation/adoption. The
+[DX-05 cutover receipt](CURRENT_EVIDENCE.md#drawing-first-canonical-adoption-2026-11-08)
+records adoption of the single active format.
 
 The adopted DX-06 inert public result API is recorded in the
 [dated canonical receipt](CURRENT_EVIDENCE.md#dx-06-canonical-adoption-2026-11-08):
@@ -252,54 +222,25 @@ claim geometry re-extraction or residual labels. No success-only filtering or
 implicit negative label. Recovery: create a new immutable training manifest;
 never mutate a checkpoint's prior dataset or activate physical correction.
 
-**DX-17 — Proven-identity migration and copied-archive rehearsal.** DX-17a inventories and rehearses authored storage. DX-17b verifies run/evidence attachment and dependent rollback once DX-15 lands. Allowed:
-`Sources/PortraitLibrary/{PortraitLegacySnapshot,PortraitLibraryReconciler,PortraitLibraryReconciliation,FlowPortfolioLegacyImport,FlowPortfolioStorage,FlowPortfolioPhotoCollection,PortraitReviewStore,PortraitReviewCommit,PortraitReviewExport,PortraitCheckpointStore}.swift`,
-`Tools/portrait-library-reconcile`, migration tests and explicit migration docs.
-Inventory v1 packages, legacy index/SQLite rows, generic drawings, portfolio
-occurrences, root/parent aliases, masks, feedback, checkpoints, run bindings,
-tombstones and source dates. Translate only with exact identity evidence;
-equal hashes alone do not prove occurrence. Preserve original package/media bytes;
-unproven lineage/binding goes to inspectable quarantine with a reason, never fuzzy
-mounting. Rehearse a fresh target on disposable copies with external backup,
-byte/ID/count/date/lineage/possible-ink comparison manifest and deterministic restart.
-Gate: independently checked before/after manifest, interrupted migration, missing
-assets, old namespace forks, competing writers, backup restore and rollback launch.
-No deletion of old archives or production migration. Authored-data rehearsal can
-proceed before blocked physical adapters; label excluded run evidence explicitly.
+**DX-17a/b — Historical archive import, deferred.** Neither authored-data conversion
+nor run-history reconciliation is scheduled for the Drawing refactor. A future
+importer needs its own scope and disposable inputs. Current-format ZIP/directory
+exchange and reopening a library created by this version are supported release paths.
 
-**DX-18 — Supported tools, app launch and distribution.** Allowed:
-`Package.swift`, `Resources/{AdaptivePlotter-Info,PortraitStudio-Info}.plist`,
-`Scripts/{build_local_app,build_portrait_studio_app,validate_local_app_bundle,validate_portrait_studio_app_bundle}.sh`,
-launch/inspect/launcher scripts when directly affected, `Tools/SwiftSketch/`,
-`Tools/portrait-library-reconcile`, app launch option/composition files, related
-script/CLI tests and their docs. Trace actual products, flags and open-document
-handlers before retaining or removing surfaces. Keep supported CLI/SwiftSketch
-conversion and inspection usable through the same contract; review `face_pilot.py`,
-worker/prove/pilot/run_bounded/prepare/acquire readers and independent fixtures.
-Historical pilots/fixtures are labelled historical, not silently promoted or
-indiscriminately deleted. Specify bundle IDs, UTIs/extensions, upgrade associations,
-old filenames and v1 open compatibility; preserve provenance's retained node names
-where required. Gate: clean supported CLI smoke, invalid argument/error paths,
-Python reader against shipped exports, signed-bundle validation, upgrade/open
-fixture, singleton ownership and separate-process no-hardware flow. Never replace
-the operator's running artifact. Recovery: old app/library backup opens retained
-v1 bytes; package handler mismatch is a visible refusal.
+**DX-18 — Current-format apps and supported tools.** Package the actual standalone
+and embedded routes with their existing bundle IDs. Exercise launch, current file
+handling and explicit export/import between fresh libraries. A retired format
+can be refused without modifying it. Keep the independent current-format reader,
+SwiftSketch worker and converter usable. Test the current CLI, failed opens and
+signed bundles. Add the separate-process job smoke when DX-12/15 are ready.
 
-**DX-19 — Delete superseded reachable authorities and synchronize docs.** Allowed:
-only obsolete code/callers established in DX-01 and removed by DX-05…18,
-`README.md`, `docs/{INDEX,PRODUCT_CONTRACT,PORTRAIT_STUDIO,CURRENT_EVIDENCE,DRAWING_EXCHANGE,ROADMAP}.md`,
-other affected routed/runbook/tool docs and direct tests. Produce a deletion receipt
-for each replaced writer/query, JSON/DB mirror, portfolio/package round trip,
-legacy fallback, source-only view or obsolete UI/CLI surface: prior caller chain,
-replacement owner, removed symbols/files, retained read compatibility and negative
-reachability proof (`rg`, product dependency/build and runtime route evidence).
-Keep historical evidence/fixtures and supported v1 readers where still required;
-no implementation deletion merely because an old name appears. Reconcile source
-photo, retention, mask, ranking, Curate, training, browser counts, draft and packaging
-contracts with the target; remove contradictory current instructions and link dated
-history. Gate: supported products compile, narrow tests, `make docs-check`,
-`git diff --check`; no competing active writer or orphan reachable route. Recovery:
-revert code cutover on disposable data, preserve migrated data and original archive.
+**DX-19 — Remove superseded callers during their cutover.** Delete replaced
+writers, queries, format-only commands, UI entrypoints and their exclusive tests
+in the same delivery that removes their use. Check live callers, build both
+products and exercise the replacement interaction where one exists. Update the
+operator instructions at the same time. The final audit checks the remaining
+active routes for duplicate owners and old-format dependencies. Dated evidence
+and historical user files can remain in their original format.
 
 **DX-20 — Native regression and final scale/performance gate.** Allowed:
 related native/app integration/performance tests and harnesses, targeted fixes only
@@ -317,11 +258,11 @@ of the user's running app or physical archive.
 
 **DX-21 — Independent final critique, owner fix and re-review.** Allowed:
 read-only independent review of final diff, contract/DAG, native/performance receipts,
-fixtures, migration/deletion proofs and packaging; fixes only through a new bounded
+current-format fixtures, deleted callers and packaging; fixes only through a bounded
 owner ticket in its permitted paths. Assign a non-author reviewer explicitly for
 this gate (do not reuse an author's self-review). Cover correctness, data loss,
-identity/capability confusion, UI regressions, unsupported legacy/tool casualties,
-performance, migration rollback and physical authority leaks. Findings name severity,
+identity/capability confusion, UI regressions, current tool failures,
+performance, new-library recovery and physical authority leaks. Findings name severity,
 reproducer/evidence, owning ticket and required validation. Owner fixes each release
 blocker; reviewer re-reviews the landed fix and rerun evidence, iterating until
 closed. If capacity or evidence is unavailable, leave M5 blocked and identify the
@@ -329,20 +270,13 @@ missing review; do not call it accepted. Gate: independent critique record,
 findings→owner→fix→re-review closure and no unresolved release blockers. This is
 a requested independent-review work item, not authorization to delegate every task.
 
-**DX-22 — Operator-controlled production rollout and attended evaluation.** Allowed
-only after separate explicit authorization for the exact action: backed-up production
-migration using DX-17's verified tool; signed-app native handoff with operator;
-attended plotting through existing machine owners/runbook. Do not bundle migration,
-hardware motion and model promotion into one approval. Inspect current artifact/PID,
-writer ownership, device/readiness and possible-ink state before action. Verify a
-source-free and photo-derived drawing's exact intended plan, actual run binding,
-returned observations and immutable library identity; compare paper/pen results with
-software expectations. Record controller settlement separately from observed ink.
-Gate: production migration receipt, native interoperability receipt and attended ink
-receipt are separate; physical model promotion requires its own predeclared holdouts
-and explicit acceptance. Failure retains source backups and raw evidence, quarantines
-uncertain bindings and uses existing no-redraw recovery. No automatic retry, source
-cleanup or physical promotion follows software success.
+**DX-22 — Operator-controlled deployment and attended evaluation.** After
+separate authorization for the specific action, verify the signed native handoff
+and attend a source-free and photo-derived drawing through the existing runbook.
+Check readiness, exact plan/run binding, returned observations and Drawing
+identity. Record controller settlement and observed ink independently. Retain the
+original archive, raw evidence and existing no-redraw recovery. Physical model
+promotion needs its own holdouts and authorization.
 
 ### Quantitative scale and regression protocol
 
@@ -353,8 +287,8 @@ run, with realistic shared parents/masks/feedback and equal-byte captures, and
 (c) at least 10 GiB mixed original/prepared images and raw attempt frames. Include
 one unusually large drawing and long interrupted history; document byte/stroke/frame
 distributions rather than claiming row counts represent media cost. Use synthetic
-fixtures plus an opt-in disposable copy of a representative real archive; no real
-archive mutation or benchmark dependence on network/model downloads.
+fixtures in the current format. A disposable current-format archive can supplement
+these measurements. Generate synthetic media locally for reproducible runs.
 
 The contract's invariant budgets in [Drawing Exchange](DRAWING_EXCHANGE.md) apply:
 metadata paging performs zero full artwork/media payload reads and zero renderer
@@ -363,7 +297,7 @@ rehash unrelated immutable assets; camera display frames perform zero library
 queries; hashes/import/export stream files rather than materializing an archive.
 Instrument assertions for these counts, not just elapsed-time tests. Measure
 first-page/next-page, selection-to-preview, edit-to-durable-commit, Rank-to-next,
-photo metadata, reopen, import/export, mount, migration and recovery separately.
+photo metadata, reopen, import/export, mount and current-library recovery separately.
 
 For elapsed/RSS gates use at least 30 measured warm interactive operations after
 warm-up and five cold launches per condition; report median/p95, peak RSS, allocation,
@@ -375,7 +309,7 @@ fixed page size, metadata p95 must remain within 2× and live page/cache memory
 within 1.25×; preloaded fixtures/cache warming cannot hide full scans. For streaming
 10 GiB export/import, doubling payload bytes must not double peak working memory;
 measure throughput and all hashing passes, and require bounded-buffer behavior.
-Large result/migration throughput is reported against baseline and correctness;
+Large result throughput is reported against baseline and correctness;
 it cannot silently weaken byte validation to meet time. Preserve device/camera
 frame scheduling under UI/library work; benchmark acquisition-free and simulated
 frame-fed modes separately. Re-run affected measurements after final fixes.
