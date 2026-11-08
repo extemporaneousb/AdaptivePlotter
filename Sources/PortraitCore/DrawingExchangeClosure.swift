@@ -142,6 +142,36 @@ public struct SelectedDrawingAdmission: Sendable {
 }
 
 public enum ExchangeAdmission {
+  /// Admits one exact catalog inventory without a transport restaging round trip.
+  /// The resolver establishes every file's bytes before the existing full closure
+  /// validator grants its proof. This is not selected-Drawing admission.
+  public static func validate(files: VerifiedExchangeFiles,
+    producerValidators: DrawingProducerValidators = .init(),
+    payloadValidators: ExchangePayloadValidators = .init(), supportedFeatures: Set<String> = [],
+    limits: ExchangeClosureLimits = .init()) throws -> ValidatedExchangePackage {
+    try files.verifyInventory()
+    let bounded = files.scoped(maximumMaterializedBytes: limits.maximumMaterializedBytes)
+    guard try bounded.record(at: "bagit.txt", maximumBytes: limits.maximumRecordBytes) == DrawingExchangeCarrier.bagit else {
+      throw DrawingExchangeError.malformed("Exact BagIt header")
+    }
+    let payload = try DrawingExchangeCarrier.manifest(bounded.record(at: "manifest-sha256.txt", maximumBytes: limits.maximumRecordBytes))
+    let tags = try DrawingExchangeCarrier.manifest(bounded.record(at: "tagmanifest-sha256.txt", maximumBytes: limits.maximumRecordBytes))
+    guard payload.keys.allSatisfy({ $0.hasPrefix("data/") }), !payload.isEmpty,
+      !tags.keys.contains("tagmanifest-sha256.txt"), tags["bagit.txt"] != nil, tags["manifest-sha256.txt"] != nil,
+      tags.keys.allSatisfy({ !$0.hasPrefix("data/") && $0 != "fetch.txt" && !$0.hasPrefix("manifest-") || $0 == "manifest-sha256.txt" }),
+      files.entries["fetch.txt"] == nil,
+      Set(files.entries.keys) == Set(payload.keys).union(tags.keys).union(["tagmanifest-sha256.txt"]) else {
+      throw DrawingExchangeError.malformed("Exact manifest closure")
+    }
+    for (path, digest) in payload.merging(tags, uniquingKeysWith: { a, _ in a }) {
+      guard files.entries[path]?.digest == digest else { throw DrawingExchangeError.digestMismatch(path) }
+    }
+    let index = try files.scoped(maximumMaterializedBytes: limits.maximumMaterializedBytes)
+      .record(at: "data/exchange.json", maximumBytes: limits.maximumRecordBytes)
+    let staged = StagedExchangePackage(files: files, indexJSON: index, stagingURL: files.stagingURL)
+    return try validate(staged, producerValidators: producerValidators,
+      payloadValidators: payloadValidators, supportedFeatures: supportedFeatures, limits: limits)
+  }
   public static func selectDrawing(originalIndexJSON: Data, selected: DrawingRef,
     files: VerifiedExchangeFiles, producerValidators: DrawingProducerValidators = .init(),
     supportedFeatures: Set<String> = [], limits: ExchangeClosureLimits = .init()) throws -> SelectedDrawingAdmission {
@@ -280,6 +310,10 @@ fileprivate final class ExchangeClosureValidator {
     }
     guard records.count < limits.maximumRecords, let file = files.entries[path] else { throw DrawingExchangeError.missingAsset(path) }
     if let digest, file.digest != digest { throw DrawingExchangeError.digestMismatch(path) }
+    guard limits.maximumRecordBytes > 0, file.byteLength <= UInt64(limits.maximumRecordBytes) else {
+      throw DrawingExchangeError.limit("Closure materialization budget")
+    }
+    _ = try files.pinned(at: path)
     let data = try resolver.record(file.digest, maximumBytes: limits.maximumRecordBytes)
     records[path] = data; return data
   }

@@ -1,7 +1,7 @@
 import Foundation
 import PortraitCore
 
-package struct DrawingLibraryPublishedSummary: Codable, Sendable {
+package struct DrawingLibraryPublishedSummary: Codable, Equatable, Sendable {
   package let reference: DrawingRef
   package let programDigest: ExchangeDigest
   package let createdAt: Date
@@ -11,6 +11,17 @@ package struct DrawingLibraryPublishedSummary: Codable, Sendable {
   package let minY: Double
   package let maxX: Double
   package let maxY: Double
+  /// Result discovery uses only the original validated record date.
+  package init(original frozen: FrozenDrawingRecord) throws {
+    let json = try ExchangeJSON.validate(frozen.originalJSON)
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    guard let timestamp = json["createdAt"] as? String else { throw DrawingLibraryError.invalidIdentity }
+    let fractional = formatter.date(from: timestamp)
+    formatter.formatOptions = [.withInternetDateTime]
+    guard let date = fractional ?? formatter.date(from: timestamp) else { throw DrawingLibraryError.invalidIdentity }
+    self.init(frozen, createdAt: date)
+  }
   package init(_ frozen: FrozenDrawingRecord, createdAt: Date) {
     reference = frozen.reference; programDigest = ExchangeDigest(frozen.drawing.programDigest)
     let json = try? JSONSerialization.jsonObject(with: frozen.originalJSON) as? [String: Any]
@@ -60,6 +71,11 @@ extension LibraryExchangeCatalog {
     guard try retentionIntent(attachment.intent, requestDigest: attachment.requestDigest) == ref else {
       throw LibraryExchangeCatalogError.invalidPublication("Frozen retention intent is missing or divergent")
     }
+    try verifySummary(summary)
+  }
+
+  package func verifySummary(_ summary: DrawingLibraryPublishedSummary) throws {
+    let ref = summary.reference
     let values: [String?] = [ref.issuer.uuidString.lowercased(), ref.revision.uuidString.lowercased(),
       ref.digest.description, summary.programDigest.description, String(summary.createdAt.timeIntervalSince1970),
       String(summary.strokeCount), String(summary.pointCount), String(summary.minX), String(summary.minY),
@@ -83,7 +99,13 @@ extension LibraryExchangeCatalog {
       let ref = summary.reference
       if let prior = try retentionIntent(attachment.intent, requestDigest: attachment.requestDigest), prior != ref { throw DrawingLibraryError.staleSelection }
       try database.execute("INSERT OR IGNORE INTO dx_retention_intent(id,issuer,revision,digest,request_digest) VALUES(?,?,?,?,?)", [attachment.intent.uuidString.lowercased(), ref.issuer.uuidString.lowercased(), ref.revision.uuidString.lowercased(), ref.digest.description, attachment.requestDigest.description])
-      try database.execute("INSERT OR IGNORE INTO dx_drawing_summary(namespace,identity,digest,program_digest,created_at,stroke_count,point_count,min_x,min_y,max_x,max_y) VALUES(?,?,?,?,?,?,?,?,?,?,?)", [ref.issuer.uuidString.lowercased(), ref.revision.uuidString.lowercased(), ref.digest.description, summary.programDigest.description, String(summary.createdAt.timeIntervalSince1970), String(summary.strokeCount), String(summary.pointCount), String(summary.minX), String(summary.minY), String(summary.maxX), String(summary.maxY)])
+      try applySummary(summary)
     }
   }
+  package func applySummary(_ summary: DrawingLibraryPublishedSummary) throws {
+    let ref = summary.reference
+    try database.execute("INSERT OR IGNORE INTO dx_drawing_summary(namespace,identity,digest,program_digest,created_at,stroke_count,point_count,min_x,min_y,max_x,max_y) VALUES(?,?,?,?,?,?,?,?,?,?,?)", [ref.issuer.uuidString.lowercased(), ref.revision.uuidString.lowercased(), ref.digest.description, summary.programDigest.description, String(summary.createdAt.timeIntervalSince1970), String(summary.strokeCount), String(summary.pointCount), String(summary.minX), String(summary.minY), String(summary.maxX), String(summary.maxY)])
+    try verifySummary(summary)
+  }
+
 }

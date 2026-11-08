@@ -82,10 +82,25 @@ extension DrawingLibrary {
     var metadata:LibraryExchangeMetadata
     if let bound=drawing.reference,let db,try tableExists("dx_record",in:db),let actual=try db.scalar("SELECT digest FROM dx_record WHERE kind='drawing' AND namespace=? AND identity=?",[bound.issuer.uuidString.lowercased(),bound.revision.uuidString.lowercased()]) {
       guard actual==bound.digest.description else { throw DrawingLibraryError.referenceConflict(bound,actual:try ExchangeDigest(actual)) }
-      boundDrawing = try self.drawing(bound)
-      ref=bound;publication=nil;root=nil;attachment=nil;already=true
+      ref=bound;root=nil;already=true
       metadata=try preparedMetadata(ref,database:db) ?? .init(reference:.drawing(ref))
       if metadata.tombstoned { throw DrawingLibraryError.deleted(ref) }
+      var local: Drawing?
+      do { local = try self.drawing(bound) }
+      catch DrawingLibraryError.unsupportedFeature { /* Only unsupported local context permits explicit supplied admission. */ }
+      if let local {
+        boundDrawing=local;publication=nil;attachment=nil
+      } else {
+        guard let supplied=closure.publication,case .materialized(let suppliedDrawing)?=supplied.drawings[bound],suppliedDrawing.drawing.program==drawing.program else {
+          throw DrawingLibraryError.unsupportedFeature("Bound Drawing needs an admitted supported publication context")
+        }
+        let proof=try ExchangeAdmission.selectDrawing(originalIndexJSON:supplied.index.originalJSON,selected:bound,files:supplied.files,producerValidators:producerValidators)
+        guard case .materialized(let value)=proof.admission,value.reference==bound,value.drawing.program==drawing.program else {
+          throw DrawingLibraryError.unsupportedFeature("Supplied Drawing publication context")
+        }
+        boundDrawing=value.drawing;publication=supplied
+        attachment = .init(libraryUUID:issuer,intent:intent.id,requestDigest:request,summary:try .init(original:value))
+      }
     } else {
       let frozen:FrozenDrawingRecord
       if let bound=drawing.reference {
@@ -144,7 +159,7 @@ extension DrawingLibrary {
       pending.append(selected)
     }
     var retained:[DrawingLibraryExistingRetention]=[]
-    for selected in pending where selected.publication == nil {
+    for selected in pending where selected.alreadyRetained {
       var metadata=try catalog.metadata(.drawing(selected.reference)) ?? .init(reference:.drawing(selected.reference))
       if metadata.tombstoned { throw DrawingLibraryError.deleted(selected.reference) }
       for reason in selected.metadata.retentionReasons where !metadata.retentionReasons.contains(reason) { metadata.retentionReasons.append(reason) }
@@ -155,7 +170,7 @@ extension DrawingLibrary {
     let roots=pending.filter{$0.publication != nil}.map(\.reference)
     let publication=try prepareBatchPublication(publications,roots:roots,assets:assets,publicationID:id)
     defer { if let root=publication.temporaryRoot { try? FileManager.default.removeItem(at:root) } }
-    _ = try catalog.publish(publication.package,metadata:pending.filter{$0.publication != nil}.map(\.metadata),attachments:pending.compactMap(\.attachment),domainCommit:commit)
+    _ = try catalog.publish(publication.package,metadata:pending.filter{$0.publication != nil && !$0.alreadyRetained}.map(\.metadata),attachments:pending.compactMap(\.attachment),domainCommit:commit)
     for value in prepared { discardPending(value.token) }
     return pending.map{.init(reference:$0.reference,wasAlreadyRetained:$0.alreadyRetained)}
   }

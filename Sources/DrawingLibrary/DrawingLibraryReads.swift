@@ -32,37 +32,93 @@ extension DrawingLibrary {
       let digest = try ExchangeDigest(stored)
       guard digest == ref.digest else { throw DrawingLibraryError.referenceConflict(ref, actual: digest) }
       if let metadata=try preparedMetadata(ref,database:db),metadata.tombstoned { throw DrawingLibraryError.deleted(ref) }
-      let inventory = try publicationFiles(for: ref, db: db)
-      let files = try VerifiedExchangeFiles(catalogRoot: directoryURL, inventory: inventory)
-      let index = try files.record(at: "data/exchange.json"), indexDigest = ExchangeDigest.hash(index)
       if let cached = selectedDrawingCache[ref] {
-        if cached.indexDigest == indexDigest {
+        // A cache hit still belongs to an exact current publication/index. Its
+        // selected fingerprints prove the assets without decoding the program.
+        let candidates = try publicationCandidates(.drawing(ref), database: db)
+        if let candidate = candidates.first(where: { $0.index == cached.indexDigest }) {
           do {
-            try cached.files.revalidateSelected()
-            touchSelectedDrawing(ref)
-            return cached.value
+            let files = try publicationFiles(candidate, database: db)
+            let index = try files.record(at: "data/exchange.json")
+            guard ExchangeDigest.hash(index) == cached.indexDigest else { throw DrawingLibraryError.invalidIdentity }
+            do {
+              try cached.files.revalidateSelected()
+              let selected = try cached.files.selectedVerifiedFiles()
+              guard selected.entries.allSatisfy({ path, value in
+                files.entries[path]?.digest == value.digest && files.entries[path]?.byteLength == value.byteLength
+              }) else { throw DrawingLibraryError.invalidIdentity }
+              touchSelectedDrawing(ref)
+              return cached.value
+            } catch {
+              evictSelectedDrawing(ref)
+              // Re-admit this very context before considering another one. A
+              // benign inode replacement succeeds; corrupt/missing bytes throw.
+              let proof = try ExchangeAdmission.selectDrawing(originalIndexJSON: index, selected: ref, files: files, producerValidators: producerValidators)
+              if case .materialized(let frozen) = proof.admission {
+                selectedDrawingCache[ref] = (proof.indexDigest, proof.files, frozen.drawing)
+                touchSelectedDrawing(ref)
+                return frozen.drawing
+              }
+            }
           } catch {
-            // A valid immutable object may have a new inode or file version.
-            // Require fresh admission to verify its bytes again.
+            evictSelectedDrawing(ref)
+            throw error
           }
         }
         evictSelectedDrawing(ref)
       }
-      let proof = try ExchangeAdmission.selectDrawing(originalIndexJSON: index, selected: ref, files: files, producerValidators: producerValidators)
-      guard case .materialized(let frozen) = proof.admission else {
-        throw DrawingLibraryError.unsupportedFeature(proof.capabilities.unsupportedReasons.first ?? "Opaque drawing representation")
-      }
+      let proof = try selectedDrawingPublication(for: ref, database: db)
+      guard case .materialized(let frozen) = proof.admission else { throw DrawingLibraryError.unsupportedFeature("Opaque drawing representation") }
+      let indexDigest = proof.indexDigest, files = proof.files
       selectedDrawingCache[ref] = (indexDigest, files, frozen.drawing)
       touchSelectedDrawing(ref)
       return frozen.drawing
     }
   }
-  package func publicationFiles(for ref: DrawingRef, db: DrawingLibraryDatabase) throws -> [ExchangeCatalogFile] {
-    guard let transaction = try db.scalar("SELECT transaction_id FROM dx_tx_record WHERE kind='drawing' AND namespace=? AND identity=? ORDER BY transaction_id LIMIT 1", [ref.issuer.uuidString.lowercased(), ref.revision.uuidString.lowercased()]) else { throw DrawingLibraryError.missing(ref) }
-    return try db.rows("SELECT f.path,f.digest,o.byte_length FROM dx_tx_file f JOIN dx_object o ON o.digest=f.digest WHERE f.transaction_id=? ORDER BY f.path", [transaction]).map { row in
-      guard let path = row[0], let hash = row[1], let size = row[2].flatMap(UInt64.init) else { throw DrawingLibraryError.invalidIdentity }
-      return .init(path: path, storagePath: "objects/sha256/" + hash, digest: try ExchangeDigest(hash), byteLength: size)
+  package struct LibraryPublicationCandidate {
+    let transaction: String
+    let index: ExchangeDigest
+    let package: ExchangeDigest
+  }
+  package func publicationCandidates(_ reference: LibraryExchangeReference, database db: DrawingLibraryDatabase) throws -> [LibraryPublicationCandidate] {
+    // Duplicate identical contexts are equivalent; transaction UUID order is not
+    // a semantic choice. The caller may prefer an associated verified cache.
+    try db.rows("SELECT MIN(t.id),t.index_digest,t.package_digest FROM dx_tx_record r JOIN dx_transaction t ON t.id=r.transaction_id WHERE r.kind=? AND r.namespace=? AND r.identity=? GROUP BY t.index_digest,t.package_digest ORDER BY t.index_digest,t.package_digest", reference.key.map(Optional.some)).map { row in
+      guard let transaction = row[0], let index = row[1], let package = row[2] else { throw DrawingLibraryError.invalidIdentity }
+      return .init(transaction: transaction, index: try ExchangeDigest(index), package: try ExchangeDigest(package))
     }
+  }
+  package func publicationFiles(_ candidate: LibraryPublicationCandidate, database db: DrawingLibraryDatabase) throws -> VerifiedExchangeFiles {
+    let entries = try db.rows("SELECT f.path,f.digest,o.byte_length FROM dx_tx_file f JOIN dx_object o ON o.digest=f.digest WHERE f.transaction_id=? ORDER BY f.path", [candidate.transaction]).map { row -> LibraryExchangeStorageEntry in
+      guard let path = row[0], let hash = row[1], let size = row[2].flatMap(UInt64.init) else { throw DrawingLibraryError.invalidIdentity }
+      return .init(path: path, digest: try ExchangeDigest(hash), byteLength: size)
+    }
+    guard LibraryExchangeCatalog.inventoryDigest(entries) == candidate.package,
+      entries.first(where: { $0.path == "data/exchange.json" })?.digest == candidate.index else { throw DrawingLibraryError.invalidIdentity }
+    return try VerifiedExchangeFiles(catalogRoot: directoryURL, inventory: entries.map {
+      .init(path: $0.path, storagePath: "objects/sha256/" + $0.digest.description, digest: $0.digest, byteLength: $0.byteLength)
+    })
+  }
+  /// Selects a supported authored context, not a result delivery. Unsupported
+  /// contexts remain independently inspectable/exportable through their result
+  /// handles. Integrity failures are never treated as unsupported semantics.
+  package func selectedDrawingPublication(for ref: DrawingRef, database db: DrawingLibraryDatabase) throws -> SelectedDrawingAdmission {
+    var reason = "No supported Drawing publication context"
+    let candidates = try publicationCandidates(.drawing(ref), database: db)
+    guard !candidates.isEmpty else { throw DrawingLibraryError.missing(ref) }
+    for candidate in candidates {
+      let files = try publicationFiles(candidate, database: db)
+      let index = try files.record(at: "data/exchange.json")
+      guard ExchangeDigest.hash(index) == candidate.index else { throw DrawingLibraryError.invalidIdentity }
+      do {
+        let proof = try ExchangeAdmission.selectDrawing(originalIndexJSON: index, selected: ref, files: files, producerValidators: producerValidators)
+        if case .materialized = proof.admission { return proof }
+        reason = proof.capabilities.unsupportedReasons.first ?? "Opaque drawing representation"
+      } catch DrawingExchangeError.unsupportedProfile(let profile) {
+        reason = profile
+      }
+    }
+    throw DrawingLibraryError.unsupportedFeature(reason)
   }
 
   public func drawings(limit: Int = 50, after: DrawingLibraryCursor? = nil) throws -> DrawingLibraryPage {

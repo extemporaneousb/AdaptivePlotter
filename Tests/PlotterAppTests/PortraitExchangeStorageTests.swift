@@ -39,7 +39,7 @@ struct LibraryExchangeStorageTests {
       retentionReasons: [String(repeating: "r", count: 32), String(repeating: "s", count: 32)], tombstoned: false) }
     let id = UUID()
     let publication = LibraryExchangePublication(version: 1, transactionID: id, indexDigest: digest,
-      packageDigest: digest, records: records, links: links, metadata: metadata, attachments: [], domainCommit: nil)
+      packageDigest: digest, records: records, links: links, metadata: metadata, attachments: [], domainCommit: nil, resultHeader: nil)
     let intent = try JSONEncoder().encode(publication)
     #expect(intent.count > 1024 * 1024)
     #expect(intent.count <= LibraryExchangeStorage.maximumPublicationIntentBytes)

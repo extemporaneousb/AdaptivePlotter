@@ -8,6 +8,104 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DX-06 inert result API software receipt, 2026-11-08
+
+Dated pre-gate observation for Blackdog task
+`task-7b8cc6a988bb4d5a9c4c79411c38f875`, based on adopted DX-05
+`bb9ab0c88d5cc95f72cb45bc258cf1a577a9200d`. At this snapshot, final configured
+validation and normal landing had not run. Authoritative subsequent validation,
+caller-declared criterion assessments and landing status belong to that task;
+these software probes do not claim them or completion of the wider DX campaign.
+
+The concrete Library exposes inert result mount, exact-publication read and
+byte-preserving export, plus global and full-DrawingRef chronological metadata
+queries. Result identity binds original index and complete inventory digests.
+Canonical indexed headers/roots and known materialized Drawing summaries share
+the existing publication journal/SQL transaction. Opaque results remain globally
+discoverable without invented Drawing metrics. Original refs and mutable titles,
+reasons and tombstones survive authored-context adoption. No second writer or
+execution authority was introduced.
+
+| Observation | Actual retained outcome |
+| --- | --- |
+| Final serial broader build/test run | Exit 0, 166.317 s; 146 XML cases: 142 passes, four declared skips, no failures/errors; all 922 inputs unchanged |
+| Independent public-only client | Fresh build and runtime assertions exit 0, 85.282 s; exact offline result bytes, readonly discovery, opaque capability denial, same-ref authored upgrade and real public quarantine catch |
+| Client dependency closure | Reachable client/Common/Core/Model/CSQLite only; emitted package Swift modules client/Common/Core/Model; full package plan retained separately |
+| Normal all-products build | Cached exit 0, 2.271 s; both actual app executable hashes retained; no launch/signing/deployment claim |
+
+The broader suite exercises result closure/recovery, refused zero-attempt jobs,
+exact duplicate and uncertain COMMIT retry, divergent quarantine, full-ref refusal,
+publication-specific inventory selection, metadata without artwork, compatible
+Drawing/input contexts, equal-byte typed-record/asset roles, and selected raw/JSON
+asset tamper refusal. Existing exchange/storage/process recovery, projection and
+Flow persistence suites also ran. These counts overlap earlier probes and must
+not be summed. No new result-query timing or operation-local memory claim is made.
+
+Raw observations, XML, inputs, exact public-client sources/provenance, dependency
+observations, source freezes and a SHA-256 manifest are retained outside the repo
+under `/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx06-result-delivery/`.
+Earlier compile failures and the raw-asset, stale-context-test and typed-role
+failures remain failed in that manifest. Static review is caller-declared, not
+machine validation. Explicit baseline cache revalidation was preserved and tested;
+removal of that call alone was not a demonstrated bypass, because selected-file
+construction already reopens included fingerprints.
+
+Default native/owner payload validators remain conservative: bytes and existing
+Core inspection views do not establish arbitrary owner semantics or permission to
+interpret results. Unknown required features remain preservable/exportable while
+interpretation is denied. Closed sequence 1…N does not imply terminal/sealed or
+live retry/no-ink authority. Historical import/GC, production data, physical
+operation, signed app restart/deployment, model promotion and remote Git remain
+outside this work. No new mandatory user inputs were added.
+
+### DX-06 configured-gate OCR follow-up, 2026-11-08
+
+The first configured run `dx06-result-api-final-20261108-1`, event
+`cf7afc7753e3044849013966ea1836c6b5aefbe742314bd8b348d29e22158119`,
+**failed**, on committed tree `a02be2816ab0cdc09f48e7b2d94b1a3f9a81ec5a`.
+Docs-check passed; quick-test exited 2 after 1,162.541 s; diff-check did not run.
+Its XML has 1,850 cases: 1,823 passes, 26 skips, one failed native OCR case,
+no errors. Configured command output was not retained. The raw typed receipt and
+XML remain failure evidence; they are not replaced by the following diagnostic.
+
+An unchanged one-case diagnostic reproduced the failure. Its actual 2000×1100
+capture of the 1000×550 host shows the full, unclipped “No active checkpoint”
+caption. A separate Vision-only probe on those same pixels missed the exact phrase
+in accurate mode and recovered it in fast mode. This does not establish a product
+font/layout defect or a 1× capture problem. The test helper now uses a fixed
+accurate/fast pair on the same full image, preserving vocabulary, top-five
+candidates, exact phrase/model-nil/geometry/scroll assertions and existing button
+fallbacks. It adds per-mode candidates to failure diagnostics; there is no fuzzy
+alias, crop, rescaling, skip or product change. Recognition remains probabilistic.
+
+The normal one-case build/test rerun passed: one XML case, no skips/failures/errors,
+175.848 s including compilation. All 922 inputs were unchanged during that run.
+All 305 production inputs still match the accepted public-client and app-build
+observations; only the test helper and this dated documentation supplement differ
+from the first configured tree. Original observations remain sealed, with new
+supplementary hashes under the chat's `dx06-result-ocr-supplement/` directory.
+Subsequent configured validation, acceptance and landing are owned by Blackdog
+task `task-7b8cc6a988bb4d5a9c4c79411c38f875`; this follow-up does not claim them.
+
+## Drawing-first canonical adoption, 2026-11-08
+
+Blackdog task `task-89f7fee3b6c847e9ae9acebb9b901347` completed normal local
+landing at `bb9ab0c88d5cc95f72cb45bc258cf1a577a9200d`, tree
+`86c0841b27c535e23dd706ad0319ad7b9124b69a`. Configured gate
+`drawing-first-cutover-final-20261108-3`, event
+`35866ddab9edbab36f3066c18778449b0883b48cfda2cd0f32c6bc0d5a59f6a0`,
+completed docs-check, full quick-test and diff-check with exit 0. Its retained XML
+records 1,798 passes and 26 skips, no failures or errors. Configured command output
+was not retained by the installed runtime; typed receipts and external XML are the
+authority. All nine bounded caller-declared criteria were recorded current/met
+after verified landing. Earlier failed runs remain failed and scoped probes remain separate.
+Historical import, arbitrary persisted Flow producer semantic revalidation, signed
+native deployment, AX and physical operation were not established by this task.
+
+DX-06 result API task `task-7b8cc6a988bb4d5a9c4c79411c38f875` starts from that
+adopted commit. Its admission and immutable definition are not implementation or
+validation evidence.
+
 ## Drawing-first cutover scope correction, 2026-11-07
 
 The compatibility-oriented DX-05 task

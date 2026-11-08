@@ -85,13 +85,12 @@ public final class VerifiedExchangeFiles: @unchecked Sendable {
   init(entries: [String: VerifiedExchangeFile], stagingURL: URL, limits: ExchangeCarrierLimits,
     counters: ExchangeCarrierCounters) throws {
     self.entries = entries; self.stagingURL = stagingURL; self.limits = limits; self.counters = counters; materializationBudget = nil
-    var handles: [String: ExchangeFileFingerprint] = [:], byDigest: [ExchangeDigest: String] = [:]
+    var handles: [String: ExchangeFileFingerprint] = [:]
     for (path, entry) in entries {
       _ = try entry.fingerprint.open()
       handles[path] = entry.fingerprint
-      byDigest[entry.digest] = path
     }
-    self.handles = handles; self.byDigest = byDigest
+    self.handles = handles; self.byDigest = Self.digestPaths(entries)
   }
   /// Pins one catalog root; hashes only selected files when first touched. This is
   /// not carrier admission and grants no whole-publication integrity claim.
@@ -120,7 +119,18 @@ public final class VerifiedExchangeFiles: @unchecked Sendable {
     limits: ExchangeCarrierLimits, counters: ExchangeCarrierCounters) {
     self.entries = entries; stagingURL = rootURL; self.limits = limits; self.counters = counters; materializationBudget = nil
     handles = entries.mapValues(\.fingerprint)
-    byDigest = Dictionary(entries.values.map { ($0.digest, $0.path) }, uniquingKeysWith: { first, _ in first })
+    byDigest = Self.digestPaths(entries)
+  }
+  /// Equal bytes can have both a typed-record role and an asset role. Digest
+  /// reads select the canonical asset when present; typed owners read their
+  /// explicit record paths. Dictionary iteration must not choose either role.
+  private static func digestPaths(_ entries: [String: VerifiedExchangeFile]) -> [ExchangeDigest: String] {
+    var result: [ExchangeDigest: String] = [:]
+    for path in entries.keys.sorted() {
+      let digest = entries[path]!.digest
+      if result[digest] == nil || path == "data/objects/sha256/" + digest.description { result[digest] = path }
+    }
+    return result
   }
   /// Rechecks only files whose hashes this resolver actually established.
   /// Streams integrity verification for every immutable inventory path. This
@@ -327,6 +337,7 @@ enum ExchangeObjectResolver {
       try asset.validate(bytes)
     case .files(let f, _):
       guard try f.byteLength(asset.object) == asset.byteLength else { throw DrawingExchangeError.malformed("Asset length") }
+      try f.verify(asset.object)
     }
   }
 }

@@ -8,6 +8,11 @@ private extension DrawingLibrary {
   func cacheState() -> (Set<DrawingRef>, [DrawingRef]) {
     (Set(selectedDrawingCache.keys), selectedDrawingCacheRecency)
   }
+  func copyCachedContextFixture(_ reference: DrawingRef, from source: DrawingLibrary) async throws {
+    guard let cached = await source.selectedDrawingCache[reference] else { throw DrawingLibraryError.missing(reference) }
+    selectedDrawingCache[reference] = cached
+    touchSelectedDrawing(reference)
+  }
   func publishContextFixture(_ admitted: ValidatedExchangePackage, transactionID: UUID) throws {
     let catalog = try commonCatalog()
     _ = try catalog.publish(admitted, transactionID: transactionID)
@@ -17,7 +22,7 @@ private extension DrawingLibrary {
 
 @Suite("DX05 stored index context", .serialized)
 struct DrawingLibraryIndexContextCacheTests {
-  @Test("A cached public drawing cannot escape a newly selected unknown-required-feature publication")
+  @Test("Supported contexts remain readable while an unassociated cache cannot escape an opaque-only context")
   func publicDrawingRechecksSelectedIndexContext() async throws {
     let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("dx05-index-cache-" + UUID().uuidString)
     try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
@@ -62,15 +67,26 @@ struct DrawingLibraryIndexContextCacheTests {
       Issue.record("Unknown index unexpectedly materialized"); return
     }
     #expect(bytes == frozen.originalJSON)
-    // Pin deterministic selection of this publication without editing any issued record.
+    // A transaction UUID no longer determines authored-context selection.
     let firstTransaction = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000000"))
     try await store.publishContextFixture(unknown, transactionID: firstTransaction)
-    await #expect(throws: DrawingLibraryError.self) { try await store.drawing(reference) }
+    #expect(try await store.drawing(reference).reference == reference)
+    guard case .opaque(let preserved, _) = try #require(unknown.drawings[reference]) else {
+      Issue.record("Opaque publication was reinterpreted"); return
+    }
+    #expect(preserved == frozen.originalJSON)
+    let opaqueDirectory = temporary.appendingPathComponent("opaque-only-library")
+    let opaqueOnly = DrawingLibrary(directoryURL: opaqueDirectory)
+    try await opaqueOnly.publishContextFixture(unknown, transactionID: UUID())
+    try await opaqueOnly.copyCachedContextFixture(reference, from: store)
+    await #expect(throws: DrawingLibraryError.self) { try await opaqueOnly.drawing(reference) }
+    await opaqueOnly.closeLibrary()
     await store.closeLibrary()
-    let reopened = DrawingLibrary(directoryURL: directory)
+    let reopened = DrawingLibrary(directoryURL: opaqueDirectory)
     await #expect(throws: DrawingLibraryError.self) { try await reopened.drawing(reference) }
     await reopened.closeLibrary()
   }
+
   @Test("Atomic replacement revalidates identical bytes, rejects tampering, and can recover")
   func selectedObjectAtomicReplacement() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("drawing-cache-replacement-" + UUID().uuidString)

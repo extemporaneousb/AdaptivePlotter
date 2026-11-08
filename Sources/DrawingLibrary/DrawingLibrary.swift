@@ -5,6 +5,7 @@ public enum DrawingLibraryError: Error, Sendable {
   case unavailable(String), staleSelection, invalidIdentity, invalidQuery, closed
   case missing(DrawingRef), deleted(DrawingRef), writerBusy
   case referenceConflict(DrawingRef, actual: ExchangeDigest)
+  case quarantinedConflict(URL)
   case unsupportedFeature(String), corruptAsset(ExchangeDigest), ownership(String)
   case recordIntentConflict(UUID, expected: ExchangeDigest, actual: ExchangeDigest)
   case retentionIntentConflict(UUID, expected: ExchangeDigest, actual: ExchangeDigest)
@@ -36,6 +37,7 @@ public actor DrawingLibrary {
   public nonisolated let directoryURL: URL
   package var database: DrawingLibraryDatabase?
   package var cachedExchangeCatalog: LibraryExchangeCatalog?
+  package let payloadValidators: ExchangePayloadValidators
   package let producerValidators: DrawingProducerValidators
   package static let selectedDrawingCacheLimit = 8
   package var selectedDrawingCache: [DrawingRef: (indexDigest: ExchangeDigest, files: VerifiedExchangeFiles, value: Drawing)] = [:]
@@ -47,8 +49,10 @@ public actor DrawingLibrary {
   package var committedGeneration: DrawingLibraryGeneration?
   package var committedIndexState: DrawingLibraryFileState?
   package var closed = false
-  public init(directoryURL: URL, validators: DrawingProducerValidators = .init()) {
+  public init(directoryURL: URL, validators: DrawingProducerValidators = .init(),
+    payloadValidators: ExchangePayloadValidators = .init()) {
     self.directoryURL = directoryURL; producerValidators = validators
+    self.payloadValidators = payloadValidators
   }
   public nonisolated static var defaultDirectoryURL: URL {
     FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

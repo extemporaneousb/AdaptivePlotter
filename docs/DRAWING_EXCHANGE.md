@@ -229,6 +229,28 @@ See the [Roadmap](ROADMAP.md#drawing-exchange) for implementation dependencies, 
 | PROV / RO-Crate | Borrow explicit derivation and attribution. Consider RO-Crate for publishing research datasets. Its JSON-LD metadata can live in a file. Our two applications have a fixed relationship vocabulary, so the interoperability benefit currently belongs at the research export boundary. [W3C PROV-DM](https://www.w3.org/TR/prov-dm/) · [RO-Crate](https://www.researchobject.org/ro-crate/specification/1.3/structure.html) |
 | Historical DrawingPackage / PlotAttachment | Preserve historical files and frozen hashes untouched. Legacy authoring-format runtime readers and writers are retired by the Drawing-first cutover; a future explicit importer may recover proven facts without inventing origin or media. Physical run/evidence ownership remains unchanged. |
 
+## Inert Library result API scope, 2026-11-08
+
+The remaining DX-06 public layer belongs to the existing concrete DrawingLibrary
+owner. A result reference consists of the exact original exchange index digest and
+complete publication inventory digest. Multiple result deliveries and an authored
+publication can contain the same DrawingRef; selected result reads/exports must
+use that result's inventory, never a first Drawing match. Indexed declared root
+metadata carries no interpretation privilege. Admission of the selected verified
+inventory recomputes Core capabilities, including unknown-feature restrictions.
+Original index, receipts, snapshots, assessments, media and extension bytes remain
+the export representation. Closed results can end at an unsealed, nonterminal
+sequence N, provided the finite 1…N/media closure is self-contained. Refused jobs
+with zero attempts remain run-free. Read-only pages use catalog metadata without
+acquiring a writer or reading artwork. Global result metadata discovery includes
+opaque deliveries after restart; a full-DrawingRef selector is an optional narrower
+query scope, and cursors cannot cross scopes. Ordinary Drawing summaries are
+installed atomically only for admitted materialized declared roots, using their
+original record dates. Opaque roots do not gain invented program metrics, and
+existing titles, retention reasons and tombstones remain unchanged.
+This scoped work grants no execution,
+retry, no-ink or other live physical authority; historical import stays deferred.
+
 ## Current software cutover boundary, 2026-11-08
 
 The concrete `DrawingLibrary` target supplies the active shared owner, exact-ref

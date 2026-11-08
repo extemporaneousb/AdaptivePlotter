@@ -122,10 +122,11 @@ struct PortraitStudioNativeLayoutTests {
               #expect(dojo.document?.candidates.count ?? 0 == renders)
               try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: name + "-scrolled")
               if stage == .fit {
-                let visible = try renderedDojoLabels(host.view).map(normalizeDojoLabel)
+                let observation = try renderedDojoLabels(host.view)
+                let visible = observation.labels.map(normalizeDojoLabel)
                 for title in ["Curation stage", "Results", "Activate"] {
                   #expect(visible.contains { $0.contains(normalizeDojoLabel(title)) },
-                    "Fit history and the pinned stage selector must remain reachable after scrolling at \(size): \(visible)")
+                    "Fit history and the pinned stage selector must remain reachable after scrolling at \(size): \(visible). OCR modes: \(observation.diagnostic)")
                 }
               }
             }
@@ -172,7 +173,8 @@ struct PortraitStudioNativeLayoutTests {
           "Embedded document control overflows horizontally: \(rect) in \(host.bounds)")
       }
     }
-    let labels = try renderedDojoLabels(host).map(normalizeDojoLabel)
+    let observation = try renderedDojoLabels(host)
+    let labels = observation.labels.map(normalizeDojoLabel)
     let required = ["Flow Edge Dojo", "Import Photo", "Capture Photo", "Branches",
       "Curation stage", "Explore", "Prune", "Rank", "Fit & deploy"]
       + (stage == .explore ? ["Broad exploration", "Compare this set"]
@@ -180,12 +182,12 @@ struct PortraitStudioNativeLayoutTests {
         : stage == .rank ? ["Rank by artistic preference", "Next pair"] : ["Fit portfolio"])
     for title in required {
       #expect(labels.contains { $0.contains(normalizeDojoLabel(title)) },
-        "Embedded \(stage.rawValue) core control '\(title)' is not visible at \(size): \(labels)")
+        "Embedded \(stage.rawValue) core control '\(title)' is not visible at \(size): \(labels). OCR modes: \(observation.diagnostic)")
     }
     if stage == .fit {
       #expect(dojo.activeCheckpoint == nil)
       #expect(labels.contains { $0.contains(normalizeDojoLabel("No active checkpoint")) },
-        "The exact inactive checkpoint status must be visible at \(size): \(labels)")
+        "The exact inactive checkpoint status must be visible at \(size): \(labels). OCR modes: \(observation.diagnostic)")
     }
     #expect(labels.contains { $0.hasPrefix("branches") }, "Branch access must be visible without scrolling the photo library.")
   }
@@ -266,23 +268,30 @@ struct PortraitStudioNativeLayoutTests {
     return found
   }
 
-  private func renderedDojoLabels(_ host: NSView) throws -> [String] {
+  private func renderedDojoLabels(_ host: NSView) throws -> (labels: [String], diagnostic: String) {
     let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
     host.cacheDisplay(in: host.bounds, to: bitmap)
     let image = try #require(bitmap.cgImage)
-    let request = VNRecognizeTextRequest(); request.recognitionLevel = .accurate
-    request.recognitionLanguages = ["en-US"]; request.minimumTextHeight = 0.005
-    request.usesLanguageCorrection = true
-    request.customWords = ["checkpoint", "No active checkpoint", "Fit portfolio", "Flow Edge Dojo"]
-    try VNImageRequestHandler(cgImage: image).perform([request])
-    var labels = (request.results ?? []).flatMap { $0.topCandidates(5).map(\.string) }
+    // The two fixed Vision modes segment small native captions differently.
+    // Both inspect the same original pixels; exact text assertions remain below.
+    var labels: [String] = [], modes: [String] = []
+    for (name, level) in [("accurate", VNRequestTextRecognitionLevel.accurate), ("fast", .fast)] {
+      let request = VNRecognizeTextRequest(); request.recognitionLevel = level
+      request.recognitionLanguages = ["en-US"]; request.minimumTextHeight = 0.005
+      request.usesLanguageCorrection = true
+      request.customWords = ["checkpoint", "No active checkpoint", "Fit portfolio", "Flow Edge Dojo"]
+      try VNImageRequestHandler(cgImage: image).perform([request])
+      let candidates = (request.results ?? []).flatMap { $0.topCandidates(5).map(\.string) }
+      labels += candidates
+      modes.append("\(name): \(candidates)")
+    }
     labels += views(host).compactMap { view -> String? in
       guard let button = view as? NSButton, !button.isHiddenOrHasHiddenAncestor,
         host.bounds.insetBy(dx: -2, dy: -2).contains(button.convert(button.bounds, to: host)),
         documentScrolls(of: button).allSatisfy({ $0.contentView.bounds.insetBy(dx: -2, dy: -2).contains(button.convert(button.bounds, to: $0.contentView)) }) else { return nil }
       return button.title.isEmpty ? button.accessibilityLabel() : button.title
     }
-    return labels
+    return (labels, modes.joined(separator: "\n"))
   }
 
   private func normalizeDojoLabel(_ value: String) -> String {

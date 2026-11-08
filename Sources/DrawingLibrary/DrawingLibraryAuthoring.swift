@@ -50,24 +50,8 @@ extension DrawingLibrary {
       } else {
         _ = try drawing(parent)
         guard let database else { throw DrawingLibraryError.missing(parent) }
-        let source=try VerifiedExchangeFiles(catalogRoot:directoryURL,inventory:publicationFiles(for:parent,db:database))
-        let index=try source.record(at:"data/exchange.json")
-        let proof=try ExchangeAdmission.selectDrawing(originalIndexJSON:index,selected:parent,files:source,producerValidators:producerValidators)
-        guard case .materialized=proof.admission else { throw DrawingLibraryError.unsupportedFeature("Parent closure") }
+        let proof = try selectedDrawingPublication(for: parent, database: database)
         try addDependency(proof.files.selectedVerifiedFiles())
-      }
-    }
-    if case .present(let input) = frozen.drawing.input {
-      if let db = database,try tableExists("dx_tx_record",in:db), let transaction = try db.scalar("SELECT transaction_id FROM dx_tx_record WHERE kind='input' AND namespace=? AND identity=? ORDER BY transaction_id LIMIT 1", [input.issuer.uuidString.lowercased(), input.revision.uuidString.lowercased()]) {
-        let entries = try db.rows("SELECT f.path,f.digest,o.byte_length FROM dx_tx_file f JOIN dx_object o ON o.digest=f.digest WHERE f.transaction_id=?", [transaction]).map { row -> ExchangeCatalogFile in
-          guard let path = row[0], let hash = row[1], let length = row[2].flatMap(UInt64.init) else { throw DrawingLibraryError.invalidIdentity }
-          return .init(path: path, storagePath: "objects/sha256/" + hash, digest: try ExchangeDigest(hash), byteLength: length)
-        }
-        let source=try VerifiedExchangeFiles(catalogRoot:directoryURL,inventory:entries)
-        let index=try ExchangeIndex(originalJSON:source.record(at:"data/exchange.json"))
-        let descriptors=Dictionary(index.assets.map{($0.asset.object,$0)},uniquingKeysWith:{$1})
-        _ = try DrawingImageAdmission.input(input,files:source,assetDescriptors:descriptors)
-        try addDependency(source.selectedVerifiedFiles())
       }
     }
     for asset in closure.assets {
@@ -84,6 +68,17 @@ extension DrawingLibrary {
       }
       guard ExchangeDigest.hash(record.originalJSON) == digest else { throw DrawingExchangeError.digestMismatch("Authored dependency record") }
       try file(path, bytes: record.originalJSON)
+    }
+    if case .present(let input) = frozen.drawing.input {
+      let path = "data/inputs/" + input.issuer.uuidString.lowercased() + "/" + input.revision.uuidString.lowercased() + "/input.json"
+      if let included = inventory[path] {
+        // Parent or explicit supplied closure already carries this exact input.
+        // Final admission still proves its complete photo/raster/mask closure.
+        guard included.digest == input.digest else { throw DrawingExchangeError.digestMismatch("Assembled input identity") }
+      } else if let database {
+        let source = try selectedInputPublication(for: input, database: database)
+        try addDependency(source)
+      }
     }
     let program = try ExchangeAsset(bytes: frozen.originalProgramJSON, mediaType: "application/json", encoding: DrawingExchangeCodec.strokeProfile)
     let producer = try ExchangeAsset(bytes: frozen.drawing.producer.originalJSON, mediaType: "application/json", encoding: "utf8-json")
@@ -130,6 +125,47 @@ extension DrawingLibrary {
 }
 
 extension DrawingLibrary {
+  package func selectedInputPublication(for input: ImageInputRef, database db: DrawingLibraryDatabase) throws -> VerifiedExchangeFiles {
+    let reference = LibraryExchangeReference.input(input)
+    if let stored = try db.scalar("SELECT digest FROM dx_record WHERE kind=? AND namespace=? AND identity=?", reference.key.map(Optional.some)), stored != input.digest.description {
+      throw DrawingExchangeError.digestMismatch("Stored input identity")
+    }
+    let candidates = try publicationCandidates(reference, database: db)
+    let path = "data/inputs/" + input.issuer.uuidString.lowercased() + "/" + input.revision.uuidString.lowercased() + "/input.json"
+    var reason = "No supported input publication context"
+    for candidate in candidates {
+      let source = try publicationFiles(candidate, database: db)
+      let indexBytes = try source.record(at: "data/exchange.json")
+      guard ExchangeDigest.hash(indexBytes) == candidate.index, source.entries[path]?.digest == input.digest else {
+        throw DrawingExchangeError.digestMismatch("Input publication identity")
+      }
+      do {
+        let index = try ExchangeIndex(originalJSON: indexBytes)
+        guard index.requiredFeatures.isEmpty, ["drawing", "result", "feedback"].contains(index.kind) else {
+          reason = index.requiredFeatures.first ?? index.kind
+          continue
+        }
+        var descriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]
+        for descriptor in index.assets {
+          if let old = descriptors[descriptor.asset.object], old != descriptor { throw DrawingExchangeError.malformed("Conflicting input asset descriptors") }
+          descriptors[descriptor.asset.object] = descriptor
+        }
+        // This verifies declared source/image facts conservatively. Unsupported
+        // source semantics remain unknown; they are not a physical-width or
+        // producer-reverification claim. Final Drawing admission owns capability.
+        _ = try source.record(at: path)
+        let admitted = try DrawingImageAdmission.input(input, files: source, assetDescriptors: descriptors)
+        let photoPath = "data/photos/" + admitted.photo.issuer.uuidString.lowercased() + "/" + admitted.photo.revision.uuidString.lowercased() + "/photo.json"
+        guard source.entries[photoPath]?.digest == admitted.photo.digest else { throw DrawingExchangeError.digestMismatch("Input Photo record path") }
+        _ = try source.record(at: photoPath)
+        return try source.selectedVerifiedFiles()
+      } catch DrawingExchangeError.unsupportedProfile(let profile) {
+        reason = profile
+      }
+    }
+    throw DrawingLibraryError.unsupportedFeature(reason)
+  }
+
   package func retentionRequestDigest(_ drawing: Drawing, closure: DrawingLibraryRetainedClosure) throws -> ExchangeDigest {
     guard closure.records.count+closure.assets.count<=10_000 else { throw DrawingExchangeError.limit("Retention closure count") }
     var total=0

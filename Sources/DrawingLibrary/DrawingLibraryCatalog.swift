@@ -113,6 +113,7 @@ struct LibraryExchangePublication: Codable {
   let metadata: [LibraryExchangeMetadata]
   let attachments: [DrawingLibraryPublicationAttachment]
   let domainCommit: DrawingLibraryDomainCommit?
+  let resultHeader: DrawingLibraryResultHeader?
 }
 
 /// Internal transactional publication foundation for the concrete Library actor.
@@ -149,6 +150,7 @@ package final class LibraryExchangeCatalog {
       try verifyPublished(prior)
       return .init(transactionID: prior, indexDigest: digest, wasAlreadyPublished: true)
     }
+    let resultHeader = try DrawingLibraryResultHeader(admitted)
     let records = try references(admitted)
     guard Set(metadata.map(\.reference)).count == metadata.count,
       metadata.allSatisfy({ records.contains($0.reference) }) else {
@@ -168,7 +170,7 @@ package final class LibraryExchangeCatalog {
       if let prior=try retentionIntent(attachment.intent,requestDigest:attachment.requestDigest),prior != summary.reference { throw DrawingLibraryError.staleSelection }
     }
     let intent = LibraryExchangePublication(version: 1, transactionID: transactionID, indexDigest: digest,
-      packageDigest: packageDigest, records: records, links: try links(admitted), metadata: metadata, attachments: attachments, domainCommit: domainCommit)
+      packageDigest: packageDigest, records: records, links: try links(admitted), metadata: metadata, attachments: attachments, domainCommit: domainCommit, resultHeader: resultHeader)
     let staging = try storage.stage(files: admitted.files, transactionID: transactionID, intent: JSONEncoder().encode(intent))
     do { try checkCollisions(intent) }
     catch is LibraryExchangeCatalogError { let preserved = try storage.preserveConflict(transactionID: transactionID); throw LibraryExchangeCatalogError.preservedConflict(preserved) }
@@ -285,6 +287,7 @@ package final class LibraryExchangeCatalog {
       }
       try verifyAttachment(attachment)
     }
+    if let header = intent.resultHeader { try verifyResultHeader(header, transaction: transaction) }
     if verifyObjects {
       var verified = Set<ExchangeDigest>()
       for entry in entries where verified.insert(entry.digest).inserted {
@@ -343,6 +346,10 @@ package final class LibraryExchangeCatalog {
         try verifyAttachment(attachment)
       }
       if let commit = intent.domainCommit { try applyDomainCommit(commit,transaction:intent.transactionID) }
+      if let header = intent.resultHeader {
+        try applyResultHeader(header, transaction: intent.transactionID)
+        try verifyResultHeader(header, transaction: intent.transactionID)
+      }
       try database.bumpRevision()
       try injectFault?(.beforeSQLCommit)
     }
@@ -351,7 +358,7 @@ package final class LibraryExchangeCatalog {
     try storage.finish(transactionID: staging.transactionID)
   }
 
-  private static func inventoryDigest(_ entries: [LibraryExchangeStorageEntry]) -> ExchangeDigest {
+  package static func inventoryDigest(_ entries: [LibraryExchangeStorageEntry]) -> ExchangeDigest {
     let bytes = entries.sorted { $0.path < $1.path }.map { $0.path + "\0" + $0.digest.description + "\0" + String($0.byteLength) + "\n" }.joined()
     return .hash(Data(bytes.utf8))
   }
@@ -441,6 +448,10 @@ package final class LibraryExchangeCatalog {
   }
   private var storageRoot: URL { database.writerLease!.canonicalRootURL }
   private static let schema = """
+  CREATE TABLE IF NOT EXISTS dx_result_publication(transaction_id TEXT PRIMARY KEY REFERENCES dx_transaction(id),included_as_of TEXT NOT NULL,chronology REAL NOT NULL,index_digest TEXT NOT NULL,package_digest TEXT NOT NULL,header TEXT NOT NULL,UNIQUE(index_digest,package_digest));
+  CREATE INDEX IF NOT EXISTS dx_result_global_chronology ON dx_result_publication(chronology DESC,index_digest,package_digest);
+  CREATE TABLE IF NOT EXISTS dx_result_root(transaction_id TEXT NOT NULL REFERENCES dx_result_publication(transaction_id),issuer TEXT NOT NULL,revision TEXT NOT NULL,digest TEXT NOT NULL,chronology REAL NOT NULL,index_digest TEXT NOT NULL,package_digest TEXT NOT NULL,PRIMARY KEY(transaction_id,issuer,revision,digest));
+  CREATE INDEX IF NOT EXISTS dx_result_chronology ON dx_result_root(issuer,revision,digest,chronology DESC,index_digest,package_digest);
   CREATE TABLE IF NOT EXISTS domain_commit(id TEXT PRIMARY KEY,request_digest TEXT NOT NULL,transaction_id TEXT NOT NULL REFERENCES dx_transaction(id));
   CREATE TABLE IF NOT EXISTS domain_record(kind TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(kind,id));
   CREATE TABLE IF NOT EXISTS domain_reference(kind TEXT NOT NULL,id TEXT NOT NULL,target_kind TEXT NOT NULL,namespace TEXT NOT NULL,identity TEXT NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(kind,id,target_kind,namespace,identity),FOREIGN KEY(kind,id) REFERENCES domain_record(kind,id) ON DELETE CASCADE,FOREIGN KEY(target_kind,namespace,identity,digest) REFERENCES dx_record(kind,namespace,identity,digest));

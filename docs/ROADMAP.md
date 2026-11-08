@@ -11,16 +11,14 @@ this roadmap does not restate or reorder them.
 
 ## Drawing Exchange
 
-Pre-gate snapshot, **2026-11-08**: DX-01 through DX-04 were adopted. DX-04 landed at
-`707212cb5f193f6fd7fa1faba4eab1de74a3a33a`; its
-[dated receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-04-single-writer-catalog-receipt-2026-11-07)
-records the configured gate. The initial compatibility-oriented DX-05 task was
-canceled as superseded, not passed. At this snapshot the replacement Drawing-first
-task had scoped software probes and current metadata measurements recorded in the
-[Drawing-first receipt](CURRENT_EVIDENCE.md#drawing-first-software-probe-receipt-2026-11-08).
-The public client and affected software tests had passed. Authoritative later
-configured validation, acceptance and landing state belongs to Blackdog task
-`task-89f7fee3b6c847e9ae9acebb9b901347`; this dated checklist does not assert it.
+DX-05 was adopted on **2026-11-08** at
+`bb9ab0c88d5cc95f72cb45bc258cf1a577a9200d`, tree
+`86c0841b27c535e23dd706ad0319ad7b9124b69a`, following the completed configured
+validation and normal local landing of Blackdog task
+`task-89f7fee3b6c847e9ae9acebb9b901347`. Its earlier
+[dated probes](CURRENT_EVIDENCE.md#drawing-first-software-probe-receipt-2026-11-08)
+retain their original scopes. The initial compatibility-oriented DX-05 task was
+canceled as superseded, not passed. Historical import remains deferred.
 
 The 2026-11-07 operator direction supersedes legacy compatibility requirements
 below wherever they conflict with this cutover: thread Drawing and the new format
@@ -101,53 +99,35 @@ DX-01's baseline, adopted DX-02/DX-03 contracts and DX-04's implemented
 single-writer storage scope are retained in their dated
 [Current Evidence receipts](CURRENT_EVIDENCE.md#drawing-exchange-dx-04-single-writer-catalog-receipt-2026-11-07).
 Those receipts retain accepted scope/gate/recovery constraints and distinguish
-source observations from authoritative validation/adoption. The entries below
-record the **2026-11-08 pre-gate** checklist; the Drawing-first task above owns its
-later completion state. The existing dependency DAG is unchanged.
+source observations from authoritative validation/adoption. The unfinished entries
+below retain the existing dependency DAG; the adopted DX-05 cutover is recorded
+above and in Current Evidence.
 
-**DX-05 — Drawing-first model, active format and interface cutover.** At the
-**2026-11-08 pre-gate snapshot**, implemented software paths had scoped probe
-receipts. Consult Blackdog task `task-89f7fee3b6c847e9ae9acebb9b901347` for later
-configured validation, acceptance and landing. Historical import is deferred and
-nonblocking. Introduce a concrete public `DrawingLibrary` target depending only
-on Core, Model and SQLite. Carry `PortraitCore.Drawing` and exact `DrawingRef`
-identity through native/source-free authoring, selection, immutable edits,
-retention, browsing, metadata and the existing plot handoff. Retire shadow
-candidate/String identity and old authoring persistence interfaces, including
-live Flow persistence. Keep one writer/lease and immutable publication/admission
-context; unknown required features cannot regain capabilities through a cache.
-No generic adapter-state facade or runtime legacy source ports remain.
+**DX-06 — Remaining inert public result API.** Current task
+`task-7b8cc6a988bb4d5a9c4c79411c38f875` owns result mount, exact-publication query
+and byte-preserving re-export on the existing `DrawingLibrary` actor. Authored
+current-format transfer already belongs to the adopted DX-05 implementation.
+Allowed owner paths are `Sources/DrawingLibrary/` result/catalog/read/exchange and
+strictly necessary publication/storage code, associated result tests and current
+docs. A narrow Core admission entry point requires explicit review. Deleted
+`DrawingTransfer` and `PlotAttachment` implementations must not return.
 
-Allowed implementation: new `Sources/DrawingLibrary/`, producer adapters in
-Artists, Library/Studio/UI/executable callers, narrowly scoped Core drawing,
-codec, verified-files and closure admission, schema descriptions, package,
-associated tests/tools and canonical documentation. Episode/runtime authority,
-Stop and physical evidence are outside this cutover. Historical authoring files
-stay untouched and unloaded; no importer is implemented now.
-
-Gate: real public dependency-isolated source-free client; exact identity,
-parent/input closure, duplicate/equal-geometry selections, Rank failure/retention,
-chrono keyset pages at scale, no artwork reads for metadata, unknown width without
-new UI input, index and per-Drawing required-feature refusal before preview,
-handoff and Run (while preserving export), tamper/cache refusal, crash retry/request binding,
-single-owner interleaving/drain-close, current-format offline copy and actual
-consumer builds. Delete superseded live interfaces in the same cutover. Compare
-performance on equivalent fresh current-format workloads, preserving frozen
-baselines and receipts. Full configured validation, independent review and
-canonical adoption remain required. Recovery leaves historical files untouched
-and preserves copied current-format immutable bytes.
-
-**DX-06 — Atomic import/export/mount API.** Allowed:
-`Sources/PortraitLibrary/DrawingTransfer.swift`, new exchange library adapter files,
-`Sources/PortraitCore/PlotAttachment.swift` read compatibility, transfer/library
-and admission tests. Publish verified immutable objects before one visible catalog
-transaction; export snapshot scope with exact bytes and required parent/input/source
-closure. Result-on-empty-library and sequence-N import must include 1…N and all
-required assets. Deduplicate identical delivery and reject divergent sequence or
-predecessor/job/drawing chains. Gate: interrupted staging, duplicate redelivery,
-conflict quarantine, missing media, unsupported profile and offline re-export tests.
-No mount changes live retry/no-ink authority. Recovery is retryable publication,
-never another physical submission.
+A result handle binds its original index digest and complete inventory digest;
+a DrawingRef alone cannot select a result delivery. Indexed result headers and
+full DrawingRef associations must commit atomically with the existing journal,
+SQL and CAS publication. Queries remain bounded and artwork-independent;
+read-only inspection never creates a root or acquires a writer. Sequence-N results
+include the finite 1…N predecessor chain and all required media, without requiring
+a terminal or sealed run. Refused zero-attempt jobs do not fabricate runs. Unknown
+required features remain preservable/exportable while interpretation is denied.
+Gates include offline exact-byte re-export, duplicate/uncertain COMMIT retry,
+conflict quarantine, closure rejection, recovery, publication-specific selection,
+public dependency-isolated client, app builds and final configured validation and
+normal landing. No live retry/no-ink/physical authority changes, historical import
+or garbage collection belong to this task. The
+[dated software receipt](CURRENT_EVIDENCE.md#dx-06-inert-result-api-software-receipt-2026-11-08)
+records scoped probes; final configured validation and landing belong to the
+authoritative task. This worklist is not completion evidence.
 
 **DX-07 — Canonical photos, prepared inputs and retention reasons.** Allowed:
 `Sources/PortraitLibrary/{FlowPortfolioPhotoCollection,FlowPortfolioStore,FlowPortfolioStorage,FlowPortfolioDelta,FlowPortfolioValidation,FlowPortfolioTypes,PortraitPhotoPage}.swift`,

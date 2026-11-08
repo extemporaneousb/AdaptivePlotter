@@ -8,11 +8,7 @@ extension DrawingLibrary {
     _ = try drawing(ref)
     guard let db=try commonReadDatabase() else { throw DrawingLibraryError.missing(ref) }
     try commonSnapshot(db) {
-      let inventory=try publicationFiles(for:ref,db:db)
-      let files=try VerifiedExchangeFiles(catalogRoot:directoryURL,inventory:inventory)
-      let bytes=try files.record(at:"data/exchange.json")
-      let selected=try ExchangeAdmission.selectDrawing(originalIndexJSON:bytes,selected:ref,files:files,producerValidators:producerValidators)
-      guard case .materialized=selected.admission else { throw DrawingLibraryError.unsupportedFeature("Selected exchange") }
+      let selected = try selectedDrawingPublication(for: ref, database: db)
       let temp=FileManager.default.temporaryDirectory.appendingPathComponent("drawing-export-"+UUID().uuidString.lowercased(),isDirectory:true)
       try FileManager.default.createDirectory(at:temp,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700])
       defer { try? FileManager.default.removeItem(at:temp) }
