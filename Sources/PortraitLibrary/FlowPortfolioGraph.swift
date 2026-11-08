@@ -31,6 +31,7 @@ struct FlowPendingGraphWrite: Sendable {
   let closure: DrawingLibraryRetainedClosure
   let publishedBlobs: [FlowPortfolioBlob]
   let intent: DrawingLibraryCommitIntent
+  let photoMetadata: [DrawingLibraryPhotoMetadataUpdate]
 }
 
 private struct FlowPortfolioSession: Codable {
@@ -94,6 +95,7 @@ extension FlowPortfolioStore {
     publishedPhotoIDs.formUnion(next.sources.map(\.id))
     storage.markPublished(durableAssets(next, includingLocalPreviews: false))
     state = next
+    try await refreshPhotoMetadata()
   }
 
   func durableAssets(_ next: FlowPortfolioSnapshot, includingLocalPreviews: Bool = true) -> [FlowPortfolioBlob] {
@@ -137,7 +139,7 @@ extension FlowPortfolioStore {
     }
     return records
   }
-  func publishRecords(_ next: FlowPortfolioSnapshot) async throws -> FlowPortfolioSnapshot {
+  func publishRecords(_ next: FlowPortfolioSnapshot, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = []) async throws -> FlowPortfolioSnapshot {
     guard !writeAdmissionActive, pendingGraphWrite == nil, pendingRetainedWrite == nil else { throw FlowPortfolioError.conflict("Recover the pending Library action before accepting another action.") }
     writeAdmissionActive = true; defer { writeAdmissionActive = false }
     let records = try graphRecords(next)
@@ -145,18 +147,24 @@ extension FlowPortfolioStore {
     let closure = DrawingLibraryRetainedClosure(assets: photos.flatMap(\.assets), records: photos.flatMap(\.records))
     let publishedBlobs = durableAssets(next)
     let assets = try await storage.closureAssets(publishedBlobs)
-    let write = FlowPendingGraphWrite(next: next, records: records, assets: assets, closure: closure, publishedBlobs: publishedBlobs, intent: .init())
+    let oldIDs = Set(state.sources.map(\.id))
+    let initial = next.sources.filter { !oldIDs.contains($0.id) }.compactMap { source -> DrawingLibraryPhotoMetadataUpdate? in
+      guard let ref = source.photo else { return nil }
+      return .init(reference: ref, patch: .init(title: .set(source.title), subjectID: .set(source.subjectID), sessionID: .set(source.sessionID), excluded: source.excluded))
+    }
+    let write = FlowPendingGraphWrite(next: next, records: records, assets: assets, closure: closure, publishedBlobs: publishedBlobs, intent: .init(), photoMetadata: initial + photoMetadata)
     pendingGraphWrite = write
     try await finishPendingGraphWrite()
-    return next
+    return state
   }
   func finishPendingGraphWrite() async throws {
     guard let write = pendingGraphWrite else { return }
-    try await storage.library.commitRecords(write.records, assets: write.assets, intent: write.intent, closure: write.closure)
+    try await storage.library.commitRecords(write.records, assets: write.assets, intent: write.intent, closure: write.closure, photoMetadata: write.photoMetadata)
     publishedPhotoIDs.formUnion(write.next.sources.map(\.id))
     storage.markPublished(write.publishedBlobs)
     for record in write.records { committedRecords.insert(record.key) }
     state = write.next; pendingGraphWrite = nil
+    try await refreshPhotoMetadata()
   }
 
   package func featureCapsule(candidateID: UUID, revisionID: UUID? = nil) async throws -> FlowPortfolioFeatureCapsule {
@@ -214,13 +222,31 @@ extension FlowPortfolioStore {
   package func sourcePhoto(_ id: UUID) async throws -> FrozenPhotoRecord {
     if let photo = sourcePhotoRecords[id] { return photo }
     guard let source = state.sources.first(where: { $0.id == id }) else { throw FlowPortfolioError.unavailable("Source photograph unavailable.") }
-    let bytes = try await storage.read(source.image)
-    let facts = try source.captureProvenance.map { try DrawingArtifactCoding.encoder().encode($0) }
-    let photo = try PortraitDrawingImages.photo(data: bytes, issuer: state.id, captureID: source.id,
-      capturedAt: source.captureProvenance?.capturedAt, importedAt: source.createdAt, facts: facts)
-    guard source.photo == photo.reference else { throw DrawingExchangeError.mismatchedParent }
+    guard let ref = source.photo else { throw FlowPortfolioError.unavailable("Exact Photo reference is unavailable.") }
+    let photo = try await storage.library.photo(ref)
+    sourcePhotoRecords[id] = photo
     return photo
   }
+  /// Refresh only on neutral metadata revision or membership change. The fields
+  /// in Flow snapshots are projections, never a second mutation authority.
+  package func refreshPhotoMetadata() async throws {
+    let revision = try await storage.library.photoMetadataRevision()
+    let refs = Set(state.sources.compactMap(\.photo))
+    if revision != photoMetadataProjectionRevision || refs != photoMetadataProjectionRefs {
+      photoMetadataProjectionValues = try await storage.library.photoMetadata(Array(refs))
+      photoMetadataProjectionRevision = revision; photoMetadataProjectionRefs = refs
+    }
+    let values = photoMetadataProjectionValues
+    for index in state.sources.indices {
+      guard let ref = state.sources[index].photo, let value = values[ref] else { continue }
+      state.sources[index].title = value.title ?? "Photo"
+      state.sources[index].subjectID = value.subjectID
+      state.sources[index].sessionID = value.sessionID
+      state.sources[index].excluded = value.excluded
+    }
+    photoMetadataProjectionRevision = revision; photoMetadataProjectionRefs = refs
+  }
+
   package func exportDrawing(_ drawing: Drawing, to url: URL) async throws {
     guard let reference = drawing.reference else { throw DrawingExchangeError.mismatchedParent }
     try await storage.library.exportDrawing(reference, to: url)

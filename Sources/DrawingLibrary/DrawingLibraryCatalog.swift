@@ -114,6 +114,7 @@ struct LibraryExchangePublication: Codable {
   let attachments: [DrawingLibraryPublicationAttachment]
   let domainCommit: DrawingLibraryDomainCommit?
   let resultHeader: DrawingLibraryResultHeader?
+  var sourceSummaries: [DrawingLibrarySourceSummary]? = nil
 }
 
 /// Internal transactional publication foundation for the concrete Library actor.
@@ -170,7 +171,7 @@ package final class LibraryExchangeCatalog {
       if let prior=try retentionIntent(attachment.intent,requestDigest:attachment.requestDigest),prior != summary.reference { throw DrawingLibraryError.staleSelection }
     }
     let intent = LibraryExchangePublication(version: 1, transactionID: transactionID, indexDigest: digest,
-      packageDigest: packageDigest, records: records, links: try links(admitted), metadata: metadata, attachments: attachments, domainCommit: domainCommit, resultHeader: resultHeader)
+      packageDigest: packageDigest, records: records, links: try links(admitted), metadata: metadata, attachments: attachments, domainCommit: domainCommit, resultHeader: resultHeader, sourceSummaries: try sourceSummaries(admitted, references: records))
     let staging = try storage.stage(files: admitted.files, transactionID: transactionID, intent: JSONEncoder().encode(intent))
     do { try checkCollisions(intent) }
     catch is LibraryExchangeCatalogError { let preserved = try storage.preserveConflict(transactionID: transactionID); throw LibraryExchangeCatalogError.preservedConflict(preserved) }
@@ -287,6 +288,7 @@ package final class LibraryExchangeCatalog {
       }
       try verifyAttachment(attachment)
     }
+    for summary in intent.sourceSummaries ?? [] { try verifySourceSummary(summary) }
     if let header = intent.resultHeader { try verifyResultHeader(header, transaction: transaction) }
     if verifyObjects {
       var verified = Set<ExchangeDigest>()
@@ -337,6 +339,7 @@ package final class LibraryExchangeCatalog {
       for link in intent.links {
         try database.execute("INSERT OR IGNORE INTO dx_link(source_kind,source_namespace,source_identity,target_kind,target_namespace,target_identity,relation) VALUES(?,?,?,?,?,?,?)",link.source.key.map(Optional.some) + link.target.key.map(Optional.some) + [link.relation])
       }
+      for summary in intent.sourceSummaries ?? [] { try applySourceSummary(summary); try verifySourceSummary(summary) }
       for value in intent.metadata { try writeMetadata(value) }
       for attachment in intent.attachments {
         guard let summary = attachment.summary, intent.records.contains(.drawing(summary.reference)) else {
@@ -448,6 +451,8 @@ package final class LibraryExchangeCatalog {
   }
   private var storageRoot: URL { database.writerLease!.canonicalRootURL }
   private static let schema = """
+  CREATE INDEX IF NOT EXISTS dx_photo_order ON dx_source_summary(kind,known_date DESC,chronology DESC,namespace,identity);
+  CREATE INDEX IF NOT EXISTS dx_input_order ON dx_source_summary(kind,photo_namespace,photo_identity,photo_digest,namespace,identity);
   CREATE TABLE IF NOT EXISTS dx_result_publication(transaction_id TEXT PRIMARY KEY REFERENCES dx_transaction(id),included_as_of TEXT NOT NULL,chronology REAL NOT NULL,index_digest TEXT NOT NULL,package_digest TEXT NOT NULL,header TEXT NOT NULL,UNIQUE(index_digest,package_digest));
   CREATE INDEX IF NOT EXISTS dx_result_global_chronology ON dx_result_publication(chronology DESC,index_digest,package_digest);
   CREATE TABLE IF NOT EXISTS dx_result_root(transaction_id TEXT NOT NULL REFERENCES dx_result_publication(transaction_id),issuer TEXT NOT NULL,revision TEXT NOT NULL,digest TEXT NOT NULL,chronology REAL NOT NULL,index_digest TEXT NOT NULL,package_digest TEXT NOT NULL,PRIMARY KEY(transaction_id,issuer,revision,digest));

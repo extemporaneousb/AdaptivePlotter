@@ -88,6 +88,31 @@ struct FlowDojoTrainingProgressTests {
     #expect(progress.feedbackPhotoCount == 2 && progress.feedbackGroupCount == 1)
   }
 
+  @Test("Photo metadata edits preserve earlier frozen facts and enter only future snapshots")
+  func frozenPhotoMetadata() async throws {
+    let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }
+    let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
+    let source = try await store.addSource(data: FlowDojoFixture.image(1), title: "Before curation")
+    let oldSnapshot = try await store.freezeTrainingSnapshot()
+    let oldDocument = try await store.trainingDocument(snapshotID: oldSnapshot.id)
+    let before = try #require(oldDocument.sources.first)
+    try await store.renameSource(sourceID: source.id, title: "After curation")
+    try await store.setSourceGroups(sourceID: source.id, subjectID: "new-subject", sessionID: "new-session", excluded: true)
+    let live = try #require(await store.snapshot().sources.first)
+    #expect(live.photo == before.photo && live.image == before.image && live.createdAt == before.createdAt)
+    #expect(live.title == "After curation" && live.subjectID == "new-subject" && live.sessionID == "new-session" && live.excluded)
+    let stillFrozen = try await store.trainingDocument(snapshotID: oldSnapshot.id)
+    #expect(stillFrozen == oldDocument)
+    #expect(stillFrozen.sources.first?.title == "Before curation")
+    #expect(stillFrozen.sources.first?.excluded == false)
+    let newSnapshot = try await store.freezeTrainingSnapshot()
+    let newDocument = try await store.trainingDocument(snapshotID: newSnapshot.id)
+    #expect(newSnapshot.contentSHA256 != oldSnapshot.contentSHA256)
+    #expect(newDocument.sources.first == live)
+    // This tests frozen photo facts only. Feature assets still fetched by live
+    // UUID are a separate DX09 obligation, not established by this assertion.
+  }
+
   @Test("Exact frozen comparisons track withdrawals and groups, ignore browsing, and never consume failed fits")
   func fitCutoffs() async throws {
     let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }

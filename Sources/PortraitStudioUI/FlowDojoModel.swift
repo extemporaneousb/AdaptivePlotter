@@ -629,6 +629,7 @@ package final class FlowDojoModel {
   }
   private func refresh() async throws {
     guard let store else { return }
+    try await store.refreshPhotoMetadata()
     document = await store.snapshot()
     if let document {
       let last = document.fits.last(where: { $0.hasCheckpoint })

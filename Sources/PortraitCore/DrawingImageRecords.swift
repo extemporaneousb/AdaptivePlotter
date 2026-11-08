@@ -14,7 +14,7 @@ public struct DrawingImageAsset: Sendable {
     return try .init(descriptor:.init(asset:asset,dimensions:.init(width:width,height:height),pixelLayout:layout),bytes:bytes)
   }
 }
-public enum DrawingImageDatedFact: Sendable {
+public enum DrawingImageDatedFact: Codable, Hashable, Sendable {
   case known(ExchangeTimestamp,provenance:String)
   case unknown(provenance:String)
 }
@@ -22,6 +22,8 @@ public struct FrozenPhotoRecord: Sendable {
   public let record:ExchangePhotoRecord
   public let assets:[DrawingImageAsset]
   public var reference:PhotoRef { record.reference }
+  public var acquired: DrawingImageDatedFact? { try? DrawingImageRecords.datedFact(record.originalJSON, key: "acquired") }
+  public var imported: DrawingImageDatedFact? { try? DrawingImageRecords.datedFact(record.originalJSON, key: "imported") }
 }
 public struct FrozenImageInputRecord: Sendable {
   public let record:ExchangeImageInputRecord
@@ -41,6 +43,95 @@ public struct DrawingImageOperation: Sendable {
 /// Pure current-format factories. The caller supplies observed preparation facts;
 /// unknown transforms cannot be replaced by an invented identity transform.
 public enum DrawingImageRecords {
+  /// Reuses original wire records and the carrier's bounded, sealed asset checks.
+  /// Header validation of encoded sources does not establish decoded pixels.
+  public static func admitPhoto(_ reference: PhotoRef, files: VerifiedExchangeFiles) throws -> FrozenPhotoRecord {
+    try admitPhoto(reference, scopedFiles: files.scoped(maximumMaterializedBytes: files.limits.maximumMaterializedBytes))
+  }
+  private static func admitPhoto(_ reference: PhotoRef, scopedFiles files: VerifiedExchangeFiles) throws -> FrozenPhotoRecord {
+    let index = try supportedSourceIndex(files)
+    let path = "data/photos/" + reference.issuer.uuidString.lowercased() + "/" + reference.revision.uuidString.lowercased() + "/photo.json"
+    guard files.entries[path]?.digest == reference.digest else { throw DrawingExchangeError.digestMismatch("Photo path") }
+    let original = try ExchangeJSON.validate(files.record(at: path))
+    guard try DrawingImageAdmission.features(original).isEmpty else { throw DrawingExchangeError.unsupportedProfile("Unsupported source required features") }
+    let descriptors = try sourceDescriptors(index)
+    let admitted = try DrawingImageAdmission.photo(reference, files: files, assetDescriptors: descriptors)
+    let record = ExchangePhotoRecord(originalJSON: admitted.originalJSON, reference: admitted.reference,
+      original: admitted.original, width: admitted.width, height: admitted.height,
+      supportedSemantics: index.requiredFeatures.isEmpty && admitted.supportedSemantics)
+    return .init(record: record, assets: try assets(in: [record.originalJSON], files: files, descriptors: descriptors))
+  }
+  public static func admitInput(_ reference: ImageInputRef, files: VerifiedExchangeFiles) throws -> FrozenImageInputRecord {
+    let files = files.scoped(maximumMaterializedBytes: files.limits.maximumMaterializedBytes)
+    let index = try supportedSourceIndex(files)
+    let path = "data/inputs/" + reference.issuer.uuidString.lowercased() + "/" + reference.revision.uuidString.lowercased() + "/input.json"
+    guard files.entries[path]?.digest == reference.digest else { throw DrawingExchangeError.digestMismatch("Input path") }
+    let original = try ExchangeJSON.validate(files.record(at: path))
+    guard try DrawingImageAdmission.features(original).isEmpty else { throw DrawingExchangeError.unsupportedProfile("Unsupported source required features") }
+    let descriptors = try sourceDescriptors(index)
+    let admitted = try DrawingImageAdmission.input(reference, files: files, assetDescriptors: descriptors)
+    let photo = try admitPhoto(admitted.photo, scopedFiles: files)
+    let record = ExchangeImageInputRecord(originalJSON: admitted.originalJSON, reference: admitted.reference,
+      photo: admitted.photo, raster: admitted.raster, mask: admitted.mask, sourceToInput: admitted.sourceToInput,
+      inputToField: admitted.inputToField, supportedSemantics: index.requiredFeatures.isEmpty && admitted.supportedSemantics)
+    return .init(record: record, photo: photo, assets: try assets(in: [record.originalJSON, photo.record.originalJSON], files: files, descriptors: descriptors))
+  }
+  static func datedFact(_ bytes: Data, key: String) throws -> DrawingImageDatedFact {
+    let object = try ExchangeJSON.validate(bytes)
+    guard (object["requiredFeatures"] as? [String])?.isEmpty == true else { throw DrawingExchangeError.malformed("Unsupported dated context") }
+    guard let fact = object[key] as? [String: Any], let provenance = fact["provenance"] as? String, !provenance.isEmpty else { throw DrawingExchangeError.malformed("Dated fact") }
+    switch fact["state"] as? String {
+    case "known": return .known(try DrawingImageAdmission.decode(fact["time"], as: ExchangeTimestamp.self), provenance: provenance)
+    case "unknown": return .unknown(provenance: provenance)
+    default: throw DrawingExchangeError.malformed("Dated fact state")
+    }
+  }
+  private static func supportedSourceIndex(_ files: VerifiedExchangeFiles) throws -> ExchangeIndex {
+    let index = try ExchangeIndex(originalJSON: files.record(at: "data/exchange.json"))
+    guard index.requiredFeatures.isEmpty, ["drawing", "result", "feedback"].contains(index.kind) else {
+      throw DrawingExchangeError.unsupportedProfile("Unsupported source publication context")
+    }
+    return index
+  }
+  private static func sourceDescriptors(_ index: ExchangeIndex) throws -> [ExchangeDigest: ExchangeAssetDescriptor] {
+    var descriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]
+    for value in index.assets {
+      if let prior = descriptors[value.asset.object], prior != value { throw DrawingExchangeError.malformed("Conflicting source descriptors") }
+      descriptors[value.asset.object] = value
+    }
+    return descriptors
+  }
+  private static func assets(in records: [Data], files: VerifiedExchangeFiles, descriptors: [ExchangeDigest: ExchangeAssetDescriptor]) throws -> [DrawingImageAsset] {
+    var selected: [ExchangeDigest: ExchangeAssetDescriptor] = [:]
+    func include(_ raw: Any?) throws {
+      guard let raw else { return }
+      let inline = try DrawingImageAdmission.decode(raw, as: ExchangeAssetDescriptor.self)
+      let full = descriptors[inline.asset.object] ?? inline
+      guard inline.asset == full.asset else { throw DrawingExchangeError.malformed("Conflicting asset descriptor") }
+      if let prior = selected[full.asset.object], prior != full { throw DrawingExchangeError.malformed("Conflicting asset descriptors") }
+      selected[full.asset.object] = full
+    }
+    for record in records {
+      let json = try ExchangeJSON.validate(record)
+      switch json["profile"] as? String {
+      case "adaptiveplotter.photo/1":
+        try include(json["original"]); try include(json["captureFacts"])
+      case "adaptiveplotter.image-input/1":
+        try include(json["raster"])
+        if let mask = json["mask"] as? [String: Any], mask["state"] as? String == "present" { try include(mask["asset"]) }
+        for operation in json["operations"] as? [[String: Any]] ?? [] { try include(operation["parameters"]) }
+        if let preparation = json["preparation"] as? [String: Any], let raw = preparation["record"] as? String {
+          let digest = try ExchangeDigest(raw)
+          guard let descriptor = descriptors[digest] else { throw DrawingExchangeError.malformed("Preparation descriptor") }
+          selected[digest] = descriptor
+        }
+      default: throw DrawingExchangeError.unsupportedProfile("Unsupported source profile")
+      }
+    }
+    return try selected.values.sorted { $0.asset.object.description < $1.asset.object.description }.map {
+      return try .init(descriptor: $0, bytes: files.record($0.asset.object, maximumBytes: DrawingExchangeLimits.maximumProgramBytes))
+    }
+  }
   public static func photo(identity:ExchangeIdentity,original:DrawingImageAsset,width:Int,height:Int,
     acquired:DrawingImageDatedFact,imported:DrawingImageDatedFact,captureFactsJSON:Data?=nil)throws->FrozenPhotoRecord {
     var assets=[original]

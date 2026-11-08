@@ -34,9 +34,14 @@ package enum PortraitDrawingImages {
   }
   package static func input(result: PortraitRenderResult, data: Data, photo: FrozenPhotoRecord, identity: ExchangeIdentity) throws -> FrozenImageInputRecord? {
     let raster = result.raster
+    let source = try sourceAsset(data)
+    guard source.asset.descriptor.asset.object == photo.record.original.object,
+      source.asset.descriptor.asset.byteLength == photo.record.original.byteLength,
+      source.width == photo.record.width, source.height == photo.record.height else {
+      throw DrawingExchangeError.digestMismatch("Prepared source does not match exact Photo")
+    }
     guard let geometry = raster.analysisGeometry else { return nil }
     try geometry.validate(width: raster.width, height: raster.height)
-    let source = try sourceAsset(data)
     let w = Double(source.width), h = Double(source.height)
     let orientation: [Double]
     switch source.orientation {

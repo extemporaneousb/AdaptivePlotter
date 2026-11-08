@@ -8,6 +8,102 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DX-07 neutral source metadata software receipt, 2026-11-08
+
+Dated pre-gate observation for Blackdog task
+`task-660bbaadb1c6459aac41feaae2902409`, based on adopted DX-06
+`7d67e815fb07045933ed5fa23d0bea8cc7bef0d5`. At this snapshot, this task's
+configured validation, final criterion assessments and normal landing have not
+run. Their authoritative later status belongs to that task; these observations
+are not completion of the wider DX campaign.
+
+The existing concrete `DrawingLibrary` actor now exposes `photos`, `inputs(for:)`,
+exact `photo`/`input` frozen loads, neutral Photo metadata patches, and Drawing-only
+retention inspection/reason changes/restore. Compact source summaries and explicit
+metadata field patches share the existing SQLite/CAS publication journal and
+request-bound commit intents. Photo title/group/exclusion has one live authority;
+Flow fields are cached projections refreshed on metadata revision or source
+membership change. Blank optional text clears to nil; Flow derives the display
+label “Photo”. Unrelated graph commits do not rewrite neutral metadata. New source
+publication and initial metadata commit atomically with the domain operation.
+
+Internal catalog schema 11 rejects schema 10 and missing required source metadata
+tables; there is no migration, backfill or old-store reader. Inspection of an
+absent Library creates no root or writer. Source pages read compact SQL metadata,
+not record JSON or artwork. Known capture dates precede import fallback, then a
+separate unknown bucket (including after valid pre-1970 dates). Explicit unknown
+date provenance differs from facts unavailable under opaque requirements. Inputs
+use exact-reference keysets, with no invented timestamp. Cursors bind scope and
+catalog generation.
+
+Exact source factories retain original JSON/descriptors, typed-record/asset alias
+roles, masks and transforms using one bounded verified-files materialization
+scope. They refuse unresolved enclosing or intrinsic requirements before returning
+reusable frozen source values. PNG/JPEG header admission still does not establish
+decoded pixels. The portrait preparation boundary verifies exact source digest,
+length and dimensions, including before the no-analysis early return. Existing
+Drawing retention may preserve intrinsic unknown source requirements while keeping
+independent known stroke geometry; source semantics/regeneration/training remain
+denied. Enclosing unsupported index context cannot be discarded in that route.
+
+Collection retry identity is `(collectionID, entryID)`, bound to the retained
+original entry's byte digest/length/session/provenance; mutable title/group edits
+do not become occurrence proof. Equal-byte occurrences remain separate Photo refs
+and retain the shared pixel-digest leakage grouping. Drawing reason clear/reapply,
+hide and restore preserve CAS bytes; request-bound replay cannot undo later edits.
+No Photo/Input tombstone, reachability, deletion or garbage-collection API was added.
+
+| Retained observation | Actual outcome |
+| --- | --- |
+| First normal scoped build/run | Compile failed: two count-expression type-check timeouts; zero tests, no XML; all 930 inputs unchanged |
+| Normal incremental broader run | Build passed in 233.14 s; process exit 1, 457.690 s; XML 175 cases: 169 passes, five skips, one failed parameterized case/four assertions; all 930 inputs unchanged |
+| Focused changed-area retry | Normal incremental build 14.19 s; process exit 0, 27.520 s; XML 15 passes, no skips/failures/errors; all 930 inputs unchanged |
+| External public client | Initial helper-isolation compile failed before runtime; only its external assertion helper gained `@MainActor`. Incremental retry/runtime exit 0, 9.199 s; no fresh-build timing claim |
+| Client dependency proof | Actual reachable client/Library/Core/Model/CSQLite only; emitted package Swift modules client/Library/Core/Model; full available package plan retained separately |
+| Normal all-products build | Cached exit 0, 2.091 s; actual AdaptivePlotter and PortraitStudio binary hashes retained, neither launched |
+
+The broader failure was an overstrict test expectation that intrinsic source
+requirements must prohibit retention of independent known geometry. The corrected
+focused test instead proves exact source JSON/feature preservation, denied
+source-dependent capabilities, allowed independent geometry and offline reimport;
+the unsupported-index refusal remains. This was not a demonstrated production
+capability-laundering fix. The focused pass is not a replacement broader-suite pass,
+and overlapping observations must not be summed.
+
+The scoped source/query/metadata/retention/collection/training tests exercise
+readonly absence, full-reference refusal, known/unknown/opaque dates, compact
+artwork-independent pages, raw/encoded exact closures and corruption, alias roles,
+aggregate materialization refusal, metadata/domain rollback and uncertain COMMIT,
+field-intent replay, blank clearing, acquisition occurrence conflicts and frozen
+Photo-metadata values. Future training freezes sample current neutral Photo
+metadata; prior frozen training documents retain their original bytes and values.
+This does **not** implement DX-09's digest-pinned feature/feedback membership:
+feature capsule lookup by live UUID remains a separate deferred issue.
+
+Raw failures and passes, XML/process/input receipts, client sources/provenance,
+real dependency/build observations, source freezes and the final path/hash manifest
+are retained outside Git under
+`/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx07-source-delivery/`.
+No historical import, production-data operation, physical/runtime authority change,
+signed/native app acceptance, model promotion, remote Git, new mandatory user input
+or performance-improvement claim is made. Default arbitrary persisted Flow producer
+semantic revalidation remains conservative and is not supplied by this work.
+
+## DX-06 canonical adoption, 2026-11-08
+
+Blackdog task `task-7b8cc6a988bb4d5a9c4c79411c38f875` completed normal local
+landing at `7d67e815fb07045933ed5fa23d0bea8cc7bef0d5`, tree
+`b9c0f1b1a3270f0a3a3f2d48c7aab8b736c51095`. Final configured run
+`dx06-result-api-final-20261108-2`, event
+`141b3fdaf9bbfe6a77fc8400238461744532651c894ea1084dc103c8a4fe4f3f`,
+completed docs-check, full quick-test and diff-check with exit 0. Retained XML has
+1,850 cases: 1,824 passes and 26 skips, no failures/errors. Configured stdout/stderr
+was not retained by the installed runtime; typed receipts and XML remain the
+validation authority. All seven bounded caller-declared criteria were recorded
+current/met after verified adoption. Terminal environment applicability remains
+unreobserved rather than a new ambient-environment verification. Earlier failed
+configured/diagnostic runs and sealed DX-06 evidence remain unchanged.
+
 ## DX-06 inert result API software receipt, 2026-11-08
 
 Dated pre-gate observation for Blackdog task

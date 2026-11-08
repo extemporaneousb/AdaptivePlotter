@@ -3,6 +3,7 @@ import PlotterModel
 import PlotterRuntime
 import PortraitArtists
 import PortraitCore
+import DrawingLibrary
 
 /// Exact acquisition facts accompany the content-addressed image. A declared
 /// capture session is neither an inferred subject nor an artistic preference.
@@ -69,8 +70,7 @@ package struct FlowPhotoCollection: Sendable {
     guard manifest.schemaVersion == 1, !manifest.id.isEmpty, manifest.id.utf8.count <= 256,
       !manifest.title.isEmpty, manifest.title.utf8.count <= 1024,
       (1...100).contains(manifest.entries.count),
-      Set(manifest.entries.map(\.id)).count == manifest.entries.count,
-      Set(manifest.entries.map(\.sha256)).count == manifest.entries.count else {
+      Set(manifest.entries.map(\.id)).count == manifest.entries.count else {
       throw FlowPortfolioError.invalid("Photo collection identity or entries are invalid.")
     }
     var images: [String: Data] = [:], total = 0
@@ -130,9 +130,26 @@ extension FlowPortfolioStore {
     try requireArtifactMutationAdmission()
     defer { trimTransientCaches() }
     var next = state, result: [FlowPortfolioSource] = []
+    var retainedManifests: [String: FlowPhotoCollectionManifest] = [:]
     let manifest = try storage.retain(collection.manifestData, mediaType: "application/json")
     for entry in collection.manifest.entries {
-      if let existing = next.sources.first(where: { $0.image.sha256 == entry.sha256 }) { result.append(existing); continue }
+      if let existing = next.sources.first(where: { $0.importProvenance?.collectionID == collection.manifest.id && $0.importProvenance?.entryID == entry.id }) {
+        guard let provenance = existing.importProvenance else { throw FlowPortfolioError.invalid("Missing collection occurrence proof.") }
+        let original: FlowPhotoCollectionManifest
+        if let cached = retainedManifests[provenance.manifest.sha256] { original = cached }
+        else {
+          original = try JSONDecoder().decode(FlowPhotoCollectionManifest.self, from: await storage.read(provenance.manifest))
+          retainedManifests[provenance.manifest.sha256] = original
+        }
+        guard original.id == collection.manifest.id,
+          let occurrence = original.entries.first(where: { $0.id == entry.id }),
+          occurrence.sha256 == entry.sha256, occurrence.byteCount == entry.byteCount,
+          occurrence.sessionID == entry.sessionID, occurrence.provenanceJSON == entry.provenanceJSON,
+          existing.image.sha256 == entry.sha256, existing.image.byteCount == entry.byteCount else {
+          throw FlowPortfolioError.conflict("Collection occurrence was reused with different source bytes or acquisition facts.")
+        }
+        result.append(existing); continue
+      }
       guard let bytes = collection.images[entry.id], DrawingArtifactCoding.sha256(bytes) == entry.sha256 else {
         throw FlowPortfolioError.invalid("Photo collection has lost a verified source image.")
       }
@@ -152,9 +169,9 @@ extension FlowPortfolioStore {
     guard !title.isEmpty, title.utf8.count <= 1024, let index = state.sources.firstIndex(where: { $0.id == sourceID }) else {
       throw FlowPortfolioError.invalid("A photograph needs a nonempty name of at most 1024 bytes.")
     }
-    guard state.sources[index].title != title else { return }
     var next = state; next.sources[index].title = title
-    try await commit(next, operation: "sourceRenamed", subjectID: sourceID)
+    guard let ref = next.sources[index].photo else { throw FlowPortfolioError.unavailable("Photo reference is unavailable.") }
+    try await commit(next, operation: "sourceRenamed", subjectID: sourceID, photoMetadata: [.init(reference: ref, patch: .init(title: .set(title)))])
   }
 
   package func renameCandidate(candidateID: UUID, title: String) async throws {

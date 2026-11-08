@@ -15,6 +15,9 @@ package actor FlowPortfolioStore {
   var drawingInputs: [UUID: FrozenImageInputRecord] = [:]
   var sourcePhotoRecords: [UUID: FrozenPhotoRecord] = [:]
   var publishedPhotoIDs = Set<UUID>()
+  var photoMetadataProjectionRevision: Int64?
+  var photoMetadataProjectionRefs = Set<PhotoRef>()
+  var photoMetadataProjectionValues: [PhotoRef: DrawingLibraryPhotoMetadata] = [:]
   var writeAdmissionActive = false
   var pendingGraphWrite: FlowPendingGraphWrite?
   var pendingRetainedWrite: FlowPendingRetainedWrite?
@@ -34,11 +37,11 @@ package actor FlowPortfolioStore {
     try await finishPendingGraphWrite(); try await finishPendingRetainedWrite(); try await loadRecords()
     trimTransientCaches()
   }
-  func commit(_ next: FlowPortfolioSnapshot, operation: String, subjectID: UUID? = nil) async throws {
+  func commit(_ next: FlowPortfolioSnapshot, operation: String, subjectID: UUID? = nil, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = []) async throws {
     guard next.revision == state.revision else { throw FlowPortfolioError.conflict("The authoring session changed while this action was being prepared.") }
     var next = next; next.revision = state.revision + 1
     try FlowPortfolioValidation.validate(next)
-    state = try await publishRecords(next)
+    state = try await publishRecords(next, photoMetadata: photoMetadata)
     trimTransientCaches()
   }
 
@@ -99,13 +102,15 @@ package actor FlowPortfolioStore {
     let index = next.sources.firstIndex { $0.id == sourceID }!
     next.sources[index].subjectID = subject; next.sources[index].sessionID = session
     if let excluded { next.sources[index].excluded = excluded }
-    try await commit(next, operation: "sourceGroupsDeclared", subjectID: sourceID)
+    guard let ref = next.sources[index].photo else { throw FlowPortfolioError.unavailable("Photo reference is unavailable.") }
+    try await commit(next, operation: "sourceGroupsDeclared", subjectID: sourceID, photoMetadata: [.init(reference: ref, patch: .init(subjectID: .set(subject), sessionID: .set(session), excluded: excluded))])
   }
 
   package func setSourceExcluded(sourceID: UUID, excluded: Bool) async throws {
     _ = try source(sourceID); var next = state
     next.sources[next.sources.firstIndex { $0.id == sourceID }!].excluded = excluded
-    try await commit(next, operation: "sourceCurationChanged", subjectID: sourceID)
+    guard let ref = next.sources.first(where: { $0.id == sourceID })?.photo else { throw FlowPortfolioError.unavailable("Photo reference is unavailable.") }
+    try await commit(next, operation: "sourceCurationChanged", subjectID: sourceID, photoMetadata: [.init(reference: ref, patch: .init(excluded: excluded))])
   }
 
   @discardableResult package func beginRound(sourceID: UUID, recipes: [FlowArtistRecipe],
@@ -413,6 +418,7 @@ package actor FlowPortfolioStore {
 
   @discardableResult package func freezeTrainingSnapshot(id: UUID? = nil) async throws -> FlowPortfolioTrainingSnapshot {
     if let id, let existing = state.trainingSnapshots.first(where: { $0.id == id }) { return existing }
+    try await refreshPhotoMetadata()
     let bytes = try encode(state), document = try storage.retain(bytes, mediaType: "application/json")
     let snapshot = FlowPortfolioTrainingSnapshot(id: id ?? UUID(), createdAt: Date(), portfolioID: state.id,
       portfolioRevision: state.revision, purpose: state.purpose, document: document, contentSHA256: document.sha256)

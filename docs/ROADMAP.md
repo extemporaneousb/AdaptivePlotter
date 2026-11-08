@@ -103,45 +103,46 @@ source observations from authoritative validation/adoption. The unfinished entri
 below retain the existing dependency DAG; the adopted DX-05 cutover is recorded
 above and in Current Evidence.
 
-**DX-06 — Remaining inert public result API.** Current task
-`task-7b8cc6a988bb4d5a9c4c79411c38f875` owns result mount, exact-publication query
-and byte-preserving re-export on the existing `DrawingLibrary` actor. Authored
-current-format transfer already belongs to the adopted DX-05 implementation.
-Allowed owner paths are `Sources/DrawingLibrary/` result/catalog/read/exchange and
-strictly necessary publication/storage code, associated result tests and current
-docs. A narrow Core admission entry point requires explicit review. Deleted
-`DrawingTransfer` and `PlotAttachment` implementations must not return.
+The adopted DX-06 inert public result API is recorded in the
+[dated canonical receipt](CURRENT_EVIDENCE.md#dx-06-canonical-adoption-2026-11-08):
+normal landing at `7d67e815fb07045933ed5fa23d0bea8cc7bef0d5`, with all seven
+bounded caller-declared criteria current/met. Result identity remains the exact
+index/inventory pair; inert result support does not change physical authority.
 
-A result handle binds its original index digest and complete inventory digest;
-a DrawingRef alone cannot select a result delivery. Indexed result headers and
-full DrawingRef associations must commit atomically with the existing journal,
-SQL and CAS publication. Queries remain bounded and artwork-independent;
-read-only inspection never creates a root or acquires a writer. Sequence-N results
-include the finite 1…N predecessor chain and all required media, without requiring
-a terminal or sealed run. Refused zero-attempt jobs do not fabricate runs. Unknown
-required features remain preservable/exportable while interpretation is denied.
-Gates include offline exact-byte re-export, duplicate/uncertain COMMIT retry,
-conflict quarantine, closure rejection, recovery, publication-specific selection,
-public dependency-isolated client, app builds and final configured validation and
-normal landing. No live retry/no-ink/physical authority changes, historical import
-or garbage collection belong to this task. The
-[dated software receipt](CURRENT_EVIDENCE.md#dx-06-inert-result-api-software-receipt-2026-11-08)
-records scoped probes; final configured validation and landing belong to the
-authoritative task. This worklist is not completion evidence.
+**DX-07 — Neutral sources and reversible Drawing retention.** Task
+`task-660bbaadb1c6459aac41feaae2902409` owns the concrete Library source/query,
+metadata/catalog/database and existing journal responsibilities, narrow Core
+`DrawingImageRecords`/source admission, exact source binding in
+`PortraitArtists/PortraitDrawingImages.swift`, current Flow graph/store/collection/
+metadata validation/types and the `FlowDojoModel` metadata adapter, associated tests
+and canonical docs. Removed portfolio storage/delta readers must not return.
 
-**DX-07 — Canonical photos, prepared inputs and retention reasons.** Allowed:
-`Sources/PortraitLibrary/{FlowPortfolioPhotoCollection,FlowPortfolioStore,FlowPortfolioStorage,FlowPortfolioDelta,FlowPortfolioValidation,FlowPortfolioTypes,PortraitPhotoPage}.swift`,
-`Sources/PortraitArtists/PortraitSourcePreparation.swift`, image/retention tests and
-Library API files from DX-04/05. Preserve original acquisition occurrences, source
-dates with provenance, exact raster/mask bytes and ordered transforms on each retained
-branch; identity preparation can alias identical original bytes. Persist explicit
-Choose/Refine/prune/Plot/explicit-save retention reasons and tombstones. Rank feedback writes its own record. Generate,
-browse, editor-open and Rank alone must not retain sibling geometry. Define
-deletion/GC reachability proofs across retained parents, jobs, attempts, assessments,
-metadata and historical aliases; hide/tombstone precedes separately deliberate
-asset deletion. Gate: equal-byte captures, unknown dates, shared objects, clear and
-reapply retention, crash during commit and missing-mask corruption fixtures.
-Recovery: retain sources and quarantine ambiguity; no production cleanup.
+The **2026-11-08 pre-gate snapshot** implements public bounded Photo/Input metadata
+and exact frozen source loads, one neutral Photo title/group/exclusion authority,
+atomic field-intent/domain commits, collection occurrence identity and Drawing-only
+reason clear/reapply/hide/restore. Internal schema 11 strictly refuses older
+catalogs; no migration/backfill is part of this forward-only software task. Exact
+JSON/assets/masks/transforms and unknown-vs-opaque date facts remain distinct.
+Photo chronology uses capture/import fallback and a separate unknown bucket;
+Inputs have exact-ref ordering, no invented date. Metadata pages do not load
+artwork. Reusable source loads refuse unknown requirements while known encoded
+header admission stays conservative about decoded pixels. Intrinsic unknown source
+semantics can remain preserved alongside independent known Drawing geometry.
+
+Current Flow source fields are cached neutral projections; unrelated graph writes
+cannot overwrite metadata. New source metadata publishes atomically with its
+source/domain operation. Frozen-training isolation covers Photo metadata only:
+future freezes sample current values, prior documents retain original values;
+DX-09's live-UUID feature lookup/digest-membership issue remains deferred. Equal-byte
+occurrences remain separate acquisitions with shared pixel leakage grouping.
+Retention controls never remove CAS/evidence and introduce no Photo/Input tombstone
+or GC framework. Historical import and production cleanup remain deferred; no new
+mandatory user fields or physical/episode authority change is authorized.
+
+The [dated receipt](CURRENT_EVIDENCE.md#dx-07-neutral-source-metadata-software-receipt-2026-11-08)
+records failed and passing scoped observations. Final configured validation,
+criterion assessments and normal landing are owned by the authoritative task;
+this worklist does not assert their completion or the wider DX campaign's closure.
 
 **DX-08 — Authoring selection, pruning and Plot handoff.** Allowed:
 `Sources/PortraitStudioUI/{FlowDojoModel,FlowDojoFiles,PortraitLineEditModel,PortraitLineEditor,PortraitStudioModel}.swift`,

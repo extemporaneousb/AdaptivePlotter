@@ -39,6 +39,11 @@ package struct DrawingLibraryDomainCommit: Codable, Sendable {
 package struct DrawingLibraryRecordBatch: Codable, Sendable {
   let records:[DrawingLibraryRecord]
   let removing:[DrawingLibraryRecordKey]
+  let photoMetadata:[DrawingLibraryPhotoMetadataUpdate]?
+  let drawingRetention:[DrawingLibraryRetentionMutation]?
+  init(records:[DrawingLibraryRecord],removing:[DrawingLibraryRecordKey],photoMetadata:[DrawingLibraryPhotoMetadataUpdate]=[],drawingRetention:[DrawingLibraryRetentionMutation]=[]) {
+    self.records=records;self.removing=removing;self.photoMetadata=photoMetadata;self.drawingRetention=drawingRetention
+  }
 }
 
 extension DrawingLibrary {
@@ -63,10 +68,12 @@ extension DrawingLibrary {
       return try VerifiedExchangeFiles(catalogRoot:directoryURL,inventory:[.init(path:path,storagePath:path,digest:digest,byteLength:length)]).record(digest,maximumBytes:maximumBytes)
     }
   }
-  public func commitRecords(_ records:[DrawingLibraryRecord],removing:[DrawingLibraryRecordKey]=[],assets:[DrawingLibraryClosureAsset]=[],intent:DrawingLibraryCommitIntent = .init(),closure:DrawingLibraryRetainedClosure = .empty)throws {
+  public func commitRecords(_ records:[DrawingLibraryRecord],removing:[DrawingLibraryRecordKey]=[],assets:[DrawingLibraryClosureAsset]=[],intent:DrawingLibraryCommitIntent = .init(),closure:DrawingLibraryRetainedClosure = .empty,photoMetadata:[DrawingLibraryPhotoMetadataUpdate]=[])throws {
     let catalog=try commonCatalog()
     defer { refreshOwnership() }
-    let batch=DrawingLibraryRecordBatch(records:records,removing:removing)
+    let batch=DrawingLibraryRecordBatch(records:records,removing:removing,photoMetadata:photoMetadata)
+    guard photoMetadata.count <= 10_000 else { throw DrawingLibraryError.invalidQuery }
+    for update in photoMetadata { try catalog.validatePhotoPatch(update.patch) }
     let request=try domainRequest(batch,assets:assets+closure.assets,closureRecords:closure.records)
     if try catalog.domainReceipt(intent.id,request:request) != nil { return }
     let prepared=try packageWithAssets(nil,assets:assets+closure.assets,publicationID:intent.id,records:closure.records)
@@ -75,7 +82,11 @@ extension DrawingLibrary {
     _ = try catalog.publish(prepared.package,domainCommit:commit)
   }
   package func domainRequest(_ batch:DrawingLibraryRecordBatch,assets:[DrawingLibraryClosureAsset],retentionRequest:ExchangeDigest?=nil,closureRecords:[DrawingLibraryClosureRecord]=[])throws->ExchangeDigest {
-    guard batch.records.count+batch.removing.count+closureRecords.count+assets.count<=10_000 else { throw DrawingExchangeError.limit("Commit count") }
+    let recordCount: Int = batch.records.count + batch.removing.count
+    let mutationCount: Int = (batch.photoMetadata?.count ?? 0) + (batch.drawingRetention?.count ?? 0)
+    let closureCount: Int = closureRecords.count + assets.count
+    let totalCount: Int = recordCount + mutationCount + closureCount
+    guard totalCount <= 10_000 else { throw DrawingExchangeError.limit("Commit count") }
     var total=0
     for record in batch.records {
       guard record.payload.count<=ExchangeJSON.maximumRecordBytes,record.payload.count<=16*1024*1024-total,record.drawings.count+record.photos.count+record.inputs.count+record.assets.count<=10_000 else { throw DrawingExchangeError.limit("Commit record bytes/references") };total += record.payload.count
@@ -84,7 +95,7 @@ extension DrawingLibrary {
     for size in assets.map({$0.bytes.count})+closureRecords.map({$0.originalJSON.count}) {
       guard size<=256*1024*1024-total else { throw DrawingExchangeError.limit("Commit asset bytes") };total += size
     }
-    let ordered=DrawingLibraryRecordBatch(records:batch.records.sorted { ($0.kind,$0.id.uuidString)<($1.kind,$1.id.uuidString) },removing:batch.removing.sorted { ($0.kind,$0.id.uuidString)<($1.kind,$1.id.uuidString) })
+    let ordered=DrawingLibraryRecordBatch(records:batch.records.sorted { ($0.kind,$0.id.uuidString)<($1.kind,$1.id.uuidString) },removing:batch.removing.sorted { ($0.kind,$0.id.uuidString)<($1.kind,$1.id.uuidString) },photoMetadata:batch.photoMetadata ?? [],drawingRetention:batch.drawingRetention ?? [])
     let encoder=DrawingArtifactCoding.encoder()
     let object:[String:Any] = ["batch":ExchangeDigest.hash(try encoder.encode(ordered)).description,"assets":try assets.map { value -> String in
       ExchangeDigest.hash(try encoder.encode(value.descriptor)).description+":"+ExchangeDigest.hash(value.bytes).description
@@ -175,6 +186,8 @@ extension LibraryExchangeCatalog {
   package func applyDomainCommit(_ commit:DrawingLibraryDomainCommit,transaction:UUID)throws {
     if try domainReceipt(commit.intent,request:commit.request) != nil { return }
     try applyDomainBatch(commit.batch)
+    for update in commit.batch.photoMetadata ?? [] { try applyPhotoMetadata(update) }
+    for update in commit.batch.drawingRetention ?? [] { try applyRetentionMutation(update) }
     for retained in commit.retained {
       let metadata=retained.metadata,intent=retained.intent,request=retained.request
       guard case .drawing(let ref)=metadata.reference else { throw DrawingLibraryError.invalidIdentity }
@@ -188,7 +201,10 @@ extension LibraryExchangeCatalog {
   /// Reject malformed or dangling domain records before creating a durable
   /// journal. The same checks run again inside the final transaction.
   package func validateDomainBatch(_ batch:DrawingLibraryRecordBatch,included:Set<LibraryExchangeReference>,objects:Set<ExchangeDigest>)throws {
-    guard batch.records.count+batch.removing.count<=10_000,Set(batch.records.map(\.key)).count==batch.records.count,Set(batch.removing).count==batch.removing.count,Set(batch.records.map(\.key)).isDisjoint(with:Set(batch.removing)) else { throw DrawingExchangeError.limit("Domain records") }
+    let recordCount: Int = batch.records.count + batch.removing.count
+    let mutationCount: Int = (batch.photoMetadata?.count ?? 0) + (batch.drawingRetention?.count ?? 0)
+    let totalCount: Int = recordCount + mutationCount
+    guard totalCount <= 10_000,Set(batch.records.map(\.key)).count==batch.records.count,Set(batch.removing).count==batch.removing.count,Set(batch.records.map(\.key)).isDisjoint(with:Set(batch.removing)) else { throw DrawingExchangeError.limit("Domain records") }
     var bytes=0
     for record in batch.records {
       guard !record.kind.isEmpty,record.kind.utf8.count<=256,record.payload.count<=ExchangeJSON.maximumRecordBytes,record.payload.count<=16*1024*1024-bytes,record.drawings.count+record.photos.count+record.inputs.count+record.assets.count<=10_000 else { throw DrawingExchangeError.limit("Domain record bytes") };bytes += record.payload.count
@@ -198,6 +214,14 @@ extension LibraryExchangeCatalog {
       for digest in record.assets where !objects.contains(digest) {
         guard try database.scalar("SELECT digest FROM dx_object WHERE digest=?",[digest.description]) != nil else { throw DrawingLibraryError.corruptAsset(digest) }
       }
+    }
+    for update in batch.photoMetadata ?? [] {
+      try validatePhotoPatch(update.patch)
+      if !included.contains(.photo(update.reference)) { _ = try lookup(.photo(update.reference)) }
+    }
+    for update in batch.drawingRetention ?? [] {
+      if let reason = update.reason { guard !reason.isEmpty, reason.utf8.count <= 4096 else { throw DrawingLibraryError.invalidQuery } }
+      _ = try lookup(.drawing(update.reference))
     }
     for key in batch.removing { guard !key.kind.isEmpty,key.kind.utf8.count<=256 else { throw DrawingLibraryError.invalidIdentity } }
   }

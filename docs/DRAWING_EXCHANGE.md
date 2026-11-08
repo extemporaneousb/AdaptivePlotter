@@ -231,7 +231,7 @@ See the [Roadmap](ROADMAP.md#drawing-exchange) for implementation dependencies, 
 
 ## Inert Library result API scope, 2026-11-08
 
-The remaining DX-06 public layer belongs to the existing concrete DrawingLibrary
+The adopted DX-06 public layer belongs to the existing concrete DrawingLibrary
 owner. A result reference consists of the exact original exchange index digest and
 complete publication inventory digest. Multiple result deliveries and an authored
 publication can contain the same DrawingRef; selected result reads/exports must
@@ -250,6 +250,48 @@ original record dates. Opaque roots do not gain invented program metrics, and
 existing titles, retention reasons and tombstones remain unchanged.
 This scoped work grants no execution,
 retry, no-ink or other live physical authority; historical import stays deferred.
+
+## Neutral source and metadata boundary, 2026-11-08
+
+DX-07's concrete `DrawingLibrary` exposes `photos(limit:after:)`,
+`inputs(for:limit:after:)`, `photo(_:)` and `input(_:)`. Exact loads use Core
+validated original files and return `FrozenPhotoRecord`/`FrozenImageInputRecord`
+without re-freezing JSON or altering descriptors, mask/transforms or alias roles.
+Unknown index/Photo/Input requirements cannot become reusable known source facts;
+opaque metadata can still be listed with unavailable facts and an unsupported
+reason. Known explicit unknown dated facts retain their provenance. Known PNG/JPEG
+headers do not establish decoded pixel semantics. Producer input preparation binds
+supplied bytes and dimensions to the exact Photo original asset.
+
+Photo metadata pages use compact journaled SQL projections, capture/import fallback
+and an explicit unknown-date bucket. Inputs use exact-ref keysets, because their
+wire records have no authored date. Cursors bind full scope and catalog generation;
+readonly absence creates no catalog or writer. Internal schema 11 requires current
+metadata tables and rejects older schemas without migration or backfill.
+
+`DrawingLibraryPhotoMetadata` is the one live optional title/subject/session/
+exclusion authority. Patches explicitly distinguish unchanged from set/clear;
+blank text clears to nil after raw size checks. Existing commit intents bind the
+captured request, so uncertain retry cannot replay old edits over later metadata.
+Source publication, initial metadata and Flow domain rows share one journal/SQL
+transaction. Flow source fields are cached projections, refreshed only when the
+neutral metadata revision or source membership changes; absent titles display the
+derived “Photo” label. They are not a second writable authority.
+
+Collection idempotence uses collection ID plus original entry ID, binding original
+bytes/length/session/provenance rather than mutable curation or pixel equality.
+Equal-pixel acquisitions retain distinct Photo refs and shared leakage grouping.
+Drawing-only `retention`, `setRetentionReason` and `restore` expose reversible
+reason/hide state; these operations neither delete CAS/evidence nor establish GC
+eligibility. No Photo/Input tombstone API is introduced.
+
+Photo-metadata training isolation means future freezes sample current neutral
+values and old frozen training documents retain their bytes/values. It does not
+close DX-09's feature-capsule live-UUID/digest-membership gap. Historical import,
+reachability/GC and physical execution remain separate. No mandatory new user
+fields, width declarations or setup are introduced. This dated pre-gate scope is
+tracked by task `task-660bbaadb1c6459aac41feaae2902409`; final validation and landing
+belong to that task. See the [scoped software receipt](CURRENT_EVIDENCE.md#dx-07-neutral-source-metadata-software-receipt-2026-11-08).
 
 ## Current software cutover boundary, 2026-11-08
 
