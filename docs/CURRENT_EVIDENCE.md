@@ -8,6 +8,92 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DX-08 shared Drawing editor software receipt, 2026-11-08
+
+Dated pre-gate observation for task `task-67802fca3f9b44dc9e8b024dfa58ccc4`,
+based on adopted DX-07 `8291a0a8b0f766e2fc0b80257727066d82e41a9a`. At this
+snapshot final configured validation, criterion assessment and normal landing have
+not run; authoritative subsequent status belongs to that task. This is bounded
+software evidence, not completion of the Drawing Exchange campaign.
+
+The actual embedded `DrawingTransferView` and standalone `PortraitStudioDojoWindow`
+now construct the same `DrawingLibraryBrowser` and `DrawingMembershipEditor` using
+the existing acquisition `sketches` collection/native canvas. Browser request and
+sheet models hold transient lifetime only; rows/full-ref selection remain with the
+one borrowed collection. Generic editing creates no Flow target, feedback, project
+or Start. The existing Flow pruning/feedback path is unchanged.
+
+`saveStrokeEdit(base:keptStrokeIDs:parentIntentID:editIntentID:)` enters the
+collection's existing admission/drain, checks incoming and authoritative exact
+parent `.edit` capability, preserves stable stroke IDs/order/points, and uses the
+existing atomic parent/child retention and exact reload. Explicit unchanged Done
+retains the base without a fake child. All-lines removal refuses. The native canvas
+renders only a loaded original with `.edit` and `.preview`. There is no unsupported
+Photo overlay or new width/data-entry requirement.
+
+A sheet pins its immutable base, opening collection epoch and completion identity.
+Late completion after close or selection change cannot retarget selection, including
+equal geometry under another ref. Send uses a browser request/full-ref guard that
+allows its own expected selection publication; existing application guards remain.
+Cancel before Save is write-free. Once an admitted save is settling, dismissal says
+Close: the transaction can settle while its closed/stale UI withholds adoption.
+Live Retry keeps stable intents. Abandonment or successful replacement releases all
+attempted local preparations through collection-drained `discardPending`; durable
+journals/committed CAS are never deleted. No second persistence/selection owner was
+introduced.
+
+| Observation | Actual retained outcome |
+| --- | --- |
+| First scoped fresh-scratch run | Compile failed on two test macro expressions; zero tests/no XML; 936 inputs unchanged |
+| Scoped incremental run | Build passed 172.56 s; process exit 1/230.050 s; XML 36 cases: 35 passes, one native control-lookup failure, no skips/errors |
+| One-case accessibility lookup retry | Build passed 10.64 s; exit 1/17.392 s; one failed case, no skips/errors; only unlabeled frame controls found |
+| One-case independent host diagnosis | Build passed 10.51 s; exit 1/18.539 s; independent known SwiftUI button and production Edit both absent before/after permitted process-local initialization |
+| Accepted default scoped run | Build passed 11.32 s; exit 0/38.597 s; XML 28 cases: 27 passes, one explicit existing AX opt-in skip, no failures/errors; 936 inputs unchanged |
+| Normal all-products build | Cached exit 0/2.118 s; actual AdaptivePlotter/PortraitStudio byte lengths and hashes retained; neither launched |
+
+The passing scope covers capability denial, stable membership/exact offline child
+closure, unchanged completion, uncertain commit retry, failed-edit Cancel/replacement
+cleanup, collection drain, stale editor/selection races, actual embedded Send/Prepare
+with fake ports and no Start, and existing projection/native pointer/keyboard cases.
+Unchanged Flow navigation/pruning cases passed within the earlier failed scoped run.
+These observations overlap and are not summed into a new broader pass.
+
+Default standalone integration constructs the real production browser/editor with
+the shared collection, then uses a **separately constructed real BrowserModel** and
+hosted native canvas to exercise pointer/save/adoption/cancel APIs. It does not
+exercise the hosted browser's private `@State`, button delivery or sheet presentation.
+Those assertions remain strict in the full workflow under the existing
+`PORTRAIT_NATIVE_AX_CHECK=1` host prerequisite. The independent known-control failure
+establishes the limitation of this nonactive/nonkey offscreen accessibility host;
+it is not a product pass or a demonstrated missing-control defect. No activation,
+permissions, app process launch or dynamic missing-control skip was introduced.
+Full interactive AX acceptance remains unverified here.
+
+Raw observations, exact test correction/host patches and freeze-verified test
+revisions, XML/process/input receipts, implementation freezes, actual product hashes
+and final path/hash inventories are outside Git under
+`/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx08-editor-delivery/`.
+Static review remains caller-declared, not authenticated reviewer/machine compliance.
+Historical import, DX-09 feature/feedback manifests, production data, Runtime/Episode/
+issuance/physical authority, app restart/deployment, model promotion and remote Git
+remain outside this task. No performance-improvement claim is made.
+
+## DX-07 canonical adoption, 2026-11-08
+
+Task `task-660bbaadb1c6459aac41feaae2902409` completed normal local landing at
+`8291a0a8b0f766e2fc0b80257727066d82e41a9a`, tree
+`c3426006ac720a510e4b3f73f40414705ed712af`. Configured event
+`9d9baf12bab24f52424c0d864dab3b1454eb66830cbd6d429948ea2165c0a797`
+completed normal docs-check/full quick-test/diff-check with exit 0. XML records
+1,851 passes and 26 skips, no failures/errors. Configured stdout/stderr was not
+retained by the installed runtime. Following independently verified adoption,
+correction event `34f9de033efb8e482ef5433829fb5ca4e50c5d4bac6c23734b09d7887e9aafd7`
+made all eight bounded caller-declared criteria artifact-current/met; task outcome
+and compliance are met. Terminal ambient-environment applicability remains separately
+unknown, not a reobserved environment claim. The dated pre-gate receipt and all
+failed observations below remain historical, unchanged. Photo-metadata training
+isolation does not complete DX-09's live-UUID feature membership work.
+
 ## DX-07 neutral source metadata software receipt, 2026-11-08
 
 Dated pre-gate observation for Blackdog task

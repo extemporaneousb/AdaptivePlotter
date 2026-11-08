@@ -6,7 +6,10 @@ import PortraitLibrary
 
 /// A pure stable-ID edit draft. Opening the editor never retains geometry.
 @Observable @MainActor
-package final class PortraitLineEditModel {
+package final class PortraitLineEditModel: Identifiable {
+  package let id = UUID()
+  package let openingSelectionEpoch: UInt64
+  package private(set) var isClosed = false
   package enum Tool: String, CaseIterable { case erase = "Click to Delete", lasso = "Lasso", restore = "Restore" }
   package struct Operation: Sendable {
     package enum Action: Sendable { case remove, restore }
@@ -29,7 +32,30 @@ package final class PortraitLineEditModel {
   private var savedMask: Set<StrokeID> = []
   private var editID = UUID()
   private let parentIntentID = UUID()
-  package init(base: Drawing, sketches: PortraitSketchCollection) { self.base = base; self.sketches = sketches }
+  @ObservationIgnored private var outstandingIntentIDs = Set<UUID>()
+  @ObservationIgnored private var saveSettlementWaiters: [CheckedContinuation<Void, Never>] = []
+  package init(base: Drawing, sketches: PortraitSketchCollection) {
+    self.base = base; self.sketches = sketches; openingSelectionEpoch = sketches.selectionEpoch
+  }
+  package func close() {
+    guard !isClosed else { return }
+    isClosed = true
+    let intents = takeOutstandingIntents()
+    guard !intents.isEmpty else { return }
+    let settlement: Task<Void, Never>? = isBusy ? Task { await self.awaitSaveSettlement() } : nil
+    sketches.discardStrokeEditPreparations(intents, after: settlement)
+  }
+  private func takeOutstandingIntents() -> Set<UUID> {
+    let intents = outstandingIntentIDs; outstandingIntentIDs.removeAll(); return intents
+  }
+  private func awaitSaveSettlement() async {
+    if isBusy { await withCheckedContinuation { saveSettlementWaiters.append($0) } }
+  }
+  private func didSettleSave() {
+    isBusy = false
+    let waiters = saveSettlementWaiters; saveSettlementWaiters = []
+    for waiter in waiters { waiter.resume() }
+  }
   package static func supports(_ drawing: Drawing) -> Bool { drawing.capabilities.supported.contains(.edit) }
   package var removed: Set<StrokeID> {
     var result = Set<StrokeID>()
@@ -39,13 +65,17 @@ package final class PortraitLineEditModel {
     }
     return result
   }
-  package var canUndo: Bool { !operations.isEmpty && !isBusy }
-  package var canRedo: Bool { !redoOperations.isEmpty && !isBusy }
+  package var canUndo: Bool { !operations.isEmpty && !isBusy && !isClosed && !sketches.isClosing }
+  package var canRedo: Bool { !redoOperations.isEmpty && !isBusy && !isClosed && !sketches.isClosing }
   package var remainingCount: Int { base.program.strokes.count - removed.count }
   package var hasUnsavedChanges: Bool { removed != savedMask }
-  package var canSave: Bool { original != nil && remainingCount > 0 && !isBusy && hasUnsavedChanges }
-  package var canEdit: Bool { original != nil && !isBusy && !showsOriginal && !showsPhoto }
-  package func load() async { original = base }
+  package var canSave: Bool { original != nil && Self.supports(base) && remainingCount > 0 && !isBusy && !isClosed && !sketches.isClosing }
+  package var canEdit: Bool { original != nil && Self.supports(base) && !isBusy && !isClosed && !sketches.isClosing && !showsOriginal && !showsPhoto }
+  package func load() async {
+    guard !isClosed else { return }
+    guard Self.supports(base) else { error = "Editing unavailable: this drawing requires unsupported features."; return }
+    original = base
+  }
   package func remove(_ ids: Set<StrokeID>) { apply(ids, action: .remove) }
   package func restore(_ ids: Set<StrokeID>) { apply(ids, action: .restore) }
   private func apply(_ ids: Set<StrokeID>, action: Operation.Action) {
@@ -64,21 +94,23 @@ package final class PortraitLineEditModel {
   package func undo() { guard canUndo, let value = operations.popLast() else { return }; redoOperations.append(value); editID = UUID(); selection = [] }
   package func redo() { guard canRedo, let value = redoOperations.popLast() else { return }; operations.append(value); editID = UUID(); selection = [] }
   @discardableResult package func save() async -> Bool {
-    guard remainingCount > 0, !isBusy else { return false }
-    isBusy = true; defer { isBusy = false }
+    guard canSave, sketches.selectionEpoch == openingSelectionEpoch else { return false }
+    isBusy = true; defer { didSettleSave() }
+    outstandingIntentIDs.formUnion([parentIntentID, editID])
+    let mask = removed
+    let kept = base.program.strokes.map(\.id).filter { !mask.contains($0) }
     do {
-      try await sketches.library.open()
-      let parent = try await sketches.library.prepareRetention(base, reason: "required-edit-parent", intent: .init(id: parentIntentID))
-      if removed.isEmpty {
-        _ = try await sketches.library.commitRetention(parent)
-        savedDrawing = try await sketches.library.drawing(parent.reference); savedMask = []; return true
-      }
-      let kept = base.program.strokes.map(\.id).filter { !removed.contains($0) }
-      let child = try parent.drawing.applying(.membership(kept), to: parent.reference, programID: ProgramID(editID))
-      let prepared = try await sketches.library.prepareRetention(child, reason: "committed-stroke-edit", intent: .init(id: editID))
-      _ = try await sketches.library.commitRetentions([parent, prepared])
-      savedDrawing = try await sketches.library.drawing(prepared.reference)
-      savedMask = removed; return true
-    } catch { self.error = error.localizedDescription; return false }
+      let saved = try await sketches.saveStrokeEdit(base: base, keptStrokeIDs: kept,
+        parentIntentID: parentIntentID, editIntentID: editID)
+      let obsolete = takeOutstandingIntents()
+      if !obsolete.isEmpty { await sketches.discardStrokeEditPreparations(obsolete).value }
+      guard !isClosed, !sketches.isClosing, !Task.isCancelled,
+        sketches.selectionEpoch == openingSelectionEpoch else { return false }
+      savedDrawing = saved; savedMask = mask; error = nil
+      return true
+    } catch {
+      if !isClosed, !Task.isCancelled { self.error = error.localizedDescription }
+      return false
+    }
   }
 }

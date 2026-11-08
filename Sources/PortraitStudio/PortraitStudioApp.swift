@@ -40,18 +40,31 @@ struct PortraitStudioApp: App {
   }
 }
 
-private struct PortraitStudioDojoWindow: View {
+struct PortraitStudioDojoWindow: View {
   @Environment(\.openWindow) private var openWindow
   @Bindable var dojo: FlowDojoModel
   @Bindable var acquisition: PortraitStudioModel
   let library: DrawingLibrary
   let delegate: PortraitStudioApplicationDelegate
   @State private var libraryError: String?
+  @State private var showsDrawings = false
+  init(dojo: FlowDojoModel, acquisition: PortraitStudioModel, library: DrawingLibrary,
+    delegate: PortraitStudioApplicationDelegate) {
+    self.dojo = dojo; self.acquisition = acquisition; self.library = library; self.delegate = delegate
+  }
+  var drawingBrowser: DrawingLibraryBrowser {
+    DrawingLibraryBrowser(sketches: acquisition.sketches, close: { showsDrawings = false })
+  }
   var body: some View {
     FlowDojoView(model: dojo, camera: acquisition, selectCamera: {
       await acquisition.startCamera(); return acquisition.cameraStatus
     })
     .frame(minWidth: 1100, minHeight: 720)
+    .toolbar {
+      Button("Drawings", systemImage: "square.grid.2x2") { showsDrawings = true }
+        .accessibilityIdentifier("portraitStudio.drawings")
+    }
+    .sheet(isPresented: $showsDrawings) { drawingBrowser }
     .overlay(alignment: .bottom) {
       if let libraryError { Text(libraryError).foregroundStyle(.red).padding() }
     }

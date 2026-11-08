@@ -150,6 +150,84 @@ struct PortraitLineEditTests {
     await library.closeLibrary()
   }
 
+  @Test("Drawing-own requirements deny editor entry and save without changing retained bytes")
+  func unsupportedOwnFeatures() async throws {
+    let root = DrawingEditFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
+    let library = DrawingLibrary(directoryURL: root.appendingPathComponent("library"))
+    let imported = try await DrawingEditFixture.imported(in: library, directory: root, unsupportedOwn: true)
+    let before = try await library.drawings().entries.map(\.reference)
+    let sketches = PortraitSketchCollection(library: library)
+    let editor = PortraitLineEditModel(base: imported.drawing, sketches: sketches)
+    #expect(!PortraitLineEditModel.supports(imported.drawing))
+    await editor.load()
+    #expect(!editor.canEdit && !editor.canSave)
+    editor.remove([try #require(imported.drawing.program.strokes.first).id])
+    #expect(editor.removed.isEmpty)
+    #expect(await editor.save() == false)
+    #expect(try await library.drawings().entries.map(\.reference) == before)
+    await sketches.shutdown(); await library.closeLibrary()
+  }
+
+  @Test("Fresh source-free catalog output edits with unknown physical width and no Photo")
+  func sourceFreeParity() async throws {
+    let root = DrawingEditFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
+    let base = try await DrawingEditFixture.sourceFree()
+    #expect(base.input == .none && base.units.nominalPenWidthMM == nil)
+    let library = DrawingLibrary(directoryURL: root)
+    let sketches = PortraitSketchCollection(library: library)
+    let editor = PortraitLineEditModel(base: base, sketches: sketches)
+    await editor.load()
+    #expect(editor.canEdit)
+    #expect(!FileManager.default.fileExists(atPath: root.path))
+    let removed = try #require(base.program.strokes.first).id
+    editor.remove([removed]); #expect(await editor.save())
+    let child = try #require(editor.savedDrawing)
+    #expect(child.input == .none && child.units.nominalPenWidthMM == nil)
+    #expect(child.program.strokes == base.program.strokes.filter { $0.id != removed })
+    guard case .present(let parent) = child.parent else { Issue.record("Missing catalog parent"); return }
+    #expect(try await library.drawing(parent).producer.originalJSON == base.producer.originalJSON)
+    #expect(try await library.photos().entries.isEmpty)
+    await sketches.shutdown(); await library.closeLibrary()
+  }
+
+  @Test("Intrinsic source uncertainty permits exact membership edits and survives offline child closure")
+  func uncertainSourceOfflineChild() async throws {
+    let root = DrawingEditFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
+    let library = DrawingLibrary(directoryURL: root.appendingPathComponent("library"))
+    let imported = try await DrawingEditFixture.imported(in: library, directory: root, uncertainSource: true)
+    let parentRef = try #require(imported.drawing.reference)
+    #expect(!imported.drawing.capabilities.sourceSemanticsSupported)
+    #expect(PortraitLineEditModel.supports(imported.drawing))
+    let sketches = PortraitSketchCollection(library: library)
+    let editor = PortraitLineEditModel(base: imported.drawing, sketches: sketches)
+    await editor.load(); #expect(editor.canEdit)
+    let removed = try #require(imported.drawing.program.strokes.first).id
+    editor.remove([removed]); #expect(await editor.save())
+    let child = try #require(editor.savedDrawing), childRef = try #require(child.reference)
+    let inputRef = try #require(imported.input)
+    #expect(child.parent == .present(parentRef) && child.input == .present(inputRef))
+    #expect(child.program.strokes == imported.drawing.program.strokes.filter { $0.id != removed })
+    #expect(!child.capabilities.sourceSemanticsSupported)
+    #expect(throws: (any Error).self) { try child.capabilities.require(.regenerate) }
+    #expect(throws: (any Error).self) { try child.capabilities.require(.train) }
+    let exported = root.appendingPathComponent("child.zip")
+    try await library.exportDrawing(childRef, to: exported)
+    await sketches.shutdown(); await library.closeLibrary()
+    try FileManager.default.removeItem(at: root.appendingPathComponent("library"))
+    let offline = DrawingLibrary(directoryURL: root.appendingPathComponent("offline"))
+    #expect(try await offline.importDrawings(from: exported) == [childRef])
+    let reloaded = try await offline.drawing(childRef)
+    #expect(reloaded.parent == .present(parentRef) && reloaded.program == child.program)
+    #expect(try await offline.drawing(parentRef).producer.originalJSON == imported.drawing.producer.originalJSON)
+    let stage = root.appendingPathComponent("stage")
+    try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+    let admitted = try ExchangeAdmission.validate(DrawingExchangeCarrier.stageZIP(exported, stagingParent: stage))
+    for (path, bytes) in imported.sourceFiles where path != "data/exchange.json" {
+      #expect(try admitted.files.record(at: path) == bytes)
+    }
+    await offline.closeLibrary()
+  }
+
   @Test("Stable membership refuses unknown, duplicate, exhaustive and mismatched stroke bases")
   func rejectedMembership() throws {
     let program = try Self.program(), ids = program.strokes.map(\.id)

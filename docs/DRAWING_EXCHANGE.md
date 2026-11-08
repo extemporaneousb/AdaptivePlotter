@@ -251,6 +251,38 @@ existing titles, retention reasons and tombstones remain unchanged.
 This scoped work grants no execution,
 retry, no-ink or other live physical authority; historical import stays deferred.
 
+## Shared membership editor boundary, 2026-11-08
+
+The embedded and standalone Drawing browsers share one `DrawingLibraryBrowser`
+and `DrawingMembershipEditor`, borrowing the existing `PortraitSketchCollection`.
+UI request/sheet state is transient; it is not another collection or selection
+owner. The native canvas uses stable stroke IDs, and only admitted `.edit`/`.preview`
+values render/edit. Source-dependent overlays are not invented. Fresh unknown pen
+width is valid and introduces no additional required input.
+
+Explicit Done enters collection-admitted save, checks the exact retained parent,
+then uses existing atomic parent/child retention and exact reload. Surviving IDs,
+order, points and immutable ancestry/source bytes stay exact. Unchanged Done retains
+the base with no synthetic child. Cancellation before Save writes nothing; Close
+while saving allows the admitted operation to settle while invalidating UI adoption.
+Live Retry reuses stable intents; abandonment/replacement releases local pending
+preparations through the collection drain, never durable journals or committed CAS.
+
+Sheet base, opening selection epoch and completion identity prevent late retargeting
+when a sheet closes or another occurrence is selected. Save returns a Drawing without
+selection mutation; current completion alone can adopt it. Generic editing neither
+creates Flow feedback/targets nor implicitly projects or starts a run. Explicit Send
+uses the original full-ref/request guard without rejecting its own expected selection
+publication. Existing device/runtime/physical authority is unchanged.
+
+These are dated DX-08 implementation observations for task
+`task-67802fca3f9b44dc9e8b024dfa58ccc4`. Default software tests cover real constructors,
+a separate real browser model/shared collection, hosted native canvas and save APIs;
+interactive hosted button/sheet acceptance remains strict AX opt-in and unverified
+in the observed host. Final configured validation/landing belong to the task. See
+[Current Evidence](CURRENT_EVIDENCE.md#dx-08-shared-drawing-editor-software-receipt-2026-11-08)
+for exact proof and limits; this is not campaign completion or historical import.
+
 ## Neutral source and metadata boundary, 2026-11-08
 
 DX-07's concrete `DrawingLibrary` exposes `photos(limit:after:)`,

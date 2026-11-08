@@ -35,6 +35,7 @@ package final class PortraitSketchCollection {
   package init(library: DrawingLibrary) { self.library = library }
   package var hasMore: Bool { cursor != nil }
   package var selectionEpoch: UInt64 { selectionRevision }
+  package var isClosing: Bool { closing }
   package func clearSelection() {
     selectionRevision &+= 1; selected = nil; selectionID = nil
   }
@@ -66,6 +67,57 @@ package final class PortraitSketchCollection {
     try await library.open()
     let receipt = try await library.retain(drawing, reason: reason)
     return try await library.drawing(receipt.reference)
+  }
+  /// Explicit membership completion is one admitted operation. Persistence never
+  /// changes selection; its caller owns any guarded visible adoption.
+  package func saveStrokeEdit(base: Drawing, keptStrokeIDs: [StrokeID],
+    parentIntentID: UUID, editIntentID: UUID) async throws -> Drawing {
+    try admit(); defer { finished() }
+    try base.capabilities.require(.edit)
+    let all = base.program.strokes.map(\.id), kept = Set(keptStrokeIDs)
+    guard !kept.isEmpty else { throw DrawingExchangeError.allStrokesRemoved }
+    guard kept.count == keptStrokeIDs.count else { throw DrawingExchangeError.duplicateStroke }
+    guard kept.isSubset(of: Set(all)) else { throw DrawingExchangeError.unknownStroke }
+    let unchanged = kept == Set(all)
+    if !unchanged { _ = try DrawingStrokeMembership.apply(.membership(keptStrokeIDs), to: base.program, universe: base.program) }
+    try await library.open()
+    let exact: Drawing
+    if let ref = base.reference {
+      exact = try await library.drawing(ref)
+      guard exact.reference == ref, exact.program == base.program else { throw DrawingExchangeError.mismatchedParent }
+    } else { exact = base }
+    try exact.capabilities.require(.edit)
+    // Cancellation may refuse before preparation. Once prepared, settle this
+    // admitted transaction through reload so abandoned drafts leave no pending roots.
+    try Task.checkCancellation()
+    let parent = try await library.prepareRetention(exact, reason: unchanged ? "save" : "required-edit-parent",
+      intent: .init(id: parentIntentID))
+    let selected: DrawingRef
+    if unchanged {
+      _ = try await library.commitRetention(parent)
+      selected = parent.reference
+    } else {
+      let child = try parent.drawing.applying(.membership(keptStrokeIDs), to: parent.reference, programID: ProgramID(editIntentID))
+      let prepared = try await library.prepareRetention(child, reason: "committed-stroke-edit", intent: .init(id: editIntentID))
+      _ = try await library.commitRetentions([parent, prepared])
+      selected = prepared.reference
+    }
+    let saved = try await library.drawing(selected)
+    guard saved.reference == selected else { throw DrawingExchangeError.mismatchedParent }
+    try saved.capabilities.require(.edit)
+    return saved
+  }
+  /// Cache-only release of this editor's local preparations. Register before
+  /// spawning the task so owner shutdown drains abandonment too. This never
+  /// opens/recovers a Library or removes a durable journal/committed object.
+  @discardableResult package func discardStrokeEditPreparations(_ intents: Set<UUID>,
+    after settlement: Task<Void, Never>? = nil) -> Task<Void, Never> {
+    inFlight += 1
+    return Task {
+      defer { finished() }
+      if let settlement { await settlement.value }
+      for intent in intents { await library.discardPending(intent) }
+    }
   }
   package func load() async {
     guard !closing else { return }

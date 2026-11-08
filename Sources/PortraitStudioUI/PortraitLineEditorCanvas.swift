@@ -25,7 +25,7 @@ package struct PortraitLineEditorCanvas: NSViewRepresentable {
 package final class PortraitLineEditorNSView: NSView {
   package var model: PortraitLineEditModel?
   package var program: DrawingProgram?
-  /// The dojo supplies durable callbacks; the historical editor keeps its model.
+  /// The Dojo supplies durable callbacks; generic membership editing uses its model.
   package var onRemove: ((Set<StrokeID>) -> Void)?
   package var onRestore: ((Set<StrokeID>) -> Void)?
   package var onSelection: ((Set<StrokeID>) -> Void)?
@@ -48,7 +48,7 @@ package final class PortraitLineEditorNSView: NSView {
   package override init(frame: NSRect) {
     super.init(frame: frame)
     setAccessibilityElement(true); setAccessibilityRole(.image)
-    setAccessibilityLabel("Flow Edge line editor")
+    setAccessibilityLabel("Drawing line editor")
     setAccessibilityIdentifier("portrait.lineEditor.canvas")
     setAccessibilityHelp("Click removes a whole line. Lasso selects touched lines. Restore recovers gray removed lines. Delete removes selection. Command Z undoes; Shift Command Z redoes.")
   }

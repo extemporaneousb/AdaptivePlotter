@@ -47,6 +47,34 @@ existing camera acquisition owner. Quit cancels and joins generation and fitting
 stops capture and waits for durable work. The standalone app has no controller,
 calibration, motion, paper-clearance or mechanical Learning controls.
 
+## Edit a retained Drawing
+
+Open **Drawings** from the standalone window toolbar. In AdaptivePlotter, the
+existing **Drawing Exchange** toolbar control opens the same Drawings browser.
+Both routes use the application's existing Drawing Library and selection.
+
+Select a retained drawing and choose **Edit**. Click to delete a whole stroke,
+use **Lasso** for a selection, or choose **Restore**; Undo/Redo and **Restore All**
+remain local until **Done**. **Original** shows the opening drawing. Done saves
+an immutable child with the exact parent and surviving stroke IDs/points. Done
+with no membership change retains the base without creating a duplicate child.
+Removing every stroke cannot be saved. Unsupported preview/edit actions remain
+unavailable rather than dropping their requirements. No Photo overlay or pen-width
+entry is required by this editor.
+
+**Cancel** before saving discards the local draft without writing. During an admitted
+save the button says **Close**: the save can finish, but a closed sheet or changed
+selection cannot adopt its late result. After a save error, choose Done again to
+retry the same intent; abandoning a draft releases local preparations without deleting committed
+data or recovery journals. Editing alone does not send to the plotter or record a
+Flow choice/ranking. Embedded **Send to Drawing** is a separate action opening the
+existing preparation route; only the existing explicit **Draw** action starts a run.
+The standalone browser offers inert **Export Drawing** for transfer.
+
+These operator paths have scoped software coverage. Full hosted button/sheet AX
+acceptance is a separate strict host-dependent check; no signed-app restart or
+physical plotting validation is implied. See the [dated receipt](CURRENT_EVIDENCE.md#dx-08-shared-drawing-editor-software-receipt-2026-11-08).
+
 ## Build a portfolio
 
 1. **Import Photo** retains the supplied PNG or JPEG bytes inside the portfolio.

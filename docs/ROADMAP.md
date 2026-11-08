@@ -109,53 +109,40 @@ normal landing at `7d67e815fb07045933ed5fa23d0bea8cc7bef0d5`, with all seven
 bounded caller-declared criteria current/met. Result identity remains the exact
 index/inventory pair; inert result support does not change physical authority.
 
-**DX-07 — Neutral sources and reversible Drawing retention.** Task
-`task-660bbaadb1c6459aac41feaae2902409` owns the concrete Library source/query,
-metadata/catalog/database and existing journal responsibilities, narrow Core
-`DrawingImageRecords`/source admission, exact source binding in
-`PortraitArtists/PortraitDrawingImages.swift`, current Flow graph/store/collection/
-metadata validation/types and the `FlowDojoModel` metadata adapter, associated tests
-and canonical docs. Removed portfolio storage/delta readers must not return.
+The adopted DX-07 source/metadata/retention boundary is recorded in the
+[canonical receipt](CURRENT_EVIDENCE.md#dx-07-canonical-adoption-2026-11-08):
+normal main landing `8291a0a8b0f766e2fc0b80257727066d82e41a9a`, all eight bounded
+caller-declared criteria current/met. Its strict forward-only schema 11, one live
+Photo metadata authority and Photo-only frozen metadata isolation do not complete
+DX-09 feature/feedback manifests, historical import or GC.
 
-The **2026-11-08 pre-gate snapshot** implements public bounded Photo/Input metadata
-and exact frozen source loads, one neutral Photo title/group/exclusion authority,
-atomic field-intent/domain commits, collection occurrence identity and Drawing-only
-reason clear/reapply/hide/restore. Internal schema 11 strictly refuses older
-catalogs; no migration/backfill is part of this forward-only software task. Exact
-JSON/assets/masks/transforms and unknown-vs-opaque date facts remain distinct.
-Photo chronology uses capture/import fallback and a separate unknown bucket;
-Inputs have exact-ref ordering, no invented date. Metadata pages do not load
-artwork. Reusable source loads refuse unknown requirements while known encoded
-header admission stays conservative about decoded pixels. Intrinsic unknown source
-semantics can remain preserved alongside independent known Drawing geometry.
+**DX-08 — Shared Drawing membership editor production routes.** Task
+`task-67802fca3f9b44dc9e8b024dfa58ccc4` owns
+`PortraitLibrary/PortraitSketchCollection.swift`, shared
+`PortraitStudioUI/{PortraitLineEditModel,PortraitLineEditorCanvas,DrawingLibraryBrowser,DrawingMembershipEditor}.swift`,
+`PlotterApp/DrawingTransferView.swift`, `PortraitStudio/PortraitStudioApp.swift`,
+directly associated editor/browser/lifetime/route tests and canonical DX/operator
+docs. Existing Core/Library persistence APIs and package dependencies are reused;
+there is no Runtime/Episode/issuance release.
 
-Current Flow source fields are cached neutral projections; unrelated graph writes
-cannot overwrite metadata. New source metadata publishes atomically with its
-source/domain operation. Frozen-training isolation covers Photo metadata only:
-future freezes sample current values, prior documents retain original values;
-DX-09's live-UUID feature lookup/digest-membership issue remains deferred. Equal-byte
-occurrences remain separate acquisitions with shared pixel leakage grouping.
-Retention controls never remove CAS/evidence and introduce no Photo/Input tombstone
-or GC framework. Historical import and production cleanup remain deferred; no new
-mandatory user fields or physical/episode authority change is authorized.
+The **2026-11-08 pre-gate snapshot** wires the shared browser/editor into both actual
+applications, using the existing collection and native canvas. Save is admitted and
+drained by that collection, enforces `.edit` against the exact parent, retains
+stable-ID membership atomically and reloads the exact result. Explicit unchanged
+completion retains the base, not a fake child. Sheet base/epoch/identity guards
+prevent dismissed or switched selections from being retargeted. Handoff guards
+allow their own expected publication, with no implicit project/Start from generic
+editing. Live Retry keeps intents; abandoned/replaced preparations are safely
+released without deleting durable journals/CAS. Flow pruning/feedback remains intact.
 
-The [dated receipt](CURRENT_EVIDENCE.md#dx-07-neutral-source-metadata-software-receipt-2026-11-08)
-records failed and passing scoped observations. Final configured validation,
-criterion assessments and normal landing are owned by the authoritative task;
-this worklist does not assert their completion or the wider DX campaign's closure.
-
-**DX-08 — Authoring selection, pruning and Plot handoff.** Allowed:
-`Sources/PortraitStudioUI/{FlowDojoModel,FlowDojoFiles,PortraitLineEditModel,PortraitLineEditor,PortraitStudioModel}.swift`,
-`Sources/PortraitStudio/{PortraitStudioComposition,PortraitStudioFiles,PortraitStudioLibraryModel}.swift`,
-`Sources/PlotterApp/PortraitDrawingActions.swift` adapter calls only, selection/edit
-and handoff tests. Pin selected revision once on commit, preserve stable stroke IDs,
-make pruning a child with exact parent; explicit unchanged completion labels/retains
-the base without a synthetic child. Undo/redo stays reversible before commit.
-Plot… retains only the selected path and opens Prepare; changing a title or medium
-cannot mutate frozen drawing/style. Gate: crash/reopen, wrong-selection, undo,
-cancelled handoff and identical geometry occurrence tests; no implicit Submit.
-Remove package encode/decode internal round trips replaced by Library API.
-Recovery: unsent drafts remain local; committed revisions are immutable.
+The [scoped receipt](CURRENT_EVIDENCE.md#dx-08-shared-drawing-editor-software-receipt-2026-11-08)
+records failures and passing default constructor/native-canvas/model integration,
+including actual embedded fake-port Send/Prepare/no-Start. Hosted browser button
+delivery/private state/sheet presentation remain the strict existing AX opt-in
+workflow, unverified in this offscreen host; no product/AX acceptance claim follows
+from its known-control failure. Final configured validation, criterion assessments
+and normal landing belong to the task. Historical import, DX-09, new mandatory
+fields/width declarations, physical and app-deployment work remain excluded.
 
 **DX-09 — Feature-only Rank capsule and explicit training membership.** Allowed:
 `Sources/PortraitLibrary/{FlowPortfolioStore,FlowPortfolioTypes,FlowPortfolioDelta,PortraitReviewStore,PortraitReviewCommit,PortraitReviewExport,PortraitCheckpointStore}.swift`,
